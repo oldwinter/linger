@@ -35,6 +35,7 @@ const pdf = vi.hoisted(() => {
     TextLayer,
     getDocument: vi.fn(),
     loadingDestroy: vi.fn(),
+    numPages: 2,
     renderCancel: vi.fn(),
     renderPage: vi.fn(),
     textItems: [] as { str: string }[],
@@ -56,6 +57,7 @@ import { PdfPreviewAdapter } from "./pdf-preview-adapter";
 
 describe("PdfPreviewAdapter task lifecycle", () => {
   beforeEach(() => {
+    pdf.numPages = 2;
     pdf.textItems = [];
     vi.clearAllMocks();
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
@@ -78,7 +80,9 @@ describe("PdfPreviewAdapter task lifecycle", () => {
     };
     const document = {
       getPage: vi.fn().mockResolvedValue(page),
-      numPages: 2,
+      get numPages() {
+        return pdf.numPages;
+      },
     };
     pdf.getDocument.mockReturnValue({
       destroy: pdf.loadingDestroy,
@@ -115,7 +119,11 @@ describe("PdfPreviewAdapter task lifecycle", () => {
       expect(screen.queryByText("Rendering PDF...")).not.toBeInTheDocument(),
     );
     expect(screen.getByLabelText("PDF page 2")).toBeVisible();
-    expect(screen.getByText("2 / 2")).toBeVisible();
+    expect(
+      screen.getByRole("textbox", { name: "PDF page number" }),
+    ).toHaveValue("2");
+    expect(screen.getByText("of 2")).toBeVisible();
+    expect(screen.getByLabelText("PDF zoom level")).toHaveTextContent("120%");
   });
 
   it("puts the page's words on the picture and copies them as a sentence", async () => {
@@ -201,6 +209,110 @@ describe("PdfPreviewAdapter task lifecycle", () => {
     fireEvent.click(screen.getByRole("button", { name: "Next PDF page" }));
     await waitFor(() => expect(pdf.renderCancel).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(pdf.renderPage).toHaveBeenCalledTimes(3));
+  });
+
+  it("jumps directly to a page number, clamps out-of-range values, and restores on invalid input or Escape", async () => {
+    pdf.numPages = 50;
+    const readingPosition = { pageNumber: 1, scale: 1 };
+    render(
+      <PdfPreviewAdapter
+        blob={new Blob(["%PDF-1.4\n%%EOF"])}
+        filename="manual.pdf"
+        readingPosition={readingPosition}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.queryByText("Rendering PDF...")).not.toBeInTheDocument(),
+    );
+
+    const input = screen.getByRole("textbox", { name: "PDF page number" });
+    expect(input).toHaveValue("1");
+    expect(screen.getByText("of 50")).toBeVisible();
+
+    fireEvent.change(input, { target: { value: "42" } });
+    fireEvent.submit(input.closest("form")!);
+    await waitFor(() => expect(input).toHaveValue("42"));
+    expect(readingPosition.pageNumber).toBe(42);
+    expect(screen.getByLabelText("PDF page 42")).toBeVisible();
+
+    fireEvent.change(input, { target: { value: "999" } });
+    fireEvent.blur(input);
+    await waitFor(() => expect(input).toHaveValue("50"));
+
+    fireEvent.change(input, { target: { value: "0" } });
+    fireEvent.submit(input.closest("form")!);
+    await waitFor(() => expect(input).toHaveValue("1"));
+
+    fireEvent.change(input, { target: { value: "abc" } });
+    fireEvent.blur(input);
+    expect(input).toHaveValue("1");
+
+    fireEvent.change(input, { target: { value: "12" } });
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(input).toHaveValue("1");
+  });
+
+  it("displays zoom percentage and resets zoom to fit width", async () => {
+    const readingPosition = { pageNumber: 1, scale: 1 };
+    render(
+      <PdfPreviewAdapter
+        blob={new Blob(["%PDF-1.4\n%%EOF"])}
+        filename="brief.pdf"
+        readingPosition={readingPosition}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.queryByText("Rendering PDF...")).not.toBeInTheDocument(),
+    );
+
+    const zoomLabel = screen.getByLabelText("PDF zoom level");
+    const fitWidth = screen.getByRole("button", { name: "Fit width" });
+    expect(zoomLabel).toHaveTextContent("100%");
+    expect(fitWidth).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Zoom PDF in" }));
+    expect(zoomLabel).toHaveTextContent("120%");
+    expect(fitWidth).toBeEnabled();
+
+    fireEvent.click(fitWidth);
+    expect(zoomLabel).toHaveTextContent("100%");
+    expect(readingPosition.scale).toBe(1);
+    expect(fitWidth).toBeDisabled();
+  });
+
+  it("pages with keyboard shortcuts inside the viewer while ignoring keys inside inputs", async () => {
+    pdf.numPages = 5;
+    render(
+      <PdfPreviewAdapter
+        blob={new Blob(["%PDF-1.4\n%%EOF"])}
+        filename="slides.pdf"
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.queryByText("Rendering PDF...")).not.toBeInTheDocument(),
+    );
+
+    const viewer = screen.getByRole("document", {
+      name: "PDF preview slides.pdf",
+    });
+    const input = screen.getByRole("textbox", { name: "PDF page number" });
+
+    fireEvent.keyDown(viewer, { key: "ArrowRight" });
+    await waitFor(() => expect(input).toHaveValue("2"));
+
+    fireEvent.keyDown(viewer, { key: "PageDown" });
+    await waitFor(() => expect(input).toHaveValue("3"));
+
+    // Keys typed inside the page input must not turn pages.
+    fireEvent.keyDown(input, { key: "ArrowRight" });
+    fireEvent.keyDown(input, { key: "ArrowLeft" });
+    expect(input).toHaveValue("3");
+
+    fireEvent.keyDown(viewer, { key: "ArrowLeft" });
+    await waitFor(() => expect(input).toHaveValue("2"));
+
+    fireEvent.keyDown(viewer, { key: "PageUp" });
+    await waitFor(() => expect(input).toHaveValue("1"));
   });
 });
 

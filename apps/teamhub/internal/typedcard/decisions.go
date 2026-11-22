@@ -28,9 +28,10 @@ import (
 // AnotherMe setup cards end with their answer. A connection authorization
 // ends when the OAuth the Human started completes, a Composio key request
 // when someone saves the key, a browser connection when
-// the owner connects Chrome, and a computer permission when the Computer
-// reports its permissions granted; a Room creation runs in its decision; a
-// Document access card follows the Document access request it shows.
+// the owner connects Chrome, a computer permission when the Computer reports
+// its permissions granted, and a web search key request when someone saves
+// any web search key; a Room creation runs in its decision; a Document access
+// card follows the Document access request it shows.
 const (
 	DecisionKindConnectorWrite      = "connector_write"
 	DecisionKindAgentChange         = "agent_change"
@@ -43,6 +44,7 @@ const (
 	DecisionKindBrowserConnection   = "browser_connection"
 	DecisionKindRoomCreation        = "room_creation"
 	DecisionKindComputerPermission  = "computer_permission"
+	DecisionKindSearchKey           = "search_key"
 )
 
 // decisionTTL bounds how long a Connector write or Agent change waits for its
@@ -77,6 +79,7 @@ type DecisionCommand struct {
 	ProviderKey        *ProviderKeyDecision
 	BrowserConnection  *BrowserConnectionDecision
 	ComputerPermission *ComputerPermissionDecision
+	SearchKey          *SearchKeyDecision
 }
 
 // decisionDraft is a command's card before it is stored.
@@ -97,7 +100,7 @@ func (command DecisionCommand) draft() (decisionDraft, error) {
 	set := 0
 	for _, present := range []bool{command.ConnectorWrite != nil, command.AgentChange != nil, command.Question != nil,
 		command.RuntimePermission != nil, command.ConnectionAuth != nil, command.ProviderKey != nil,
-		command.BrowserConnection != nil, command.ComputerPermission != nil} {
+		command.BrowserConnection != nil, command.ComputerPermission != nil, command.SearchKey != nil} {
 		if present {
 			set++
 		}
@@ -140,6 +143,8 @@ func (command DecisionCommand) draft() (decisionDraft, error) {
 		return command.BrowserConnection.draft()
 	case command.ComputerPermission != nil:
 		return command.ComputerPermission.draft()
+	case command.SearchKey != nil:
+		return command.SearchKey.draft()
 	default:
 		permission := command.RuntimePermission
 		if permission.ContextKey == "" || permission.ActionDigest == "" || len(permission.Runtime) == 0 || strings.TrimSpace(permission.Card.Title) == "" {
@@ -302,6 +307,8 @@ func (s *Service) CreateDecision(
 		pending, found, err = reusePendingBrowserConnection(ctx, tx, authority.TenantID, authority.RoomID, author.ID, decider.ID, command.BrowserConnection.ComputerID, command.AlterEgoTaskID)
 	case command.ComputerPermission != nil:
 		pending, found, err = reusePendingComputerPermission(ctx, tx, authority.TenantID, authority.RoomID, author.ID, decider.ID, *command.ComputerPermission, command.AlterEgoTaskID)
+	case command.SearchKey != nil:
+		pending, found, err = reusePendingSearchKey(ctx, tx, queries, authority.TenantID, authority.RoomID, author.ID, decider.ID, command.AlterEgoTaskID, requestJSON, viewJSON)
 	}
 	if err != nil {
 		return CreateResult{}, err
@@ -380,8 +387,8 @@ func optionalText(value string) pgtype.Text {
 // DecisionAnswerCommand answers a decision with the fields its kind takes:
 // approve or deny with an optional reason for a denial (a Room creation's
 // denial requires one), approve with the chosen Connection or deny for a
-// connection authorization, deny for a browser connection or a computer
-// permission, submit with
+// connection authorization, deny for a browser connection, a computer
+// permission or a web search key request, submit with
 // answers and an optional note for a question, connected or skipped for the
 // apps card, and done or skipped with links and uploads for the sources card.
 type DecisionAnswerCommand struct {
@@ -394,11 +401,13 @@ type DecisionAnswerCommand struct {
 	AttachmentUploadIDs []string
 }
 
-// decisionAnswer is the stored answer.
+// decisionAnswer is the stored answer. Backend is the web search backend
+// whose key answered a search_key card.
 type decisionAnswer struct {
 	Decision            string         `json:"decision"`
 	Comment             string         `json:"comment,omitempty"`
 	ConnectionID        string         `json:"connection_id,omitempty"`
+	Backend             string         `json:"backend,omitempty"`
 	Answers             map[string]any `json:"answers,omitempty"`
 	Links               []string       `json:"links,omitempty"`
 	AttachmentUploadIDs []string       `json:"attachment_upload_ids,omitempty"`
@@ -446,10 +455,10 @@ func normalizeDecisionAnswer(kind string, view []byte, command DecisionAnswerCom
 			return decisionAnswer{}, "", ErrInvalid
 		}
 		return decisionAnswer{Decision: command.Decision, ConnectionID: command.ConnectionID}, "denied", nil
-	case DecisionKindProviderKey, DecisionKindBrowserConnection, DecisionKindComputerPermission:
-		// Only a saved Composio key, the owner's own connection, or the
-		// Computer's report that every permission is granted answers the card
-		// otherwise.
+	case DecisionKindProviderKey, DecisionKindBrowserConnection, DecisionKindComputerPermission, DecisionKindSearchKey:
+		// Only a saved Composio or web search key, the owner's own
+		// connection, or the Computer's report that every permission is
+		// granted answers the card otherwise.
 		if command.Decision != "deny" || command.Comment != "" {
 			return decisionAnswer{}, "", ErrInvalid
 		}
@@ -903,6 +912,8 @@ func decisionNoticeText(decisionID string, decision decisionRecord) (string, err
 			return "", err
 		}
 		return computerPermissionNoticeText(decisionID, view, decision.Status), nil
+	case DecisionKindSearchKey:
+		return searchKeyNoticeText(decisionID, decision, answer, result)
 	case DecisionKindProfileSetupApps, DecisionKindProfileSetupSources, DecisionKindRoomCreation:
 		return "", nil
 	default:
@@ -946,6 +957,7 @@ type decisionCard struct {
 	BrowserConnection  json.RawMessage `json:"browser_connection,omitempty"`
 	RoomCreation       json.RawMessage `json:"room_creation,omitempty"`
 	ComputerPermission json.RawMessage `json:"computer_permission,omitempty"`
+	SearchKey          json.RawMessage `json:"search_key,omitempty"`
 }
 
 // encodeDecisionCard projects one decision card. decidedBy is the Human who
@@ -1031,6 +1043,15 @@ func encodeDecisionCard(
 		}
 	case DecisionKindComputerPermission:
 		card.Title, card.ComputerPermission = computerPermissionTitle, decision.View
+	case DecisionKindSearchKey:
+		var view searchKeyView
+		if err := json.Unmarshal(decision.View, &view); err != nil {
+			return nil, err
+		}
+		card.Title = view.Prompt
+		if card.SearchKey, err = searchKeyCardView(view); err != nil {
+			return nil, err
+		}
 	default:
 		return nil, fmt.Errorf("unsupported decision kind %q", decision.Kind)
 	}

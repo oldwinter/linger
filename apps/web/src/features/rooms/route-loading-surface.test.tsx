@@ -35,7 +35,17 @@ describe("AuthenticatedRouteLoading", () => {
     ["/t/tenant-northstar/dashboard/work-item-a", "Dashboard", "dashboard"],
     ["/t/tenant-northstar/library/my-documents", "Library", "library"],
     ["/t/tenant-northstar/library/wiki", "Wiki", "library"],
+    ["/t/tenant-northstar/wiki-preview", "Wiki", "library"],
     ["/t/tenant-northstar/computers", "Local computers", "page"],
+    ["/t/tenant-northstar/rooms/catch-up", "Catch up", "page"],
+    ["/t/tenant-northstar/settings/account", "Settings", "page"],
+    ["/t/tenant-northstar/jump", "Jump", "page"],
+    ["/t/tenant-northstar/awake", "Who is awake", "page"],
+    ["/t/tenant-northstar/surprise", "Surprise me", "page"],
+    ["/t/tenant-northstar/voices", "Who is speaking", "page"],
+    ["/t/tenant-northstar/hearing", "Right now", "page"],
+    ["/t/tenant-northstar/work-items/wi-1", "Work Item", "page"],
+    ["/t/tenant-northstar/unknown-destination", "page", "page"],
   ])("maps %s to the %s loading surface", (pathname, label, kind) => {
     render(<AuthenticatedRouteLoading pathname={pathname} rooms={[]} />);
 
@@ -44,7 +54,7 @@ describe("AuthenticatedRouteLoading", () => {
     ).toHaveAttribute("data-loading-route", kind);
   });
 
-  it("keeps Library chrome stable while only the Document body is loading", () => {
+  it("renders skeleton chrome without stale sidebar labels while a Document loads", () => {
     render(
       <AuthenticatedRouteLoading
         pathname="/t/tenant-northstar/documents/document-1"
@@ -52,24 +62,25 @@ describe("AuthenticatedRouteLoading", () => {
       />,
     );
 
-    expect(screen.getByText("Overview")).toBeVisible();
-    expect(screen.getByText("My pages")).toBeVisible();
-    expect(screen.getByText("Shared with me")).toBeVisible();
+    expect(screen.queryByText("Overview")).toBeNull();
+    expect(screen.queryByText("My pages")).toBeNull();
+    expect(screen.queryByText("Shared with me")).toBeNull();
     expect(
       screen.getByRole("status", { name: "Loading Document body" }),
     ).toBeVisible();
   });
 
-  it("keeps the Library sidebar while a Library route module loads", () => {
-    render(
+  it("omits the obsolete sidebar placeholder while a Library route loads", () => {
+    const { container } = render(
       <AuthenticatedRouteLoading
         pathname="/t/tenant-northstar/library/meetings"
         rooms={[]}
       />,
     );
 
+    expect(container.querySelector("aside")).toBeNull();
     for (const item of ["Overview", "Search", "Wiki", "My pages"]) {
-      expect(screen.getByText(item)).toBeVisible();
+      expect(screen.queryByText(item)).toBeNull();
     }
   });
 });

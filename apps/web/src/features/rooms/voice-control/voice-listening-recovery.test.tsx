@@ -78,6 +78,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.restoreAllMocks();
   window.sessionStorage.clear();
 });
@@ -212,6 +213,7 @@ it("observes a Stop saved by another page while automatic policy refresh was pen
 });
 
 it("refreshes the active Agent room when a previously waiting tab acquires the microphone", async () => {
+  useFakeStandbyInterval();
   let held = true;
   vi.spyOn(publisherLease, "tryAcquireVoicePublisherLease").mockImplementation(
     async () => {
@@ -256,6 +258,7 @@ it("refreshes the active Agent room when a previously waiting tab acquires the m
   }));
   const capture = await startRecording(runtime, "new-active-agent");
   held = false;
+  await act(() => vi.advanceTimersByTimeAsync(2_000));
   await waitFor(() => expect(media.publish).toHaveBeenCalledOnce());
   expect(screen.getByLabelText("target")).toHaveTextContent(capture.room_id);
   expect(screen.getByLabelText("capture")).toHaveTextContent("recording");
@@ -295,6 +298,7 @@ it("keeps an explicitly stopped microphone disconnected after provider remount",
 });
 
 it("does not republish from a standby provider after another provider completes Stop", async () => {
+  useFakeStandbyInterval();
   let held = false;
   vi.spyOn(publisherLease, "tryAcquireVoicePublisherLease").mockImplementation(
     async () => {
@@ -322,7 +326,8 @@ it("does not republish from a standby provider after another provider completes 
   await waitFor(() =>
     expect(owner.getByLabelText("capture")).toHaveTextContent("completed"),
   );
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 2300)));
+  // Run more than one standby retry to prove none republishes.
+  await act(() => vi.advanceTimersByTimeAsync(4_100));
   expect(media.publish).toHaveBeenCalledOnce();
   expect(standby.getByLabelText("listener")).toHaveTextContent("disabled");
   fireEvent.click(standby.getByRole("button", { name: "Start" }));
@@ -417,3 +422,12 @@ it.each([false, true])(
     expect(media.publish).toHaveBeenCalledOnce();
   },
 );
+
+// The standby listener retries the microphone lease on a 2 s interval; fake
+// only intervals so the retry runs on demand while requests stay real.
+function useFakeStandbyInterval() {
+  vi.useFakeTimers({
+    shouldAdvanceTime: true,
+    toFake: ["setInterval", "clearInterval"],
+  });
+}

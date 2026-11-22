@@ -116,4 +116,44 @@ describe("two agents answering one message", () => {
       document.querySelector("[data-paired-answers='elsewhere']"),
     ).toBeNull();
   });
+
+  it("keeps every message visible when a paired agent answer arrives within the same-moment window", () => {
+    renderTimeline([
+      message(
+        "ask",
+        "human-1",
+        "human",
+        undefined,
+        "2026-11-16T08:00:00.000Z",
+        "What is the status?",
+      ),
+      message(
+        "agent-a-reply",
+        "agent-a",
+        "agent",
+        "ask",
+        "2026-11-16T08:00:02.000Z",
+        "Agent A status update.",
+      ),
+      message(
+        "agent-b-reply",
+        "agent-b",
+        "agent",
+        "ask",
+        "2026-11-16T08:00:05.000Z",
+        "Agent B status update.",
+      ),
+    ]);
+
+    expect(screen.getByText("What is the status?")).toBeVisible();
+    expect(screen.getByText("Agent A status update.")).toBeVisible();
+    expect(screen.getByText("Agent B status update.")).toBeVisible();
+    const pair = document.querySelector("[data-paired-answers='ask']");
+    expect(pair).not.toBeNull();
+    expect(
+      [...pair!.querySelectorAll("[data-message-id]")].map((row) =>
+        row.getAttribute("data-message-id"),
+      ),
+    ).toEqual(["agent-a-reply", "agent-b-reply"]);
+  });
 });

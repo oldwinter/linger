@@ -4,6 +4,7 @@ import { type ReactNode, useState } from "react";
 import { Link } from "react-router";
 
 import { Button } from "@/components/ui/button";
+import { FormFeedback } from "@/components/ui/form-feedback";
 import { Icon } from "@/components/ui/icon";
 import { Spinner } from "@/components/ui/spinner";
 import { anotherMeQueryOptions } from "@/features/rooms/room-queries";
@@ -12,6 +13,7 @@ import type {
   TeamHubLocalComputerPage,
   TeamHubLocalRuntimeType,
 } from "@/features/teamhub/teamhub-types";
+import { RichMessage, useT } from "@/i18n/use-translation";
 import { cn } from "@/lib/cn";
 
 import { CommandLine } from "./computer-app-setup-dialog";
@@ -21,7 +23,14 @@ import {
   computerInstallCommand,
   ComputerPlatformSelector,
 } from "./computer-platform";
-import { appNames, appOrder, appStatus } from "./computer-readiness";
+import {
+  appNames,
+  appOrder,
+  appStatus,
+  runtimeStatusLabels,
+} from "./computer-readiness";
+import { computerSetupMessages } from "./computer-setup.messages";
+import { computersMessages } from "./computers.messages";
 import { useDesktopComputer } from "./desktop-computer";
 import { DesktopComputerSetup } from "./desktop-computer-setup";
 import { localComputersQueryOptions } from "./local-computer-queries";
@@ -35,15 +44,6 @@ type RuntimeStatus = LocalComputer["runtimes"][number]["status"];
 // Runtime installs and sign-ins happen on the Computer and reach the Web only
 // through the inventory, so the gate polls while it is open.
 const pollIntervalMs = 3_000;
-
-const statusLabels: Record<RuntimeStatus, string> = {
-  authentication_required: "Sign-in required",
-  error: "Could not check",
-  incompatible: "Update needed",
-  not_installed: "Not installed",
-  ready: "Ready",
-  unknown: "Checking",
-};
 
 /**
  * Every model call, Another Me's included, runs on the Human's own Computer,
@@ -61,16 +61,22 @@ export function LocalComputerGate({
   signingOut: boolean;
   tenantId: string;
 }) {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const desktop = useDesktopComputer();
   const [platform, setPlatform] = useState(browserComputerPlatform);
+  // The desktop preloads this page hidden so "Open Linger" can reveal a
+  // rendered Room, and the realtime stream is closed while hidden, so the gate
+  // keeps polling in the background or it never sees Another Me arrive.
   const computers = useQuery({
     ...localComputersQueryOptions(client, tenantId),
     refetchInterval: pollIntervalMs,
+    refetchIntervalInBackground: true,
   });
   useQuery({
     ...anotherMeQueryOptions(client, tenantId),
     refetchInterval: pollIntervalMs,
+    refetchIntervalInBackground: true,
   });
   const computer = gateComputer(computers.data?.items ?? []);
   const online = computer?.status === "online" && !computer.upgrade_required;
@@ -86,18 +92,41 @@ export function LocalComputerGate({
         role="dialog"
       >
         <header className="border-b border-border px-6 pb-4 pt-5">
-          <p className="text-xs text-muted-foreground">Before you start</p>
+          <p className="text-xs text-muted-foreground">
+            {t(computersMessages.gateKicker)}
+          </p>
           <h2 className="mt-1 text-lg" id="local-computer-gate-title">
-            Connect your computer
+            {t(computersMessages.gateTitle)}
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Your Agents run on your own computer with Claude Code, Codex or Pi.
-            Connect one to start.
+            {t(computersMessages.gateIntro)}
           </p>
           {desktop ? null : (
             <ComputerPlatformSelector onChange={setPlatform} value={platform} />
           )}
         </header>
+
+        {computers.isError ? (
+          <div className="px-6 pt-4">
+            <FormFeedback tone="danger">
+              <span className="flex flex-wrap items-center gap-2">
+                <span>
+                  {computers.error instanceof Error && computers.error.message
+                    ? computers.error.message
+                    : "Could not check your computers right now."}
+                </span>
+                <button
+                  className="font-medium underline underline-offset-2 disabled:opacity-50"
+                  disabled={computers.isFetching}
+                  onClick={() => void computers.refetch()}
+                  type="button"
+                >
+                  {computers.isFetching ? "Retrying…" : "Retry"}
+                </button>
+              </span>
+            </FormFeedback>
+          </div>
+        ) : null}
 
         {ready ? (
           <p
@@ -105,7 +134,7 @@ export function LocalComputerGate({
             role="status"
           >
             <Spinner size={14} />
-            Your computer is ready. Creating your Another Me...
+            {t(computersMessages.gateReady)}
           </p>
         ) : (
           <ol className="divide-y divide-border px-6">
@@ -113,7 +142,7 @@ export function LocalComputerGate({
               <GateStep
                 number={1}
                 state="current"
-                title="Connect this computer"
+                title={t(computerSetupMessages.connectThisComputer)}
               >
                 <DesktopComputerSetup desktop={desktop} />
               </GateStep>
@@ -122,7 +151,7 @@ export function LocalComputerGate({
                 <GateStep
                   number={1}
                   state={computer ? "done" : "current"}
-                  title="Install the CLI"
+                  title={t(computersMessages.installTheCli)}
                 >
                   <CommandLine
                     command={computerInstallCommand(platform)}
@@ -132,23 +161,27 @@ export function LocalComputerGate({
                 <GateStep
                   number={2}
                   state={online ? "done" : computer ? "current" : "next"}
-                  title="Connect this computer"
+                  title={t(computerSetupMessages.connectThisComputer)}
                 >
                   <CommandLine command={`${command} login`} />
-                  <ConnectionStatus command={command} computer={computer} />
+                  <ConnectionStatus
+                    command={command}
+                    computer={computer}
+                    hasError={computers.isError}
+                  />
                 </GateStep>
               </>
             )}
             <GateStep
               number={desktop && !computer ? 2 : 3}
               state={online ? "current" : "next"}
-              title="Set up an AI app"
+              title={t(computersMessages.setUpAiApp)}
             >
               {computer && online ? (
                 <AppSetup computer={computer} tenantId={tenantId} />
               ) : (
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Available once your computer is online.
+                  {t(computersMessages.availableOnceOnline)}
                 </p>
               )}
             </GateStep>
@@ -161,8 +194,15 @@ export function LocalComputerGate({
         )}
 
         <footer className="flex justify-end border-t border-border bg-muted/40 px-6 py-3">
-          <Button disabled={signingOut} onClick={onSignOut} tone="ghost">
-            {signingOut ? "Signing out..." : "Sign out"}
+          <Button
+            data-voice-risk="never"
+            disabled={signingOut}
+            onClick={onSignOut}
+            tone="ghost"
+          >
+            {signingOut
+              ? t(computersMessages.signingOut)
+              : t(computersMessages.signOut)}
           </Button>
         </footer>
       </section>
@@ -173,38 +213,51 @@ export function LocalComputerGate({
 function ConnectionStatus({
   command,
   computer,
+  hasError,
 }: {
   command: string;
   computer: LocalComputer | undefined;
+  hasError: boolean;
 }) {
-  if (!computer)
+  const t = useT();
+  if (!computer) {
+    if (hasError) return null;
     return (
       <p
         className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground"
         role="status"
       >
         <Spinner size={12} />
-        Waiting for your computer. Approve the request when it opens in your
-        browser.
+        {t(computersMessages.waitingForComputer)}
       </p>
     );
+  }
   if (computer.upgrade_required)
     return (
       <p className="mt-2 text-xs text-app-warning" role="status">
-        {computer.display_name} needs an update. Run the command in step 1 again
-        on it.
+        {t(computersMessages.computerNeedsUpdate, {
+          computer: computer.display_name,
+        })}
       </p>
     );
   if (computer.status !== "online")
     return (
       <p className="mt-2 text-xs text-app-warning" role="status">
-        {computer.display_name} is offline. Start it with{" "}
-        <code className="font-mono">{command} daemon start</code>.
+        <RichMessage
+          message={computersMessages.computerOfflineStart}
+          tags={{
+            code: (text) => <code className="font-mono">{text}</code>,
+          }}
+          values={{
+            command: `${command} daemon start`,
+            computer: computer.display_name,
+          }}
+        />
       </p>
     );
   return (
     <p className="mt-2 text-xs text-app-success" role="status">
-      {computer.display_name} is online.
+      {t(computersMessages.computerOnline, { computer: computer.display_name })}
     </p>
   );
 }
@@ -216,6 +269,7 @@ function AppSetup({
   computer: LocalComputer;
   tenantId: string;
 }) {
+  const t = useT();
   const missing = appOrder.filter(
     (app) => appStatus(computer, app) === "not_installed",
   );
@@ -224,7 +278,9 @@ function AppSetup({
   );
   return (
     <div className="mt-2 space-y-3">
-      <p className="text-xs text-muted-foreground">One ready app is enough.</p>
+      <p className="text-xs text-muted-foreground">
+        {t(computersMessages.oneReadyAppEnough)}
+      </p>
       <ul className="divide-y divide-border rounded-lg border border-border">
         {appOrder.map((app) => (
           <AppRow app={app} key={app} status={appStatus(computer, app)} />
@@ -246,21 +302,29 @@ function AppSetup({
         />
       ) : null}
       <p className="text-xs text-muted-foreground">
-        Or run a model on {computer.display_name} itself: load one in{" "}
-        <Link
-          className="text-foreground underline underline-offset-2"
-          to={`/t/${encodeURIComponent(tenantId)}/settings/local-models?computer=${encodeURIComponent(computer.computer_id)}`}
-        >
-          Local models
-        </Link>
-        .
+        <RichMessage
+          message={computersMessages.orRunLocalModel}
+          tags={{
+            link: (text) => (
+              <Link
+                className="text-foreground underline underline-offset-2"
+                to={`/t/${encodeURIComponent(tenantId)}/settings/models?computer=${encodeURIComponent(computer.computer_id)}`}
+              >
+                {text}
+              </Link>
+            ),
+          }}
+          values={{ computer: computer.display_name }}
+        />
       </p>
       <p
         className="flex items-center gap-1.5 text-xs text-muted-foreground"
         role="status"
       >
         <Spinner size={12} />
-        Checking {computer.display_name}. Changes show up within a minute.
+        {t(computersMessages.checkingComputer, {
+          computer: computer.display_name,
+        })}
       </p>
     </div>
   );
@@ -273,6 +337,7 @@ function AppRow({
   app: TeamHubLocalRuntimeType;
   status: RuntimeStatus;
 }) {
+  const t = useT();
   return (
     <li className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
       {appNames[app]}
@@ -286,7 +351,7 @@ function AppRow({
               : "text-muted-foreground",
         )}
       >
-        {statusLabels[status]}
+        {t(runtimeStatusLabels[status])}
       </span>
     </li>
   );

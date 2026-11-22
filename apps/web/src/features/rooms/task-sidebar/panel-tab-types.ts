@@ -15,6 +15,7 @@ export type PanelTabKind =
   | "taskActivity"
   | "roomSettings"
   | "roomInfo"
+  | "routines"
   | "collaboration"
   | "url";
 
@@ -49,15 +50,22 @@ export const PANEL_COLLECTION_TAB_IDS = {
   thread: "thread:draft",
   roomSettings: "roomSettings:current",
   roomInfo: "roomInfo:current",
+  routines: "routines:current",
   collaboration: "collaboration:current",
   url: "url:preview",
 } as const;
 
+/**
+ * The names collection tabs are saved with. They stay English because earlier
+ * versions show the saved name; the tab strip words these tabs from their kind
+ * (see panel-tab-label.ts).
+ */
 export const PANEL_COLLECTION_TAB_TITLES = {
   file: "Files",
   thread: "Anotherme",
   roomSettings: "Room settings",
   roomInfo: "Room info",
+  routines: "Routines",
   collaboration: "Collaboration",
   url: "Lovable vs Enter Pro | AI Website Builder",
 } as const;
@@ -89,6 +97,7 @@ export function panelTabKey(
     if (kind === "thread") return PANEL_COLLECTION_TAB_IDS.thread;
     if (kind === "roomSettings") return PANEL_COLLECTION_TAB_IDS.roomSettings;
     if (kind === "roomInfo") return PANEL_COLLECTION_TAB_IDS.roomInfo;
+    if (kind === "routines") return PANEL_COLLECTION_TAB_IDS.routines;
     if (kind === "collaboration") return PANEL_COLLECTION_TAB_IDS.collaboration;
     if (kind === "url") return PANEL_COLLECTION_TAB_IDS.url;
     throw new Error(`panelTabKey: ${String(kind)} requires anchorMessageId`);
@@ -102,6 +111,7 @@ export function isPanelCollectionTab(tab: PanelTab): boolean {
     tab.kind === "thread" ||
     tab.kind === "roomSettings" ||
     tab.kind === "roomInfo" ||
+    tab.kind === "routines" ||
     tab.kind === "collaboration" ||
     tab.kind === "url"
   ) {

@@ -87,6 +87,7 @@ export function useMyDocumentsTreeModel({
     activeDocumentId,
     collapsed: treeState.collapsed,
     creating: create.creating ?? (uploads.uploadsActive ? "import" : null),
+    confirmingDeleteFolderId: folderEdits.confirmingDeleteFolderId,
     deletingFolderId: folderEdits.deletingFolderId,
     documentsById: treeState.documentsById,
     error: error ?? uploads.uploadError,
@@ -108,9 +109,15 @@ export function useMyDocumentsTreeModel({
       revealFolder(parentId);
       void create.createFolder(parentId);
     },
+    onCancelDeleteFolder: folderEdits.cancelDeleteFolder,
+    onConfirmDeleteFolder: () => {
+      if (folderEdits.confirmingDeleteFolderId) {
+        void folderEdits.deleteFolder(folderEdits.confirmingDeleteFolderId);
+      }
+    },
     onCreateNamedFolder: create.createNamedFolder,
     onDeleteFolder: (folderId: string) =>
-      void folderEdits.deleteFolder(folderId),
+      folderEdits.requestDeleteFolder(folderId),
     onDuplicateDocument: (
       document: TeamHubDocumentTreeSummary,
       targetFolderId?: string,

@@ -28,6 +28,7 @@ import type {
   TeamHubWorkItemPriority,
   TeamHubWorkItemTimelineEntry,
 } from "@/features/teamhub/teamhub-types";
+import { cn } from "@/lib/cn";
 import { dateTimeFormat } from "@/lib/date-format";
 
 import { WorkItemAssigneePicker } from "./work-item-assignee-picker";
@@ -45,6 +46,7 @@ import {
 import { updateFailureMessage } from "./work-item-failure";
 import {
   workItemPriorities,
+  workItemPriorityBadgeClassName,
   workItemPriorityLabel,
   workItemStateLabel,
   workItemStateLabels,
@@ -60,8 +62,8 @@ import {
   useUpdateWorkItem,
   useWorkItemTransition,
 } from "./work-item-queries";
-import { dashboardWorkItemPath } from "./work-item-routes";
 import { WorkItemShareAction } from "./work-item-share-action";
+import { workItemStoryPath, workRoomPath } from "./work-item-story";
 import {
   useWorkItemClipboardCopy,
   useWorkItemCopy,
@@ -84,7 +86,7 @@ interface PeekTransition {
   state: TeamHubWorkItem["state"];
 }
 
-type PeekDismissal = "close" | "full-page" | "cancel-edit";
+type PeekDismissal = "close" | "full-page" | "work-room" | "cancel-edit";
 
 /**
  * The board's peek: the Work Item's own facts, its recent conversation and
@@ -149,9 +151,11 @@ export function WorkItemPeek({
     onClose();
     if (action === "full-page") {
       void navigate({
-        pathname: dashboardWorkItemPath(tenantId, item.id),
+        pathname: workItemStoryPath(tenantId, item.id),
         search,
       });
+    } else if (action === "work-room" && item.work_room_id) {
+      void navigate(workRoomPath(tenantId, item.work_room_id));
     }
   }
 
@@ -190,11 +194,15 @@ export function WorkItemPeek({
     item.assignees.some(({ actor }) => actor.id === currentActorId);
   const assignmentPending = assign.isPending || unassign.isPending;
   const assignmentError = assign.error ?? unassign.error;
+  function unassignActor(actorId: string) {
+    if (assignmentPending) return;
+    assign.reset();
+    unassign.mutate(actorId);
+  }
   function toggleAssignment() {
     if (!currentActorId || assignmentPending) return;
     if (assignedToMe) {
-      assign.reset();
-      unassign.mutate(currentActorId);
+      unassignActor(currentActorId);
     } else {
       unassign.reset();
       assign.mutate({ actorId: currentActorId });
@@ -280,7 +288,7 @@ export function WorkItemPeek({
                 }
               }}
               to={{
-                pathname: dashboardWorkItemPath(tenantId, item.id),
+                pathname: workItemStoryPath(tenantId, item.id),
                 search,
               }}
             >
@@ -289,7 +297,7 @@ export function WorkItemPeek({
             {transitions.map((option) => (
               <Button
                 disabled={transition.isPending}
-                key={option.state}
+                key={`${option.state}:${option.resolution ?? ""}`}
                 onClick={() =>
                   transition.mutate({
                     expectedVersion: item.version,
@@ -298,7 +306,12 @@ export function WorkItemPeek({
                   })
                 }
                 size="compact"
-                tone={option.state === "resolved" ? "primary" : "secondary"}
+                tone={
+                  option.state === "resolved" &&
+                  option.resolution === "completed"
+                    ? "primary"
+                    : "secondary"
+                }
               >
                 {option.label}
               </Button>
@@ -330,12 +343,38 @@ export function WorkItemPeek({
           <span className="rounded-full bg-app-selected px-2 py-0.5 font-medium text-app-ink">
             {workItemStateLabel(item)}
           </span>
-          <span className="rounded-full border border-app-border-strong px-2 py-0.5 capitalize text-app-body">
+          <span
+            className={cn(
+              "rounded-full border px-2 py-0.5 font-medium capitalize",
+              workItemPriorityBadgeClassName(item.priority),
+            )}
+            data-priority={item.priority}
+          >
             {item.priority}
           </span>
           <span className="text-app-muted">
             Updated {peekDateFormatter.format(new Date(item.updated_at))}
           </span>
+          {item.work_room_id ? (
+            <Link
+              className="ml-auto text-xs font-medium text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={(event) => {
+                if (
+                  event.button === 0 &&
+                  !event.metaKey &&
+                  !event.ctrlKey &&
+                  !event.shiftKey &&
+                  !event.altKey
+                ) {
+                  event.preventDefault();
+                  requestDismissal("work-room");
+                }
+              }}
+              to={workRoomPath(tenantId, item.work_room_id)}
+            >
+              Open work Room
+            </Link>
+          ) : null}
         </div>
 
         {archiveStatus ? (
@@ -385,7 +424,23 @@ export function WorkItemPeek({
                     name={actor.display_name}
                     size="micro"
                   />
-                  <span className="text-app-ink">{actor.display_name}</span>
+                  <span className="min-w-0 flex-1 truncate text-app-ink">
+                    {actor.display_name}
+                  </span>
+                  <Button
+                    aria-busy={
+                      (unassign.isPending && unassign.variables === actor.id) ||
+                      undefined
+                    }
+                    aria-label={`Unassign ${actor.display_name}`}
+                    disabled={assignmentPending}
+                    onClick={() => unassignActor(actor.id)}
+                    size="compactIcon"
+                    title={`Unassign ${actor.display_name}`}
+                    tone="ghost"
+                  >
+                    <Icon icon={Cancel01Icon} size={14} />
+                  </Button>
                 </li>
               ))}
             </ul>
@@ -547,7 +602,9 @@ export function WorkItemPeek({
                   ? "Discard edits"
                   : dismissal === "full-page"
                     ? "Discard and open page"
-                    : "Discard and close"}
+                    : dismissal === "work-room"
+                      ? "Discard and open Room"
+                      : "Discard and close"}
               </Button>
             </>
           }
@@ -894,11 +951,21 @@ function allowedTransitions(item: TeamHubWorkItem): PeekTransition[] {
       return [
         { label: "Start", state: "in_progress" },
         { label: "Resolve", resolution: "completed", state: "resolved" },
+        {
+          label: "Close as not planned",
+          resolution: "not_planned",
+          state: "resolved",
+        },
       ];
     case "in_progress":
       return [
         { label: "Move to Todo", state: "open" },
         { label: "Resolve", resolution: "completed", state: "resolved" },
+        {
+          label: "Close as not planned",
+          resolution: "not_planned",
+          state: "resolved",
+        },
       ];
     case "resolved":
       return [{ label: "Reopen", state: "open" }];

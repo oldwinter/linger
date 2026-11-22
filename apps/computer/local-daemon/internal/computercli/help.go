@@ -4,7 +4,8 @@ import "strings"
 
 const runtimePathOptions = `  --codex-path <path>          Use this Codex executable
   --claude-path <path>         Use this Claude Code executable
-  --pi-path <path>             Use this Pi executable`
+  --pi-path <path>             Use this Pi executable
+  --antigravity-path <path>    Use this Antigravity (agy) executable`
 
 const configOption = `  --config <path>              Use another Computer config file`
 
@@ -97,13 +98,13 @@ Options:
   linger-computer daemon service stop <name>
 `,
 	"runtime": `Usage:
-  linger-computer runtime check [codex|claude|pi] [options]
+  linger-computer runtime check [codex|claude|pi|antigravity] [options]
 
 Commands:
-  check                        Check Codex, Claude Code, and Pi on this computer
+  check                        Check Codex, Claude Code, Pi, and Antigravity on this computer
 `,
 	"runtime check": `Usage:
-  linger-computer runtime check [codex|claude|pi] [options]
+  linger-computer runtime check [codex|claude|pi|antigravity] [options]
 
 Check whether each runtime is installed, signed in, and compatible.
 Works without login and without a running daemon.
@@ -148,7 +149,7 @@ Commands:
   daemon start|stop|restart    Manage the background daemon
   daemon status                Show the connection and runtime summary
   daemon logs [-f]             Show daemon logs
-  runtime check [name]         Check Codex, Claude Code, and Pi
+  runtime check [name]         Check Codex, Claude Code, Pi, and Antigravity
   doctor                       Check installation, connection, and runtimes
   version                      Show the CLI version
 

@@ -346,7 +346,8 @@ func TestProactiveRoutinesEventsAndListeners(t *testing.T) {
 	if err := proactive.New(pool, nil, nil).SweepListeners(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	waitUntil("app listeners not installed", func() bool { return appListeners() == 4 })
+	// Gmail, Google Calendar, Slack (1 binding each) plus Outlook (inbox + calendar = 2 bindings).
+	waitUntil("app listeners not installed", func() bool { return appListeners() == 5 })
 	if countRows(t, env, `SELECT count(*) FROM room_routine_listeners WHERE connection_id='connection_alice_notion'`) != 0 {
 		t.Fatal("Notion got a listener")
 	}

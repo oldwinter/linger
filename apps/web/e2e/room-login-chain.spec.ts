@@ -77,13 +77,13 @@ test.describe.serial("real Cookie login completion", () => {
     await page.goto("/login");
     await page.getByLabel("Email").fill("alice@example.com");
     await page.getByLabel("Password", { exact: true }).fill("wrong-password");
-    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    await page.getByRole("button", { name: "Log in", exact: true }).click();
     await expect(page.getByRole("alert")).toBeVisible();
     await expect(page).toHaveURL(/\/login$/);
     await page
       .getByLabel("Password", { exact: true })
       .fill("teamhub-dev-alice");
-    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    await page.getByRole("button", { name: "Log in", exact: true }).click();
     await expect(page).toHaveURL(/\/rooms\/[^/]+\/chat$/);
   });
 });
@@ -94,5 +94,5 @@ async function signIn(page: Page, returnTo?: string) {
   );
   await page.getByLabel("Email").fill("alice@example.com");
   await page.getByLabel("Password", { exact: true }).fill("teamhub-dev-alice");
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await page.getByRole("button", { name: "Log in", exact: true }).click();
 }

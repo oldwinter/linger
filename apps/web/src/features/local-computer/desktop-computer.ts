@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 
+import { translate } from "@/i18n/language";
+
+import { computersMessages } from "./computers.messages";
+
 // The part of the desktop shell API (`window.lingerDesktop`, exposed by the
 // Electron preload) that the Agent creation flow uses. In a browser it is
 // absent and the CLI setup instructions are shown instead.
@@ -65,7 +69,9 @@ export function useDesktopComputer(): DesktopComputer | undefined {
       )
       .catch((reason: unknown) =>
         setError(
-          reason instanceof Error ? reason.message : "Could not connect",
+          reason instanceof Error
+            ? reason.message
+            : translate(computersMessages.couldNotConnect),
         ),
       )
       .finally(() => setConnecting(false));

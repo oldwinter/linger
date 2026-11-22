@@ -188,6 +188,39 @@ func (e AgentDebugRuntimeHistorySource) Valid() bool {
 	}
 }
 
+// Defines values for AgentReasoningEffort.
+const (
+	AgentReasoningEffortHigh   AgentReasoningEffort = "high"
+	AgentReasoningEffortLow    AgentReasoningEffort = "low"
+	AgentReasoningEffortMax    AgentReasoningEffort = "max"
+	AgentReasoningEffortMedium AgentReasoningEffort = "medium"
+	AgentReasoningEffortNone   AgentReasoningEffort = "none"
+	AgentReasoningEffortUltra  AgentReasoningEffort = "ultra"
+	AgentReasoningEffortXhigh  AgentReasoningEffort = "xhigh"
+)
+
+// Valid indicates whether the value is a known member of the AgentReasoningEffort enum.
+func (e AgentReasoningEffort) Valid() bool {
+	switch e {
+	case AgentReasoningEffortHigh:
+		return true
+	case AgentReasoningEffortLow:
+		return true
+	case AgentReasoningEffortMax:
+		return true
+	case AgentReasoningEffortMedium:
+		return true
+	case AgentReasoningEffortNone:
+		return true
+	case AgentReasoningEffortUltra:
+		return true
+	case AgentReasoningEffortXhigh:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for BrowserConnectionStatusBrowser.
 const (
 	BrowserConnectionBrowserChrome BrowserConnectionStatusBrowser = "chrome"
@@ -269,6 +302,27 @@ func (e BrowserConnectionStatusState) Valid() bool {
 	case BrowserConnectionStateTokenInvalid:
 		return true
 	case BrowserConnectionStateUnsupported:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ByokProtocol.
+const (
+	ByokProtocolAnthropic       ByokProtocol = "anthropic"
+	ByokProtocolOpenaiChat      ByokProtocol = "openai-chat"
+	ByokProtocolOpenaiResponses ByokProtocol = "openai-responses"
+)
+
+// Valid indicates whether the value is a known member of the ByokProtocol enum.
+func (e ByokProtocol) Valid() bool {
+	switch e {
+	case ByokProtocolAnthropic:
+		return true
+	case ByokProtocolOpenaiChat:
+		return true
+	case ByokProtocolOpenaiResponses:
 		return true
 	default:
 		return false
@@ -982,19 +1036,19 @@ func (e MemoryRebuildStatusPhase) Valid() bool {
 
 // Defines values for ModelCallEffort.
 const (
-	High   ModelCallEffort = "high"
-	Low    ModelCallEffort = "low"
-	Medium ModelCallEffort = "medium"
+	ModelCallEffortHigh   ModelCallEffort = "high"
+	ModelCallEffortLow    ModelCallEffort = "low"
+	ModelCallEffortMedium ModelCallEffort = "medium"
 )
 
 // Valid indicates whether the value is a known member of the ModelCallEffort enum.
 func (e ModelCallEffort) Valid() bool {
 	switch e {
-	case High:
+	case ModelCallEffortHigh:
 		return true
-	case Low:
+	case ModelCallEffortLow:
 		return true
-	case Medium:
+	case ModelCallEffortMedium:
 		return true
 	default:
 		return false
@@ -1031,6 +1085,48 @@ func (e ModelCallKind) Valid() bool {
 	case ModelCallKindVoiceAsk:
 		return true
 	case ModelCallKindWiki:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ModelSourceMode.
+const (
+	ModelSourceModeByok         ModelSourceMode = "byok"
+	ModelSourceModeLocal        ModelSourceMode = "local"
+	ModelSourceModeSubscription ModelSourceMode = "subscription"
+)
+
+// Valid indicates whether the value is a known member of the ModelSourceMode enum.
+func (e ModelSourceMode) Valid() bool {
+	switch e {
+	case ModelSourceModeByok:
+		return true
+	case ModelSourceModeLocal:
+		return true
+	case ModelSourceModeSubscription:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ModelSourceRuntime.
+const (
+	ModelSourceRuntimeClaude ModelSourceRuntime = "claude"
+	ModelSourceRuntimeCodex  ModelSourceRuntime = "codex"
+	ModelSourceRuntimePi     ModelSourceRuntime = "pi"
+)
+
+// Valid indicates whether the value is a known member of the ModelSourceRuntime enum.
+func (e ModelSourceRuntime) Valid() bool {
+	switch e {
+	case ModelSourceRuntimeClaude:
+		return true
+	case ModelSourceRuntimeCodex:
+		return true
+	case ModelSourceRuntimePi:
 		return true
 	default:
 		return false
@@ -1321,6 +1417,9 @@ type AgentDebugRuntimeHistorySource string
 // AgentId defines model for AgentId.
 type AgentId = string
 
+// AgentReasoningEffort defines model for AgentReasoningEffort.
+type AgentReasoningEffort string
+
 // AgentRuntimeContextKey defines model for AgentRuntimeContextKey.
 type AgentRuntimeContextKey = string
 
@@ -1432,6 +1531,100 @@ type BrowserConnectionStatusState string
 
 // BrowserProfile A Chrome profile directory name inside the user's Chrome data directory.
 type BrowserProfile = string
+
+// ByokEndpointInput A BYOK endpoint address and key, enough to list its models at base_url + path + /models with protocol's key header. The API key is never persisted in TeamHub or Agent Service.
+type ByokEndpointInput struct {
+	ApiKey  *string `json:"api_key,omitempty"`
+	BaseUrl string  `json:"base_url"`
+
+	// Endpoint A path appended to a BYOK base URL: empty, or whole segments each led by one slash, so it can only extend the base URL's path.
+	Endpoint ByokUrlPath `json:"endpoint"`
+
+	// Path A path appended to a BYOK base URL: empty, or whole segments each led by one slash, so it can only extend the base URL's path.
+	Path ByokUrlPath `json:"path"`
+
+	// Protocol Wire format of a BYOK upstream endpoint. The owner's client derives it from the end of the request address, else from the Runtime's own format; the Computer does not probe for it.
+	Protocol      ByokProtocol `json:"protocol"`
+	ReuseSavedKey *bool        `json:"reuse_saved_key,omitempty"`
+}
+
+// ByokInput Upstream endpoint configuration supplied by the Computer owner. Requests go to base_url + path + endpoint in protocol, and models are listed at base_url + path + /models. The API key is never persisted in TeamHub or Agent Service; only the Local Computer stores it in a private 0600 file.
+type ByokInput struct {
+	ApiKey        *string `json:"api_key,omitempty"`
+	BaseUrl       string  `json:"base_url"`
+	ContextWindow *int    `json:"context_window,omitempty"`
+
+	// Endpoint A path appended to a BYOK base URL: empty, or whole segments each led by one slash, so it can only extend the base URL's path.
+	Endpoint ByokUrlPath `json:"endpoint"`
+	ModelId  string      `json:"model_id"`
+
+	// Path A path appended to a BYOK base URL: empty, or whole segments each led by one slash, so it can only extend the base URL's path.
+	Path ByokUrlPath `json:"path"`
+
+	// Protocol Wire format of a BYOK upstream endpoint. The owner's client derives it from the end of the request address, else from the Runtime's own format; the Computer does not probe for it.
+	Protocol      ByokProtocol `json:"protocol"`
+	ReuseSavedKey *bool        `json:"reuse_saved_key,omitempty"`
+}
+
+// ByokModel A model a BYOK endpoint lists.
+type ByokModel struct {
+	ContextWindow *int   `json:"context_window,omitempty"`
+	Id            string `json:"id"`
+
+	// Name The endpoint's display name, when it differs from id.
+	Name *string `json:"name,omitempty"`
+}
+
+// ByokModelList The models a BYOK endpoint lists, sorted by id.
+type ByokModelList struct {
+	Models []ByokModel `json:"models"`
+
+	// Url The address that listed them.
+	Url string `json:"url"`
+}
+
+// ByokProtocol Wire format of a BYOK upstream endpoint. The owner's client derives it from the end of the request address, else from the Runtime's own format; the Computer does not probe for it.
+type ByokProtocol string
+
+// ByokSummary Redacted BYOK configuration metadata reported by the Computer. path and endpoint are omitted when empty: a configured summary without them appends nothing there.
+type ByokSummary struct {
+	BaseUrl       *string `json:"base_url,omitempty"`
+	Configured    bool    `json:"configured"`
+	ContextWindow *int    `json:"context_window,omitempty"`
+
+	// Endpoint A path appended to a BYOK base URL: empty, or whole segments each led by one slash, so it can only extend the base URL's path.
+	Endpoint *ByokUrlPath `json:"endpoint,omitempty"`
+	KeySaved bool         `json:"key_saved"`
+	ModelId  *string      `json:"model_id,omitempty"`
+
+	// Path A path appended to a BYOK base URL: empty, or whole segments each led by one slash, so it can only extend the base URL's path.
+	Path *ByokUrlPath `json:"path,omitempty"`
+
+	// Protocol Wire format of a BYOK upstream endpoint. The owner's client derives it from the end of the request address, else from the Runtime's own format; the Computer does not probe for it.
+	Protocol *ByokProtocol `json:"protocol,omitempty"`
+}
+
+// ByokTestRequest A BYOK endpoint to verify with one request from the Computer.
+type ByokTestRequest struct {
+	// Byok Upstream endpoint configuration supplied by the Computer owner. Requests go to base_url + path + endpoint in protocol, and models are listed at base_url + path + /models. The API key is never persisted in TeamHub or Agent Service; only the Local Computer stores it in a private 0600 file.
+	Byok ByokInput `json:"byok"`
+}
+
+// ByokTestResult Outcome of one request to an upstream BYOK endpoint from the Local Computer.
+type ByokTestResult struct {
+	ContextWindow int    `json:"context_window"`
+	ModelId       string `json:"model_id"`
+	Ok            bool   `json:"ok"`
+
+	// Protocol Wire format of a BYOK upstream endpoint. The owner's client derives it from the end of the request address, else from the Runtime's own format; the Computer does not probe for it.
+	Protocol ByokProtocol `json:"protocol"`
+
+	// Url The address the request went to.
+	Url string `json:"url"`
+}
+
+// ByokUrlPath A path appended to a BYOK base URL: empty, or whole segments each led by one slash, so it can only extend the base URL's path.
+type ByokUrlPath = string
 
 // CancelAgentRunRequest defines model for CancelAgentRunRequest.
 type CancelAgentRunRequest struct {
@@ -1668,9 +1861,12 @@ type Error struct {
 // ErrorDetail defines model for ErrorDetail.
 type ErrorDetail struct {
 	// Code Optional stable classification for this individual validation issue.
-	Code   *string `json:"code,omitempty"`
-	Field  string  `json:"field"`
-	Reason string  `json:"reason"`
+	Code  *string `json:"code,omitempty"`
+	Field string  `json:"field"`
+
+	// LimitBytes With code too_large, the largest size the field accepts, in bytes.
+	LimitBytes *int64 `json:"limit_bytes,omitempty"`
+	Reason     string `json:"reason"`
 }
 
 // ErrorResponse defines model for ErrorResponse.
@@ -2064,7 +2260,7 @@ type MemoryRebuildStatusPhase string
 // ModelCallEffort Reasoning effort for the Runtime's default model; omitted, low.
 type ModelCallEffort string
 
-// ModelCallKind What the call is for. It sets the call's place in the queue of the Runtime it runs on, where an approval goes first and Runs come next; voice_ask and meeting_notes never queue. approval, voice_ask and meeting_notes have someone waiting, so they stop once the request is gone and never answer pending.
+// ModelCallKind An approval borrows its Run's place on the same endpoint or queues first. Recording questions and notes go before chat, can use the reserved place and swap out a running Run of lower priority. All three calls stop waiting when their caller leaves and never answer pending.
 type ModelCallKind string
 
 // ModelCallRequest defines model for ModelCallRequest.
@@ -2081,7 +2277,7 @@ type ModelCallRequest struct {
 	// Key Names the work, for example profile:<generation_id>. A request with the same key and the same content joins the running execution or receives its cached result; the same key with other content is a new request.
 	Key string `json:"key"`
 
-	// Kind What the call is for. It sets the call's place in the queue of the Runtime it runs on, where an approval goes first and Runs come next; voice_ask and meeting_notes never queue. approval, voice_ask and meeting_notes have someone waiting, so they stop once the request is gone and never answer pending.
+	// Kind An approval borrows its Run's place on the same endpoint or queues first. Recording questions and notes go before chat, can use the reserved place and swap out a running Run of lower priority. All three calls stop waiting when their caller leaves and never answer pending.
 	Kind ModelCallKind `json:"kind"`
 
 	// Output Asks for one JSON object; omitted, the answer is text.
@@ -2107,7 +2303,7 @@ type ModelCallRequest struct {
 	// SessionKey Names the session a structured call belongs to. Codex answers one session's calls in one resident thread that keeps the instructions and earlier calls, so only the new input is uncached; a schema correction and a Claude call run on their own.
 	SessionKey *string `json:"sessionKey,omitempty"`
 
-	// TimeoutMs The budget of one Runtime attempt, each correction getting its own; omitted, the kind's default.
+	// TimeoutMs The budget of one Runtime attempt from its start, each correction getting its own; waiting for a place does not count. Omitted, the kind's default.
 	TimeoutMs *int `json:"timeoutMs,omitempty"`
 }
 
@@ -2121,6 +2317,44 @@ type ModelCallResult struct {
 
 	// Text The answer, when the request asked for text.
 	Text *string `json:"text,omitempty"`
+}
+
+// ModelSourceApplyCommand Internal command sent from TeamHub to Agent Service to switch a Computer's model source.
+type ModelSourceApplyCommand struct {
+	// Byok Upstream endpoint configuration supplied by the Computer owner. Requests go to base_url + path + endpoint in protocol, and models are listed at base_url + path + /models. The API key is never persisted in TeamHub or Agent Service; only the Local Computer stores it in a private 0600 file.
+	Byok *ByokInput `json:"byok,omitempty"`
+
+	// LocalModelId Stable localmodels library id: catalog id and variant, such as qwen3-4b:Q4_K_M.
+	LocalModelId *LocalModelId `json:"local_model_id,omitempty"`
+
+	// Mode Active model source mode on a Local Computer.
+	Mode ModelSourceMode `json:"mode"`
+
+	// Runtime Agent runtime harness driving turns on the Computer.
+	Runtime *ModelSourceRuntime `json:"runtime,omitempty"`
+}
+
+// ModelSourceMode Active model source mode on a Local Computer.
+type ModelSourceMode string
+
+// ModelSourceRuntime Agent runtime harness driving turns on the Computer.
+type ModelSourceRuntime string
+
+// ModelSourceStatus Active model source and redacted BYOK metadata on one Local Computer.
+type ModelSourceStatus struct {
+	// Byok Redacted BYOK configuration metadata reported by the Computer. path and endpoint are omitted when empty: a configured summary without them appends nothing there.
+	Byok       ByokSummary `json:"byok"`
+	GatewayUrl *string     `json:"gateway_url,omitempty"`
+
+	// Mode Active model source mode on a Local Computer.
+	Mode            ModelSourceMode       `json:"mode"`
+	ReasoningEffort *AgentReasoningEffort `json:"reasoning_effort,omitempty"`
+
+	// Runtime Agent runtime harness driving turns on the Computer.
+	Runtime ModelSourceRuntime `json:"runtime"`
+
+	// RuntimeModel After a switch, the model the Computer's Agents run: the target model when the active Runtime offers it, else that Runtime's default.
+	RuntimeModel string `json:"runtime_model"`
 }
 
 // PersistedSequence defines model for PersistedSequence.
@@ -2804,6 +3038,15 @@ type ConfigureLocalComputerBrowserConnectionJSONRequestBody = BrowserConnectionC
 
 // ActOnLocalComputerModelsJSONRequestBody defines body for ActOnLocalComputerModels for application/json ContentType.
 type ActOnLocalComputerModelsJSONRequestBody = LocalModelActionCommand
+
+// ApplyLocalComputerModelSourceJSONRequestBody defines body for ApplyLocalComputerModelSource for application/json ContentType.
+type ApplyLocalComputerModelSourceJSONRequestBody = ModelSourceApplyCommand
+
+// ListLocalComputerByokModelsJSONRequestBody defines body for ListLocalComputerByokModels for application/json ContentType.
+type ListLocalComputerByokModelsJSONRequestBody = ByokEndpointInput
+
+// TestLocalComputerByokJSONRequestBody defines body for TestLocalComputerByok for application/json ContentType.
+type TestLocalComputerByokJSONRequestBody = ByokTestRequest
 
 // ActOnLocalComputerPermissionJSONRequestBody defines body for ActOnLocalComputerPermission for application/json ContentType.
 type ActOnLocalComputerPermissionJSONRequestBody = ComputerPermissionAction
@@ -3818,6 +4061,24 @@ type ClientInterface interface {
 
 	ActOnLocalComputerModels(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, body ActOnLocalComputerModelsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// GetLocalComputerModelSource request
+	GetLocalComputerModelSource(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ApplyLocalComputerModelSourceWithBody request with any body
+	ApplyLocalComputerModelSourceWithBody(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	ApplyLocalComputerModelSource(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, body ApplyLocalComputerModelSourceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListLocalComputerByokModelsWithBody request with any body
+	ListLocalComputerByokModelsWithBody(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	ListLocalComputerByokModels(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, body ListLocalComputerByokModelsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// TestLocalComputerByokWithBody request with any body
+	TestLocalComputerByokWithBody(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	TestLocalComputerByok(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, body TestLocalComputerByokJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetLocalComputerPermissions request
 	GetLocalComputerPermissions(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -4437,6 +4698,90 @@ func (c *Client) ActOnLocalComputerModelsWithBody(ctx context.Context, tenantId 
 
 func (c *Client) ActOnLocalComputerModels(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, body ActOnLocalComputerModelsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewActOnLocalComputerModelsRequest(c.Server, tenantId, ownerActorId, computerId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetLocalComputerModelSource(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetLocalComputerModelSourceRequest(c.Server, tenantId, ownerActorId, computerId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ApplyLocalComputerModelSourceWithBody(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewApplyLocalComputerModelSourceRequestWithBody(c.Server, tenantId, ownerActorId, computerId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ApplyLocalComputerModelSource(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, body ApplyLocalComputerModelSourceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewApplyLocalComputerModelSourceRequest(c.Server, tenantId, ownerActorId, computerId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListLocalComputerByokModelsWithBody(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListLocalComputerByokModelsRequestWithBody(c.Server, tenantId, ownerActorId, computerId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListLocalComputerByokModels(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, body ListLocalComputerByokModelsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListLocalComputerByokModelsRequest(c.Server, tenantId, ownerActorId, computerId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) TestLocalComputerByokWithBody(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewTestLocalComputerByokRequestWithBody(c.Server, tenantId, ownerActorId, computerId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) TestLocalComputerByok(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, body TestLocalComputerByokJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewTestLocalComputerByokRequest(c.Server, tenantId, ownerActorId, computerId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -5935,6 +6280,237 @@ func NewActOnLocalComputerModelsRequestWithBody(server string, tenantId TenantId
 	return req, nil
 }
 
+// NewGetLocalComputerModelSourceRequest generates requests for GetLocalComputerModelSource
+func NewGetLocalComputerModelSourceRequest(server string, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "ownerActorId", ownerActorId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithOptions("simple", false, "computerId", computerId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/owners/%s/local-computers/%s/model-source", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewApplyLocalComputerModelSourceRequest calls the generic ApplyLocalComputerModelSource builder with application/json body
+func NewApplyLocalComputerModelSourceRequest(server string, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, body ApplyLocalComputerModelSourceJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewApplyLocalComputerModelSourceRequestWithBody(server, tenantId, ownerActorId, computerId, "application/json", bodyReader)
+}
+
+// NewApplyLocalComputerModelSourceRequestWithBody generates requests for ApplyLocalComputerModelSource with any type of body
+func NewApplyLocalComputerModelSourceRequestWithBody(server string, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "ownerActorId", ownerActorId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithOptions("simple", false, "computerId", computerId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/owners/%s/local-computers/%s/model-source", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewListLocalComputerByokModelsRequest calls the generic ListLocalComputerByokModels builder with application/json body
+func NewListLocalComputerByokModelsRequest(server string, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, body ListLocalComputerByokModelsJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewListLocalComputerByokModelsRequestWithBody(server, tenantId, ownerActorId, computerId, "application/json", bodyReader)
+}
+
+// NewListLocalComputerByokModelsRequestWithBody generates requests for ListLocalComputerByokModels with any type of body
+func NewListLocalComputerByokModelsRequestWithBody(server string, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "ownerActorId", ownerActorId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithOptions("simple", false, "computerId", computerId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/owners/%s/local-computers/%s/model-source/models", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewTestLocalComputerByokRequest calls the generic TestLocalComputerByok builder with application/json body
+func NewTestLocalComputerByokRequest(server string, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, body TestLocalComputerByokJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewTestLocalComputerByokRequestWithBody(server, tenantId, ownerActorId, computerId, "application/json", bodyReader)
+}
+
+// NewTestLocalComputerByokRequestWithBody generates requests for TestLocalComputerByok with any type of body
+func NewTestLocalComputerByokRequestWithBody(server string, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "ownerActorId", ownerActorId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithOptions("simple", false, "computerId", computerId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/owners/%s/local-computers/%s/model-source/test", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewGetLocalComputerPermissionsRequest generates requests for GetLocalComputerPermissions
 func NewGetLocalComputerPermissionsRequest(server string, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId) (*http.Request, error) {
 	var err error
@@ -6307,6 +6883,24 @@ type ClientWithResponsesInterface interface {
 	ActOnLocalComputerModelsWithBodyWithResponse(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ActOnLocalComputerModelsResponse, error)
 
 	ActOnLocalComputerModelsWithResponse(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, body ActOnLocalComputerModelsJSONRequestBody, reqEditors ...RequestEditorFn) (*ActOnLocalComputerModelsResponse, error)
+
+	// GetLocalComputerModelSourceWithResponse request
+	GetLocalComputerModelSourceWithResponse(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, reqEditors ...RequestEditorFn) (*GetLocalComputerModelSourceResponse, error)
+
+	// ApplyLocalComputerModelSourceWithBodyWithResponse request with any body
+	ApplyLocalComputerModelSourceWithBodyWithResponse(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ApplyLocalComputerModelSourceResponse, error)
+
+	ApplyLocalComputerModelSourceWithResponse(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, body ApplyLocalComputerModelSourceJSONRequestBody, reqEditors ...RequestEditorFn) (*ApplyLocalComputerModelSourceResponse, error)
+
+	// ListLocalComputerByokModelsWithBodyWithResponse request with any body
+	ListLocalComputerByokModelsWithBodyWithResponse(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ListLocalComputerByokModelsResponse, error)
+
+	ListLocalComputerByokModelsWithResponse(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, body ListLocalComputerByokModelsJSONRequestBody, reqEditors ...RequestEditorFn) (*ListLocalComputerByokModelsResponse, error)
+
+	// TestLocalComputerByokWithBodyWithResponse request with any body
+	TestLocalComputerByokWithBodyWithResponse(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*TestLocalComputerByokResponse, error)
+
+	TestLocalComputerByokWithResponse(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, body TestLocalComputerByokJSONRequestBody, reqEditors ...RequestEditorFn) (*TestLocalComputerByokResponse, error)
 
 	// GetLocalComputerPermissionsWithResponse request
 	GetLocalComputerPermissionsWithResponse(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, reqEditors ...RequestEditorFn) (*GetLocalComputerPermissionsResponse, error)
@@ -7360,6 +7954,149 @@ func (r ActOnLocalComputerModelsResponse) ContentType() string {
 	return ""
 }
 
+type GetLocalComputerModelSourceResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ModelSourceStatus
+	JSON401      *Unauthenticated
+	JSON404      *NotFound
+	JSON409      *Conflict
+	JSON502      *BadGateway
+	JSON503      *ServiceUnavailable
+}
+
+// Status returns HTTPResponse.Status
+func (r GetLocalComputerModelSourceResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetLocalComputerModelSourceResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetLocalComputerModelSourceResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ApplyLocalComputerModelSourceResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ModelSourceStatus
+	JSON400      *BadRequest
+	JSON401      *Unauthenticated
+	JSON404      *NotFound
+	JSON409      *Conflict
+	JSON502      *BadGateway
+	JSON503      *ServiceUnavailable
+}
+
+// Status returns HTTPResponse.Status
+func (r ApplyLocalComputerModelSourceResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ApplyLocalComputerModelSourceResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ApplyLocalComputerModelSourceResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListLocalComputerByokModelsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ByokModelList
+	JSON400      *BadRequest
+	JSON401      *Unauthenticated
+	JSON404      *NotFound
+	JSON409      *Conflict
+	JSON502      *BadGateway
+	JSON503      *ServiceUnavailable
+}
+
+// Status returns HTTPResponse.Status
+func (r ListLocalComputerByokModelsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListLocalComputerByokModelsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListLocalComputerByokModelsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type TestLocalComputerByokResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ByokTestResult
+	JSON400      *BadRequest
+	JSON401      *Unauthenticated
+	JSON404      *NotFound
+	JSON409      *Conflict
+	JSON502      *BadGateway
+	JSON503      *ServiceUnavailable
+}
+
+// Status returns HTTPResponse.Status
+func (r TestLocalComputerByokResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r TestLocalComputerByokResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r TestLocalComputerByokResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type GetLocalComputerPermissionsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -7934,6 +8671,66 @@ func (c *ClientWithResponses) ActOnLocalComputerModelsWithResponse(ctx context.C
 		return nil, err
 	}
 	return ParseActOnLocalComputerModelsResponse(rsp)
+}
+
+// GetLocalComputerModelSourceWithResponse request returning *GetLocalComputerModelSourceResponse
+func (c *ClientWithResponses) GetLocalComputerModelSourceWithResponse(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, reqEditors ...RequestEditorFn) (*GetLocalComputerModelSourceResponse, error) {
+	rsp, err := c.GetLocalComputerModelSource(ctx, tenantId, ownerActorId, computerId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetLocalComputerModelSourceResponse(rsp)
+}
+
+// ApplyLocalComputerModelSourceWithBodyWithResponse request with arbitrary body returning *ApplyLocalComputerModelSourceResponse
+func (c *ClientWithResponses) ApplyLocalComputerModelSourceWithBodyWithResponse(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ApplyLocalComputerModelSourceResponse, error) {
+	rsp, err := c.ApplyLocalComputerModelSourceWithBody(ctx, tenantId, ownerActorId, computerId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseApplyLocalComputerModelSourceResponse(rsp)
+}
+
+func (c *ClientWithResponses) ApplyLocalComputerModelSourceWithResponse(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, body ApplyLocalComputerModelSourceJSONRequestBody, reqEditors ...RequestEditorFn) (*ApplyLocalComputerModelSourceResponse, error) {
+	rsp, err := c.ApplyLocalComputerModelSource(ctx, tenantId, ownerActorId, computerId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseApplyLocalComputerModelSourceResponse(rsp)
+}
+
+// ListLocalComputerByokModelsWithBodyWithResponse request with arbitrary body returning *ListLocalComputerByokModelsResponse
+func (c *ClientWithResponses) ListLocalComputerByokModelsWithBodyWithResponse(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ListLocalComputerByokModelsResponse, error) {
+	rsp, err := c.ListLocalComputerByokModelsWithBody(ctx, tenantId, ownerActorId, computerId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListLocalComputerByokModelsResponse(rsp)
+}
+
+func (c *ClientWithResponses) ListLocalComputerByokModelsWithResponse(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, body ListLocalComputerByokModelsJSONRequestBody, reqEditors ...RequestEditorFn) (*ListLocalComputerByokModelsResponse, error) {
+	rsp, err := c.ListLocalComputerByokModels(ctx, tenantId, ownerActorId, computerId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListLocalComputerByokModelsResponse(rsp)
+}
+
+// TestLocalComputerByokWithBodyWithResponse request with arbitrary body returning *TestLocalComputerByokResponse
+func (c *ClientWithResponses) TestLocalComputerByokWithBodyWithResponse(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*TestLocalComputerByokResponse, error) {
+	rsp, err := c.TestLocalComputerByokWithBody(ctx, tenantId, ownerActorId, computerId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseTestLocalComputerByokResponse(rsp)
+}
+
+func (c *ClientWithResponses) TestLocalComputerByokWithResponse(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, body TestLocalComputerByokJSONRequestBody, reqEditors ...RequestEditorFn) (*TestLocalComputerByokResponse, error) {
+	rsp, err := c.TestLocalComputerByok(ctx, tenantId, ownerActorId, computerId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseTestLocalComputerByokResponse(rsp)
 }
 
 // GetLocalComputerPermissionsWithResponse request returning *GetLocalComputerPermissionsResponse
@@ -9438,6 +10235,271 @@ func ParseActOnLocalComputerModelsResponse(rsp *http.Response) (*ActOnLocalCompu
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest LocalModelActionAck
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthenticated
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Conflict
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest BadGateway
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ServiceUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetLocalComputerModelSourceResponse parses an HTTP response from a GetLocalComputerModelSourceWithResponse call
+func ParseGetLocalComputerModelSourceResponse(rsp *http.Response) (*GetLocalComputerModelSourceResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetLocalComputerModelSourceResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ModelSourceStatus
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthenticated
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Conflict
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest BadGateway
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ServiceUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseApplyLocalComputerModelSourceResponse parses an HTTP response from a ApplyLocalComputerModelSourceWithResponse call
+func ParseApplyLocalComputerModelSourceResponse(rsp *http.Response) (*ApplyLocalComputerModelSourceResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ApplyLocalComputerModelSourceResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ModelSourceStatus
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthenticated
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Conflict
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest BadGateway
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ServiceUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListLocalComputerByokModelsResponse parses an HTTP response from a ListLocalComputerByokModelsWithResponse call
+func ParseListLocalComputerByokModelsResponse(rsp *http.Response) (*ListLocalComputerByokModelsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListLocalComputerByokModelsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ByokModelList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthenticated
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Conflict
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest BadGateway
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ServiceUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseTestLocalComputerByokResponse parses an HTTP response from a TestLocalComputerByokWithResponse call
+func ParseTestLocalComputerByokResponse(rsp *http.Response) (*TestLocalComputerByokResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &TestLocalComputerByokResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ByokTestResult
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

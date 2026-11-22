@@ -1,6 +1,10 @@
 import { useState } from "react";
 
+import { translate } from "@/i18n/language";
+import { useT } from "@/i18n/use-translation";
+
 import { AudioPreviewPlayer } from "./audio-preview-player";
+import { filePreviewMessages as m } from "./file-preview.messages";
 import { PreviewAdapterError } from "./preview-adapter-error";
 
 export interface MediaPreviewAdapterProps {
@@ -18,6 +22,7 @@ export function MediaPreviewAdapter({
   onError,
   sourceSizeBytes,
 }: MediaPreviewAdapterProps) {
+  const t = useT();
   const audio = mediaType.toLowerCase().startsWith("audio/");
   const [error, setError] = useState<string>();
 
@@ -31,15 +36,16 @@ export function MediaPreviewAdapter({
   }
 
   const handleError = () => {
-    const message =
-      "This browser cannot play the file's media codec. Download the original file instead.";
+    const message = translate(m.mediaCodecUnsupported);
     setError(message);
     onError?.(message);
   };
 
   return (
     <section
-      aria-label={`${audio ? "Audio" : "Video"} preview ${filename}`}
+      aria-label={t(audio ? m.audioPreview : m.videoPreview, {
+        name: filename,
+      })}
       className={`flex h-full min-h-[420px] items-center justify-center p-5 ${audio ? "bg-app-surface" : "bg-app-surface-soft"}`}
     >
       {audio ? (

@@ -16,8 +16,8 @@ folder for running without installing.
 
 Neither is Authenticode-signed yet, so SmartScreen asks the user to confirm
 the first start. The desktop updater runs a newer setup program with
-/S /relaunch: it stops Linger, replaces the installed version and starts it
-again. The zip has no self-update.
+/update /relaunch: it stops Linger, replaces the installed version behind a
+progress page and starts it again. The zip has no self-update.
 
 The Go daemon goes to resources/computer/ and the browser and computer-control
 tools it loads to resources/cli/ and resources/runtime/ (../computer_tools.py);
@@ -26,7 +26,7 @@ TeamHub binaries and the Native runtime build.mjs built from it must be there
 and match their manifests and that package (../native_bundle.py).
 """
 import argparse
-import hashlib
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 import shutil
@@ -39,6 +39,7 @@ import zipfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 DESKTOP = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, os.path.dirname(HERE))
+from archive import sha256  # noqa: E402
 import computer_tools  # noqa: E402
 from native_bundle import check_runtime, check_teamhub  # noqa: E402
 DAEMON = os.path.join(DESKTOP, "dist", "computer", "win32-x64", "linger-computer-daemon.exe")
@@ -119,21 +120,30 @@ def build_setup(workdir, version, output):
     shutil.move(os.path.join(workdir, "Linger-setup.exe"), output)
 
 
+# Extensions already compressed with high-entropy formats; storing them skips
+# wasted DEFLATE work without growing the archive.
+PRECOMPRESSED_EXTENSIONS = (".gz", ".tgz", ".zst", ".zip", ".xz", ".bz2", ".png", ".woff2")
+
+
 def build_zip(stage, output):
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
         for root, _, files in os.walk(stage):
             for name in sorted(files):
                 path = os.path.join(root, name)
-                archive.write(path, os.path.join("Linger", os.path.relpath(path, stage)))
-
-
-def sha256(path):
-    with open(path, "rb") as source:
-        return hashlib.sha256(source.read()).hexdigest()
+                compress_type = (
+                    zipfile.ZIP_STORED
+                    if name.lower().endswith(PRECOMPRESSED_EXTENSIONS)
+                    else zipfile.ZIP_DEFLATED
+                )
+                archive.write(
+                    path,
+                    os.path.join("Linger", os.path.relpath(path, stage)),
+                    compress_type=compress_type,
+                )
 
 
 def report(path):
-    print(f"{path} {os.path.getsize(path)} sha256={sha256(path)}")
+    print(f"{path} {os.path.getsize(path)} sha256={sha256(path)}", flush=True)
 
 
 def main():
@@ -155,12 +165,22 @@ def main():
     try:
         stage = stage_app(version, electron_version, workdir, args.cache)
         setup = os.path.join(args.out, f"Linger-{version}-x64-setup.exe")
-        build_setup(workdir, version, setup)
-        report(setup)
         archive = os.path.join(args.out, f"Linger-{version}-x64.zip")
-        build_zip(stage, archive)
-        computer_tools.check_archive(archive, "Linger/resources/", "win32-x64")
-        report(archive)
+
+        def make_setup():
+            build_setup(workdir, version, setup)
+            report(setup)
+
+        def make_zip():
+            build_zip(stage, archive)
+            computer_tools.check_archive(archive, "Linger/resources/", "win32-x64")
+            report(archive)
+
+        # Both read the finalized stage folder and write distinct outputs.
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(make_setup), pool.submit(make_zip)]
+            for future in futures:
+                future.result()
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 

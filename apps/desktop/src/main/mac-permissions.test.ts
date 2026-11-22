@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -47,7 +49,7 @@ describe("MacPermissions", () => {
     });
     // Listing Downloads or running AppleScript would show a system prompt.
     expect(calls).toEqual([
-      "open /Users/me/Library/Application Support/com.apple.TCC/TCC.db",
+      `open ${path.normalize("/Users/me/Library/Application Support/com.apple.TCC/TCC.db")}`,
     ]);
   });
 

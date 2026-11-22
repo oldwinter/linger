@@ -22,6 +22,12 @@ import {
 } from "./process-lifecycle.js";
 
 interface RunningRole {
+  /** Called once every selected role has started, for background work that
+   * uses a seam a later role fills, such as the agent role's model call. */
+  started?(): void;
+  /** Called on every role before the first role stops, so that background
+   * work stops taking new items while the roles it calls drain. */
+  stopping?(): void;
   stop(): Promise<void>;
 }
 
@@ -34,7 +40,7 @@ interface RoleHost extends ProcessControl {
   readonly normalizer: DocumentNormalizer;
   /** What a role hands to the roles that start after it. The agent role fills
    * modelCall after Memory and LLM Wiki have started, so they read it when
-   * they call. */
+   * they call, and Memory's scheduler starts only from started(). */
   readonly seams: { flashback?: Flashback; modelCall?: ModelCall };
   /** Replaces the Agent Service's Room request timeout in process tests. */
   readonly agentRoomRequestTimeoutMs?: number;
@@ -165,6 +171,7 @@ export async function main(
     const stopRoles = async (): Promise<void> => {
       const failures: unknown[] = [];
       const stopping = running.splice(0).reverse();
+      for (const { role } of stopping) role.stopping?.();
       const voice = stopping.find(({ name }) => name === "voice");
       const voiceStopped = voice?.role.stop().catch((error) => {
         failures.push(error);
@@ -206,6 +213,7 @@ export async function main(
         });
         running.push({ name, role });
       }
+      for (const { role } of running) role.started?.();
       http?.finishStartup();
       if (http) logger.log("info", "host.listening", { url: http.url });
     } catch (error) {

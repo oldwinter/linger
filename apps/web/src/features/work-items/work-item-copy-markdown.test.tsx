@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { defineGlobalProperty } from "@/test/global-properties";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { Suspense } from "react";
 import { MemoryRouter, Route, Routes } from "react-router";
@@ -65,7 +66,7 @@ describe("Copy Work Item as Markdown", () => {
 
   it("says the Markdown copy failed instead of claiming success", async () => {
     stubClipboard(() => Promise.reject(new Error("Clipboard is denied")));
-    Object.defineProperty(document, "execCommand", {
+    defineGlobalProperty(document, "execCommand", {
       configurable: true,
       value: vi.fn(() => false),
     });
@@ -81,7 +82,7 @@ describe("Copy Work Item as Markdown", () => {
     );
     fireEvent.click(screen.getByRole("menuitem", { name: "Copy as Markdown" }));
 
-    expect(await screen.findByRole("status")).toHaveTextContent("Copy failed");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Copy failed");
   });
 });
 

@@ -34,6 +34,7 @@ export async function renameRetrying(
   const started = now();
   let wait = 50;
   for (let attempt = 1; ; attempt++) {
+    options.signal?.throwIfAborted();
     try {
       await move(from, to);
       return;

@@ -1,4 +1,8 @@
+import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
 import type { TeamHubExternalConnection } from "@/features/teamhub/teamhub-types";
+import { type Translate, translate } from "@/i18n/language";
+
+import { connectorMessages as m } from "./connectors.messages";
 
 const NEEDS_ATTENTION = new Set<TeamHubExternalConnection["status"]>([
   "expired",
@@ -14,11 +18,48 @@ export function externalConnectionNeedsAttention(
   );
 }
 
+/**
+ * The pending connection of an app whose authorization can still be resumed,
+ * so a new attempt reuses it instead of creating another row.
+ */
+export function openPendingExternalConnection(
+  connections: TeamHubExternalConnection[],
+  appKey: string,
+) {
+  return connections.find(
+    (connection) =>
+      connection.provider === appKey &&
+      connection.status === "pending" &&
+      !connection.status_error_code,
+  );
+}
+
+export function externalConnectionEstablished(
+  connection: TeamHubExternalConnection,
+) {
+  return ["active", "disconnecting", "revoke_pending"].includes(
+    connection.status,
+  );
+}
+
 export function establishedExternalConnections(
   connections: TeamHubExternalConnection[],
 ) {
-  return connections.filter((connection) =>
-    ["active", "disconnecting", "revoke_pending"].includes(connection.status),
+  return connections.filter(externalConnectionEstablished);
+}
+
+/**
+ * A pending connection whose identity check failed after authorization. It
+ * stays listed so the user can check again or disconnect; a duplicate identity
+ * is excluded because checking again cannot resolve it.
+ */
+export function externalConnectionUnconfirmed(
+  connection: TeamHubExternalConnection,
+) {
+  return (
+    connection.status === "pending" &&
+    Boolean(connection.status_error_code) &&
+    connection.status_error_code !== "duplicate_remote_principal"
   );
 }
 
@@ -51,6 +92,25 @@ export function usableConnectUrl(authorization?: {
     : undefined;
 }
 
+/**
+ * The Connect Link that reauthorizes a connection: the open link of one in
+ * progress, otherwise a new reauthorization's.
+ */
+export async function startReauthorization(
+  client: Pick<TeamHubClient, "createExternalConnectionReauthorization">,
+  connection: TeamHubExternalConnection,
+) {
+  return (
+    reauthorizationConnectUrl(connection) ??
+    reauthorizationConnectUrl(
+      await client.createExternalConnectionReauthorization(
+        connection.id,
+        connection.revision,
+      ),
+    )
+  );
+}
+
 /** The open Connect Link of a reauthorization in progress, if any. */
 export function reauthorizationConnectUrl(connection?: {
   reauthorizing?: boolean;
@@ -62,4 +122,18 @@ export function reauthorizationConnectUrl(connection?: {
     connect_url: connection.reauthorization_connect_url,
     connect_expires_at: connection.reauthorization_connect_expires_at,
   });
+}
+
+/**
+ * A connection's identity label as display text, or undefined when it has
+ * none. An Outlook label is the Microsoft account's sign-in name, which can
+ * belong to another mail provider, so it is never shown as the mailbox.
+ */
+export function accountIdentityText(
+  provider: string,
+  label: string | null | undefined,
+  t: Translate = translate,
+): string | undefined {
+  if (!label) return undefined;
+  return provider === "outlook" ? t(m.signedInAs, { account: label }) : label;
 }

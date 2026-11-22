@@ -1,3 +1,10 @@
+import { ArrowDown01Icon } from "@hugeicons/core-free-icons";
+
+import { Icon } from "@/components/ui/icon";
+import { useT } from "@/i18n/use-translation";
+
+import { computerSetupMessages } from "./computer-setup.messages";
+
 export type ComputerPlatform = "darwin" | "linux" | "win32";
 
 export function browserComputerPlatform(): ComputerPlatform {
@@ -54,21 +61,29 @@ export function ComputerPlatformSelector({
   value: ComputerPlatform | "";
   onChange: (platform: ComputerPlatform) => void;
 }) {
+  const t = useT();
   return (
     <label className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-      Computer operating system
-      <select
-        className="h-8 rounded-md border border-border bg-card px-2 text-sm text-foreground transition-colors duration-150 hover:border-border-hover focus-visible:border-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        value={value}
-        onChange={(event) => onChange(event.target.value as ComputerPlatform)}
-      >
-        <option value="" disabled>
-          Choose operating system
-        </option>
-        <option value="darwin">macOS</option>
-        <option value="win32">Windows</option>
-        <option value="linux">Linux</option>
-      </select>
+      {t(computerSetupMessages.operatingSystem)}
+      <span className="relative inline-flex items-center">
+        <select
+          className="h-8 appearance-none rounded-md border border-border bg-card pl-2.5 pr-8 text-sm text-foreground transition-colors duration-150 hover:border-border-hover focus-visible:border-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          value={value}
+          onChange={(event) => onChange(event.target.value as ComputerPlatform)}
+        >
+          <option value="" disabled>
+            {t(computerSetupMessages.chooseOperatingSystem)}
+          </option>
+          <option value="darwin">macOS</option>
+          <option value="win32">Windows</option>
+          <option value="linux">Linux</option>
+        </select>
+        <Icon
+          className="pointer-events-none absolute right-2 text-muted-foreground"
+          icon={ArrowDown01Icon}
+          size={14}
+        />
+      </span>
     </label>
   );
 }

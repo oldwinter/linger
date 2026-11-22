@@ -14,6 +14,7 @@ import {
   personalWikiNodeTypeForPath,
   personalWikiSectionDescription,
   personalWikiSectionFormat,
+  personalWikiSectionRule,
   personalWikiSectionUpdate,
   type PersonalWikiNodeType,
 } from "./personal-wiki-node-types.js";
@@ -148,6 +149,15 @@ interface ActionInput {
   deadline?: string;
   resources?: string;
   priority?: (typeof SESSION_ACTION_PRIORITIES)[number];
+}
+interface DirectionInput {
+  name: string;
+  goal: string | null;
+  owner: string | null;
+  outcome: string | null;
+  last_updated: string | null;
+  current_state: string;
+  source_refs: string[];
 }
 type SessionInput = string | string[] | OutcomeInput[] | ActionInput[];
 type ItemInput =
@@ -322,6 +332,161 @@ const strictObject = (properties: Record<string, unknown>) => ({
 const strictText = { type: "string", minLength: 1 };
 const strictList = { type: "array", items: strictText };
 const strictNullableText = { type: ["string", "null"] };
+const rewriteMetadata = {
+  reason: strictText,
+  removed_refs: { type: "array", items: strictText },
+};
+
+/** Models often separate prose paragraphs with one newline, which Markdown
+ * joins into a single paragraph; list lines keep their single breaks. */
+function paragraphs(text: string): string {
+  const listLine = /^\s*(?:[-*+]|\d+\.)\s/u;
+  const lines = text
+    .trim()
+    .split(/\n+/u)
+    .filter((line) => line.trim());
+  return lines
+    .map((line, index) =>
+      index && !(listLine.test(line) && listLine.test(lines[index - 1]!))
+        ? `\n\n${line}`
+        : index
+          ? `\n${line}`
+          : line,
+    )
+    .join("");
+}
+
+/** Entity authors supply structure; only the renderer creates its headings. */
+function entityAuthoringSchema(
+  definition: PersonalWikiNodeType,
+  heading: string,
+): Record<string, unknown> | undefined {
+  const authoring = personalWikiSectionRule(definition, heading)?.authoring;
+  switch (authoring) {
+    case "profile":
+      return strictObject({
+        ...rewriteMetadata,
+        intro: {
+          ...strictText,
+          pattern: "^[^\\r\\n]+$",
+          description:
+            "One evidence-cited sentence identifying the person and their working relationship with the Human.",
+        },
+        details: {
+          ...strictList,
+          description:
+            "Every supported identity detail, each with its evidence citation, including details the intro already mentions; omit unknown details.",
+        },
+      });
+    case "narrative":
+      return strictObject({
+        ...rewriteMetadata,
+        text: {
+          ...strictText,
+          description:
+            heading === "Relationship Context"
+              ? "A connected account of the established relationship across interactions, with citations. Put dated exchanges in Interaction History. Organize the existing facts together with any new ones."
+              : "Describe the contact's contribution and the Human's response, distinguishing supported coordination patterns from explicit preferences through wording alone. Cite the evidence; do not infer personality or comment on the evidence's scope.",
+        },
+      });
+    case "directions":
+      return strictObject({
+        ...rewriteMetadata,
+        directions: {
+          type: "array",
+          description:
+            "Every evidence-supported durable work area within this project, grouped by distinct goals or responsibilities. Reconsider the existing grouping; there is no target count. Use an empty array only when no durable direction is supported.",
+          items: strictObject({
+            goal: strictNullableText,
+            owner: strictNullableText,
+            outcome: strictNullableText,
+            last_updated: {
+              type: ["string", "null"],
+              pattern: "^\\d{4}-\\d{2}-\\d{2}$",
+            },
+            name: { ...strictText, pattern: "^[^\\r\\n]+$" },
+            current_state: {
+              ...strictText,
+              description:
+                "Supported current state and useful context, with claim-level source citations. Preserve distinct facts; this is not a chronology of emails.",
+            },
+            source_refs: {
+              type: "array",
+              minItems: 1,
+              items: { type: "string", pattern: "^raw:S" },
+            },
+          }),
+        },
+      });
+    default:
+      return undefined;
+  }
+}
+
+function renderAuthoredEntitySection(
+  definition: PersonalWikiNodeType,
+  heading: string,
+  value: unknown,
+): string | undefined {
+  const schema = entityAuthoringSchema(definition, heading);
+  if (!schema) return undefined;
+  const check = ajv.compile(schema);
+  if (!check(value))
+    throw structureError(
+      `Wiki page schema: ${heading}: ${ajv.errorsText(check.errors)}`,
+    );
+  const authored = value as Record<string, unknown>;
+  const authoring = personalWikiSectionRule(definition, heading)!.authoring;
+  if (authoring === "profile") {
+    if (!citedRefs(authored.intro as string).length)
+      throw evidenceError(
+        "Wiki page schema: Basic Info intro needs a source citation",
+      );
+    const details = (authored.details as string[]).map(listItem).join("\n");
+    return [authored.intro as string, details].filter(Boolean).join("\n\n");
+  }
+  if (authoring === "narrative") return paragraphs(authored.text as string);
+  const directions = authored.directions as DirectionInput[];
+  const names = new Set<string>();
+  return (
+    directions
+      .map((direction) => {
+        const key = direction.name.trim().toLowerCase();
+        if (!key || names.has(key))
+          throw structureError(
+            "Wiki page schema: direction names must be non-empty and unique",
+          );
+        names.add(key);
+        const content = [
+          direction.goal,
+          paragraphs(direction.current_state),
+          direction.owner ? `Owner: ${direction.owner}` : null,
+          direction.outcome ? `Outcome: ${direction.outcome}` : null,
+        ]
+          .filter((part): part is string => part !== null)
+          .join("\n\n");
+        if (/^#{1,6}\s/mu.test(content))
+          throw structureError(
+            "Wiki page schema: direction prose must not contain headings; use separate direction entries",
+          );
+        const citations = direction.source_refs
+          .filter((ref) => !citedRefs(content).includes(ref))
+          .map((ref) => `[[source:${ref}]]`)
+          .join(" ");
+        return [
+          `##### Direction: ${direction.name.trim()}`,
+          content,
+          citations,
+          direction.last_updated
+            ? `Last updated: ${direction.last_updated}`
+            : null,
+        ]
+          .filter(Boolean)
+          .join("\n\n");
+      })
+      .join("\n\n") || EMPTY_SECTION_TEXT
+  );
+}
 /** Written summary text always carries its reason; the Change Log records
  * the reason of a rewrite. */
 const strictSummaryText = strictObject({
@@ -418,6 +583,16 @@ function strictSectionSchema(
   heading: string,
   existing: boolean,
 ): Record<string, unknown> {
+  const authored = entityAuthoringSchema(definition, heading);
+  if (authored)
+    return existing
+      ? {
+          anyOf: [
+            strictObject({ keep: { type: "boolean", enum: [true] } }),
+            authored,
+          ],
+        }
+      : authored;
   const update = personalWikiSectionUpdate(definition, heading);
   if (update === "summary") return existing ? strictSummary : strictSummaryText;
   if (update === "items") return strictItems;
@@ -490,11 +665,16 @@ export function wikiPageFromStrictPayload(
       if (update === "summary") {
         const summary = record(value);
         if (summary.keep === true) return [heading, { keep: true }];
+        const authored = renderAuthoredEntitySection(
+          definition,
+          heading,
+          value,
+        );
         const removed = unique(summary.removed_refs);
         return [
           heading,
           {
-            text: summary.text,
+            text: authored ?? summary.text,
             reason: summary.reason,
             ...(Array.isArray(removed) && removed.length
               ? { removed_refs: removed }
@@ -836,6 +1016,13 @@ function reconcileEntitySections(
   const items: Record<string, Item[]> = {};
   const changes: string[] = [];
   const removedRefs = new Set<string>();
+  /** Refs a summary section removed, by section: a reason excuses only its own. */
+  const removedBySection = new Map<string, Set<string>>();
+  /** Refs of the text this write authored: written summaries and the entries it
+   * added, merged or changed. Entries it left as they were do not count, or an
+   * old history entry citing the same source would hide a dropped fact. */
+  const writtenRefs = new Set<string>();
+  const keptSections = new Set<string>();
   // Summary issues of every section come back together, so one retry can fix
   // them all.
   const issues: string[] = [];
@@ -859,10 +1046,13 @@ function reconcileEntitySections(
             `Wiki page update: ${heading} has no previous text to keep; write {"text": ..., "reason": ...}`,
           );
         bodies[heading] = before;
+        keptSections.add(heading);
         continue;
       }
       input.removed_refs?.forEach((ref) => removedRefs.add(ref));
+      removedBySection.set(heading, new Set(input.removed_refs ?? []));
       const cited = citedRefs(input.text);
+      cited.forEach((ref) => writtenRefs.add(ref));
       for (const ref of new Set(
         cited.filter((ref) => !ref.startsWith("raw:")),
       )) {
@@ -873,20 +1063,8 @@ function reconcileEntitySections(
       }
       // Only a rewrite of existing text can drop citations or enter the
       // Change Log; a new section's reason is not logged.
-      if (before !== undefined && squash(before) !== squash(input.text)) {
-        const dropped = [...new Set(citedRefs(before))].filter(
-          (ref) => !cited.includes(ref) && !input.removed_refs?.includes(ref),
-        );
-        if (dropped.length) {
-          evidenceIssue = true;
-          const lost = citedPassages(before).filter((passage) =>
-            citedRefs(passage).some((ref) => dropped.includes(ref)),
-          );
-          issues.push(
-            `${heading} no longer has the citation markers ${dropped.join(", ")}. The previous text cited them in:\n${lost.map((passage) => `  "${passage}"`).join("\n")}\nKeep each of these facts in ${heading} with its markers exactly as shown (you may reword it and add new facts beside it), or list the ref in "removed_refs" and say why in "reason".`,
-          );
-        } else changes.push(`Rewrote ${heading}: ${plain(input.reason)}`);
-      }
+      if (before !== undefined && squash(before) !== squash(input.text))
+        changes.push(`Rewrote ${heading}: ${plain(input.reason)}`);
       const length = writtenLength(input.text);
       if (rule.limit && length > rule.limit)
         issues.push(
@@ -964,10 +1142,33 @@ function reconcileEntitySections(
           `Wiki page update: ${heading} would have ${result.length} entries; the limit is ${rule.limit}. Merge the oldest entries into one dated summary with {"merge": ["<id>", ...], "text": "..."} so at most ${rule.limit} remain`,
         );
       items[heading] = result;
+      for (const item of result)
+        if (!known.has(item.id) || operations.has(item.id))
+          citedRefs(item.text).forEach((ref) => writtenRefs.add(ref));
       bodies[heading] = result.length
         ? result.map((item) => listItem(item.text)).join("\n")
         : EMPTY_SECTION_TEXT;
     }
+  }
+  // Facts can move between sections; their citations must survive in the
+  // text this write authored.
+  for (const heading of definition.sections) {
+    if (definition.sectionRules[heading]!.update !== "summary") continue;
+    if (keptSections.has(heading)) continue;
+    const before = prior?.sections[heading];
+    if (before === undefined) continue;
+    const dropped = [...new Set(citedRefs(before))].filter(
+      (ref) =>
+        !writtenRefs.has(ref) && !removedBySection.get(heading)?.has(ref),
+    );
+    if (!dropped.length) continue;
+    evidenceIssue = true;
+    const lost = citedPassages(before).filter((passage) =>
+      citedRefs(passage).some((ref) => dropped.includes(ref)),
+    );
+    issues.push(
+      `${heading} lost citation markers ${dropped.join(", ")} from the text this write authored. The previous text cited them in:\n${lost.map((passage) => `  "${passage}"`).join("\n")}\nKeep each fact and its citation in a section you write or an entry you add or change, or list the ref in this section's "removed_refs" and say why in "reason".`,
+    );
   }
   if (issues.length) {
     const message = `Wiki page update: fix every issue below in your draft and resend it in full; keep the rest of the draft as it is.\n${issues.map((issue) => `- ${issue.replaceAll("\n", "\n  ")}`).join("\n")}`;

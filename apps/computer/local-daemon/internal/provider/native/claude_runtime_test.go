@@ -296,6 +296,10 @@ func TestClaudeArgv(t *testing.T) {
 	if tools := claudeFlagValue(argv, "--tools"); len(tools) != 1 || tools[0] != "Read,Glob,Grep,Write,Edit,Bash,TodoWrite,Skill,Agent,WebSearch,WebFetch,ToolSearch" {
 		t.Fatalf("tools = %v", tools)
 	}
+	_, gatewayArgv := claudeBuildArgv(logger, RunSpec{ClaudePolicy: policy, Model: "m", WithoutNativeWebTools: true})
+	if tools := claudeFlagValue(gatewayArgv, "--tools"); len(tools) != 1 || tools[0] != "Read,Glob,Grep,Write,Edit,Bash,TodoWrite,Skill,Agent,ToolSearch" {
+		t.Fatalf("gateway tools = %v", tools)
+	}
 	var managed, settings map[string]any
 	_ = json.Unmarshal([]byte(claudeFlagValue(argv, "--managed-settings")[0]), &managed)
 	_ = json.Unmarshal([]byte(claudeFlagValue(argv, "--settings")[0]), &settings)

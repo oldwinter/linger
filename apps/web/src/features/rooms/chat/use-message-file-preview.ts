@@ -4,6 +4,9 @@ import type {
   TeamHubMessageDocumentSegment,
   TeamHubMessageFileSegment,
 } from "@/features/teamhub/teamhub-types";
+import { translate } from "@/i18n/language";
+
+import { chatMessages } from "./chat.messages";
 
 /** Opens a Message file and reports only the latest request's failure. */
 export function useMessageFilePreview(
@@ -25,7 +28,7 @@ export function useMessageFilePreview(
           }
         } catch {
           if (filePreviewRequestRef.current === requestId) {
-            setFilePreviewError("File preview is unavailable");
+            setFilePreviewError(translate(chatMessages.filePreviewUnavailable));
           }
         }
       })();

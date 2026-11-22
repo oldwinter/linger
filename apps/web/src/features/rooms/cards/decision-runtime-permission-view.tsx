@@ -2,8 +2,10 @@ import { SquareLock02Icon } from "@hugeicons/core-free-icons";
 import { useState } from "react";
 
 import { Icon } from "@/components/ui/icon";
+import { useT } from "@/i18n/use-translation";
 
 import { DetailBlock, FullCallBlock } from "./approval-card-parts";
+import { cardsMessages } from "./cards.messages";
 import type { DecisionMessageCard } from "./decision-card";
 
 type RuntimePermissionView = NonNullable<
@@ -43,21 +45,22 @@ export function PermissionScreenshot({
   ownerName: string;
   screenshot: NonNullable<RuntimePermissionView["screenshot"]>;
 }) {
+  const t = useT();
   const [failed, setFailed] = useState(false);
   if (!canSee || failed) {
     return (
       <p className="flex items-center gap-1.5 rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
         <Icon className="shrink-0" icon={SquareLock02Icon} size={14} />
         {canSee
-          ? "The screenshot is no longer available."
-          : `Only ${ownerName} can see the screenshot.`}
+          ? t(cardsMessages.screenshotUnavailable)
+          : t(cardsMessages.screenshotOwnerOnly, { name: ownerName })}
       </p>
     );
   }
   return (
     <figure className="m-0 overflow-hidden rounded-lg border border-app-border bg-app-surface">
       <img
-        alt="The screen before this action, with its target marked"
+        alt={t(cardsMessages.screenshotAlt)}
         className="block h-auto w-full"
         height={screenshot.height}
         loading="lazy"
@@ -66,7 +69,7 @@ export function PermissionScreenshot({
         width={screenshot.width}
       />
       <figcaption className="border-t border-app-border bg-app-surface-soft px-3 py-1.5 text-xs text-app-muted">
-        Before the action · the target is marked
+        {t(cardsMessages.screenshotCaption)}
       </figcaption>
     </figure>
   );
@@ -87,9 +90,16 @@ export function diffStats(patch: string) {
 }
 
 function DiffBlock({ patch }: { patch: string }) {
+  const t = useT();
   const { added, lines, removed } = diffStats(patch);
   return (
-    <DetailBlock label={`Diff · +${added} −${removed}`}>
+    <DetailBlock
+      // Line counts keep plain digits, as a diff tool writes them.
+      label={t(cardsMessages.diffLabel, {
+        added: String(added),
+        removed: String(removed),
+      })}
+    >
       <div className="max-h-80 overflow-auto py-1 font-mono text-xs leading-5">
         {lines.map((line, index) => (
           <div
@@ -125,14 +135,17 @@ function ScriptBlock({
 }: {
   script: NonNullable<RuntimePermissionView["script"]>;
 }) {
+  const t = useT();
   const lines = script.body.split("\n");
   return (
     <DetailBlock
       label={
-        <>
-          Script · {script.path}
-          {script.sha256 ? ` · sha256 ${script.sha256.slice(0, 12)}` : null}
-        </>
+        script.sha256
+          ? t(cardsMessages.scriptLabelWithHash, {
+              hash: script.sha256.slice(0, 12),
+              path: script.path,
+            })
+          : t(cardsMessages.scriptLabel, { path: script.path })
       }
     >
       <div className="max-h-80 overflow-auto py-1 font-mono text-xs leading-5 text-app-ink">
@@ -157,6 +170,7 @@ function PageBlock({
 }: {
   page: NonNullable<RuntimePermissionView["page"]>;
 }) {
+  const t = useT();
   const element = [
     page.target_role,
     page.target_name && `"${page.target_name}"`,
@@ -164,15 +178,15 @@ function PageBlock({
     .filter(Boolean)
     .join(" ");
   return (
-    <DetailBlock label="Page element">
+    <DetailBlock label={t(cardsMessages.pageElement)}>
       <dl className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-x-3 gap-y-1 px-3 py-2 text-xs leading-5">
-        <dt className="text-app-muted">Page</dt>
+        <dt className="text-app-muted">{t(cardsMessages.pageUrl)}</dt>
         <dd className="[overflow-wrap:anywhere] font-mono text-app-ink">
           {page.url}
         </dd>
         {page.title ? (
           <>
-            <dt className="text-app-muted">Title</dt>
+            <dt className="text-app-muted">{t(cardsMessages.pageTitle)}</dt>
             <dd className="[overflow-wrap:anywhere] text-app-ink">
               {page.title}
             </dd>
@@ -180,7 +194,7 @@ function PageBlock({
         ) : null}
         {element ? (
           <>
-            <dt className="text-app-muted">Element</dt>
+            <dt className="text-app-muted">{t(cardsMessages.pageTarget)}</dt>
             <dd className="[overflow-wrap:anywhere] font-mono text-app-ink">
               {element}
             </dd>

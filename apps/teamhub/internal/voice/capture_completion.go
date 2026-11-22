@@ -373,7 +373,7 @@ func captureCompletionSegments(captureID string, audio, transcript document.Vers
 	if withNotes {
 		segments = append(segments,
 			messagecreation.Segment{Type: "text", Content: "\n"},
-			messagecreation.Segment{Type: "meeting_notes", Content: "Quick notes", CaptureID: captureID},
+			messagecreation.Segment{Type: "meeting_notes", Content: "Meeting summary", CaptureID: captureID},
 		)
 	}
 	return segments

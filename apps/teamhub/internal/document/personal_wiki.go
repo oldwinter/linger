@@ -20,7 +20,10 @@ type PersonalWiki struct {
 	OwnerActorID        string
 	PublishedGeneration int64
 	// State is idle, refreshing or failed (WikiRefreshState).
-	State             string
+	State string
+	// FailureReason names an actionable Computer or Runtime cause when State is
+	// failed, otherwise empty.
+	FailureReason     string
 	LatestRefreshID   string
 	PreviewRevision   int64
 	CurrentRevisionID string
@@ -52,7 +55,7 @@ func (s *Service) GetPersonalWiki(ctx context.Context, accountID, tenantID strin
 		return PersonalWiki{}, err
 	}
 	wiki.PreviewRevision = state.PreviewRevision
-	wiki.State, wiki.LatestRefreshID = state.State, state.LatestRefreshID
+	wiki.State, wiki.FailureReason, wiki.LatestRefreshID = state.State, state.FailureReason, state.LatestRefreshID
 	return wiki, nil
 }
 

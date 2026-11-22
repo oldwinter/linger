@@ -23,6 +23,11 @@ func TestConnectionIdentityFailurePolicyRequiresDiscordGuildWithoutRapidRetry(t 
 	if code != "provider_identity_unavailable" || retryAfter != time.Minute || failConnection {
 		t.Fatalf("fallback policy=(%q,%s,%t)", code, retryAfter, failConnection)
 	}
+	refused := fmt.Errorf("Composio identify Discord installation failed: %w", composio.ErrDiscordToolRefused)
+	code, retryAfter, failConnection = connectionIdentityFailurePolicy("discord", refused)
+	if code != "provider_identity_unavailable" || retryAfter != time.Minute || failConnection {
+		t.Fatalf("refused Discord tool policy=(%q,%s,%t)", code, retryAfter, failConnection)
+	}
 }
 
 func TestConnectionIdentityFailurePolicyFailsInsufficientPermission(t *testing.T) {

@@ -10,6 +10,7 @@ import {
 import type { ReactElement } from "react";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { defineGlobalProperty } from "@/test/global-properties";
 
 import { NavigationDrawer } from "@/components/ui/navigation-drawer";
 import {
@@ -92,7 +93,7 @@ describe("TaskSidebar", () => {
 
   beforeEach(() => {
     const store = new Map<string, string>();
-    Object.defineProperty(globalThis, "localStorage", {
+    defineGlobalProperty(globalThis, "localStorage", {
       configurable: true,
       value: {
         get length() {
@@ -882,7 +883,7 @@ describe("TaskSidebar", () => {
       within(launcher)
         .getAllByRole("button")
         .map((button) => button.getAttribute("aria-label")),
-    ).toEqual(["Documents", "Collaboration"]);
+    ).toEqual(["Documents", "Routines", "Collaboration"]);
     expect(screen.queryByRole("button", { name: "Thread" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Room info" })).toBeNull();
     expect(screen.queryByText("Suggestion")).toBeNull();
@@ -899,18 +900,56 @@ describe("TaskSidebar", () => {
 
     fireEvent.click(documents);
     expect(onCreate).toHaveBeenCalledWith("file");
-    expect(screen.queryByRole("button", { name: "Routines" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Routines" }));
+    expect(onCreate).toHaveBeenCalledWith("routines");
     fireEvent.click(screen.getByRole("button", { name: "Collaboration" }));
     expect(onCreate).toHaveBeenCalledWith("collaboration");
 
     fireEvent.click(screen.getByRole("button", { name: "Add panel view" }));
     expect(screen.getByRole("menu", { name: "Add panel view" })).toBeVisible();
     expect(screen.getByRole("menuitem", { name: "Documents" })).toBeVisible();
-    expect(screen.queryByRole("menuitem", { name: "Routines" })).toBeNull();
+    expect(screen.getByRole("menuitem", { name: "Routines" })).toBeVisible();
     expect(
       screen.getByRole("menuitem", { name: "Collaboration" }),
     ).toBeVisible();
     expect(screen.queryByRole("menuitem", { name: "Room info" })).toBeNull();
+  });
+
+  it("renders the room Routines tab and opens it from Room settings", async () => {
+    const runtime = createTestTeamHubRuntime();
+    runtime.server.on("GET", "/v0/rooms/{roomId}/routines", () => ({
+      items: [
+        {
+          id: "routine-room-1",
+          room_id: "room-all",
+          created_by_actor_id: "actor-jenny",
+          name: "Weekly sync reminder",
+          instruction: "Post the weekly sync reminder",
+          cadence: { kind: "daily", timezone: "UTC", hour: 9, minute: 0 },
+          enabled: true,
+          revision: 1,
+          created_at: "2026-09-21T00:00:00Z",
+          updated_at: "2026-09-21T00:00:00Z",
+          next_run_at: "2027-01-01T09:00:00Z",
+        },
+      ],
+      page: { has_more: false },
+    }));
+    const routinesTab: PanelTab = {
+      id: panelTabKey("routines", {}),
+      kind: "routines",
+      lastActivatedAt: 1,
+      title: "Routines",
+    };
+    renderSidebar({
+      activeTabId: routinesTab.id,
+      roomId: "room-all",
+      runtime,
+      tabs: [routinesTab],
+      tenantId: "tenant-northstar",
+    });
+    expect(await screen.findByText("Weekly sync reminder")).toBeVisible();
+    expect(screen.getByText(/Message only$/)).toBeVisible();
   });
 
   it("reopens the current Agent Info from the empty panel", () => {
@@ -957,20 +996,51 @@ describe("TaskSidebar", () => {
       tabs: [roomInfoTab],
     });
 
-    expect(screen.getByRole("heading", { name: "Product" })).toBeVisible();
-    expect(screen.getByLabelText("2 members")).toBeVisible();
+    const heading = screen.getByRole("heading", { name: "Product", level: 2 });
+    expect(heading).toBeVisible();
+    expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
+    const avatarStack = screen.getByLabelText("2 members");
+    expect(avatarStack).toBeVisible();
+    const overlappingTiles = avatarStack.querySelectorAll("span.bg-card");
+    expect(overlappingTiles).toHaveLength(2);
     expect(
       within(screen.getByRole("tablist", { name: "Room info sections" }))
         .getAllByRole("tab")
         .map((tab) => tab.textContent),
-    ).toEqual(["agents", "files"]);
-    expect(screen.getByRole("tab", { name: "agents" })).toHaveAttribute(
+    ).toEqual(["Members", "Files"]);
+    expect(screen.getByRole("tab", { name: "Members" })).toHaveAttribute(
       "aria-selected",
       "true",
     );
+    const offlineRow = screen.getByText("Offline Agent").parentElement!;
+    expect(offlineRow.className).not.toMatch(/hover:bg-/);
     expect(screen.getByText("Offline Agent")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Files" }));
+    const emptyFiles = screen.getByText("No Room files");
+    expect(emptyFiles).toBeVisible();
+    expect(emptyFiles.querySelector("svg")).not.toBeNull();
+
     fireEvent.click(screen.getByRole("button", { name: "Edit Room" }));
     expect(onOpenRoomSettings).toHaveBeenCalledOnce();
+  });
+
+  it("renders an honest empty state for an unanchored thread collection tab", () => {
+    const draftThreadTab: PanelTab = {
+      id: "thread:draft",
+      kind: "thread",
+      lastActivatedAt: 1,
+      title: "Thread",
+    };
+    renderSidebar({
+      activeTabId: draftThreadTab.id,
+      tabs: [draftThreadTab],
+    });
+
+    const panel = screen.getByTestId("panel-tab-thread-draft");
+    expect(panel).toHaveTextContent("No thread selected");
+    expect(panel).not.toHaveTextContent("Good afternoon");
+    expect(panel).not.toHaveTextContent("Message Anotherme");
   });
 
   it("opens a safe browser-like URL preview", () => {
@@ -1452,6 +1522,53 @@ describe("TaskSidebar", () => {
     } finally {
       overlay.remove();
     }
+  });
+
+  it("ignores Escape while focus is in an editable input, textarea, or contenteditable editor", () => {
+    const onCloseTab = vi.fn();
+    const onCollapse = vi.fn();
+    renderSidebar({
+      activeTabId: panelTabKey("thread", { anchorMessageId: "msg-a" }),
+      onCloseTab,
+      onCollapse,
+      tabs: [threadTab("msg-a", "Alpha task", 1)],
+    });
+
+    const textarea = document.createElement("textarea");
+    const input = document.createElement("input");
+    const editor = document.createElement("div");
+    editor.setAttribute("contenteditable", "true");
+    document.body.append(textarea, input, editor);
+    try {
+      textarea.focus();
+      fireEvent.keyDown(textarea, { key: "Escape" });
+      input.focus();
+      fireEvent.keyDown(input, { key: "Escape" });
+      editor.focus();
+      fireEvent.keyDown(editor, { key: "Escape" });
+      expect(onCloseTab).not.toHaveBeenCalled();
+      expect(onCollapse).not.toHaveBeenCalled();
+    } finally {
+      textarea.remove();
+      input.remove();
+      editor.remove();
+    }
+  });
+
+  it("ignores Escape when the sidebar is closed", () => {
+    const onCloseTab = vi.fn();
+    const onCollapse = vi.fn();
+    renderSidebar({
+      activeTabId: panelTabKey("thread", { anchorMessageId: "msg-a" }),
+      onCloseTab,
+      onCollapse,
+      open: false,
+      tabs: [threadTab("msg-a", "Alpha task", 1)],
+    });
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onCloseTab).not.toHaveBeenCalled();
+    expect(onCollapse).not.toHaveBeenCalled();
   });
 
   it("moves the active tab on Cmd+Alt+ArrowRight", () => {

@@ -15,6 +15,7 @@ export type AgentToDaemonEnvelope =
   | CapabilityBrowserConnect
   | CapabilityComputerPermission
   | CapabilityLocalModelsExecute
+  | CapabilityModelSource
   | OperationPrepare
   | ProviderPrepare
   | SessionCompact
@@ -22,11 +23,16 @@ export type AgentToDaemonEnvelope =
   | OperationStart
   | OperationInput
   | OperationCancel
+  | ModelInvokeCancel
   | OperationAck
   | ComputerToolCall;
 export type ProtocolVersion = "2";
 export type Id = string;
 export type PositiveInteger = number;
+/**
+ * An optional Runner behavior the Agent Service accepts. An older service rejects its frames as a protocol violation.
+ */
+export type ServiceFeature = "local_models" | "byok_endpoint";
 export type JsonValue =
   | null
   | boolean
@@ -109,6 +115,20 @@ export type CapabilityLocalModelsExecute = LocalSkillCommandIdentity & {
  * Stable localmodels library id: catalog id and variant, such as qwen3-4b:Q4_K_M.
  */
 export type LocalModelId = string;
+export type CapabilityModelSource = LocalSkillCommandIdentity & {
+  type: "execute";
+  kind: "model_source";
+  action: "status" | "test" | "models" | "apply";
+  mode?: "local" | "subscription" | "byok";
+  runtime?: "claude" | "codex" | "pi";
+  local_model_id?: LocalModelId;
+  byok?: ByokConfigInput;
+};
+/**
+ * A path appended to a BYOK base URL: empty, or whole segments each led by one slash.
+ */
+export type ByokUrlPath = string;
+export type ByokProtocol = "openai-chat" | "openai-responses" | "anthropic";
 export type OperationPrepare = OperationIdentity & {
   type: "prepare";
   command_id: Id;
@@ -117,6 +137,7 @@ export type OperationPrepare = OperationIdentity & {
   session_options: SessionOptions;
   session: OpaqueObject;
   permission_review?: true;
+  stop_hook?: true;
   /**
    * @maxItems 64
    */
@@ -139,7 +160,7 @@ export type OperationIdentity = OperationScope & {
   generation: PositiveInteger;
   execution_lease_id: Id;
   workspace_grant_id: Id;
-  runtime_type: "codex" | "claude" | "pi";
+  runtime_type: "codex" | "claude" | "pi" | "antigravity";
 };
 export type OperationStart = OperationScope & {
   type: "operation.start";
@@ -159,7 +180,7 @@ export type OperationStart = OperationScope & {
   generation: PositiveInteger;
   execution_lease_id: Id;
   workspace_grant_id: Id;
-  runtime_type: "codex" | "claude" | "pi";
+  runtime_type: "codex" | "claude" | "pi" | "antigravity";
   host_access?: "trusted";
   request: RuntimeOperationRequest;
 };
@@ -203,6 +224,8 @@ export type DaemonToAgentEnvelope =
   | CapabilityComputerPermissionFailed
   | CapabilityLocalModelsAccepted
   | CapabilityLocalModelsRefused
+  | CapabilityModelSourceSucceeded
+  | CapabilityModelSourceFailed
   | OperationPrepared
   | ProviderPrepared
   | SessionCompacted
@@ -218,12 +241,18 @@ export type DaemonToAgentEnvelope =
   | ComputerToolResult;
 /**
  * @minItems 1
- * @maxItems 3
+ * @maxItems 4
  */
 export type RuntimeDiagnostics =
   | [RuntimeDiagnostic]
   | [RuntimeDiagnostic, RuntimeDiagnostic]
-  | [RuntimeDiagnostic, RuntimeDiagnostic, RuntimeDiagnostic];
+  | [RuntimeDiagnostic, RuntimeDiagnostic, RuntimeDiagnostic]
+  | [
+      RuntimeDiagnostic,
+      RuntimeDiagnostic,
+      RuntimeDiagnostic,
+      RuntimeDiagnostic,
+    ];
 /**
  * @maxItems 100
  */
@@ -283,7 +312,7 @@ export type ActiveOperation = OperationScope & {
   generation: PositiveInteger;
   execution_lease_id: Id;
   workspace_grant_id: Id;
-  runtime_type: "codex" | "claude" | "pi";
+  runtime_type: "codex" | "claude" | "pi" | "antigravity";
   kind: "run.start";
   last_emitted_seq: NonNegativeInteger;
   last_acked_seq: NonNegativeInteger;
@@ -474,6 +503,22 @@ export type LocalModelActionRefusalCode =
   | "CANCELLED"
   | "TOOL_NOT_INSTALLED"
   | "TOOL_FAILED";
+export type CapabilityModelSourceSucceeded = LocalSkillCommandIdentity & {
+  type: "executed";
+  kind: "model_source";
+  action: "status" | "test" | "models" | "apply";
+  outcome: "succeeded";
+  status?: ModelSourceStatus;
+  test_result?: ByokTestResult;
+  model_list?: ByokModelList;
+};
+export type CapabilityModelSourceFailed = LocalSkillCommandIdentity & {
+  type: "executed";
+  kind: "model_source";
+  action: "status" | "test" | "models" | "apply";
+  error: AgentRunnerError;
+  outcome: "failed";
+};
 export type OperationPrepared = OperationIdentity & {
   type: "prepared";
   command_id: Id;
@@ -781,6 +826,10 @@ export interface RunnerWelcome {
    * Base URL the Computer fetches Context View manifests (views/<view_digest>) and files (files/<sha256>) from while this connection is current.
    */
   context_content_url?: string;
+  /**
+   * Runner behaviors this Agent Service accepts beyond the protocol 2 base. A Computer sends runner.local_models and runs execute with kind local_models only when the list names local_models. The service sends the field only to a Computer release that decodes it.
+   */
+  service_features?: ServiceFeature[];
 }
 export interface ComputerTargetRelease {
   targets: {
@@ -818,7 +867,7 @@ export interface RuntimeRegistration {
 export interface RuntimeRegistrationObservation {
   tenant_id: Id;
   owner_actor_id: Id;
-  provider_type: "codex" | "claude" | "pi";
+  provider_type: "codex" | "claude" | "pi" | "antigravity";
   status: "online" | "offline" | "unavailable";
   revision: PositiveInteger;
   capabilities: Id[];
@@ -838,7 +887,7 @@ export interface AgentRunnerWireIdentity {
   runner_revision: PositiveInteger;
 }
 export interface RuntimeConfig {
-  type: "codex" | "claude" | "pi";
+  type: "codex" | "claude" | "pi" | "antigravity";
   model?: string;
   reasoning_effort?:
     | "none"
@@ -890,6 +939,19 @@ export interface LocalSkillCommandIdentity {
   owner_actor_id: Id;
   connection_epoch: PositiveInteger;
   expires_at: Timestamp;
+}
+/**
+ * A BYOK endpoint: requests go to base_url + path + endpoint in protocol, and models are listed at base_url + path + /models. model_id is required except to list the endpoint's models.
+ */
+export interface ByokConfigInput {
+  base_url: string;
+  path: ByokUrlPath;
+  endpoint: ByokUrlPath;
+  protocol: ByokProtocol;
+  api_key?: string;
+  model_id?: string;
+  context_window?: number;
+  reuse_saved_key?: boolean;
 }
 export interface OperationScope {
   protocol_version: ProtocolVersion;
@@ -946,6 +1008,7 @@ export interface ProviderPrepare {
 export interface ProviderPrepareRunContext {
   human_interactions?: boolean;
   permission_review?: boolean;
+  stop_hook?: boolean;
 }
 /**
  * Compacts the native session of the process parked for this Context with the Runtime's own compaction. It never starts a process; without a parked process the answer is no_process.
@@ -976,7 +1039,7 @@ export interface ModelInvoke {
   tenant_id: Id;
   owner_actor_id: Id;
   agent_id: Id;
-  runtime_type: "codex" | "claude";
+  runtime_type: "codex" | "claude" | "pi";
   mode: "structured" | "text" | "workspace";
   reasoning_effort: "low" | "medium" | "high";
   instructions?: string;
@@ -1025,6 +1088,14 @@ export interface ContextRunContext {
    * The Daemon sends Runtime permission prompts as human_interaction.requested with kind permission_review; Agent Service answers each with an operation.input runtime_response.
    */
   permission_review?: boolean;
+  /**
+   * The Daemon sends Runtime stop-hook checks as human_interaction.requested with kind runtime_hook (hook: stop); Agent Service answers each with an operation.input runtime_response.
+   */
+  stop_hook?: boolean;
+  /**
+   * Continue the exact native session of this Run after a confirmed scheduler cancellation.
+   */
+  resume_after_yield?: boolean;
   execution_run_ref: Id;
   /**
    * @maxItems 1024
@@ -1043,6 +1114,19 @@ export interface LocalRunResources {
    * @maxItems 128
    */
   mcp_servers: LocalMcpRelayDescriptor[];
+}
+/**
+ * Stops one model_invoke the Daemon is running. Its executed model_invoke follows as usual, canceled unless the call finished first; a cancel for a call that is not running does nothing. The Agent Service sends it only to a Computer release that decodes it.
+ */
+export interface ModelInvokeCancel {
+  type: "cancel";
+  target: "model_invoke";
+  command_id: Id;
+  invoke_id: Id;
+  protocol_version: ProtocolVersion;
+  runner_id: Id;
+  connection_epoch: PositiveInteger;
+  reason: "scheduler_yield";
 }
 export interface ComputerToolCall {
   type: "execute";
@@ -1086,7 +1170,7 @@ export interface RunnerHello {
   /**
    * @minItems 0
    */
-  runtimes: ("codex" | "claude" | "pi")[];
+  runtimes: ("codex" | "claude" | "pi" | "antigravity")[];
   runtime_diagnostics: RuntimeDiagnostics;
   capabilities: RunnerCapability[];
   workspace_grants: WorkspaceGrant[];
@@ -1094,14 +1178,14 @@ export interface RunnerHello {
   active_operations: ActiveOperation[];
 }
 export interface RuntimeDiagnostic {
-  type: "codex" | "claude" | "pi";
+  type: "codex" | "claude" | "pi" | "antigravity";
   status:
     | "not_installed"
     | "authentication_required"
     | "ready"
     | "incompatible"
     | "error";
-  protocol: "app-server" | "stream-json" | "rpc";
+  protocol: "app-server" | "stream-json" | "rpc" | "acp";
   checked_at: Timestamp;
   version?: string;
   /**
@@ -1229,7 +1313,7 @@ export interface HerdrAgentEvent {
   tail?: string;
 }
 /**
- * The Computer's model library. Sent after runner.hello, after every library change, and at most every 2 seconds while a download or load runs. revision grows within one connection.
+ * The Computer's model library. Sent after a runner.welcome whose service_features names local_models, after every library change, and at most every 2 seconds while a download or load runs. revision grows within one connection.
  */
 export interface RunnerLocalModels {
   type: "runner.local_models";
@@ -1429,6 +1513,14 @@ export interface LocalModelError {
    * Diagnostic text for display; never matched on.
    */
   detail?: string;
+  /**
+   * Why a GATEWAY_REGISTRATION_FAILED happened, from the failed job's error line. GATEWAY_HOME_NOT_PRIVATE: the local gateway's private folder at path has another owner.
+   */
+  cause?: "GATEWAY_HOME_NOT_PRIVATE";
+  /**
+   * The folder the cause names.
+   */
+  path?: string;
 }
 /**
  * Present only when idle and the automatic load after download was skipped.
@@ -1836,6 +1928,58 @@ export interface LocalModelActionRefusal {
    */
   free_bytes?: number;
 }
+export interface ModelSourceStatus {
+  mode: "local" | "subscription" | "byok";
+  runtime: "claude" | "codex" | "pi";
+  /**
+   * After apply, the model the Computer's Agents run: the target model when the active Runtime offers it, else that Runtime's default.
+   */
+  runtime_model: string;
+  /**
+   * After apply, the reasoning effort runtime_model needs; absent when it offers none.
+   */
+  reasoning_effort?:
+    | "none"
+    | "low"
+    | "medium"
+    | "high"
+    | "xhigh"
+    | "max"
+    | "ultra";
+  gateway_url?: string;
+  byok: ByokSummary;
+}
+/**
+ * path and endpoint are sent only to an Agent Service that declares byok_endpoint, and are omitted when empty: a configured summary without them appends nothing there.
+ */
+export interface ByokSummary {
+  configured: boolean;
+  protocol?: ByokProtocol;
+  base_url?: string;
+  path?: ByokUrlPath;
+  endpoint?: ByokUrlPath;
+  model_id?: string;
+  context_window?: number;
+  key_saved: boolean;
+}
+export interface ByokTestResult {
+  ok: boolean;
+  protocol: ByokProtocol;
+  url: string;
+  model_id: string;
+  context_window: number;
+}
+export interface ByokModelList {
+  url: string;
+  /**
+   * @maxItems 1000
+   */
+  models: {
+    id: string;
+    name?: string;
+    context_window?: number;
+  }[];
+}
 export interface NativeResumeMeasurement {
   duration_ms: NonNegativeInteger;
   result: "success" | "error" | "canceled";
@@ -1941,7 +2085,7 @@ export interface RuntimeExecutionFailure {
     | "model_service_error"
     | "timeout"
     | "execution_failed";
-  runtime_type: "codex" | "claude" | "pi";
+  runtime_type: "codex" | "claude" | "pi" | "antigravity";
   runtime_version?: string;
 }
 export interface RuntimeFailureDiagnostics {

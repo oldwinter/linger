@@ -91,15 +91,27 @@ export async function prepareModelGateway(
   },
   dependencies: Dependencies = {},
 ): Promise<void> {
-  if (setupSelection(choice).modelSource !== "local")
+  const source = setupSelection(choice).modelSource;
+  if (source !== "local" && source !== "byok")
     return retireModelGateway(instance, options, dependencies);
-  // The SDK controller fronts the approved stack's existing Magpie catalog.
+  // The SDK controller fronts the approved stack or BYOK Bifrost catalog.
   const raw = await readPrivate(
     path.join(instance.root, "model-services.json"),
   );
-  if (!raw)
+  if (!raw) {
+    if (source === "byok") return;
     throw new Error("The local stack application gateway is not prepared.");
-  const binding = validateLocal(instance, JSON.parse(raw));
+  }
+  const parsed = JSON.parse(raw) as unknown;
+  if (
+    source === "byok" &&
+    parsed &&
+    typeof parsed === "object" &&
+    "state" in parsed &&
+    (parsed as { state?: unknown }).state === "unavailable"
+  )
+    return;
+  const binding = validateLocal(instance, parsed);
   await validateLocalKey(instance, binding);
   await atomicPrivate(descriptorFile(instance), JSON.stringify(binding));
 }

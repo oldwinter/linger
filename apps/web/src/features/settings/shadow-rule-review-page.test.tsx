@@ -1,5 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 
@@ -16,6 +23,7 @@ import { ShadowRuleReviewPage } from "./shadow-rule-review-page";
 const firstId = "pr_0000000000000000000000000000000b";
 const secondId = "pr_0000000000000000000000000000000c";
 const rulesPath = "/v0/tenants/{tenantId}/me/proactive-rules";
+const rulePath = "/v0/tenants/{tenantId}/me/proactive-rules/{ruleId}";
 const promotionPath =
   "/v0/tenants/{tenantId}/me/proactive-rules/{ruleId}/promotion";
 
@@ -165,5 +173,110 @@ describe("Review new rules", () => {
     expect(
       await screen.findByRole("heading", { name: "No new rules to review." }),
     ).toBeVisible();
+  });
+
+  it("edits a shadow rule inline before promoting it and shows loading state", async () => {
+    const initial = book([rule(firstId, "Vendor invoices", "shadow")]);
+    const runtime = renderReview(initial);
+    let resolveEdit!: () => void;
+    const editResponse = new Promise<TeamHubProactiveRuleBook>((resolve) => {
+      resolveEdit = () =>
+        resolve(book([rule(firstId, "Urgent vendor invoices only", "shadow")]));
+    });
+    const patch = vi.fn(
+      ({ body, params }: { body?: unknown; params: { ruleId?: string } }) => {
+        expect(params.ruleId).toBe(firstId);
+        expect(body).toEqual({ text: "Urgent vendor invoices only" });
+        return editResponse;
+      },
+    );
+    const promote = vi.fn(() =>
+      book([rule(firstId, "Urgent vendor invoices only", "active")]),
+    );
+    runtime.server.on("PATCH", rulePath, patch);
+    runtime.server.on("POST", promotionPath, promote);
+
+    expect(
+      await screen.findByRole("heading", { name: "Vendor invoices" }),
+    ).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    const editor = screen.getByRole("textbox", { name: "Rule text" });
+    expect(editor).toHaveValue("Vendor invoices");
+
+    fireEvent.change(editor, {
+      target: { value: "Urgent vendor invoices only" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Save" })).toHaveAttribute(
+        "aria-busy",
+        "true",
+      ),
+    );
+    await act(async () => resolveEdit());
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "Urgent vendor invoices only",
+      }),
+    ).toBeVisible();
+    expect(patch).toHaveBeenCalledOnce();
+    expect(promote).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Promote" }));
+    expect(
+      await screen.findByRole("heading", {
+        name: "You promoted 1 rule. None stay in shadow.",
+      }),
+    ).toBeVisible();
+    expect(screen.getByText("Urgent vendor invoices only")).toBeVisible();
+  });
+
+  it("confirms before deleting a wrong learned rule and updates the review summary", async () => {
+    const initial = book([
+      rule(firstId, "Vendor invoices", "shadow"),
+      rule(secondId, "Travel receipts", "shadow"),
+    ]);
+    const runtime = renderReview(initial);
+    const remove = vi.fn(({ params }: { params: { ruleId?: string } }) => {
+      expect(params.ruleId).toBe(firstId);
+      return book([rule(secondId, "Travel receipts", "shadow")]);
+    });
+    const promote = vi.fn(() =>
+      book([rule(secondId, "Travel receipts", "active")]),
+    );
+    runtime.server.on("DELETE", rulePath, remove);
+    runtime.server.on("POST", promotionPath, promote);
+
+    expect(
+      await screen.findByRole("heading", { name: "Vendor invoices" }),
+    ).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    const dialog = screen.getByRole("dialog", { name: "Delete rule?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog", { name: "Delete rule?" })).toBeNull();
+    expect(remove).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    const reopened = screen.getByRole("dialog", { name: "Delete rule?" });
+    fireEvent.click(
+      within(reopened).getByRole("button", { name: "Delete rule" }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Travel receipts" }),
+    ).toBeVisible();
+    expect(remove).toHaveBeenCalledOnce();
+
+    fireEvent.click(screen.getByRole("button", { name: "Promote" }));
+    expect(
+      await screen.findByRole("heading", {
+        name: "You promoted 1 rule. 1 deleted.",
+      }),
+    ).toBeVisible();
+    expect(screen.getByText("Travel receipts")).toBeVisible();
   });
 });

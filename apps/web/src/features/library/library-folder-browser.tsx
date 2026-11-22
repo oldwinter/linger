@@ -1,6 +1,14 @@
-import { ArrowRight01Icon, Folder01Icon } from "@hugeicons/core-free-icons";
+import {
+  ArrowRight01Icon,
+  Delete02Icon,
+  Folder01Icon,
+  FolderExportIcon,
+  MoreHorizontalIcon,
+  PencilEdit01Icon,
+} from "@hugeicons/core-free-icons";
 import { type FormEvent, useState } from "react";
 
+import { ActionMenu } from "@/components/ui/action-menu";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { ModalDialog } from "@/components/ui/modal-dialog";
@@ -8,19 +16,18 @@ import type {
   TeamHubDocumentPlacementNode,
   TeamHubDocumentTreeSummary,
 } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import { formatLocale } from "@/i18n/language";
+import { useT, useTranslation } from "@/i18n/use-translation";
+import { formatDateTime, formatUpdatedAt } from "@/lib/date-format";
 
 import type { PendingDocumentUpload } from "./library-upload-queue";
+import { libraryMessages as m } from "./library.messages";
 
 export type LibraryFolder = Extract<
   TeamHubDocumentPlacementNode,
   { node_kind: "folder" }
 >;
-
-const folderDateFormatter = new Intl.DateTimeFormat("en-US", {
-  day: "numeric",
-  month: "short",
-  year: "numeric",
-});
 
 /** Folders and Documents placed directly in one My pages folder (root when undefined). */
 export function folderChildren(
@@ -60,6 +67,31 @@ export function folderDescendantDocuments(
   return documents;
 }
 
+/** Every Folder below a folder (the whole tree when undefined), at any depth. */
+export function folderDescendantFolders(
+  items: readonly TeamHubDocumentPlacementNode[],
+  folderId: string | undefined,
+) {
+  const childrenByParent = new Map<
+    string | undefined,
+    TeamHubDocumentPlacementNode[]
+  >();
+  for (const item of items) {
+    const siblings = childrenByParent.get(item.parent_id) ?? [];
+    siblings.push(item);
+    childrenByParent.set(item.parent_id, siblings);
+  }
+  const folders: LibraryFolder[] = [];
+  const pending = [...(childrenByParent.get(folderId) ?? [])];
+  for (let item = pending.pop(); item; item = pending.pop()) {
+    if (item.node_kind === "folder") {
+      folders.push(item);
+      pending.push(...(childrenByParent.get(item.id) ?? []));
+    }
+  }
+  return folders;
+}
+
 /** The folder and its ancestors, outermost first; empty when the folder is gone. */
 export function folderTrail(
   items: readonly TeamHubDocumentPlacementNode[],
@@ -84,9 +116,10 @@ export function LibraryFolderBreadcrumb({
   rootLabel: string;
   trail: readonly LibraryFolder[];
 }) {
+  const t = useT();
   return (
     <nav
-      aria-label="Folder path"
+      aria-label={t(m.folderPath)}
       className="mb-3 flex flex-wrap items-center gap-1 text-sm"
     >
       <button
@@ -118,18 +151,35 @@ export function LibraryFolderBreadcrumb({
   );
 }
 
+export interface LibraryFolderRowActions {
+  busy?: boolean;
+  onDelete: (folderId: string) => void;
+  onMove: (folder: LibraryFolder) => void;
+  onRename: (folder: LibraryFolder) => void;
+}
+
 export function LibraryFolderRow({
+  actions,
   folder,
   onOpen,
 }: {
+  actions?: LibraryFolderRowActions;
   folder: LibraryFolder;
   onOpen: (folderId: string) => void;
 }) {
-  const date = new Date(folder.updated_at);
+  const translation = useTranslation();
+  const { t } = translation;
+  const exactTitle = Number.isFinite(Date.parse(folder.updated_at))
+    ? formatDateTime(
+        folder.updated_at,
+        undefined,
+        formatLocale(translation.language),
+      )
+    : undefined;
   return (
     <div className="workspace-file-row">
       <button
-        aria-label={`Open folder ${folder.name}`}
+        aria-label={t(m.openFolder, { name: folder.name })}
         className="workspace-file-name text-left"
         onClick={() => onOpen(folder.id)}
         type="button"
@@ -139,17 +189,47 @@ export function LibraryFolderRow({
         </span>
         <span className="min-w-0">
           <strong>{folder.name}</strong>
-          <span className="workspace-file-context">Folder</span>
+          <span className="workspace-file-context">{t(m.folder)}</span>
         </span>
       </button>
       <div className="workspace-file-metadata">
-        <time dateTime={folder.updated_at} title={folder.updated_at}>
-          {Number.isNaN(date.valueOf())
-            ? "—"
-            : folderDateFormatter.format(date)}
+        <time dateTime={folder.updated_at} title={exactTitle}>
+          {formatUpdatedAt(folder.updated_at, undefined, translation)}
         </time>
       </div>
-      <span aria-hidden="true" />
+      {actions ? (
+        <ActionMenu
+          buttonClassName="workspace-file-action"
+          items={[
+            {
+              disabled: actions.busy,
+              icon: <Icon icon={PencilEdit01Icon} size={14} />,
+              label: t(m.rename),
+              onSelect: () => actions.onRename(folder),
+            },
+            {
+              disabled: actions.busy,
+              icon: <Icon icon={FolderExportIcon} size={14} />,
+              label: t(m.move),
+              onSelect: () => actions.onMove(folder),
+            },
+            {
+              danger: true,
+              disabled: actions.busy,
+              icon: <Icon icon={Delete02Icon} size={14} />,
+              label: t(commonMessages.delete),
+              onSelect: () => actions.onDelete(folder.id),
+              separatorBefore: true,
+              voiceRisk: "never",
+            },
+          ]}
+          label={t(m.actionsFor, { name: folder.name })}
+          placement="bottom-end"
+          trigger={<Icon icon={MoreHorizontalIcon} size={14} />}
+        />
+      ) : (
+        <span aria-hidden="true" />
+      )}
     </div>
   );
 }
@@ -160,27 +240,28 @@ export function LibraryUploadSummary({
 }: {
   uploads: readonly PendingDocumentUpload[];
 }) {
+  const t = useT();
   if (uploads.length === 0) return null;
   const current = uploads.find((upload) => upload.status === "uploading");
   const percent = Math.round((current?.progress ?? 0) * 100);
   return (
     <div
-      aria-label="Upload progress"
+      aria-label={t(m.uploadProgress)}
       className="mb-2 rounded-lg border border-app-border px-3 py-2 text-xs text-app-muted"
       role="status"
     >
       <div className="flex items-center justify-between gap-3">
         <span className="truncate">
-          {current ? `Uploading ${current.filename}` : "Preparing upload…"}
+          {current
+            ? t(m.uploadingFile, { filename: current.filename })
+            : t(m.preparingUpload)}
         </span>
         <span className="shrink-0">
-          {uploads.length === 1
-            ? "1 file left"
-            : `${uploads.length} files left`}
+          {t(m.filesLeft, { count: uploads.length })}
         </span>
       </div>
       <div
-        aria-label="Current file upload"
+        aria-label={t(m.currentFileUpload)}
         aria-valuemax={100}
         aria-valuemin={0}
         aria-valuenow={percent}
@@ -205,6 +286,7 @@ export function NewFolderDialog({
   onCancel: () => void;
   onCreate: (name: string) => Promise<void>;
 }) {
+  const t = useT();
   const [name, setName] = useState(defaultName);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -221,7 +303,7 @@ export function NewFolderDialog({
       setError(
         createError instanceof Error
           ? createError.message
-          : "The folder could not be created.",
+          : t(m.folderNotCreated),
       );
       setPending(false);
     }
@@ -233,7 +315,7 @@ export function NewFolderDialog({
       footer={
         <>
           <Button disabled={pending} onClick={onCancel} tone="secondary">
-            Cancel
+            {t(commonMessages.cancel)}
           </Button>
           <Button
             disabled={!trimmed}
@@ -241,7 +323,7 @@ export function NewFolderDialog({
             onClick={() => void submit()}
             tone="primary"
           >
-            Create
+            {t(m.create)}
           </Button>
         </>
       }
@@ -249,13 +331,15 @@ export function NewFolderDialog({
         if (!pending) onCancel();
       }}
       size="sm"
-      title="New folder"
+      title={t(m.newFolder)}
     >
       <form className="px-5 py-4" onSubmit={(event) => void submit(event)}>
         <label className="block text-sm font-medium text-app-body">
-          Folder name
+          {t(m.folderName)}
           <input
-            aria-label="Folder name"
+            aria-label={t(m.folderName)}
+            // eslint-disable-next-line jsx-a11y/no-autofocus -- the field is focused on purpose because the user just opened this dialog or inline editor
+            autoFocus
             className="mt-1 h-9 w-full rounded-md border border-app-border bg-transparent px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             maxLength={255}
             onChange={(event) => setName(event.target.value)}
@@ -269,6 +353,110 @@ export function NewFolderDialog({
           </p>
         ) : null}
       </form>
+    </ModalDialog>
+  );
+}
+
+export function RenameFolderDialog({
+  error,
+  name,
+  onCancel,
+  onChange,
+  onSubmit,
+}: {
+  error: string | null;
+  name: string;
+  onCancel: () => void;
+  onChange: (name: string) => void;
+  onSubmit: () => void;
+}) {
+  const trimmed = name.trim();
+
+  function submit(event?: FormEvent) {
+    event?.preventDefault();
+    if (!trimmed) return;
+    onSubmit();
+  }
+
+  return (
+    <ModalDialog
+      footer={
+        <>
+          <Button onClick={onCancel} tone="secondary">
+            Cancel
+          </Button>
+          <Button disabled={!trimmed} onClick={() => submit()} tone="primary">
+            Save
+          </Button>
+        </>
+      }
+      onClose={onCancel}
+      size="sm"
+      title="Rename folder"
+    >
+      <form className="px-5 py-4" onSubmit={submit}>
+        <label className="block text-sm font-medium text-app-body">
+          Folder name
+          <input
+            aria-label="Folder name"
+            className="mt-1 h-9 w-full rounded-md border border-app-border bg-transparent px-3 text-sm placeholder:text-app-placeholder focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            maxLength={255}
+            onChange={(event) => onChange(event.target.value)}
+            onFocus={(event) => event.currentTarget.select()}
+            onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing || event.keyCode === 229) {
+                event.stopPropagation();
+              }
+            }}
+            value={name}
+          />
+        </label>
+        {error ? (
+          <p className="mt-3 text-sm text-app-danger" role="alert">
+            {error}
+          </p>
+        ) : null}
+      </form>
+    </ModalDialog>
+  );
+}
+
+export function DeleteFolderDialog({
+  name,
+  onCancel,
+  onConfirm,
+  pending,
+}: {
+  name: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+  pending: boolean;
+}) {
+  return (
+    <ModalDialog
+      closeOnBackdrop={!pending}
+      description={
+        <>
+          Delete <strong>{name}</strong>? This action cannot be undone.
+        </>
+      }
+      footer={
+        <>
+          <Button disabled={pending} onClick={onCancel} tone="secondary">
+            Cancel
+          </Button>
+          <Button loading={pending} onClick={onConfirm} tone="danger">
+            Delete folder
+          </Button>
+        </>
+      }
+      onClose={() => {
+        if (!pending) onCancel();
+      }}
+      size="sm"
+      title="Delete folder"
+    >
+      {null}
     </ModalDialog>
   );
 }

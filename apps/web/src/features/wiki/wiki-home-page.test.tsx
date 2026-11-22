@@ -61,7 +61,13 @@ it("waits with the page Another Me finished yesterday until it is opened", async
       </TeamHubRuntimeProvider>
     </QueryClientProvider>,
   );
-  expect(await screen.findByRole("link", { name: "Launch" })).toHaveAttribute(
+  const callout = await screen.findByRole("complementary", {
+    name: "Updated yesterday by Another Me",
+  });
+  expect(
+    within(callout).getByText("Updated yesterday by Another Me"),
+  ).toBeVisible();
+  expect(within(callout).getByRole("link", { name: "Launch" })).toHaveAttribute(
     "href",
     "/t/tenant-northstar/documents/project-one",
   );
@@ -75,7 +81,6 @@ it("waits with the page Another Me finished yesterday until it is opened", async
     expect(screen.queryByRole("link", { name: "Launch" })).toBeNull(),
   );
 });
-
 it("shows real collection pages on the Wiki tab and returns to Profile", async () => {
   const runtime = createTestTeamHubRuntime();
   const page = wikiDocument("project-one", "Launch.md", "wiki_page");
@@ -226,6 +231,29 @@ it("offers no Surprise me before the Wiki has pages", async () => {
   expect(screen.queryByRole("button", { name: "Surprise me" })).toBeNull();
 });
 
+it("shows the actionable failure reason when the latest Wiki refresh failed", async () => {
+  const runtime = createTestTeamHubRuntime();
+  serveWikiDocuments(runtime).mockResolvedValue({
+    items: [],
+    page: { has_more: false },
+  });
+  serveWikiStatus(runtime).mockResolvedValue({
+    created_at: "2026-08-23T00:00:00.000Z",
+    failure_reason: "runtime_incompatible",
+    id: "wiki-tenant-northstar",
+    latest_refresh_id: "refresh-2",
+    owner_actor_id: "actor-human",
+    published_generation: 0,
+    state: "failed",
+    tenant_id: "tenant-northstar",
+    updated_at: "2026-08-23T00:00:00.000Z",
+  });
+  renderWikiHome(runtime);
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Wiki update failed — Runtime incompatible, or its model isn't available to your account. Update your local CLI or Linger, or check its model setting.",
+  );
+});
+
 it("never renders a Human Publish command", async () => {
   const runtime = createTestTeamHubRuntime();
   serveWikiDocuments(runtime).mockResolvedValue({
@@ -302,6 +330,71 @@ it("features an earlier Daily and opens that day on the timeline", async () => {
   );
   expect(router.state.location.search).toBe(`?day=${week}`);
   expect(screen.getByText("Timeline")).toBeTruthy();
+});
+
+it("searches pages across Projects, Topics, People, and Companies on the Wiki tab", async () => {
+  const runtime = createTestTeamHubRuntime();
+  const project = wikiDocument("project-atlas", "Atlas Launch.md", "wiki_page");
+  project.from[0]!.page_key = "projects/atlas-launch.md";
+  const topic = wikiDocument("topic-atlas", "Atlas Metrics.md", "wiki_page");
+  topic.from[0]!.page_key = "topics/atlas-metrics.md";
+  const person = wikiDocument("contact-maya", "Maya Lin.md", "wiki_page");
+  person.from[0]!.page_key = "contacts/maya-lin.md";
+  const company = wikiDocument("client-acme", "Acme Corp.md", "wiki_page");
+  company.from[0]!.page_key = "clients/acme-corp.md";
+  serveWikiDocuments(runtime).mockResolvedValue({
+    items: [project, topic, person, company],
+    page: { has_more: false },
+  });
+  renderWikiHome(runtime);
+
+  const search = await screen.findByRole("searchbox", {
+    name: "Search Wiki pages",
+  });
+  expect(search).toHaveAttribute(
+    "placeholder",
+    "Search pages across all collections...",
+  );
+  expect(
+    document
+      .querySelector(".wiki-home-header")
+      ?.classList.contains("flex-wrap"),
+  ).toBe(true);
+
+  fireEvent.change(search, { target: { value: "atlas" } });
+  const results = screen.getByRole("region", { name: "Search results" });
+  expect(
+    within(results).getByText("2 matches across 2 collections"),
+  ).toBeVisible();
+  expect(
+    within(results).getByRole("link", { name: /Atlas Launch/ }),
+  ).toBeVisible();
+  expect(
+    within(results).getByRole("link", { name: /Atlas Metrics/ }),
+  ).toBeVisible();
+  expect(within(results).queryByRole("link", { name: /Maya Lin/ })).toBeNull();
+
+  // Matches across People and Companies too.
+  fireEvent.change(search, { target: { value: "Acme" } });
+  expect(
+    within(results).getByRole("link", { name: /Acme Corp/ }),
+  ).toBeVisible();
+
+  // No matches state offers Clear search.
+  fireEvent.change(search, { target: { value: "nonexistent" } });
+  expect(
+    within(results).getByText("No pages match “nonexistent”."),
+  ).toBeVisible();
+  fireEvent.click(
+    within(results).getByRole("button", { name: "Clear search" }),
+  );
+  expect(search).toHaveValue("");
+  expect(screen.queryByRole("region", { name: "Search results" })).toBeNull();
+
+  // Inline clear button clears query.
+  fireEvent.change(search, { target: { value: "Maya" } });
+  fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+  expect(search).toHaveValue("");
 });
 
 function calendarShift(day: string, delta: number): string {

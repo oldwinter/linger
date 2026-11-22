@@ -1,6 +1,8 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useRef, type ComponentProps } from "react";
 
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import { Button } from "@/components/ui/button";
 import { ArtifactPreviewSurface } from "@/features/rooms/files/artifact-preview-surface";
@@ -11,10 +13,12 @@ import type {
 import { TeamHubError } from "@/features/teamhub/teamhub-client";
 import { documentQueryOptions } from "../../room-queries";
 import { PanelLoading } from "../panel-loading";
+import { sidePanelMessages } from "../side-panel.messages";
 import { documentDetailPath } from "../../files/document-detail-routes";
 import { documentCardVersionQueryKey } from "../../files/use-document-card-metadata";
 
 import { DocumentVoiceSelectionControl } from "../../documents/document-voice-selection-control";
+import { roomDocumentsMessages as m } from "./room-documents.messages";
 
 const LazyUnifiedDocumentSidebar = lazy(() =>
   import("../../documents/room-document-surface").then((module) => ({
@@ -24,8 +28,9 @@ const LazyUnifiedDocumentSidebar = lazy(() =>
 function UnifiedDocumentSidebar(
   props: ComponentProps<typeof LazyUnifiedDocumentSidebar>,
 ) {
+  const t = useT();
   return (
-    <Suspense fallback={<div role="status">Opening document...</div>}>
+    <Suspense fallback={<div role="status">{t(m.openingDocument)}</div>}>
       <LazyUnifiedDocumentSidebar {...props} />
     </Suspense>
   );
@@ -66,6 +71,7 @@ function ConnectedVersionPanelTab({
   versionId?: string;
   previewCurrentVersion?: boolean;
 }) {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const queryClient = useQueryClient();
   const query = useQuery({
@@ -73,7 +79,8 @@ function ConnectedVersionPanelTab({
     enabled: !hidden,
     retry: false,
   });
-  if (query.isPending) return <PanelLoading label="Loading file" />;
+  if (query.isPending)
+    return <PanelLoading label={t(sidePanelMessages.loadingFile)} />;
   const unavailable =
     (query.error instanceof TeamHubError &&
       [403, 404].includes(query.error.status)) ||
@@ -85,18 +92,14 @@ function ConnectedVersionPanelTab({
         role="alert"
       >
         <h3 className="text-sm font-semibold">
-          {unavailable
-            ? "This file is no longer available"
-            : "File could not be loaded"}
+          {unavailable ? t(m.unavailableTitle) : t(m.loadFailedTitle)}
         </h3>
         <p className="text-xs text-app-muted">
-          {unavailable
-            ? "The file was removed or you no longer have access."
-            : "Please retry loading this file."}
+          {unavailable ? t(m.unavailableBody) : t(m.loadFailedBody)}
         </p>
         {!unavailable ? (
           <Button onClick={() => void query.refetch()} size="compact">
-            Retry
+            {t(commonMessages.retry)}
           </Button>
         ) : null}
       </div>

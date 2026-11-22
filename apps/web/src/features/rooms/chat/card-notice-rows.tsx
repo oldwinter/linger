@@ -1,6 +1,13 @@
+import { Fragment } from "react";
 import { Link } from "react-router";
 
-import type { CardNotice, NoticeTarget } from "../cards/card-notice";
+import { useTranslation } from "@/i18n/use-translation";
+
+import {
+  cardNoticeLines,
+  type CardNotice,
+  type NoticeTarget,
+} from "../cards/card-notice";
 
 const pillClass =
   "inline-block max-w-full rounded-[14px] bg-muted px-3 py-1 text-center text-xs leading-[18px] text-muted-foreground [overflow-wrap:anywhere]";
@@ -17,26 +24,28 @@ export function CardNoticeRows({
   notice: CardNotice;
   tenantId: string;
 }) {
+  const translation = useTranslation();
   return (
     <div
-      className="room-notice-row flex flex-col items-center gap-1.5 py-1"
+      className="room-notice-row flex flex-col items-center gap-1.5 py-1 [text-autospace:normal]"
       data-message-kind="card_notice"
       role="note"
     >
-      <span className={pillClass}>
-        {notice.text}
-        {notice.link ? (
-          <Link
-            className="font-medium text-app-ink underline-offset-2 hover:underline"
-            to={targetPath(tenantId, notice.link.to)}
-          >
-            {notice.link.label}
-          </Link>
-        ) : null}
-      </span>
-      {notice.more?.map((line) => (
-        <span className={pillClass} key={line}>
-          {line}
+      {cardNoticeLines(notice, translation).map((line, lineIndex) => (
+        <span className={pillClass} key={lineIndex}>
+          {line.parts.map((part, partIndex) =>
+            part.tag === "link" && line.link ? (
+              <Link
+                className="font-medium text-app-ink underline-offset-2 hover:underline"
+                key={partIndex}
+                to={targetPath(tenantId, line.link)}
+              >
+                {part.text}
+              </Link>
+            ) : (
+              <Fragment key={partIndex}>{part.text}</Fragment>
+            ),
+          )}
         </span>
       ))}
     </div>

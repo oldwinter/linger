@@ -38,6 +38,9 @@ import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubPocketNote } from "@/features/teamhub/teamhub-types";
 
 import { Button } from "@/components/ui/button";
+import { commonMessages } from "@/i18n/common.messages";
+import { formatLocale } from "@/i18n/language";
+import { useT } from "@/i18n/use-translation";
 import { writeClipboardText } from "@/lib/clipboard";
 import { cn } from "@/lib/cn";
 
@@ -59,6 +62,7 @@ import { pocketNoteBefore } from "./pocket-note-before";
 import { pocketNoteCopyText } from "./pocket-note-copy";
 import { groupPocketNotesByMonth } from "./pocket-note-months";
 import { todayNoteOutOfView } from "./pocket-note-today-jump";
+import { pocketNotesMessages as m } from "./pocket-notes.messages";
 import { usePocketDictation } from "./use-pocket-dictation";
 import {
   PocketNoteEditor,
@@ -113,6 +117,7 @@ export default function PocketNotePanel({
   onOpenChat?: () => void;
   tenantId: string;
 }) {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const notes = useInfiniteQuery(pocketNotesQueryOptions(client, tenantId));
   const [view, setView] = useState<PocketNoteView>({ kind: "today" });
@@ -151,10 +156,15 @@ export default function PocketNotePanel({
   useEffect(() => {
     function closeOnOutside(event: PointerEvent) {
       const target = event.target as Node;
+      const targetElement =
+        target instanceof Element ? target : target.parentElement;
       if (
         document.querySelector("dialog[open]") ||
         panelRef.current?.contains(target) ||
-        anchor?.contains(target)
+        anchor?.contains(target) ||
+        targetElement?.closest(
+          "nav, .app-primary-navigation, .app-secondary-navigation, .room-secondary-navigation, [data-navigation-surface]",
+        )
       ) {
         return;
       }
@@ -244,16 +254,32 @@ export default function PocketNotePanel({
 
   return createPortal(
     <div
-      aria-label="Pocket notes"
-      className="app-floating-enter fixed z-[100] flex h-[440px] flex-col overflow-hidden rounded-2xl bg-popover shadow-xl"
+      aria-label={t(m.panel)}
+      className="app-floating-enter fixed z-[100] flex h-[440px] max-h-[calc(100dvh-24px)] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-2xl bg-popover shadow-xl"
       ref={panelRef}
       role="dialog"
       style={{ ...position, width: panelWidth }}
     >
       {!firstPage || !today ? (
-        <p className="m-auto text-sm text-app-muted">
-          {notes.isError ? "Couldn’t load notes" : "Loading…"}
-        </p>
+        notes.isError ? (
+          <div
+            className="m-auto flex flex-col items-center gap-2.5 px-4 text-center"
+            role="alert"
+          >
+            <p className="text-sm text-app-muted">{t(m.couldNotLoad)}</p>
+            <Button
+              onClick={() => void notes.refetch()}
+              size="compact"
+              tone="secondary"
+            >
+              {t(commonMessages.retry)}
+            </Button>
+          </div>
+        ) : (
+          <p className="m-auto text-sm text-app-muted">
+            {t(commonMessages.loading)}
+          </p>
+        )
       ) : view.kind === "all" ? (
         <AllPocketNotes
           closeGuard={closeGuard}
@@ -322,6 +348,7 @@ function TodayPocketNote({
   tenantId: string;
   today: string;
 }) {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const queryClient = useQueryClient();
   const [text, setText] = useState(storedText);
@@ -523,18 +550,20 @@ function TodayPocketNote({
   const status = dictation.error
     ? dictation.error
     : truncated
-      ? "Page is full · 20,000 characters"
+      ? t(m.pageFull, {
+          limit: maximumNoteLength.toLocaleString(formatLocale()),
+        })
       : dictation.connecting
-        ? "Connecting…"
+        ? t(m.connecting)
         : dictation.stopping
-          ? "Saving…"
+          ? t(m.saving)
           : dictating
-            ? "Listening…"
+            ? t(m.listening)
             : saveFailed
-              ? "Couldn’t save"
+              ? t(m.couldNotSave)
               : save.isPending || unsaved
-                ? "Saving…"
-                : "Saved";
+                ? t(m.saving)
+                : t(m.saved);
   // While speaking, the words still being recognized sit at the anchor.
   const at = Math.min(anchor.current, text.length);
   const before = text.slice(0, at);
@@ -553,20 +582,20 @@ function TodayPocketNote({
                 size="compact"
                 tone="secondary"
               >
-                Retry
+                {t(commonMessages.retry)}
               </Button>
             ) : null}
             <PocketNoteCopyAction text={text} />
           </>
         }
         leading={
-          <HeaderButton label="All notes" onClick={showAll}>
+          <HeaderButton label={t(m.allNotes)} onClick={showAll}>
             <Icon icon={GridViewIcon} size={16} />
           </HeaderButton>
         }
         onClose={onClose}
         subtitle={status}
-        title={`Today · ${formatPocketNoteDate(today)}`}
+        title={t(m.todayTitle, { date: formatPocketNoteDate(today) })}
       />
       <div className="relative flex min-h-0 flex-1 flex-col">
         <div
@@ -580,7 +609,7 @@ function TodayPocketNote({
             // While speaking the page is a read-only view of the note with the
             // words not yet final shown in place, in gray.
             <div
-              aria-label="Today’s note"
+              aria-label={t(m.todayNote)}
               aria-live="polite"
               className={`pocket-note-paper whitespace-pre-wrap break-words px-5 text-sm text-app-ink ${earlier ? "min-h-[240px] pb-5" : "workspace-scrollbar min-h-0 flex-1 overflow-y-auto pb-16"}`}
               role="textbox"
@@ -660,7 +689,8 @@ function DictationButton({
   level: number;
   onClick: () => void;
 }) {
-  const label = active ? "Stop dictation" : "Dictate";
+  const t = useT();
+  const label = active ? t(m.stopDictation) : t(m.dictate);
   return (
     <div className="pointer-events-none absolute bottom-3 right-3 flex items-center gap-2">
       {active ? (
@@ -703,16 +733,17 @@ function PastPocketNote({
   onBack: () => void;
   onClose: () => void;
 }) {
+  const t = useT();
   return (
     <>
       <PocketNoteHeader
         leading={
-          <HeaderButton label="Back to all notes" onClick={onBack}>
+          <HeaderButton label={t(m.backToAllNotes)} onClick={onBack}>
             <Icon icon={ArrowLeft01Icon} size={16} />
           </HeaderButton>
         }
         onClose={onClose}
-        subtitle="Read only"
+        subtitle={t(m.readOnly)}
         title={formatPocketNoteDate(note.date)}
       />
       <div className="pocket-note-paper workspace-scrollbar min-h-0 flex-1 overflow-y-auto break-words px-5 pb-5 text-sm text-app-ink">
@@ -751,6 +782,7 @@ function AllPocketNotes({
   tenantId: string;
   today: string;
 }) {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const queryClient = useQueryClient();
   const [confirming, setConfirming] = useState<string>();
@@ -873,8 +905,10 @@ function AllPocketNotes({
           </>
         }
         onClose={onClose}
-        subtitle={`${items.length}${hasMore ? "+" : ""} ${items.length === 1 && !hasMore ? "page" : "pages"}`}
-        title="All notes"
+        subtitle={t(hasMore ? m.pageCountOrMore : m.pageCount, {
+          count: items.length,
+        })}
+        title={t(m.allNotes)}
       />
       {downloadFailed ? (
         <p className="shrink-0 px-4 pb-2 text-xs text-app-danger" role="alert">
@@ -885,7 +919,7 @@ function AllPocketNotes({
         <Icon icon={Search01Icon} size={14} />
         <input
           aria-label="Search notes"
-          className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
+          className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-app-placeholder"
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Search by date or text"
           role="searchbox"
@@ -920,7 +954,7 @@ function AllPocketNotes({
                   {group.notes.map((note) => {
                     const label =
                       note.date === today
-                        ? "Today"
+                        ? t(m.today)
                         : formatPocketNoteDate(note.date);
                     const preview = markdownPlainText(note.text);
                     return (
@@ -949,14 +983,16 @@ function AllPocketNotes({
                             {preview ? (
                               <HighlightedText query={query} text={preview} />
                             ) : (
-                              "Nothing written yet"
+                              t(m.nothingWritten)
                             )}
                           </span>
                         </button>
                         {note.date === today ? null : confirming ===
                           note.date ? (
                           <div
-                            aria-label={`Delete ${label}?`}
+                            aria-label={t(m.deletePageQuestion, {
+                              page: label,
+                            })}
                             className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-xl border border-border bg-card/95 p-3"
                             role="alertdialog"
                           >
@@ -964,8 +1000,8 @@ function AllPocketNotes({
                               className={`text-center text-xs ${remove.isError ? "text-app-danger" : "text-app-ink"}`}
                             >
                               {remove.isError
-                                ? "Couldn’t delete. Try again."
-                                : "Delete this note?"}
+                                ? t(m.couldNotDelete)
+                                : t(m.deleteThisNote)}
                             </p>
                             <div className="flex gap-1.5">
                               <Button
@@ -976,15 +1012,16 @@ function AllPocketNotes({
                                 size="compact"
                                 tone="ghost"
                               >
-                                Cancel
+                                {t(commonMessages.cancel)}
                               </Button>
                               <Button
+                                data-voice-risk="never"
                                 loading={remove.isPending}
                                 onClick={() => remove.mutate(note.date)}
                                 size="compact"
                                 tone="danger"
                               >
-                                Delete
+                                {t(commonMessages.delete)}
                               </Button>
                             </div>
                           </div>
@@ -1004,7 +1041,8 @@ function AllPocketNotes({
                               <Icon icon={Download01Icon} size={14} />
                             </button>
                             <button
-                              aria-label={`Delete ${label}`}
+                              data-voice-risk="never"
+                              aria-label={t(m.deletePage, { page: label })}
                               className={cn(
                                 noteActionClass,
                                 "hover:bg-accent hover:text-app-danger",
@@ -1013,7 +1051,7 @@ function AllPocketNotes({
                                 remove.reset();
                                 setConfirming(note.date);
                               }}
-                              title="Delete note"
+                              title={t(m.deleteNote)}
                               type="button"
                             >
                               <Icon icon={Delete02Icon} size={14} />
@@ -1048,7 +1086,7 @@ function AllPocketNotes({
             onClick={onLoadMore}
             type="button"
           >
-            {loadingMore ? "Loading…" : "Load earlier notes"}
+            {loadingMore ? t(commonMessages.loading) : t(m.loadEarlier)}
           </button>
         ) : null}
       </div>
@@ -1069,6 +1107,7 @@ function PocketNoteHeader({
   subtitle: string;
   title: string;
 }) {
+  const t = useT();
   return (
     <div className="flex shrink-0 items-center gap-1.5 px-3 pb-2 pt-3">
       {leading}
@@ -1084,7 +1123,7 @@ function PocketNoteHeader({
         </p>
       </div>
       {action}
-      <HeaderButton label="Close notes" onClick={onClose}>
+      <HeaderButton data-voice-close label={t(m.closeNotes)} onClick={onClose}>
         <Icon icon={Cancel01Icon} size={16} />
       </HeaderButton>
     </div>
@@ -1096,16 +1135,20 @@ function HeaderButton({
   disabled,
   label,
   onClick,
+  "data-voice-close": closes,
 }: {
   children: ReactNode;
   disabled?: boolean;
   label: string;
   onClick: () => void;
+  /** The button that closes the panel, for Voice Mode. */
+  "data-voice-close"?: boolean;
 }) {
   return (
     <button
       aria-label={label}
       className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-[background-color,color] hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus disabled:pointer-events-none disabled:opacity-40"
+      data-voice-close={closes || undefined}
       disabled={disabled}
       onClick={onClick}
       title={label}
@@ -1121,6 +1164,7 @@ function HeaderButton({
  * so a refused write never reads as success. Nothing is saved or requested.
  */
 function PocketNoteCopyAction({ text }: { text: string }) {
+  const t = useT();
   const value = pocketNoteCopyText(text);
   const [failed, setFailed] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -1147,7 +1191,7 @@ function PocketNoteCopyAction({ text }: { text: string }) {
     <>
       {copied ? (
         <span className="text-xs leading-4 text-app-muted" role="status">
-          Copied
+          {t(commonMessages.copied)}
         </span>
       ) : null}
       {failed ? (
@@ -1199,23 +1243,12 @@ function usePanelPosition(anchor: HTMLButtonElement | null): CSSProperties {
   return position;
 }
 
-const monthNames = [
-  "Jan",
-  "Feb",
-  "Mar",
-  "Apr",
-  "May",
-  "Jun",
-  "Jul",
-  "Aug",
-  "Sep",
-  "Oct",
-  "Nov",
-  "Dec",
-];
-
 /** "2026-09-30" -> "Sep 30"; TeamHub already chose the page day. */
 function formatPocketNoteDate(date: string) {
-  const [, month, day] = date.split("-");
-  return `${monthNames[Number(month) - 1]} ${Number(day)}`;
+  const [year, month, day] = date.split("-").map(Number);
+  return new Intl.DateTimeFormat(formatLocale(), {
+    day: "numeric",
+    month: "short",
+    timeZone: "UTC",
+  }).format(new Date(Date.UTC(year ?? 0, (month ?? 1) - 1, day ?? 1)));
 }

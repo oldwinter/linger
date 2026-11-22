@@ -73,7 +73,7 @@ func claudeCheckEarlyStart(t *testing.T, events []claudeTimedEvent, submitted, d
 		t.Fatalf("turn starts = %d", len(started))
 	}
 	s := started[0]
-	if done.Sub(s.at) < 700*time.Millisecond || s.SentAt.IsZero() || s.SentAt.Before(submitted) || s.SentAt.After(s.at) {
+	if done.Sub(s.at) < claudeFakeSlowOutput*7/10 || s.SentAt.IsZero() || s.SentAt.Before(submitted) || s.SentAt.After(s.at) {
 		t.Fatalf("turn start at %v sent %v (submitted %v, done %v)", s.at, s.SentAt, submitted, done)
 	}
 	if s.SessionID != claudeTestSession || s.ProcessReused == nil || *s.ProcessReused != reused {
@@ -119,7 +119,7 @@ func TestClaudeTurnStartWaitsForEchoWithoutTurnInit(t *testing.T) {
 			events, outcome, submitted, _ := claudeTurnAt(t, home, "slow", RunSpec{}, nil)
 			claudeMustComplete(t, outcome)
 			started := claudeStartedEvents(events)
-			if len(started) != 1 || started[0].at.Sub(submitted) < 900*time.Millisecond {
+			if len(started) != 1 || started[0].at.Sub(submitted) < claudeFakeSlowOutput*9/10 {
 				t.Fatalf("turn starts = %+v submitted %v", started, submitted)
 			}
 		})
@@ -188,7 +188,8 @@ func TestClaudeSteerCancelledWhileWaiting(t *testing.T) {
 	results := make(chan result, 1)
 	run := claudeStart(t, home.profile, "slow", RunSpec{ExposeTurnStarted: true})
 	_, outcome, _ := claudeTimed(t, run, func(started Event) {
-		ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+		// Expires well inside claudeFakeSlowOutput, so the turn is still waiting.
+		ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 		defer cancel()
 		begin := time.Now()
 		_, err := run.Steer(ctx, SteerRequest{ExpectedTurnID: started.TurnID, Input: "go"})

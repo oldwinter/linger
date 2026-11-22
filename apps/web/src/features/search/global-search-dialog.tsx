@@ -2,12 +2,14 @@ import { useState } from "react";
 
 import { ModalDialog } from "@/components/ui/modal-dialog";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { useT } from "@/i18n/use-translation";
 
 import {
   resultKindOptions,
   settledResultKind,
 } from "./global-search-kind-filter";
 import { SCOPES, type GlobalSearchTab } from "./global-search-model";
+import { searchMessages as m } from "./global-search.messages";
 import { removeGlobalSearchQuery } from "./global-search-recent";
 import type { SearchRoomScope } from "./room-search-scope";
 import {
@@ -47,6 +49,7 @@ export function GlobalSearchDialog({
   const { client } = useTeamHubRuntime();
   const [roomScope, setRoomScope] = useState(room);
   const [kind, setKind] = useState<GlobalSearchTab>("all");
+  const t = useT();
   const {
     debounced,
     enterScope,
@@ -155,11 +158,13 @@ export function GlobalSearchDialog({
   // The chips report rows already loaded, so they wait for a search or a
   // scope that browses a list.
   const showKindFilter =
-    !showingStart && (debouncedQuery !== "" || rows.length > 0);
+    !showingStart &&
+    kindOptions.length > 2 &&
+    (debouncedQuery !== "" || rows.length > 0);
 
   return (
     <ModalDialog
-      ariaLabel="Search"
+      ariaLabel={t(m.dialogLabel)}
       className="global-search flex flex-col overflow-hidden"
       closeOnBackdrop
       onClose={onClose}

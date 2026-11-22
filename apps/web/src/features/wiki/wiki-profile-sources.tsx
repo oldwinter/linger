@@ -8,6 +8,7 @@ import { AppLogo } from "@/features/apps/app-logo";
 import {
   activeExternalConnections,
   externalConnectionNeedsAttention,
+  accountIdentityText,
 } from "@/features/apps/connection-state";
 import {
   externalAppsQueryOptions,
@@ -17,6 +18,9 @@ import { DisconnectAccountDialog } from "@/features/settings/account-disconnect-
 import { profileSourcePolicy } from "@/features/settings/profile-source-policy";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
 import type { TeamHubExternalConnection } from "@/features/teamhub/teamhub-types";
+import { useT } from "@/i18n/use-translation";
+
+import { wikiMessages as m } from "./wiki.messages";
 
 // Add source is a large flow; load it only when the Human opens it.
 const AccountMoreDialog = lazy(async () => {
@@ -54,6 +58,7 @@ export function WikiProfileSourcesRow({
   const connections = useQuery(externalConnectionsQueryOptions(client));
   const [view, setView] = useState<SourcesView | null>(null);
   const hintId = useId();
+  const t = useT();
   const catalog = apps.data?.apps ?? [];
   const sources: ProfileSource[] = catalog
     .filter(
@@ -66,27 +71,48 @@ export function WikiProfileSourcesRow({
         (connection) => connection.provider === app.key,
       );
       const active = activeExternalConnections(own);
-      if (active.length) {
-        return active.map((connection) => ({
-          app: app.display_name,
-          connection,
-          id: connection.id,
-          label: `${app.display_name} · ${connection.identity_label ?? "Connected account"} — connected`,
-          logoUrl: app.logo_url,
-          provider: app.key,
-          state: "connected",
-        }));
-      }
       const reconnect = own.some(externalConnectionNeedsAttention);
+      const reconnectSource: ProfileSource = {
+        app: app.display_name,
+        id: app.key,
+        label: t(m.reconnectSource, { app: app.display_name }),
+        logoUrl: app.logo_url,
+        provider: app.key,
+        state: "reconnect",
+      };
+      if (active.length) {
+        // An account that needs reconnecting stays visible beside active ones.
+        return [
+          ...active.map(
+            (connection): ProfileSource => ({
+              app: app.display_name,
+              connection,
+              id: connection.id,
+              label: t(m.connectedSource, {
+                account:
+                  accountIdentityText(app.key, connection.identity_label, t) ??
+                  t(m.connectedAccount),
+                app: app.display_name,
+              }),
+              logoUrl: app.logo_url,
+              provider: app.key,
+              state: "connected",
+            }),
+          ),
+          ...(reconnect ? [reconnectSource] : []),
+        ];
+      }
       return [
-        {
-          app: app.display_name,
-          id: app.key,
-          label: `${reconnect ? "Reconnect" : "Connect"} ${app.display_name}`,
-          logoUrl: app.logo_url,
-          provider: app.key,
-          state: reconnect ? "reconnect" : "connect",
-        },
+        reconnect
+          ? reconnectSource
+          : {
+              app: app.display_name,
+              id: app.key,
+              label: t(m.connectSource, { app: app.display_name }),
+              logoUrl: app.logo_url,
+              provider: app.key,
+              state: "connect",
+            },
       ];
     })
     .sort(
@@ -99,14 +125,14 @@ export function WikiProfileSourcesRow({
     <div className="wiki-profile-infobox-row">
       <dt>
         <span className="wiki-profile-sources-label">
-          <span aria-describedby={hintId}>Sources</span>
+          <span aria-describedby={hintId}>{t(m.sources)}</span>
           <span className="wiki-profile-source-tip" id={hintId} role="tooltip">
-            Another Me learns from these to write this page
+            {t(m.sourcesHint)}
           </span>
         </span>
       </dt>
       <dd className="wiki-profile-sources">
-        <ul aria-label="Profile sources" className="flex items-center">
+        <ul aria-label={t(m.profileSources)} className="flex items-center">
           {sources.map((source) => (
             <li className="wiki-profile-source group/source" key={source.id}>
               <button
@@ -144,7 +170,7 @@ export function WikiProfileSourcesRow({
           ))}
           <li className="wiki-profile-source">
             <button
-              aria-label="Add source"
+              aria-label={t(m.addSource)}
               className="wiki-profile-source-chip text-muted-foreground"
               onClick={() => setView({ kind: "add" })}
               type="button"
@@ -152,7 +178,7 @@ export function WikiProfileSourcesRow({
               <Icon icon={PlusSignIcon} size={14} />
             </button>
             <span aria-hidden="true" className="wiki-profile-source-tip">
-              Add source
+              {t(m.addSource)}
             </span>
           </li>
         </ul>

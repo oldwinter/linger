@@ -1,0 +1,430 @@
+components:
+  schemas:
+    WebSearchBackendId:
+      type: string
+      description: >-
+        A web search backend. duckduckgo searches without a key. direct opens
+        pages only and is fetched by the Agent CLI on the Agent's computer;
+        TeamHub never fetches a page itself.
+      enum: [tavily, brave, firecrawl, exa, you, duckduckgo, direct]
+      x-enum-varnames:
+        [
+          WebSearchBackendIdTavily,
+          WebSearchBackendIdBrave,
+          WebSearchBackendIdFirecrawl,
+          WebSearchBackendIdExa,
+          WebSearchBackendIdYou,
+          WebSearchBackendIdDuckduckgo,
+          WebSearchBackendIdDirect,
+        ]
+    WebSearchKeyBackend:
+      type: string
+      description: A backend that takes an API key saved in the product.
+      enum: [tavily, brave, firecrawl, exa, you]
+      x-enum-varnames:
+        [
+          WebSearchKeyBackendTavily,
+          WebSearchKeyBackendBrave,
+          WebSearchKeyBackendFirecrawl,
+          WebSearchKeyBackendExa,
+          WebSearchKeyBackendYou,
+        ]
+    WebSearchSearchBackend:
+      type: string
+      description: A backend that runs searches.
+      enum: [tavily, brave, firecrawl, exa, you, duckduckgo]
+      x-enum-varnames:
+        [
+          WebSearchSearchBackendTavily,
+          WebSearchSearchBackendBrave,
+          WebSearchSearchBackendFirecrawl,
+          WebSearchSearchBackendExa,
+          WebSearchSearchBackendYou,
+          WebSearchSearchBackendDuckduckgo,
+        ]
+    WebSearchCommand:
+      type: string
+      enum: [search, open]
+      x-enum-varnames: [WebSearchCommandSearch, WebSearchCommandOpen]
+    WebSearchFilter:
+      type: string
+      enum: [recency, site]
+      x-enum-varnames: [WebSearchFilterRecency, WebSearchFilterSite]
+    WebSearchRecency:
+      type: string
+      enum: [day, week, month, year]
+      x-enum-varnames:
+        [
+          WebSearchRecencyDay,
+          WebSearchRecencyWeek,
+          WebSearchRecencyMonth,
+          WebSearchRecencyYear,
+        ]
+    WebSearchQuota:
+      type: object
+      additionalProperties: false
+      description: >-
+        What is left on the backend's account. from says where the numbers
+        came from: provider is the provider's official usage endpoint read for
+        this response; last_response is the rate-limit headers of the last
+        call (Brave), as of observed_at; unavailable carries no numbers and
+        reason says why.
+      required: [from]
+      properties:
+        from:
+          type: string
+          enum: [provider, last_response, unavailable]
+          x-enum-varnames:
+            [
+              WebSearchQuotaFromProvider,
+              WebSearchQuotaFromLastResponse,
+              WebSearchQuotaFromUnavailable,
+            ]
+        remaining:
+          type: number
+          minimum: 0
+        limit:
+          type: number
+          minimum: 0
+          description: Absent when the provider reports no cap.
+        unit:
+          type: string
+          enum: [credits, usd, requests]
+          x-enum-varnames:
+            [
+              WebSearchQuotaUnitCredits,
+              WebSearchQuotaUnitUsd,
+              WebSearchQuotaUnitRequests,
+            ]
+        plan:
+          type: string
+          maxLength: 200
+        resets_at:
+          $ref: "./common.yaml#/components/schemas/Timestamp"
+        observed_at:
+          $ref: "./common.yaml#/components/schemas/Timestamp"
+        reason:
+          type: string
+          enum:
+            [
+              no_key,
+              not_reported,
+              not_observed,
+              key_rejected,
+              provider_unavailable,
+            ]
+          x-enum-varnames:
+            [
+              WebSearchQuotaReasonNoKey,
+              WebSearchQuotaReasonNotReported,
+              WebSearchQuotaReasonNotObserved,
+              WebSearchQuotaReasonKeyRejected,
+              WebSearchQuotaReasonProviderUnavailable,
+            ]
+          description: >-
+            no_key: no key is saved; not_reported: there is no usage
+            endpoint to read (keyless You.com, DuckDuckGo, Exa, direct);
+            not_observed: Brave has answered no call yet;
+            key_rejected: the provider refused the saved key;
+            provider_unavailable: the usage endpoint did not answer in time.
+    WebSearchBackend:
+      type: object
+      additionalProperties: false
+      description: >-
+        One backend with the static text a client shows for it and its live
+        state. status is ready when a call would run now: DuckDuckGo and direct
+        always, You.com also without a key, the others with a key that is not
+        rejected.
+      required:
+        [
+          id,
+          name,
+          description,
+          tier,
+          commands,
+          filters,
+          max_limit,
+          max_sites,
+          keyless,
+          official_key_check,
+          status,
+          key_state,
+        ]
+      properties:
+        id:
+          $ref: "#/components/schemas/WebSearchBackendId"
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        description:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: The provider's own one-line description of its product.
+        tier:
+          type: string
+          enum: [key, free, none]
+          x-enum-varnames:
+            [
+              WebSearchBackendTierKey,
+              WebSearchBackendTierFree,
+              WebSearchBackendTierNone,
+            ]
+          description: >-
+            How a call to the backend runs now. key: with an API key saved in
+            the product (or one it still needs); free: without a key, on a free
+            service with limits that TeamHub does not count (DuckDuckGo, and
+            You.com without a key); none: direct, which needs no account.
+        tier_text:
+          type: string
+          maxLength: 300
+          description: A short display line for the tier, set for free.
+        commands:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/WebSearchCommand"
+        filters:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/WebSearchFilter"
+          description: The search filters the backend honors; any other is refused before a call.
+        max_limit:
+          type: integer
+          minimum: 0
+          maximum: 20
+          description: The most results one search returns; 0 for a backend without search.
+        max_sites:
+          type: integer
+          minimum: 0
+          maximum: 10
+          description: How many sites one search may name; 0 when it takes no site filter.
+        keyless:
+          type: boolean
+          description: Whether the backend works without a saved key.
+        official_key_check:
+          type: boolean
+          description: >-
+            Whether the provider has an official endpoint TeamHub checks a key
+            with before saving it. Without one the key is saved unverified and
+            proven by its first call.
+        free_tier:
+          type: string
+          maxLength: 300
+          description: The provider's free allowance, for display.
+        key_url:
+          type: string
+          format: uri
+          description: Where the Human gets a key.
+        status:
+          type: string
+          enum: [ready, key_required, key_rejected]
+          x-enum-varnames:
+            [
+              WebSearchBackendStatusReady,
+              WebSearchBackendStatusKeyRequired,
+              WebSearchBackendStatusKeyRejected,
+            ]
+        key_state:
+          type: string
+          enum: [none, verified, unverified, rejected]
+          x-enum-varnames:
+            [
+              WebSearchBackendKeyStateNone,
+              WebSearchBackendKeyStateVerified,
+              WebSearchBackendKeyStateUnverified,
+              WebSearchBackendKeyStateRejected,
+            ]
+        quota:
+          description: >-
+            Left out when the caller asked for the list without quota.
+          allOf:
+            - $ref: "#/components/schemas/WebSearchQuota"
+    WebSearchBackendList:
+      type: object
+      additionalProperties: false
+      description: >-
+        Every backend in TeamHub's default order. default_search is the
+        backend a search without one uses now: the default a Human saved
+        (chosen_default_search) even when its key stopped working, else the
+        first backend with a usable key in that order, else duckduckgo.
+      required: [default_search, default_open, can_save_keys, backends]
+      properties:
+        default_search:
+          $ref: "#/components/schemas/WebSearchSearchBackend"
+        chosen_default_search:
+          $ref: "#/components/schemas/WebSearchSearchBackend"
+        default_open:
+          type: string
+          const: direct
+        can_save_keys:
+          type: boolean
+          description: False when the deployment has no TEAMHUB_SECRET_ENCRYPTION_KEY to seal keys with.
+        backends:
+          type: array
+          items:
+            $ref: "#/components/schemas/WebSearchBackend"
+    SaveWebSearchKeyRequest:
+      type: object
+      additionalProperties: false
+      required: [api_key]
+      properties:
+        api_key:
+          type: string
+          minLength: 1
+          maxLength: 512
+        decision_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: >-
+            The search_key card the key is added from. TeamHub then runs the
+            search or page open that card was posted for against this backend
+            with the new key before saving it, and answers the card with what
+            that call returned. Without it, or for a card posted by a connect
+            request, the key gets the official check.
+    SetWebSearchDefaultRequest:
+      type: object
+      additionalProperties: false
+      required: [backend]
+      properties:
+        backend:
+          $ref: "#/components/schemas/WebSearchSearchBackend"
+    WebSearchDefault:
+      type: object
+      additionalProperties: false
+      required: [default_search]
+      properties:
+        default_search:
+          $ref: "#/components/schemas/WebSearchSearchBackend"
+        chosen_default_search:
+          $ref: "#/components/schemas/WebSearchSearchBackend"
+    WebSearchRequest:
+      type: object
+      additionalProperties: false
+      required: [query]
+      properties:
+        query:
+          type: string
+          minLength: 1
+          maxLength: 400
+        backend:
+          $ref: "#/components/schemas/WebSearchSearchBackend"
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 20
+          description: Defaults to 10.
+        recency:
+          $ref: "#/components/schemas/WebSearchRecency"
+        sites:
+          type: array
+          maxItems: 10
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 3
+            maxLength: 253
+          description: Hostnames to search within, up to the backend's max_sites.
+    WebSearchResult:
+      type: object
+      additionalProperties: false
+      required: [title, url, snippet]
+      properties:
+        title:
+          type: string
+          maxLength: 300
+        url:
+          type: string
+          format: uri
+        snippet:
+          type: string
+          maxLength: 500
+        published_at:
+          type: string
+          maxLength: 64
+          description: The page date as the provider reports it.
+    WebSearchResponse:
+      type: object
+      additionalProperties: false
+      required: [results]
+      properties:
+        results:
+          type: array
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/WebSearchResult"
+    WebOpenRequest:
+      type: object
+      additionalProperties: false
+      required: [url, backend]
+      properties:
+        url:
+          type: string
+          format: uri
+          minLength: 1
+          maxLength: 2048
+        backend:
+          type: string
+          enum: [tavily, firecrawl, exa, you]
+          x-enum-varnames:
+            [
+              WebOpenRequestBackendTavily,
+              WebOpenRequestBackendFirecrawl,
+              WebOpenRequestBackendExa,
+              WebOpenRequestBackendYou,
+            ]
+          description: A backend that opens pages; direct is fetched by the CLI.
+    WebOpenResponse:
+      type: object
+      additionalProperties: false
+      required: [url, markdown, truncated]
+      properties:
+        url:
+          type: string
+          format: uri
+          description: The page's final URL when the provider reports one.
+        title:
+          type: string
+          maxLength: 300
+        markdown:
+          type: string
+          maxLength: 20000
+        truncated:
+          type: boolean
+          description: True when the page was longer than the 20,000 characters returned.
+    WebBackendsQuery:
+      type: object
+      additionalProperties: false
+      properties:
+        backend:
+          $ref: "#/components/schemas/WebSearchBackendId"
+    WebConnectRequest:
+      type: object
+      additionalProperties: false
+      required: [backend]
+      properties:
+        backend:
+          $ref: "#/components/schemas/WebSearchKeyBackend"
+    WebConnectResponse:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ready, connection_requested]
+          x-enum-varnames:
+            [
+              WebConnectResponseStatusReady,
+              WebConnectResponseStatusConnectionRequested,
+            ]
+        backend:
+          $ref: "#/components/schemas/WebSearchBackend"
+          description: The backend's state when it is ready.
+        room_id: { type: string }
+        message_id: { type: string }
+        interaction_id: { type: string }

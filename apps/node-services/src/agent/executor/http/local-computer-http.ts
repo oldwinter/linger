@@ -1,5 +1,6 @@
 import { type Context, Hono } from "hono";
 import * as AgentManagementRoutes from "@linger/wire-contracts/node-services-internal/server";
+import type { ByokConfigInput } from "@linger/wire-contracts/runner-gateway/types";
 import {
   LocalComputerBusyError,
   LocalComputerHasAgentsError,
@@ -8,16 +9,22 @@ import {
   LocalComputerOfflineError,
   LocalBrowserConnectionError,
   LocalComputerPermissionError,
+  LocalModelSourceError,
   LocalSkillOperationError,
   type LocalBrowserConnectionCommand,
   type LocalComputerPermissionCommand,
   type LocalComputerManagement,
+  type LocalModelSourceCommand,
 } from "../../runner-gateway/local-computer-management.js";
 import {
   LocalModelsActionTimeoutError,
   type LocalModelActionCommand,
 } from "../../runner-gateway/runner-local-models.js";
 import { isRecord } from "@linger/service-kit";
+import {
+  isByokProtocol,
+  validByokPath,
+} from "@linger/service-kit/byok-endpoint";
 
 type LocalComputerHttpStatus = 400 | 404 | 405 | 409 | 410 | 502 | 503;
 
@@ -47,6 +54,10 @@ export interface LocalComputerRouteHandlers {
   getLocalComputerPermissions(context: Context): Promise<Response> | Response;
   actOnLocalComputerPermission(context: Context): Promise<Response> | Response;
   actOnLocalComputerModels(context: Context): Promise<Response> | Response;
+  getLocalComputerModelSource(context: Context): Promise<Response> | Response;
+  applyLocalComputerModelSource(context: Context): Promise<Response> | Response;
+  testLocalComputerByok(context: Context): Promise<Response> | Response;
+  listLocalComputerByokModels(context: Context): Promise<Response> | Response;
 }
 
 export const createLocalComputerRouteHandlers = (options: {
@@ -216,7 +227,360 @@ export const createLocalComputerRouteHandlers = (options: {
       throw localModelsRequestError(error);
     }
   },
+  getLocalComputerModelSource: async (context) => {
+    const management = requireModelSourceManagement(
+      options.localComputerManagement,
+    );
+    try {
+      const { status } = await management.modelSource({
+        tenantId: options.pathId(context, "tenantId"),
+        ownerActorId: options.pathId(context, "ownerActorId"),
+        computerId: options.pathId(context, "computerId"),
+        action: "status",
+        signal: context.req.raw.signal,
+      });
+      if (!status) {
+        throw new LocalComputerHttpError(
+          502,
+          "MODEL_SOURCE_EMPTY",
+          "Local Computer returned no model source status",
+        );
+      }
+      return writeJson(context, 200, status);
+    } catch (error) {
+      throw modelSourceRequestError(error);
+    }
+  },
+  applyLocalComputerModelSource: async (context) => {
+    const management = requireModelSourceManagement(
+      options.localComputerManagement,
+    );
+    const body = parseModelSourceApplyCommand(
+      await options.readJsonBody(context),
+    );
+    try {
+      const { status } = await management.modelSource({
+        tenantId: options.pathId(context, "tenantId"),
+        ownerActorId: options.pathId(context, "ownerActorId"),
+        computerId: options.pathId(context, "computerId"),
+        action: "apply",
+        mode: body.mode,
+        ...(body.runtime ? { runtime: body.runtime } : {}),
+        ...(body.local_model_id ? { localModelId: body.local_model_id } : {}),
+        ...(body.byok ? { byok: body.byok } : {}),
+        signal: context.req.raw.signal,
+      });
+      if (!status) {
+        throw new LocalComputerHttpError(
+          502,
+          "MODEL_SOURCE_EMPTY",
+          "Local Computer returned no model source status",
+        );
+      }
+      return writeJson(context, 200, status);
+    } catch (error) {
+      throw modelSourceRequestError(error);
+    }
+  },
+  testLocalComputerByok: async (context) => {
+    const management = requireModelSourceManagement(
+      options.localComputerManagement,
+    );
+    const byok = parseByokTestRequest(await options.readJsonBody(context));
+    try {
+      const { testResult } = await management.modelSource({
+        tenantId: options.pathId(context, "tenantId"),
+        ownerActorId: options.pathId(context, "ownerActorId"),
+        computerId: options.pathId(context, "computerId"),
+        action: "test",
+        byok,
+        signal: context.req.raw.signal,
+      });
+      if (!testResult) {
+        throw new LocalComputerHttpError(
+          502,
+          "BYOK_CHECK_EMPTY",
+          "Local Computer returned no BYOK check result",
+        );
+      }
+      return writeJson(context, 200, testResult);
+    } catch (error) {
+      throw modelSourceRequestError(error);
+    }
+  },
+  listLocalComputerByokModels: async (context) => {
+    const management = requireModelSourceManagement(
+      options.localComputerManagement,
+    );
+    const byok = parseByokEndpointInput(await options.readJsonBody(context));
+    try {
+      const { modelList } = await management.modelSource({
+        tenantId: options.pathId(context, "tenantId"),
+        ownerActorId: options.pathId(context, "ownerActorId"),
+        computerId: options.pathId(context, "computerId"),
+        action: "models",
+        byok,
+        signal: context.req.raw.signal,
+      });
+      if (!modelList) {
+        throw new LocalComputerHttpError(
+          502,
+          "BYOK_MODELS_EMPTY",
+          "Local Computer returned no BYOK model list",
+        );
+      }
+      return writeJson(context, 200, modelList);
+    } catch (error) {
+      throw modelSourceRequestError(error);
+    }
+  },
 });
+
+const requireModelSourceManagement = (
+  management: LocalComputerManagement | undefined,
+): LocalComputerManagement &
+  Required<Pick<LocalComputerManagement, "modelSource">> => {
+  const available = requireLocalComputerManagement(management);
+  if (!available.modelSource) {
+    throw new LocalComputerHttpError(
+      503,
+      "MODEL_SOURCE_UNAVAILABLE",
+      "Model source management is unavailable",
+    );
+  }
+  return available as LocalComputerManagement &
+    Required<Pick<LocalComputerManagement, "modelSource">>;
+};
+
+const BYOK_MODEL_ID_PATTERN = /^[-a-zA-Z0-9_./:@]{1,256}$/u;
+
+const isByokUrlPath = (value: unknown): value is string =>
+  typeof value === "string" && validByokPath(value);
+
+interface ByokAddress {
+  readonly base_url: string;
+  readonly path: string;
+  readonly endpoint: string;
+  readonly protocol: ByokConfigInput["protocol"];
+}
+
+const byokAddress = (value: Record<string, unknown>): ByokAddress | null =>
+  typeof value.base_url === "string" &&
+  value.base_url.trim().length > 0 &&
+  value.base_url.length <= 2048 &&
+  isByokUrlPath(value.path) &&
+  isByokUrlPath(value.endpoint) &&
+  isByokProtocol(value.protocol)
+    ? {
+        base_url: value.base_url.trim(),
+        path: value.path,
+        endpoint: value.endpoint,
+        protocol: value.protocol,
+      }
+    : null;
+
+const BYOK_ADDRESS_KEYS = ["base_url", "path", "endpoint", "protocol"];
+
+// Never include the request body in the error; it carries the API key.
+const parseByokInput = (value: unknown): ByokConfigInput => {
+  const address = isRecord(value) ? byokAddress(value) : null;
+  if (
+    !isRecord(value) ||
+    !address ||
+    Object.keys(value).some(
+      (key) =>
+        ![
+          ...BYOK_ADDRESS_KEYS,
+          "api_key",
+          "model_id",
+          "context_window",
+          "reuse_saved_key",
+        ].includes(key),
+    ) ||
+    typeof value.model_id !== "string" ||
+    !BYOK_MODEL_ID_PATTERN.test(value.model_id.trim()) ||
+    (value.api_key !== undefined &&
+      (typeof value.api_key !== "string" || value.api_key.length > 4096)) ||
+    (value.context_window !== undefined &&
+      (!Number.isSafeInteger(value.context_window) ||
+        Number(value.context_window) < 1 ||
+        Number(value.context_window) > 2_147_483_647)) ||
+    (value.reuse_saved_key !== undefined &&
+      typeof value.reuse_saved_key !== "boolean")
+  ) {
+    throw new LocalComputerHttpError(
+      400,
+      "BYOK_INVALID_CONFIG",
+      "BYOK configuration is invalid",
+    );
+  }
+  return {
+    ...address,
+    ...(value.api_key !== undefined ? { api_key: value.api_key } : {}),
+    model_id: value.model_id.trim(),
+    ...(value.context_window !== undefined
+      ? { context_window: Number(value.context_window) }
+      : {}),
+    ...(value.reuse_saved_key !== undefined
+      ? { reuse_saved_key: value.reuse_saved_key }
+      : {}),
+  };
+};
+
+// Never include the request body in the error; it carries the API key.
+const parseByokEndpointInput = (value: unknown): ByokConfigInput => {
+  const address = isRecord(value) ? byokAddress(value) : null;
+  if (
+    !isRecord(value) ||
+    !address ||
+    Object.keys(value).some(
+      (key) =>
+        ![...BYOK_ADDRESS_KEYS, "api_key", "reuse_saved_key"].includes(key),
+    ) ||
+    (value.api_key !== undefined &&
+      (typeof value.api_key !== "string" || value.api_key.length > 4096)) ||
+    (value.reuse_saved_key !== undefined &&
+      typeof value.reuse_saved_key !== "boolean")
+  ) {
+    throw new LocalComputerHttpError(
+      400,
+      "BYOK_INVALID_CONFIG",
+      "BYOK endpoint is invalid",
+    );
+  }
+  return {
+    ...address,
+    ...(value.api_key !== undefined ? { api_key: value.api_key } : {}),
+    ...(value.reuse_saved_key !== undefined
+      ? { reuse_saved_key: value.reuse_saved_key }
+      : {}),
+  };
+};
+
+const isModelSourceRuntime = (
+  value: unknown,
+): value is NonNullable<LocalModelSourceCommand["runtime"]> =>
+  value === "claude" || value === "codex" || value === "pi";
+
+const parseByokTestRequest = (value: unknown): ByokConfigInput => {
+  if (!isRecord(value) || Object.keys(value).some((key) => key !== "byok")) {
+    throw new LocalComputerHttpError(
+      400,
+      "BYOK_INVALID_CONFIG",
+      "BYOK configuration is invalid",
+    );
+  }
+  return parseByokInput(value.byok);
+};
+
+interface ModelSourceApplyBody {
+  readonly mode: NonNullable<LocalModelSourceCommand["mode"]>;
+  readonly runtime?: LocalModelSourceCommand["runtime"];
+  readonly local_model_id?: string;
+  readonly byok?: ByokConfigInput;
+}
+
+const parseModelSourceApplyCommand = (value: unknown): ModelSourceApplyBody => {
+  if (
+    !isRecord(value) ||
+    Object.keys(value).some(
+      (key) => !["mode", "runtime", "local_model_id", "byok"].includes(key),
+    ) ||
+    (value.mode !== "local" &&
+      value.mode !== "subscription" &&
+      value.mode !== "byok") ||
+    (value.runtime !== undefined && !isModelSourceRuntime(value.runtime)) ||
+    (value.local_model_id !== undefined &&
+      !isLocalModelId(value.local_model_id))
+  ) {
+    throw new LocalComputerHttpError(
+      400,
+      "MODEL_SOURCE_INVALID",
+      "Model source command is invalid",
+    );
+  }
+  return {
+    mode: value.mode,
+    ...(value.runtime !== undefined ? { runtime: value.runtime } : {}),
+    ...(value.local_model_id !== undefined
+      ? { local_model_id: value.local_model_id }
+      : {}),
+    ...(value.byok !== undefined ? { byok: parseByokInput(value.byok) } : {}),
+  };
+};
+
+const modelSourceRequestError = (error: unknown): Error => {
+  if (error instanceof LocalComputerNotFoundError) {
+    return new LocalComputerHttpError(
+      404,
+      "LOCAL_COMPUTER_NOT_FOUND",
+      error.message,
+    );
+  }
+  if (error instanceof LocalComputerOfflineError) {
+    return new LocalComputerHttpError(
+      503,
+      "LOCAL_COMPUTER_OFFLINE",
+      error.message,
+    );
+  }
+  if (error instanceof LocalComputerCapabilityError) {
+    return new LocalComputerHttpError(
+      409,
+      "MODEL_SOURCE_UNSUPPORTED",
+      error.message,
+    );
+  }
+  if (error instanceof LocalModelSourceError) {
+    if (
+      error.code === "MODEL_SOURCE_TIMEOUT" ||
+      error.code === "BYOK_CHECK_TIMEOUT"
+    ) {
+      return new LocalComputerHttpError(503, error.code, error.message);
+    }
+    if (
+      error.code === "BYOK_INVALID_CONFIG" ||
+      error.code === "MODEL_SOURCE_INVALID" ||
+      error.code === "MODEL_UNKNOWN"
+    ) {
+      return new LocalComputerHttpError(400, error.code, error.message);
+    }
+    if (
+      error.code === "MODEL_SOURCE_UNSUPPORTED" ||
+      error.code === "RUNTIME_NOT_ENABLED" ||
+      error.code === "TOOL_NOT_INSTALLED"
+    ) {
+      return new LocalComputerHttpError(409, error.code, error.message);
+    }
+    return new LocalComputerHttpError(502, error.code, error.message);
+  }
+  return error instanceof Error
+    ? error
+    : new Error("Model source operation failed");
+};
+
+export function registerLocalComputerModelSourceRoutes(
+  app: Hono,
+  handlers: Pick<
+    LocalComputerRouteHandlers,
+    | "getLocalComputerModelSource"
+    | "applyLocalComputerModelSource"
+    | "testLocalComputerByok"
+    | "listLocalComputerByokModels"
+  >,
+): void {
+  const basePath =
+    "/v1/tenants/:tenantId/owners/:ownerActorId/local-computers/:computerId/model-source";
+  const testPath = `${basePath}/test`;
+  const modelsPath = `${basePath}/models`;
+  app.get(basePath, handlers.getLocalComputerModelSource);
+  app.post(basePath, handlers.applyLocalComputerModelSource);
+  app.all(basePath, (context) => methodNotAllowed(context, "GET, POST"));
+  app.post(testPath, handlers.testLocalComputerByok);
+  app.all(testPath, (context) => methodNotAllowed(context, "POST"));
+  app.post(modelsPath, handlers.listLocalComputerByokModels);
+  app.all(modelsPath, (context) => methodNotAllowed(context, "POST"));
+}
 
 const computerPermissions = async (
   options: {

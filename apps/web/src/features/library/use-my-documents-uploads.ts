@@ -9,8 +9,10 @@ import {
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubDocumentPlacementNode } from "@/features/teamhub/teamhub-types";
+import { useT } from "@/i18n/use-translation";
 
 import { documentUploadRepresentationFormat } from "./document-upload-representation";
+import { libraryMessages as m } from "./library.messages";
 import {
   fileUploadBatch,
   tenantUploads,
@@ -26,7 +28,7 @@ import {
   nextAvailableUploadFilename,
   nextPaint,
   runSequentially,
-  uploadFailureMessage,
+  uploadErrorText,
   usedDocumentFilenames,
 } from "./my-documents-tree-helpers";
 import type { MyDocumentsCreating } from "./use-my-documents-tree-create";
@@ -63,13 +65,14 @@ export function useMyDocumentsUploads({
 }: MyDocumentsUploadsInput) {
   const { client } = useTeamHubRuntime();
   const navigate = useNavigate();
+  const t = useT();
   const [revealDocumentId, setRevealDocumentId] = useState<string | null>(null);
   const [externalDrop, setExternalDrop] = useState<ExternalDocumentDrop | null>(
     null,
   );
   const {
     active: uploadsActive,
-    error: uploadError,
+    error: keptUploadError,
     uploads: pendingUploads,
   } = useTenantUploads(tenantId);
   // An upload outlives this view; it must not navigate a reader who moved on.
@@ -101,10 +104,7 @@ export function useMyDocumentsUploads({
     setExternalDrop(null);
     if (creating) return;
     if (uploadsActive) {
-      tenantUploads.setError(
-        tenantId,
-        "Wait for the current upload to finish before adding more files.",
-      );
+      tenantUploads.setError(tenantId, m.uploadBusy);
       return;
     }
     setError(null);
@@ -117,8 +117,8 @@ export function useMyDocumentsUploads({
       tenantUploads.setError(
         tenantId,
         batch.readFailures.length > 0
-          ? uploadFailureMessage(batch.readFailures)
-          : "No supported files were found in the drop.",
+          ? { failures: batch.readFailures }
+          : m.noSupportedFiles,
       );
       return;
     }
@@ -145,7 +145,11 @@ export function useMyDocumentsUploads({
           try {
             const key = folderKey(folderPath);
             if (!folderIds.has(key)) {
-              throw new Error("Its folder could not be created.");
+              failures.push({
+                filename: upload.filename,
+                message: m.uploadFolderMissing,
+              });
+              return;
             }
             const targetId = folderIds.get(key);
             const document = await client.uploadPersonalWikiDocument(
@@ -171,7 +175,7 @@ export function useMyDocumentsUploads({
               message:
                 uploadError instanceof Error
                   ? uploadError.message
-                  : "The document could not be imported.",
+                  : m.documentNotImported,
             });
           } finally {
             tenantUploads.remove(tenantId, new Set([upload.id]));
@@ -179,7 +183,7 @@ export function useMyDocumentsUploads({
         },
       );
       if (failures.length > 0) {
-        tenantUploads.setError(tenantId, uploadFailureMessage(failures));
+        tenantUploads.setError(tenantId, { failures });
       } else if (
         openUploadedDocument &&
         uploadedDocumentId &&
@@ -194,7 +198,7 @@ export function useMyDocumentsUploads({
         tenantId,
         importError instanceof Error
           ? importError.message
-          : "The document could not be imported.",
+          : m.documentNotImported,
       );
     } finally {
       tenantUploads.remove(
@@ -225,7 +229,8 @@ export function useMyDocumentsUploads({
     pendingUploads,
     revealDocumentId,
     setExternalDrop,
-    uploadError,
+    // Worded here, so a kept error follows the language on screen.
+    uploadError: keptUploadError ? uploadErrorText(keptUploadError, t) : null,
     uploadsActive,
   };
 }
@@ -330,7 +335,7 @@ async function createUploadFolders(
         message:
           createError instanceof Error
             ? createError.message
-            : "The folder could not be created.",
+            : m.folderNotCreated,
       });
     }
   });

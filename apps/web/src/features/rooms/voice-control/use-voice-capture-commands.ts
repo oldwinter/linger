@@ -30,6 +30,7 @@ interface VoiceCaptureCommandsInput {
   navigate: NavigateFunction;
   enable: (automatic?: boolean) => Promise<void>;
   ensureTarget: (activeRoomOverride?: string) => Promise<VoiceTarget>;
+  setMicrophoneMuted: (muted: boolean) => Promise<void>;
 }
 
 /** Starts, restarts and stops hardware Captures. */
@@ -40,6 +41,7 @@ export function useVoiceCaptureCommands({
   navigate,
   enable,
   ensureTarget,
+  setMicrophoneMuted,
 }: VoiceCaptureCommandsInput) {
   const {
     refs,
@@ -57,6 +59,7 @@ export function useVoiceCaptureCommands({
     refs.startControllerRef.current = controller;
     const operation = (async () => {
       const target = await ensureTarget();
+      controller.signal.throwIfAborted();
       // Publishing the microphone precedes Runtime subscription and ASR input.
       // Wait for the current handshake even when the local track already exists,
       // so the recorder cannot start ahead of live transcript coverage.
@@ -70,6 +73,10 @@ export function useVoiceCaptureCommands({
       if (!session) throw new Error("VoiceSession is unavailable");
       if (refs.captureRef.current && isActiveCapture(refs.captureRef.current))
         return refs.captureRef.current;
+      // Pausing mutes the shared microphone, and that outlives the Capture it
+      // paused; a new Capture starts with the microphone on, as its window shows.
+      if (refs.microphoneMutedRef.current) await setMicrophoneMuted(false);
+      controller.signal.throwIfAborted();
       const generation = refs.voiceSessionGenerationRef.current;
       const previousCaptureId = refs.captureRef.current?.id;
       const isCurrent = () =>
@@ -124,6 +131,7 @@ export function useVoiceCaptureCommands({
     runtime.client,
     setCapture,
     setCaptureSyncStatus,
+    setMicrophoneMuted,
     tenantId,
   ]);
 

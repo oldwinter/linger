@@ -44,6 +44,10 @@ export async function startMemoryService({
 }): Promise<{
   /** Another Me flashback, which the host hands to the agent role. */
   flashback: Flashback;
+  /** Starts the scheduler once every role in the process has started. */
+  started(): void;
+  /** Stops the scheduler's timer before the agent role stops. */
+  stopping(): void;
   stop(): Promise<void>;
 }> {
   setMemoryLogger(logger);
@@ -132,7 +136,6 @@ export async function startMemoryService({
   chunkIndex.indexHold = indexHold;
   wikiIndex.indexHold = indexHold;
   const flashback = new FlashbackService(config.dataRoot);
-  scheduler.start();
   const server = await startMemoryServer({
     dataRoot: config.dataRoot,
     http,
@@ -198,5 +201,13 @@ export async function startMemoryService({
     await chunkIndex.close();
     await closeMemoryDatabase();
   };
-  return { flashback, stop };
+  return {
+    flashback,
+    // The agent role, which provides the model call, starts after Memory and
+    // stops before it; the scheduler runs only while the model call can be
+    // there.
+    started: () => scheduler.start(),
+    stopping: () => scheduler.stop(),
+    stop,
+  };
 }

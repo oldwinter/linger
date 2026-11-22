@@ -8,6 +8,9 @@ import {
   useState,
 } from "react";
 
+import { formatLocale } from "@/i18n/language";
+import { useTranslation } from "@/i18n/use-translation";
+
 import "./wiki-knowledge-graph.css";
 import {
   buildTimeline,
@@ -21,6 +24,7 @@ import {
 import { graphNeighborhood } from "./graph-neighborhood";
 import { GraphNeighborhoodView } from "./graph-neighborhood-view";
 import { WikiGraphTimeline } from "./wiki-graph-timeline";
+import { wikiTimelineMessages as m } from "./wiki-timeline.messages";
 import {
   firstReelIndex,
   REEL_BEAT_MS,
@@ -49,6 +53,8 @@ export function WikiKnowledgeGraph({
   onReadingModeChange?: () => void;
   dailyPanel?: ReactNode;
 }) {
+  const { language, t } = useTranslation();
+  const locale = formatLocale(language);
   const [granularity, setGranularity] = useState<TimeGranularity>("day");
   const [query, setQuery] = useState("");
   const moments = useMemo(
@@ -56,8 +62,8 @@ export function WikiKnowledgeGraph({
     [graph, timelineMoments],
   );
   const timeline = useMemo(
-    () => buildTimeline(moments, granularity),
-    [granularity, moments],
+    () => buildTimeline(moments, granularity, undefined, locale),
+    [granularity, locale, moments],
   );
   const lastBucket = Math.max(0, timeline.buckets.length - 1);
   // The playhead starts on the latest bucket.
@@ -168,7 +174,7 @@ export function WikiKnowledgeGraph({
     <div className="wiki-graph-surface">
       <div className="wiki-graph-toolbar">
         <div
-          aria-label="Timeline granularity"
+          aria-label={t(m.granularity)}
           className="wiki-graph-segmented"
           role="radiogroup"
         >
@@ -180,19 +186,19 @@ export function WikiKnowledgeGraph({
               aria-checked={granularity === value}
               onClick={() => changeGranularity(value)}
             >
-              {value === "day" ? "Day" : "Week"}
+              {t(value === "day" ? m.day : m.week)}
             </button>
           ))}
         </div>
         <label className="wiki-graph-search">
           <Icon icon={Search01Icon} size={14} />
           <input
-            aria-label="Search pages"
+            aria-label={t(m.searchPages)}
             onChange={(event) => {
               setPlaying(false);
               setQuery(event.target.value);
             }}
-            placeholder="Search pages"
+            placeholder={t(m.searchPages)}
             type="search"
             value={query}
           />
@@ -242,9 +248,7 @@ export function WikiKnowledgeGraph({
         {renderTimeline?.(matchingPages, granularity, {
           focus: cardFocus,
           onPeriodChange: followCard,
-        }) ?? (
-          <p className="p-6 text-sm text-app-muted">No reports available.</p>
-        )}
+        }) ?? <p className="p-6 text-sm text-app-muted">{t(m.noReports)}</p>}
         {dailyPanel}
       </div>
 

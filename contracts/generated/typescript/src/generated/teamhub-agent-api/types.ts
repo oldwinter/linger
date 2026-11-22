@@ -604,6 +604,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/agent/v1/room-handoffs": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Hand a Human's request from the direct chat to the calling AnotherMe in another Room
+     * @description Authorizes an AnotherMe Meta Context in its direct chat with its Human, in a Run that the Human's own message there started. TeamHub posts one hidden handoff message in the target Room, where the Human and the AnotherMe must both be members, and it wakes the AnotherMe's Context in that Room to carry out the instruction. The caller never writes in the target Room itself. The invocation_id makes a replay return the original handoff.
+     */
+    post: operations["handOffAgentRoomWork"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/agent/v1/routines": {
     parameters: {
       query?: never;
@@ -883,6 +903,86 @@ export interface paths {
      * @description Resolves Agent, Tenant, and the Room-bound meta Context exclusively from the Agent credential, parses the submitted teamMD document, and rejects the whole submission unless the collaboration pattern is one of the declared values and every Orchestrator and Team Member Actor is an active member of that Room. On acceptance TeamHub replaces the Room's team.md, which Agents read through teamhub room protocol, and persists one conversation Message that Mentions every Team Member so each one wakes. Replays of the same command are safe.
      */
     post: operations["createAgentTeamMd"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/agent/v1/web/search": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Search the web through one backend with the deployment's saved key.
+     * @description Without backend, TeamHub uses the default a Human chose exactly as if the request named it, even when its key stopped working; without a chosen default it uses the first ready backend in the order tavily, brave, firecrawl, exa, you (with a key), then DuckDuckGo, which needs no key, and details.origin is suggested. You.com without a key runs only when named or chosen. A filter the backend cannot honor is refused before any call. There is no automatic fallback to another backend. When the backend needs a key the deployment lacks, or the provider refused the saved one, or the keyless You.com searches are used up, TeamHub posts (or reuses) a search_key card in the chat and answers 409 search_key_requested; details names the card and the backend it shows. Saving any web search key answers the card and wakes the Agent with the backend to use.
+     */
+    post: operations["searchAgentWeb"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/agent/v1/web/open": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Read one web page as Markdown through a provider backend.
+     * @description Only provider backends open pages here; the CLI fetches direct itself, so TeamHub never requests the page URL. The Markdown is cut at 20,000 characters. Key failures post a search_key card as search does.
+     */
+    post: operations["openAgentWebPage"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/agent/v1/web/backends/query": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * List the web search backends with their state and live quota.
+     * @description Quota is read from each provider's official usage endpoint for this request, in parallel and briefly; a provider that does not answer in time reports quota from=unavailable. backend narrows the list to one.
+     */
+    post: operations["listAgentWebBackends"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/agent/v1/web/connect": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Make one web search backend usable, asking the Human for its key through a chat card.
+     * @description A ready backend answers ready with its state and live quota. A backend without a usable key gets a search_key card in the chat (an open one is reused) and answers connection_requested. Saving any web search key answers the card and wakes the Agent with the backend that was configured.
+     */
+    post: operations["connectAgentWebBackend"];
     delete?: never;
     options?: never;
     head?: never;
@@ -1404,13 +1504,22 @@ export interface components {
       membership_revision: number;
       members: components["schemas"]["AgentContextMember"][];
     };
+    /** @description The Room's current team.md. A readable Room where none has been published yet, the normal state of a new Room, answers published false and revision 0 without raw_markdown or updated_at. */
     AgentTeamMdResponse: {
       room_id: components["schemas"]["Id"];
-      raw_markdown: string;
-      /** Format: int64 */
+      published: boolean;
+      /** @description Present exactly when published is true. */
+      raw_markdown?: string;
+      /**
+       * Format: int64
+       * @description 0 until the first publish, then 1 and up.
+       */
       revision: number;
-      /** Format: date-time */
-      updated_at: string;
+      /**
+       * Format: date-time
+       * @description Present exactly when published is true.
+       */
+      updated_at?: string;
     };
     AgentMessageCommitMultipart: {
       /** @description Strict AgentMessageCommitMetadata JSON, at most 5 MiB, sent before file parts. Uploads identify immutable file parts by upload_id; file part filename is that ID. Local filesystem paths and binary/base64 data do not belong in metadata. Like every Agent command, it carries no execution fields: the CLI names its Local Run in the X-TeamHub-Run-Id header, which TeamHub records on the Message only for a running Run of the same Tenant and Agent whose status shows in the target's collaboration Room. */
@@ -1706,6 +1815,8 @@ export interface components {
       | "connection_not_active"
       | "app_not_connected"
       | "provider_key_required"
+      | "search_key_requested"
+      | "search_quota_exhausted"
       | "tool_not_found"
       | "invalid_tool_arguments"
       | "provider_auth_failed"
@@ -1721,6 +1832,22 @@ export interface components {
       code: string;
       message: string;
     };
+    /** @description Machine-readable facts a failure carries for the CLI to act on. A search_key_requested failure names the card it posted and the backend it shows; a quota or rate limit names the backend and the other backends ready now. */
+    AgentApiErrorDetails: {
+      backend?: string;
+      /**
+       * @description requested when the command named the backend the card shows; suggested when it named none and TeamHub picked one.
+       * @enum {string}
+       */
+      origin?: "requested" | "suggested";
+      /** @enum {string} */
+      reason?: "missing" | "rejected" | "free_limit";
+      room_id?: string;
+      message_id?: string;
+      interaction_id?: string;
+      ready_backends?: string[];
+      retry_after_seconds?: number;
+    };
     /** @description Safe error detail returned by the TeamHub Agent API. */
     AgentApiError: {
       code: components["schemas"]["AgentApiErrorCode"];
@@ -1730,6 +1857,7 @@ export interface components {
       request_id: string;
       /** @description Safe field-level validation issues, when the failure has actionable paths. */
       issues?: components["schemas"]["AgentApiErrorIssue"][];
+      details?: components["schemas"]["AgentApiErrorDetails"];
     };
     /** @description Standard failure envelope for every TeamHub Agent API operation. */
     AgentApiErrorEnvelope: {
@@ -2456,6 +2584,28 @@ export interface components {
       /** @description Whether this invocation created the sponsor Direct Room. */
       room_created: boolean;
     };
+    /** @description The Room to hand the Human's request to and the instruction the AnotherMe's Context there carries out. The caller, its direct chat and its Human are derived by TeamHub, never accepted from the caller. */
+    AgentRoomHandoffRequest: {
+      invocation_id: components["schemas"]["AgentInvocationId"];
+      room_id: components["schemas"]["Id"];
+      /** @description Self-contained instruction for the AnotherMe in the target Room. Hidden from the Room's timeline; the receiving Context decides what to post there. */
+      instruction: string;
+    };
+    /** @description The handoff posted in the target Room. */
+    AgentRoomHandoffResponse: {
+      /** @description True only when the server recovered a prior committed operation. */
+      duplicate_request: boolean;
+      /** @description Optional public receipt explanation. */
+      reason?: string;
+      /**
+       * @description Whether TeamHub posted the handoff.
+       * @constant
+       */
+      accepted: true;
+      /** @description Canonical public Inbox of the target Room. */
+      inbox_id: string;
+      handoff_id: components["schemas"]["Id"];
+    };
     /** @enum {string} */
     AgentRoutineWeekday:
       | "monday"
@@ -2467,14 +2617,16 @@ export interface components {
       | "sunday";
     AgentRoutineSchedule: {
       /** @enum {string} */
-      kind: "daily" | "weekly" | "every_n_hours" | "once";
+      kind: "daily" | "weekly" | "every_n_minutes" | "every_n_hours" | "once";
       /** @description Local 24-hour clock as HH:MM. Required for daily and weekly. */
       time?: string;
       /** @description IANA timezone. Required for daily and weekly. */
       timezone?: string;
       /** @description Selected local weekdays. Required for weekly. Responses use Monday through Sunday order. */
       weekdays?: components["schemas"]["AgentRoutineWeekday"][];
-      /** @description Repeat interval for every_n_hours. Do not send a clock or timezone with it. */
+      /** @description Repeat interval in minutes for every_n_minutes (10 to 10080, in 10-minute increments). Do not send a clock or timezone with it. */
+      interval_minutes?: number;
+      /** @description Repeat interval in whole hours for every_n_hours (1 to 168), accepted on input for compatibility with older clients and stored in minutes. Responses always use every_n_minutes with interval_minutes. Do not send a clock or timezone with it. */
       interval_hours?: number;
       /**
        * Format: date-time
@@ -2499,7 +2651,12 @@ export interface components {
        * @description Connected app whose new events the Routine hands to proactive judgement.
        * @enum {string}
        */
-      app: "gmail" | "outlook" | "google_calendar" | "slack";
+      app:
+        | "gmail"
+        | "outlook"
+        | "google_calendar"
+        | "outlook_calendar"
+        | "slack";
     };
     /** @description A Routine has exactly one of schedule and listener. A listener Routine is an app listener; it can only be paused and enabled, and goes away when the Human revokes AnotherMe's access to the app. */
     AgentRoutine: {
@@ -2688,6 +2845,166 @@ export interface components {
       notified_actor_ids: components["schemas"]["Id"][];
       /** @description Agent-only Room Message that announces the protocol and carries the Mentions. */
       message_id: components["schemas"]["Id"];
+    };
+    /**
+     * @description A backend that runs searches.
+     * @enum {string}
+     */
+    WebSearchSearchBackend:
+      | "tavily"
+      | "brave"
+      | "firecrawl"
+      | "exa"
+      | "you"
+      | "duckduckgo";
+    /** @enum {string} */
+    WebSearchRecency: "day" | "week" | "month" | "year";
+    WebSearchRequest: {
+      query: string;
+      backend?: components["schemas"]["WebSearchSearchBackend"];
+      /** @description Defaults to 10. */
+      limit?: number;
+      recency?: components["schemas"]["WebSearchRecency"];
+      /** @description Hostnames to search within, up to the backend's max_sites. */
+      sites?: string[];
+    };
+    WebSearchResult: {
+      title: string;
+      /** Format: uri */
+      url: string;
+      snippet: string;
+      /** @description The page date as the provider reports it. */
+      published_at?: string;
+    };
+    WebSearchResponse: {
+      results: components["schemas"]["WebSearchResult"][];
+    };
+    WebOpenRequest: {
+      /** Format: uri */
+      url: string;
+      /**
+       * @description A backend that opens pages; direct is fetched by the CLI.
+       * @enum {string}
+       */
+      backend: "tavily" | "firecrawl" | "exa" | "you";
+    };
+    WebOpenResponse: {
+      /**
+       * Format: uri
+       * @description The page's final URL when the provider reports one.
+       */
+      url: string;
+      title?: string;
+      markdown: string;
+      /** @description True when the page was longer than the 20,000 characters returned. */
+      truncated: boolean;
+    };
+    /**
+     * @description A web search backend. duckduckgo searches without a key. direct opens pages only and is fetched by the Agent CLI on the Agent's computer; TeamHub never fetches a page itself.
+     * @enum {string}
+     */
+    WebSearchBackendId:
+      | "tavily"
+      | "brave"
+      | "firecrawl"
+      | "exa"
+      | "you"
+      | "duckduckgo"
+      | "direct";
+    WebBackendsQuery: {
+      backend?: components["schemas"]["WebSearchBackendId"];
+    };
+    /** @enum {string} */
+    WebSearchCommand: "search" | "open";
+    /** @enum {string} */
+    WebSearchFilter: "recency" | "site";
+    /** @description What is left on the backend's account. from says where the numbers came from: provider is the provider's official usage endpoint read for this response; last_response is the rate-limit headers of the last call (Brave), as of observed_at; unavailable carries no numbers and reason says why. */
+    WebSearchQuota: {
+      /** @enum {string} */
+      from: "provider" | "last_response" | "unavailable";
+      remaining?: number;
+      /** @description Absent when the provider reports no cap. */
+      limit?: number;
+      /** @enum {string} */
+      unit?: "credits" | "usd" | "requests";
+      plan?: string;
+      resets_at?: components["schemas"]["Timestamp"];
+      observed_at?: components["schemas"]["Timestamp"];
+      /**
+       * @description no_key: no key is saved; not_reported: there is no usage endpoint to read (keyless You.com, DuckDuckGo, Exa, direct); not_observed: Brave has answered no call yet; key_rejected: the provider refused the saved key; provider_unavailable: the usage endpoint did not answer in time.
+       * @enum {string}
+       */
+      reason?:
+        | "no_key"
+        | "not_reported"
+        | "not_observed"
+        | "key_rejected"
+        | "provider_unavailable";
+    };
+    /** @description One backend with the static text a client shows for it and its live state. status is ready when a call would run now: DuckDuckGo and direct always, You.com also without a key, the others with a key that is not rejected. */
+    WebSearchBackend: {
+      id: components["schemas"]["WebSearchBackendId"];
+      name: string;
+      /** @description The provider's own one-line description of its product. */
+      description: string;
+      /**
+       * @description How a call to the backend runs now. key: with an API key saved in the product (or one it still needs); free: without a key, on a free service with limits that TeamHub does not count (DuckDuckGo, and You.com without a key); none: direct, which needs no account.
+       * @enum {string}
+       */
+      tier: "key" | "free" | "none";
+      /** @description A short display line for the tier, set for free. */
+      tier_text?: string;
+      commands: components["schemas"]["WebSearchCommand"][];
+      /** @description The search filters the backend honors; any other is refused before a call. */
+      filters: components["schemas"]["WebSearchFilter"][];
+      /** @description The most results one search returns; 0 for a backend without search. */
+      max_limit: number;
+      /** @description How many sites one search may name; 0 when it takes no site filter. */
+      max_sites: number;
+      /** @description Whether the backend works without a saved key. */
+      keyless: boolean;
+      /** @description Whether the provider has an official endpoint TeamHub checks a key with before saving it. Without one the key is saved unverified and proven by its first call. */
+      official_key_check: boolean;
+      /** @description The provider's free allowance, for display. */
+      free_tier?: string;
+      /**
+       * Format: uri
+       * @description Where the Human gets a key.
+       */
+      key_url?: string;
+      /** @enum {string} */
+      status: "ready" | "key_required" | "key_rejected";
+      /** @enum {string} */
+      key_state: "none" | "verified" | "unverified" | "rejected";
+      /** @description Left out when the caller asked for the list without quota. */
+      quota?: components["schemas"]["WebSearchQuota"];
+    };
+    /** @description Every backend in TeamHub's default order. default_search is the backend a search without one uses now: the default a Human saved (chosen_default_search) even when its key stopped working, else the first backend with a usable key in that order, else duckduckgo. */
+    WebSearchBackendList: {
+      default_search: components["schemas"]["WebSearchSearchBackend"];
+      chosen_default_search?: components["schemas"]["WebSearchSearchBackend"];
+      /** @constant */
+      default_open: "direct";
+      /** @description False when the deployment has no TEAMHUB_SECRET_ENCRYPTION_KEY to seal keys with. */
+      can_save_keys: boolean;
+      backends: components["schemas"]["WebSearchBackend"][];
+    };
+    /**
+     * @description A backend that takes an API key saved in the product.
+     * @enum {string}
+     */
+    WebSearchKeyBackend: "tavily" | "brave" | "firecrawl" | "exa" | "you";
+    WebConnectRequest: {
+      backend: components["schemas"]["WebSearchKeyBackend"];
+    };
+    WebConnectResponse: {
+      /** @enum {string} */
+      status: "ready" | "connection_requested";
+      /** @description The backend's state when it is ready. */
+      backend?: components["schemas"]["WebSearchBackend"];
+      room_id?: string;
+      message_id?: string;
+      interaction_id?: string;
     };
     /**
      * @description The app macOS grants the permission to. linger is the Linger desktop app, which owns shell commands such as screencapture; computer_use is CuaDriver, which owns the computer-use tools.
@@ -3030,7 +3347,7 @@ export interface operations {
       };
     };
     responses: {
-      /** @description Current collaboration state in one authorized database snapshot. */
+      /** @description Current collaboration protocol in one authorized database snapshot, or published false when the Room has none yet. */
       200: {
         headers: {
           [name: string]: unknown;
@@ -4003,6 +4320,36 @@ export interface operations {
       default: components["responses"]["InternalError"];
     };
   };
+  handOffAgentRoomWork: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AgentRoomHandoffRequest"];
+      };
+    };
+    responses: {
+      /** @description The handoff is in the target Room and wakes the AnotherMe there. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AgentRoomHandoffResponse"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      409: components["responses"]["Conflict"];
+      503: components["responses"]["ServiceUnavailable"];
+      default: components["responses"]["InternalError"];
+    };
+  };
   createAgentRoutine: {
     parameters: {
       query?: never;
@@ -4461,6 +4808,184 @@ export interface operations {
       403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
       409: components["responses"]["Conflict"];
+      503: components["responses"]["ServiceUnavailable"];
+      default: components["responses"]["InternalError"];
+    };
+  };
+  searchAgentWeb: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["WebSearchRequest"];
+      };
+    };
+    responses: {
+      /** @description The results, best first. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["WebSearchResponse"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      /** @description search_quota_exhausted: the backend's account has no credit or quota left; details lists the other ready backends. */
+      402: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AgentApiErrorEnvelope"];
+        };
+      };
+      403: components["responses"]["Forbidden"];
+      /** @description search_key_requested: a card asking the Human for a web search key is in the chat. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AgentApiErrorEnvelope"];
+        };
+      };
+      /** @description provider_rate_limited: the backend is rate limiting; details carries retry_after_seconds when known and the other ready backends. */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AgentApiErrorEnvelope"];
+        };
+      };
+      503: components["responses"]["ServiceUnavailable"];
+      default: components["responses"]["InternalError"];
+    };
+  };
+  openAgentWebPage: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["WebOpenRequest"];
+      };
+    };
+    responses: {
+      /** @description The page. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["WebOpenResponse"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      /** @description search_quota_exhausted: the backend's account has no credit or quota left. */
+      402: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AgentApiErrorEnvelope"];
+        };
+      };
+      403: components["responses"]["Forbidden"];
+      /** @description search_key_requested: a card asking the Human for a web search key is in the chat. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AgentApiErrorEnvelope"];
+        };
+      };
+      /** @description tool_execution_failed: the provider could not read this page. */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AgentApiErrorEnvelope"];
+        };
+      };
+      /** @description provider_rate_limited: the backend is rate limiting. */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AgentApiErrorEnvelope"];
+        };
+      };
+      503: components["responses"]["ServiceUnavailable"];
+      default: components["responses"]["InternalError"];
+    };
+  };
+  listAgentWebBackends: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: {
+      content: {
+        "application/json": components["schemas"]["WebBackendsQuery"];
+      };
+    };
+    responses: {
+      /** @description The backends in TeamHub's default order. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["WebSearchBackendList"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      default: components["responses"]["InternalError"];
+    };
+  };
+  connectAgentWebBackend: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["WebConnectRequest"];
+      };
+    };
+    responses: {
+      /** @description The backend is ready, or the card that asks for its key. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["WebConnectResponse"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
       503: components["responses"]["ServiceUnavailable"];
       default: components["responses"]["InternalError"];
     };

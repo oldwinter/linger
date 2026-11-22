@@ -15,7 +15,6 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { gzipSync } from "node:zlib";
-import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -453,22 +452,27 @@ describe("managed tools transaction", () => {
         { stdio: ["ignore", "pipe", "pipe"] },
       );
       await once(unrelated.stdout, "data");
-      const started = Date.now();
       const operation = installer.update("hung");
       let watchdog: ReturnType<typeof setTimeout> | undefined;
       try {
+        // The smoke ignores SIGTERM and never exits, so only the SIGKILL
+        // escalation settles it. The watchdog separates that from a hang
+        // without a wall-clock bound that host load can break.
         await expect(
           Promise.race([
             operation,
             new Promise((_, reject) => {
               watchdog = setTimeout(
-                () => reject(new Error("Smoke did not meet hard deadline")),
-                5000,
+                () => reject(new Error("Smoke was never hard-killed")),
+                20_000,
               );
             }),
           ]),
-        ).rejects.toThrow(/timed out/i);
-        expect(Date.now() - started).toBeLessThan(4500);
+        ).rejects.toMatchObject({
+          message: expect.stringMatching(/timed out after 1500ms/i),
+          killed: true,
+          signal: "SIGKILL",
+        });
         expect(await readFile(termFile, "utf8")).toBe("received");
         const pids: number[] = JSON.parse(await readFile(pidFile, "utf8"));
         for (const pid of pids) {
@@ -839,8 +843,7 @@ describe("managed tools transaction", () => {
       await f.installer.ensure("first");
       const moduleUrl = new URL("./managed-tools-install.mjs", import.meta.url)
         .href;
-      const ready = path.join(f.root, "child-ready");
-      const code = `import { writeFile } from 'node:fs/promises'; import { createManagedToolsInstaller } from ${JSON.stringify(moduleUrl)}; const installer = createManagedToolsInstaller({root: ${JSON.stringify(f.installRoot)}, baseUrl: ${JSON.stringify(f.source)}, detectPlatform: async () => 'linux-amd64', onSwitch: async phase => { if (phase === ${JSON.stringify(phase)}) { setInterval(() => {}, 1000); await writeFile(${JSON.stringify(ready)}, 'paused'); await new Promise(() => {}); } }}); await installer.update('second');`;
+      const code = `import { createManagedToolsInstaller } from ${JSON.stringify(moduleUrl)}; const installer = createManagedToolsInstaller({root: ${JSON.stringify(f.installRoot)}, baseUrl: ${JSON.stringify(f.source)}, detectPlatform: async () => 'linux-amd64', onSwitch: async phase => { if (phase === ${JSON.stringify(phase)}) { setInterval(() => {}, 1000); process.stdout.write('paused\\n'); await new Promise(() => {}); } }}); await installer.update('second');`;
       const child = spawn(
         process.execPath,
         ["--input-type=module", "-e", code],
@@ -850,17 +853,30 @@ describe("managed tools transaction", () => {
       child.stderr.on("data", (data) => {
         diagnostics += data;
       });
+      // The child announces the pause itself, so the wait ends as soon as it
+      // gets there; the bound only catches a hang, and is wide because the
+      // child's install smoke-runs fresh executables that a loaded host (or
+      // macOS assessing new scripts one at a time) can delay by seconds.
+      let pauseTimer: ReturnType<typeof setTimeout> | undefined;
+      const paused = new Promise<void>((resolve, reject) => {
+        let output = "";
+        child.stdout.on("data", (data) => {
+          output += data;
+          if (output.includes("paused")) resolve();
+        });
+        child.once("close", () =>
+          reject(new Error(`Child did not reach switch pause: ${diagnostics}`)),
+        );
+        pauseTimer = setTimeout(
+          () =>
+            reject(
+              new Error(`Child did not reach switch pause: ${diagnostics}`),
+            ),
+          20_000,
+        );
+      });
       try {
-        const deadline = Date.now() + 3000;
-        while ((await readFile(ready, "utf8").catch(() => "")) !== "paused") {
-          if (
-            child.exitCode !== null ||
-            child.signalCode !== null ||
-            Date.now() >= deadline
-          )
-            throw new Error(`Child did not reach switch pause: ${diagnostics}`);
-          await delay(10);
-        }
+        await paused.finally(() => clearTimeout(pauseTimer));
         await expect(
           createManagedToolsInstaller({
             ...f.options,

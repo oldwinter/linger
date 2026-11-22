@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { QueryClient } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { defineGlobalProperty } from "@/test/global-properties";
 
 import { roomMessageSender } from "../room-message-sender";
 import {
@@ -46,7 +47,7 @@ const scope = {
 const prefix = { body: "", documentReferences: [], mentions: [] };
 
 beforeEach(() => {
-  Object.defineProperty(window, "localStorage", {
+  defineGlobalProperty(window, "localStorage", {
     configurable: true,
     value: createTestStorage(),
   });

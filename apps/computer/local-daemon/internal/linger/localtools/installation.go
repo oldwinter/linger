@@ -10,6 +10,13 @@ import (
 	"strings"
 )
 
+// quickJSAssets are the engine files the UI runtime loads directly. The
+// bundler owns the engine's complete file list.
+var quickJSAssets = []string{
+	"node_modules/quickjs-wasi/quickjs.wasm",
+	"node_modules/quickjs-wasi/dist/index.js",
+}
+
 type Installation struct{ NodePath, PlaywrightEntry, PiExtension, CuaPath string }
 
 func cuaEntry(executable string) string {
@@ -53,17 +60,17 @@ func Installed(executable string) (*Installation, error) {
 		return nil, err
 	}
 	var manifest struct {
-		Version    int                                  `json:"schema_version"`
-		Versions   struct{ Playwright, Pi, Cua string } `json:"versions"`
-		Playwright string                               `json:"playwright_entry"`
-		Pi         string                               `json:"pi_extension"`
-		Cua        string                               `json:"cua_entry"`
+		Version    int                                           `json:"schema_version"`
+		Versions   struct{ Playwright, Pi, Cua, QuickJS string } `json:"versions"`
+		Playwright string                                        `json:"playwright_entry"`
+		Pi         string                                        `json:"pi_extension"`
+		Cua        string                                        `json:"cua_entry"`
 		Assets     []struct {
 			Path string `json:"path"`
 			Size int64  `json:"size_bytes"`
 		} `json:"assets"`
 	}
-	if json.Unmarshal(data, &manifest) != nil || manifest.Version != 1 || manifest.Versions.Playwright != "0.0.83" || manifest.Versions.Pi != "1.2.0" || manifest.Versions.Cua != "0.35.4" || manifest.Playwright != "node_modules/@playwright/mcp/cli.js" || manifest.Pi != "extensions/pi-mcp.mjs" || (manifest.Cua != "" && manifest.Cua != cuaEntry(executable)) {
+	if json.Unmarshal(data, &manifest) != nil || manifest.Version != 1 || manifest.Versions.Playwright != "0.0.83" || manifest.Versions.Pi != "1.2.0" || manifest.Versions.Cua != "0.35.4" || manifest.Versions.QuickJS != "3.6.2" || manifest.Playwright != "node_modules/@playwright/mcp/cli.js" || manifest.Pi != "extensions/pi-mcp.mjs" || (manifest.Cua != "" && manifest.Cua != cuaEntry(executable)) {
 		return nil, errors.New("managed Computer tool manifest is invalid")
 	}
 	seen := map[string]bool{}
@@ -88,7 +95,7 @@ func Installed(executable string) (*Installation, error) {
 			return nil, errors.New("managed Computer tool asset size mismatch")
 		}
 	}
-	for _, entry := range []string{manifest.Playwright, manifest.Pi} {
+	for _, entry := range append([]string{manifest.Playwright, manifest.Pi}, quickJSAssets...) {
 		if !seen[entry] {
 			return nil, errors.New("managed Computer tool entrypoint is missing")
 		}

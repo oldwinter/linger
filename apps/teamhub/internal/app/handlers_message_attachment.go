@@ -11,6 +11,7 @@ import (
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/collaboration"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/idempotency"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/secretbox"
+	httpapi "github.com/simplexai-labs/linger/contracts-go/teamhubpublic"
 )
 
 func (a *App) uploadMessageAttachment(c *gin.Context) {
@@ -21,7 +22,9 @@ func (a *App) uploadMessageAttachment(c *gin.Context) {
 	upload, err := a.parseMessageAttachmentUpload(c)
 	if err != nil {
 		if errors.Is(err, artifactstore.ErrTooLarge) || isMaxBytesError(err) {
-			a.writeError(c, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", "message attachment exceeds the configured limit")
+			code, limit := "too_large", a.cfg.ArtifactMaxBytes
+			a.writeErrorWithDetails(c, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", "message attachment exceeds the configured limit",
+				[]httpapi.ErrorDetail{{Field: "content", Code: &code, Reason: "exceeds the attachment size limit", LimitBytes: &limit}})
 		} else {
 			a.writeError(c, http.StatusBadRequest, "INVALID_REQUEST", "message attachment upload is invalid")
 		}

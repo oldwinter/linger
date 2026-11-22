@@ -13,41 +13,124 @@ import {
   QwenIcon,
 } from "@hugeicons/core-free-icons";
 import { useId, type MouseEvent } from "react";
+import { Link } from "react-router";
 
-import { Button } from "@/components/ui/button";
+import { Button, buttonClassName } from "@/components/ui/button";
 import { Icon, type IconSvgElement } from "@/components/ui/icon";
+import type { TeamHubLocalComputerPage } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import type { Message } from "@/i18n/messages";
+import { useT } from "@/i18n/use-translation";
 import { cn } from "@/lib/cn";
 
-import { ModelFacts } from "./local-model-details";
-import { unavailableShortCopy } from "./local-models-copy";
-import type { LocalModel, LocalModelsView } from "./local-models-queries";
 import {
+  type AssignableLocalModelAgent,
+  isAgentUsingModel,
+  primaryLocalModelAgent,
+  usedByAgentNames,
+} from "./local-model-agents";
+import { ModelFacts } from "./local-model-details";
+import { modelErrorShortCopy, unavailableShortCopy } from "./local-models-copy";
+import { localModelsMessages as m } from "./local-models.messages";
+import type {
+  LocalModel,
+  LocalModelAction,
+  LocalModelsView,
+} from "./local-models-queries";
+import {
+  collapsedRowBadges,
   downloadPercent,
   downloadStatusDetail,
+  downloadStopped,
   formatGigabytes,
+  joinList,
   placeName,
-  rowBadges,
+  placeTitle,
+  usedByBadge,
   type ModelEntry,
   type ModelStatus,
 } from "./local-models-rules";
 
-const familyIcons: Record<NonNullable<LocalModel["family"]>, IconSvgElement> = {
-  claude: ClaudeIcon,
-  deepseek: DeepseekIcon,
-  gemma: GoogleGeminiIcon,
-  glm: AiChipIcon,
-  grok: GrokIcon,
-  kimi: KimiAiIcon,
-  llama: MetaIcon,
-  mistral: MistralIcon,
-  openai: ChatGptIcon,
-  other: AiChipIcon,
-  phi: MicrosoftIcon,
-  qwen: QwenIcon,
+interface FamilyBrand {
+  icon: IconSvgElement;
+  tone: string;
+}
+
+const defaultBrand: FamilyBrand = {
+  icon: AiChipIcon,
+  tone: "bg-muted text-muted-foreground",
 };
 
-function familyIcon(family: LocalModel["family"]) {
-  return family ? familyIcons[family] : AiChipIcon;
+const familyBrands: Record<NonNullable<LocalModel["family"]>, FamilyBrand> = {
+  claude: { icon: ClaudeIcon, tone: "bg-acorn-500/15 text-acorn-700" },
+  deepseek: {
+    icon: DeepseekIcon,
+    tone: "bg-bluebell-500/15 text-bluebell-700",
+  },
+  gemma: {
+    icon: GoogleGeminiIcon,
+    tone: "bg-bluebell-500/15 text-bluebell-700",
+  },
+  glm: { icon: AiChipIcon, tone: "bg-grass-500/15 text-grass-700" },
+  grok: { icon: GrokIcon, tone: "bg-fawn-500/15 text-fawn-700" },
+  kimi: { icon: KimiAiIcon, tone: "bg-bubblegum-500/15 text-bubblegum-700" },
+  llama: { icon: MetaIcon, tone: "bg-rain-500/15 text-rain-700" },
+  mistral: { icon: MistralIcon, tone: "bg-sun-500/15 text-sun-700" },
+  openai: { icon: ChatGptIcon, tone: "bg-lake-500/15 text-lake-700" },
+  other: defaultBrand,
+  phi: { icon: MicrosoftIcon, tone: "bg-lichen-500/15 text-lichen-700" },
+  qwen: { icon: QwenIcon, tone: "bg-lavender-500/15 text-lavender-700" },
+};
+
+function familyBrand(family: LocalModel["family"]): FamilyBrand {
+  return family ? familyBrands[family] : defaultBrand;
+}
+
+function cardTone(
+  status: ModelStatus,
+  recommended: boolean,
+  expanded: boolean,
+): string {
+  if (status === "loaded") {
+    return cn(
+      "bg-card shadow-sm",
+      expanded
+        ? "border-app-success/45"
+        : "border-[var(--app-status-success-border)] hover:border-app-success/45",
+    );
+  }
+  if (recommended) {
+    return cn(
+      "bg-[var(--app-card-info-surface)]",
+      expanded
+        ? "border-app-info/45"
+        : "border-[var(--app-card-info-border)] hover:border-app-info/45",
+    );
+  }
+  if (status === "downloading" || status === "loading") {
+    return cn(
+      "bg-card",
+      expanded ? "border-app-info/45" : "border-[var(--app-card-info-border)]",
+    );
+  }
+  if (status === "failed") {
+    return cn(
+      "bg-card",
+      expanded
+        ? "border-app-danger/45"
+        : "border-[var(--app-status-danger-border)] hover:border-app-danger/45",
+    );
+  }
+  if (status === "unavailable") {
+    return cn(
+      "bg-muted/35",
+      expanded ? "border-border-hover" : "border-border/70 hover:bg-muted/55",
+    );
+  }
+  return cn(
+    "bg-card",
+    expanded ? "border-border-hover" : "border-border hover:bg-accent/40",
+  );
 }
 
 /**
@@ -56,19 +139,30 @@ function familyIcon(family: LocalModel["family"]) {
  */
 const statusTags: Record<
   ModelStatus,
-  { dot?: string; label: string; working?: boolean }
+  { dot?: string; label: Message<string>; working?: boolean }
 > = {
-  available: { label: "Not downloaded" },
+  available: { label: m.statusAvailable },
   downloading: {
     dot: "bg-app-info",
-    label: "Downloading",
+    label: m.statusDownloading,
     working: true,
   },
-  failed: { dot: "bg-app-danger", label: "Couldn't load" },
-  idle: { dot: "bg-muted-foreground/60", label: "Downloaded" },
-  loaded: { dot: "bg-app-success", label: "Loaded" },
-  loading: { dot: "bg-app-info", label: "Loading", working: true },
-  unavailable: { label: "Can't download" },
+  failed: { dot: "bg-app-danger", label: m.statusFailed },
+  idle: { dot: "bg-muted-foreground/60", label: m.statusIdle },
+  loaded: { dot: "bg-app-success", label: m.statusLoaded },
+  loading: { dot: "bg-app-info", label: m.statusLoading, working: true },
+  unavailable: { label: m.statusUnavailable },
+};
+
+/**
+ * The label a row shows while an action that ends its current status is
+ * under way: until a snapshot moves the model on, the status alone would
+ * read as if nothing had happened.
+ */
+const endingLabels: Partial<Record<LocalModelAction, Message<string>>> = {
+  cancel: m.endingCancel,
+  remove: m.endingRemove,
+  unload: m.endingUnload,
 };
 
 interface Handlers {
@@ -78,10 +172,182 @@ interface Handlers {
   onRemove: () => void;
   onToggle: () => void;
   onUnload: () => void;
+  onUseForAgents?: () => void;
 }
 
 function stopRowClick(event: MouseEvent) {
   event.stopPropagation();
+}
+
+function OpenChatLink({
+  href,
+  onClick,
+}: {
+  href: string;
+  onClick: (event: MouseEvent) => void;
+}) {
+  const t = useT();
+  return (
+    <Link
+      className={buttonClassName({
+        className: "px-2.5",
+        size: "compact",
+        tone: "ghost",
+      })}
+      onClick={onClick}
+      to={href}
+    >
+      {t(m.openChat)}
+    </Link>
+  );
+}
+
+function RowStatusLine({
+  detail,
+  download,
+  recommended,
+  slower,
+  status,
+  tag,
+}: {
+  detail: string | null;
+  download: string;
+  recommended: boolean;
+  slower: boolean;
+  status: ModelStatus;
+  tag: { dot?: string; label: Message<string>; working?: boolean };
+}) {
+  const t = useT();
+  return (
+    <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+      {tag.dot ? (
+        <span
+          aria-hidden
+          className={cn("size-1.5 shrink-0 rounded-full", tag.dot)}
+        />
+      ) : null}
+      <span
+        className={cn(
+          "truncate tabular-nums",
+          tag.working && "town-shimmer-text",
+        )}
+      >
+        <span
+          className={
+            status === "loaded"
+              ? "font-medium text-app-success"
+              : status === "failed"
+                ? "text-app-danger"
+                : tag.dot
+                  ? "text-foreground"
+                  : undefined
+          }
+        >
+          {t(tag.label)}
+        </span>
+        {recommended ? (
+          <>
+            {" · "}
+            {download}
+            {" · "}
+            <span className="font-medium text-app-info">
+              {t(m.recommended)}
+            </span>
+          </>
+        ) : slower ? (
+          <>
+            {" · "}
+            {download}
+            {" · "}
+            <span className="text-app-warning">{t(m.runsSlower)}</span>
+          </>
+        ) : detail ? (
+          ` · ${detail}`
+        ) : null}
+      </span>
+    </span>
+  );
+}
+
+function RowMetadataPills({
+  badges,
+  overflowTitle,
+  status,
+  usedBy,
+  usedByTitle,
+}: {
+  badges: string[];
+  overflowTitle?: string;
+  status: ModelStatus;
+  usedBy?: string;
+  usedByTitle?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "col-span-2 row-start-2 flex flex-wrap items-center gap-1.5 pl-13 @2xl:col-span-1 @2xl:col-start-2 @2xl:row-start-1 @2xl:justify-end @2xl:pl-0",
+        status === "unavailable" && "opacity-60",
+      )}
+    >
+      {usedBy ? (
+        <span
+          className={cn(
+            "rounded-full px-2 py-0.5 text-xs font-medium tabular-nums",
+            status === "loaded"
+              ? "bg-[var(--app-status-success-surface)] text-app-success"
+              : "bg-muted text-secondary-foreground",
+          )}
+          title={usedByTitle}
+        >
+          {usedBy}
+        </span>
+      ) : null}
+      {badges.map((badge, index) => (
+        <span
+          className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground"
+          key={badge}
+          title={index === badges.length - 1 ? overflowTitle : undefined}
+        >
+          {badge}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function DownloadProgress({
+  model,
+  progress,
+}: {
+  model: LocalModel;
+  progress: number;
+}) {
+  const t = useT();
+  const shownProgress =
+    model.download?.step === "verify" && !model.download.total_bytes
+      ? 100
+      : progress;
+  return (
+    <div className="px-4 pb-3">
+      <span
+        aria-label={t(m.downloadProgress, { name: model.name })}
+        aria-valuemax={100}
+        aria-valuemin={0}
+        aria-valuenow={shownProgress}
+        className="block h-1.5 overflow-hidden rounded-full bg-muted"
+        role="progressbar"
+      >
+        <span
+          className={cn(
+            "block h-full origin-left rounded-full bg-app-info transition-transform duration-200 motion-reduce:transition-none",
+            model.download?.step === "verify" &&
+              "animate-pulse motion-reduce:animate-none",
+          )}
+          style={{ transform: `scaleX(${shownProgress / 100})` }}
+        />
+      </span>
+    </div>
+  );
 }
 
 /**
@@ -89,190 +355,384 @@ function stopRowClick(event: MouseEvent) {
  * header carries the status and one action, and which expands to the details.
  */
 export function ModelRow({
+  anotherMeChatHref,
+  assignableAgents = [],
+  assigningAgentId,
+  computer,
   disabled,
   entry,
   expanded,
+  onAssignAgent,
+  requested,
+  switchingForAgents = false,
   view,
   ...handlers
 }: Handlers & {
+  anotherMeChatHref?: string;
+  assignableAgents?: readonly AssignableLocalModelAgent[];
+  assigningAgentId?: string;
+  computer?: TeamHubLocalComputerPage["items"][number];
   /** Actions are off: the Computer is offline, the viewer only reads, or one is pending. */
   disabled: boolean;
   entry: ModelEntry;
   expanded: boolean;
+  onAssignAgent?: (agent: AssignableLocalModelAgent) => void;
+  /** An action asked for and not yet in a snapshot. */
+  requested?: LocalModelAction;
+  switchingForAgents?: boolean;
   view: LocalModelsView;
 }) {
+  const t = useT();
   const panelId = useId();
-  const { model, status } = entry;
-  const where = placeName(view, model.pool);
-  const tag = statusTags[status];
+  const { model } = entry;
+  // A requested load or download reads as started at once; the snapshot that
+  // follows says how it went. A cancel can follow a download no snapshot
+  // shows yet.
+  const status: ModelStatus =
+    requested === "load"
+      ? "loading"
+      : requested === "download" ||
+          (requested === "cancel" && entry.status === "available")
+        ? "downloading"
+        : entry.status;
+  const started = status !== entry.status;
+  const stopped = status === "failed" && downloadStopped(model);
+  const where = placeName(view, model.pool, t);
+  const ending = requested && endingLabels[requested];
+  const tag = ending
+    ? {
+        dot: statusTags[status].dot,
+        label: stopped && requested === "cancel" ? m.endingDiscard : ending,
+        working: true,
+      }
+    : stopped
+      ? { ...statusTags.failed, label: m.statusDownloadStopped }
+      : statusTags[status];
   const progress = downloadPercent(model);
-  const download = formatGigabytes(model.download_bytes);
-  const badges = rowBadges(model);
+  const download = formatGigabytes(model.download_bytes, t);
+  const recommended = status === "available" && model.recommended;
+  const slower =
+    status === "available" && !model.recommended && model.fit === "system";
+  const brand = familyBrand(model.family);
+  const computerId = view.computer.computer_id;
+  const usedNames = usedByAgentNames(entry, assignableAgents, computerId);
+  const usedBy = usedByBadge({ ...entry, status }, t, usedNames);
+  const usedByTitle = usedNames.length
+    ? t(m.usedByNames, { names: joinList(usedNames, t) })
+    : undefined;
+  const primaryAgent = primaryLocalModelAgent(assignableAgents);
+  const primaryUsing = primaryAgent
+    ? isAgentUsingModel(entry, primaryAgent, computerId)
+    : false;
+  const canUsePrimary =
+    status === "loaded" &&
+    Boolean(model.pi_model) &&
+    Boolean(primaryAgent) &&
+    Boolean(onAssignAgent);
+  const { badges, overflowTitle } = collapsedRowBadges(model, t);
+  const hasMeta = Boolean(usedBy) || badges.length > 0;
+  const damagedFiles =
+    status === "failed" &&
+    (model.error?.code === "CHECKSUM_MISMATCH" ||
+      model.error?.code === "MODEL_FILES_MISSING");
   const detail = {
-    available: model.recommended
-      ? `${download} · Recommended`
-      : model.fit === "system"
-        ? `${download} · runs slower`
-        : download,
-    downloading: downloadStatusDetail(model),
-    failed: null,
-    idle: model.note ? "no room to load yet" : null,
+    available: download,
+    downloading: started ? null : downloadStatusDetail(model, t),
+    failed: modelErrorShortCopy(model.error, t) ?? null,
+    idle: model.note
+      ? t(m.noRoomYet)
+      : usedNames.length
+        ? t(m.loadToAnswer)
+        : null,
     loaded: [
-      where ? `${where[0]!.toUpperCase()}${where.slice(1)}` : undefined,
-      formatGigabytes(model.memory_bytes),
+      placeTitle(view, model.pool, t),
+      formatGigabytes(model.memory_bytes, t),
     ]
       .filter(Boolean)
       .join(" · "),
     loading: where ?? null,
-    unavailable: unavailableShortCopy(model.availability.reason),
+    unavailable: unavailableShortCopy(model.availability.reason, t),
   }[status];
 
+  // The button's word, what it does, the action it asks for, and its name
+  // with the model for assistive technology.
   const action = (
     {
-      available: ["Download", handlers.onDownload],
-      downloading: ["Cancel", handlers.onCancel],
-      failed: ["Retry", handlers.onLoad],
-      idle: ["Load", handlers.onLoad],
-      loaded: ["Unload", handlers.onUnload],
+      available: [
+        m.actionDownload,
+        handlers.onDownload,
+        "download",
+        m.downloadModel,
+      ],
+      downloading: [
+        commonMessages.cancel,
+        handlers.onCancel,
+        "cancel",
+        m.cancelModel,
+      ],
+      failed: stopped
+        ? ([
+            m.actionResumeDownload,
+            handlers.onDownload,
+            "download",
+            m.resumeDownloadModel,
+          ] as const)
+        : damagedFiles
+          ? ([
+              commonMessages.remove,
+              handlers.onRemove,
+              "remove",
+              m.removeModel,
+            ] as const)
+          : ([
+              commonMessages.retry,
+              handlers.onLoad,
+              "load",
+              m.retryModel,
+            ] as const),
+      idle: [m.actionLoad, handlers.onLoad, "load", m.loadModel],
+      loaded: [m.actionUnload, handlers.onUnload, "unload", m.unloadModel],
       loading: null,
       unavailable: null,
     } as const
   )[status];
+  const showsPrimaryAssignButton =
+    !(status === "loaded" && handlers.onUseForAgents) &&
+    canUsePrimary &&
+    Boolean(primaryAgent) &&
+    !primaryUsing &&
+    Boolean(onAssignAgent);
+  const showsUseForAgents = Boolean(
+    status === "loaded" && handlers.onUseForAgents,
+  );
+  const showsOpenChat = Boolean(
+    !handlers.onUseForAgents &&
+    canUsePrimary &&
+    primaryAgent?.isAnotherMe &&
+    primaryUsing &&
+    anotherMeChatHref,
+  );
+  const hasActions = Boolean(
+    showsUseForAgents ||
+    (showsPrimaryAssignButton && primaryAgent && onAssignAgent) ||
+    showsOpenChat ||
+    action,
+  );
+  // A stopped download has no record to remove; discarding it deletes the
+  // kept partial instead.
   const removable =
-    status === "loaded" || status === "idle" || status === "failed";
+    status === "loaded" ||
+    status === "idle" ||
+    (status === "failed" && !stopped);
 
   return (
     <article
       className={cn(
-        "rounded-xl border bg-card transition-colors duration-150 motion-reduce:transition-none",
-        expanded ? "border-border-hover" : "border-border hover:bg-accent/40",
+        "@container rounded-xl border transition-[background-color,border-color,box-shadow] duration-150 motion-reduce:transition-none",
+        cardTone(status, recommended, expanded),
       )}
+      data-recommended={recommended || undefined}
+      data-status={status}
     >
-      <div className="flex items-center gap-3 px-4 py-3">
+      <div
+        className={cn(
+          "grid items-center gap-x-2.5 gap-y-2 px-4 py-3",
+          hasMeta && hasActions
+            ? "grid-cols-[minmax(0,1fr)_auto] @2xl:grid-cols-[minmax(0,1fr)_auto_auto]"
+            : hasActions
+              ? "grid-cols-[minmax(0,1fr)_auto]"
+              : hasMeta
+                ? "grid-cols-1 @2xl:grid-cols-[minmax(0,1fr)_auto]"
+                : "grid-cols-1",
+        )}
+      >
         <button
           aria-controls={panelId}
           aria-expanded={expanded}
           aria-label={model.name}
           className={cn(
-            "flex min-w-0 flex-1 items-center gap-3 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            "col-start-1 row-start-1 flex min-w-0 items-center gap-3 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            hasActions && "col-span-2 @md:col-span-1",
             status === "unavailable" && "opacity-60",
           )}
           onClick={handlers.onToggle}
           type="button"
         >
           <span
-            className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-card text-foreground shadow-outline"
+            aria-hidden
+            className={cn(
+              "flex size-10 shrink-0 items-center justify-center rounded-lg shadow-outline",
+              brand.tone,
+            )}
             data-family={model.family ?? "other"}
           >
-            <Icon icon={familyIcon(model.family)} size={20} />
+            <Icon icon={brand.icon} size={20} />
           </span>
           <span className="min-w-0 flex-1">
             <span className="block truncate text-sm font-medium text-foreground">
               {model.name}
             </span>
-            <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-              {tag.dot ? (
-                <span
-                  aria-hidden
-                  className={cn("size-1.5 shrink-0 rounded-full", tag.dot)}
-                />
-              ) : null}
-              <span
-                className={cn("truncate", tag.working && "town-shimmer-text")}
-              >
-                <span className={tag.dot ? "text-foreground" : undefined}>
-                  {tag.label}
-                </span>
-                {detail ? ` · ${detail}` : null}
-              </span>
-            </span>
-          </span>
-        </button>
-        {badges.length ? (
-          <span className="flex shrink-0 items-center gap-1.5">
-            {badges.map((badge) => (
-              <span
-                className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground"
-                key={badge}
-              >
-                {badge}
-              </span>
-            ))}
-          </span>
-        ) : null}
-        {action ? (
-          <Button
-            aria-label={`${action[0]} ${model.name}`}
-            className="px-2.5"
-            disabled={disabled}
-            onClick={(event) => {
-              stopRowClick(event);
-              action[1]();
-            }}
-            size="compact"
-            tone={status === "downloading" ? "ghost" : "secondary"}
-          >
-            {action[0]}
-          </Button>
-        ) : null}
-        <Button
-          aria-hidden
-          className="text-muted-foreground"
-          onClick={handlers.onToggle}
-          size="compactIcon"
-          tabIndex={-1}
-          tone="ghost"
-        >
-          <Icon
-            className={cn(
-              "transition-transform duration-200 motion-reduce:transition-none",
-              !expanded && "-rotate-90",
-            )}
-            icon={ArrowDown01Icon}
-            size={14}
-          />
-        </Button>
-      </div>
-      {status === "downloading" ? (
-        <div className="px-4 pb-3">
-          <span
-            aria-label={`${model.name} download progress`}
-            aria-valuemax={100}
-            aria-valuemin={0}
-            aria-valuenow={progress}
-            className="block h-1 overflow-hidden rounded-full bg-muted"
-            role="progressbar"
-          >
-            <span
-              className="block h-full origin-left rounded-full bg-primary transition-transform duration-200 motion-reduce:transition-none"
-              style={{ transform: `scaleX(${progress / 100})` }}
+            <RowStatusLine
+              detail={ending ? null : detail}
+              download={download}
+              recommended={recommended}
+              slower={slower}
+              status={status}
+              tag={tag}
             />
           </span>
-        </div>
+          <span
+            aria-hidden="true"
+            className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground"
+          >
+            <Icon
+              className={cn(
+                "transition-transform duration-200 motion-reduce:transition-none",
+                !expanded && "-rotate-90",
+              )}
+              icon={ArrowDown01Icon}
+              size={14}
+            />
+          </span>
+        </button>
+        {hasMeta ? (
+          <RowMetadataPills
+            badges={badges}
+            overflowTitle={overflowTitle}
+            status={status}
+            usedBy={usedBy}
+            usedByTitle={usedByTitle}
+          />
+        ) : null}
+        {hasActions ? (
+          <div
+            className={cn(
+              "col-span-2 flex flex-wrap items-center justify-end gap-1.5 pl-13 @md:col-span-1 @md:col-start-2 @md:row-start-1 @md:flex-nowrap @md:pl-0",
+              hasMeta ? "row-start-3 @2xl:col-start-3" : "row-start-2",
+            )}
+          >
+            {showsUseForAgents ? (
+              <Button
+                aria-label={t(m.useForAgentsNamed, { name: model.name })}
+                className="px-2.5"
+                disabled={disabled}
+                loading={switchingForAgents}
+                onClick={(event) => {
+                  stopRowClick(event);
+                  handlers.onUseForAgents?.();
+                }}
+                size="compact"
+                tone="primary"
+              >
+                {t(m.useForAgents)}
+              </Button>
+            ) : showsPrimaryAssignButton && primaryAgent && onAssignAgent ? (
+              <Button
+                aria-label={t(m.useWithNamed, {
+                  agent: primaryAgent.name,
+                  model: model.name,
+                })}
+                className="px-2.5"
+                disabled={
+                  disabled || primaryAgent.busy || Boolean(assigningAgentId)
+                }
+                loading={assigningAgentId === primaryAgent.actorId}
+                onClick={(event) => {
+                  stopRowClick(event);
+                  onAssignAgent(primaryAgent);
+                }}
+                size="compact"
+                title={
+                  primaryAgent.busy
+                    ? t(m.waitForTurn, { agent: primaryAgent.name })
+                    : undefined
+                }
+                tone="primary"
+              >
+                {t(m.useWith, { agent: primaryAgent.name })}
+              </Button>
+            ) : showsOpenChat && anotherMeChatHref ? (
+              <OpenChatLink href={anotherMeChatHref} onClick={stopRowClick} />
+            ) : null}
+            {action ? (
+              <Button
+                aria-label={t(action[3], { name: model.name })}
+                className="px-2.5"
+                disabled={disabled}
+                loading={requested === action[2]}
+                onClick={(event) => {
+                  stopRowClick(event);
+                  action[1]();
+                }}
+                size="compact"
+                tone={
+                  status === "downloading"
+                    ? "ghost"
+                    : damagedFiles
+                      ? "danger"
+                      : recommended
+                        ? "primary"
+                        : "secondary"
+                }
+              >
+                {t(action[0])}
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+      {entry.status === "downloading" ? (
+        <DownloadProgress model={model} progress={progress} />
       ) : null}
       {expanded ? (
         <div
           className="border-t border-border px-4 pt-1 pb-3"
           id={panelId}
           role="region"
-          aria-label={`${model.name} details`}
+          aria-label={t(m.detailsOf, { name: model.name })}
         >
           {model.description ? (
             <p className="pt-2 pb-1 text-sm text-muted-foreground">
               {model.description}
             </p>
           ) : null}
-          <ModelFacts entry={entry} view={view} />
-          {removable ? (
-            <Button
-              className="mt-2"
-              disabled={disabled}
-              onClick={handlers.onRemove}
-              size="compact"
-              tone="danger"
-            >
-              Remove from computer
-            </Button>
+          <ModelFacts
+            assignableAgents={assignableAgents}
+            assigningAgentId={assigningAgentId}
+            computer={computer}
+            disabled={disabled}
+            entry={entry}
+            hasPrimaryAssignAction={showsPrimaryAssignButton}
+            onAssignAgent={onAssignAgent}
+            view={view}
+          />
+          {removable || stopped ? (
+            <div className="mt-2 border-t border-border/70 pt-2.5">
+              {removable ? (
+                <Button
+                  data-voice-risk="never"
+                  disabled={disabled}
+                  loading={requested === "remove"}
+                  onClick={handlers.onRemove}
+                  size="compact"
+                  tone="danger"
+                >
+                  {t(m.removeFromComputer)}
+                </Button>
+              ) : null}
+              {stopped ? (
+                <Button
+                  data-voice-risk="never"
+                  disabled={disabled}
+                  loading={requested === "cancel"}
+                  onClick={handlers.onCancel}
+                  size="compact"
+                  tone="danger"
+                >
+                  {t(m.discardDownload)}
+                </Button>
+              ) : null}
+            </div>
           ) : null}
         </div>
       ) : null}

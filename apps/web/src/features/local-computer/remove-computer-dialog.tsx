@@ -13,7 +13,11 @@ import {
 } from "@/features/rooms/members/agent-move-target";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubTenantAgent } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import { RichMessage, useT } from "@/i18n/use-translation";
 
+import { computerSetupMessages } from "./computer-setup.messages";
+import { computersMessages } from "./computers.messages";
 import {
   DELETE_AGENT_CHOICE,
   RemoveComputerAgentRow,
@@ -23,12 +27,9 @@ import {
   useMoveAgentsThenRemove,
 } from "./use-move-agents-then-remove";
 
+/** The English notice, for callers that look for it by its text. */
 export const NO_OTHER_COMPUTER_NOTICE =
-  "No other computer can take these Agents. Connect your new computer first.";
-
-function moveLabel(count: number) {
-  return `Move ${count} Agent${count === 1 ? "" : "s"} and remove`;
-}
+  computersMessages.noOtherComputer.source;
 
 export function RemoveComputerDialog({
   agents,
@@ -52,6 +53,7 @@ export function RemoveComputerDialog({
   pending: boolean;
   tenantId: string;
 }) {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   // Rows keep the Agents assigned when the dialog opened, so finished ones
   // stay listed with their outcome while the refreshed list shrinks.
@@ -85,14 +87,15 @@ export function RemoveComputerDialog({
           computers.find(
             (item) => item.computer_id === option.target.computerId,
           ),
+          t,
         )
       : plan?.action === "delete"
-        ? "Removes this Agent from every Room and deletes your direct chat with it."
+        ? t(computersMessages.deleteAgentHint)
         : candidates.length === 0
           ? agent.agent_type === "anotherme"
-            ? "Another Me can't be deleted. Connect another computer to move it."
-            : "Connect another computer to move this Agent, or delete it."
-          : describeMissingDefault(row, candidates);
+            ? t(computersMessages.anotherMeNeedsComputer)
+            : t(computersMessages.agentNeedsComputer)
+          : describeMissingDefault(row, candidates, t);
     return { candidates, hint, options, plan, row };
   });
   const remaining = plans.filter(({ row }) => !move.isFinished(row.actor.id));
@@ -105,16 +108,16 @@ export function RemoveComputerDialog({
     ({ plan }) => plan?.action === "delete",
   ).length;
   const label = move.failed
-    ? "Retry"
+    ? t(commonMessages.retry)
     : remaining.length === 0
-      ? "Remove"
+      ? t(commonMessages.remove)
       : !ready
-        ? moveLabel(remaining.length)
+        ? t(computersMessages.moveAndRemove, { count: remaining.length })
         : moves && deletes
-          ? "Move, delete and remove"
+          ? t(computersMessages.moveDeleteAndRemove)
           : deletes
-            ? "Delete and remove"
-            : moveLabel(moves);
+            ? t(computersMessages.deleteAndRemove)
+            : t(computersMessages.moveAndRemove, { count: moves });
 
   async function confirm() {
     if (!ready || busy) return;
@@ -124,23 +127,27 @@ export function RemoveComputerDialog({
     if (complete) onConfirm();
   }
 
+  function requestClose() {
+    if (!busy) onClose();
+  }
+
   return (
     <ModalDialog
+      closeOnBackdrop={!busy}
       description={
-        <>
-          This revokes <strong>{computer.display_name}</strong> and removes it
-          from this workspace. Reconnecting requires a new setup.
-        </>
+        <RichMessage
+          message={computersMessages.removeDescription}
+          tags={{ strong: (text) => <strong>{text}</strong> }}
+          values={{ computer: computer.display_name }}
+        />
       }
-      onClose={() => {
-        if (!move.running) onClose();
-      }}
+      onClose={requestClose}
       size="md"
-      title="Remove Local Computer"
+      title={t(computersMessages.removeTitle)}
       footer={
         <>
-          <Button disabled={move.running} onClick={onClose}>
-            Cancel
+          <Button disabled={busy} onClick={requestClose}>
+            {t(commonMessages.cancel)}
           </Button>
           <Button
             disabled={!ready || busy}
@@ -159,16 +166,16 @@ export function RemoveComputerDialog({
             className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--app-status-warning-border)] bg-[var(--app-status-warning-surface)] px-3 py-2.5 text-sm text-app-warning"
             role="status"
           >
-            <p>{NO_OTHER_COMPUTER_NOTICE}</p>
-            <Button onClick={onConnect} size="compact">
-              Connect a computer
+            <p>{t(computersMessages.noOtherComputer)}</p>
+            <Button disabled={busy} onClick={onConnect} size="compact">
+              {t(computerSetupMessages.title)}
             </Button>
           </div>
         ) : null}
         {rows.length ? (
-          <section aria-label="Assigned Agents">
+          <section aria-label={t(computersMessages.assignedAgents)}>
             <h3 className="text-xs font-medium text-muted-foreground">
-              Assigned Agents move first
+              {t(computersMessages.assignedAgentsMoveFirst)}
             </h3>
             <ul className="mt-1 divide-y divide-border">
               {plans.map(({ hint, options, row }) => (

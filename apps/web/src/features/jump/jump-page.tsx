@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
+import { Button } from "@/components/ui/button";
 import { useMeetings } from "@/features/memory/memory-queries";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 import {
@@ -23,6 +24,8 @@ export function JumpPage() {
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const optionRefs = useRef<Array<HTMLLIElement | null>>([]);
+  const scrollActiveRef = useRef(false);
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
@@ -42,12 +45,23 @@ export function JumpPage() {
     (anotherMe.isPending && !anotherMe.isError);
   const failed = rooms.isError || meetings.isError;
 
+  useEffect(() => {
+    if (!scrollActiveRef.current) return;
+    scrollActiveRef.current = false;
+    optionRefs.current[active]?.scrollIntoView?.({ block: "nearest" });
+  }, [active]);
+
   function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
-    if (event.key === "ArrowDown") {
+    if (event.key === "Escape") {
       event.preventDefault();
+      void navigate(-1);
+    } else if (event.key === "ArrowDown") {
+      event.preventDefault();
+      scrollActiveRef.current = true;
       setActiveIndex(Math.min(active + 1, Math.max(places.length - 1, 0)));
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
+      scrollActiveRef.current = true;
       setActiveIndex(Math.max(active - 1, 0));
     } else if (event.key === "Enter") {
       const place = places[active];
@@ -61,7 +75,16 @@ export function JumpPage() {
     <main className="min-h-0 flex-1 overflow-y-auto bg-app-surface px-5 py-7">
       <div className="mx-auto flex w-full max-w-xl flex-col gap-6">
         <header>
-          <h1 className="text-xl text-foreground">Jump</h1>
+          <div className="flex items-baseline justify-between gap-3">
+            <h1 className="text-xl text-foreground">Jump</h1>
+            <Button
+              onClick={() => void navigate(-1)}
+              size="compact"
+              tone="ghost"
+            >
+              Back
+            </Button>
+          </div>
           <p className="mt-2 text-sm text-muted-foreground">
             Open a room, a meeting, or a part of the library. This does not
             search what was said.
@@ -77,8 +100,8 @@ export function JumpPage() {
             }
             aria-autocomplete="list"
             aria-controls="jump-places"
-            aria-expanded={!loading && !failed && places.length > 0}
-            className="rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-expanded={!loading && places.length > 0}
+            className="rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-app-placeholder focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             id="jump-query"
             ref={inputRef}
             onChange={(event) => {
@@ -91,13 +114,34 @@ export function JumpPage() {
             value={query}
           />
         </div>
+        {failed ? (
+          <div
+            className="flex items-center justify-between gap-3 rounded-xl border border-[var(--app-status-danger-border)] bg-[var(--app-status-danger-surface)] px-3.5 py-2.5 text-sm text-[var(--app-status-danger-text)]"
+            role="alert"
+          >
+            <span>
+              {rooms.isError && meetings.isError
+                ? "Places could not be loaded."
+                : rooms.isError
+                  ? "Rooms could not be loaded."
+                  : "Meetings could not be loaded."}
+            </span>
+            <Button
+              onClick={() => {
+                if (rooms.isError) void rooms.refetch();
+                if (meetings.isError) void meetings.refetch();
+                if (anotherMe.isError) void anotherMe.refetch();
+              }}
+              size="compact"
+              tone="ghost"
+            >
+              Retry
+            </Button>
+          </div>
+        ) : null}
         {loading ? (
           <p className="text-sm text-muted-foreground" role="status">
             Loading places.
-          </p>
-        ) : failed ? (
-          <p className="text-sm text-destructive" role="alert">
-            Places could not be loaded.
           </p>
         ) : places.length === 0 ? (
           <p className="text-sm text-muted-foreground" role="status">
@@ -118,6 +162,9 @@ export function JumpPage() {
                 }
                 id={`jump-place-${place.id}`}
                 key={place.id}
+                ref={(node) => {
+                  optionRefs.current[index] = node;
+                }}
                 role="option"
               >
                 <Link

@@ -47,7 +47,8 @@ const (
 // Action is the planned tool call under review. It is untrusted evidence: the
 // model must never treat fields here as authorization.
 type Action struct {
-	// Runtime is "claude" or "codex"; background for the model, not a rule input.
+	// Runtime is "claude", "codex", "antigravity", or "pi"; background for the
+	// model, not a rule input.
 	Runtime string `json:"runtime"`
 	// Surface classifies what kind of effect this action can have. One of
 	// "shell", "file_edit", "connected_app", "browser", "computer", "web".

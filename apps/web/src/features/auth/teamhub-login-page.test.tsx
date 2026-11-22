@@ -52,17 +52,17 @@ describe("TeamHubLoginPage", () => {
       );
       fillSignIn();
       fireEvent.submit(
-        screen.getByRole("button", { name: "Sign in" }).closest("form")!,
+        screen.getByRole("button", { name: "Log in" }).closest("form")!,
       );
       await act(async () => {
         await vi.advanceTimersByTimeAsync(9_999);
       });
-      expect(screen.getByRole("button", { name: "Sign in" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Log in" })).toBeDisabled();
       await act(async () => {
         await vi.advanceTimersByTimeAsync(1);
       });
       expect(screen.getByRole("alert")).toHaveTextContent(/timed out/i);
-      expect(screen.getByRole("button", { name: "Sign in" })).toBeEnabled();
+      expect(screen.getByRole("button", { name: "Log in" })).toBeEnabled();
       expect(operation.mock.calls[0]![0].request.signal.aborted).toBe(true);
       await act(async () => {
         release({ id: "late-session", identity: { actors: [] } });
@@ -92,7 +92,7 @@ describe("TeamHubLoginPage", () => {
       { queryClient, onAuthenticated },
     );
     fillSignIn();
-    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
     await waitFor(() =>
       expect(onAuthenticated).toHaveBeenCalledWith({
         kind: "login",
@@ -119,7 +119,7 @@ describe("TeamHubLoginPage", () => {
       { queryClient, onAuthenticated },
     );
     fillSignIn();
-    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
     view.unmount();
     await act(async () => release({ id: "late", identity: { actors: [] } }));
     expect(onAuthenticated).not.toHaveBeenCalled();
@@ -140,7 +140,7 @@ describe("TeamHubLoginPage", () => {
     renderAuthenticationPage({ login }, { onAuthenticated });
     fillSignIn();
     const form = screen
-      .getByRole("button", { name: "Sign in" })
+      .getByRole("button", { name: "Log in" })
       .closest("form")!;
     fireEvent.submit(form);
     await act(async () => {
@@ -150,7 +150,7 @@ describe("TeamHubLoginPage", () => {
     await act(async () => release({ id: "late", identity: { actors: [] } }));
     fireEvent.submit(form);
     expect(login).toHaveBeenCalledTimes(2);
-    expect(screen.getByRole("button", { name: "Sign in" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Log in" })).toBeDisabled();
     expect(onAuthenticated).not.toHaveBeenCalled();
   });
   it("leaves the password length to TeamHub, which counts bytes", async () => {
@@ -167,7 +167,7 @@ describe("TeamHubLoginPage", () => {
     fireEvent.change(screen.getByLabelText("Password"), {
       target: { value: "€€€€" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
     await waitFor(() =>
       expect(login).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -186,7 +186,7 @@ describe("TeamHubLoginPage", () => {
     renderAuthenticationPage({ login });
     fillSignIn();
     const form = screen
-      .getByRole("button", { name: "Sign in" })
+      .getByRole("button", { name: "Log in" })
       .closest("form")!;
     act(() => {
       fireEvent.submit(form);
@@ -262,7 +262,7 @@ describe("TeamHubLoginPage", () => {
     fireEvent.change(screen.getByLabelText("Password"), {
       target: { value: "secret-password" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
 
     await waitFor(() => {
       expect(login).toHaveBeenCalledWith(
@@ -296,7 +296,7 @@ describe("TeamHubLoginPage", () => {
     fireEvent.change(screen.getByLabelText("Password"), {
       target: { value: "secret-password" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
 
     await waitFor(() =>
       expect(screen.getByTestId("location")).toHaveTextContent(returnTo),
@@ -324,7 +324,7 @@ describe("TeamHubLoginPage", () => {
     fireEvent.change(screen.getByLabelText("Password"), {
       target: { value: "secret-password" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
 
     await waitFor(() =>
       expect(screen.getByTestId("location")).toHaveTextContent("/"),
@@ -353,7 +353,7 @@ describe("TeamHubLoginPage", () => {
     fireEvent.change(screen.getByLabelText("Password"), {
       target: { value: "secret-password" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Linger could not establish a browser session. Use the secure workspace address or contact your workspace administrator.",
@@ -378,7 +378,7 @@ describe("TeamHubLoginPage", () => {
     fireEvent.change(screen.getByLabelText("Password"), {
       target: { value: "secret-password" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
 
     await waitFor(() =>
       expect(screen.getByTestId("location")).toHaveTextContent(
@@ -403,7 +403,7 @@ describe("TeamHubLoginPage", () => {
     fireEvent.change(screen.getByLabelText("Password"), {
       target: { value: "secret-password" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
 
     await waitFor(() =>
       expect(screen.getByTestId("location")).toHaveTextContent(
@@ -421,6 +421,77 @@ describe("TeamHubLoginPage", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(
       "Your session has expired. Sign in again to continue.",
     );
+  });
+
+  it("sets field validation errors on Email and clears errors when editing a field", async () => {
+    const login = vi
+      .fn<TestRouteHandler>()
+      .mockReturnValueOnce(
+        teamHubErrorResponse(
+          401,
+          "INVALID_CREDENTIALS",
+          "Email or password is incorrect.",
+        ),
+      );
+    renderAuthenticationPage({ login });
+
+    const submit = screen.getByRole("button", { name: "Log in" });
+    expect(submit).not.toHaveAttribute("aria-label");
+
+    fireEvent.click(submit);
+
+    const emailInput = screen.getByLabelText("Email");
+    expect(emailInput).toHaveAttribute("aria-invalid", "true");
+    expect(emailInput).toHaveAccessibleDescription(
+      "Enter a valid email address.",
+    );
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(login).not.toHaveBeenCalled();
+
+    fireEvent.change(emailInput, { target: { value: "jenny@example.com" } });
+    expect(emailInput).not.toHaveAttribute("aria-invalid");
+    expect(
+      screen.queryByText("Enter a valid email address."),
+    ).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Password", { selector: "input" }), {
+      target: { value: "wrong-password" },
+    });
+    fireEvent.click(submit);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Email or password is incorrect.",
+    );
+
+    fireEvent.change(screen.getByLabelText("Password", { selector: "input" }), {
+      target: { value: "better-password" },
+    });
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("spins only the credentials button and disables inputs while logging in", async () => {
+    let release!: (value: unknown) => void;
+    const pending = new Promise((resolve) => {
+      release = resolve;
+    });
+    const login = vi.fn<TestRouteHandler>().mockReturnValue(pending);
+    renderAuthenticationPage({ login });
+
+    fillSignIn();
+    const submit = screen.getByRole("button", { name: "Log in" });
+    fireEvent.click(submit);
+
+    await waitFor(() => expect(submit).toHaveAttribute("aria-busy", "true"));
+    expect(submit).toHaveTextContent("Log in");
+    expect(submit).toBeDisabled();
+    expect(screen.getByLabelText("Email")).toBeDisabled();
+    expect(
+      screen.getByLabelText("Password", { selector: "input" }),
+    ).toBeDisabled();
+
+    await act(async () => {
+      release({ id: "session-1", identity: { actors: [] } });
+    });
   });
 });
 
@@ -555,6 +626,43 @@ describe("TeamHubLoginPage in the desktop app", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "This computer's account could not be used. Log in with your email and password.",
     );
+  });
+
+  it("spins only the desktop button while signing in with this computer's account", async () => {
+    let finishDesktop!: (value: { ok: boolean; message?: string }) => void;
+    desktop({
+      available: async () => true,
+      signIn: () =>
+        new Promise((resolve) => {
+          finishDesktop = resolve;
+        }),
+    });
+    renderAuthenticationPage({});
+
+    const localButton = await screen.findByRole("button", {
+      name: LOCAL_BUTTON,
+    });
+    const loginButton = screen.getByRole("button", { name: "Log in" });
+
+    fireEvent.click(localButton);
+
+    await waitFor(() =>
+      expect(localButton).toHaveAttribute("aria-busy", "true"),
+    );
+    expect(localButton).toBeDisabled();
+    expect(loginButton).toBeDisabled();
+    expect(loginButton).not.toHaveAttribute("aria-busy");
+    expect(screen.getByLabelText("Email")).toBeDisabled();
+    expect(
+      screen.getByLabelText("Password", { selector: "input" }),
+    ).toBeDisabled();
+
+    await act(async () => {
+      finishDesktop({ ok: false, message: "Cancelled." });
+    });
+    expect(await screen.findByRole("alert")).toHaveTextContent("Cancelled.");
+    expect(localButton).not.toHaveAttribute("aria-busy");
+    expect(screen.getByLabelText("Email")).toBeEnabled();
   });
 });
 

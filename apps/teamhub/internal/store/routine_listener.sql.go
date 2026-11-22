@@ -51,7 +51,7 @@ func (q *Queries) DelayRoutineListenerPoll(ctx context.Context, arg DelayRoutine
 const deleteRoomRemindersByID = `-- name: DeleteRoomRemindersByID :many
 DELETE FROM room_reminders
 WHERE id=ANY($1::text[])
-RETURNING id, tenant_id, room_id, created_by_actor_id, instruction, mention_actor_id, cadence_kind, timezone, hour, minute, interval_hours, enabled, next_run_at, revision, created_at, updated_at, name, weekdays, template_agent_actor_id, template_routine_key, trigger, run_at, tracking_item_id, tracking_purpose
+RETURNING id, tenant_id, room_id, created_by_actor_id, instruction, mention_actor_id, cadence_kind, timezone, hour, minute, enabled, next_run_at, revision, created_at, updated_at, name, weekdays, template_agent_actor_id, template_routine_key, trigger, run_at, tracking_item_id, tracking_purpose, interval_minutes
 `
 
 func (q *Queries) DeleteRoomRemindersByID(ctx context.Context, ids []string) ([]RoomReminder, error) {
@@ -74,7 +74,6 @@ func (q *Queries) DeleteRoomRemindersByID(ctx context.Context, ids []string) ([]
 			&i.Timezone,
 			&i.Hour,
 			&i.Minute,
-			&i.IntervalHours,
 			&i.Enabled,
 			&i.NextRunAt,
 			&i.Revision,
@@ -88,6 +87,7 @@ func (q *Queries) DeleteRoomRemindersByID(ctx context.Context, ids []string) ([]
 			&i.RunAt,
 			&i.TrackingItemID,
 			&i.TrackingPurpose,
+			&i.IntervalMinutes,
 		); err != nil {
 			return nil, err
 		}

@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { defineGlobalProperty } from "@/test/global-properties";
 import {
   fireEvent,
   render,
@@ -132,7 +133,7 @@ describe("Copy Work Item comments as Markdown", () => {
 
   it("says the copy failed instead of claiming success", async () => {
     stubClipboard(() => Promise.reject(new Error("Clipboard is denied")));
-    Object.defineProperty(document, "execCommand", {
+    defineGlobalProperty(document, "execCommand", {
       configurable: true,
       value: vi.fn(() => false),
     });
@@ -150,7 +151,7 @@ describe("Copy Work Item comments as Markdown", () => {
       within(dialog).getByRole("button", { name: COPY_COMMENTS }),
     );
 
-    expect(await screen.findByRole("status")).toHaveTextContent("Copy failed");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Copy failed");
   });
 });
 

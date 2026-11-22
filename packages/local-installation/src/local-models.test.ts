@@ -12,10 +12,14 @@ import { afterEach, expect, test, vi } from "vitest";
 import {
   prepareLocalModels,
   localModelsEnvironment,
+  restoreLocalModels,
   stackProgress,
+  withLocalModelsLock,
 } from "./local-models.js";
+import { writeSetupChoice } from "./setup-selection.js";
 import { runProcess } from "./process.js";
 import { runLocalmodels } from "./localmodels-tool.js";
+import { expectPrivate } from "./test-support/private.js";
 import type { Instance } from "./instance.js";
 const roots: string[] = [];
 afterEach(async () => {
@@ -106,10 +110,7 @@ test("delegates planning and review without pinning a model, decision or GPU", a
   ).toEqual(["--decision", "none"]);
   expect(plan).not.toContain("--gpu");
   expect(f.call.mock.calls.some((c) => c[1][1] === "apply")).toBe(false);
-  expect(
-    (await stat(path.join(f.home, "runtime/localmodels/plan.json"))).mode &
-      0o077,
-  ).toBe(0);
+  await expectPrivate(path.join(f.home, "runtime/localmodels/plan.json"));
 });
 test("asks review and binding for English messages", async () => {
   const f = await fixture();
@@ -279,7 +280,8 @@ test("replanning requires a separate review and never silently approves", async 
   ).toMatchObject({ details: { code: "LOCAL_MODELS_APPROVAL_REQUIRED" } });
   expect(f.call.mock.calls.some((c) => c[1][1] === "apply")).toBe(false);
 });
-test("saved binding needs fresh upstream health before reuse", async () => {
+// A deployed stack whose binding is ready, then observed not ready once.
+async function deployedThenNotReady(reason: string) {
   const f = await fixture();
   await prepareLocalModels(f.instance, f.options, { localmodels: f.call });
   await prepareLocalModels(
@@ -287,11 +289,118 @@ test("saved binding needs fresh upstream health before reuse", async () => {
     { ...f.options, localModelsApproval: f.id },
     { localmodels: f.call },
   );
+  const ready = structuredClone(f.binding);
   f.binding.ready = false;
   f.binding.pi = null as never;
+  f.binding.reasons = [{ code: reason, message: "upstream text" }] as never;
+  f.call.mockClear();
+  return { ...f, ready };
+}
+test.each(["deployment-unavailable", "pi-extensions-unavailable"])(
+  "a saved binding observed not ready (%s) applies the approved plan again",
+  async (reason) => {
+    const f = await deployedThenNotReady(reason);
+    const original = f.call.getMockImplementation()!;
+    f.call.mockImplementation(async (...a) => {
+      // stack apply brings the stack and its Pi back.
+      if (a[1][1] === "apply") Object.assign(f.binding, f.ready);
+      return original(...a);
+    });
+    expect(
+      await prepareLocalModels(f.instance, f.options, { localmodels: f.call }),
+    ).toBeUndefined();
+    const stack = f.call.mock.calls
+      .map(([, args]) => args)
+      .filter((args) => args[0] === "stack");
+    expect(stack).toEqual([
+      [
+        "stack",
+        "apply",
+        path.join(f.home, "runtime/localmodels/plan.json"),
+        "--approve",
+        f.id,
+        "--jsonl",
+      ],
+    ]);
+    expect(
+      JSON.parse(
+        await readFile(
+          path.join(f.home, "runtime/localmodels/binding.json"),
+          "utf8",
+        ),
+      ),
+    ).toEqual(f.ready);
+    expect(f.options.onEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "log",
+        stage: "runtime",
+        message: expect.stringContaining(reason),
+      }),
+    );
+  },
+);
+test("a stack still not ready after applying the approved plan again asks for recovery", async () => {
+  const f = await deployedThenNotReady("gateway-unavailable");
+  const result = await prepareLocalModels(f.instance, f.options, {
+    localmodels: f.call,
+  });
+  expect(result).toMatchObject({
+    state: "action_required",
+    details: {
+      code: "LOCAL_MODELS_RECOVERY_REQUIRED",
+      reasons: ["gateway-unavailable"],
+    },
+  });
+  expect(
+    f.call.mock.calls.filter(([, args]) => args[1] === "apply"),
+  ).toHaveLength(1);
+  // The earlier ready binding is never replaced by one not verified.
+  expect(
+    JSON.parse(
+      await readFile(
+        path.join(f.home, "runtime/localmodels/binding.json"),
+        "utf8",
+      ),
+    ),
+  ).toEqual(f.ready);
+});
+test("a failed re-apply of the approved plan reports the upstream cause", async () => {
+  const f = await deployedThenNotReady("deployment-unavailable");
+  const original = f.call.getMockImplementation()!;
+  f.call.mockImplementation(async (...a) => {
+    if (a[1][1] !== "apply") return original(...a);
+    a[2]!.onOutput!("stack: port 8080 is held by another program\n");
+    return { code: 1, stdout: "", stderr: "" };
+  });
   expect(
     await prepareLocalModels(f.instance, f.options, { localmodels: f.call }),
-  ).toMatchObject({ details: { code: "LOCAL_MODELS_RECOVERY_REQUIRED" } });
+  ).toMatchObject({
+    state: "action_required",
+    // What made it apply the plan again.
+    details: {
+      code: "LOCAL_MODELS_RECOVERY_REQUIRED",
+      reasons: ["deployment-unavailable"],
+    },
+    message: expect.stringContaining(
+      "stack: port 8080 is held by another program",
+    ),
+  });
+});
+test("a not-ready binding is never re-applied once resource choices changed", async () => {
+  const f = await deployedThenNotReady("deployment-unavailable");
+  const result = await prepareLocalModels(
+    f.instance,
+    { ...f.options, shareGpu: false },
+    { localmodels: f.call },
+  );
+  expect(result).toMatchObject({
+    details: { code: "LOCAL_MODELS_RECOVERY_REQUIRED" },
+  });
+  expect(
+    f.call.mock.calls.some(
+      ([, args]) => args[0] === "stack" && ["plan", "apply"].includes(args[1]!),
+    ),
+  ).toBe(false);
 });
 test("cancellation propagates without pretending to finish", async () => {
   const f = await fixture();
@@ -321,6 +430,192 @@ test("Computer environment consumes the authoritative binding without parsing Pi
     PI_CODING_AGENT_DIR: "/upstream/profile",
     LINGER_LOCAL_MODELS_REVISION: "b".repeat(64),
   });
+});
+// A deployed local-models setup that a quit stopped, with the model source
+// saved as `mode`, or none saved.
+async function stoppedLocalSetup(mode?: string) {
+  const f = await deployedThenNotReady("gateway-unavailable");
+  await writeSetupChoice(f.instance, "local-models");
+  if (mode) {
+    const state = path.join(f.home, "runtime/localmodels/state");
+    await mkdir(state, { recursive: true });
+    await writeFile(
+      path.join(state, "model-source.json"),
+      JSON.stringify({
+        schema: "localmodels.model-source/v1",
+        mode,
+        runtime: mode === "local" ? "pi" : "claude",
+        runtime_model: "",
+        model_label: null,
+        gateway_url: null,
+        environment: {},
+      }),
+      { mode: 0o600 },
+    );
+  }
+  const original = f.call.getMockImplementation()!;
+  f.call.mockImplementation(async (...a) => {
+    // stack apply brings the stack and its Pi back.
+    if (a[1][0] === "stack" && a[1][1] === "apply")
+      Object.assign(f.binding, f.ready);
+    return original(...a);
+  });
+  return f;
+}
+function commands(f: {
+  call: { mock: { calls: Parameters<typeof runLocalmodels>[] } };
+}) {
+  return f.call.mock.calls.map(([, args]) => `${args[0]} ${args[1]}`);
+}
+test.each([undefined, "local"])(
+  "a stopped local stack is restored while the model source is %s",
+  async (mode) => {
+    const f = await stoppedLocalSetup(mode);
+    expect(
+      await restoreLocalModels(f.instance, f.options, { localmodels: f.call }),
+    ).toBeUndefined();
+    expect(commands(f)).toEqual([
+      "setup binding",
+      "setup review",
+      "setup binding",
+      "stack apply",
+      "setup binding",
+      "source apply",
+    ]);
+    expect(f.call.mock.calls.at(-1)![1].slice(0, 6)).toEqual([
+      "source",
+      "apply",
+      "--mode",
+      "local",
+      "--runtime",
+      "pi",
+    ]);
+  },
+);
+test("a ready local stack costs one binding check", async () => {
+  const f = await stoppedLocalSetup("local");
+  Object.assign(f.binding, f.ready);
+  expect(
+    await restoreLocalModels(f.instance, f.options, { localmodels: f.call }),
+  ).toBeUndefined();
+  expect(commands(f)).toEqual(["setup binding"]);
+});
+test.each(["subscription", "byok"])(
+  "a model source switched to %s keeps the local stack stopped",
+  async (mode) => {
+    const f = await stoppedLocalSetup(mode);
+    expect(
+      await restoreLocalModels(f.instance, f.options, { localmodels: f.call }),
+    ).toBeUndefined();
+    expect(f.call).not.toHaveBeenCalled();
+  },
+);
+test("another setup choice never restores local models", async () => {
+  const f = await stoppedLocalSetup();
+  await writeSetupChoice(f.instance, "claude");
+  expect(
+    await restoreLocalModels(f.instance, f.options, { localmodels: f.call }),
+  ).toBeUndefined();
+  expect(f.call).not.toHaveBeenCalled();
+});
+test("a restore whose plan fails to apply reports why", async () => {
+  const f = await stoppedLocalSetup();
+  const original = f.call.getMockImplementation()!;
+  f.call.mockImplementation(async (...a) =>
+    a[1][0] === "stack" ? { code: 1, stdout: "", stderr: "" } : original(...a),
+  );
+  expect(
+    await restoreLocalModels(f.instance, f.options, { localmodels: f.call }),
+  ).toMatchObject({
+    state: "action_required",
+    details: {
+      code: "LOCAL_MODELS_RECOVERY_REQUIRED",
+      reasons: ["gateway-unavailable"],
+    },
+  });
+  expect(commands(f)).not.toContain("source apply");
+});
+test("a restore waits for a quit-time stop and checks the stack it left", async () => {
+  const f = await stoppedLocalSetup("local");
+  Object.assign(f.binding, f.ready);
+  let release!: () => void;
+  let acquired!: () => void;
+  const locked = new Promise<void>((resolve) => (acquired = resolve));
+  const stopping = withLocalModelsLock(
+    f.home,
+    () =>
+      new Promise<void>((resolve) => {
+        acquired();
+        release = () => {
+          // The stop takes the stack down before it lets go.
+          Object.assign(f.binding, {
+            ready: false,
+            pi: null,
+            reasons: [{ code: "gateway-unavailable" }],
+          });
+          resolve();
+        };
+      }),
+  );
+  await locked;
+  const restoring = restoreLocalModels(f.instance, f.options, {
+    localmodels: f.call,
+    lockRetryMs: 5,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(f.call).not.toHaveBeenCalled();
+  release();
+  await stopping;
+  expect(await restoring).toBeUndefined();
+  expect(commands(f)).toContain("stack apply");
+  expect(commands(f).at(-1)).toBe("source apply");
+});
+test("a restore gives up when the stack stays locked", async () => {
+  const f = await stoppedLocalSetup("local");
+  let release!: () => void;
+  let acquired!: () => void;
+  const locked = new Promise<void>((resolve) => (acquired = resolve));
+  const held = withLocalModelsLock(
+    f.home,
+    () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+        acquired();
+      }),
+  );
+  await locked;
+  try {
+    expect(
+      await restoreLocalModels(f.instance, f.options, {
+        localmodels: f.call,
+        lockWaitMs: 30,
+        lockRetryMs: 5,
+      }),
+    ).toMatchObject({
+      state: "action_required",
+      details: { code: "LOCAL_MODELS_RECOVERY_REQUIRED" },
+    });
+    expect(f.call).not.toHaveBeenCalled();
+  } finally {
+    release();
+    await held;
+  }
+});
+test("a restored stack the model source refuses reports why", async () => {
+  const f = await stoppedLocalSetup();
+  const original = f.call.getMockImplementation()!;
+  f.call.mockImplementation(async (...a) =>
+    a[1][0] === "source"
+      ? {
+          code: 1,
+          stdout: JSON.stringify({ code: "GATEWAY_DOWN", message: "Down." }),
+          stderr: "",
+        }
+      : original(...a),
+  );
+  expect(
+    await restoreLocalModels(f.instance, f.options, { localmodels: f.call }),
+  ).toMatchObject({ state: "failed", details: { code: "GATEWAY_DOWN" } });
 });
 
 test("streams more than the process capture limit during an approved stack apply", async () => {
@@ -375,7 +670,7 @@ test("creates the shared private model root before the main model executor can p
   const f = await fixture();
   const invoke = vi.fn<typeof runLocalmodels>(async (home, args, options) => {
     const root = path.join(f.home, "runtime/localmodels/models");
-    expect((await stat(root)).mode & 0o077).toBe(0);
+    await expectPrivate(root, "directory");
     return f.call(home, args, options);
   });
   await prepareLocalModels(f.instance, f.options, { localmodels: invoke });

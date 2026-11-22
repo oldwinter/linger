@@ -14,7 +14,6 @@ import { CredentialStore } from "./computer-credential.js";
 import {
   ComputerDaemonModule,
   TOKEN_ENV,
-  connectionError,
   connectionState,
   daemonConfig,
   daemonEnvironment,
@@ -155,7 +154,8 @@ describe("ComputerDaemonModule", () => {
       LINGER_CODEX_PATH: "/opt/codex",
       [TOKEN_ENV]: TOKEN,
     });
-    expect(statSync(child!.configFile).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32")
+      expect(statSync(child!.configFile).mode & 0o777).toBe(0o600);
     const written = readFileSync(child!.configFile, "utf8");
     // The credential stays out of the config file.
     expect(written).not.toContain(TOKEN);
@@ -314,102 +314,9 @@ describe("ComputerDaemonModule", () => {
     expect(daemon.running()).toBe(2);
     children[0]!.status("upgrade-required");
     expect(daemon.connection()).toBe("upgrade_required");
+    children[0]!.status("identity-conflict");
+    expect(daemon.connection()).toBe("identity_conflict");
     expect(activity).toEqual([2, 0]);
-  });
-
-  it("reads the Gateway's identity conflict from the status line", async () => {
-    const { daemon, ctx, bus, children } = setup();
-    const conflicts: boolean[] = [];
-    bus.on("computer.identity_conflict", (conflict) =>
-      conflicts.push(conflict),
-    );
-    await daemon.start(ctx);
-    children[0]!.send({
-      type: "status",
-      gateway_state: "connecting",
-      connection_error: "daemon_identity_conflict",
-    });
-    expect(daemon.connectionError()).toBe("daemon_identity_conflict");
-    expect(conflicts).toEqual([true]);
-    // A status without the field clears it, and another value is ignored.
-    children[0]!.send({ type: "status", gateway_state: "connected" });
-    expect(daemon.connectionError()).toBeUndefined();
-    children[0]!.send({
-      type: "status",
-      gateway_state: "connected",
-      connection_error: "something_else",
-    });
-    expect(daemon.connectionError()).toBeUndefined();
-    expect(conflicts).toEqual([true, false]);
-  });
-
-  it("persists the identity conflict across daemon backoff and app restarts until connected", async () => {
-    vi.useFakeTimers();
-    try {
-      const directory = mkdtempSync(path.join(os.tmpdir(), "daemon-conflict-"));
-      const configPath = path.join(directory, "config.json");
-      const credPath = path.join(directory, "credential.json");
-      new CredentialStore(credPath).write({
-        computerId: "computer-1",
-        gatewayUrl: "wss://linger.example/v1/runner-gateway",
-        token: TOKEN,
-      });
-
-      const run = () => {
-        const children: FakeChild[] = [];
-        const config = new ConfigStore(configPath);
-        if (!config.get().computerId)
-          config.update({ computerId: "computer-1", tenantId: "tenant-1" });
-        const daemon = new ComputerDaemonModule({
-          spawn: (file, env) => {
-            const child = new FakeChild(file, env);
-            children.push(child);
-            return child;
-          },
-          credentials: new CredentialStore(credPath),
-          directory: path.join(directory, "daemon"),
-        });
-        const ctx: ModuleContext = {
-          config,
-          bus: new EventBus(),
-          log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-          get: () => {
-            throw new Error("unused");
-          },
-        };
-        return { daemon, config, ctx, children };
-      };
-
-      const first = run();
-      await first.daemon.start(first.ctx);
-      first.children[0]!.send({
-        type: "status",
-        gateway_state: "connecting",
-        connection_error: "daemon_identity_conflict",
-      });
-      expect(first.config.get().identityConflict).toBe(true);
-
-      // A crash and restart during backoff keeps the conflict before connecting.
-      first.children[0]!.exit(1, "boom");
-      expect(first.daemon.connectionError()).toBe("daemon_identity_conflict");
-      await vi.advanceTimersByTimeAsync(1_000);
-      expect(first.children).toHaveLength(2);
-      expect(first.daemon.connectionError()).toBe("daemon_identity_conflict");
-      first.children[1]!.send({ type: "status", gateway_state: "connecting" });
-      expect(first.daemon.connectionError()).toBe("daemon_identity_conflict");
-      await first.daemon.stop();
-
-      // A new app session starts with the persisted conflict before status arrives.
-      const second = run();
-      await second.daemon.start(second.ctx);
-      expect(second.daemon.connectionError()).toBe("daemon_identity_conflict");
-      second.children[0]!.send({ type: "status", gateway_state: "connected" });
-      expect(second.daemon.connectionError()).toBeUndefined();
-      expect(second.config.get().identityConflict).toBeUndefined();
-      await second.daemon.stop();
-    } finally {
-      vi.useRealTimers();
-    }
   });
 
   it("stays stopped until this computer is connected", async () => {
@@ -694,16 +601,7 @@ describe("connectionState", () => {
     expect(connectionState("connecting")).toBe("connecting");
     expect(connectionState("authentication-failed")).toBe("auth_failed");
     expect(connectionState("upgrade-required")).toBe("upgrade_required");
-  });
-});
-
-describe("connectionError", () => {
-  it("reads only the identity conflict the daemon reports", () => {
-    expect(connectionError("daemon_identity_conflict")).toBe(
-      "daemon_identity_conflict",
-    );
-    expect(connectionError(undefined)).toBeUndefined();
-    expect(connectionError("another-error")).toBeUndefined();
+    expect(connectionState("identity-conflict")).toBe("identity_conflict");
   });
 });
 
@@ -732,5 +630,58 @@ describe.skipIf(process.platform === "win32")("spawnDaemon", () => {
     expect(code).toBe(1);
     expect(reason).toBe("read Computer config: denied");
     expect(readFileSync(log, "utf8")).toContain("starting\n");
+  });
+
+  const exitOf = async (script: string) => {
+    const directory = mkdtempSync(path.join(os.tmpdir(), "spawn-daemon-"));
+    const executable = path.join(directory, "daemon");
+    writeFileSync(executable, `#!/bin/sh\n${script}`);
+    chmodSync(executable, 0o755);
+    const log = path.join(directory, "logs", "computer-daemon.log");
+    const child = spawnDaemon(executable, log)("config.json", {});
+    return new Promise<[number | null, string?]>((resolve) =>
+      child.onExit((...exit) => resolve(exit)),
+    );
+  };
+
+  it("never takes a log record for the exit reason", async () => {
+    const [code, reason] = await exitOf(
+      [
+        'echo "2026/11/17 20:26:26 INFO local_models.job_finished action=download exit_code=0" >&2',
+        'echo "2026/11/17 20:29:38 WARN runtime.diagnostic type=pi status=ready" >&2',
+        "kill -9 $$",
+      ].join("\n"),
+    );
+    expect(code).toBeNull();
+    expect(reason).toBeUndefined();
+  });
+
+  it("keeps the error the daemon printed when log records follow it", async () => {
+    const [, reason] = await exitOf(
+      [
+        'echo "2026/11/17 20:26:26 INFO daemon.started" >&2',
+        'echo "read Computer config: private path is not owned by the current user" >&2',
+        'echo "2026/11/17 20:26:27 INFO runner.shutdown phase=completed" >&2',
+        "exit 1",
+      ].join("\n"),
+    );
+    expect(reason).toBe(
+      "read Computer config: private path is not owned by the current user",
+    );
+  });
+
+  it("reports a Go panic by its panic line, not its stack trace", async () => {
+    const [code, reason] = await exitOf(
+      [
+        'echo "panic: assignment to entry in nil map" >&2',
+        "echo >&2",
+        'echo "goroutine 1 [running]:" >&2',
+        'echo "main.main()" >&2',
+        'echo "\t/src/main.go:10 +0x1d" >&2',
+        "exit 2",
+      ].join("\n"),
+    );
+    expect(code).toBe(2);
+    expect(reason).toBe("panic: assignment to entry in nil map");
   });
 });

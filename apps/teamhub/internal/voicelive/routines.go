@@ -29,22 +29,22 @@ var RoutineTools = []Tool{
 	{
 		Name: ToolCreateRoutine,
 		Description: "Set up a routine in this room: a reminder at a set time, or work the Agent does on a schedule, such as “remind me at 8 tonight to call mom” or “every weekday at 9 tell me my schedule”. " +
-			"kind once fires one time at run_at, RFC 3339 with the offset of the current local time; daily and weekly fire at time (HH:MM) in timezone, the zone the current local time names, weekly on weekdays; every_n_hours repeats every interval_hours from now. " +
+			"kind once fires one time at run_at, RFC 3339 with the offset of the current local time; daily and weekly fire at time (HH:MM) in timezone, the zone the current local time names, weekly on weekdays; every_n_minutes repeats every interval_minutes (10 to 10080, multiples of 10) from now. " +
 			"instruction is what it says or does, in the user's language: for a reminder, the reminder itself; with agent_does_it=true it wakes the Agent to do the work, so write the work to do. " +
 			"When it fires it posts in this chat; there is no phone or desktop notification, so never promise one. " +
 			"This is a write: first call without confirmed; it returns needs_confirmation with when and what: say that and ask. Only after the user says yes in their next turn, call again with the same arguments and confirmed=true. " +
-			"invalid_schedule: a time is missing, past or malformed; ask or fix it. routine_limit: too many routines here; offer to delete one.",
+			"invalid_schedule: a time is missing, past, malformed, or interval_minutes is not a multiple of 10 between 10 and 10080 (7 days); ask or fix it. routine_limit: too many routines here; offer to delete one.",
 		Parameters: objectSchema([]string{"name", "instruction", "kind", "confirmed"}, map[string]any{
-			"name":           stringProperty("Short name, one line"),
-			"instruction":    stringProperty("What it says or does when it fires"),
-			"kind":           map[string]any{"type": "string", "enum": []string{"once", "daily", "weekly", "every_n_hours"}, "description": "How often it fires"},
-			"run_at":         stringProperty("once: RFC 3339 time with offset"),
-			"time":           stringProperty("daily and weekly: local HH:MM"),
-			"timezone":       stringProperty("daily and weekly: IANA zone of the current local time"),
-			"weekdays":       map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": routineWeekdays}, "description": "weekly: the days"},
-			"interval_hours": map[string]any{"type": "integer", "description": "every_n_hours: 1 to 168"},
-			"agent_does_it":  map[string]any{"type": "boolean", "description": "Wake the Agent to do instruction, instead of posting it as a reminder"},
-			"confirmed":      map[string]any{"type": "boolean", "description": "Whether the user said yes to it, in their own next turn"},
+			"name":             stringProperty("Short name, one line"),
+			"instruction":      stringProperty("What it says or does when it fires"),
+			"kind":             map[string]any{"type": "string", "enum": []string{"once", "daily", "weekly", "every_n_minutes"}, "description": "How often it fires"},
+			"run_at":           stringProperty("once: RFC 3339 time with offset"),
+			"time":             stringProperty("daily and weekly: local HH:MM"),
+			"timezone":         stringProperty("daily and weekly: IANA zone of the current local time"),
+			"weekdays":         map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": routineWeekdays}, "description": "weekly: the days"},
+			"interval_minutes": map[string]any{"type": "integer", "description": "every_n_minutes: 10 to 10080, in 10-minute increments"},
+			"agent_does_it":    map[string]any{"type": "boolean", "description": "Wake the Agent to do instruction, instead of posting it as a reminder"},
+			"confirmed":        map[string]any{"type": "boolean", "description": "Whether the user said yes to it, in their own next turn"},
 		}),
 	},
 	{
@@ -65,31 +65,32 @@ var routineWeekdays = []string{"monday", "tuesday", "wednesday", "thursday", "fr
 
 // RoutineArguments holds the arguments of the routine tools.
 type RoutineArguments struct {
-	RoutineID     string    `json:"routine_id"`
-	Action        string    `json:"action"`
-	Name          string    `json:"name"`
-	Instruction   string    `json:"instruction"`
-	Kind          string    `json:"kind"`
-	RunAt         string    `json:"run_at"`
-	Time          string    `json:"time"`
-	Timezone      string    `json:"timezone"`
-	Weekdays      []string  `json:"weekdays"`
-	IntervalHours int       `json:"interval_hours"`
-	AgentDoesIt   LooseBool `json:"agent_does_it"`
-	Confirmed     LooseBool `json:"confirmed"`
+	RoutineID       string    `json:"routine_id"`
+	Action          string    `json:"action"`
+	Name            string    `json:"name"`
+	Instruction     string    `json:"instruction"`
+	Kind            string    `json:"kind"`
+	RunAt           string    `json:"run_at"`
+	Time            string    `json:"time"`
+	Timezone        string    `json:"timezone"`
+	Weekdays        []string  `json:"weekdays"`
+	IntervalMinutes int       `json:"interval_minutes"`
+	IntervalHours   int       `json:"interval_hours"`
+	AgentDoesIt     LooseBool `json:"agent_does_it"`
+	Confirmed       LooseBool `json:"confirmed"`
 }
 
-// RoutineCadence is the schedule the live model gave, validated by the rules
-// the Agent's routine commands use; false when it is not one. A once time
-// without an offset is read in timezone.
-func RoutineCadence(args RoutineArguments) (reminder.Cadence, bool) {
+// RoutineCadence validates the schedule the live model gave using the same
+// rules as the Agent's routine commands. A once time without an offset is read
+// in timezone.
+func RoutineCadence(args RoutineArguments) (reminder.Cadence, error) {
 	schedule := reminder.Schedule{Kind: strings.TrimSpace(args.Kind)}
 	switch schedule.Kind {
 	case "once":
 		schedule.Timezone = strings.TrimSpace(args.Timezone)
 		runAt, ok := routineRunAt(strings.TrimSpace(args.RunAt), schedule.Timezone)
 		if !ok {
-			return reminder.Cadence{}, false
+			return reminder.Cadence{}, reminder.ErrInvalid
 		}
 		schedule.RunAt = &runAt
 	case "daily", "weekly":
@@ -97,12 +98,14 @@ func RoutineCadence(args RoutineArguments) (reminder.Cadence, bool) {
 		if schedule.Kind == "weekly" {
 			schedule.Weekdays = args.Weekdays
 		}
+	case "every_n_minutes":
+		minutes := args.IntervalMinutes
+		schedule.IntervalMinutes = &minutes
 	case "every_n_hours":
 		hours := args.IntervalHours
 		schedule.IntervalHours = &hours
 	}
-	cadence, err := reminder.ParseSchedule(schedule)
-	return cadence, err == nil
+	return reminder.ParseSchedule(schedule)
 }
 
 func routineRunAt(value, timezone string) (time.Time, bool) {
@@ -143,9 +146,9 @@ func RoutineWhen(cadence reminder.Cadence) string {
 		return "every day at " + clock()
 	case "weekly":
 		return "every " + strings.Join(cadence.Weekdays, ", ") + " at " + clock()
-	case "every_n_hours":
-		if cadence.IntervalHours != nil {
-			return fmt.Sprintf("every %d hours", *cadence.IntervalHours)
+	case "every_n_minutes":
+		if cadence.IntervalMinutes != nil {
+			return fmt.Sprintf("every %d minutes", *cadence.IntervalMinutes)
 		}
 	}
 	return cadence.Kind

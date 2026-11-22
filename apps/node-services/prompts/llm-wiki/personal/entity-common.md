@@ -41,19 +41,36 @@ Every entity section declares how an update may change it; the declaration is
 shown next to each section name. The application checks these rules when the
 page is written and rejects a write that breaks them.
 
-- `summary` sections hold the current narrative. When nothing changed, write
-  `{"keep": true}` and the application keeps the existing text. Whenever you
-  write text, write it with its reason as `{"text": "...", "reason": "..."}`;
-  this includes a new page and a new section, where the reason says what the
-  text is based on. A rewrite must still cite every source the previous text
-  cited, so keep the facts those sources support. If a source no longer
-  supports anything, write
-  `{"removed_refs": ["<raw_ref>"], "reason": "...", "text": "..."}`, listing
-  that source's raw ref and explaining why in `reason`. The page lists only the
+- `summary` sections hold the current narrative. Keep a section with
+  `{"keep": true}` when this run's evidence adds or changes nothing it
+  describes, and the application keeps the existing text; a section you write
+  follows the current section rules, reorganizing its existing facts as needed.
+  Whenever you write text, write it with its reason as
+  `{"text": "...", "reason": "..."}`; this includes a new page and a new
+  section, where the reason says what the text is based on. A rewrite
+  must preserve supported facts, and each citation it drops must reappear in
+  text this write authors: a section you write, or an entry you add, merge or
+  change. A fact may move between sections that way; a kept section or an entry
+  you leave as it is does not count. If a source no longer supports anything
+  in a section, write
+  `{"removed_refs": ["<raw_ref>"], "reason": "...", "text": "..."}` for that
+  section, listing that source's raw ref and explaining why in `reason`. The page lists only the
   sources its text cites. The `Change Log` records the reason of each rewrite.
   A summary section shown with `at most N characters` must fit that length;
   each citation counts as 20 characters. Condense it to the durable facts when
   it would not.
+- `profile`, `narrative`, and `directions` sections follow the summary rule for
+  `{"keep": true}` on an existing page. When you write one, supply `reason` and
+  `removed_refs` (an empty array when no evidence is removed), preserving facts
+  and citations as for summaries. A `profile` has a cited `intro` and a `details`
+  array; a `narrative` has connected `text`; `directions` has an array of work
+  areas with a name, current state and source refs, and nullable goal, owner,
+  outcome and last-updated date. Use null for unsupported optional values.
+  The application renders these fields to the existing Wiki sections and creates
+  direction headings. Do not put extra section or direction headings in a field.
+  Page text states supported facts for a reader; it never explains the
+  authoring rules or comments on what the evidence does or does not establish.
+  Keep that reasoning in `reason`. Separate paragraphs with a blank line.
 - `items` sections are lists of separate entries tracked by ID. The current
   page shows each entry with its ID, as `- [i3] ...`; never write the ID into
   an entry's text. A history section lists entries newest first and puts new

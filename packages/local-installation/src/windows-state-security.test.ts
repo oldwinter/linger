@@ -6,7 +6,11 @@ vi.mock("./windows-private.js", () => ({
   windowsPrivatePath: vi.fn().mockResolvedValue(undefined),
 }));
 import { windowsPrivatePath } from "./windows-private.js";
-import { readLocalLogin, ensureLocalAccount } from "./account.js";
+import {
+  ensureLocalAccount,
+  localIdentityProof,
+  readLocalLogin,
+} from "./account.js";
 import { prepareLocalEnrollment } from "./local-enrollment.js";
 import { readPrivate, type Instance } from "./instance.js";
 let root: string;
@@ -51,15 +55,37 @@ it("uses Windows SID/DACL validation for existing local account reads and reuse"
     }),
     { mode: 0o644 },
   );
+  const key = Buffer.alloc(32, 9);
+  await writeFile(
+    path.join(root, "local-identity.key"),
+    `${key.toString("base64")}\n`,
+    { mode: 0o644 },
+  );
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (!url.endsWith("/v0/local/identity"))
+        return new Response(null, { status: 200 });
+      const { nonce } = JSON.parse(init?.body as string) as { nonce: string };
+      return Response.json({
+        proof: localIdentityProof(key, nonce, instance.origin).toString(
+          "base64url",
+        ),
+      });
+    }),
+  );
+  const provisionOwner = vi.fn<() => Promise<void>>();
   expect((await readLocalLogin(instance)).email).toBe("owner@linger.local");
   expect(
     (
       await ensureLocalAccount(instance, new AbortController().signal, {
-        provisionOwner: async () => {},
+        provisionOwner,
       })
     ).email,
   ).toBe("owner@linger.local");
   expect(windowsPrivatePath).toHaveBeenCalledWith(file, "file");
+  expect(fetch).toHaveBeenCalledTimes(2);
+  expect(provisionOwner).not.toHaveBeenCalled();
 });
 it("checks the ACL before reusing a saved enrollment token", async () => {
   const instance = await fixture();

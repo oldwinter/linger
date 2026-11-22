@@ -1,5 +1,9 @@
 import { Button } from "@/components/ui/button";
 import { ModalDialog } from "@/components/ui/modal-dialog";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
+
+import { libraryMessages as m } from "./library.messages";
 
 export function DocumentDeleteDialog({
   error,
@@ -14,22 +18,28 @@ export function DocumentDeleteDialog({
   pending: boolean;
   title: string;
 }) {
+  const t = useT();
   return (
     <ModalDialog
       closeOnBackdrop={!pending}
-      description={`${title} will be deleted from all Rooms and shared locations. It cannot currently be restored from the product.`}
+      description={t(m.deleteDocumentBody, { title })}
       onClose={() => {
         if (!pending) onCancel();
       }}
       size="sm"
-      title="Delete Document?"
+      title={t(m.deleteDocumentTitle)}
       footer={
         <>
           <Button disabled={pending} onClick={onCancel} tone="secondary">
-            Cancel
+            {t(commonMessages.cancel)}
           </Button>
-          <Button loading={pending} onClick={onConfirm} tone="danger">
-            Delete
+          <Button
+            data-voice-risk="never"
+            loading={pending}
+            onClick={onConfirm}
+            tone="danger"
+          >
+            {t(commonMessages.delete)}
           </Button>
         </>
       }

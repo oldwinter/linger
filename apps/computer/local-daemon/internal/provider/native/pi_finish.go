@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"strings"
 	"time"
 )
 
@@ -17,8 +18,9 @@ const (
 
 var piAbortBudget = 2 * time.Second
 
-// drive runs the startup exchange, waits for the turn to settle, then parks
-// the process or stops it, and delivers the single Outcome.
+// drive runs the startup exchange, waits for the turn to settle (and runs any
+// stop-hook continuation on the same bound Pi process), then parks the process
+// or stops it, and delivers the single Outcome.
 func (t *piTurn) drive(prompt string) {
 	began := time.Now()
 	status, failure := statusCompleted, ""
@@ -26,20 +28,50 @@ func (t *piTurn) drive(prompt string) {
 	if err := t.startup(prompt); err != nil {
 		status, failure = statusFailed, err.Error()
 	} else {
-		select {
-		case <-t.settled:
-			settled = true
-		case <-t.proc.closed:
+		stopHookActive := false
+		for {
+			settled = false
+			settledCh := t.settledCh()
 			select {
-			case <-t.settled:
+			case <-settledCh:
 				settled = true
-			default:
+			case <-t.proc.closed:
+				select {
+				case <-settledCh:
+					settled = true
+				default:
+				}
+			case <-t.runCtx.Done():
 			}
-		case <-t.runCtx.Done():
+			if !settled {
+				break
+			}
+			t.timing("pi.agent_settled")
+			if t.stopHook == nil || t.oneShot {
+				break
+			}
+			t.mu.Lock()
+			clean := t.failure == "" && !t.settleAborted && t.sawAssistant && t.steering == nil
+			t.mu.Unlock()
+			if !clean || t.runCtx.Err() != nil || !t.proc.alive() {
+				break
+			}
+			decision := t.stopHook(t.runCtx, StopHookRequest{
+				Runtime:        "pi",
+				StopHookActive: stopHookActive,
+			})
+			reason := strings.TrimSpace(decision.Reason)
+			if decision.Action != "block" || reason == "" || t.runCtx.Err() != nil || !t.proc.alive() {
+				break
+			}
+			t.resetForContinuation()
+			stopHookActive = true
+			if err := t.sendPrompt(reason); err != nil {
+				settled = false
+				status, failure = statusFailed, err.Error()
+				break
+			}
 		}
-	}
-	if settled {
-		t.timing("pi.agent_settled")
 	}
 	t.mu.Lock()
 	t.stopping = true
@@ -67,12 +99,22 @@ func (t *piTurn) drive(prompt string) {
 func (t *piTurn) startup(prompt string) error {
 	ctx, cancel := context.WithTimeout(t.runCtx, piStartupBudget)
 	defer cancel()
-	if !t.reused {
+	if !t.reused && !t.oneShot {
 		if _, err := t.proc.sessionState(ctx); err != nil {
 			return err
 		}
 		t.timing("pi.get_state_ok")
 	}
+	return t.sendPromptWithContext(ctx, prompt)
+}
+
+func (t *piTurn) sendPrompt(prompt string) error {
+	ctx, cancel := context.WithTimeout(t.runCtx, piStartupBudget)
+	defer cancel()
+	return t.sendPromptWithContext(ctx, prompt)
+}
+
+func (t *piTurn) sendPromptWithContext(ctx context.Context, prompt string) error {
 	reply, err := t.proc.call(ctx, "prompt", map[string]any{"message": prompt}, nil)
 	if err != nil {
 		return fmt.Errorf("Pi prompt did not start: %w", err)
@@ -137,7 +179,16 @@ func (t *piTurn) finish(began time.Time, status, failure string, interrupted boo
 		t.abortQueue()
 	}
 	confirmed := p.stop()
-	if status == statusCompleted {
+	if confirmed && status == piStatusCancelled {
+		// A natural settle can arrive while the abort request is in flight.
+		select {
+		case <-t.settledCh():
+			if settled, reason := t.settledStatus(); settled != statusAborted {
+				status, failure = settled, reason
+			}
+		default:
+		}
+	} else if status == statusCompleted {
 		status, failure = t.settledStatus()
 	}
 	outcome := t.outcomeFor(began, status, failure)
@@ -192,8 +243,10 @@ func (t *piTurn) settledStatus() (string, string) {
 	case p.waitErr != nil:
 		return statusFailed, "Pi exited unsuccessfully: " + p.waitErr.Error()
 	}
-	if err := piValidateSession(p.sessionDir, p.sessionID, p.contextDir); err != nil {
-		return statusFailed, err.Error()
+	if !t.oneShot {
+		if err := piValidateSession(p.sessionDir, p.sessionID, p.contextDir); err != nil {
+			return statusFailed, err.Error()
+		}
 	}
 	return statusCompleted, ""
 }

@@ -74,6 +74,7 @@ export function Select({
       <button
         aria-controls={open ? listboxId : undefined}
         aria-expanded={open}
+        aria-haspopup="listbox"
         aria-describedby={ariaDescribedBy}
         aria-invalid={ariaInvalid || undefined}
         aria-label={ariaLabel}
@@ -99,7 +100,7 @@ export function Select({
         value={value}
       >
         <span
-          className={`min-w-0 flex-1 truncate ${selectedIndex >= 0 ? "" : "text-muted-foreground"}`}
+          className={`min-w-0 flex-1 truncate ${selectedIndex >= 0 ? "" : "text-app-placeholder"}`}
         >
           {options[selectedIndex]?.children ?? placeholder}
         </span>

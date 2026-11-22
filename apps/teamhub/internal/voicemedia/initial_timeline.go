@@ -14,8 +14,13 @@ import (
 var errCaptureStoppedBeforeMedia = errors.New("Capture stopped before media began")
 
 func initialMediaStart(requested, started time.Time) (time.Time, error) {
-	if started.IsZero() || started.Before(requested) {
-		return time.Time{}, fmt.Errorf("%w: initial media start timestamp is missing or precedes the request", ErrProviderUnavailable)
+	if started.IsZero() {
+		return time.Time{}, fmt.Errorf("%w: initial media start timestamp is missing", ErrProviderUnavailable)
+	}
+	// This recorder follows an epoch issued after the capture was persisted.
+	// Its wall clock can lag PostgreSQL, so preserve that causal lower bound.
+	if started.Before(requested) {
+		return requested, nil
 	}
 	return started, nil
 }

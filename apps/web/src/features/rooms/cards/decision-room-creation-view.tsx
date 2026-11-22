@@ -2,7 +2,9 @@ import { UserGroupIcon } from "@hugeicons/core-free-icons";
 import { Link } from "react-router";
 
 import { Icon } from "@/components/ui/icon";
+import { RichMessage, useT } from "@/i18n/use-translation";
 
+import { cardsMessages } from "./cards.messages";
 import { CreationMessagePreview } from "./creation-message-preview";
 import type { DecisionMessageCard } from "./decision-card";
 
@@ -21,13 +23,23 @@ export function RoomCreationDecisionView({
   actorDisplayNames?: Readonly<Record<string, string>>;
   view: RoomCreationView;
 }) {
+  const t = useT();
   return (
     <div className="space-y-1.5 text-xs text-app-muted">
       <p className="[overflow-wrap:anywhere]">
-        <span className="font-medium text-app-body">Members: </span>
-        {view.member_ids
-          .map((actorId) => actorDisplayNames[actorId] ?? actorId)
-          .join(", ")}
+        <RichMessage
+          message={cardsMessages.membersLine}
+          tags={{
+            label: (text) => (
+              <span className="font-medium text-app-body">{text}</span>
+            ),
+          }}
+          values={{
+            names: view.member_ids
+              .map((actorId) => actorDisplayNames[actorId] ?? actorId)
+              .join(t(cardsMessages.listSeparator)),
+          }}
+        />
       </p>
       <CreationMessagePreview
         actorDisplayNames={actorDisplayNames}
@@ -45,6 +57,7 @@ export function OpenCreatedRoomLink({
   roomId: string;
   tenantId: string;
 }) {
+  const t = useT();
   return (
     <Link
       className="typed-card-link"
@@ -53,7 +66,7 @@ export function OpenCreatedRoomLink({
       )}/chat`}
     >
       <Icon icon={UserGroupIcon} size={14} />
-      Open Room
+      {t(cardsMessages.openRoom)}
     </Link>
   );
 }

@@ -1,3 +1,4 @@
+import { defineGlobalProperty } from "@/test/global-properties";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
@@ -15,7 +16,10 @@ import {
   createTestTeamHubRuntime,
   type TestTeamHubRuntime,
 } from "@/test/teamhub-test-runtime";
-import type { TestRouteHandler } from "@/test/teamhub-test-server";
+import {
+  teamHubErrorResponse,
+  type TestRouteHandler,
+} from "@/test/teamhub-test-server";
 import {
   TeamHubRuntimeProvider,
   type TeamHubRuntime,
@@ -34,36 +38,20 @@ import { roomMessagesQueryKey } from "../room-queries";
 import { requestThreadComposerFocus } from "./thread-composer-focus";
 import { roomMessageSender } from "./room-message-sender";
 import { ThreadPanel } from "./thread-panel";
+import {
+  openPanelTab,
+  openRoomSearch,
+  TestRoomChrome,
+} from "./room-chat.fixtures";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
-
-const openPanelTab = vi.fn();
-const openRoomSearch = vi.fn();
-
-vi.mock("../room-connectivity", async () => {
-  const actual = await vi.importActual<typeof import("../room-connectivity")>(
-    "../room-connectivity",
-  );
-  return {
-    ...actual,
-    useRoomOutletContext: () => ({
-      focusPanelMessageId: null,
-      lastAppliedRoomSeq: 0,
-      messagePresentations: {},
-      openPanelTab,
-      openRoomSearch,
-      recordMessagePresentation: () => undefined,
-      status: "connected" as const,
-    }),
-  };
-});
 
 describe("ThreadPanel", () => {
   beforeEach(() => {
     openPanelTab.mockReset();
     openRoomSearch.mockReset();
     const store = new Map<string, string>();
-    Object.defineProperty(window, "localStorage", {
+    defineGlobalProperty(window, "localStorage", {
       configurable: true,
       value: {
         get length() {
@@ -117,6 +105,118 @@ describe("ThreadPanel", () => {
     );
     expect(screen.getByLabelText("Reply in Thread")).toBeDisabled();
     expect(screen.getByRole("heading", { name: "Thread" })).toHaveFocus();
+  });
+
+  it("shows an error with Retry when creating the Thread fails", async () => {
+    const runtime = createTestTeamHubRuntime();
+    acceptRoomMessages(runtime);
+
+    const page = await listRoomMessages(runtime, "room-all");
+    const root = page.items.find((item) => item.id === "message-2");
+    if (!root) throw new Error("Fixture Message message-2 is missing.");
+    let fail = true;
+    const createThread = vi.fn<TestRouteHandler>(() => {
+      if (fail) {
+        fail = false;
+        return teamHubErrorResponse(
+          503,
+          "THREAD_UNAVAILABLE",
+          "Could not start this Thread.",
+        );
+      }
+      return {
+        room: {
+          created_at: "2026-07-23T10:00:00Z",
+          id: "room-thread-retry",
+          kind: "thread",
+          name: "Thread",
+          parent_room_id: "room-all",
+          tenant_id: "tenant-northstar",
+          updated_at: "2026-07-23T10:00:00Z",
+        },
+      };
+    });
+    runtime.server.on(
+      "POST",
+      "/v0/rooms/{roomId}/messages/{messageId}/thread",
+      createThread,
+    );
+    runtime.server.on("GET", "/v0/rooms/{roomId}/messages", ({ params }) => {
+      if (params.roomId === "room-thread-retry") {
+        return { items: [], page: { has_more: false }, snapshot_room_seq: 0 };
+      }
+      return page;
+    });
+
+    render(
+      wrap(
+        runtime,
+        <ThreadPanel
+          accountId="account-jenny"
+          mentionOptions={[codex]}
+          rootMessage={root}
+          tenantId="tenant-northstar"
+        />,
+      ),
+    );
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Could not start this Thread.");
+    expect(screen.queryByTestId("thread-panel-loading")).toBeNull();
+
+    fireEvent.click(within(alert).getByRole("button", { name: "Retry" }));
+    await waitFor(() =>
+      expect(screen.getByLabelText("Reply in Thread")).toBeEnabled(),
+    );
+    expect(createThread).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("shows an error with Retry when loading Thread replies fails", async () => {
+    const runtime = createTestTeamHubRuntime();
+    acceptRoomMessages(runtime);
+
+    let fail = true;
+    runtime.server.on("GET", "/v0/rooms/{roomId}/messages", ({ params }) => {
+      if (params.roomId === "room-thread-1") {
+        if (fail) {
+          fail = false;
+          return teamHubErrorResponse(
+            503,
+            "MESSAGES_UNAVAILABLE",
+            "Replies unavailable.",
+          );
+        }
+        return {
+          items: [
+            {
+              ...message("reply-1", "Loaded after retry"),
+              room_id: "room-thread-1",
+            },
+          ],
+          page: { has_more: false },
+          snapshot_room_seq: 1,
+        };
+      }
+      return { items: [], page: { has_more: false }, snapshot_room_seq: 0 };
+    });
+
+    render(
+      wrap(
+        runtime,
+        <ThreadPanel
+          accountId="account-jenny"
+          rootMessage={message("message-2", "Thread root")}
+          tenantId="tenant-northstar"
+        />,
+      ),
+    );
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Replies could not be loaded");
+    fireEvent.click(within(alert).getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("Loaded after retry")).toBeVisible();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("opens search narrowed to the Thread Room and names the Thread", async () => {
@@ -505,9 +605,14 @@ describe("ThreadPanel", () => {
     );
 
     const dock = await screen.findByTestId("agent-streaming-status-dock");
-    expect(
-      within(dock).getByRole("button", { name: "Open Agent status activity" }),
-    ).toHaveAttribute("title", "Codex: Run stopped");
+    // The status line picks the shown entry in an effect after the dock mounts.
+    await waitFor(() =>
+      expect(
+        within(dock).getByRole("button", {
+          name: "Open Agent status activity",
+        }),
+      ).toHaveAttribute("title", "Codex: Run stopped"),
+    );
     expect(
       dock.compareDocumentPosition(screen.getByLabelText("Reply in Thread")) &
         Node.DOCUMENT_POSITION_FOLLOWING,
@@ -1045,9 +1150,14 @@ describe("ThreadPanel", () => {
     );
 
     const dock = await screen.findByTestId("agent-streaming-status-dock");
-    expect(
-      within(dock).getByRole("button", { name: "Open Agent status activity" }),
-    ).toHaveAttribute("title", "Codex: Run stopped");
+    // The status line picks the shown entry in an effect after the dock mounts.
+    await waitFor(() =>
+      expect(
+        within(dock).getByRole("button", {
+          name: "Open Agent status activity",
+        }),
+      ).toHaveAttribute("title", "Codex: Run stopped"),
+    );
     expect(dock).not.toHaveTextContent("Lev8 GTM");
   });
 
@@ -1303,6 +1413,93 @@ describe("ThreadPanel", () => {
     );
     expect(await screen.findByRole("status")).toHaveTextContent("Copied");
   });
+
+  it("shows an inline alert when opening a Thread message file fails", async () => {
+    const runtime = createTestTeamHubRuntime();
+    acceptRoomMessages(runtime);
+    const root: TeamHubMessage = {
+      ...message("message-file-root", "See the attached report"),
+      segments: [
+        { content: "See the attached report", type: "text" },
+        {
+          content: "missing-report.pdf",
+          document_id: "document-missing",
+          document_version_id: "version-missing",
+          type: "file",
+        },
+      ],
+      thread: { reply_count: 0, room_id: "room-thread-file" },
+    };
+    runtime.server.on("GET", "/v0/rooms/{roomId}/messages", () => ({
+      items: [],
+      page: { has_more: false },
+    }));
+    openPanelTab.mockImplementationOnce(() => {
+      throw new Error("Panel unavailable");
+    });
+
+    render(
+      wrap(
+        runtime,
+        <ThreadPanel
+          accountId="account-1"
+          rootMessage={root}
+          tenantId="tenant-northstar"
+        />,
+      ),
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Preview missing-report.pdf" }),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "File preview is unavailable",
+    );
+  });
+
+  it("enables message attachments in the Thread composer once the Thread room is ready", async () => {
+    const runtime = createTestTeamHubRuntime();
+    acceptRoomMessages(runtime);
+    const root: TeamHubMessage = {
+      ...message("message-attach-root", "Attach logs here"),
+      thread: { reply_count: 0, room_id: "room-thread-attach" },
+    };
+    runtime.server.on("GET", "/v0/rooms/{roomId}/messages", () => ({
+      items: [],
+      page: { has_more: false },
+    }));
+    const stageAttachment = vi
+      .spyOn(roomMessageSender(runtime.client), "stageAttachment")
+      .mockResolvedValue(undefined);
+
+    render(
+      wrap(
+        runtime,
+        <ThreadPanel
+          accountId="account-1"
+          rootMessage={root}
+          tenantId="tenant-northstar"
+        />,
+      ),
+    );
+
+    const fileInput = await screen.findByLabelText(
+      "Choose message attachments",
+    );
+    fireEvent.change(fileInput, {
+      target: {
+        files: [new File(["trace"], "trace.txt", { type: "text/plain" })],
+      },
+    });
+
+    await waitFor(() =>
+      expect(stageAttachment).toHaveBeenCalledWith(
+        expect.objectContaining({ roomId: "room-thread-attach" }),
+      ),
+    );
+    expect(await screen.findByText("trace.txt")).toBeVisible();
+  });
 });
 
 const codex: TeamHubActorRef = {
@@ -1509,7 +1706,9 @@ function wrap(
   return (
     <QueryClientProvider client={queryClient}>
       <TeamHubRuntimeProvider runtime={runtime}>
-        <MemoryRouter>{ui}</MemoryRouter>
+        <TestRoomChrome>
+          <MemoryRouter>{ui}</MemoryRouter>
+        </TestRoomChrome>
       </TeamHubRuntimeProvider>
     </QueryClientProvider>
   );

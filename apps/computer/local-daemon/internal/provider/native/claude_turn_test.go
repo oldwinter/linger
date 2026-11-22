@@ -141,6 +141,7 @@ func TestClaudeToolPolicyOnBothControlPaths(t *testing.T) {
 		{"Agent", `{"prompt":"x"}`, "agent-1", false},
 		{"Agent", `{"background":true}`, "", false},
 		{"Bash", `{"command":"ls","run_in_background":true}`, "", false},
+		{"Bash", `{"command":"teamhub message send --content \"Quote: $180/store\""}`, "", false},
 	}
 	for _, c := range cases {
 		canUse := `{"subtype":"can_use_tool","tool_name":"` + c.tool + `","input":` + c.input + `,"agent_id":"` + c.agentID + `","tool_use_id":"tool-1"}`

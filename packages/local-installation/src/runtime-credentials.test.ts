@@ -3,6 +3,8 @@ import { expect, test, vi } from "vitest";
 import { saveRuntimeApiKey } from "./runtime-credentials.js";
 import { readdir } from "node:fs/promises";
 import path from "node:path";
+const home = path.resolve("/owned");
+const instance = path.join(home, "instances", "default");
 test("delegates credential verification and native profile writing upstream through private stdin", async () => {
   const localmodels = vi.fn<typeof runLocalmodels>(async () => ({
     code: 0,
@@ -10,7 +12,7 @@ test("delegates credential verification and native profile writing upstream thro
     stderr: "",
   }));
   await saveRuntimeApiKey(
-    "/owned/instances/default",
+    instance,
     "pi",
     "openai-compatible",
     "private-key",
@@ -18,12 +20,12 @@ test("delegates credential verification and native profile writing upstream thro
     { localmodels },
   );
   expect(localmodels).toHaveBeenCalledWith(
-    "/owned",
+    home,
     [
       "harness",
       "auth",
       "--root",
-      "/owned/runtime/harness",
+      path.join(home, "runtime", "harness"),
       "--runtime",
       "pi",
       "--config-stdin",
@@ -74,14 +76,9 @@ test("rejects malformed user input before upstream access", async () => {
     ],
   ] as const) {
     await expect(
-      saveRuntimeApiKey(
-        "/owned/instances/default",
-        runtime,
-        provider,
-        key,
-        model,
-        { localmodels },
-      ),
+      saveRuntimeApiKey(instance, runtime, provider, key, model, {
+        localmodels,
+      }),
     ).rejects.toThrow();
   }
   expect(localmodels).not.toHaveBeenCalled();

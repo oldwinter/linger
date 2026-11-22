@@ -45,6 +45,27 @@ describe("Runtime activity path", () => {
       expect(screen.getByText("Unconfirmed")).toBeVisible();
     },
   );
+  it("shows an interrupted Run as a stop and any other failure as an error", () => {
+    const stopped = (code: "interrupted" | "timeout") =>
+      projectRuntimeActivityPath(
+        [
+          record("1", {
+            type: "status.changed",
+            status: "stopped",
+            outcome: "failed",
+            failure: { code, runtime_type: "claude" },
+          }),
+        ],
+        new Map(),
+        "ended",
+      );
+    expect(stopped("interrupted")).toEqual([
+      expect.objectContaining({ kind: "outcome", tone: "canceled" }),
+    ]);
+    expect(stopped("timeout")).toEqual([
+      expect.objectContaining({ kind: "outcome", tone: "failed" }),
+    ]);
+  });
   it("keeps each Task step its own item whatever kind the Computer gave it", () => {
     const input = (command: string) => [
       {
@@ -1109,6 +1130,56 @@ describe("Runtime activity path", () => {
       ?.closest("summary");
     expect(search).toHaveTextContent("index unavailable");
     expect(search).toHaveTextContent("rooms.ts:12");
+  });
+
+  it("keeps tool-call chevrons touch-visible and distinguishes completed plan steps from pending ones", () => {
+    render(
+      <RuntimeActivityPath
+        embedded
+        records={[
+          record("1", {
+            type: "plan.updated",
+            steps: [
+              { content: "Gather context", status: "completed" },
+              { content: "Draft summary", status: "in_progress" },
+              { content: "Send update", status: "pending" },
+            ],
+          }),
+          record("2", {
+            type: "activity.started",
+            activity_id: "read-1",
+            kind: "read",
+            title: "Read",
+          }),
+          record("3", {
+            type: "activity.started",
+            activity_id: "search-1",
+            kind: "search",
+            title: "Search",
+          }),
+        ]}
+      />,
+    );
+
+    const plan = screen.getByRole("list", { name: "Run plan" });
+    const [completedRow, inProgressRow, pendingRow] = Array.from(
+      plan.children,
+    ) as HTMLElement[];
+    expect(completedRow?.querySelector('[aria-label="Completed"]')).toHaveClass(
+      "text-app-success",
+    );
+    expect(inProgressRow?.querySelector(".animate-spin")).not.toBeNull();
+    expect(pendingRow?.querySelector('[aria-label="Completed"]')).toBeNull();
+    expect(pendingRow?.querySelector(".bg-app-border-strong")).not.toBeNull();
+
+    const summary = screen
+      .getByText("Working through 2 steps")
+      .closest("summary")!;
+    const icons = summary.querySelectorAll("svg");
+    expect(icons).toHaveLength(2);
+    expect(icons[0]).toHaveClass("[@media(hover:none)]:opacity-0");
+    expect(icons[1]).toHaveClass("[@media(hover:none)]:opacity-100");
+    expect(icons[1]?.getAttribute("class")).not.toMatch(/\bhidden\b/);
   });
 });
 

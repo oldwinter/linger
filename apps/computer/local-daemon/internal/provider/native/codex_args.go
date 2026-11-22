@@ -52,7 +52,7 @@ func CodexAppServerArgs(version string, launchArgs ...string) []string {
 
 // NormalizeCodexLaunchArgs filters Computer args (extra) and Agent args
 // (custom) separately: --listen is adapter-owned, and the Daemon's MCP set
-// owns every mcp_servers override.
+// owns every mcp_servers override and the MCP OAuth credential store.
 func NormalizeCodexLaunchArgs(extra, custom []string, logger *slog.Logger) []string {
 	if logger == nil {
 		logger = slog.Default()
@@ -62,7 +62,7 @@ func NormalizeCodexLaunchArgs(extra, custom []string, logger *slog.Logger) []str
 	for _, list := range [][]string{extra, custom} {
 		filtered := filterAdapterArgs(logger, reserved, list)
 		filtered = codexDropOverrides(logger, filtered, func(path []string) bool {
-			return len(path) > 0 && path[0] == "mcp_servers"
+			return len(path) > 0 && (path[0] == "mcp_servers" || path[0] == codexOAuthStoreKey)
 		})
 		out = append(out, filtered...)
 	}
@@ -95,6 +95,10 @@ func codexExecutionArgs(profile Profile, spec RunSpec, home string, logger *slog
 	user := NormalizeCodexLaunchArgs(lists[0], lists[1], logger)
 	launch := append(append([]string{}, profile.CodexConfigArgs...), user...)
 	args := CodexAppServerArgs(profile.CodexToolVersion, launch...)
+	if spec.WithoutNativeWebTools {
+		// After every user override, which cannot turn it back on.
+		args = append(args, "--config", `web_search="disabled"`)
+	}
 	if codexSupportsImmediateUnload(profile.CodexToolVersion, home) {
 		args = append(args, "-c", "thread_unload_delay_secs=0")
 	}

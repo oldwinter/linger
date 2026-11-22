@@ -135,6 +135,27 @@ func TestCodexTurnOwnershipAndDedupe(t *testing.T) {
 	}
 }
 
+func TestCodexCompletionRacingInterrupt(t *testing.T) {
+	turn := codexFakeTurn{Items: []map[string]any{codexAgentMessage("m1", "done", "final_answer")}, Stall: true}
+	fake := newCodexFake(t, []codexFakeTurn{turn}, map[string]string{"FAKE_MODES": "complete_on_interrupt"})
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	run, err := fake.runtime(nil).Start(ctx, "go", fake.spec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for event := range run.Events {
+		if event.Kind == EventText {
+			cancel()
+			break
+		}
+	}
+	out, _ := codexCollect(t, run)
+	if out.Status != statusCompleted || out.Output != "done" || !out.ExitConfirmed || out.ExitUnconfirmed || fake.count("turn/interrupt") != 1 {
+		t.Fatalf("outcome = %+v, methods = %v", out, fake.methods())
+	}
+}
+
 func TestCodexFirstProgressTimeoutInterrupts(t *testing.T) {
 	fake := newCodexFake(t, []codexFakeTurn{{Stall: true}}, nil)
 	spec := fake.spec()
@@ -164,7 +185,7 @@ func TestCodexStartupStallKillsTree(t *testing.T) {
 			fake := newCodexFake(t, nil, nil)
 			// The fake never answers the stall, so each stop step waits out its
 			// grace; newCodexFake's cleanup restores the grace.
-			codexStopGrace.set(300 * time.Millisecond)
+			codexStopGrace.set(150 * time.Millisecond)
 			receipt := filepath.Join(fake.root, "pids")
 			fake.env["FAKE_STALL"], fake.env["FAKE_GRANDCHILD"] = method, receipt
 			spec := fake.spec()
@@ -185,7 +206,7 @@ func TestCodexStartupFailureKeepsSecretsOut(t *testing.T) {
 			fake := newCodexFake(t, nil, map[string]string{"FAKE_STDERR": "env " + secret, "FAKE_STALL": "initialize"})
 			// The fake never answers the stall, so each stop step waits out its
 			// grace; newCodexFake's cleanup restores the grace.
-			codexStopGrace.set(300 * time.Millisecond)
+			codexStopGrace.set(150 * time.Millisecond)
 			var log codexTestLog
 			spec := fake.spec()
 			if variant == "startup" {
@@ -220,6 +241,9 @@ func TestCodexInitializeCancelUnconfirmed(t *testing.T) {
 	var force atomic.Bool
 	force.Store(true)
 	codexForceUnconfirmed(&force)
+	// The stall makes each stop step wait out its grace; newCodexFake's
+	// cleanup restores the grace.
+	codexStopGrace.set(150 * time.Millisecond)
 	ctx, cancel := context.WithCancel(context.Background())
 	run, err := fake.runtime(nil).Start(ctx, "go", fake.spec())
 	if err != nil {
@@ -246,7 +270,7 @@ func TestCodexInitializeTimeoutRetriesOnce(t *testing.T) {
 	fake := newCodexFake(t, nil, map[string]string{"FAKE_STALL": "initialize"})
 	// The fake never answers the stall, so each stop step waits out its
 	// grace; newCodexFake's cleanup restores the grace.
-	codexStopGrace.set(300 * time.Millisecond)
+	codexStopGrace.set(150 * time.Millisecond)
 	var log codexTestLog
 	spec := fake.spec()
 	spec.StartupBudget = 100 * time.Millisecond
@@ -605,8 +629,8 @@ func TestCodexUsagePerTurnOnReusedProcess(t *testing.T) {
 func TestCodexSteering(t *testing.T) {
 	fake := newCodexFake(t, []codexFakeTurn{{Stall: true}}, nil)
 	spec := fake.spec()
-	spec.SilenceBudget = 2 * time.Second
-	spec.FirstProgressBudget = 2 * time.Second
+	spec.SilenceBudget = 400 * time.Millisecond
+	spec.FirstProgressBudget = 400 * time.Millisecond
 	run, err := fake.runtime(nil).Start(context.Background(), "go", spec)
 	if err != nil {
 		t.Fatal(err)
@@ -843,6 +867,29 @@ func TestCodexMCPFrontKeepsThreadAcrossURLChanges(t *testing.T) {
 	}
 }
 
+func TestCodexManagedMCPAvoidsTheKeyring(t *testing.T) {
+	fake := newCodexFake(t, []codexFakeTurn{{Status: "completed", Items: []map[string]any{codexAgentMessage("m", "ok", nil)}}},
+		map[string]string{"FAKE_MODES": "secret_service_unresponsive"})
+	if err := os.WriteFile(filepath.Join(fake.home, "config.toml"), []byte("mcp_oauth_credentials_store = \"keyring\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	spec := fake.spec()
+	spec.FirstProgressBudget = time.Second
+	spec.StartupBudget = 2 * time.Second
+	spec.MCPServers = json.RawMessage(`{"mcpServers":{"browser":{"type":"http","url":"http://127.0.0.1:1/mcp/token/browser"}}}`)
+	out, _ := codexDrain(t, fake.runtime(nil), "one", spec)
+	if out.Status != statusCompleted || out.Output != "ok" {
+		t.Fatalf("new thread = %+v", out)
+	}
+	if _, err := StopCodexHomeForMaintenance(fake.home); err != nil {
+		t.Fatal(err)
+	}
+	spec.ResumeID = out.SessionID
+	if out, _ = codexDrain(t, fake.runtime(nil), "two", spec); out.Status != statusCompleted || fake.count("thread/resume") != 1 {
+		t.Fatalf("resumed thread = %+v methods = %v", out, fake.methods())
+	}
+}
+
 func jsonText(value any) string {
 	encoded, _ := json.Marshal(value)
 	return string(encoded)
@@ -907,7 +954,7 @@ func TestCodexSteerNeedsConsumptionEvidence(t *testing.T) {
 			fake := newCodexFake(t, []codexFakeTurn{{Stall: true}}, map[string]string{"FAKE_MODES": tc.mode})
 			fake.version = "0.166.0"
 			spec := fake.spec()
-			spec.SilenceBudget = 3 * time.Second
+			spec.SilenceBudget = 400 * time.Millisecond
 			spec.ExposeTurnStarted = true
 			run, err := fake.runtime(nil).Start(context.Background(), "go", spec)
 			if err != nil {
@@ -938,6 +985,34 @@ func TestCodexSteerNeedsConsumptionEvidence(t *testing.T) {
 			// A steer Codex may still hold is never carried into a later turn.
 			if _, _, parked := residentEntryOf(codexResidents, fake.home); parked != tc.parked {
 				t.Fatalf("parked = %v, want %v", parked, tc.parked)
+			}
+		})
+	}
+}
+
+func TestCodexThreadRunsTheShellTextHookBeforeShellCommands(t *testing.T) {
+	cases := []struct {
+		name, version string
+		want          bool
+	}{
+		{"Codex with hooks", "0.165.0", true},
+		{"Codex without hooks", "0.100.0", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := newCodexFake(t, []codexFakeTurn{{Status: "completed"}}, nil)
+			fake.version = tc.version
+			codexResidentCapForTest(t, 0)
+			spec := fake.spec()
+			spec.ShellTextHook = "/opt/linger/linger-computer-daemon"
+			if out, _ := codexDrain(t, fake.runtime(nil), "hello", spec); out.Status != statusCompleted {
+				t.Fatalf("outcome = %+v", out)
+			}
+			config, _ := fake.requests("thread/start")[0]["params"].(map[string]any)["config"].(map[string]any)
+			hooks, _ := json.Marshal(config["hooks"])
+			found := strings.Contains(string(hooks), `"PreToolUse":[{"hooks":[{"command":"'/opt/linger/linger-computer-daemon' shell-text-hook"`) && strings.Contains(string(hooks), `"matcher":"^Bash$"`)
+			if found != tc.want || (config["bypass_hook_trust"] == true) != tc.want {
+				t.Fatalf("config = %v", config)
 			}
 		})
 	}

@@ -11,10 +11,15 @@ export const SAME_MOMENT_MS = 3000;
  */
 export function sameMomentStarts(
   messages: readonly TeamHubMessage[],
+  excludedIndices?: ReadonlySet<number>,
 ): number[] {
   const starts: number[] = [];
   let index = 0;
   while (index < messages.length - 1) {
+    if (excludedIndices?.has(index) || excludedIndices?.has(index + 1)) {
+      index += 1;
+      continue;
+    }
     const current = messages[index];
     const next = messages[index + 1];
     if (current && next && saidTogether(current, next)) {

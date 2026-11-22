@@ -6,11 +6,6 @@ import AjvDraft04 from "ajv-draft-04";
 
 import type { TeamHubSkillManifest } from "@/features/teamhub/teamhub-types";
 
-interface ManifestPage<T> {
-  items: T[];
-  page: { has_more: boolean; next_cursor?: string };
-}
-
 const draft7 = new Ajv({
   allErrors: true,
   strict: false,
@@ -88,30 +83,4 @@ function selectSchemaDialect(dialect: unknown) {
     default:
       return undefined;
   }
-}
-
-export async function loadAllManifestPages<T>(
-  loadPage: (page: {
-    cursor?: string;
-    limit: number;
-  }) => Promise<ManifestPage<T>>,
-) {
-  const items: T[] = [];
-  const seenCursors = new Set<string>();
-  let cursor: string | undefined;
-
-  do {
-    const current = await loadPage({ cursor, limit: 100 });
-    items.push(...current.items);
-    if (!current.page.has_more) return items;
-
-    const nextCursor = current.page.next_cursor;
-    if (!nextCursor || seenCursors.has(nextCursor)) {
-      throw new Error("TeamHub returned an invalid catalog cursor.");
-    }
-    seenCursors.add(nextCursor);
-    cursor = nextCursor;
-  } while (cursor);
-
-  return items;
 }

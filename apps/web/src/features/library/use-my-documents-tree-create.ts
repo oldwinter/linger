@@ -6,7 +6,9 @@ import { documentQueryKey } from "@/features/rooms/room-queries";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubDocumentPlacementNode } from "@/features/teamhub/teamhub-types";
+import { useT } from "@/i18n/use-translation";
 
+import { libraryMessages as m } from "./library.messages";
 import { nextFolderName } from "./my-documents-tree-helpers";
 
 export type MyDocumentsCreating = "document" | "folder" | "import" | null;
@@ -34,6 +36,7 @@ export function useMyDocumentsTreeCreate({
   const { client } = useTeamHubRuntime();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const t = useT();
   const importRef = useRef<HTMLInputElement>(null);
   const importTargetRef = useRef<string | undefined>(undefined);
   const [creating, setCreating] = useState<MyDocumentsCreating>(null);
@@ -47,7 +50,7 @@ export function useMyDocumentsTreeCreate({
         client.api.POST("/v0/tenants/{tenantId}/me/document-folders", {
           params: { path: { tenantId } },
           body: {
-            name: nextFolderName(items, parentId),
+            name: nextFolderName(items, parentId, t),
             ...(parentId ? { parent_id: parentId } : {}),
           },
         }),
@@ -60,7 +63,7 @@ export function useMyDocumentsTreeCreate({
       setError(
         createError instanceof Error
           ? createError.message
-          : "The folder could not be created.",
+          : t(m.folderNotCreated),
       );
     } finally {
       setCreating(null);
@@ -102,7 +105,7 @@ export function useMyDocumentsTreeCreate({
       setError(
         createError instanceof Error
           ? createError.message
-          : "The document could not be created.",
+          : t(m.documentNotCreated),
       );
     } finally {
       setCreating(null);

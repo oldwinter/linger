@@ -259,6 +259,45 @@ func TestConnectionAuthorizationGeneralAgentPostgreSQL(t *testing.T) {
 	assertGrant("auth-membership", 0)
 }
 
+func TestConnectionAuthorizationReusesCardPerAccountPostgreSQL(t *testing.T) {
+	allowParallelIntegrationTest(t)
+	composioFake := newFakeComposio(t)
+	env, alice := newAgentRunEnvWithConfig(t, "http://127.0.0.1:1", composioFake.configure)
+	roomID := createPrivateRoom(t, env, alice, "Connection authorization accounts", "connection-auth-accounts")
+	if code, body := putRoomMember(t, env, alice, roomID, "actor_acme_official", "member"); code != http.StatusOK {
+		t.Fatalf("member: %d %s", code, body)
+	}
+	cards := typedcard.New(env.pool)
+	cards.SetConnectionAuthorizer(composioFake.externalSources(t, env.pool, nil))
+	create := func(key, account string) typedcard.CreateResult {
+		t.Helper()
+		hash := sha256.Sum256([]byte(key))
+		result, err := cards.CreateDecision(t.Context(), roomID, acmeOfficialAgentManagementID, key, hash[:], typedcard.DecisionCommand{DeciderActorID: "actor_acme_alice",
+			ConnectionAuth: &typedcard.ConnectionAuthDecision{Prompt: "Connect Notion", AppKey: "notion", Account: account, ReusePending: true}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+	work := create("account-work-1", "work@example.com")
+	again := create("account-work-2", "work@example.com")
+	if !again.Replay || again.DecisionID != work.DecisionID {
+		t.Fatalf("same account must reuse its card: first=%+v again=%+v", work, again)
+	}
+	home := create("account-home", "home@example.com")
+	if home.Replay || home.DecisionID == work.DecisionID {
+		t.Fatalf("another account must get its own card: work=%+v home=%+v", work, home)
+	}
+	unnamed := create("account-none", "")
+	if unnamed.Replay || unnamed.DecisionID == work.DecisionID || unnamed.DecisionID == home.DecisionID {
+		t.Fatalf("a request without an account must not reuse a named card: %+v", unnamed)
+	}
+	var account string
+	if err := env.pool.QueryRow(t.Context(), `SELECT view->>'account' FROM decisions WHERE id=$1`, work.DecisionID).Scan(&account); err != nil || account != "work@example.com" {
+		t.Fatalf("stored account=%q err=%v", account, err)
+	}
+}
+
 // Background scans must leave cards of deleting or deleted Rooms untouched and keep live Rooms working.
 func TestConnectionAuthorizationSkipsDeletedRoomPostgreSQL(t *testing.T) {
 	allowParallelIntegrationTest(t)

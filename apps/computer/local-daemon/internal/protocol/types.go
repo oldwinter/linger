@@ -40,6 +40,7 @@ type Command struct {
 	ReconcileOperationIDs []string        `json:"reconcile_operation_ids,omitempty"`
 	ContextContentURL     string          `json:"context_content_url,omitempty"`
 	TargetRelease         *TargetRelease  `json:"target_release,omitempty"`
+	ServiceFeatures       []string        `json:"service_features,omitempty"`
 	Payload               json.RawMessage `json:"payload,omitempty"`
 }
 
@@ -124,12 +125,14 @@ const (
 	CommandCapabilityBrowserConnect     = wire.TypeExecute + ":" + wire.KindBrowserConnect
 	CommandCapabilityComputerPermission = wire.TypeExecute + ":" + wire.KindComputerPermission
 	CommandCapabilityLocalModels        = wire.TypeExecute + ":" + wire.KindLocalModels
+	CommandCapabilityModelSource        = wire.TypeExecute + ":" + wire.KindModelSource
 	CommandSessionCompact               = wire.TypeExecute + ":" + wire.KindSessionCompact
 	CommandModelInvoke                  = wire.TypeExecute + ":" + wire.KindModelInvoke
 	CommandComputerToolCall             = wire.TypeExecute + ":" + wire.KindComputerTool
 	CommandOperationPrepare             = wire.TypePrepare + ":" + wire.TargetOperation
 	CommandProviderPrepare              = wire.TypePrepare + ":" + wire.TargetProvider
 	CommandOperationCancel              = wire.TypeCancel + ":" + wire.TargetOperation
+	CommandModelInvokeCancel            = wire.TypeCancel + ":" + wire.TargetModelInvoke
 	CommandOperationStart               = wire.TypeOperationStart
 	CommandOperationInput               = wire.TypeOperationInput
 	CommandOperationAck                 = wire.TypeOperationAck
@@ -157,6 +160,8 @@ const (
 	EventCapabilityComputerPermissionFailed    = wire.TypeExecuted + ":" + wire.KindComputerPermission + ":" + wire.OutcomeFailed
 	EventCapabilityLocalModelsAccepted         = wire.TypeExecuted + ":" + wire.KindLocalModels + ":" + wire.OutcomeAccepted
 	EventCapabilityLocalModelsRefused          = wire.TypeExecuted + ":" + wire.KindLocalModels + ":" + wire.OutcomeRefused
+	EventCapabilityModelSourceSucceeded        = wire.TypeExecuted + ":" + wire.KindModelSource + ":" + wire.OutcomeSucceeded
+	EventCapabilityModelSourceFailed           = wire.TypeExecuted + ":" + wire.KindModelSource + ":" + wire.OutcomeFailed
 	EventSessionCompacted                      = wire.TypeExecuted + ":" + wire.KindSessionCompact
 	EventModelInvoked                          = wire.TypeExecuted + ":" + wire.KindModelInvoke
 	EventComputerToolResult                    = wire.TypeExecuted + ":" + wire.KindComputerTool

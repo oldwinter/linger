@@ -5,6 +5,7 @@ import type { FileHandle } from "node:fs/promises";
 import path from "node:path";
 
 const FILE_READ_CHUNK_BYTES = 64 * 1024;
+const WSL_UNC = /^\\\\(?:wsl\.localhost|wsl\$)\\/iu;
 export const CONTEXT_FILE_MAX_BYTES = 50 * 1024 * 1024;
 
 export type ContextRuntimeFileErrorCode =
@@ -79,6 +80,13 @@ export const readExactHostFile = async (
     }
 
     const witness = await capturePathWitness(sourceRoot, relativePath, signal);
+    if (
+      process.platform === "win32" &&
+      WSL_UNC.test(witness.filePath) &&
+      windowsWslPathIsAlias(witness.filePath, await realpath(witness.filePath))
+    ) {
+      throw unavailable("Runtime file path must not contain symbolic links");
+    }
     const handle = await open(
       witness.filePath,
       constants.O_RDONLY | constants.O_NOFOLLOW,
@@ -219,6 +227,8 @@ const verifyPinnedPath = async (
 ): Promise<void> => {
   signal.throwIfAborted();
   const resolvedFile = await realpath(witness.filePath);
+  if (windowsWslPathIsAlias(witness.filePath, resolvedFile))
+    throw unavailable("Runtime file path must not contain symbolic links");
   if (!containsHostPath(sourceRoot, resolvedFile)) {
     throw unavailable("Runtime file escaped its mapping source");
   }
@@ -242,6 +252,18 @@ const verifyPinnedPath = async (
   // matching the final path to the pinned fd closes ordinary swaps, but a
   // privileged swap-out-and-back between checks remains a platform residual.
 };
+
+// The WSL UNC provider follows even leaf symlinks in Windows lstat.
+// Compare canonical names without folding Linux path case.
+export function windowsWslPathIsAlias(
+  requested: string,
+  canonical: string,
+): boolean {
+  if (process.platform !== "win32" || !WSL_UNC.test(requested)) return false;
+  const normalize = (value: string) =>
+    path.normalize(value).replace(WSL_UNC, "\\\\wsl.localhost\\");
+  return normalize(requested) !== normalize(canonical);
+}
 
 const sameIdentity = (
   left: BigIntFileIdentity,
@@ -270,7 +292,7 @@ const isUnavailableFileSystemError = (
 ): error is NodeJS.ErrnoException =>
   error instanceof Error &&
   "code" in error &&
-  ["EACCES", "ELOOP", "ENOENT", "ENOTDIR", "EPERM"].includes(
+  ["EACCES", "EISDIR", "ELOOP", "ENOENT", "ENOTDIR", "EPERM"].includes(
     String(error.code),
   );
 

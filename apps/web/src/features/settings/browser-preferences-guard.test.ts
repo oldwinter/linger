@@ -41,6 +41,8 @@ const excluded: Readonly<Record<string, string>> = {
     "Voice control's device and session keys, owned by the microphone session and its own disconnect.",
   "features/wiki/wiki-display-state.ts":
     "Per-page wiki display choices, layout state owned by the wiki view.",
+  "i18n/language.ts":
+    "Interface language choice (`linger.language`), owned by Settings -> Language.",
   "lib/local-preference-keys.ts":
     "Shared helper that enumerates and removes browser preference keys on behalf of registered stores.",
   "lib/room-diagnostics.ts":
@@ -104,6 +106,7 @@ async function sourceFiles(dir: string, prefix = ""): Promise<string[]> {
   for (const entry of await readdir(dir, { withFileTypes: true })) {
     const path = prefix ? `${prefix}/${entry.name}` : entry.name;
     if (entry.isDirectory()) {
+      if (path === "test") continue;
       files.push(...(await sourceFiles(join(dir, entry.name), path)));
       continue;
     }

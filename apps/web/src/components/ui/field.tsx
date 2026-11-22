@@ -2,7 +2,7 @@ import type { InputHTMLAttributes, ReactNode } from "react";
 import { useId } from "react";
 
 export const fieldControlClassName =
-  "ui-field-control w-full text-sm text-foreground placeholder:text-muted-foreground disabled:cursor-not-allowed";
+  "ui-field-control w-full text-sm text-foreground placeholder:text-app-placeholder disabled:cursor-not-allowed";
 
 export function Field({
   className = "",

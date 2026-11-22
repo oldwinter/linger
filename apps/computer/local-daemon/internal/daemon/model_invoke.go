@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/linger/transport"
+	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/localmodels"
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/protocol"
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/provider"
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/provider/redact"
@@ -98,6 +99,9 @@ func (d *Daemon) modelInvokeBlocked(command protocol.Command, request modelInvok
 	if stopped {
 		return provider.ModelInvokeResult{Outcome: provider.ModelInvokeUnavailable, Reason: "Agent Runner is locally stopped"}
 	}
+	if d.runtimeCleanupUnconfirmed(command.RuntimeType) {
+		return provider.ModelInvokeResult{Outcome: provider.ModelInvokeRuntimeUnavailable, Reason: cleanupUnconfirmedMessage}
+	}
 	if d.modelInvoker == nil {
 		return provider.ModelInvokeResult{Outcome: provider.ModelInvokeRuntimeUnavailable, Reason: "Model invocation is unavailable"}
 	}
@@ -137,12 +141,17 @@ func invalidModelInvokeRequest(request modelInvokeRequest) string {
 
 func (d *Daemon) runModelInvoke(ctx context.Context, stream transport.Stream, command protocol.Command, request modelInvokeRequest, entry *modelInvoke, receivedAt time.Time) {
 	slog.Info("runner.model.invoke", "phase", "started", "invoke_id", entry.id)
-	result := d.modelInvoker.Invoke(ctx, provider.ModelInvokeRequest{
-		RuntimeType: command.RuntimeType, Mode: request.Mode, ReasoningEffort: request.ReasoningEffort,
-		Instructions: request.Instructions, Input: request.Input, OutputSchema: request.OutputSchema,
-		WorkspaceFiles: request.WorkspaceFiles, Timeout: time.Duration(request.TimeoutMS) * time.Millisecond,
-		SessionKey: request.SessionKey, MaxOutputChars: request.MaxOutputChars,
-	})
+	var result provider.ModelInvokeResult
+	if failureCode, err := d.ensureModelGateway(ctx, command.RuntimeType); err != nil {
+		result = modelGatewayInvokeFailure(ctx, failureCode, err)
+	} else {
+		result = d.modelInvoker.Invoke(ctx, provider.ModelInvokeRequest{
+			RuntimeType: command.RuntimeType, Mode: request.Mode, ReasoningEffort: request.ReasoningEffort,
+			Instructions: request.Instructions, Input: request.Input, OutputSchema: request.OutputSchema,
+			WorkspaceFiles: request.WorkspaceFiles, Timeout: time.Duration(request.TimeoutMS) * time.Millisecond,
+			SessionKey: request.SessionKey, MaxOutputChars: request.MaxOutputChars,
+		})
+	}
 	entry.cancel()
 	d.modelInvokeMu.Lock()
 	if d.modelInvokes[entry.id] == entry {
@@ -152,6 +161,47 @@ func (d *Daemon) runModelInvoke(ctx context.Context, stream transport.Stream, co
 	if err := d.sendModelInvoked(context.WithoutCancel(ctx), stream, command, entry.id, result, time.Since(receivedAt)); err != nil {
 		slog.Debug("runner.model.invoke receipt unavailable", "invoke_id", entry.id)
 	}
+}
+
+// modelGatewayInvokeFailure answers a model call whose Runtime's gateway
+// could not be mounted: the Computer is online, its Runtime cannot run the
+// call, and the reason names the tool's code.
+func modelGatewayInvokeFailure(ctx context.Context, failureCode string, err error) provider.ModelInvokeResult {
+	if ctx.Err() != nil {
+		return provider.ModelInvokeResult{Outcome: provider.ModelInvokeCanceled, Reason: "Model invocation was canceled"}
+	}
+	reason := "The model gateway could not be started"
+	var sourceErr *localmodels.ModelSourceError
+	if errors.As(err, &sourceErr) {
+		reason += " (" + sourceErr.Code + ")"
+	}
+	if failureCode == "authentication_required" {
+		return provider.ModelInvokeResult{Outcome: provider.ModelInvokeAuthRequired, Reason: reason}
+	}
+	return provider.ModelInvokeResult{Outcome: provider.ModelInvokeRuntimeUnavailable, Reason: reason}
+}
+
+// cancelModelInvoke cancels one in-flight model call; its canceled receipt
+// follows unless it finished first. A call that is not running is already
+// answered, so the cancel does nothing.
+func (d *Daemon) cancelModelInvoke(command protocol.Command) error {
+	var cancel wire.ModelInvokeCancel
+	if err := json.Unmarshal(command.Payload, &cancel); err != nil {
+		return fmt.Errorf("decode model invocation cancel: %w", err)
+	}
+	if cancel.InvokeID == "" {
+		return errors.New("model invocation cancel is incomplete")
+	}
+	d.modelInvokeMu.Lock()
+	defer d.modelInvokeMu.Unlock()
+	entry := d.modelInvokes[cancel.InvokeID]
+	if entry == nil {
+		slog.Info("runner.model.invoke", "phase", "cancel_ignored", "invoke_id", cancel.InvokeID, "cancellation_source", cancel.Reason)
+		return nil
+	}
+	entry.cancel()
+	slog.Info("runner.model.invoke", "phase", "cancel_requested", "invoke_id", entry.id, "cancellation_source", cancel.Reason)
+	return nil
 }
 
 // cancelModelInvokes cancels every in-flight model call; each still sends its

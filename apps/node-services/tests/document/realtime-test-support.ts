@@ -260,7 +260,10 @@ export async function startRealtimeServer(
   bodies: DocumentBodyStore,
   options: Pick<
     DocumentRealtimeServerOptions,
-    "maxUnsavedBacklogBytes" | "realtimeAdmission" | "failureEvidenceDirectory"
+    | "maxUnsavedBacklogBytes"
+    | "mutationAuthorizationDeadlineMs"
+    | "realtimeAdmission"
+    | "failureEvidenceDirectory"
   > = {},
 ) {
   const realtime = createDocumentRealtimeServer({

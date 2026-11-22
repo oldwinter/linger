@@ -16,6 +16,7 @@ import { diagnosticsDialogs } from "./diagnostics-dialogs.js";
 import { sendWithPrompts } from "./diagnostics-upload.js";
 import { EnrollmentError, type EnrollmentModule } from "./enrollment.js";
 import { headlessDisplay } from "./headless.js";
+import type { LanguageModule } from "./language.js";
 import type { Module, ModuleContext } from "./modules.js";
 import type { PowerGuardModule } from "./power-guard.js";
 import type { QuickNoteModule } from "./quick-note.js";
@@ -23,6 +24,7 @@ import type { SetupWindowModule } from "./setup-window.js";
 import type { StatusModule, StatusTone } from "./status.js";
 import { renderTrayIcon, type TrayArtwork } from "./tray-icon.js";
 import { trayMenu, type TrayAction, type TrayMenuItem } from "./tray-menu.js";
+import { trayMessages } from "./tray.messages.js";
 import type { UpdaterModule } from "./updater.js";
 import type { WindowManagerModule } from "./window-manager.js";
 
@@ -36,10 +38,10 @@ export interface DesktopTrayHost {
   setUnreadCount(count: number): void;
 }
 
-const toolTip = (label: string, unread: number): string =>
+const toolTip = (base: string, unread: number): string =>
   unread > 0
-    ? `Linger · ${label} · ${unread} unread ${unread === 1 ? "mention" : "mentions"}`
-    : `Linger · ${label}`;
+    ? `${base} · ${unread} unread ${unread === 1 ? "mention" : "mentions"}`
+    : base;
 
 const BUSY_FRAME_MS = 400;
 
@@ -79,6 +81,7 @@ export class TrayModule implements Module, DesktopTrayHost {
     "QuickNote",
     "Updater",
     "Diagnostics",
+    "Language",
   ];
   readonly #options: TrayOptions;
   #ctx: ModuleContext | undefined;
@@ -108,9 +111,9 @@ export class TrayModule implements Module, DesktopTrayHost {
     }
     this.#unsubscribe.push(
       ctx.bus.on("status.changed", () => this.#refresh()),
-      ctx.bus.on("computer.identity_conflict", () => this.#refresh()),
       ctx.bus.on("power.changed", () => this.#refresh()),
       ctx.bus.on("update.changed", () => this.#refresh()),
+      ctx.bus.on("language.changed", () => this.#refresh()),
     );
     this.#refresh();
   }
@@ -134,7 +137,10 @@ export class TrayModule implements Module, DesktopTrayHost {
   // The status stays in the tooltip; the count is appended while there is one.
   #applyToolTip(): void {
     if (!this.#tray) return;
-    this.#tray.setToolTip(toolTip(this.#status().label, this.#unreadCount));
+    const base = this.#t(trayMessages.tooltip, {
+      status: this.#status().label,
+    });
+    this.#tray.setToolTip(toolTip(base, this.#unreadCount));
   }
 
   #refresh(): void {
@@ -155,6 +161,10 @@ export class TrayModule implements Module, DesktopTrayHost {
     this.#tray.setContextMenu(this.#menu());
   }
 
+  get #t() {
+    return this.#ctx!.get<LanguageModule>("Language").t;
+  }
+
   #icon(): NativeImage {
     const tone = this.#status().tone;
     const key = `${tone}:${tone === "busy" ? this.#frame : 0}`;
@@ -170,16 +180,17 @@ export class TrayModule implements Module, DesktopTrayHost {
     const power = this.#ctx!.get<PowerGuardModule>("PowerGuard");
     const status = this.#status();
     const update = this.#ctx!.get<UpdaterModule>("Updater").state();
-    const config = this.#ctx!.config.get();
-    const items = trayMenu({
-      status,
-      preventSleep: power.alwaysOn(),
-      enrolled: !!config.computerId,
-      identityConflict: !!config.identityConflict,
-      update,
-      canSendDiagnostics:
-        !!this.#ctx!.get<DiagnosticsModule>("Diagnostics").uploadUrl(),
-    });
+    const items = trayMenu(
+      {
+        status,
+        preventSleep: power.alwaysOn(),
+        enrolled: !!this.#ctx!.config.get().computerId,
+        update,
+        canSendDiagnostics:
+          !!this.#ctx!.get<DiagnosticsModule>("Diagnostics").uploadUrl(),
+      },
+      this.#t,
+    );
     return Menu.buildFromTemplate(items.map((item) => this.#item(item)));
   }
 
@@ -202,9 +213,6 @@ export class TrayModule implements Module, DesktopTrayHost {
         // A new computer goes through setup; a connected one re-enrolls.
         if (ctx.config.get().computerId) void this.#enroll();
         else ctx.get<SetupWindowModule>("SetupWindow").show();
-        break;
-      case "resolve-identity-conflict":
-        void this.#resolveIdentityConflict();
         break;
       case "open":
         ctx.get<SetupWindowModule>("SetupWindow").showApp();
@@ -236,8 +244,9 @@ export class TrayModule implements Module, DesktopTrayHost {
       case "send-diagnostics":
         void sendWithPrompts(
           ctx.get<DiagnosticsModule>("Diagnostics").sender,
-          diagnosticsDialogs(() =>
-            ctx.get<WindowManagerModule>("WindowManager").window(),
+          diagnosticsDialogs(
+            () => ctx.get<WindowManagerModule>("WindowManager").window(),
+            this.#t,
           ),
         );
         break;
@@ -260,9 +269,11 @@ export class TrayModule implements Module, DesktopTrayHost {
       const window = windows.window();
       const options = {
         type: "warning" as const,
-        message: signedOut ? "Sign in first" : "Couldn't connect this computer",
+        message: signedOut
+          ? this.#t(trayMessages.signInFirst)
+          : this.#t(trayMessages.enrollFailed),
         detail: signedOut
-          ? "Sign in to Linger in the window, then choose Connect This Computer again."
+          ? this.#t(trayMessages.signInFirstDetail)
           : error instanceof Error
             ? error.message
             : String(error),
@@ -271,25 +282,5 @@ export class TrayModule implements Module, DesktopTrayHost {
         ? dialog.showMessageBox(window, options)
         : dialog.showMessageBox(options));
     }
-  }
-
-  async #resolveIdentityConflict(): Promise<void> {
-    const ctx = this.#ctx!;
-    const windows = ctx.get<WindowManagerModule>("WindowManager");
-    const window = windows.window();
-    const options = {
-      type: "warning" as const,
-      message: "Set up this computer again?",
-      detail:
-        "This computer's Daemon Identity belongs to another Computer. Setting up again discards the conflicting identity and reopens setup so you can reconnect.",
-      buttons: ["Cancel", "Set Up Again"],
-      defaultId: 1,
-      cancelId: 0,
-    };
-    const { response } = await (window
-      ? dialog.showMessageBox(window, options)
-      : dialog.showMessageBox(options));
-    if (response !== 1) return;
-    ctx.bus.emit("local-server.reset");
   }
 }

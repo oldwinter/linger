@@ -1,7 +1,7 @@
 // Model calls ask the Agent Service for one stateless model answer
-// (POST /v1/model-calls). The Agent Service runs it on the Codex or Claude
-// Runtime of the owner's Another Me Computer with the Runtime's default model,
-// so TeamHub names only a reasoning effort and never a model.
+// (POST /v1/model-calls). The Agent Service runs it on the Runtime of the
+// owner's Another Me Computer (Codex, Claude or Pi) with the model that Runtime
+// serves by default, so TeamHub names only a reasoning effort and never a model.
 
 package roomagent
 
@@ -27,6 +27,11 @@ const (
 	// answer before TeamHub gives up on the request.
 	transportGrace = 5 * time.Second
 )
+
+// ModelCallWait is the longest one model call keeps its caller waiting,
+// queueing included. A foreground call fails past it; a background call
+// answers ErrModelCallPending.
+const ModelCallWait = modelCallMaxWait + transportGrace
 
 var (
 	// ErrModelCallUnconfigured means TeamHub has no Agent Service URL or token.

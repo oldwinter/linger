@@ -4,6 +4,7 @@ import { parseArguments } from "./command-input.js";
 import type { CommandInputReader } from "./command-definition.js";
 const reader: CommandInputReader = {
   cwd: "/work",
+  localPath: (source) => source,
   text: vi.fn(async () => "  Body é\n"),
   json: vi.fn(async () => ({ thread_id: "thread_one" })),
 };
@@ -129,6 +130,27 @@ describe("Document command boundary", () => {
       target: { type: "document", id: "document_one" },
       scope: { kind: "document", id: "document_one" },
     });
+  });
+  it("drops the line break that ends a heredoc only from inline replacements", async () => {
+    const edit = (action: string, ...extra: string[]) =>
+      normalize(
+        ["docs", "update"],
+        ["document_one", "--command", action, ...extra, "--file", "-"],
+      );
+    expect(
+      (await edit("str_replace", "--pattern", "Draft")).input,
+    ).toMatchObject({ content: "  Body \u00e9" });
+    expect((await edit("append")).input).toMatchObject({
+      content: "  Body \u00e9\n",
+    });
+    expect(
+      (
+        await normalize(
+          ["docs", "comment", "replace"],
+          ["thread_one", "--file", "-"],
+        )
+      ).input,
+    ).toEqual({ thread_id: "thread_one", replace_str: "  Body \u00e9" });
   });
   it("maps duplicates only from validated replay flags and retains conflicts", () => {
     const def = command("docs", "update");

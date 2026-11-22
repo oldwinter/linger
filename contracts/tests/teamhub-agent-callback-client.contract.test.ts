@@ -86,22 +86,33 @@ describe("generated TeamHub Agent service epoch and Run client", () => {
     };
     await client.startEpoch(start);
     await client.claimRun(claim);
+    await client.getRunReplyStatus(claim.context_key, "run-one");
 
     expect(requests.map(({ url }) => url)).toEqual([
       "https://teamhub.example/api/v0/agent-runtime/epochs",
       "https://teamhub.example/api/v0/agent-runtime/runs/claim",
+      `https://teamhub.example/api/v0/agent-runtime/runs/reply-status?context_key=${encodeURIComponent(claim.context_key)}&local_run_id=run-one`,
     ]);
-    expect(requests.map(({ method }) => method)).toEqual(["POST", "POST"]);
+    expect(requests.map(({ method }) => method)).toEqual([
+      "POST",
+      "POST",
+      "GET",
+    ]);
     expect(
-      requests.map(({ headers }) => Object.fromEntries(headers.entries())),
+      requests
+        .slice(0, 2)
+        .map(({ headers }) => Object.fromEntries(headers.entries())),
     ).toEqual(
       Array.from({ length: 2 }, () => ({
         authorization: "Bearer service-token",
         "content-type": "application/json",
       })),
     );
+    expect(Object.fromEntries(requests[2]!.headers.entries())).toEqual({
+      authorization: "Bearer service-token",
+    });
     expect(
-      await Promise.all(requests.map((request) => request.json())),
+      await Promise.all(requests.slice(0, 2).map((request) => request.json())),
     ).toEqual([start, claim]);
   });
 });

@@ -12,19 +12,33 @@ export function windowsCommandLine(command, args) {
 }
 
 /**
+ * How Windows starts the command: a program file directly, anything else
+ * (pnpm.cmd and other PATHEXT launchers) through cmd.exe.
+ */
+export function windowsLaunch(command, args) {
+  return /^(?:[a-z]:\\|\\\\).*\.exe$/i.test(command)
+    ? { file: command, args, shell: false }
+    : { file: windowsCommandLine(command, args), args: [], shell: true };
+}
+
+/**
  * POSIX replaces this process so the caller keeps the command's PID, exit
  * status and signals. Windows has no execve: run the command as a child and
  * exit with its status; the supervisor still owns it through the parent link.
+ * Node ends the children it starts when it exits, but not their children, so
+ * a program file runs as this process's own child: through cmd.exe it
+ * outlived its supervisor and kept its port.
  */
 export function replaceProcess(command, args, env, cwd = process.cwd()) {
   if (process.platform !== "win32") {
     process.chdir(cwd);
     process.execve("/usr/bin/env", ["env", command, ...args], env);
   }
-  const child = spawn(windowsCommandLine(command, args), {
+  const launch = windowsLaunch(command, args);
+  const child = spawn(launch.file, launch.args, {
     cwd,
     env,
-    shell: true,
+    shell: launch.shell,
     stdio: "inherit",
     windowsHide: true,
   });

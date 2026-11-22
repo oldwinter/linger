@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { defineGlobalProperty } from "@/test/global-properties";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -50,7 +51,7 @@ describe("Copy message text", () => {
 
   it("says the copy failed instead of claiming success", async () => {
     stubClipboard(() => Promise.reject(new Error("Clipboard is denied")));
-    Object.defineProperty(document, "execCommand", {
+    defineGlobalProperty(document, "execCommand", {
       configurable: true,
       value: vi.fn(() => false),
     });
@@ -60,6 +61,28 @@ describe("Copy message text", () => {
 
     await waitFor(() => expect(statusTexts()).toContain("Copy failed"));
     expect(statusTexts()).not.toContain("Copied");
+  });
+
+  it("confirms and reports failures for inline Copy message via role=status", async () => {
+    const writeText = stubClipboard(() => Promise.resolve());
+    renderTimeline("Inline copy body");
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy message" }));
+
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith("Inline copy body"),
+    );
+    await waitFor(() => expect(statusTexts()).toContain("Copied"));
+
+    stubClipboard(() => Promise.reject(new Error("Clipboard is denied")));
+    defineGlobalProperty(document, "execCommand", {
+      configurable: true,
+      value: vi.fn(() => false),
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy message" }));
+
+    await waitFor(() => expect(statusTexts()).toContain("Copy failed"));
   });
 });
 

@@ -30,6 +30,7 @@ export function useComposerTextarea({
   attachments: { addFiles, canAcceptFiles },
   draft: {
     body,
+    bodyRef,
     highlightContentRef,
     pendingCaretRef,
     selectedDocumentsRef,
@@ -68,6 +69,28 @@ export function useComposerTextarea({
     insertMention: insertMentionAtCursor,
     insertMentionQuietly: (actor) =>
       insertMentionAtCursor(actor, { focus: false }),
+    restoreDraft: ({ body: restoredBody, mentions: restoredMentions = [] }) => {
+      const current = bodyRef.current;
+      const nextBody = current.trim()
+        ? restoredBody.trim()
+          ? `${current}\n\n${restoredBody}`
+          : current
+        : restoredBody;
+      if (restoredMentions.length) {
+        const existingIds = new Set(
+          selectedMentionsRef.current.map((actor) => actor.id),
+        );
+        selectedMentionsRef.current = [
+          ...selectedMentionsRef.current,
+          ...restoredMentions.filter((actor) => !existingIds.has(actor.id)),
+        ];
+      }
+      applyMentionQuery(null);
+      setSkillQuery(null);
+      pendingCaretRef.current = nextBody.length;
+      updateBody(nextBody);
+      textareaRef.current?.focus();
+    },
     stageQuoteReply,
   }));
 

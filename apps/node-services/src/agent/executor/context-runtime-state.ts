@@ -1,3 +1,5 @@
+import { queuedMetaRunKind } from "./run-kind.js";
+import type { RunKind } from "../../model-tasks.js";
 import { logAgentEvent } from "../observability/agent-log.js";
 import { acceptedNotificationInput } from "../prompt/accepted-notification.js";
 import {
@@ -134,6 +136,15 @@ export interface ContextRuntimeStatePort {
   noteQueuedRun?(): void;
   cancelLocalRun(runId: string): RuntimeStateAwaitable<RunCancellationStatus>;
   getLocalRun(runId: string): RuntimeStateAwaitable<LocalRun | null>;
+  /**
+   * Reports whether TeamHub persisted a visible reply for the Run, so an
+   * apparent missing reply from activity classification can be confirmed
+   * before failing the Run.
+   */
+  hasLocalRunReplied(
+    runId: string,
+    signal?: AbortSignal,
+  ): RuntimeStateAwaitable<boolean>;
   enqueueSteer(
     groupId: string,
     messages: NonEmptyReadonlyArray<Message>,
@@ -144,6 +155,7 @@ export interface ContextRuntimeStatePort {
     runId: string,
     outcome: "applied" | "uncertain",
   ): RuntimeStateAwaitable<void>;
+  queuedMetaKind?(signal: AbortSignal): Promise<RunKind>;
   hasQueuedRuns(): boolean;
   hasPendingWork(): boolean;
   /** Inputs accepted by this process that are not yet claimed or settled. */
@@ -338,6 +350,7 @@ class TeamHubContextRuntimeState implements ContextRuntimeStatePort {
   // Resources the Runtime loaded for its next turn; they reach TeamHub with
   // the next Session checkpoint instead of a write of their own.
   #pendingResources: ExecutionResources | undefined;
+  #queuedKind?: RunKind;
   #hasQueuedRuns = false;
   #hasPendingWork = false;
   #messageSteers: readonly MessageSteer[] = [];
@@ -681,6 +694,19 @@ class TeamHubContextRuntimeState implements ContextRuntimeStatePort {
     };
   }
 
+  async hasLocalRunReplied(
+    runId: string,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    this.#assertOpen();
+    const result = await this.#client.getRunReplyStatus(
+      this.#contextKey,
+      runId,
+      signal,
+    );
+    return result.replied;
+  }
+
   async enqueueSteer(
     groupId: string,
     _messages: NonEmptyReadonlyArray<Message>,
@@ -720,6 +746,12 @@ class TeamHubContextRuntimeState implements ContextRuntimeStatePort {
       outcome,
     });
     await this.#refreshWorkState();
+  }
+
+  async queuedMetaKind(signal: AbortSignal): Promise<RunKind> {
+    if (this.#queuedKind) return this.#queuedKind;
+    const state = await this.#client.getWorkState(this.#contextKey, signal);
+    return queuedMetaRunKind(state.next_run_origins ?? []);
   }
 
   hasQueuedRuns(): boolean {
@@ -879,6 +911,9 @@ class TeamHubContextRuntimeState implements ContextRuntimeStatePort {
     // Queued work committed while this read was in flight stays visible; a
     // stale positive only costs one empty claim, which refreshes again.
     const queuedMeanwhile = mark !== this.#queuedWorkMark;
+    this.#queuedKind = queuedMeanwhile
+      ? undefined
+      : queuedMetaRunKind(state.next_run_origins ?? []);
     this.#hasQueuedRuns = state.has_queued_runs || queuedMeanwhile;
     this.#hasPendingWork = state.has_pending_work || queuedMeanwhile;
     const steers = (state.message_steers ?? []).flatMap((input) =>
@@ -919,6 +954,7 @@ class TeamHubContextRuntimeState implements ContextRuntimeStatePort {
   }
 
   #recordQueuedWork(): void {
+    this.#queuedKind = undefined;
     this.#queuedWorkMark += 1;
     this.#hasQueuedRuns = true;
     this.#hasPendingWork = true;

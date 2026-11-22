@@ -111,7 +111,7 @@ describe("AgentContextHost", () => {
     expect(plan.playgroundRootPath).toBeDefined();
     const documents = plan.mappings.find(
       ({ kind }) => kind === "inbox_view",
-    )!.sourcePath;
+    )!.sourcePath!;
     expect(
       plan.mappings.find(({ kind }) => kind === "playground"),
     ).toMatchObject({ targetPath: "/workspace/playground" });
@@ -182,7 +182,7 @@ describe("AgentContextHost", () => {
       ),
     ).toBe(false);
     for (const mapping of [...metaPlan.mappings, ...alterPlan.mappings]) {
-      await expectDirectory(mapping.sourcePath);
+      await expectDirectory(mapping.sourcePath!);
     }
 
     const restored = await createAgentContextHost({ rootPath });

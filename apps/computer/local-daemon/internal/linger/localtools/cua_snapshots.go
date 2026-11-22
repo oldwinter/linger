@@ -6,13 +6,14 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 // snapshotRowsKept bounds how many reads the Computer remembers, across
 // windows. Each input to the Computer's own browser adds about three reads
 // (the tab check, the read after it and the tab count), and an Agent acts on
 // its latest read; a full browser tree is a few hundred kilobytes, so the
-// bound also caps memory. A token whose read was dropped stays as it is.
+// bound also caps memory. The current snapshot ID survives row eviction.
 const snapshotRowsKept = 16
 
 // snapshotRows remembers the rows of the window reads that pass through one
@@ -28,21 +29,24 @@ type snapshotRows struct {
 	order []string
 	// current is, per window, the snapshot_id of its latest read, or empty
 	// when a script may have read it since.
-	current map[string]string
-	// seq numbers the reads; fence is the last read before the latest input.
-	// An input can change the page, so a read from before it is never
-	// carried over, even where a row reads the same.
-	seq, fence int
+	current map[string]windowSnapshot
+	// All connections to the same desktop share this counter, not their rows.
+	generation *atomic.Uint64
 }
 
 type snapshotRead struct {
-	window string
-	rows   map[string]string
-	seq    int
+	window     string
+	rows       map[string]string
+	generation uint64
 }
 
-func newSnapshotRows() *snapshotRows {
-	return &snapshotRows{reads: map[string]snapshotRead{}, current: map[string]string{}}
+type windowSnapshot struct {
+	id         string
+	generation uint64
+}
+
+func newSnapshotRows(generation *atomic.Uint64) *snapshotRows {
+	return &snapshotRows{reads: map[string]snapshotRead{}, current: map[string]windowSnapshot{}, generation: generation}
 }
 
 // observe records the rows of a read, or forgets the current snapshots after
@@ -116,9 +120,9 @@ func (s *snapshotRows) record(read windowRead) {
 	if _, known := s.reads[read.Snapshot]; !known {
 		s.order = append(s.order, read.Snapshot)
 	}
-	s.seq++
-	s.reads[read.Snapshot] = snapshotRead{window: window, rows: rows, seq: s.seq}
-	s.current[window] = read.Snapshot
+	generation := s.generation.Load()
+	s.reads[read.Snapshot] = snapshotRead{window: window, rows: rows, generation: generation}
+	s.current[window] = windowSnapshot{id: read.Snapshot, generation: generation}
 	for len(s.order) > snapshotRowsKept {
 		delete(s.reads, s.order[0])
 		s.order = s.order[1:]
@@ -146,6 +150,25 @@ func snapshotRow(line string) (index, row string, ok bool) {
 // scriptToken finds an element token written into a script or its args.
 var scriptToken = regexp.MustCompile(`\bs[0-9a-f]{8}:[0-9]+\b`)
 
+// staleWindowToken requires evidence from this connection for the named
+// window, observed after the last input to the shared desktop.
+func (s *snapshotRows) staleWindowToken(arguments map[string]any) bool {
+	token, _ := arguments["element_token"].(string)
+	id, _, ok := strings.Cut(token, ":")
+	if !ok {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	window := fmt.Sprintf("%v:%v", arguments["pid"], arguments["window_id"])
+	generation := s.generation.Load()
+	if read, known := s.reads[id]; known {
+		return read.window != window || read.generation != generation
+	}
+	current, known := s.current[window]
+	return !known || current.id != id || current.generation != generation
+}
+
 // remap points element_token, and each token written into a script, at the
 // window's current snapshot when the token names an older read whose row
 // reads the same there. A row that changed, or a read the Computer does not
@@ -169,9 +192,7 @@ func (s *snapshotRows) sent(name string) {
 	if cuaReadTools[name] {
 		return
 	}
-	s.mu.Lock()
-	s.fence = s.seq
-	s.mu.Unlock()
+	s.generation.Add(1)
 }
 
 // unpressable reports whether token names a remembered row that lists no
@@ -200,10 +221,10 @@ func (s *snapshotRows) carry(token string) string {
 		return token
 	}
 	read, known := s.reads[snapshot]
-	if !known || read.seq <= s.fence {
+	if !known || read.generation != s.generation.Load() {
 		return token
 	}
-	current := s.current[read.window]
+	current := s.current[read.window].id
 	if current == "" || current == snapshot {
 		return token
 	}

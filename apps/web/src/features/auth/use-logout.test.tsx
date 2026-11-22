@@ -5,9 +5,18 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from "vitest";
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
 import { browserRoomMessageOutbox } from "@/features/rooms/chat/room-message-outbox";
@@ -26,23 +35,40 @@ import {
   rememberInterruptedPage,
   takeInterruptedPage,
 } from "./interrupted-page";
+import { registerOpenDocumentSession } from "@/features/rooms/documents/room-document-local-copies";
+import { defineGlobalProperty } from "@/test/global-properties";
+import { LogoutConfirmationDialog } from "./account-menu";
 import { LOGOUT_UNSAVED_DOCUMENT_MESSAGE, useLogout } from "./use-logout";
 
-const localCopies = vi.hoisted(() => ({
-  delete: vi.fn(async (_input: { actorIds: readonly string[] }) => undefined),
-  unsaved: vi.fn(() => false),
-}));
+// Document editors open in this tab, one per actor; logout must close exactly
+// the signed-in actors' sessions before deleting their local copies.
+let documentEditsUnsaved: boolean;
+let closeDocumentSession: Mock<(actorId: string) => Promise<void>>;
+let unregisterDocumentSessions: (() => void)[] = [];
 
-vi.mock("@/features/rooms/documents/room-document-local-copies", () => ({
-  deleteRoomDocumentLocalCopies: localCopies.delete,
-  hasUnsavedRoomDocumentChanges: localCopies.unsaved,
-}));
+function openDocumentSessions(actorIds: readonly string[]) {
+  for (const actorId of actorIds) {
+    unregisterDocumentSessions.push(
+      registerOpenDocumentSession({
+        actorId,
+        close: () => closeDocumentSession(actorId),
+        documentId: "document-1",
+        hasUnsavedChanges: () => documentEditsUnsaved,
+      }),
+    );
+  }
+}
+
+afterEach(() => {
+  for (const unregister of unregisterDocumentSessions) unregister();
+  unregisterDocumentSessions = [];
+});
 
 beforeEach(() => {
-  localCopies.delete.mockClear();
-  localCopies.unsaved.mockReset().mockReturnValue(false);
+  documentEditsUnsaved = false;
+  closeDocumentSession = vi.fn(async (_actorId: string) => undefined);
   const values = new Map<string, string>();
-  Object.defineProperty(window, "localStorage", {
+  defineGlobalProperty(window, "localStorage", {
     configurable: true,
     value: {
       clear: () => values.clear(),
@@ -121,7 +147,7 @@ describe("useLogout", () => {
       id: "session-1",
     });
     expect(readRoomComposerDraft(draftScope).body).toBe("private draft");
-    expect(localCopies.delete).not.toHaveBeenCalled();
+    expect(closeDocumentSession).not.toHaveBeenCalled();
     expect(clearOutbox).toHaveBeenCalledOnce();
     expect(clearOutbox).toHaveBeenCalledWith(identity.account.id);
     expect(screen.getByRole("button", { name: "Log out" })).toBeEnabled();
@@ -200,9 +226,9 @@ describe("useLogout", () => {
             "global-search-recent.v2:tenant-northstar",
           ),
         ).toBeNull();
-        expect(localCopies.delete).toHaveBeenCalledExactlyOnceWith({
-          actorIds: identity.actors.map((actor) => actor.id),
-        });
+        expect(closeDocumentSession.mock.calls).toEqual(
+          identity.actors.map((actor) => [actor.id]),
+        );
       });
     renderLogout(runtime, undefined, queryClient);
     fireEvent.click(screen.getByRole("button", { name: "Log out" }));
@@ -212,7 +238,7 @@ describe("useLogout", () => {
     await act(async () => finishOutbox());
     await waitFor(() => expect(revoke).toHaveBeenCalledOnce());
     expect(screen.getByTestId("location")).not.toHaveTextContent("/login");
-    expect(localCopies.delete).not.toHaveBeenCalled();
+    expect(closeDocumentSession).not.toHaveBeenCalled();
     expect(queryClient.getQueryData(["teamhub", "private"])).toBe("cached");
     expect(broadcast).not.toHaveBeenCalled();
     expect(disposeRecording).not.toHaveBeenCalled();
@@ -257,32 +283,47 @@ describe("useLogout", () => {
     expect(revoke).toHaveBeenCalledOnce();
   });
 
-  it("asks before discarding unsaved Document edits", async () => {
+  it("asks in a modal dialog instead of window.confirm before discarding unsaved Document edits", async () => {
     const runtime = await testRuntime();
     const identity = runtime.seed.identity;
     vi.spyOn(browserRoomMessageOutbox, "clearAccount").mockResolvedValue();
     const revoke = vi.fn(() => undefined);
     runtime.server.on("POST", "/v0/auth/logout", revoke);
-    localCopies.unsaved.mockReturnValue(true);
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    documentEditsUnsaved = true;
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     renderLogout(runtime);
 
     fireEvent.click(screen.getByRole("button", { name: "Log out" }));
-    expect(confirm).toHaveBeenCalledWith(LOGOUT_UNSAVED_DOCUMENT_MESSAGE);
+    expect(confirm).not.toHaveBeenCalled();
+    const dialog = screen.getByRole("dialog", {
+      name: "Unsaved Document edits",
+    });
+    expect(dialog).toHaveTextContent(LOGOUT_UNSAVED_DOCUMENT_MESSAGE);
     expect(revoke).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Log out" })).toBeEnabled();
 
-    confirm.mockClear().mockReturnValue(true);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Stay" }));
+    expect(
+      screen.queryByRole("dialog", { name: "Unsaved Document edits" }),
+    ).toBeNull();
+    expect(revoke).not.toHaveBeenCalled();
+
     fireEvent.click(screen.getByRole("button", { name: "Log out" }));
-    expect(confirm).toHaveBeenCalledOnce();
+    expect(confirm).not.toHaveBeenCalled();
+    const reopened = screen.getByRole("dialog", {
+      name: "Unsaved Document edits",
+    });
+    fireEvent.click(
+      within(reopened).getByRole("button", { name: "Log out anyway" }),
+    );
     await waitFor(() =>
       expect(screen.getByTestId("location")).toHaveTextContent(/^\/login$/),
     );
     expect(revoke).toHaveBeenCalledOnce();
     await waitFor(() =>
-      expect(localCopies.delete).toHaveBeenCalledWith({
-        actorIds: identity.actors.map((actor) => actor.id),
-      }),
+      expect(closeDocumentSession.mock.calls).toEqual(
+        identity.actors.map((actor) => [actor.id]),
+      ),
     );
   });
 
@@ -337,7 +378,10 @@ describe("useLogout", () => {
 });
 async function testRuntime() {
   const runtime = createTestTeamHubRuntime();
-
+  openDocumentSessions([
+    ...runtime.seed.identity.actors.map((actor) => actor.id),
+    "actor-signed-out",
+  ]);
   return runtime;
 }
 function LogoutProbe() {
@@ -359,6 +403,7 @@ function LogoutProbe() {
       {logout.error ? (
         <p role="alert">Could not confirm logout. Please retry.</p>
       ) : null}
+      <LogoutConfirmationDialog />
     </>
   );
 }

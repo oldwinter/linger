@@ -140,7 +140,7 @@ func (s *Service) sendVoiceLiveSlack(ctx context.Context, session voicelive.Sess
 	}
 	switch status {
 	case "succeeded":
-		return voicelive.Output(map[string]string{"status": "sent", "to": where}), nil
+		return voicelive.Output(map[string]string{"status": "sent", "to": where, "next": voicelive.SentNext}), nil
 	case "failed":
 		return voicelive.Output(map[string]string{"error": "send_failed", "detail": voicelive.Snippet(outcome)}), nil
 	}

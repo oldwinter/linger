@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { defineGlobalProperty } from "@/test/global-properties";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { WikiCopyLink } from "./wiki-copy-link";
@@ -30,7 +31,7 @@ describe("WikiCopyLink", () => {
 
   it("reports a refused clipboard write instead of claiming success", async () => {
     stubClipboard(() => Promise.reject(new Error("Clipboard is denied")));
-    Object.defineProperty(document, "execCommand", {
+    defineGlobalProperty(document, "execCommand", {
       configurable: true,
       value: vi.fn(() => false),
     });

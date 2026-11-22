@@ -1,9 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  acceptsEmptySkillConfig,
-  loadAllManifestPages,
-} from "./agent-resource-catalog";
+import { acceptsEmptySkillConfig } from "./agent-resource-catalog";
+import { loadAllManifestPages } from "./manifest-pages";
 
 describe("Agent resource catalog", () => {
   it("uses JSON Schema evaluation to decide whether empty Skill config is valid", () => {

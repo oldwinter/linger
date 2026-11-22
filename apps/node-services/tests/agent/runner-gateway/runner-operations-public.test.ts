@@ -1,3 +1,4 @@
+import { runPriorities } from "../../../src/model-tasks.js";
 import { describe, expect, it, vi } from "vitest";
 import type {
   AgentToDaemonEnvelope,
@@ -9,6 +10,7 @@ import {
   RunnerGatewayProtocolError,
   type RunnerGatewayConnection,
 } from "../../../src/agent/runner-gateway/runner-gateway.js";
+import { OPERATION_OUTCOME_UNKNOWN } from "../../../src/agent/runner-gateway/runner-operation.js";
 import { createTestRunnerGateway } from "../test-support/runner-gateway.js";
 import { readyContextScope } from "../test-support/ready-context-view.js";
 import { runtimeDiagnostics } from "./runtime-diagnostics-fixture.js";
@@ -92,6 +94,449 @@ describe("RunnerGateway", () => {
       }),
     );
     await expect(operation.result).resolves.toMatchObject({ type: "run" });
+  });
+
+  it.each([
+    ["task", 1],
+    ["task", null],
+    ["routine", 1],
+  ] as const)(
+    "waits for confirmed %s cleanup before starting chat (Computer capacity %s)",
+    async (runKind, capacity) => {
+      const gateway = createTestRunnerGateway({
+        createId: sequenceIds(),
+        operationCancelTimeoutMs: 10,
+      });
+      const peer = new RecordingPeer();
+      const connection = await acceptReadyConnection(gateway, peer, {
+        ...hello([], capacity),
+        runtime_diagnostics: runtimeDiagnostics({ link: "api" }),
+      });
+      try {
+        const task = await gateway.startOperation({
+          ...runTarget(),
+          runKind,
+        });
+        const start = peer.sent.find(
+          (command) => command.type === "operation.start",
+        )!;
+        const chat = gateway.startOperation({
+          ...runTarget(),
+          ...readyContextScope("chat"),
+          runKind: "chat",
+        });
+        await connection.receive(
+          event(start, 1, {
+            type: "operation.accepted",
+            command_id: start.command_id,
+            runner_pid: 100,
+          }),
+        );
+        expect(await settlesWithin(chat, 10)).toBe(false);
+        expect(peer.sent.some((command) => command.type === "cancel")).toBe(
+          false,
+        );
+        await connection.receive(
+          event(start, 2, {
+            type: "operation.event",
+            event: {
+              type: "run.started",
+              turn_id: "turn-task",
+              session: { threadId: "task-session", canYield: true },
+            },
+          }),
+        );
+        expect(peer.sent.some((command) => command.type === "cancel")).toBe(
+          false,
+        );
+        await connection.receive(
+          event(start, 3, {
+            type: "operation.event",
+            event: {
+              type: "tool.called",
+              call_id: "read",
+              tool_name: "read",
+              input: {},
+            },
+          }),
+        );
+        await vi.waitFor(() =>
+          expect(
+            peer.sent.filter((command) => command.type === "cancel"),
+          ).toHaveLength(1),
+        );
+        expect(
+          peer.sent.find((command) => command.type === "cancel"),
+        ).toMatchObject({
+          operation_id: start.operation_id,
+          reason: "scheduler_yield",
+        });
+        expect(await settlesWithin(chat, 25)).toBe(false);
+        await connection.receive(
+          event(start, 4, {
+            type: "operation.event",
+            event: {
+              type: "human_interaction.requested",
+              request: { request_id: "late" },
+            },
+          }),
+        );
+        const yielded = expect(task.result).rejects.toMatchObject({
+          session: { threadId: "task-session" },
+        });
+        await connection.receive(
+          event(start, 5, {
+            type: "operation.cancelled",
+            reason: "scheduler_yield",
+          }),
+        );
+        await yielded;
+        const events = [];
+        for await (const item of task.events) events.push(item.type);
+        expect(events).toEqual(["run.started", "tool.called"]);
+        const interactive = await chat;
+        expect(interactive.operationId).not.toBe(start.operation_id);
+        void interactive.result.catch(() => undefined);
+      } finally {
+        connection.disconnect();
+      }
+    },
+  );
+
+  it.each([
+    ["thinking", { type: "status.changed", status: "thinking" }],
+    [
+      "streaming its answer",
+      { type: "message.delta", message_id: "answer", delta: "Hel" },
+    ],
+  ] as const)(
+    "lets a Codex Run yield to chat once it is %s",
+    async (_, work) => {
+      const gateway = createTestRunnerGateway({
+        createId: sequenceIds(),
+        operationCancelTimeoutMs: 10,
+      });
+      const peer = new RecordingPeer();
+      const connection = await acceptReadyConnection(gateway, peer, {
+        ...hello([], 1),
+        runtime_diagnostics: runtimeDiagnostics({ link: "api" }),
+      });
+      try {
+        const task = await gateway.startOperation({
+          ...runTarget(),
+          runKind: "task",
+        });
+        task.result.catch(() => undefined);
+        const start = peer.sent.find(
+          (command) => command.type === "operation.start",
+        )!;
+        const chat = gateway.startOperation({
+          ...runTarget(),
+          ...readyContextScope("chat"),
+          runKind: "chat",
+        });
+        // The chat never starts here; the disconnect ends its wait.
+        chat.then(
+          (interactive) => interactive.result.catch(() => undefined),
+          () => undefined,
+        );
+        await connection.receive(
+          event(start, 1, {
+            type: "operation.accepted",
+            command_id: start.command_id,
+            runner_pid: 100,
+          }),
+        );
+        await connection.receive(
+          event(start, 2, {
+            type: "operation.event",
+            event: {
+              type: "run.started",
+              turn_id: "turn-task",
+              session: { threadId: "task-session", canYield: true },
+            },
+          }),
+        );
+        await connection.receive(
+          event(start, 3, {
+            type: "operation.event",
+            event: { type: "status.changed", status: "working" },
+          }),
+        );
+        expect(await settlesWithin(chat, 10)).toBe(false);
+        expect(peer.sent.some((command) => command.type === "cancel")).toBe(
+          false,
+        );
+        await connection.receive(
+          event(start, 4, { type: "operation.event", event: work }),
+        );
+        await vi.waitFor(() =>
+          expect(
+            peer.sent.find((command) => command.type === "cancel"),
+          ).toMatchObject({
+            operation_id: start.operation_id,
+            reason: "scheduler_yield",
+          }),
+        );
+      } finally {
+        connection.disconnect();
+      }
+    },
+  );
+
+  it("yields an Antigravity Run only after native work, keeping its session as a thread", async () => {
+    const gateway = createTestRunnerGateway({
+      createId: sequenceIds(),
+      operationCancelTimeoutMs: 10,
+    });
+    const peer = new RecordingPeer();
+    const connection = await acceptReadyConnection(
+      gateway,
+      peer,
+      {
+        ...hello([], 1),
+        runtimes: ["antigravity"],
+        runtime_diagnostics: runtimeDiagnostics({
+          link: "api",
+          ready: ["antigravity"],
+        }),
+      },
+      { ...defaultAgentPlacement(), runtime: { type: "antigravity" } },
+    );
+    try {
+      const target = runTarget();
+      const task = await gateway.startOperation({
+        ...target,
+        request: { ...target.request, runtime: { type: "antigravity" } },
+        runKind: "task",
+      });
+      const start = peer.sent.find(
+        (command) => command.type === "operation.start",
+      )!;
+      const chat = gateway.startOperation({
+        ...target,
+        ...readyContextScope("chat"),
+        request: { ...target.request, runtime: { type: "antigravity" } },
+        runKind: "chat",
+      });
+      chat.then(
+        (interactive) => interactive.result.catch(() => undefined),
+        () => undefined,
+      );
+      await connection.receive(
+        event(start, 1, {
+          type: "operation.accepted",
+          command_id: start.command_id,
+          runner_pid: 100,
+        }),
+      );
+      await connection.receive(
+        event(start, 2, {
+          type: "operation.event",
+          event: {
+            type: "run.started",
+            turn_id: "turn-task",
+            session: { threadId: "task-session", canYield: true },
+          },
+        }),
+      );
+      // The session exists before its prompt, which Antigravity cannot load.
+      expect(await settlesWithin(chat, 10)).toBe(false);
+      expect(peer.sent.some((command) => command.type === "cancel")).toBe(
+        false,
+      );
+      await connection.receive(
+        event(start, 3, {
+          type: "operation.event",
+          event: {
+            type: "tool.called",
+            call_id: "read",
+            tool_name: "read",
+            input: {},
+          },
+        }),
+      );
+      await vi.waitFor(() =>
+        expect(
+          peer.sent.find((command) => command.type === "cancel"),
+        ).toMatchObject({
+          operation_id: start.operation_id,
+          reason: "scheduler_yield",
+        }),
+      );
+      const yielded = task.result.then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      await connection.receive(
+        event(start, 4, {
+          type: "operation.cancelled",
+          reason: "scheduler_yield",
+        }),
+      );
+      expect(await yielded).toMatchObject({
+        session: { threadId: "task-session" },
+      });
+      expect(await yielded).not.toHaveProperty("session.sessionId");
+    } finally {
+      connection.disconnect();
+    }
+  });
+
+  it("stops a Run whose Computer declined a yield", async () => {
+    const gateway = createTestRunnerGateway({
+      createId: sequenceIds(),
+      operationCancelTimeoutMs: 1_000,
+    });
+    const peer = new RecordingPeer();
+    const connection = await acceptReadyConnection(
+      gateway,
+      peer,
+      {
+        ...hello([], 1),
+        runtimes: ["antigravity"],
+        runtime_diagnostics: runtimeDiagnostics({
+          link: "api",
+          ready: ["antigravity"],
+        }),
+      },
+      { ...defaultAgentPlacement(), runtime: { type: "antigravity" } },
+    );
+    try {
+      const target = runTarget();
+      const task = await gateway.startOperation({
+        ...target,
+        request: { ...target.request, runtime: { type: "antigravity" } },
+        runKind: "task",
+      });
+      const start = peer.sent.find(
+        (command) => command.type === "operation.start",
+      )!;
+      const chat = gateway.startOperation({
+        ...target,
+        ...readyContextScope("chat"),
+        request: { ...target.request, runtime: { type: "antigravity" } },
+        runKind: "chat",
+      });
+      chat.then(
+        (interactive) => interactive.result.catch(() => undefined),
+        () => undefined,
+      );
+      await connection.receive(
+        event(start, 1, {
+          type: "operation.accepted",
+          command_id: start.command_id,
+          runner_pid: 100,
+        }),
+      );
+      await connection.receive(
+        event(start, 2, {
+          type: "operation.event",
+          event: {
+            type: "run.started",
+            turn_id: "turn-task",
+            session: { threadId: "task-session", canYield: true },
+          },
+        }),
+      );
+      await connection.receive(
+        event(start, 3, {
+          type: "operation.event",
+          event: {
+            type: "tool.called",
+            call_id: "read",
+            tool_name: "read",
+            input: {},
+          },
+        }),
+      );
+      const cancels = () =>
+        peer.sent.flatMap((command) =>
+          command.type === "cancel" ? [command] : [],
+        );
+      await vi.waitFor(() =>
+        expect(cancels().map((command) => command.reason)).toEqual([
+          "scheduler_yield",
+        ]),
+      );
+      // The Computer declined the yield and the Run goes on; Stop must
+      // reach it as a Stop, not as the same yield again.
+      const stopped = expect(task.result).rejects.toMatchObject({
+        code: "cancelled",
+      });
+      const stopping = task.cancel("user_stop");
+      await vi.waitFor(() =>
+        expect(cancels().map((command) => command.reason)).toEqual([
+          "scheduler_yield",
+          "user_stop",
+        ]),
+      );
+      expect(cancels()[1]!.command_id).not.toBe(cancels()[0]!.command_id);
+      await connection.receive(
+        event(start, 4, { type: "operation.cancelled", reason: "user_stop" }),
+      );
+      await stopping;
+      await stopped;
+    } finally {
+      connection.disconnect();
+    }
+  });
+
+  it("keeps a user-stopped Task's place through the cancel timeout and a later chat", async () => {
+    const gateway = createTestRunnerGateway({
+      createId: sequenceIds(),
+      operationCancelTimeoutMs: 10,
+    });
+    const peer = new RecordingPeer();
+    const connection = await acceptReadyConnection(gateway, peer, {
+      ...hello([], 1),
+      runtime_diagnostics: runtimeDiagnostics({ link: "api" }),
+    });
+    try {
+      const task = await gateway.startOperation({
+        ...runTarget(),
+        runKind: "task",
+      });
+      const start = peer.sent.find(
+        (command) => command.type === "operation.start",
+      )!;
+      await connection.receive(
+        event(start, 1, {
+          type: "operation.accepted",
+          command_id: start.command_id,
+          runner_pid: 100,
+        }),
+      );
+      const stopped = expect(task.result).rejects.toMatchObject({
+        code: "cancelled",
+      });
+      await task.cancel("user_stop");
+      await connection.receive(
+        event(start, 2, {
+          type: "operation.event",
+          event: { type: "status.changed", status: "working" },
+        }),
+      );
+      const chat = gateway.startOperation({
+        ...runTarget(),
+        ...readyContextScope("chat"),
+        runKind: "chat",
+      });
+      expect(await settlesWithin(task.result, 15)).toBe(false);
+      expect(await settlesWithin(chat, 15)).toBe(false);
+      expect(
+        peer.sent
+          .filter((command) => command.type === "cancel")
+          .map((command) => command.reason),
+      ).toEqual(["user_stop"]);
+      await connection.receive(
+        event(start, 3, { type: "operation.cancelled", reason: "user_stop" }),
+      );
+      await stopped;
+      void (await chat).result.catch(() => undefined);
+    } finally {
+      connection.disconnect();
+    }
   });
 
   it("records the Runtime turn a Run's Operation started as soon as it starts", async () => {
@@ -200,6 +645,98 @@ describe("RunnerGateway", () => {
       new AbortController().signal,
     );
     next.release();
+  });
+
+  it.each([1, 2])(
+    "prioritizes chat with a Computer capacity of %i",
+    async (hard) => {
+      const gateway = createTestRunnerGateway({ createId: sequenceIds() });
+      const connection = await gateway.acceptConnection(
+        authenticatedPrincipal(),
+        hello([], hard),
+        new RecordingPeer(),
+      );
+      const signal = new AbortController().signal;
+      const acquire = (
+        executionContextKey: string,
+        priority: () => Promise<number>,
+      ) =>
+        gateway.acquireOperationCapacity(
+          {
+            ...runTarget(),
+            executionContextKey,
+            priority: { queuedAt: performance.now(), resolve: priority },
+          },
+          signal,
+        );
+      try {
+        const classify = vi.fn(async () => runPriorities.routine);
+        const first = await acquire("routine", classify);
+        expect(classify).not.toHaveBeenCalled();
+        const order: string[] = [];
+        const doc = acquire(
+          "document",
+          async () => runPriorities.document,
+        ).then((p) => {
+          order.push("document");
+          return p;
+        });
+        const chat = acquire(
+          "interactive",
+          async () => runPriorities.chat,
+        ).then((p) => {
+          order.push("chat");
+          return p;
+        });
+        if (hard === 1) {
+          expect(await settlesWithin(chat, 15)).toBe(false);
+          first.release();
+        }
+        const interactive = await chat;
+        expect(order).toEqual(["chat"]);
+        interactive.release();
+        first.release();
+        (await doc).release();
+        expect(order).toEqual(["chat", "document"]);
+      } finally {
+        connection.disconnect();
+      }
+    },
+  );
+
+  it("keeps the FIFO position of a waiting Run when its priority is refreshed", async () => {
+    const gateway = createTestRunnerGateway({ createId: sequenceIds() });
+    const connection = await gateway.acceptConnection(
+      authenticatedPrincipal(),
+      hello([], 1),
+      new RecordingPeer(),
+    );
+    const stop = new AbortController();
+    const refreshed = new AbortController();
+    const acquire = (key: string, queuedAt: number, signal: AbortSignal) =>
+      gateway.acquireOperationCapacity(
+        {
+          ...runTarget(),
+          executionContextKey: key,
+          priority: { queuedAt, resolve: async () => runPriorities.routine },
+        },
+        signal,
+      );
+    try {
+      const active = await acquire("active", 0, stop.signal);
+      const old = acquire("first", 1, refreshed.signal);
+      const second = acquire("second", 2, stop.signal);
+      const canceled = expect(old).rejects.toThrow();
+      refreshed.abort();
+      await canceled;
+      const first = acquire("first", 1, stop.signal);
+      active.release();
+      (await first).release();
+      (await second).release();
+    } finally {
+      stop.abort();
+      connection.disconnect();
+    }
   });
 
   it("rejects a capacity reservation for an offline Computer instead of waiting", async () => {
@@ -338,6 +875,61 @@ describe("RunnerGateway", () => {
     ).resolves.toHaveLength(3);
   });
 
+  it("starts a late chat when ordinary work has filled both soft limits", async () => {
+    const gateway = createTestRunnerGateway({ createId: sequenceIds() });
+    const peer = new RecordingPeer();
+    const connection = await acceptReadyConnection(gateway, peer, {
+      ...hello([], 2),
+      runtime_diagnostics: runtimeDiagnostics({ link: "subscription" }),
+    });
+    const endpoint = {
+      computerId: "runner-local",
+      runtimeType: "codex" as const,
+    };
+    const stop = new AbortController();
+    const wiki = (index: number) =>
+      gateway.acquireModelCall(
+        endpoint,
+        { kind: "wiki", priority: 70, key: String(index) },
+        stop.signal,
+      );
+    // Eight wiki chains and one routine occupy all nine ordinary endpoint places.
+    const chains = await Promise.all(
+      Array.from({ length: 8 }, (_, i) => wiki(i)),
+    );
+    const start = (runKind: "routine" | "document" | "chat") =>
+      gateway.startOperation({
+        ...sessionTarget(),
+        ...readyContextScope(runKind),
+        runKind,
+        signal: stop.signal,
+      });
+    try {
+      const routine = await start("routine");
+      const document = start("document");
+      const waitingWiki = wiki(8);
+      const chat = await start("chat");
+      expect(
+        peer.sent
+          .filter((command) => command.type === "operation.start")
+          .map((command) => command.execution_context_key),
+      ).toEqual(["context-routine", "context-chat"]);
+      expect(await settlesWithin(waitingWiki, 10)).toBe(false);
+      const canceled = Promise.all([
+        expect(document).rejects.toThrow(),
+        expect(waitingWiki).rejects.toThrow(),
+      ]);
+      stop.abort();
+      await canceled;
+      void routine.result.catch(() => undefined);
+      void chat.result.catch(() => undefined);
+    } finally {
+      stop.abort();
+      for (const chain of chains) chain.release({ outcome: "completed" });
+      connection.disconnect();
+    }
+  });
+
   it("queues a Run's whole Operation as one unit of its endpoint", async () => {
     const gateway = createTestRunnerGateway({
       heartbeatIntervalMs: 60_000,
@@ -350,7 +942,7 @@ describe("RunnerGateway", () => {
     });
     const codex = { computerId: "runner-local", runtimeType: "codex" as const };
     try {
-      const wiki = await gateway.acquireModelChain(
+      const wiki = await gateway.acquireModelCall(
         codex,
         { priority: 70, kind: "wiki", key: "wiki:test" },
         new AbortController().signal,
@@ -366,7 +958,7 @@ describe("RunnerGateway", () => {
       expect(
         peer.sent.some((command) => command.type === "operation.start"),
       ).toBe(false);
-      const memory = gateway.acquireModelChain(
+      const memory = gateway.acquireModelCall(
         codex,
         { priority: 40, kind: "memory", key: "memory:test" },
         new AbortController().signal,
@@ -474,7 +1066,7 @@ describe("RunnerGateway", () => {
       const { gateway, connection, start } = await startRun();
       try {
         const waiting = admittedLater(
-          gateway.acquireModelChain(
+          gateway.acquireModelCall(
             codex,
             approval,
             new AbortController().signal,
@@ -492,7 +1084,7 @@ describe("RunnerGateway", () => {
     it("halves the limit when the Run fails rate limited", async () => {
       const { gateway, connection, start } = await startRun();
       try {
-        const alongside = gateway.acquireModelChain(
+        const alongside = gateway.acquireModelCall(
           codex,
           approval,
           new AbortController().signal,
@@ -513,7 +1105,7 @@ describe("RunnerGateway", () => {
         );
         // Two places would admit it beside the running chain; one does not.
         const next = admittedLater(
-          gateway.acquireModelChain(
+          gateway.acquireModelCall(
             codex,
             approval,
             new AbortController().signal,
@@ -869,6 +1461,150 @@ describe("RunnerGateway", () => {
       session: { thread_id: "thread-rebased" },
     });
     second.disconnect();
+  });
+
+  it("ends a rebased start with the terminal the daemon recorded on its first epoch", async () => {
+    const gateway = createTestRunnerGateway({
+      heartbeatIntervalMs: 1_000,
+      createId: sequenceIds(),
+    });
+    const firstPeer = new RecordingPeer();
+    const first = await acceptReadyConnection(gateway, firstPeer);
+    const operation = await gateway.startOperation(sessionTarget());
+    void operation.result.catch(() => undefined);
+    const original = firstPeer.sent[1] as OperationStart;
+    first.disconnect();
+
+    const secondPeer = new RecordingPeer();
+    const second = await acceptReadyConnection(gateway, secondPeer);
+    expect(secondPeer.sent[1]).toMatchObject({
+      type: "operation.start",
+      connection_epoch: 2,
+    });
+    // The Daemon failed it on the first connection and replays that terminal.
+    await second.receive(
+      event(original, 1, {
+        type: "operation.failed",
+        stage: "operation_admission",
+        error: {
+          code: "EXECUTION_FAILED",
+          message: "Operation acceptance delivery failed",
+          retryable: false,
+        },
+      }),
+    );
+    await expect(operation.result).rejects.toMatchObject({
+      code: "EXECUTION_FAILED",
+    });
+    expect(secondPeer.sent.at(-1)).toMatchObject({
+      type: "operation.ack",
+      through_seq: 1,
+      connection_epoch: 1,
+    });
+    expect(secondPeer.closed).toEqual([]);
+  });
+
+  it("rejects a frame stamped with an epoch the start was never sent with", async () => {
+    const gateway = createTestRunnerGateway({
+      heartbeatIntervalMs: 1_000,
+      createId: sequenceIds(),
+    });
+    const firstPeer = new RecordingPeer();
+    const first = await acceptReadyConnection(gateway, firstPeer);
+    const operation = await gateway.startOperation(sessionTarget());
+    void operation.result.catch(() => undefined);
+    const original = firstPeer.sent[1] as OperationStart;
+    first.disconnect();
+
+    const secondPeer = new RecordingPeer();
+    const second = await acceptReadyConnection(gateway, secondPeer);
+    await expect(
+      second.receive(
+        event({ ...original, connection_epoch: 7 }, 1, {
+          type: "operation.failed",
+          stage: "operation_admission",
+          error: { code: "EXECUTION_FAILED", message: "x", retryable: false },
+        }),
+      ),
+    ).rejects.toThrow("identity mismatch at connection_epoch");
+  });
+
+  it("ends an unaccepted start with an unknown outcome after three re-sends", async () => {
+    const gateway = createTestRunnerGateway({
+      heartbeatIntervalMs: 1_000,
+      createId: sequenceIds(),
+    });
+    let peer = new RecordingPeer();
+    let connection = await acceptReadyConnection(gateway, peer);
+    const operation = await gateway.startOperation(sessionTarget());
+    void operation.result.catch(() => undefined);
+    const original = peer.sent[1] as OperationStart;
+    for (let resend = 1; resend <= 3; resend++) {
+      connection.disconnect();
+      peer = new RecordingPeer();
+      connection = await acceptReadyConnection(gateway, peer);
+      expect(peer.sent).toContainEqual(
+        expect.objectContaining({
+          type: "operation.start",
+          operation_id: original.operation_id,
+        }),
+      );
+    }
+    connection.disconnect();
+    peer = new RecordingPeer();
+    await acceptReadyConnection(gateway, peer);
+    expect(peer.sent).not.toContainEqual(
+      expect.objectContaining({ type: "operation.start" }),
+    );
+    await expect(operation.result).rejects.toMatchObject({
+      code: OPERATION_OUTCOME_UNKNOWN,
+      retryable: false,
+    });
+  });
+
+  it("keeps re-sending an unaccepted start the daemon reports active", async () => {
+    const gateway = createTestRunnerGateway({
+      heartbeatIntervalMs: 1_000,
+      createId: sequenceIds(),
+    });
+    let peer = new RecordingPeer();
+    let connection = await acceptReadyConnection(gateway, peer);
+    const operation = await gateway.startOperation(sessionTarget());
+    void operation.result.catch(() => undefined);
+    const start = peer.sent[1] as OperationStart;
+    const retained = hello([
+      {
+        tenant_id: start.tenant_id,
+        runner_id: start.runner_id,
+        protocol_version: start.protocol_version,
+        host_access: start.host_access,
+        registration_id: start.registration_id,
+        assignment_revision: start.assignment_revision,
+        execution_context_key: start.execution_context_key,
+        runtime_instance_id: start.runtime_instance_id,
+        context_view_ref: start.context_view_ref,
+        agent_id: start.agent_id,
+        operation_id: start.operation_id,
+        connection_epoch: start.connection_epoch,
+        runner_revision: start.runner_revision,
+        generation: start.generation,
+        execution_lease_id: start.execution_lease_id,
+        workspace_grant_id: start.workspace_grant_id,
+        runtime_type: start.runtime_type,
+        kind: start.request.kind,
+        last_emitted_seq: 0,
+        last_acked_seq: 0,
+      },
+    ]);
+    for (let reconnect = 1; reconnect <= 5; reconnect++) {
+      connection.disconnect();
+      peer = new RecordingPeer();
+      connection = await acceptReadyConnection(gateway, peer, retained);
+      expect(peer.sent).toContainEqual(start);
+    }
+    await expect(
+      Promise.race([operation.result, Promise.resolve("pending")]),
+    ).resolves.toBe("pending");
   });
 
   it("retires terminal state when acknowledgement delivery is indeterminate", async () => {

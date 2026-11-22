@@ -3,7 +3,7 @@ import { Worker } from "node:worker_threads";
 import { serviceModule } from "../paths.js";
 
 export const DOCUMENT_NORMALIZER_NAME = "llm-wiki-document-markdown";
-export const DOCUMENT_NORMALIZER_VERSION = "2";
+export const DOCUMENT_NORMALIZER_VERSION = "3";
 export const MAX_DOCUMENT_PAGES = 100;
 export const MAX_DOCUMENT_SOURCE_BYTES = 50 * 1024 * 1024;
 export const MAX_DOCUMENT_MARKDOWN_BYTES = 32 * 1024 * 1024;
@@ -160,9 +160,9 @@ interface WorkerDocumentNormalizerOptions {
 }
 
 /**
- * The process's one normalizer. Text formats convert in process; the rest
- * convert in an isolated worker, one at a time, so a PDF, Office or archive
- * parser that exhausts memory or hangs is stopped without the process. A request
+ * The process's one normalizer. Text formats other than JSON convert in process;
+ * the rest convert in an isolated worker, one at a time, so a parser
+ * that exhausts memory or hangs is stopped without the process. A request
  * waits for the worker at most one timeout and fails as unavailable; the
  * conversion itself then has its own timeout, which is terminal.
  */

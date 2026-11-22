@@ -7,9 +7,11 @@ import type {
   TeamHubExternalAppKey,
   TeamHubExternalConnection,
 } from "@/features/teamhub/teamhub-types";
+import { translate } from "@/i18n/language";
 
 import { externalConnectionsQueryKey } from "./connected-apps-queries";
-import { usableConnectUrl } from "./connection-state";
+import { startReauthorization, usableConnectUrl } from "./connection-state";
+import { connectorMessages as m } from "./connectors.messages";
 import { openOAuthUrl } from "./oauth-popup";
 
 /** Composio refused the project API key, so a new key is needed to connect. */
@@ -43,13 +45,28 @@ export function useCreateExternalConnection({
     },
   });
 
+  const reauthorize = useMutation({
+    mutationFn: async (connection: TeamHubExternalConnection) => {
+      const connectUrl = await startReauthorization(client, connection);
+      // Worded when it happens, like the errors TeamHub sends.
+      if (!connectUrl) throw new Error(translate(m.reconnectNotStarted));
+      resume(connectUrl);
+    },
+    onSettled: () =>
+      queryClient.invalidateQueries({
+        queryKey: externalConnectionsQueryKey(),
+      }),
+  });
+
   function resume(connectUrl: string) {
     setBlockedConnectUrl("");
     if (!openOAuthUrl(connectUrl)) setBlockedConnectUrl(connectUrl);
   }
 
+  // Connect and reconnect share one error slot, so each clears the other's.
   function connect(appKey: TeamHubExternalAppKey) {
     setBlockedConnectUrl("");
+    reauthorize.reset();
     createConnection.mutate(appKey);
   }
 
@@ -57,6 +74,8 @@ export function useCreateExternalConnection({
     appKey: TeamHubExternalAppKey,
     pending?: TeamHubExternalConnection,
   ) {
+    createConnection.reset();
+    reauthorize.reset();
     if (pending) {
       try {
         const connectUrl = usableConnectUrl(
@@ -79,8 +98,14 @@ export function useCreateExternalConnection({
     blockedConnectUrl,
     connect,
     connectOrResume,
-    error: createConnection.error,
-    isPending: createConnection.isPending,
+    error: createConnection.error ?? reauthorize.error,
+    isPending: createConnection.isPending || reauthorize.isPending,
+    /** Reauthorizes an existing connection in place. */
+    reconnect(connection: TeamHubExternalConnection) {
+      setBlockedConnectUrl("");
+      createConnection.reset();
+      reauthorize.mutate(connection);
+    },
     resume,
     clearBlockedConnectUrl() {
       setBlockedConnectUrl("");

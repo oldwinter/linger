@@ -4,8 +4,12 @@ import {
   File01Icon,
   FolderOpenIcon,
 } from "@hugeicons/core-free-icons";
-import { dateTimeFormat } from "@/lib/date-format";
 import { useMemo, useState } from "react";
+
+import { formatLocale } from "@/i18n/language";
+import type { Message } from "@/i18n/messages";
+import { useT } from "@/i18n/use-translation";
+import { dateTimeFormat } from "@/lib/date-format";
 
 import { ActionMenu } from "@/components/ui/action-menu";
 import { Icon } from "@/components/ui/icon";
@@ -20,6 +24,7 @@ import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubDocument } from "@/features/teamhub/teamhub-types";
 
 import { PanelCollectionChrome } from "../panel-collection-chrome";
+import { roomDocumentsMessages as m } from "./room-documents.messages";
 
 function copyDocumentLink(document: TeamHubDocument) {
   const filename = documentFileName(document);
@@ -47,9 +52,10 @@ export function FileLibraryPanelTab({
   hidden?: boolean;
   onOpenDocument: (document: TeamHubDocument) => void;
 }) {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const [busyDocumentId, setBusyDocumentId] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<Message<string> | null>(null);
   // Newest first, matching the Library recency view; the name breaks ties so
   // documents sharing a timestamp keep a stable order.
   const rows = useMemo(
@@ -65,7 +71,7 @@ export function FileLibraryPanelTab({
   async function runDocumentAction(
     document: TeamHubDocument,
     action: () => Promise<void>,
-    message: string,
+    message: Message<string>,
   ) {
     if (busyDocumentId !== null) return;
     setBusyDocumentId(document.id);
@@ -100,18 +106,18 @@ export function FileLibraryPanelTab({
         icon={FolderOpenIcon}
         subtitle={
           rows.length === 0
-            ? "This Room has no documents yet"
-            : `${rows.length} ${rows.length === 1 ? "file" : "files"}`
+            ? t(m.noDocumentsYet)
+            : t(m.fileCount, { count: rows.length })
         }
-        title="Files"
+        title={t(m.title)}
       />
       <nav
-        aria-label="Room files"
+        aria-label={t(m.roomFiles)}
         className="room-file-library workspace-scrollbar min-h-0 flex-1 overflow-y-auto bg-app-surface px-1.5 py-2"
       >
         {actionError ? (
           <p className="px-2 py-1 text-xs text-app-danger" role="alert">
-            {actionError}
+            {t(actionError)}
           </p>
         ) : null}
         {rows.length ? (
@@ -124,7 +130,7 @@ export function FileLibraryPanelTab({
                   aria-label={filename}
                   className="workspace-file-name min-w-0 text-left text-app-body"
                   onClick={() => onOpenDocument(document)}
-                  title={`Open ${filename}`}
+                  title={t(m.openFile, { name: filename })}
                   type="button"
                 >
                   <WorkspaceFileIcon className="shrink-0" filename={filename} />
@@ -134,17 +140,17 @@ export function FileLibraryPanelTab({
                 </button>
                 <RoomFileMetadata document={document} />
                 <button
-                  aria-label={`Download ${filename}`}
+                  aria-label={t(m.downloadFile, { name: filename })}
                   className="workspace-file-action"
                   disabled={!document.capabilities.export || busy}
                   onClick={() =>
                     void runDocumentAction(
                       document,
                       () => downloadDocument(document),
-                      "The file could not be downloaded.",
+                      m.downloadFailed,
                     )
                   }
-                  title={`Download ${filename}`}
+                  title={t(m.downloadFile, { name: filename })}
                   type="button"
                 >
                   <Icon icon={Download01Icon} size={16} />
@@ -155,16 +161,16 @@ export function FileLibraryPanelTab({
                     {
                       disabled: busy,
                       icon: <Icon icon={Copy01Icon} size={14} />,
-                      label: "Copy link",
+                      label: t(m.copyLink),
                       onSelect: () =>
                         void runDocumentAction(
                           document,
                           () => copyDocumentLink(document),
-                          "The file link could not be copied.",
+                          m.copyLinkFailed,
                         ),
                     },
                   ]}
-                  label={`Actions for ${filename}`}
+                  label={t(m.actionsFor, { name: filename })}
                 />
               </div>
             );
@@ -173,10 +179,10 @@ export function FileLibraryPanelTab({
           <div className="flex h-full min-h-40 flex-col items-center justify-center px-4 text-center">
             <Icon className="text-app-subtle" icon={File01Icon} size={20} />
             <p className="mt-2 text-sm font-medium text-app-ink">
-              No Room Documents yet
+              {t(m.emptyTitle)}
             </p>
             <p className="mt-1 max-w-52 text-xs leading-5 text-app-muted">
-              Documents shared in this Room will show up here.
+              {t(m.emptyBody)}
             </p>
           </div>
         )}
@@ -185,13 +191,9 @@ export function FileLibraryPanelTab({
   );
 }
 
-const documentDateFormatter = dateTimeFormat({
-  day: "numeric",
-  month: "short",
-  year: "numeric",
-});
-
 function RoomFileMetadata({ document }: { document: TeamHubDocument }) {
+  // Read the language on screen so the date follows a switch.
+  useT();
   const owner = document.owner;
   const date = new Date(document.updated_at);
   return (
@@ -212,7 +214,10 @@ function RoomFileMetadata({ document }: { document: TeamHubDocument }) {
       <time dateTime={document.updated_at} title={document.updated_at}>
         {Number.isNaN(date.valueOf())
           ? "—"
-          : documentDateFormatter.format(date)}
+          : dateTimeFormat(
+              { day: "numeric", month: "short", year: "numeric" },
+              formatLocale(),
+            ).format(date)}
       </time>
     </div>
   );

@@ -102,7 +102,7 @@ echo '{"loggedIn":true}'
 	primeTestExecutable(t, filepath.Join(root, "security"))
 	primeTestExecutable(t, executable, "AUTH_TRACE="+os.DevNull)
 	trace := filepath.Join(root, "trace")
-	options := DiscoveryOptions{RuntimeHomeRoot: homes, Timeout: 2 * time.Second, Environment: map[string]string{
+	options := DiscoveryOptions{RuntimeHomeRoot: homes, Timeout: time.Second, Environment: map[string]string{
 		"HOME": root, "PATH": root, "ANTHROPIC_API_KEY": "fixture-key", "SLOW_CONFIG": slowest, "AUTH_TRACE": trace,
 	}}
 	current := DiscoveryResult{Diagnostics: []RuntimeDiagnostic{{Type: "claude", Status: "ready", ExecutablePath: executable}}}

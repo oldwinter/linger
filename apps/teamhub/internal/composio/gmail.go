@@ -435,6 +435,25 @@ type GmailDraft struct {
 	DraftID, MessageID, ThreadID string
 }
 
+// SendGmailDraft sends one already uploaded draft without replaying the write.
+func (c *Client) SendGmailDraft(ctx context.Context, accountID, draftID string) (string, error) {
+	ctx, _ = WithProviderAttemptBudget(ctx, 1)
+	body, err := json.Marshal(map[string]string{"id": draftID})
+	if err != nil {
+		return "", err
+	}
+	var message struct {
+		ID string `json:"id"`
+	}
+	if err := c.proxy(ctx, proxyRequest{ConnectedAccountID: accountID, Endpoint: "/gmail/v1/users/me/drafts/send", Method: http.MethodPost, Body: body}, &message, "send Gmail draft"); err != nil {
+		return "", err
+	}
+	if message.ID == "" {
+		return "", errors.New("Gmail did not return the sent message ID")
+	}
+	return message.ID, nil
+}
+
 // SaveGmailDraft stores a complete RFC 5322 message (base64url, as Gmail's
 // raw field) as a new draft, or replaces draftID in place. It never sends.
 func (c *Client) SaveGmailDraft(ctx context.Context, connectedAccountID, draftID, raw string) (GmailDraft, error) {
@@ -455,9 +474,18 @@ func (c *Client) SaveGmailDraft(ctx context.Context, connectedAccountID, draftID
 			ThreadID string `json:"threadId"`
 		} `json:"message"`
 	}
-	if err := c.proxy(ctx, proxyRequest{
-		ConnectedAccountID: connectedAccountID, Endpoint: endpoint, Method: method, Body: body,
-	}, &draft, "save Gmail draft"); err != nil {
+	if len(raw) > gmailDraftChunkBytes {
+		var response json.RawMessage
+		response, err = c.uploadGmailDraft(ctx, connectedAccountID, endpoint, method, raw)
+		if err == nil {
+			err = json.Unmarshal(response, &draft)
+		}
+	} else {
+		err = c.proxy(ctx, proxyRequest{
+			ConnectedAccountID: connectedAccountID, Endpoint: endpoint, Method: method, Body: body,
+		}, &draft, "save Gmail draft")
+	}
+	if err != nil {
 		return GmailDraft{}, err
 	}
 	if draft.ID == "" || draftID != "" && draft.ID != draftID {

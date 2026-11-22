@@ -28,6 +28,11 @@ import {
 import { ArtifactReadingViewport } from "../files/artifact-reading-viewport";
 import type { ArtifactReadingPosition } from "../files/artifact-preview-cache";
 import { PreviewSessionExpiryNotice } from "../files/preview-session-expiry-notice";
+import { libraryMessages } from "@/features/library/library.messages";
+import { translate } from "@/i18n/language";
+import { useT } from "@/i18n/use-translation";
+
+import { documentPageMessages as m } from "./document-page.messages";
 
 interface LoadedDocumentPreview {
   blob?: Blob;
@@ -54,6 +59,7 @@ export function DocumentVersionPreview({
   document: TeamHubDocument;
   knownVersion?: TeamHubDocumentVersion;
 }) {
+  const t = useT();
   const [attempt, setAttempt] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<LoadedDocumentPreview | null>(null);
@@ -72,7 +78,7 @@ export function DocumentVersionPreview({
     setPreview(null);
 
     if (!versionId && document.representation_format !== "html") {
-      setError("This Document has no published Version.");
+      setError(translate(m.noPublishedVersion));
       transferRef.current = null;
       return () => controller.abort();
     }
@@ -98,7 +104,7 @@ export function DocumentVersionPreview({
         setError(
           loadError instanceof Error
             ? loadError.message
-            : "Document preview could not be loaded.",
+            : translate(m.previewLoadFailed),
         );
       }
       if (transferRef.current === controller) transferRef.current = null;
@@ -152,7 +158,7 @@ export function DocumentVersionPreview({
         setError(
           downloadError instanceof Error
             ? downloadError.message
-            : "Document download failed.",
+            : translate(m.downloadFailed),
         );
       }
     } finally {
@@ -180,7 +186,7 @@ export function DocumentVersionPreview({
                 onClick={() => setAttempt((value) => value + 1)}
                 tone="secondary"
               >
-                <Icon icon={RefreshIcon} size={14} /> Retry preview
+                <Icon icon={RefreshIcon} size={14} /> {t(m.retryPreview)}
               </Button>
             ) : null}
           </div>
@@ -194,7 +200,7 @@ export function DocumentVersionPreview({
         className="flex min-h-full items-center justify-center gap-2 text-sm text-app-muted"
         role="status"
       >
-        <Spinner size={16} /> Loading preview…
+        <Spinner size={16} /> {t(m.loadingPreview)}
       </div>
     );
   }
@@ -208,8 +214,7 @@ export function DocumentVersionPreview({
             className="mx-auto text-app-muted"
           />
           <p className="mt-3 text-sm text-app-muted">
-            {preview.decision.reason ??
-              "Preview is unavailable for this Version."}
+            {preview.decision.reason ?? t(m.previewUnavailable)}
           </p>
           <Button
             className="mt-4"
@@ -222,7 +227,7 @@ export function DocumentVersionPreview({
             ) : (
               <Icon icon={Download04Icon} size={14} />
             )}
-            Download
+            {t(libraryMessages.download)}
           </Button>
         </div>
       </div>

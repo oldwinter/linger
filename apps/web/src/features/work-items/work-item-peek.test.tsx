@@ -87,7 +87,7 @@ describe("Work Item peek", () => {
     ).toBeVisible();
     expect(
       within(dialog).getByRole("link", { name: "Open full page" }),
-    ).toHaveAttribute("href", "/t/tenant-northstar/dashboard/workitem-login");
+    ).toHaveAttribute("href", "/t/tenant-northstar/work-items/workitem-login");
   });
 
   it("posts a transition and refreshes the board and the drawer", async () => {
@@ -255,13 +255,13 @@ describe("Work Item peek", () => {
     });
     expect(fullPage).toHaveAttribute(
       "href",
-      "/t/tenant-northstar/dashboard/workitem-human?room=room-all",
+      "/t/tenant-northstar/work-items/workitem-human?room=room-all",
     );
 
     fireEvent.click(fullPage);
 
     expect(screen.getByTestId("location")).toHaveTextContent(
-      "/t/tenant-northstar/dashboard/workitem-human?room=room-all",
+      "/t/tenant-northstar/work-items/workitem-human?room=room-all",
     );
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
@@ -306,7 +306,7 @@ describe("Work Item peek", () => {
     );
 
     expect(screen.getByTestId("location")).toHaveTextContent(
-      "/t/tenant-northstar/dashboard/workitem-login?room=room-all",
+      "/t/tenant-northstar/work-items/workitem-login?room=room-all",
     );
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(runtime.server.requestsTo("POST", COMMENTS_PATH)).toHaveLength(0);
@@ -755,7 +755,7 @@ describe("Work Item peek", () => {
 
     expect(await within(picker).findByText("Maya Chen")).toBeVisible();
     expect(
-      within(picker).getByRole("region", { name: "Humans" }),
+      within(picker).getByRole("region", { name: "People" }),
     ).toBeVisible();
     expect(
       within(picker).getByRole("region", { name: "Agents" }),
@@ -764,7 +764,9 @@ describe("Work Item peek", () => {
     expect(within(picker).queryByText("Codex")).toBeNull();
     // Five Actors are short enough to scan without a search field.
     expect(
-      within(picker).queryByRole("searchbox", { name: "Search Actors" }),
+      within(picker).queryByRole("searchbox", {
+        name: "Search people and agents",
+      }),
     ).toBeNull();
   });
 
@@ -985,7 +987,7 @@ describe("Work Item peek", () => {
     });
     const picker = await openAssigneePicker(dialog);
     const search = await within(picker).findByRole("searchbox", {
-      name: "Search Actors",
+      name: "Search people and agents",
     });
 
     fireEvent.change(search, { target: { value: "maya" } });
@@ -1788,6 +1790,169 @@ describe("Work Item peek", () => {
     ).not.toBeInTheDocument();
     expect(within(comments).getAllByRole("listitem")).toHaveLength(3);
   });
+
+  it("links to the work Room when present and omits the link otherwise", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    seedWorkItems(runtime, [
+      workItem(human, {
+        id: "workitem-with-room",
+        title: "Work with room",
+        work_room_id: "room-login",
+      }),
+      workItem(human, {
+        id: "workitem-without-room",
+        number: 43,
+        title: "Work without room",
+      }),
+    ]);
+
+    renderPage(runtime);
+    const withoutRoom = await openPeek("Work without room");
+    expect(
+      within(withoutRoom).queryByRole("link", { name: "Open work Room" }),
+    ).not.toBeInTheDocument();
+    fireEvent(
+      withoutRoom,
+      new Event("cancel", { bubbles: true, cancelable: true }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+
+    const withRoom = await openPeek("Work with room");
+    const roomLink = within(withRoom).getByRole("link", {
+      name: "Open work Room",
+    });
+    expect(roomLink).toHaveAttribute(
+      "href",
+      "/t/tenant-northstar/rooms/room-login/chat",
+    );
+    fireEvent.click(roomLink);
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/t/tenant-northstar/rooms/room-login/chat",
+    );
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("unassigns another assignee from its row action", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    const agent = runtime.seed.actors.find(
+      (actor) => actor.id === "actor-codex",
+    )!;
+    const item = workItem(human, {
+      assignees: [assignment(human), assignment(agent)],
+      title: "Fix login failure",
+    });
+    seedWorkItems(runtime, [item]);
+    runtime.server.on("DELETE", ASSIGNMENT_PATH, ({ params }) => {
+      runtime.seed.workItems = [
+        {
+          ...item,
+          assignees: item.assignees.filter(
+            ({ actor }) => actor.id !== params.actorId,
+          ),
+          version: 2,
+        },
+      ];
+      return undefined;
+    });
+
+    renderPage(runtime);
+    const dialog = await openPeek("Fix login failure");
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Unassign Codex" }),
+    );
+
+    await waitFor(() =>
+      expect(runtime.server.requestsTo("DELETE", ASSIGNMENT_PATH)).toHaveLength(
+        1,
+      ),
+    );
+    const [request] = runtime.server.requestsTo("DELETE", ASSIGNMENT_PATH);
+    expect(new URL(request!.url).pathname).toBe(
+      `/v0/work-items/workitem-login/assignments/${agent.id}`,
+    );
+    await waitFor(() => expect(within(dialog).queryByText("Codex")).toBeNull());
+    expect(within(dialog).getByText(human.display_name)).toBeVisible();
+  });
+
+  it("closes an open Work Item as not planned into the Closed column", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    const item = workItem(human, { title: "Fix login failure" });
+    seedWorkItems(runtime, [item]);
+    const posted: unknown[] = [];
+    runtime.server.on("POST", TRANSITION_PATH, ({ body }) => {
+      posted.push(body);
+      const updated: TeamHubWorkItem = {
+        ...item,
+        resolution: "not_planned",
+        state: "resolved",
+        updated_at: "2026-07-30T12:00:00Z",
+        version: 2,
+      };
+      runtime.seed.workItems = [updated];
+      return updated;
+    });
+
+    renderPage(runtime);
+    const dialog = await openPeek("Fix login failure");
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Close as not planned" }),
+    );
+
+    await waitFor(() =>
+      expect(posted).toEqual([
+        { expected_version: 1, resolution: "not_planned", state: "resolved" },
+      ]),
+    );
+    expect(
+      await within(dialog).findByText("Resolved · Not planned"),
+    ).toBeVisible();
+    const closed = await screen.findByRole("region", { name: "Closed" });
+    expect(await within(closed).findByText("Fix login failure")).toBeVisible();
+  });
+
+  it("applies consistent danger and warning priority tokens inside the peek", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    seedWorkItems(runtime, [
+      workItem(human, {
+        id: "workitem-urgent",
+        priority: "urgent",
+        title: "Urgent outage",
+      }),
+      workItem(human, {
+        id: "workitem-high",
+        priority: "high",
+        title: "High priority item",
+      }),
+    ]);
+    seedConversation(runtime, human, {});
+
+    renderPage(runtime);
+
+    const urgentDialog = await openPeek("Urgent outage");
+    const urgentBadge = within(urgentDialog).getByText("urgent");
+    expect(urgentBadge).toHaveAttribute("data-priority", "urgent");
+    expect(urgentBadge).toHaveClass(
+      "bg-(--app-status-danger-surface)",
+      "text-(--app-status-danger-text)",
+    );
+    fireEvent.click(
+      within(urgentDialog).getByRole("button", { name: "Close" }),
+    );
+
+    const highDialog = await openPeek("High priority item");
+    const highBadge = within(highDialog).getByText("high");
+    expect(highBadge).toHaveAttribute("data-priority", "high");
+    expect(highBadge).toHaveClass(
+      "bg-(--app-status-warning-surface)",
+      "text-(--app-status-warning-text)",
+    );
+  });
 });
 
 async function testRuntime() {
@@ -1814,6 +1979,14 @@ function renderPage(
               <Route
                 element={<WorkItemsPage />}
                 path="/t/:tenantId/dashboard/:workItemId"
+              />
+              <Route
+                element={<p>Work item full page</p>}
+                path="/t/:tenantId/work-items/:workItemId"
+              />
+              <Route
+                element={<p>Work Room chat</p>}
+                path="/t/:tenantId/rooms/:roomId/chat"
               />
             </Routes>
             <LocationProbe />

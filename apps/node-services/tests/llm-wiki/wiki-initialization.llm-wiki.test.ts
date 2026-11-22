@@ -17,10 +17,8 @@ import type {
 } from "../../src/llm-wiki/backend.js";
 import { ActorAssetError } from "../../src/llm-wiki/actor-wiki/actor-asset-client.js";
 import { WikiCandidateValidationError } from "../../src/llm-wiki/wiki-candidate-validation.js";
-import {
-  generateWikiCandidate,
-  WIKI_GENERATION_BUDGET_MS,
-} from "../../src/llm-wiki/wiki-initialization.js";
+import { generateWikiCandidate } from "../../src/llm-wiki/wiki-initialization.js";
+import { ModelRunBudget } from "../../src/runtime-model-call.js";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -260,27 +258,26 @@ it("defers the sources past its retry run budget", async () => {
   expect(result.deferred.length).toBeLessThan(160 - accepted + 1);
   await expect(stat(request.outputDirectory)).resolves.toBeDefined();
 });
-it("stops bisecting at its deadline and fails an initialization with nothing accepted", async () => {
+it("stops bisecting once its budget is spent and fails an initialization with nothing accepted", async () => {
   const { request } = await fixture(4);
   const calls: LlmWikiGenerateRequest[] = [];
   const failure = await generateWikiCandidate(renderer(calls, true), {
     ...request,
-    deadline: Date.now() - 1,
+    budget: new ModelRunBudget(0),
   }).catch((error: unknown) => error);
-  // The first run still goes (the backend honours the deadline itself);
+  // The first run still goes (the backend honours the budget itself);
   // no bisection run starts after it.
   expect(calls).toHaveLength(1);
   expect(failure).toBeInstanceOf(ActorAssetError);
   expect(failure).toMatchObject({ disposition: "retryable" });
 });
-it("gives every run the refresh deadline", async () => {
+it("gives every run the refresh budget", async () => {
   const { request } = await fixture(2);
   const calls: LlmWikiGenerateRequest[] = [];
-  const before = Date.now();
   await generateWikiCandidate(renderer(calls), request);
-  expect(calls[0]!.deadline).toBeGreaterThanOrEqual(
-    before + WIKI_GENERATION_BUDGET_MS,
-  );
+  expect(calls[0]!.budget).toBeInstanceOf(ModelRunBudget);
+  expect(calls[0]!.budget!.spent).toBe(false);
+  expect(calls.every(({ budget }) => budget === calls[0]!.budget)).toBe(true);
 });
 it("stops retrying once the caller aborts", async () => {
   const { request } = await fixture(17);

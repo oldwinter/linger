@@ -27,14 +27,19 @@ import type {
   TeamHubSkillManifest,
   TeamHubTenantAgent,
 } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import { type Translate, translate } from "@/i18n/language";
+import type { Message } from "@/i18n/messages";
+import { useT } from "@/i18n/use-translation";
 
 import { tenantAgentsQueryKey } from "../room-queries";
+import { agentInfoMessages } from "./agent-info.messages";
 
 const acceptedSkillUpload = ".zip,.md,text/markdown,application/zip";
 
 export interface SkillManageHint {
-  title: string;
-  detail?: string;
+  title: Message<string>;
+  detail?: Message<string>;
 }
 
 export function AgentSkillUploadPanel({
@@ -56,11 +61,12 @@ export function AgentSkillUploadPanel({
   tenantId: string;
   visibleLimit?: number;
 }) {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const queryClient = useQueryClient();
   const input = useRef<HTMLInputElement>(null);
   const attempt = useRef<{ input: string; key: string } | undefined>(undefined);
-  const [notice, setNotice] = useState<string>();
+  const [saved, setSaved] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const bindings = useQuery({
     queryKey: agentSkillBindingsQueryKey(tenantId, agentId),
@@ -92,7 +98,7 @@ export function AgentSkillUploadPanel({
         if (!page.page.has_more) break;
         const next = page.page.next_cursor;
         if (!next || seen.has(next))
-          throw new Error("Could not load all Skills. Please retry.");
+          throw new Error(t(agentInfoMessages.skillsLoadIncomplete));
         seen.add(next);
         cursor = next;
       } while (cursor);
@@ -103,9 +109,9 @@ export function AgentSkillUploadPanel({
   });
   const operation = useMutation({
     mutationFn: async (action: () => Promise<void>) => action(),
-    onMutate: () => setNotice(undefined),
+    onMutate: () => setSaved(false),
     onSuccess: async () => {
-      setNotice("Saved. Future runs will use the new configuration.");
+      setSaved(true);
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: agentSkillBindingsQueryKey(tenantId, agentId),
@@ -164,7 +170,8 @@ export function AgentSkillUploadPanel({
 
   async function remove(skillId: string) {
     const revision = bindings.data?.binding_version;
-    if (revision == null) throw new Error("Reload Skill configuration first.");
+    if (revision == null)
+      throw new Error(t(agentInfoMessages.reloadSkillsFirst));
     await teamHubDone(
       client.api.DELETE(
         "/v0/tenants/{tenantId}/agents/{agentId}/skill-bindings/{skillId}",
@@ -188,7 +195,7 @@ export function AgentSkillUploadPanel({
             onClick={() => setLibraryOpen(true)}
           >
             <Icon icon={PlusSignIcon} size={12} />
-            Add
+            {t(agentInfoMessages.add)}
           </SettingsGroupAction>
           <UploadSkillButton
             disabled={!canManage || operation.isPending}
@@ -198,24 +205,32 @@ export function AgentSkillUploadPanel({
         </>
       }
       footer={
-        notice || error ? (
+        saved || error ? (
           <>
             {error ? (
               <p role="alert" className="text-app-danger">
-                {skillUploadErrorMessage(error)}
+                {skillUploadErrorMessage(error, t)}
               </p>
             ) : null}
-            {notice ? <p role="status">{notice}</p> : null}
+            {saved ? (
+              <p role="status">{t(agentInfoMessages.skillsSaved)}</p>
+            ) : null}
           </>
         ) : undefined
       }
-      label="Skills"
-      meta={<span aria-label={`${skills.length} Skills`}>{skills.length}</span>}
+      label={t(agentInfoMessages.skills)}
+      meta={
+        <span
+          aria-label={t(agentInfoMessages.skillCount, { count: skills.length })}
+        >
+          {skills.length}
+        </span>
+      }
     >
       <input
         ref={input}
         accept={acceptedSkillUpload}
-        aria-label="Upload Skill package"
+        aria-label={t(agentInfoMessages.uploadSkillPackage)}
         className="sr-only"
         disabled={!canManage}
         type="file"
@@ -270,13 +285,16 @@ export function AgentSkillUploadPanel({
                   </span>
                   {skill.is_default ? null : (
                     <button
+                      data-voice-risk="never"
                       type="button"
                       disabled={
                         !canManage ||
                         operation.isPending ||
                         bindings.data == null
                       }
-                      aria-label={`Remove ${skill.name}`}
+                      aria-label={t(agentInfoMessages.removeSkill, {
+                        name: skill.name,
+                      })}
                       className="-mr-1 inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-45 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:opacity-100"
                       onClick={() =>
                         operation.mutate(() => remove(skill.skill_id))
@@ -293,9 +311,9 @@ export function AgentSkillUploadPanel({
       ) : (
         <SettingsRow icon={<Icon icon={BookOpen01Icon} size={16} />}>
           <SettingsRowText
-            description="Add a Skill to give this Agent a repeatable way to handle a task."
+            description={t(agentInfoMessages.noSkillsBody)}
             muted
-            title="No Skills added"
+            title={t(agentInfoMessages.noSkillsTitle)}
           />
         </SettingsRow>
       )}
@@ -316,7 +334,11 @@ export function AgentSkillUploadPanel({
         >
           <SettingsRow icon={null}>
             <span className="flex-1 text-[14px] font-medium text-foreground">
-              {expanded ? "Show fewer" : `Show all ${skills.length} Skills`}
+              {expanded
+                ? t(agentInfoMessages.showFewerSkills)
+                : t(agentInfoMessages.showAllSkills, {
+                    count: skills.length,
+                  })}
             </span>
             <Icon
               className="text-muted-foreground"
@@ -347,6 +369,7 @@ function SkillLibraryDialog({
   onInstall: (manifest: TeamHubSkillManifest) => void;
   pending: boolean;
 }) {
+  const t = useT();
   const [query, setQuery] = useState("");
   const available = catalogSkills(manifests, installedIds);
   const needle = query.trim().toLowerCase();
@@ -360,33 +383,37 @@ function SkillLibraryDialog({
       })
     : available;
   return (
-    <ModalDialog onClose={onClose} size="lg" title="Add Skill">
+    <ModalDialog
+      onClose={onClose}
+      size="lg"
+      title={t(agentInfoMessages.addSkill)}
+    >
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="border-b border-app-border px-4 py-3">
           <input
-            aria-label="Search Skills"
-            className="h-9 w-full rounded-lg border border-border bg-card px-3 text-sm outline-none transition-[border-color,box-shadow] duration-150 placeholder:text-muted-foreground hover:border-border-hover focus:border-foreground focus:ring-2 focus:ring-ring"
+            aria-label={t(agentInfoMessages.searchSkills)}
+            className="h-9 w-full rounded-lg border border-border bg-card px-3 text-sm outline-none transition-[border-color,box-shadow] duration-150 placeholder:text-app-placeholder hover:border-border-hover focus:border-foreground focus:ring-2 focus:ring-ring"
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search"
+            placeholder={t(commonMessages.search)}
             value={query}
           />
         </div>
         <div className="workspace-scrollbar min-h-0 flex-1 overflow-y-auto p-1">
           {error ? (
             <div className="px-3 py-6 text-sm text-app-danger" role="alert">
-              <p>{skillUploadErrorMessage(error)}</p>
+              <p>{skillUploadErrorMessage(error, t)}</p>
               <button
                 className="mt-2 underline"
                 onClick={onRetry}
                 type="button"
               >
-                Retry
+                {t(commonMessages.retry)}
               </button>
             </div>
           ) : pending && !manifests.length ? (
             <p className="flex items-center gap-2 px-3 py-6 text-sm text-app-muted">
               <Spinner size={15} />
-              Loading Skills…
+              {t(agentInfoMessages.loadingSkills)}
             </p>
           ) : shown.length ? (
             <ul>
@@ -420,9 +447,11 @@ function SkillLibraryDialog({
             </ul>
           ) : (
             <p className="px-3 py-6 text-sm text-app-muted">
-              {available.length
-                ? "No Skills match that search."
-                : "No more built-in Skills to add."}
+              {t(
+                available.length
+                  ? agentInfoMessages.noSkillsMatch
+                  : agentInfoMessages.noMoreSkills,
+              )}
             </p>
           )}
         </div>
@@ -469,6 +498,7 @@ function UploadSkillButton({
   hint: SkillManageHint;
   onClick: () => void;
 }) {
+  const t = useT();
   const tooltipId = useId();
   const [open, setOpen] = useState(false);
   function show() {
@@ -486,17 +516,21 @@ function UploadSkillButton({
       <SettingsGroupAction
         disabled={disabled}
         aria-describedby={open ? tooltipId : undefined}
-        aria-label="Upload Skill"
+        aria-label={t(agentInfoMessages.uploadSkill)}
         onBlur={hide}
         onClick={onClick}
         onFocus={show}
         onMouseEnter={show}
       >
         <Icon icon={Upload01Icon} size={12} />
-        Upload
+        {t(agentInfoMessages.upload)}
       </SettingsGroupAction>
       {open ? (
-        <HintPopover detail={hint.detail} id={tooltipId} title={hint.title} />
+        <HintPopover
+          detail={hint.detail ? t(hint.detail) : undefined}
+          id={tooltipId}
+          title={t(hint.title)}
+        />
       ) : null}
     </span>
   );
@@ -529,10 +563,10 @@ function HintPopover({
   );
 }
 
-function skillUploadErrorMessage(error: unknown) {
+function skillUploadErrorMessage(error: unknown, t: Translate = translate) {
   return error instanceof Error
     ? error.message
-    : "The Skill operation failed. Please retry.";
+    : t(agentInfoMessages.skillOperationFailed);
 }
 
 function agentSkillBindingsQueryKey(tenantId: string, agentId: string) {

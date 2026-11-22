@@ -13,8 +13,19 @@ import {
 } from "@hugeicons/core-free-icons";
 import { lazy, type ReactNode, Suspense, useState } from "react";
 
+import { Button } from "@/components/ui/button";
 import { Icon, type IconSvgElement } from "@/components/ui/icon";
+import type { VoiceRisk } from "@/features/rooms/chat/voice-mode/voice-ui-bridge";
 import type { TeamHubMessageCard } from "@/features/teamhub/teamhub-types";
+import {
+  formatLocale,
+  translate,
+  type Translate,
+  type Translation,
+} from "@/i18n/language";
+import type { Message } from "@/i18n/messages";
+import { useTranslation } from "@/i18n/use-translation";
+import { formatDateTime } from "@/lib/date-format";
 
 import {
   CardActions,
@@ -23,11 +34,16 @@ import {
   CardRowDetails,
   DecisionActions,
 } from "./approval-card-parts";
+import { decisionCardHeading } from "./card-prompts";
 import { CardBox, CardDone, type ReceiptTone } from "./card-shell";
+import { cardsMessages } from "./cards.messages";
 import { ConnectedAppIcon } from "./connected-app-identity";
 import { connectedAppDisplayName } from "./connected-app-names";
 import { AgentChangeDecisionView } from "./decision-agent-change-view";
-import { ConnectorWriteDecisionView } from "./decision-connector-write-view";
+import {
+  ConnectorWriteDecisionView,
+  EmailDecisionView,
+} from "./decision-connector-write-view";
 import {
   OpenCreatedRoomLink,
   RoomCreationDecisionView,
@@ -54,6 +70,10 @@ const ConnectionAuthDecision = lazy(async () => {
 const ProviderKeyDecision = lazy(async () => {
   const module = await import("./decision-provider-key-view");
   return { default: module.ProviderKeyDecision };
+});
+const SearchKeyDecision = lazy(async () => {
+  const module = await import("./decision-search-key-view");
+  return { default: module.SearchKeyDecision };
 });
 const BrowserConnectionDecision = lazy(async () => {
   const module = await import("./decision-browser-connection-view");
@@ -95,9 +115,10 @@ interface DecisionCardProps {
 /**
  * Every card that waits on one Human's decision. A question, the AnotherMe
  * setup cards, a connection authorization (its OAuth connection), a
- * Composio key request, a browser connection and a computer permission take
- * their answer in their own slot; every other kind shows its request and the view
- * its kind adds, Approve or Deny with a reason, and how it ended.
+ * Composio or web search key request, a browser connection and a computer
+ * permission take their answer in their own slot; every other kind shows its
+ * request and the view its kind adds, Approve or Deny with a reason, and how
+ * it ended.
  */
 export function DecisionCard(props: DecisionCardProps) {
   const { card } = props;
@@ -125,6 +146,12 @@ export function DecisionCard(props: DecisionCardProps) {
       return (
         <Suspense fallback={null}>
           <ProviderKeyDecision {...props} />
+        </Suspense>
+      );
+    case "search_key":
+      return (
+        <Suspense fallback={null}>
+          <SearchKeyDecision {...props} />
         </Suspense>
       );
     case "browser_connection":
@@ -160,12 +187,20 @@ function ApprovalDecision({
   roomMemberDecisionAllowed,
   tenantId,
 }: DecisionCardProps) {
+  const translation = useTranslation();
+  const { t } = translation;
   const [now] = useState(Date.now);
   const [open, setOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [decisionError, setDecisionError] = useState<string | null>(null);
   const state = decisionState(card, now);
   const roomCreation = card.kind === "room_creation";
+  const write = card.connector_write;
+  const email =
+    write?.kind === "message" &&
+    (write.app === "gmail" || write.app === "outlook")
+      ? write.message
+      : undefined;
   const canDecide =
     state === "pending" &&
     Boolean(currentActorId) &&
@@ -185,23 +220,26 @@ function ApprovalDecision({
       });
     } catch (error) {
       setDecisionError(
-        error instanceof Error ? error.message : "Card decision failed.",
+        error instanceof Error
+          ? error.message
+          : translate(cardsMessages.cardDecisionFailed),
       );
     } finally {
       setSubmitting(false);
     }
   }
 
-  const label =
+  const label = t(
     card.kind === "runtime_permission"
-      ? "Permission request"
+      ? cardsMessages.labelPermissionRequest
       : roomCreation
-        ? "Room creation"
-        : "Confirmation request";
+        ? cardsMessages.labelRoomCreation
+        : cardsMessages.labelConfirmationRequest,
+  );
   const words = approvalWords(card);
   // The title heads the box; the row then names what runs without repeating it.
-  const summary = approvalSummary(card, actorDisplayNames, card.title);
-  const done = doneLine(state, card, words);
+  const summary = approvalSummary(card, actorDisplayNames, card.title, t);
+  const done = doneLine(state, card, words, translation);
   const screenshot = card.runtime_permission?.screenshot ? (
     <PermissionScreenshot
       canSee={currentActorId === card.decision_owner.id}
@@ -212,14 +250,21 @@ function ApprovalDecision({
 
   return (
     <>
-      <CardBox heading={card.title} label={label}>
-        <CardRow
-          detail={summary.detail}
-          icon={summary.icon}
-          onToggle={() => setOpen((current) => !current)}
-          open={open}
-          title={summary.title}
-        />
+      <CardBox
+        heading={email ? undefined : decisionCardHeading(card, t)}
+        label={label}
+      >
+        {email ? (
+          <EmailDecisionView account={write?.account ?? ""} message={email} />
+        ) : (
+          <CardRow
+            detail={summary.detail}
+            icon={summary.icon}
+            onToggle={() => setOpen((current) => !current)}
+            open={open}
+            title={summary.title}
+          />
+        )}
         {/* Why the review stopped the call: what a person weighs before
             allowing it, so it stays in view. */}
         {card.runtime_permission?.rationale?.trim() ? (
@@ -227,7 +272,7 @@ function ApprovalDecision({
             {card.runtime_permission.rationale}
           </p>
         ) : null}
-        <CardRowDetails open={open}>
+        <CardRowDetails open={!email && open}>
           {state === "pending" ? null : screenshot}
           {card.connector_write ? (
             <ConnectorWriteDecisionView view={card.connector_write} />
@@ -250,14 +295,43 @@ function ApprovalDecision({
         ) : null}
         {canDecide ? (
           <CardActions>
-            <DecisionActions
-              approveLabel={words.approve}
-              denyLabel={words.deny}
-              disabled={submitting}
-              onApprove={() => void decide("approve")}
-              onDeny={(reason) => void decide("deny", reason)}
-              reasonRequired={roomCreation}
-            />
+            {email ? (
+              <div
+                aria-label={t(cardsMessages.approvalActions)}
+                className="flex gap-2"
+                role="group"
+              >
+                <Button
+                  data-voice-risk={words.approveRisk}
+                  disabled={submitting}
+                  onClick={() => void decide("approve")}
+                  size="large"
+                  tone="primary"
+                >
+                  {t(words.approve)}
+                </Button>
+                <Button
+                  data-voice-risk={words.denyRisk}
+                  disabled={submitting}
+                  onClick={() => void decide("deny")}
+                  size="large"
+                  tone="ghost"
+                >
+                  {t(words.deny)}
+                </Button>
+              </div>
+            ) : (
+              <DecisionActions
+                approveLabel={t(words.approve)}
+                approveRisk={words.approveRisk}
+                denyLabel={t(words.deny)}
+                denyRisk={words.denyRisk}
+                disabled={submitting}
+                onApprove={() => void decide("approve")}
+                onDeny={(reason) => void decide("deny", reason)}
+                reasonRequired={roomCreation}
+              />
+            )}
           </CardActions>
         ) : done ? (
           <div className="flex min-w-0 items-center justify-between gap-2">
@@ -302,68 +376,75 @@ function decisionState(card: DecisionMessageCard, now: number): DecisionState {
 }
 
 interface ApprovalWords {
-  approve: string;
-  approved: string;
-  deny: string;
-  denied: string;
-  running: string;
+  approve: Message<string>;
+  /** What Voice Mode risks by clicking approve or deny (`data-voice-risk`). */
+  approveRisk?: VoiceRisk;
+  approved: Message<string>;
+  deny: Message<string>;
+  denyRisk?: VoiceRisk;
+  denied: Message<string>;
+  running: Message<string>;
 }
 
 /** The buttons and outcomes in the words of what the approval does. */
 function approvalWords(card: DecisionMessageCard): ApprovalWords {
   if (card.room_creation)
     return {
-      approve: "Create Room",
-      approved: "Created",
-      deny: "Don't create",
-      denied: "Not created",
-      running: "Creating…",
+      approve: cardsMessages.createRoom,
+      approved: cardsMessages.created,
+      deny: cardsMessages.dontCreate,
+      denied: cardsMessages.notCreated,
+      running: cardsMessages.creating,
     };
   if (card.agent_change?.action === "create")
     return {
-      approve: "Create",
-      approved: "Created",
-      deny: "Don't create",
-      denied: "Not created",
-      running: "Creating…",
+      approve: cardsMessages.create,
+      approved: cardsMessages.created,
+      deny: cardsMessages.dontCreate,
+      denied: cardsMessages.notCreated,
+      running: cardsMessages.creating,
     };
   if (card.agent_change)
     return {
-      approve: "Apply",
-      approved: "Applied",
-      deny: "Don't apply",
-      denied: "Not applied",
-      running: "Applying…",
+      approve: cardsMessages.apply,
+      approved: cardsMessages.applied,
+      deny: cardsMessages.dontApply,
+      denied: cardsMessages.notApplied,
+      running: cardsMessages.applying,
     };
   if (card.runtime_permission)
     return {
-      approve: "Allow once",
-      approved: "Allowed once",
-      deny: "Don't allow",
-      denied: "Not allowed",
-      running: "Running…",
+      approve: cardsMessages.allowOnce,
+      approved: cardsMessages.allowedOnce,
+      deny: cardsMessages.dontAllow,
+      denied: cardsMessages.notAllowed,
+      running: cardsMessages.running,
     };
   if (card.connector_write?.kind === "message")
     return {
-      approve: "Send",
-      approved: "Sent",
-      deny: "Don't send",
-      denied: "Not sent",
-      running: "Sending…",
+      approve: cardsMessages.send,
+      approveRisk: "never",
+      approved: cardsMessages.sent,
+      deny: cardsMessages.dontSend,
+      denyRisk: "never",
+      denied: cardsMessages.notSent,
+      running: cardsMessages.sending,
     };
   return {
-    approve: "Approve",
-    approved: "Done",
-    deny: "Deny",
-    denied: "Denied",
-    running: "Running…",
+    approve: cardsMessages.approve,
+    approveRisk: "confirm",
+    approved: cardsMessages.done,
+    deny: cardsMessages.deny,
+    denyRisk: "confirm",
+    denied: cardsMessages.denied,
+    running: cardsMessages.running,
   };
 }
 
-const fieldNames: Record<string, string> = {
-  description: "description",
-  name: "name",
-  prompt: "instructions",
+const fieldNames: Record<string, Message<string>> = {
+  description: cardsMessages.agentFieldDescription,
+  name: cardsMessages.agentFieldName,
+  prompt: cardsMessages.agentFieldInstructions,
 };
 
 /** The one row that says what will actually run, as TeamHub froze it. */
@@ -371,6 +452,7 @@ function approvalSummary(
   card: DecisionMessageCard,
   actorDisplayNames: Readonly<Record<string, string>> = {},
   prompt: string,
+  t: Translate,
 ): { detail?: string; icon: ReactNode; title: string } {
   const write = card.connector_write;
   if (write) {
@@ -417,19 +499,20 @@ function approvalSummary(
     const description = change.changes.find(
       (item) => item.field === "description",
     )?.after;
-    const changed = change.changes.map(
-      (item) => fieldNames[item.field] ?? item.field,
-    );
+    const changed = change.changes.map((item) => {
+      const name = fieldNames[item.field];
+      return name ? t(name) : item.field;
+    });
     return {
       detail: create
         ? description || undefined
         : changed.length
-          ? capitalize(changed.join(", "))
+          ? capitalize(changed.join(t(cardsMessages.listSeparator)))
           : undefined,
       icon: <Icon icon={create ? UserAdd01Icon : UserEdit01Icon} size={16} />,
       title: create
-        ? `New Agent ${change.agent_name}`
-        : `Change ${change.agent_name}`,
+        ? t(cardsMessages.newAgent, { name: change.agent_name })
+        : t(cardsMessages.changeAgent, { name: change.agent_name }),
     };
   }
   const room = card.room_creation;
@@ -438,11 +521,13 @@ function approvalSummary(
     const names = room.member_ids
       .map((id) => actorDisplayNames[id])
       .filter(Boolean)
-      .join(", ");
+      .join(t(cardsMessages.listSeparator));
     return {
-      detail: `${count} ${count === 1 ? "member" : "members"}${names ? ` · ${names}` : ""}`,
+      detail: names
+        ? t(cardsMessages.memberCountWithNames, { count, names })
+        : t(cardsMessages.memberCount, { count }),
       icon: <Icon icon={UserGroupIcon} size={16} />,
-      title: `New Room ${room.name}`,
+      title: t(cardsMessages.newRoom, { name: room.name }),
     };
   }
   return {
@@ -478,62 +563,85 @@ function doneLine(
   state: DecisionState,
   card: DecisionMessageCard,
   words: ApprovalWords,
+  translation: Translation,
 ): { icon: IconSvgElement; text: string; tone: ReceiptTone } | null {
+  const { t } = translation;
+  const approved = t(words.approved);
   const outcome = card.outcome?.trim();
   switch (state) {
     case "approved":
       return {
         icon: Tick02Icon,
         text: card.expires_at
-          ? `${words.approved} until ${formatTime(card.expires_at)}`
-          : words.approved,
+          ? t(cardsMessages.approvedUntil, {
+              approved,
+              time: formatTime(card.expires_at, translation),
+            })
+          : approved,
         tone: "success",
       };
     case "used":
       return {
         icon: Tick02Icon,
-        text: `${words.approved} · Used`,
+        text: t(cardsMessages.approvedUsed, { approved }),
         tone: "success",
       };
     case "running":
-      return { icon: Loading03Icon, text: words.running, tone: "muted" };
+      return { icon: Loading03Icon, text: t(words.running), tone: "muted" };
     case "done":
-      return { icon: Tick02Icon, text: words.approved, tone: "success" };
+      return { icon: Tick02Icon, text: approved, tone: "success" };
     case "failed":
       return {
         icon: AlertCircleIcon,
-        text: outcome ? `Failed: ${outcome}` : "Failed",
+        text: outcome
+          ? t(cardsMessages.failedWithOutcome, { outcome })
+          : t(cardsMessages.failed),
         tone: "danger",
       };
     case "unknown":
       return {
         icon: HelpCircleIcon,
-        text: outcome ? `Result unknown: ${outcome}` : "Result unknown",
+        text: outcome
+          ? t(cardsMessages.resultUnknownWithOutcome, { outcome })
+          : t(cardsMessages.resultUnknown),
         tone: "warning",
       };
     case "denied": {
       const reason = card.answer?.comment?.trim();
       return {
         icon: Cancel01Icon,
-        text: reason ? `${words.denied} · “${reason}”` : words.denied,
+        text: reason
+          ? t(cardsMessages.deniedWithReason, {
+              denied: t(words.denied),
+              reason,
+            })
+          : t(words.denied),
         tone: "muted",
       };
     }
     case "expired":
-      return { icon: Clock01Icon, text: "Expired", tone: "muted" };
+      return {
+        icon: Clock01Icon,
+        text: t(cardsMessages.expired),
+        tone: "muted",
+      };
     default:
       return null;
   }
 }
 
-// English like the rest of the card, in the viewer's time zone.
-const expiryFormat = new Intl.DateTimeFormat("en-US", {
+const expiryOptions: Intl.DateTimeFormatOptions = {
   day: "numeric",
   hour: "numeric",
   minute: "2-digit",
   month: "short",
-});
+};
 
-function formatTime(value: string) {
-  return expiryFormat.format(new Date(value));
+/** In the language of the card and the viewer's time zone. */
+function formatTime(value: string, translation: Translation) {
+  return formatDateTime(
+    value,
+    expiryOptions,
+    formatLocale(translation.language),
+  );
 }

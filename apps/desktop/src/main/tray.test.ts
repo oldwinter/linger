@@ -2,23 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 
 const fake = vi.hoisted(() => ({
   toolTips: [] as string[],
-  menus: [] as Array<Array<{ label?: string; click?: () => void }>>,
-  response: 1,
 }));
 
 vi.mock("electron", () => ({
   app: { commandLine: { getSwitchValue: () => "" } },
-  dialog: {
-    showMessageBox: async () => ({ response: fake.response }),
-  },
-  Menu: {
-    buildFromTemplate: (
-      template: Array<{ label?: string; click?: () => void }>,
-    ) => {
-      fake.menus.push(template);
-      return {};
-    },
-  },
+  Menu: { buildFromTemplate: () => ({}) },
   Tray: class {
     setToolTip(value: string): void {
       fake.toolTips.push(value);
@@ -38,6 +26,7 @@ vi.mock("electron", () => ({
 
 vi.mock("./tray-icon.js", () => ({ renderTrayIcon: () => Buffer.alloc(0) }));
 
+const { LanguageModule } = await import("./language.js");
 const { TrayModule } = await import("./tray.js");
 const { EventBus } = await import("./modules.js");
 const { stubModule, testHost } = await import("./test-support.js");
@@ -48,6 +37,8 @@ const startTray = async () => {
   const tray = new TrayModule({ quit: () => {} });
   const host = testHost(
     [
+      stubModule("Config"),
+      new LanguageModule({ systemLanguages: () => ["en-US"] }),
       { ...stubModule("Status"), current: () => ({ ...status }) } as never,
       { ...stubModule("PowerGuard"), alwaysOn: () => false } as never,
       stubModule("WindowManager"),
@@ -115,51 +106,5 @@ describe("TrayModule tooltip", () => {
 
     expect(f.toolTip()).toBe("Linger · Running 2 Tasks · 3 unread mentions");
     await f.host.stop("quit");
-  });
-
-  it("offers Set Up Again on identity conflict and triggers reset when confirmed", async () => {
-    const bus = new EventBus();
-    const tray = new TrayModule({ quit: () => {} });
-    const reset = vi.fn();
-    bus.on("local-server.reset", reset);
-    const host = testHost(
-      [
-        {
-          ...stubModule("Status"),
-          current: () => ({
-            tone: "error" as const,
-            label: "Identity Conflict · Set Up Again",
-          }),
-        } as never,
-        { ...stubModule("PowerGuard"), alwaysOn: () => false } as never,
-        { ...stubModule("WindowManager"), window: () => undefined } as never,
-        stubModule("Enrollment"),
-        { ...stubModule("SetupWindow"), showApp: () => {} } as never,
-        stubModule("QuickNote"),
-        {
-          ...stubModule("Updater"),
-          state: () => ({ kind: "idle" as const }),
-        } as never,
-        { ...stubModule("Diagnostics"), uploadUrl: () => undefined } as never,
-        tray,
-      ],
-      { computerId: "cmp_1", identityConflict: true },
-      bus,
-    );
-    await host.start();
-    const item = fake.menus
-      .at(-1)
-      ?.find((entry) => entry.label === "Set Up Again…");
-    expect(item?.click).toBeTypeOf("function");
-
-    fake.response = 0;
-    item!.click!();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(reset).not.toHaveBeenCalled();
-
-    fake.response = 1;
-    item!.click!();
-    await vi.waitFor(() => expect(reset).toHaveBeenCalledOnce());
-    await host.stop("quit");
   });
 });

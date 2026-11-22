@@ -6,6 +6,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { useMemo, useRef, useState } from "react";
 import { Icon } from "@/components/ui/icon";
+import { Spinner } from "@/components/ui/spinner";
 import { useQuery } from "@tanstack/react-query";
 
 import { Button } from "@/components/ui/button";
@@ -13,12 +14,27 @@ import { ModalDialog } from "@/components/ui/modal-dialog";
 import { idempotencyHeader, teamHubData } from "@/features/teamhub/teamhub-api";
 import {
   createTeamHubIdempotencyKey,
+  TeamHubError,
   type TeamHubClient,
 } from "@/features/teamhub/teamhub-client";
 import type { TeamHubMessage } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import { translate } from "@/i18n/language";
+import { useT } from "@/i18n/use-translation";
 import { tenantActorsQueryOptions } from "../room-queries";
+import { chatMessages } from "./chat.messages";
 
 type TargetKind = "agent" | "room";
+
+interface ForwardTarget {
+  id: string;
+  kind: TargetKind;
+  label: string;
+}
+
+function forwardTargetKey(target: Pick<ForwardTarget, "id" | "kind">) {
+  return `${target.kind}:${target.id}`;
+}
 
 export function MessageForwardDialog({
   client,
@@ -32,14 +48,14 @@ export function MessageForwardDialog({
   tenantId: string;
 }) {
   const [kind, setKind] = useState<TargetKind>("agent");
-  const [selected, setSelected] = useState<string[]>([]);
-  const [searchInput, setSearchInput] = useState("");
+  const [selected, setSelected] = useState<ForwardTarget[]>([]);
   const [query, setQuery] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const sendingRef = useRef(false);
   const requestKeys = useRef(new Map<string, string>());
   const [forwarded, setForwarded] = useState<string[]>([]);
+  const t = useT();
   const actors = useQuery(tenantActorsQueryOptions(client, tenantId));
   const rooms = useQuery({
     queryFn: () =>
@@ -51,16 +67,22 @@ export function MessageForwardDialog({
     queryKey: ["teamhub", tenantId, "message-forward-rooms"],
     staleTime: 60_000,
   });
+  const activeQuery = kind === "room" ? rooms : actors;
   const targets = useMemo(() => {
-    const values: Array<{ id: string; label: string }> = [];
+    const values: ForwardTarget[] = [];
     if (kind === "room") {
       for (const room of rooms.data?.items ?? []) {
-        values.push({ id: room.id, label: room.name });
+        if (room.id === message.room_id) continue;
+        values.push({ id: room.id, kind: "room", label: room.name });
       }
     } else {
       for (const actor of actors.data?.items ?? []) {
         if (actor.kind === kind) {
-          values.push({ id: actor.id, label: actor.display_name });
+          values.push({
+            id: actor.id,
+            kind: "agent",
+            label: actor.display_name,
+          });
         }
       }
     }
@@ -68,20 +90,20 @@ export function MessageForwardDialog({
     return needle
       ? values.filter((target) => target.label.toLowerCase().includes(needle))
       : values;
-  }, [actors.data, kind, query, rooms.data]);
-  const selectedSet = new Set(selected);
-  const targetById = new Map(targets.map((target) => [target.id, target]));
+  }, [actors.data, kind, message.room_id, query, rooms.data]);
+  const selectedKeys = new Set(selected.map(forwardTargetKey));
 
   function close() {
     if (!sendingRef.current) onClose();
   }
 
-  function toggleTarget(targetId: string) {
-    if (sendingRef.current || forwarded.includes(`${kind}:${targetId}`)) return;
+  function toggleTarget(target: ForwardTarget) {
+    const key = forwardTargetKey(target);
+    if (sendingRef.current || forwarded.includes(key)) return;
     setSelected((current) =>
-      current.includes(targetId)
-        ? current.filter((id) => id !== targetId)
-        : [...current, targetId],
+      current.some((item) => forwardTargetKey(item) === key)
+        ? current.filter((item) => forwardTargetKey(item) !== key)
+        : [...current, target],
     );
   }
 
@@ -92,8 +114,8 @@ export function MessageForwardDialog({
     setError(null);
     try {
       const results = await Promise.allSettled(
-        selected.map((targetId) => {
-          const targetKey = `${kind}:${targetId}`;
+        selected.map((target) => {
+          const targetKey = forwardTargetKey(target);
           let requestKey = requestKeys.current.get(targetKey);
           if (!requestKey) {
             requestKey = createTeamHubIdempotencyKey();
@@ -105,7 +127,7 @@ export function MessageForwardDialog({
                 path: { roomId: message.room_id, messageId: message.id },
                 header: idempotencyHeader(requestKey),
               },
-              body: { target: { id: targetId, kind } },
+              body: { target: { id: target.id, kind: target.kind } },
             }),
           );
         }),
@@ -118,17 +140,25 @@ export function MessageForwardDialog({
       );
       setForwarded((current) => [
         ...current,
-        ...confirmed.map((targetId) => `${kind}:${targetId}`),
+        ...confirmed.map(forwardTargetKey),
       ]);
       setSelected(remaining);
       if (!remaining.length) {
         onClose();
         return;
       }
+      const targetChanged = results.some(
+        (result) =>
+          result.status === "rejected" &&
+          result.reason instanceof TeamHubError &&
+          result.reason.status === 409,
+      );
       setError(
         confirmed.length
           ? `Forwarded to ${confirmed.length} of ${selected.length} targets. Retry the ${remaining.length} remaining ${remaining.length === 1 ? "target" : "targets"}.`
-          : "Could not confirm forwarding. Retry the selected targets.",
+          : targetChanged
+            ? translate(chatMessages.forwardTargetChanged)
+            : "Could not confirm forwarding. Retry the selected targets.",
       );
     } finally {
       sendingRef.current = false;
@@ -141,7 +171,7 @@ export function MessageForwardDialog({
       closeOnBackdrop
       onClose={close}
       size="lg"
-      title="Forward to"
+      title={t(chatMessages.forwardTo)}
       footer={
         <div className="w-full">
           {error ? (
@@ -151,48 +181,50 @@ export function MessageForwardDialog({
           ) : null}
           <div className="flex items-center justify-end gap-2">
             <Button disabled={sending} onClick={close} tone="ghost">
-              Cancel
+              {t(commonMessages.cancel)}
             </Button>
             <Button
               disabled={!selected.length}
               loading={sending}
               onClick={() => void forward()}
+              tone="primary"
             >
-              <Icon icon={SentIcon} size={16} /> Forward
+              <Icon icon={SentIcon} size={16} /> {t(chatMessages.forward)}
             </Button>
           </div>
         </div>
       }
     >
       <div className="px-5 py-4">
-        <form
-          className="flex gap-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            setQuery(searchInput);
-          }}
-        >
-          <input
-            aria-label="Search forward targets"
-            className="h-11 min-w-0 flex-1 rounded-md border border-app-border px-3 text-sm outline-none focus:border-app-focus"
-            disabled={sending}
-            onChange={(event) => setSearchInput(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") setQuery(searchInput);
-            }}
-            placeholder="Search"
-            value={searchInput}
-          />
-          <Button
-            aria-label="Search"
-            disabled={sending}
-            size="icon"
-            tone="secondary"
-            type="submit"
+        <div className="relative flex items-center">
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute left-3 flex items-center text-app-muted"
           >
             <Icon icon={Search01Icon} size={16} />
-          </Button>
-        </form>
+          </span>
+          <input
+            aria-label={t(chatMessages.searchForwardTargets)}
+            className="h-11 min-w-0 flex-1 rounded-md border border-app-border pl-9 pr-9 text-sm outline-none placeholder:text-app-placeholder focus:border-app-focus"
+            disabled={sending}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={t(commonMessages.search)}
+            value={query}
+          />
+          {query ? (
+            <div className="absolute right-1.5 flex items-center">
+              <Button
+                aria-label="Clear search"
+                disabled={sending}
+                onClick={() => setQuery("")}
+                size="compactIcon"
+                tone="ghost"
+              >
+                <Icon icon={Cancel01Icon} size={14} />
+              </Button>
+            </div>
+          ) : null}
+        </div>
         <div className="mt-3 grid grid-cols-2 gap-2">
           {(["agent", "room"] as const).map((targetKind) => (
             <Button
@@ -201,35 +233,36 @@ export function MessageForwardDialog({
               onClick={() => {
                 if (sendingRef.current) return;
                 setKind(targetKind);
-                setSelected([]);
                 setError(null);
               }}
               size="compact"
               tone={kind === targetKind ? "primary" : "secondary"}
             >
-              {targetKind === "agent" ? "Agents" : "Rooms"}
+              {targetKind === "agent"
+                ? t(chatMessages.forwardAgents)
+                : t(chatMessages.forwardRooms)}
             </Button>
           ))}
         </div>
         {selected.length ? (
           <div
-            aria-label="Selected forward targets"
+            aria-label={t(chatMessages.selectedForwardTargets)}
             className="mt-3 flex flex-wrap gap-2"
           >
-            {selected.map((targetId) => {
-              const target = targetById.get(targetId);
+            {selected.map((target) => {
+              const key = forwardTargetKey(target);
               return (
                 <button
+                  data-voice-risk="never"
                   aria-pressed="true"
                   className="inline-flex items-center gap-1 rounded-full bg-app-selected px-2.5 py-1 text-xs text-app-ink"
                   disabled={sending}
-                  key={targetId}
-                  onClick={() => toggleTarget(targetId)}
-                  title="Remove selected target"
+                  key={key}
+                  onClick={() => toggleTarget(target)}
+                  title={t(chatMessages.removeSelectedTarget)}
                   type="button"
                 >
-                  <Icon icon={Tick02Icon} size={14} />{" "}
-                  {target?.label ?? targetId}
+                  <Icon icon={Tick02Icon} size={14} /> {target.label}
                   <Icon icon={Cancel01Icon} size={14} />
                 </button>
               );
@@ -237,24 +270,64 @@ export function MessageForwardDialog({
           </div>
         ) : null}
         <div className="mt-3 divide-y divide-app-border border-y border-app-border">
-          {targets.map((target) => {
-            const checked = selectedSet.has(target.id);
-            const confirmed = forwarded.includes(`${kind}:${target.id}`);
-            return (
-              <button
-                className="flex min-h-14 w-full items-center justify-between px-3 text-left hover:bg-app-hover disabled:cursor-default disabled:opacity-50"
-                disabled={sending || confirmed}
-                key={target.id}
-                onClick={() => toggleTarget(target.id)}
-                type="button"
+          {activeQuery.isPending ? (
+            <div
+              className="flex items-center justify-center gap-2 px-3 py-5 text-sm text-app-muted"
+              role="status"
+            >
+              <Spinner size={16} />
+              Loading {kind === "room" ? "rooms" : "agents"}...
+            </div>
+          ) : activeQuery.isError ? (
+            <div
+              className="flex items-center justify-between gap-3 px-3 py-4 text-sm text-app-danger"
+              role="alert"
+            >
+              <span>
+                {kind === "room" ? "Rooms" : "Agents"} could not be loaded.
+              </span>
+              <Button
+                loading={activeQuery.isFetching}
+                onClick={() => void activeQuery.refetch()}
+                size="compact"
+                tone="secondary"
               >
-                <span className="text-sm text-app-ink">{target.label}</span>
-                <span className="text-xs text-app-muted">
-                  {confirmed ? "Forwarded" : checked ? "Selected" : "Select"}
-                </span>
-              </button>
-            );
-          })}
+                {t(commonMessages.retry)}
+              </Button>
+            </div>
+          ) : targets.length === 0 ? (
+            <p className="px-3 py-5 text-center text-sm text-app-muted">
+              {query.trim()
+                ? `No matching ${kind === "room" ? "rooms" : "agents"}.`
+                : kind === "room"
+                  ? "No other rooms available."
+                  : "No agents available."}
+            </p>
+          ) : (
+            targets.map((target) => {
+              const key = forwardTargetKey(target);
+              const checked = selectedKeys.has(key);
+              const confirmed = forwarded.includes(key);
+              return (
+                <button
+                  className="flex min-h-14 w-full items-center justify-between px-3 text-left hover:bg-app-hover disabled:cursor-default disabled:opacity-50"
+                  disabled={sending || confirmed}
+                  key={key}
+                  onClick={() => toggleTarget(target)}
+                  type="button"
+                >
+                  <span className="text-sm text-app-ink">{target.label}</span>
+                  <span className="text-xs text-app-muted">
+                    {confirmed
+                      ? "Forwarded"
+                      : checked
+                        ? t(chatMessages.targetSelected)
+                        : t(chatMessages.selectTarget)}
+                  </span>
+                </button>
+              );
+            })
+          )}
         </div>
       </div>
     </ModalDialog>

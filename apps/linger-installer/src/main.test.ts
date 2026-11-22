@@ -1,7 +1,8 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
+import { fileURLToPath } from "node:url";
 import { loadPublishedSources } from "./main.js";
 
 const distribution = (value: object) => {
@@ -92,6 +93,31 @@ it("reports the real start failure and points at permissions only for access err
   );
 });
 
+// A folder the ACL program refused, as windowsPrivatePath throws it.
+const refused = () =>
+  Object.assign(
+    new Error(
+      "Windows private path validation failed: D:\\Apps\\Linger is inside a folder.",
+    ),
+    {
+      code: "WINDOWS_PRIVATE_PATH_UNSAFE",
+      reason: "UNSAFE_PARENT_ACCESS",
+      path: "D:\\Apps\\Linger",
+    },
+  );
+
+it("tells the desktop client by code why a refused folder stopped the start", async () => {
+  const { startFailureLine } = await import("./main.js");
+  expect(startFailureLine(refused())).toBe(
+    '{"startFailure":{"code":"WINDOWS_PRIVATE_PATH_UNSAFE","reason":"UNSAFE_PARENT_ACCESS"}}\n',
+  );
+  expect(
+    startFailureLine(
+      Object.assign(new Error("busy"), { code: "INSTALLER_BUSY" }),
+    ),
+  ).toBeUndefined();
+});
+
 it("keeps every line of a start failure", async () => {
   const { startFailure } = await import("./main.js");
   expect(
@@ -157,4 +183,102 @@ it("migrates without a source checkout", async () => {
     home,
     migrate: true,
   });
+});
+
+it("inspects a separate target without changing the tool home", async () => {
+  const { parseInstallerArguments } = await import("./main.js");
+  expect(
+    parseInstallerArguments([
+      "--home",
+      "cache",
+      "--inspect",
+      "--inspect-target",
+      "candidate",
+    ]),
+  ).toMatchObject({
+    home: path.resolve("cache"),
+    inspect: true,
+    inspectTarget: path.resolve("candidate"),
+  });
+  expect(() =>
+    parseInstallerArguments(["--inspect", "--inspect-target"]),
+  ).toThrow("Installer option is missing a value.");
+  expect(() =>
+    parseInstallerArguments([
+      "--source-repo",
+      "checkout",
+      "--inspect-target",
+      "candidate",
+    ]),
+  ).toThrow("An inspection target requires --inspect.");
+});
+
+it("does not migrate legacy installations during inspection", async () => {
+  const migrate = vi.fn().mockResolvedValue([]);
+  const inspect = vi.fn().mockResolvedValue({ recommendation: "codex" });
+  vi.doMock("@linger/local-installation/legacy-migration", () => ({
+    migrateLegacyInstallation: migrate,
+  }));
+  vi.doMock("@linger/local-installation/setup-plan", () => ({
+    inspectSetup: inspect,
+  }));
+  const argv = process.argv;
+  const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+  const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+  try {
+    process.argv = [
+      process.execPath,
+      fileURLToPath(new URL("./main.ts", import.meta.url)),
+      "--home",
+      "cache",
+      "--inspect",
+      "--inspect-target",
+      "candidate",
+    ];
+    vi.resetModules();
+    await import("./main.js");
+    expect(migrate).not.toHaveBeenCalled();
+    expect(inspect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        home: path.resolve("cache"),
+        targetHome: path.resolve("candidate"),
+      }),
+    );
+    expect(stdout).toHaveBeenCalledWith(
+      `${JSON.stringify({ recommendation: "codex" })}\n`,
+      expect.any(Function),
+    );
+  } finally {
+    process.argv = argv;
+    stdout.mockRestore();
+    stderr.mockRestore();
+    vi.doUnmock("@linger/local-installation/legacy-migration");
+    vi.doUnmock("@linger/local-installation/setup-plan");
+    vi.resetModules();
+  }
+});
+
+it("tells the desktop client by code why a refused folder kept the keys unsaved", async () => {
+  vi.resetModules();
+  vi.doMock("@linger/local-installation/user-environment", () => ({
+    updateUserKeys: () => Promise.reject(refused()),
+  }));
+  try {
+    const { saveUserKeys } = await import("./main.js");
+    expect(
+      await saveUserKeys(
+        { home: path.join(os.tmpdir(), "linger-refused"), instanceName: "d" },
+        JSON.stringify({ XAI_API_KEY: "xai-1" }),
+      ),
+    ).toEqual({
+      error: refused().message,
+      refusal: {
+        code: "WINDOWS_PRIVATE_PATH_UNSAFE",
+        reason: "UNSAFE_PARENT_ACCESS",
+      },
+    });
+  } finally {
+    vi.doUnmock("@linger/local-installation/user-environment");
+    vi.resetModules();
+  }
 });

@@ -1,11 +1,24 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
+
+import { translate } from "@/i18n/language";
 
 import {
   isTranscriptRecoveryPaused,
   type VoiceCaptureState,
   type VoiceControlContextValue,
 } from "./voice-control-context";
-import { matchBoundVoiceMicrophone } from "./microphone-devices";
+import {
+  describeVoiceMediaError,
+  matchBoundVoiceMicrophone,
+  VoiceMicrophoneError,
+} from "./microphone-devices";
+import { recordingMessages as m } from "./recording.messages";
 
 export type ArmStatus = "pending" | "arming" | "armed" | "blocked";
 type VoiceValue = VoiceControlContextValue;
@@ -21,6 +34,12 @@ export function useVoiceArming(input: {
   const [status, setStatus] = useState<ArmStatus>("pending");
   const [error, setError] = useState<string>();
   const generationRef = useRef(0);
+  useLayoutEffect(
+    () => () => {
+      generationRef.current += 1;
+    },
+    [],
+  );
 
   const arm = useCallback(async () => {
     if (!voice) return;
@@ -33,6 +52,7 @@ export function useVoiceArming(input: {
     const askBrowser = async () => {
       asked = true;
       const available = await voice.discoverDevices();
+      if (generationRef.current !== generation) return;
       const device =
         (voice.boundDevice
           ? matchBoundVoiceMicrophone(available, voice.boundDevice)
@@ -47,6 +67,7 @@ export function useVoiceArming(input: {
           ? voice.startCapture()
           : voice.startNewCapture();
       if (!voice.boundDevice) await askBrowser();
+      if (generationRef.current !== generation) return;
       try {
         await begin();
       } catch (cause) {
@@ -54,6 +75,7 @@ export function useVoiceArming(input: {
         // rejected Start must keep its own reason.
         if (asked || !isMicrophoneFailure(cause)) throw cause;
         await askBrowser();
+        if (generationRef.current !== generation) return;
         await begin();
       }
       if (generationRef.current === generation) setStatus("armed");
@@ -161,9 +183,9 @@ export function useMicrophonePermission() {
 }
 
 export function armTitle(status: ArmStatus) {
-  if (status === "arming") return "Starting recording…";
-  if (status === "blocked") return "Recording did not start";
-  return "Ready to start recording";
+  if (status === "arming") return m.titleStarting;
+  if (status === "blocked") return m.titleNotStarted;
+  return m.titleReady;
 }
 
 export function armSubtitle(
@@ -174,34 +196,28 @@ export function armSubtitle(
   // device; only ask for access when the browser has not granted it yet.
   if (status === "arming")
     return permission === "prompt" || permission === "denied"
-      ? "Allow microphone access in the browser to begin."
-      : "Connecting the microphone…";
-  if (status === "blocked")
-    return "Check the error below, then start recording again.";
-  return "Start recording to capture this meeting.";
+      ? m.subtitleAllowMicrophone
+      : m.subtitleConnecting;
+  if (status === "blocked") return m.subtitleNotStarted;
+  return m.subtitleReady;
 }
 
 function isMicrophoneFailure(error: unknown) {
-  return (
-    error instanceof DOMException ||
-    (error instanceof Error &&
-      [
-        "Connect a microphone before enabling voice",
-        "Microphone connection timed out",
-      ].includes(error.message))
-  );
+  return error instanceof DOMException || error instanceof VoiceMicrophoneError;
 }
 
 function describeArmFailure(error: unknown): string {
+  if (error instanceof VoiceMicrophoneError)
+    return describeVoiceMediaError(error);
   const name = error instanceof DOMException ? error.name : undefined;
   switch (name) {
     case "NotAllowedError":
     case "SecurityError":
-      return "Microphone access was blocked. Allow it in the browser, then start recording again.";
+      return translate(m.microphoneBlocked);
     case "NotFoundError":
-      return "No microphone is available. Connect one, then start recording again.";
+      return translate(m.noMicrophone);
     case "NotReadableError":
-      return "The microphone is in use by another application.";
+      return translate(m.microphoneBusy);
     default:
       return error instanceof Error ? error.message : String(error);
   }

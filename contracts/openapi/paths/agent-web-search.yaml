@@ -1,0 +1,184 @@
+search:
+  post:
+    operationId: searchAgentWeb
+    tags: [Agent Business API]
+    security: [{ agentBearer: [] }]
+    summary: Search the web through one backend with the deployment's saved key.
+    description: >-
+      Without backend, TeamHub uses the default a Human chose exactly as if
+      the request named it, even when its key stopped working; without a
+      chosen default it uses the first ready backend in the order tavily,
+      brave, firecrawl, exa, you (with a key), then DuckDuckGo, which needs no key,
+      and details.origin is suggested. You.com without a key runs only when
+      named or chosen. A filter the backend cannot honor is
+      refused before any call. There is no automatic fallback to another
+      backend. When the backend needs a key the deployment lacks, or the
+      provider refused the saved one, or the keyless You.com searches are used
+      up, TeamHub posts (or reuses) a search_key card in the chat and answers
+      409 search_key_requested; details names the card and the backend it
+      shows. Saving any web search key answers the card and wakes the Agent
+      with the backend to use.
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "../components/web-search.yaml#/components/schemas/WebSearchRequest"
+    responses:
+      "200":
+        description: The results, best first.
+        content:
+          application/json:
+            schema:
+              $ref: "../components/web-search.yaml#/components/schemas/WebSearchResponse"
+      "400":
+        $ref: "../components/agent-api-errors.yaml#/components/responses/BadRequest"
+      "401":
+        $ref: "../components/agent-api-errors.yaml#/components/responses/Unauthenticated"
+      "402":
+        description: "search_quota_exhausted: the backend's account has no credit or quota left; details lists the other ready backends."
+        content:
+          application/json:
+            schema:
+              $ref: "../components/agent-api-errors.yaml#/components/schemas/AgentApiErrorEnvelope"
+      "403":
+        $ref: "../components/agent-api-errors.yaml#/components/responses/Forbidden"
+      "409":
+        description: "search_key_requested: a card asking the Human for a web search key is in the chat."
+        content:
+          application/json:
+            schema:
+              $ref: "../components/agent-api-errors.yaml#/components/schemas/AgentApiErrorEnvelope"
+      "429":
+        description: "provider_rate_limited: the backend is rate limiting; details carries retry_after_seconds when known and the other ready backends."
+        content:
+          application/json:
+            schema:
+              $ref: "../components/agent-api-errors.yaml#/components/schemas/AgentApiErrorEnvelope"
+      "503":
+        $ref: "../components/agent-api-errors.yaml#/components/responses/ServiceUnavailable"
+      default:
+        $ref: "../components/agent-api-errors.yaml#/components/responses/InternalError"
+open:
+  post:
+    operationId: openAgentWebPage
+    tags: [Agent Business API]
+    security: [{ agentBearer: [] }]
+    summary: Read one web page as Markdown through a provider backend.
+    description: >-
+      Only provider backends open pages here; the CLI fetches direct itself,
+      so TeamHub never requests the page URL. The Markdown is cut at 20,000
+      characters. Key failures post a search_key card as search does.
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "../components/web-search.yaml#/components/schemas/WebOpenRequest"
+    responses:
+      "200":
+        description: The page.
+        content:
+          application/json:
+            schema:
+              $ref: "../components/web-search.yaml#/components/schemas/WebOpenResponse"
+      "400":
+        $ref: "../components/agent-api-errors.yaml#/components/responses/BadRequest"
+      "401":
+        $ref: "../components/agent-api-errors.yaml#/components/responses/Unauthenticated"
+      "402":
+        description: "search_quota_exhausted: the backend's account has no credit or quota left."
+        content:
+          application/json:
+            schema:
+              $ref: "../components/agent-api-errors.yaml#/components/schemas/AgentApiErrorEnvelope"
+      "403":
+        $ref: "../components/agent-api-errors.yaml#/components/responses/Forbidden"
+      "409":
+        description: "search_key_requested: a card asking the Human for a web search key is in the chat."
+        content:
+          application/json:
+            schema:
+              $ref: "../components/agent-api-errors.yaml#/components/schemas/AgentApiErrorEnvelope"
+      "422":
+        description: "tool_execution_failed: the provider could not read this page."
+        content:
+          application/json:
+            schema:
+              $ref: "../components/agent-api-errors.yaml#/components/schemas/AgentApiErrorEnvelope"
+      "429":
+        description: "provider_rate_limited: the backend is rate limiting."
+        content:
+          application/json:
+            schema:
+              $ref: "../components/agent-api-errors.yaml#/components/schemas/AgentApiErrorEnvelope"
+      "503":
+        $ref: "../components/agent-api-errors.yaml#/components/responses/ServiceUnavailable"
+      default:
+        $ref: "../components/agent-api-errors.yaml#/components/responses/InternalError"
+backends:
+  post:
+    operationId: listAgentWebBackends
+    tags: [Agent Business API]
+    security: [{ agentBearer: [] }]
+    summary: List the web search backends with their state and live quota.
+    description: >-
+      Quota is read from each provider's official usage endpoint for this
+      request, in parallel and briefly; a provider that does not answer in
+      time reports quota from=unavailable. backend narrows the list to one.
+    requestBody:
+      required: false
+      content:
+        application/json:
+          schema:
+            $ref: "../components/web-search.yaml#/components/schemas/WebBackendsQuery"
+    responses:
+      "200":
+        description: The backends in TeamHub's default order.
+        content:
+          application/json:
+            schema:
+              $ref: "../components/web-search.yaml#/components/schemas/WebSearchBackendList"
+      "400":
+        $ref: "../components/agent-api-errors.yaml#/components/responses/BadRequest"
+      "401":
+        $ref: "../components/agent-api-errors.yaml#/components/responses/Unauthenticated"
+      "403":
+        $ref: "../components/agent-api-errors.yaml#/components/responses/Forbidden"
+      default:
+        $ref: "../components/agent-api-errors.yaml#/components/responses/InternalError"
+connect:
+  post:
+    operationId: connectAgentWebBackend
+    tags: [Agent Business API]
+    security: [{ agentBearer: [] }]
+    summary: Make one web search backend usable, asking the Human for its key through a chat card.
+    description: >-
+      A ready backend answers ready with its state and live quota. A backend
+      without a usable key gets a search_key card in the chat (an open one is
+      reused) and answers connection_requested. Saving any web search key
+      answers the card and wakes the Agent with the backend that was
+      configured.
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "../components/web-search.yaml#/components/schemas/WebConnectRequest"
+    responses:
+      "200":
+        description: The backend is ready, or the card that asks for its key.
+        content:
+          application/json:
+            schema:
+              $ref: "../components/web-search.yaml#/components/schemas/WebConnectResponse"
+      "400":
+        $ref: "../components/agent-api-errors.yaml#/components/responses/BadRequest"
+      "401":
+        $ref: "../components/agent-api-errors.yaml#/components/responses/Unauthenticated"
+      "403":
+        $ref: "../components/agent-api-errors.yaml#/components/responses/Forbidden"
+      "503":
+        $ref: "../components/agent-api-errors.yaml#/components/responses/ServiceUnavailable"
+      default:
+        $ref: "../components/agent-api-errors.yaml#/components/responses/InternalError"

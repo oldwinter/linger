@@ -102,17 +102,14 @@ export function elapsedSessionMS(startedAt: number) {
 export async function withTimeout<T>(
   operation: Promise<T>,
   timeoutMs: number,
-  message: string,
+  timeoutError: () => Error,
 ): Promise<T> {
   let timeout: number | undefined;
   try {
     return await Promise.race([
       operation,
       new Promise<T>((_, reject) => {
-        timeout = window.setTimeout(
-          () => reject(new Error(message)),
-          timeoutMs,
-        );
+        timeout = window.setTimeout(() => reject(timeoutError()), timeoutMs);
       }),
     ]);
   } finally {

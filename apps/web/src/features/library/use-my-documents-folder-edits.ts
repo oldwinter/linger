@@ -4,6 +4,9 @@ import { useState } from "react";
 import { teamHubData, teamHubDone } from "@/features/teamhub/teamhub-api";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubDocumentPlacementNode } from "@/features/teamhub/teamhub-types";
+import { useT } from "@/i18n/use-translation";
+
+import { libraryMessages as m } from "./library.messages";
 
 import {
   myDocumentTreeQueryKey,
@@ -24,12 +27,16 @@ export function useMyDocumentsFolderEdits({
 }: MyDocumentsFolderEditsInput) {
   const { client } = useTeamHubRuntime();
   const queryClient = useQueryClient();
+  const t = useT();
   const [renamingFolder, setRenamingFolder] = useState<{
     id: string;
     name: string;
   } | null>(null);
   const [movingPlacement, setMovingPlacement] =
     useState<TeamHubDocumentPlacementNode | null>(null);
+  const [confirmingDeleteFolderId, setConfirmingDeleteFolderId] = useState<
+    string | null
+  >(null);
   const [deletingFolderId, setDeletingFolderId] = useState<string | null>(null);
   const treeQueryKey = myDocumentTreeQueryKey(tenantId);
 
@@ -69,9 +76,7 @@ export function useMyDocumentsFolderEdits({
     } catch (moveError) {
       rollback();
       setError(
-        moveError instanceof Error
-          ? moveError.message
-          : "The document could not be moved.",
+        moveError instanceof Error ? moveError.message : t(m.documentNotMoved),
       );
     }
   }
@@ -110,7 +115,7 @@ export function useMyDocumentsFolderEdits({
       setError(
         renameError instanceof Error
           ? renameError.message
-          : "The folder could not be renamed.",
+          : t(m.folderNotRenamed),
       );
     }
   }
@@ -137,20 +142,34 @@ export function useMyDocumentsFolderEdits({
       setError(
         deleteError instanceof Error
           ? deleteError.message
-          : "The folder could not be deleted.",
+          : t(m.folderNotDeleted),
       );
     } finally {
       setDeletingFolderId(null);
+      setConfirmingDeleteFolderId(null);
     }
   }
 
+  function requestDeleteFolder(folderId: string) {
+    if (deletingFolderId) return;
+    setConfirmingDeleteFolderId(folderId);
+  }
+
+  function cancelDeleteFolder() {
+    if (deletingFolderId) return;
+    setConfirmingDeleteFolderId(null);
+  }
+
   return {
+    cancelDeleteFolder,
+    confirmingDeleteFolderId,
     deleteFolder,
     deletingFolderId,
     movePlacement,
     movingPlacement,
     renameFolder,
     renamingFolder,
+    requestDeleteFolder,
     setMovingPlacement,
     setRenamingFolder,
   };

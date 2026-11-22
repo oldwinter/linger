@@ -5,6 +5,10 @@ import {
   useState,
 } from "react";
 
+import { useT } from "@/i18n/use-translation";
+
+import { uiExtrasMessages as m } from "./ui-extras.messages";
+
 interface Hsv {
   h: number;
   s: number;
@@ -26,6 +30,7 @@ export function ColorPalette({
   onChange: (hex: string) => void;
   value: string;
 }) {
+  const t = useT();
   const hsv = hexToHsv(value);
   // Grays carry no hue; remember the last one so the field doesn't jump to red.
   const [lastHue, setLastHue] = useState(hsv.h);
@@ -108,11 +113,14 @@ export function ColorPalette({
       }
     >
       <div
-        aria-label={`${ariaLabel} saturation and brightness`}
+        aria-label={t(m.paletteField, { name: ariaLabel })}
         aria-valuemax={100}
         aria-valuemin={0}
         aria-valuenow={Math.round(current.v * 100)}
-        aria-valuetext={`${Math.round(current.s * 100)}% saturation, ${Math.round(current.v * 100)}% brightness`}
+        aria-valuetext={t(m.paletteFieldValue, {
+          brightness: Math.round(current.v * 100),
+          saturation: Math.round(current.s * 100),
+        })}
         className="color-palette-field"
         onKeyDown={nudgeField}
         onPointerDown={(event) =>
@@ -132,7 +140,7 @@ export function ColorPalette({
         />
       </div>
       <div
-        aria-label={`${ariaLabel} hue`}
+        aria-label={t(m.paletteHue, { name: ariaLabel })}
         aria-valuemax={360}
         aria-valuemin={0}
         aria-valuenow={Math.round(hue)}

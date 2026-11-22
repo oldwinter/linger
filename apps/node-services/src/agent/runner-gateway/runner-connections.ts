@@ -24,6 +24,10 @@ import {
   LocalComputerPlacementError,
   LocalRuntimeAdmissionUnavailableError,
   MINIMUM_CURRENT_COMPUTER_VERSION,
+  FIRST_MODEL_INVOKE_CANCEL_COMPUTER_VERSION,
+  FIRST_PI_MODEL_INVOKE_COMPUTER_VERSION,
+  FIRST_BYOK_ENDPOINT_COMPUTER_VERSION,
+  FIRST_SERVICE_FEATURES_COMPUTER_VERSION,
   type LocalPlacementRequirement,
   type LocalReasoningEffort,
   type LocalRuntimeModelDefinition,
@@ -449,6 +453,19 @@ export class RunnerConnections {
             ),
           }
         : {}),
+      ...(isComputerVersionAtLeast(
+        connection.hello.daemon_version,
+        FIRST_SERVICE_FEATURES_COMPUTER_VERSION,
+      )
+        ? {
+            service_features: isComputerVersionAtLeast(
+              connection.hello.daemon_version,
+              FIRST_BYOK_ENDPOINT_COMPUTER_VERSION,
+            )
+              ? ["local_models", "byok_endpoint"]
+              : ["local_models"],
+          }
+        : {}),
     };
   }
 
@@ -575,25 +592,51 @@ export class RunnerConnections {
         runtimes: connection.hello.runtimes,
         runtimeDiagnostics: envelope.runtime_diagnostics,
       });
-      connection.hello.runtime_registrations =
-        connection.hello.runtime_registrations.map((observation) => {
-          const diagnostic = envelope.runtime_diagnostics.find(
-            ({ type }) => type === observation.provider_type,
-          );
-          if (!diagnostic) return observation;
-          const available =
-            diagnostic.status === "ready" ||
-            diagnostic.status === "authentication_required";
-          return {
-            ...observation,
-            status: available ? ("online" as const) : ("unavailable" as const),
-            revision: envelope.revision,
-            capabilities: available ? ["turn"] : [],
-            runtime_diagnostics: structuredClone(
+      type Observation = RunnerHello["runtime_registrations"][number];
+      const observe = (
+        base: Pick<Observation, "tenant_id" | "owner_actor_id">,
+        diagnostic: RunnerHello["runtime_diagnostics"][number],
+      ): Observation => {
+        const available = connection.hello.runtimes.includes(diagnostic.type);
+        return {
+          ...base,
+          provider_type: diagnostic.type,
+          status: available ? ("online" as const) : ("unavailable" as const),
+          revision: envelope.revision,
+          capabilities: available ? ["turn"] : [],
+          runtime_diagnostics: structuredClone(
+            diagnostic,
+          ) as unknown as Observation["runtime_diagnostics"],
+        };
+      };
+      const registrations = connection.hello.runtime_registrations;
+      const updated = registrations.map((observation) => {
+        const diagnostic = envelope.runtime_diagnostics.find(
+          ({ type }) => type === observation.provider_type,
+        );
+        return diagnostic
+          ? { ...observation, ...observe(observation, diagnostic) }
+          : observation;
+      });
+      // A Computer leaves a Runtime that is not installed out of its hello,
+      // so a Runtime that becomes available later gets the registration the
+      // hello would have given it.
+      const { tenantId, ownerActorId } = owner(connection);
+      for (const diagnostic of envelope.runtime_diagnostics) {
+        if (
+          connection.hello.runtimes.includes(diagnostic.type) &&
+          !registrations.some(
+            ({ provider_type }) => provider_type === diagnostic.type,
+          )
+        )
+          updated.push(
+            observe(
+              { tenant_id: tenantId, owner_actor_id: ownerActorId },
               diagnostic,
-            ) as unknown as RunnerHello["runtime_registrations"][number]["runtime_diagnostics"],
-          };
-        });
+            ),
+          );
+      }
+      connection.hello.runtime_registrations = updated;
       const commandId = `registration-snapshot-${this.context.createId()}`;
       (connection.pendingRegistrationSnapshots ??= new Set()).add(commandId);
       await this.send(connection, {
@@ -664,6 +707,12 @@ export class RunnerConnections {
       envelope.kind === "computer_permission"
     ) {
       this.owners.capabilities().receivePermissionOutcome(connection, envelope);
+      return;
+    }
+    if (envelope.type === "executed" && envelope.kind === "model_source") {
+      this.owners
+        .capabilities()
+        .receiveModelSourceOutcome(connection, envelope);
       return;
     }
     if (envelope.type === "executed" && envelope.kind === "computer_tool") {
@@ -782,7 +831,7 @@ export class RunnerConnections {
   /** Whether the Computer can compact a parked session of this Runtime now. */
   supportsSessionCompaction(
     runnerId: string,
-    runtimeType: "codex" | "claude" | "pi",
+    runtimeType: "codex" | "claude" | "pi" | "antigravity",
   ): boolean {
     const connection = this.#connections.get(runnerId);
     return (
@@ -794,15 +843,35 @@ export class RunnerConnections {
     );
   }
 
-  /** Whether the Computer can run a model invocation on this Runtime now. */
-  supportsModelInvoke(
+  /** Whether the Computer on this connection can stop one model invocation. */
+  supportsModelInvokeCancel(
     runnerId: string,
-    runtimeType: "codex" | "claude" | "pi",
+    connectionEpoch: number,
   ): boolean {
     const connection = this.#connections.get(runnerId);
     return (
       isServingConnection(connection) &&
-      (runtimeType === "codex" || runtimeType === "claude") &&
+      connection.connectionEpoch === connectionEpoch &&
+      isComputerVersionAtLeast(
+        connection.hello.daemon_version,
+        FIRST_MODEL_INVOKE_CANCEL_COMPUTER_VERSION,
+      )
+    );
+  }
+
+  /** Whether the Computer can run a model invocation on this Runtime now. */
+  supportsModelInvoke(
+    runnerId: string,
+    runtimeType: "codex" | "claude" | "pi" | "antigravity",
+  ): boolean {
+    const connection = this.#connections.get(runnerId);
+    return (
+      isServingConnection(connection) &&
+      (runtimeType !== "pi" ||
+        isComputerVersionAtLeast(
+          connection.hello.daemon_version,
+          FIRST_PI_MODEL_INVOKE_COMPUTER_VERSION,
+        )) &&
       connection.hello.runtime_diagnostics.some(
         ({ type, status }) => type === runtimeType && status === "ready",
       )

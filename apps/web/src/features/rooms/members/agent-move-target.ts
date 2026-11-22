@@ -5,7 +5,10 @@ import type {
   TeamHubTenantAgent,
   TeamHubTenantAgentUpdateInput,
 } from "@/features/teamhub/teamhub-types";
+import { translate, type Translate } from "@/i18n/language";
 
+import { agentRuntimeMessages } from "./agent-runtime.messages";
+import { runtimeModelLabel } from "./runtime-model-label";
 import { reasoningEffortLabel } from "./use-agent-model-selection";
 
 export type LocalComputer = TeamHubLocalComputerPage["items"][number];
@@ -16,6 +19,7 @@ export const runtimeLabels: Record<TeamHubLocalRuntimeType, string> = {
   claude: "Claude Code",
   codex: "Codex",
   pi: "Pi",
+  antigravity: "Antigravity",
 };
 
 /** The full placement plus model an Agent moves to on another Local Computer. */
@@ -190,18 +194,23 @@ export function describeMoveTarget(
   agent: TeamHubTenantAgent,
   target: AgentMoveTarget,
   computer: LocalComputer | undefined,
+  t: Translate = translate,
 ) {
   const runtime = computer?.runtimes.find(
     (item) => item.type === target.runtimeType,
   );
-  const modelLabel =
-    runtime?.models.find((item) => item.id === target.model)?.label ??
-    target.model;
+  const modelLabel = runtimeModelLabel(
+    runtime?.models.find((item) => item.id === target.model) ?? {
+      id: target.model,
+      label: target.model,
+    },
+    t,
+  );
   const summary = [
     runtimeLabels[target.runtimeType],
     modelLabel,
     target.reasoningEffort
-      ? reasoningEffortLabel(target.reasoningEffort)
+      ? reasoningEffortLabel(target.reasoningEffort, t)
       : undefined,
   ]
     .filter(Boolean)
@@ -221,25 +230,31 @@ export function describeMoveTarget(
     target.reasoningEffort !== previousEffort;
   // Only a fallback within the same Runtime needs the missing model named;
   // a reasoning change on the same model is named so it is not silent.
-  return `${kept ? "Keeps" : "Uses"} ${summary}.${
-    sameRuntime && !sameModel
-      ? ` ${agent.runtime.model} isn't available there.`
-      : ""
-  }${
-    effortChanged
-      ? ` Reasoning was ${reasoningEffortLabel(previousEffort)}.`
-      : ""
-  }`;
+  if (kept) return t(agentRuntimeMessages.targetKeeps, { summary });
+  if (sameRuntime && !sameModel)
+    return t(agentRuntimeMessages.targetUsesModelMissing, {
+      model: agent.runtime.model,
+      summary,
+    });
+  if (effortChanged)
+    return t(agentRuntimeMessages.targetUsesReasoningWas, {
+      effort: reasoningEffortLabel(previousEffort, t),
+      summary,
+    });
+  return t(agentRuntimeMessages.targetUses, { summary });
 }
 
 export function describeMissingDefault(
   agent: TeamHubTenantAgent,
   candidates: readonly LocalComputer[],
+  t: Translate = translate,
 ) {
-  const name = runtimeLabels[agent.runtime.placement?.runtime_type ?? "codex"];
-  const where =
-    candidates.length === 1
-      ? candidates[0]!.display_name
-      : "any other computer";
-  return `${name} isn't ready on ${where}. Choose another Runtime.`;
+  const runtime =
+    runtimeLabels[agent.runtime.placement?.runtime_type ?? "codex"];
+  return candidates.length === 1
+    ? t(agentRuntimeMessages.missingDefault, {
+        computer: candidates[0]!.display_name,
+        runtime,
+      })
+    : t(agentRuntimeMessages.missingDefaultAnywhere, { runtime });
 }

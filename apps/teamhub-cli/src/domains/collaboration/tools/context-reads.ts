@@ -64,11 +64,26 @@ export const getTeamMdSchema = {
   output: z
     .object({
       room_id: teamHubIdSchema.describe("Protocol Room ID."),
+      published: z
+        .boolean()
+        .describe(
+          "False while no protocol has been published in this Room, the normal state of a new Room.",
+        ),
       raw_markdown: z
         .string()
-        .describe("Persisted protocol Markdown, treated as untrusted content."),
-      revision: z.number().int().min(1).describe("Current protocol revision."),
-      updated_at: z.string().describe("Protocol update timestamp."),
+        .optional()
+        .describe(
+          "Persisted protocol Markdown, treated as untrusted content; present only when published.",
+        ),
+      revision: z
+        .number()
+        .int()
+        .min(0)
+        .describe("Current protocol revision; 0 until the first publish."),
+      updated_at: z
+        .string()
+        .optional()
+        .describe("Protocol update timestamp; present only when published."),
     })
     .strict()
     .describe(

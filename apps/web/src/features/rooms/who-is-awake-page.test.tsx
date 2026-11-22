@@ -1,10 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { describe, expect, it } from "vitest";
 
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
+import { teamHubErrorResponse } from "@/test/teamhub-test-server";
 
 import { WhoIsAwakePage } from "./who-is-awake-page";
 
@@ -68,5 +69,44 @@ describe("Who is awake", () => {
     );
     expect(screen.getByText("Lev8 GTM")).toBeVisible();
     expect(screen.getAllByText("Offline").length).toBeGreaterThan(0);
+    expect(screen.getByRole("link", { name: "Back to chats" })).toHaveAttribute(
+      "href",
+      "/t/tenant-northstar/rooms",
+    );
+  });
+
+  it("offers Retry when loading availability fails", async () => {
+    const runtime = createTestTeamHubRuntime();
+    let fail = true;
+    runtime.server.on("GET", "/v0/tenants/{tenantId}/agent-availability", () =>
+      fail
+        ? teamHubErrorResponse(503, "UNAVAILABLE", "Unavailable")
+        : {
+            items: [availability("actor-codex", "online", "Online")],
+            page: { has_more: false },
+          },
+    );
+    const router = createMemoryRouter(
+      [{ element: <WhoIsAwakePage />, path: "/t/:tenantId/awake" }],
+      { initialEntries: ["/t/tenant-northstar/awake"] },
+    );
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <TeamHubRuntimeProvider runtime={runtime}>
+          <RouterProvider router={router} />
+        </TeamHubRuntimeProvider>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Who is awake could not be loaded.",
+    );
+    fail = false;
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("1 is awake.")).toBeVisible();
   });
 });

@@ -2,12 +2,65 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { Spinner } from "@/components/ui/spinner";
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 
+import { type Translate, translate } from "@/i18n/language";
+import { useT } from "@/i18n/use-translation";
 import dataPreviewWorkerUrl from "./data-preview-worker.ts?worker&url";
 import {
+  type DataPreviewFailure,
   dataPreviewLimits,
   type DataPreviewRequest,
   type DataPreviewResponse,
+  type DataPreviewTruncation,
 } from "./data-preview-protocol";
+import { filePreviewMessages as m } from "./file-preview.messages";
+
+const kibibyte = 1024;
+const mebibyte = 1024 * 1024;
+
+/** Why the preview failed: the worker's failure, a crashed worker or the time limit. */
+type ShownFailure =
+  | DataPreviewFailure
+  | { code: "worker" }
+  | { code: "timeout" };
+
+function failureText(t: Translate, failure: ShownFailure) {
+  switch (failure.code) {
+    case "parse":
+      return t(m.dataFailedNearRow, {
+        detail: failure.detail,
+        row: failure.row,
+      });
+    case "cellTooLarge":
+      return t(m.dataCellTooLarge, {
+        kibibytes: dataPreviewLimits.maxCellCharacters / kibibyte,
+      });
+    case "firstRecordTooLarge":
+      return t(m.dataFirstRecordTooLarge, {
+        mebibytes: dataPreviewLimits.maxBytes / mebibyte,
+      });
+    case "worker":
+      return t(m.dataParseFailed);
+    case "timeout":
+      return t(m.dataTimedOut);
+  }
+}
+
+function truncationText(t: Translate, truncation?: DataPreviewTruncation) {
+  switch (truncation) {
+    case "bytes":
+      return t(m.dataOnlyFirstBytes, {
+        mebibytes: dataPreviewLimits.maxBytes / mebibyte,
+      });
+    case "rows":
+      return t(m.dataOnlyFirstRows, { count: dataPreviewLimits.maxRows });
+    case "columns":
+      return t(m.dataOnlyFirstColumns, { count: dataPreviewLimits.maxColumns });
+    case "cells":
+      return t(m.dataOnlyFirstCells, { count: dataPreviewLimits.maxCells });
+    default:
+      return t(m.dataTruncated);
+  }
+}
 
 export interface DataPreviewAdapterProps {
   blob: Blob;
@@ -24,10 +77,15 @@ export function DataPreviewAdapter({
   onError,
   sourceSizeBytes = blob.size,
 }: DataPreviewAdapterProps) {
+  const t = useT();
   const [result, setResult] =
     useState<Extract<DataPreviewResponse, { kind: "parsed" }>>();
-  const [error, setError] = useState<string>();
-  const reportError = useEffectEvent((message: string) => onError?.(message));
+  // The code, worded when shown, so the message follows a language switch.
+  const [error, setError] = useState<ShownFailure>();
+  const reportError = useEffectEvent((failure: ShownFailure) => {
+    setError(failure);
+    onError?.(failureText(translate, failure));
+  });
 
   useEffect(() => {
     const worker = new Worker(dataPreviewWorkerUrl, { type: "module" });
@@ -45,25 +103,20 @@ export function DataPreviewAdapter({
       if (event.data.requestId !== requestId) return;
       dispose();
       if (event.data.kind === "failed") {
-        setError(event.data.message);
-        reportError(event.data.message);
+        reportError(event.data.failure);
       } else {
         setResult(event.data);
       }
     };
     const handleError = () => {
       dispose();
-      const message = "Data preview could not be parsed.";
-      setError(message);
-      reportError(message);
+      reportError({ code: "worker" });
     };
     worker.addEventListener("message", handleMessage);
     worker.addEventListener("error", handleError);
     const timer = window.setTimeout(() => {
       dispose();
-      const message = "Data preview took too long and was stopped.";
-      setError(message);
-      reportError(message);
+      reportError({ code: "timeout" });
     }, dataPreviewLimits.timeoutMs);
     const request: DataPreviewRequest = {
       blob,
@@ -82,7 +135,7 @@ export function DataPreviewAdapter({
   if (error) {
     return (
       <p className="p-8 text-center text-sm text-app-danger" role="alert">
-        {error}
+        {failureText(t, error)}
       </p>
     );
   }
@@ -93,7 +146,7 @@ export function DataPreviewAdapter({
         role="status"
       >
         <Spinner size={16} />
-        Parsing data preview...
+        {t(m.parsingDataPreview)}
       </div>
     );
   }
@@ -108,6 +161,7 @@ function VirtualDataGrid({
   filename: string;
   result: Extract<DataPreviewResponse, { kind: "parsed" }>;
 }) {
+  const t = useT();
   const scrollRef = useRef<HTMLDivElement>(null);
   const columnCount = useMemo(
     () =>
@@ -131,16 +185,16 @@ function VirtualDataGrid({
 
   return (
     <section
-      aria-label={`Data preview ${filename}`}
+      aria-label={t(m.dataPreviewLabel, { name: filename })}
       className="flex h-full min-h-[420px] flex-col bg-app-surface"
       role="table"
     >
       <div className="flex min-h-11 shrink-0 items-center gap-3 border-b border-app-border px-3 text-xs text-app-muted">
-        <span>{result.rows.length.toLocaleString()} rows</span>
-        <span>{columnCount.toLocaleString()} columns</span>
+        <span>{t(m.dataRows, { count: result.rows.length })}</span>
+        <span>{t(m.dataColumns, { count: columnCount })}</span>
         {result.truncated ? (
           <span className="text-app-warning">
-            {result.truncationReason ?? "Preview is truncated."}
+            {truncationText(t, result.truncation)}
           </span>
         ) : null}
       </div>

@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
-import { useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { Icon, type IconSvgElement } from "@/components/ui/icon";
+import { useT } from "@/i18n/use-translation";
+
+import { roomListMessages } from "../room-list.messages";
 
 import {
   openPocketNote,
@@ -35,6 +37,7 @@ export function PocketNoteLauncher({
   anotherMeRoomId?: string;
   tenantId: string;
 }) {
+  const t = useT();
   const hold = useSyncExternalStore(
     subscribePocketNoteHold,
     readPocketNoteHold,
@@ -46,7 +49,7 @@ export function PocketNoteLauncher({
     <button
       aria-expanded={open}
       aria-haspopup="dialog"
-      aria-label="Pocket Notes"
+      aria-label={t(roomListMessages.pocketNotes)}
       className="xs-nav-btn"
       onClick={() =>
         open
@@ -54,11 +57,13 @@ export function PocketNoteLauncher({
           : openPocketNote({ anotherMeRoomId, tenantId })
       }
       ref={setButton}
-      title="Pocket Notes"
+      title={t(roomListMessages.pocketNotes)}
       type="button"
     >
       <Icon icon={noteWriteIcon} size={16} />
-      <span className="xs-nav-btn-label">Pocket Notes</span>
+      <span className="xs-nav-btn-label">
+        {t(roomListMessages.pocketNotes)}
+      </span>
     </button>
   );
 }

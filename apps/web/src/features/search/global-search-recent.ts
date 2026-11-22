@@ -59,6 +59,13 @@ export type SearchTarget =
       parentName?: string;
       /** The first members in join order, for the Room's avatar mosaic. */
       members?: SearchTargetActor[];
+    }
+  | {
+      kind: "place";
+      id: string;
+      path: string;
+      name: string;
+      detail: string;
     };
 
 export type SearchTargetKind = SearchTarget["kind"];

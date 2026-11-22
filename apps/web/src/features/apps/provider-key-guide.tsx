@@ -1,5 +1,9 @@
 import type { ReactNode } from "react";
 
+import { RichMessage, useT } from "@/i18n/use-translation";
+
+import { connectorMessages as m } from "./connectors.messages";
+
 const COMPOSIO_KEYS_URL =
   "https://dashboard.composio.dev/~/project/settings/api-keys";
 
@@ -13,9 +17,10 @@ export function ProviderKeyGuide({
   note?: string;
   steps: ReactNode;
 }) {
+  const t = useT();
   return (
     <div className="rounded-xl border border-app-border bg-app-surface-soft p-4">
-      <p className="font-medium text-foreground">Get your API key</p>
+      <p className="font-medium text-foreground">{t(m.getYourApiKey)}</p>
       <div className="mt-1.5 leading-5 text-muted-foreground">{steps}</div>
       {note ? <p className="mt-2 leading-5 text-foreground">{note}</p> : null}
       <a
@@ -24,28 +29,29 @@ export function ProviderKeyGuide({
         rel="noopener noreferrer"
         target="_blank"
       >
-        Get a key <span aria-hidden="true">↗</span>
+        {t(m.getAKey)} <span aria-hidden="true">↗</span>
       </a>
     </div>
   );
 }
 
 export function ComposioKeyGuide() {
+  const t = useT();
   return (
     <ProviderKeyGuide
       href={COMPOSIO_KEYS_URL}
-      note="Permissions cannot be changed after a key is created. If Write All was not selected, create a new key. Read-only keys cannot create the authorization needed to connect apps."
+      note={t(m.composioKeyNote)}
       steps={
         <ol className="list-decimal space-y-1.5 pl-5">
-          <li>Open Composio and sign in or create an account.</li>
+          <li>{t(m.composioStepOpen)}</li>
           <li>
-            Create a project API key and select <strong>Read All</strong> and{" "}
-            <strong>Write All</strong> before creating it.
+            <RichMessage
+              message={m.composioStepCreate}
+              tags={{ strong: (text) => <strong>{text}</strong> }}
+            />
           </li>
-          <li>Copy the key, paste it below, and select Save key.</li>
-          <li>
-            Return to your app, select Connect, and complete authorization.
-          </li>
+          <li>{t(m.composioStepPaste)}</li>
+          <li>{t(m.composioStepReturn)}</li>
         </ol>
       }
     />

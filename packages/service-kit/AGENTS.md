@@ -1,6 +1,7 @@
 # Service Kit: Shared TypeScript service helpers
 
-Small helpers shared by Web, Node services, and Voice Runtime.
+Small helpers shared by Web, Node services, Voice Runtime, and the local
+installation core.
 
 ## Common Commands
 
@@ -9,8 +10,20 @@ Small helpers shared by Web, Node services, and Voice Runtime.
 ## Structure
 
 - `src/index.ts`: isomorphic entry (`isRecord`, `isNodeError`, `asError`,
-  `displayText`, `sleep`, fetch test-double text helpers). It must not import
-  `node:` modules because the Web app bundles it.
+  `displayText`, `sleep`, fetch test-double text helpers, and `sourceRegion`
+  / `orderByRegion`, which order mirrors of one download by the
+  `SIMPLEX_REGION` contract in `scripts/installs/README.md`). It must not import
+  `node:` modules because the Web app bundles it, and it stays free of relative
+  `.js` imports so raw Node type-stripping can load it directly.
+- `src/byok-endpoint.ts`: isomorphic BYOK address entry (`byokProtocolFor`,
+  `defaultByokEndpoint`, `normalizeByokPath`, `normalizeByokBaseUrl`,
+  `validByokPath`, `isByokProtocol`, and the BYOK path pattern and runtime
+  default constants), exported as `@linger/service-kit/byok-endpoint`.
+- `src/messages.ts`: isomorphic message formatting (`defineMessages`,
+  `formatMessage`, `resolveMessage`; plurals through `Intl.PluralRules`,
+  `{name}` placeholders and `<tag>` spans), exported as
+  `@linger/service-kit/messages` for the Web client and the desktop shell.
+  It holds no catalog and no language choice.
 - `src/node.ts`: Node-only entry (`sha256Hex`, `createJsonLogger`,
   `serviceCredential`). `serviceCredential` takes the environment from its
   caller and is checked against `contracts/fixtures/service-credentials/vectors.json`.

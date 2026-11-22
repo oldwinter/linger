@@ -23,6 +23,34 @@ describe("TeamHub External Source client", () => {
     },
   );
 
+  it("uses a fresh desktop return URL for each request that creates an auth link", async () => {
+    const url = "http://127.0.0.1:43210/oauth/connector/" + "a".repeat(48);
+    const prepare = vi.fn().mockResolvedValue(url);
+    vi.stubGlobal("window", { lingerDesktop: { connectorOAuth: { prepare } } });
+    try {
+      const fetchRequest = vi
+        .fn<typeof fetch>()
+        .mockImplementation(async () => jsonResponse(connectionFixture(), 201));
+      const client = createHttpTeamHubClient({
+        baseUrl: "https://teamhub.example.test",
+        fetchRequest,
+      });
+      await client.createExternalConnection("notion");
+      await client.createExternalConnectionReauthorization("connection/a", 3);
+      expect(prepare).toHaveBeenCalledTimes(2);
+      expect(
+        (await sentRequests(fetchRequest)).map(([, init]) =>
+          JSON.parse(requestBodyText(init?.body)),
+        ),
+      ).toEqual([
+        { app_key: "notion", desktop_callback_url: url },
+        { expected_revision: 3, desktop_callback_url: url },
+      ]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("maps connection and selection pagination to V1 routes", async () => {
     const connection = connectionFixture();
     const fetchRequest = vi

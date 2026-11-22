@@ -18,7 +18,29 @@ describe("RoomAgreedLine", () => {
       />,
     );
     const line = screen.getByRole("region", { name: "The room agreed" });
+    expect(line).toHaveTextContent("Agreed");
     expect(line).toHaveTextContent("Alice");
     expect(line).toHaveTextContent("Wait for Maya");
+  });
+
+  it("strips raw Markdown syntax from the agreed preview", () => {
+    render(
+      <RoomAgreedLine
+        message={
+          {
+            author: { display_name: "Alice" },
+            raw_message:
+              "Ship **v2** after checking [release notes](https://example.com/notes)",
+          } as TeamHubMessage
+        }
+      />,
+    );
+    const line = screen.getByRole("region", { name: "The room agreed" });
+    expect(line).toHaveTextContent("Ship v2 after checking release notes");
+    expect(line).not.toHaveTextContent("**");
+    expect(line).not.toHaveTextContent("https://example.com/notes");
+    const preview = screen.getByText("Ship v2 after checking release notes");
+    expect(preview).toHaveClass("line-clamp-2");
+    expect(preview.className).not.toMatch(/(^|\s)block(\s|$)/);
   });
 });

@@ -40,7 +40,7 @@ describe("Room Message card renderer", () => {
     expect(
       within(card).getByRole("heading", {
         level: 3,
-        name: "Request to create a collaboration room: Interview coordination",
+        name: "Request to create a collaboration Room: Interview coordination",
       }),
     ).toBeVisible();
     expect(document.querySelector(".card-prompt")).toBeNull();
@@ -300,7 +300,7 @@ describe("Room Message card renderer", () => {
     expect(
       within(card).getByRole("heading", {
         level: 3,
-        name: `Request to create a collaboration room: ${name}`,
+        name: `Request to create a collaboration Room: ${name}`,
       }),
     ).toHaveClass("[overflow-wrap:anywhere]");
     expect(document.querySelector(".card-prompt")).toBeNull();

@@ -85,3 +85,26 @@ func TestRuntimeSessionExecutionResourcesEnvelope(t *testing.T) {
 	})
 	t.Run("missing native thread", func(t *testing.T) { check(t, map[string]any{}, "thread-1", nil, ErrConflict) })
 }
+
+func TestGetLocalRunReplyStatusValidation(t *testing.T) {
+	var nilService *Service
+	if _, err := nilService.GetLocalRunReplyStatus(t.Context(), "ctx", "run-1"); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("nil service error=%v, want %v", err, ErrInvalid)
+	}
+	service := &Service{}
+	for _, tc := range []struct {
+		name       string
+		contextKey string
+		runID      string
+	}{
+		{name: "nil pool", contextKey: "ctx", runID: "run-1"},
+		{name: "empty context key", contextKey: "", runID: "run-1"},
+		{name: "empty run id", contextKey: "ctx", runID: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := service.GetLocalRunReplyStatus(t.Context(), tc.contextKey, tc.runID); !errors.Is(err, ErrInvalid) {
+				t.Fatalf("error=%v, want %v", err, ErrInvalid)
+			}
+		})
+	}
+}

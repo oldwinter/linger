@@ -13,6 +13,7 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import { x as extract } from "tar";
+import { orderByRegion } from "@linger/service-kit";
 import { downloadVerified } from "./download.js";
 import {
   configuredNpmRegistry,
@@ -20,8 +21,8 @@ import {
   npmRegistry,
   npmRegistryEnvironment,
   npmTarballUrl,
-  rankNpmRegistries,
 } from "./npm-registry.js";
+import { downloadInRegion, resolveRegion } from "./region.js";
 import { extractZip } from "./zip.js";
 import {
   privateDirectory,
@@ -32,6 +33,15 @@ import { runProcess } from "./process.js";
 import { validatePublishedServiceSource } from "./published-source.js";
 import type { InstallerEvent } from "./events.js";
 import { renameRetrying } from "./fs-retry.js";
+
+const postgresPrograms = [
+  "postgres",
+  "initdb",
+  "pg_ctl",
+  "pg_isready",
+  "psql",
+  "createdb",
+] as const;
 
 export const nativeTargets = [
   "darwin-arm64",
@@ -261,6 +271,8 @@ type Artifact = (
   maxBytes: number;
   /** Release archives are gzip tarballs unless they say otherwise. */
   format?: "zip";
+  /** Install UTF-8 process manifests beside the Windows PostgreSQL tools. */
+  windowsPostgres?: boolean;
   /** What a bundled archive holds, for its errors. */
   label?: string;
 };
@@ -305,13 +317,18 @@ async function copyVerified(
       `The bundled ${label} archive does not match its checksum. Install Linger again.`,
     );
 }
-/** Content-addressed, locked installs: unverified or partial trees never become executable inputs. */
+/**
+ * Content-addressed, locked installs: unverified or partial trees never
+ * become executable inputs. With `home`, a download tries the sources in its
+ * region first (region.ts).
+ */
 export async function acquireNativeArtifact(
   base: string,
   artifact: Artifact,
   signal: AbortSignal,
   onProgress?: (completed: number, total?: number) => void,
   fetcher: typeof fetch = fetch,
+  home?: string,
 ) {
   const digestLength =
     artifact.algorithm === "sha256"
@@ -358,7 +375,11 @@ export async function acquireNativeArtifact(
   signal.throwIfAborted();
   await privateDirectory(base);
   return withInstanceLock({ root: base } as Instance, async () => {
-    const directory = path.join(base, artifact.digest);
+    // Older installers verify the unmodified archive under its bare digest.
+    const directory = path.join(
+      base,
+      artifact.windowsPostgres ? `${artifact.digest}-utf8` : artifact.digest,
+    );
     const exists = await lstat(directory).catch((error) => {
       if (error.code === "ENOENT") return;
       throw error;
@@ -391,6 +412,12 @@ export async function acquireNativeArtifact(
           signal,
           onProgress,
         });
+      else if (home)
+        await downloadInRegion(
+          home,
+          { ...artifact, output: archive, signal, onProgress },
+          fetcher,
+        );
       else
         await downloadVerified(
           { ...artifact, output: archive, signal, onProgress },
@@ -441,6 +468,24 @@ export async function acquireNativeArtifact(
           },
         });
       if (archiveError) throw archiveError;
+      if (artifact.windowsPostgres) {
+        // initdb relaunches itself and starts postgres through narrow Win32 APIs.
+        for (const program of postgresPrograms)
+          await writeFile(
+            path.join(stage, "bin", `${program}.exe.manifest`),
+            `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <assemblyIdentity name="Linger.PostgreSQL.${program}" version="1.0.0.0" type="win32"/>
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <activeCodePage xmlns="http://schemas.microsoft.com/SMI/2019/WindowsSettings">UTF-8</activeCodePage>
+    </windowsSettings>
+  </application>
+</assembly>
+`,
+            { flag: "wx" },
+          );
+      }
       await writeFile(
         path.join(stage, ".simplex-files.json"),
         JSON.stringify(await tree(stage)),
@@ -471,7 +516,7 @@ function shellQuote(value: string) {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
 // Release lock: sourced from https://go.dev/dl/?mode=json&include=all on 2026-10-29.
-// The Aliyun mirror serves the same archives for hosts that cannot reach Google.
+// The Aliyun mirror serves the same archives; the download region orders them.
 // Runtime preparation never resolves mutable toolchain metadata or upgrades this pin.
 const pinnedGoSources: Readonly<Record<string, Artifact>> = {
   "1.26.5-darwin-arm64": {
@@ -513,6 +558,7 @@ export async function prepareNativeDependencies(options: {
 }): Promise<{
   env: NodeJS.ProcessEnv;
   postgresBin: string;
+  postgresConfigurationExecutable?: string;
   toolchainRoot: string;
   /** Package registries to install from, in order of preference. */
   registries: string[];
@@ -565,17 +611,6 @@ export async function prepareNativeDependencies(options: {
   );
   await privateDirectory(toolchainRoot);
   const configuredRegistry = configuredNpmRegistry();
-  const registries = !withPackages
-    ? []
-    : configuredRegistry
-      ? [configuredRegistry]
-      : await rankNpmRegistries(options.signal, options.fetcher);
-  if (registries[0])
-    options.onEvent?.({
-      kind: "log",
-      stage: "release",
-      message: `Using package registry ${new URL(registries[0]).host}.\n`,
-    });
   const component = async (name: string, artifact: Artifact) => {
     const startedAt = Date.now();
     const directory = await acquire(name, artifact);
@@ -605,6 +640,7 @@ export async function prepareNativeDependencies(options: {
           progress: { completed, total, unit: "bytes" },
         }),
       options.fetcher,
+      options.home,
     );
   const go = withGo
     ? await component(`Go ${versions.go}`, goSource!)
@@ -614,9 +650,9 @@ export async function prepareNativeDependencies(options: {
     const source = npmSources[name];
     // The pinned tools come from the public hosts even when installs use
     // a configured registry.
-    const [url, ...mirrors] = (
-      configuredRegistry ? [npmRegistry, npmMirrorRegistry] : registries
-    ).map((registry) => npmTarballUrl(registry, name, source.version));
+    const [url, ...mirrors] = [npmRegistry, npmMirrorRegistry].map((registry) =>
+      npmTarballUrl(registry, name, source.version),
+    );
     packages[name] = await component(`${name} ${source.version}`, {
       url: url!,
       mirrors,
@@ -625,6 +661,27 @@ export async function prepareNativeDependencies(options: {
       maxBytes: 32 * 1024 ** 2,
     });
   }
+  // Only downloads resolve the region: a checkout that brings its services
+  // and TeamHub binaries prepares offline. Reading after toolchain downloads
+  // picks up any fallback recorded during them.
+  const region =
+    withGo || withPackages
+      ? await resolveRegion(options.home, {
+          signal: options.signal,
+          fetcher: options.fetcher,
+        })
+      : undefined;
+  const registries = !withPackages
+    ? []
+    : configuredRegistry
+      ? [configuredRegistry]
+      : orderByRegion(region!, [npmRegistry, npmMirrorRegistry]);
+  if (registries[0])
+    options.onEvent?.({
+      kind: "log",
+      stage: "release",
+      message: `Using package registry ${new URL(registries[0]).host}.\n`,
+    });
   const pg = await component(
     `PostgreSQL ${postgres.postgresVersion} / pgvector ${postgres.pgvectorVersion}`,
     {
@@ -633,6 +690,7 @@ export async function prepareNativeDependencies(options: {
         : { url: postgres.url!, mirrors: postgres.mirrors }),
       algorithm: "sha256",
       digest: postgres.sha256,
+      windowsPostgres: windows,
       maxBytes: postgres.bytes,
     },
   );
@@ -672,13 +730,7 @@ export async function prepareNativeDependencies(options: {
     await rename(temporary, file);
     await chmod(file, 0o700);
   }
-  for (const executable of [
-    "postgres",
-    "initdb",
-    "pg_ctl",
-    "psql",
-    "createdb",
-  ]) {
+  for (const executable of postgresPrograms) {
     const info = await lstat(path.join(pg, "bin", `${executable}${exe}`));
     if (
       !info.isFile() ||
@@ -721,12 +773,18 @@ export async function prepareNativeDependencies(options: {
       GOCACHE: path.join(toolchainRoot, "go-build"),
       GOMODCACHE: path.join(toolchainRoot, "gopath/pkg/mod"),
       GOBIN: bin,
-      // Module downloads fall through to the China proxy on any error,
-      // including a timeout; go.sum and the checksum database (reached
-      // through the proxy) still verify every module.
+      // Module downloads fall through to the other region's proxy on any
+      // error, including a timeout; go.sum and the checksum database
+      // (reached through the proxy) still verify every module.
       GOPROXY:
         process.env.GOPROXY ||
-        "https://proxy.golang.org|https://goproxy.cn|direct",
+        [
+          ...orderByRegion(region!, [
+            "https://proxy.golang.org",
+            "https://goproxy.cn",
+          ]),
+          "direct",
+        ].join("|"),
     }),
     // No service needs cgo. Without it Go never calls a C compiler, which
     // on a Mac without Xcode Command Line Tools opens Apple's installer.
@@ -784,7 +842,22 @@ export async function prepareNativeDependencies(options: {
         "A verified private native tool could not execute the required version on this host.",
       );
   }
-  return { env, postgresBin: path.join(pg, "bin"), toolchainRoot, registries };
+  return {
+    env,
+    postgresBin: path.join(pg, "bin"),
+    // Keep the service identity of a running server from this exact archive.
+    ...(windows && {
+      postgresConfigurationExecutable: path.join(
+        nativeRoot,
+        "components",
+        postgres.sha256,
+        "bin",
+        "postgres.exe",
+      ),
+    }),
+    toolchainRoot,
+    registries,
+  };
 }
 /**
  * The verified LiveKit server and ffmpeg for this computer, from
@@ -842,6 +915,7 @@ export async function prepareNativeVoiceTools(options: {
         progress: { completed, total, unit: "bytes" },
       }),
     options.fetcher,
+    options.home,
   );
   options.onEvent?.({
     kind: "log",

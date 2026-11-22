@@ -212,8 +212,10 @@ func TestWindowsDesktopLive(t *testing.T) {
 		}
 		return merged
 	}
-	if _, err := call("computer", "bring_to_front", target); err != nil {
-		t.Fatal(err)
+	// Windows input stays in the background: foreground delivery is refused
+	// before anything is sent.
+	if _, err := call("computer", "scroll", with(map[string]any{"direction": "down", "delivery_mode": "foreground"})); err == nil || !strings.Contains(err.Error(), "COMPUTER_INPUT_NOT_SENT") {
+		t.Fatalf("foreground scroll was not refused: %v", err)
 	}
 	state, err := call("computer", "get_window_state", with(map[string]any{"max_elements": 30}))
 	if err != nil {
@@ -238,7 +240,7 @@ func TestWindowsDesktopLive(t *testing.T) {
 	}
 	snapshot := snapshotFields[0]
 	const typed = "Ligne 1 : bonjour, le monde\nLigne 2 Second line\nFin ✓ çà"
-	if result, err := call("computer", "type_text", with(map[string]any{"text": typed, "element_token": snapshot + ":" + fields[0][1], "delivery_mode": "foreground"})); err != nil || result["isError"] == true {
+	if result, err := call("computer", "type_text", with(map[string]any{"text": typed, "element_token": snapshot + ":" + fields[0][1]})); err != nil || result["isError"] == true {
 		t.Fatalf("type_text: %s %v", text(result), err)
 	}
 	state, err = call("computer", "get_window_state", with(map[string]any{"max_elements": 30}))

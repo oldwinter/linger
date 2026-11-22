@@ -18,7 +18,10 @@ import {
 
 import { createAppRoutes } from "./router";
 
-const routeFixture = vi.hoisted(() => ({ chatError: null as Error | null }));
+const routeFixture = vi.hoisted(() => ({
+  chatError: null as Error | null,
+  preloadRoomChat: vi.fn(() => Promise.resolve()),
+}));
 
 vi.mock("@/features/auth/teamhub-login-page", () => ({
   TeamHubLoginPage: () => <h1>TeamHub sign in</h1>,
@@ -38,6 +41,15 @@ vi.mock("@/features/rooms/room-shell", () => ({
     </div>
   ),
 }));
+vi.mock("@/features/rooms/room-chat-loader", async () => {
+  const { lazy } = await import("react");
+  return {
+    LazyRoomChat: lazy(async () => ({
+      default: (await import("@/features/rooms/chat/room-chat")).RoomChat,
+    })),
+    preloadRoomChat: routeFixture.preloadRoomChat,
+  };
+});
 vi.mock("@/features/rooms/room-surface", () => ({
   RoomSurface: () => <Outlet />,
 }));
@@ -117,6 +129,7 @@ describe("TeamHub routes", () => {
 
   beforeEach(() => {
     routeFixture.chatError = null;
+    routeFixture.preloadRoomChat.mockClear();
   });
 
   it("keeps the Composio OAuth completion route public", async () => {
@@ -583,8 +596,69 @@ describe("TeamHub routes", () => {
       }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { name: "TeamHub unavailable" }),
+      screen.getByRole("heading", { name: "Linger unavailable" }),
     ).toBeVisible();
+  });
+
+  it("shows a reload hint instead of Back to my Rooms for non-restricted Room errors", async () => {
+    const runtime = createTestTeamHubRuntime();
+    runtime.server.on("GET", "/v0/tenants/{tenantId}", () =>
+      teamHubErrorResponse(500, "INTERNAL", "Server unavailable."),
+    );
+    const queryClient = testQueryClient();
+    const router = createMemoryRouter(createAppRoutes(queryClient, runtime), {
+      initialEntries: ["/t/tenant-northstar/rooms/room-all/chat"],
+    });
+
+    renderApp(queryClient, runtime, router);
+
+    expect(
+      await screen.findByRole("heading", { name: "Linger unavailable" }),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeVisible();
+    expect(screen.queryByText(/Back to my Rooms/)).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/Use “Try again” to reload this view\./),
+    ).toBeVisible();
+  });
+
+  it("offers Open Messages on unknown Space paths", async () => {
+    const runtime = createTestTeamHubRuntime();
+    const queryClient = testQueryClient();
+    const router = createMemoryRouter(createAppRoutes(queryClient, runtime), {
+      initialEntries: ["/t/tenant-northstar/no-such-page"],
+    });
+
+    renderApp(queryClient, runtime, router);
+
+    expect(
+      await screen.findByRole("heading", { name: "Page not found" }),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "Open Messages" })).toBeVisible();
+  });
+
+  it("preloads the Room chat chunk from /, /t/:tenantId/rooms, and /t/:tenantId/rooms/:roomId loaders", async () => {
+    const runtime = createTestTeamHubRuntime();
+    const queryClient = testQueryClient();
+    const router = createMemoryRouter(createAppRoutes(queryClient, runtime), {
+      initialEntries: ["/"],
+    });
+
+    renderApp(queryClient, runtime, router);
+    expect(
+      await screen.findByRole("heading", { name: "Fixture Room Chat" }),
+    ).toBeVisible();
+    // Both `/` and `/t/:tenantId/rooms/:roomId` loaders trigger preloadRoomChat.
+    expect(routeFixture.preloadRoomChat).toHaveBeenCalledTimes(2);
+
+    routeFixture.preloadRoomChat.mockClear();
+    await router.navigate(`/t/${runtime.seed.tenant.id}/rooms`);
+    await waitFor(() =>
+      expect(routeFixture.preloadRoomChat).toHaveBeenCalled(),
+    );
+
+    router.dispose();
+    queryClient.clear();
   });
 });
 

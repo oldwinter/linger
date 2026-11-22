@@ -1,4 +1,5 @@
 import {
+  Compass01Icon,
   File01Icon,
   HashtagIcon,
   Message01Icon,
@@ -7,25 +8,41 @@ import {
 
 import type { IconSvgElement } from "@/components/ui/icon";
 import {
+  buildCoreProductPlaces,
+  buildMeetingJumpPlaces,
+  type JumpPlace,
+} from "@/features/jump/jump-places";
+import {
   documentFileName,
   documentRepresentationFormat,
 } from "@/features/library/document-display-name";
 import { documentFormatLabel } from "@/features/library/document-format-label";
+import { documentSourceLabels } from "@/features/library/document-source-label";
 import { documentDetailPath } from "@/features/rooms/files/document-detail-routes";
 import { roomChatPath } from "@/features/rooms/room-routes";
 import { spokenRoomFace } from "@/features/rooms/members/room-spoken-face";
 import { markdownPlainText } from "@/features/teamhub/markdown-plain-text";
 import type {
   TeamHubDocument,
+  TeamHubMemoryEntry,
   TeamHubMessageSearchHit,
   TeamHubRoomListItem,
   TeamHubTenantAgent,
 } from "@/features/teamhub/teamhub-types";
+import { type Translate, translate } from "@/i18n/language";
+import type { Message } from "@/i18n/messages";
 
+import { searchMessages as m } from "./global-search.messages";
 import type { SearchTarget, SearchTargetActor } from "./global-search-recent";
 
 /** "people" is the Members scope: the Agents a Human can open a Direct Room with. */
-export type GlobalSearchTab = "all" | "docs" | "messages" | "people" | "rooms";
+export type GlobalSearchTab =
+  | "all"
+  | "docs"
+  | "messages"
+  | "people"
+  | "places"
+  | "rooms";
 
 export type GroupTab = Exclude<GlobalSearchTab, "all">;
 
@@ -35,37 +52,57 @@ export const GROUP_ORDER: readonly GroupTab[] = [
   "docs",
   "people",
   "rooms",
+  "places",
 ];
 
-export const SCOPES: Record<
-  GroupTab,
-  { hint: string; icon: IconSvgElement; label: string; placeholder: string }
-> = {
+export type ScopeText = Message<string> | string;
+
+/** Words a scope text that may be either a catalog message or a literal string. */
+export function scopeText(text: ScopeText, t: Translate = translate) {
+  return typeof text === "string" ? text : t(text);
+}
+
+/** Each scope's texts are messages (or literals for fork-only scopes), worded when they are shown. */
+export const SCOPES = {
   messages: {
-    hint: "Chats in your Rooms",
+    hint: m.messagesHint,
     icon: Message01Icon,
-    label: "Messages",
-    placeholder: "Search messages",
+    label: m.messagesLabel,
+    placeholder: m.messagesPlaceholder,
   },
   people: {
-    hint: "Agents you can message",
+    hint: m.membersHint,
     icon: UserGroupIcon,
-    label: "Members",
-    placeholder: "Search members",
+    label: m.membersLabel,
+    placeholder: m.membersPlaceholder,
   },
   docs: {
-    hint: "Docs and notes",
+    hint: m.docsHint,
     icon: File01Icon,
-    label: "Docs",
-    placeholder: "Search docs",
+    label: m.docsLabel,
+    placeholder: m.docsPlaceholder,
   },
   rooms: {
-    hint: "Rooms you can join",
+    hint: m.roomsHint,
     icon: HashtagIcon,
-    label: "Rooms",
-    placeholder: "Search rooms",
+    label: m.roomsLabel,
+    placeholder: m.roomsPlaceholder,
   },
-};
+  places: {
+    hint: "Pages and settings",
+    icon: Compass01Icon,
+    label: "Places",
+    placeholder: "Search places",
+  },
+} satisfies Record<
+  GroupTab,
+  {
+    hint: ScopeText;
+    icon: IconSvgElement;
+    label: ScopeText;
+    placeholder: ScopeText;
+  }
+>;
 
 export const SCOPE_ORDER: readonly GroupTab[] = [
   "messages",
@@ -93,9 +130,63 @@ export type SearchResult =
   | { id: string; kind: "agent"; agent: TeamHubTenantAgent }
   | { id: string; kind: "document"; document: TeamHubDocument }
   | { id: string; kind: "message"; hit: TeamHubMessageSearchHit }
+  | { id: string; kind: "place"; place: JumpPlace }
   | { id: string; kind: "room"; room: TeamHubRoomListItem }
   | { id: string; kind: "query"; text: string }
   | { id: string; kind: "scope"; tab: GroupTab };
+
+/** Navigable product pages, Settings sections, and already-loaded meetings. */
+export function buildSearchPlaces(
+  tenantId: string,
+  meetings: readonly TeamHubMemoryEntry[] = [],
+): JumpPlace[] {
+  const encodedTenant = encodeURIComponent(tenantId);
+  const settingsSections: JumpPlace[] = [
+    {
+      detail: "Settings",
+      id: "profile",
+      keywords: ["account"],
+      path: `/t/${encodedTenant}/settings/account`,
+      title: "Profile",
+    },
+    {
+      detail: "Settings",
+      id: "security",
+      keywords: ["password", "sessions"],
+      path: `/t/${encodedTenant}/settings/security`,
+      title: "Security",
+    },
+    {
+      detail: "Settings",
+      id: "my-rules",
+      path: `/t/${encodedTenant}/settings/my-rules`,
+      title: "My Rules",
+    },
+    {
+      detail: "Settings",
+      id: "shortcuts",
+      keywords: ["keyboard", "keys"],
+      path: `/t/${encodedTenant}/settings/shortcuts`,
+      title: "Shortcuts",
+    },
+  ];
+  const corePlaces = buildCoreProductPlaces(tenantId);
+  const settingsIndex = corePlaces.findIndex(
+    (place) => place.id === "settings",
+  );
+  const orderedProductPlaces =
+    settingsIndex >= 0
+      ? [
+          ...corePlaces.slice(0, settingsIndex + 1),
+          ...settingsSections,
+          ...corePlaces.slice(settingsIndex + 1),
+        ]
+      : [...corePlaces, ...settingsSections];
+  return [
+    ...orderedProductPlaces,
+    ...buildMeetingJumpPlaces(meetings, tenantId),
+  ];
+}
 
 type TargetResult = Exclude<SearchResult, { kind: "query" | "scope" }>;
 
@@ -106,7 +197,7 @@ export interface ResultGroup {
 }
 
 export interface ResultSection {
-  action?: { label: string; onSelect: () => void };
+  action?: { ariaLabel: string; label: string; onSelect: () => void };
   items: SearchResult[];
   key: string;
   label: string;
@@ -135,6 +226,8 @@ export function rowScope(row: SearchResult | undefined): GroupTab | undefined {
       return "docs";
     case "agent":
       return "people";
+    case "place":
+      return "places";
     case "room":
       return "rooms";
     default:
@@ -142,18 +235,25 @@ export function rowScope(row: SearchResult | undefined): GroupTab | undefined {
   }
 }
 
-export function emptyDetail(tab: GlobalSearchTab, query: string) {
+export function emptyDetail(
+  tab: GlobalSearchTab,
+  query: string,
+  t: Translate = translate,
+) {
   if (query === "") {
-    return tab === "messages"
-      ? "Type a word from the message you are looking for."
-      : "Type a title or a word from the doc.";
+    return tab === "messages" ? t(m.emptyMessageHint) : t(m.emptyDocHint);
   }
-  if (query.length < MIN_BACKEND_QUERY_LENGTH && tab !== "people") {
-    return `Type at least ${MIN_BACKEND_QUERY_LENGTH} characters to search messages and docs.`;
+  if (
+    query.length < MIN_BACKEND_QUERY_LENGTH &&
+    tab !== "people" &&
+    tab !== "places" &&
+    tab !== "rooms"
+  ) {
+    return t(m.emptyTooShort, { min: MIN_BACKEND_QUERY_LENGTH });
   }
   return tab === "all"
-    ? "Check the spelling or try a shorter word."
-    : `Nothing in ${SCOPES[tab].label}. Try searching everywhere.`;
+    ? t(m.emptyCheckSpelling)
+    : t(m.emptyNothingIn, { scope: scopeText(SCOPES[tab].label, t) });
 }
 
 export function byName<T>(read: (value: T) => string) {
@@ -173,20 +273,19 @@ function messageRoomLabel(
     const parentName = room.parent_room_id
       ? roomNames.get(room.parent_room_id)
       : undefined;
-    return `#${parentName ?? room.name} · thread`;
+    return translate(m.threadIn, { name: parentName ?? room.name });
   }
   if (room.kind === "direct") return room.name;
   return `#${room.name}`;
 }
 
 function documentLocationLabel(document: TeamHubDocument) {
-  if (document.from.length === 0) return "Library";
-  return document.from
-    .map(
-      (binding) =>
-        binding.label ?? `${binding.binding_kind}:${binding.context_id}`,
-    )
-    .join(", ");
+  if (document.from.length === 0) return translate(m.library);
+  return documentSourceLabels(
+    document.from,
+    translate,
+    (binding) => `${binding.binding_kind}:${binding.context_id}`,
+  ).join(", ");
 }
 
 function threadPath(
@@ -264,6 +363,14 @@ export function resultTarget(
         ...(agent.avatar_key ? { avatarKey: agent.avatar_key } : {}),
       };
     }
+    case "place":
+      return {
+        detail: result.place.detail,
+        id: result.place.id,
+        kind: "place",
+        name: result.place.title,
+        path: result.place.path,
+      };
     case "room": {
       const { room } = result;
       const isThread =

@@ -8,6 +8,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import { useState } from "react";
 import { createMemoryRouter, Outlet, RouterProvider } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -21,7 +22,20 @@ import type { TeamHubMemoryEntry } from "@/features/teamhub/teamhub-types";
 
 import { MeetingCarryBar } from "./meeting-carry-bar";
 import { carriedMeetingSnapshot, releaseCarriedMeeting } from "./meeting-carry";
-import { MeetingReader } from "./meeting-reader";
+import { MeetingReader, type MeetingTab } from "./meeting-reader";
+
+function StatefulMeetingReader({ entry }: { entry: TeamHubMemoryEntry }) {
+  const [tab, setTab] = useState<MeetingTab>("summary");
+  return (
+    <MeetingReader
+      entry={entry}
+      file={tab}
+      onHidden={() => undefined}
+      onSelectTab={setTab}
+      tenantId="tenant-northstar"
+    />
+  );
+}
 
 afterEach(() => {
   cleanup();
@@ -87,15 +101,7 @@ async function renderMeetingPlayback() {
         ),
         children: [
           {
-            element: (
-              <MeetingReader
-                entry={entry}
-                file="summary"
-                onHidden={() => undefined}
-                onSelectTab={() => undefined}
-                tenantId="tenant-northstar"
-              />
-            ),
+            element: <StatefulMeetingReader entry={entry} />,
             path: "/t/:tenantId/library/meetings",
           },
           {
@@ -280,4 +286,27 @@ describe("meeting playback carry", () => {
       expect(dispose).toHaveBeenCalledOnce();
     },
   );
+
+  it("keeps the audio player mounted without ejecting to the carry bar when switching from Summary to Transcript while playing", async () => {
+    const { audio, dispose, getContentLocation } =
+      await renderMeetingPlayback();
+    fireEvent.click(screen.getByRole("button", { name: "Play recording" }));
+    fireEvent.play(audio);
+    audio.currentTime = 42;
+    fireEvent.timeUpdate(audio);
+
+    fireEvent.click(screen.getByRole("tab", { name: "Transcript" }));
+
+    expect(screen.getByRole("tab", { name: "Transcript" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(document.querySelector("audio")).toBe(audio);
+    expect(carriedMeetingSnapshot()).toBeUndefined();
+    expect(
+      screen.queryByRole("region", { name: "Meeting still playing" }),
+    ).toBeNull();
+    expect(dispose).not.toHaveBeenCalled();
+    expect(getContentLocation).toHaveBeenCalledOnce();
+  });
 });

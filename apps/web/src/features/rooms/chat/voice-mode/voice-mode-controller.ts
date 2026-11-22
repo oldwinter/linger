@@ -1,4 +1,6 @@
 import { VoiceModeDisconnectedError } from "./voice-mode-errors";
+import { translate } from "@/i18n/language";
+import { voiceSessionMessages as m } from "./voice-session.messages";
 
 export type VoiceModeEvent =
   | { kind: "partial"; text: string; endOffsetMs: number }
@@ -238,11 +240,7 @@ export class VoiceModeController {
       if (this.seen.has(event.id)) return;
       // IDs are bounded by the lifetime of this explicitly opened session.
       if (this.seen.size >= 4_000) {
-        this.fail(
-          new Error(
-            "Voice Mode reached its session limit. Exit and start again.",
-          ),
-        );
+        this.fail(new Error(translate(m.sessionLimit)));
         return;
       }
       this.seen.add(event.id);
@@ -281,11 +279,7 @@ export class VoiceModeController {
       this.queue.length >= maximumQueuedTurns ||
       this.state.text.length > maximumTextLength
     ) {
-      this.fail(
-        new Error(
-          "Voice input is ahead of message delivery. Your draft is kept; retry or exit to review it.",
-        ),
-      );
+      this.fail(new Error(translate(m.inputAhead)));
       return;
     }
     // Transcript events may arrive while the transport is still completing its
@@ -420,7 +414,5 @@ function isRecoverableVoiceError(error: unknown) {
 }
 
 function describe(error: unknown) {
-  return error instanceof Error
-    ? error.message
-    : "Voice Mode could not continue. Your text has been kept.";
+  return error instanceof Error ? error.message : translate(m.couldNotContinue);
 }

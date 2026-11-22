@@ -33,6 +33,8 @@ interface ExecutionContextDeveloperInstructionsCommonInput {
   readonly connectedApps: boolean;
   /** Keys of the apps with an account granted to this Agent. */
   readonly connectedAppKeys: readonly string[];
+  /** Keys of every catalog app the Human can connect. */
+  readonly connectableAppKeys: readonly string[];
   /** The Runtime model's context window is small: use the compact recipe. */
   readonly compactInstructions: boolean;
 }
@@ -78,6 +80,7 @@ export const assembleExecutionContextDeveloperInstructions = (
       roomKind: input.roomKind,
       connectedApps: input.connectedApps,
       connectedAppKeys: input.connectedAppKeys,
+      connectableAppKeys: input.connectableAppKeys,
     });
   const fragments: string[] = [
     renderAgentInstructions({

@@ -4,9 +4,10 @@ import { createContext, useContext } from "react";
 export const WORKSPACE_TREE_ID = "workspace-tree";
 
 export const WorkspaceTreeContext = createContext<{
+  hasList?: boolean;
   open: boolean;
   setOpen: (open: boolean, pathname?: string) => void;
-}>({ open: false, setOpen: () => undefined });
+}>({ hasList: false, open: false, setOpen: () => undefined });
 
 export function useWorkspaceTree() {
   return useContext(WorkspaceTreeContext);

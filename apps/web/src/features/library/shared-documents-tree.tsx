@@ -26,7 +26,10 @@ import { Link, useNavigate } from "react-router";
 import { ActionMenu } from "@/components/ui/action-menu";
 import { Spinner } from "@/components/ui/spinner";
 import { writeDocumentLinkClipboard } from "@/features/rooms/files/document-clipboard-link";
-import { revealCurrentTreeNode } from "./my-documents-tree-level";
+import {
+  FolderRenameInput,
+  revealCurrentTreeNode,
+} from "./my-documents-tree-level";
 import { WorkspaceFileIcon } from "./workspace-file-icon";
 import { triggerArtifactDownload } from "@/features/rooms/files/artifact-preview-loader";
 import { documentDetailPath } from "@/features/rooms/files/document-detail-routes";
@@ -37,9 +40,13 @@ import type {
   TeamHubDocumentPlacementNode,
   TeamHubDocumentTreeSummary,
 } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import type { Translate } from "@/i18n/language";
+import { useT } from "@/i18n/use-translation";
 
 import { DocumentDeleteDialog } from "./document-delete-dialog";
 import { documentFileName } from "./document-display-name";
+import { libraryMessages as m } from "./library.messages";
 import { useLibraryTreeState } from "./use-library-tree-state";
 import { MoveFolderPickerDialog } from "./move-folder-picker-dialog";
 import {
@@ -79,6 +86,7 @@ function useSharedDocumentsTreeModel({
 }) {
   const { client } = useTeamHubRuntime();
   const navigate = useNavigate();
+  const t = useT();
   const [trashingDocument, setTrashingDocument] =
     useState<TeamHubDocumentTreeSummary | null>(null);
   const [trashPending, setTrashPending] = useState(false);
@@ -154,7 +162,7 @@ function useSharedDocumentsTreeModel({
         void navigate(`/t/${encodeURIComponent(tenantId)}/library`);
       setTrashingDocument(null);
     } catch (cause) {
-      setError(sharedTreeError(cause, "The document could not be deleted."));
+      setError(sharedTreeError(cause, t(m.documentNotDeleted)));
     } finally {
       setTrashPending(false);
     }
@@ -185,7 +193,7 @@ function useSharedDocumentsTreeModel({
       const content = await client.downloadLatestDocument(document.id);
       triggerArtifactDownload(content.blob, filename);
     } catch (cause) {
-      setError(sharedTreeError(cause, "The document could not be exported."));
+      setError(sharedTreeError(cause, t(m.documentNotExported)));
     }
   }
 
@@ -241,7 +249,7 @@ function useSharedDocumentsTreeModel({
         client.api.POST("/v0/tenants/{tenantId}/me/shared-document-folders", {
           params: { path: { tenantId } },
           body: {
-            name: nextSharedFolderName(folders),
+            name: nextSharedFolderName(folders, t),
             ...(parentId ? { parent_id: parentId } : {}),
           },
         }),
@@ -257,7 +265,7 @@ function useSharedDocumentsTreeModel({
       setFocusedNodeId(folder.id);
       setRenaming({ id: folder.id, name: folder.name });
     } catch (cause) {
-      setError(sharedTreeError(cause, "The folder could not be created."));
+      setError(sharedTreeError(cause, t(m.folderNotCreated)));
     } finally {
       setCreating(false);
     }
@@ -281,7 +289,7 @@ function useSharedDocumentsTreeModel({
       setRenaming(null);
       await refresh();
     } catch (cause) {
-      setError(sharedTreeError(cause, "The folder could not be renamed."));
+      setError(sharedTreeError(cause, t(m.folderNotRenamed)));
     }
   }
 
@@ -316,7 +324,7 @@ function useSharedDocumentsTreeModel({
       setMoving(null);
       await refresh();
     } catch (cause) {
-      setError(sharedTreeError(cause, "The item could not be moved."));
+      setError(sharedTreeError(cause, t(m.itemNotMoved)));
     }
   }
 
@@ -333,7 +341,7 @@ function useSharedDocumentsTreeModel({
       );
       await refresh();
     } catch (cause) {
-      setError(sharedTreeError(cause, "The folder could not be deleted."));
+      setError(sharedTreeError(cause, t(m.folderNotDeleted)));
     } finally {
       setDeletingFolderId(null);
     }
@@ -523,8 +531,9 @@ function SharedDocumentsTreeSurface({
   treeError: Error | null;
   treePending: boolean;
 }) {
+  const t = useT();
   return (
-    <section aria-label="Shared with me tree">
+    <section aria-label={t(m.sharedTree)}>
       {trashingDocument ? (
         <DocumentDeleteDialog
           title={documentFileName(trashingDocument)}
@@ -537,7 +546,9 @@ function SharedDocumentsTreeSurface({
       <div className="flex items-center justify-between gap-1">
         <button
           aria-expanded={!collectionCollapsed}
-          aria-label={`${collectionCollapsed ? "Expand" : "Collapse"} Shared with me`}
+          aria-label={t(
+            collectionCollapsed ? m.expandShared : m.collapseShared,
+          )}
           className={workspaceHeadingToggleClass}
           onClick={onCollectionToggle}
           type="button"
@@ -547,7 +558,7 @@ function SharedDocumentsTreeSurface({
             className="shrink-0 text-app-muted"
             size={WORKSPACE_HEADING_ICON_SIZE}
           />
-          <span className="truncate">Shared with me</span>
+          <span className="truncate">{t(m.sharedWithMe)}</span>
         </button>
         <ActionMenu
           placement="right-start"
@@ -555,12 +566,12 @@ function SharedDocumentsTreeSurface({
           items={[
             {
               disabled: creating || treePending || treeError !== null,
-              icon: <Icon icon={FolderAddIcon} size={16} />,
-              label: "New folder",
+              icon: <Icon icon={FolderAddIcon} size={14} />,
+              label: t(m.newFolder),
               onSelect: () => onCreateFolder(),
             },
           ]}
-          label="Organize Shared with me"
+          label={t(m.organizeShared)}
           trigger={
             <Icon icon={PlusSignIcon} size={WORKSPACE_HEADING_ICON_SIZE} />
           }
@@ -580,7 +591,7 @@ function SharedDocumentsTreeSurface({
               label={
                 moving.node_kind === "folder"
                   ? moving.name
-                  : (documentsById.get(moving.document_id)?.title ?? "document")
+                  : documentsById.get(moving.document_id)?.title
               }
               node={moving}
               onCancel={onMoveCancel}
@@ -589,17 +600,17 @@ function SharedDocumentsTreeSurface({
           ) : null}
           {treeError ? (
             <p className="px-1 py-2 text-xs text-app-danger" role="alert">
-              {treeError.message || "Shared with me is unavailable."}
+              {treeError.message || t(m.sharedUnavailable)}
             </p>
           ) : treePending ? (
             <p className="flex items-center gap-2 px-1 py-2 text-xs text-app-muted">
               <Spinner size={14} />
-              Loading tree…
+              {t(m.loadingTree)}
             </p>
           ) : items.length > 0 ? (
             // eslint-disable-next-line jsx-a11y/interactive-supports-focus -- composite widget: focus is managed on its child items
             <div
-              aria-label="Shared with me"
+              aria-label={t(m.sharedWithMe)}
               className="mt-2 ml-4"
               onKeyDown={onTreeKeyDown}
               role="tree"
@@ -628,6 +639,7 @@ function SharedDocumentsTreeSurface({
                 onToggle,
                 parentId: undefined,
                 renaming,
+                t,
                 tenantId,
               })}
             </div>
@@ -662,6 +674,7 @@ function renderSharedTreeLevel(input: {
   onToggle: (folderId: string) => void;
   parentId: string | undefined;
   renaming: SharedTreeRenaming;
+  t: Translate;
   tenantId: string;
 }): ReactNode {
   const moveFromDrag = (event: DragEvent, parentId: string) => {
@@ -730,22 +743,12 @@ function renderSharedTreeLevel(input: {
               className={`group flex h-[33px] min-w-0 items-center gap-1 rounded-md hover:bg-app-hover focus-within:bg-app-hover ${input.dragTargetId === item.id ? "bg-app-selected" : ""}`}
             >
               {isRenaming ? (
-                <input
-                  aria-label="Rename shared folder"
-                  className="h-[33px] min-w-0 flex-1 rounded-md border border-app-focus bg-app-surface px-2 text-[14px] leading-[18px] outline-none"
-                  onChange={(event) => input.onRenameChange(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.nativeEvent.isComposing || event.keyCode === 229)
-                      return;
-                    if (event.key === "Enter") input.onRenameSubmit();
-                    if (event.key === "Escape") input.onRenameCancel();
-                  }}
-                  ref={(node) => {
-                    if (node && node.ownerDocument.activeElement !== node) {
-                      node.focus();
-                      node.select();
-                    }
-                  }}
+                <FolderRenameInput
+                  ariaLabel={input.t(m.renameSharedFolder)}
+                  initialName={item.name}
+                  onCancel={input.onRenameCancel}
+                  onChange={input.onRenameChange}
+                  onSubmit={input.onRenameSubmit}
                   value={input.renaming?.name ?? ""}
                 />
               ) : (
@@ -774,30 +777,33 @@ function renderSharedTreeLevel(input: {
                     items={[
                       {
                         icon: <Icon icon={FolderAddIcon} size={14} />,
-                        label: "New folder",
+                        label: input.t(m.newFolder),
                         onSelect: () => input.onCreateFolder(item.id),
                       },
                       {
                         icon: <Icon icon={PencilEdit01Icon} size={14} />,
-                        label: "Rename",
+                        label: input.t(m.rename),
                         onSelect: () => input.onBeginRename(item),
                         separatorBefore: true,
                       },
                       {
                         icon: <Icon icon={FolderExportIcon} size={14} />,
-                        label: "Move",
+                        label: input.t(m.move),
                         onSelect: () => input.onMoveBegin(item),
                       },
                       {
                         danger: true,
                         disabled: input.deletingFolderId === item.id,
                         icon: <Icon icon={Delete02Icon} size={14} />,
-                        label: "Delete",
+                        voiceRisk: "never",
+                        label: input.t(commonMessages.delete),
                         onSelect: () => input.onDeleteFolder(item.id),
                         separatorBefore: true,
                       },
                     ]}
-                    label={`Actions for shared folder ${item.name}`}
+                    label={input.t(m.actionsForSharedFolder, {
+                      name: item.name,
+                    })}
                     trigger={<Icon icon={MoreHorizontalIcon} size={14} />}
                   />
                 </>
@@ -814,7 +820,7 @@ function renderSharedTreeLevel(input: {
       const document = input.documentsById.get(item.document_id);
       if (!document || document.status !== "active") return null;
       const fileName = documentFileName(document);
-      const provenance = sharedAccessProvenanceLabel(document);
+      const provenance = sharedAccessProvenanceLabel(document, input.t);
       const current = document.id === input.activeDocumentId;
       return (
         <div
@@ -869,31 +875,32 @@ function renderSharedTreeLevel(input: {
             items={[
               {
                 icon: <Icon icon={Copy01Icon} size={14} />,
-                label: "Copy link",
+                label: input.t(m.copyLink),
                 onSelect: () => input.onCopyLink(document),
               },
               {
                 disabled: !document.capabilities.export,
                 icon: <Icon icon={Download01Icon} size={14} />,
-                label: "Download",
+                label: input.t(m.download),
                 onSelect: () => input.onExport(document),
               },
               {
                 icon: <Icon icon={FolderExportIcon} size={14} />,
-                label: "Move",
+                label: input.t(m.move),
                 onSelect: () => input.onMoveBegin(item),
               },
               ...(document.capabilities.delete
                 ? [
                     {
                       icon: <Icon icon={Delete02Icon} size={14} />,
-                      label: "Delete",
+                      voiceRisk: "never" as const,
+                      label: input.t(commonMessages.delete),
                       onSelect: () => input.onTrashDocument(document),
                     },
                   ]
                 : []),
             ]}
-            label={`Actions for shared document ${fileName}`}
+            label={input.t(m.actionsForSharedDocument, { name: fileName })}
             trigger={<Icon icon={MoreHorizontalIcon} size={14} />}
           />
         </div>
@@ -901,24 +908,37 @@ function renderSharedTreeLevel(input: {
     });
 }
 
-function sharedAccessProvenanceLabel(document: TeamHubDocumentTreeSummary) {
+const accessRoles = {
+  editor: m.roleEditor,
+  manager: m.roleManager,
+  owner: m.roleOwner,
+  viewer: m.roleViewer,
+};
+
+function sharedAccessProvenanceLabel(
+  document: TeamHubDocumentTreeSummary,
+  t: Translate,
+) {
   const labels: string[] = [];
   for (const source of document.access_sources ?? []) {
     if (source.status === "active") {
       const sourceLabel =
         source.source_kind === "direct"
-          ? "Direct"
+          ? m.sourceDirect
           : source.source_kind === "context"
             ? source.provenance.binding_kind === "room"
-              ? "Room context"
+              ? m.sourceRoom
               : source.provenance.binding_kind === "task"
-                ? "Task context"
-                : "Wiki context"
+                ? m.sourceTask
+                : m.sourceWiki
             : source.source_kind === "link"
-              ? "Link audience"
-              : "Owner";
+              ? m.sourceLink
+              : m.sourceOwner;
       labels.push(
-        `${sourceLabel} ${source.role.charAt(0).toUpperCase()}${source.role.slice(1)}`,
+        t(m.accessSource, {
+          role: t(accessRoles[source.role]),
+          source: t(sourceLabel),
+        }),
       );
     }
   }
@@ -935,11 +955,12 @@ function SharedMoveDialog({
 }: {
   folders: SharedFolder[];
   items: TeamHubDocumentPlacementNode[];
-  label: string;
+  label: string | undefined;
   node: TeamHubDocumentPlacementNode;
   onCancel: () => void;
   onMove: (parentId: string) => void;
 }) {
+  const t = useT();
   const invalid = new Set<string>(
     node.node_kind === "folder"
       ? [node.id, ...descendants(node.id, items)]
@@ -953,7 +974,7 @@ function SharedMoveDialog({
       label={label}
       onCancel={onCancel}
       onMove={onMove}
-      rootLabel="Shared with me"
+      rootLabel={t(m.sharedWithMe)}
     />
   );
 }
@@ -976,12 +997,14 @@ function hasDragType(transfer: DataTransfer, type: string) {
   return Array.from(transfer.types).includes(type);
 }
 
-function nextSharedFolderName(folders: SharedFolder[]) {
+/** The name a new shared folder starts with, in the language on screen. */
+function nextSharedFolderName(folders: SharedFolder[], t: Translate) {
   const names = new Set(folders.map((folder) => folder.name));
-  if (!names.has("New Folder")) return "New Folder";
-  let suffix = 2;
-  while (names.has(`New Folder ${suffix}`)) suffix += 1;
-  return `New Folder ${suffix}`;
+  const name = t(m.defaultFolderName);
+  if (!names.has(name)) return name;
+  let index = 2;
+  while (names.has(t(m.defaultFolderNameNumbered, { index }))) index += 1;
+  return t(m.defaultFolderNameNumbered, { index });
 }
 
 function compareSharedTreeItems(

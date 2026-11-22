@@ -24,7 +24,7 @@ export default defineAgent({
           webSocketUrl: config.xaiLiveWebSocketUrl,
           audioTransport: config.xaiLiveAudioTransport,
           model: "grok-voice-3.0",
-          voice: "ara",
+          voice: "carina",
           reasoningEffort: "high",
           setup,
         }),

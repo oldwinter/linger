@@ -66,6 +66,8 @@ const (
 	AgentApiErrorCodeProviderKeyRequired        AgentApiErrorCode = "provider_key_required"
 	AgentApiErrorCodeProviderRateLimited        AgentApiErrorCode = "provider_rate_limited"
 	AgentApiErrorCodeProviderUnavailable        AgentApiErrorCode = "provider_unavailable"
+	AgentApiErrorCodeSearchKeyRequested         AgentApiErrorCode = "search_key_requested"
+	AgentApiErrorCodeSearchQuotaExhausted       AgentApiErrorCode = "search_quota_exhausted"
 	AgentApiErrorCodeTaskFinishConflict         AgentApiErrorCode = "task_finish_conflict"
 	AgentApiErrorCodeTaskLimitReached           AgentApiErrorCode = "task_limit_reached"
 	AgentApiErrorCodeTeamMdDocumentInvalid      AgentApiErrorCode = "team_md_document_invalid"
@@ -136,6 +138,10 @@ func (e AgentApiErrorCode) Valid() bool {
 		return true
 	case AgentApiErrorCodeProviderUnavailable:
 		return true
+	case AgentApiErrorCodeSearchKeyRequested:
+		return true
+	case AgentApiErrorCodeSearchQuotaExhausted:
+		return true
 	case AgentApiErrorCodeTaskFinishConflict:
 		return true
 	case AgentApiErrorCodeTaskLimitReached:
@@ -149,6 +155,45 @@ func (e AgentApiErrorCode) Valid() bool {
 	case AgentApiErrorCodeUnauthenticated:
 		return true
 	case AgentApiErrorCodeVersionConflict:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AgentApiErrorDetailsOrigin.
+const (
+	AgentApiErrorDetailsOriginRequested AgentApiErrorDetailsOrigin = "requested"
+	AgentApiErrorDetailsOriginSuggested AgentApiErrorDetailsOrigin = "suggested"
+)
+
+// Valid indicates whether the value is a known member of the AgentApiErrorDetailsOrigin enum.
+func (e AgentApiErrorDetailsOrigin) Valid() bool {
+	switch e {
+	case AgentApiErrorDetailsOriginRequested:
+		return true
+	case AgentApiErrorDetailsOriginSuggested:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AgentApiErrorDetailsReason.
+const (
+	AgentApiErrorDetailsReasonFreeLimit AgentApiErrorDetailsReason = "free_limit"
+	AgentApiErrorDetailsReasonMissing   AgentApiErrorDetailsReason = "missing"
+	AgentApiErrorDetailsReasonRejected  AgentApiErrorDetailsReason = "rejected"
+)
+
+// Valid indicates whether the value is a known member of the AgentApiErrorDetailsReason enum.
+func (e AgentApiErrorDetailsReason) Valid() bool {
+	switch e {
+	case AgentApiErrorDetailsReasonFreeLimit:
+		return true
+	case AgentApiErrorDetailsReasonMissing:
+		return true
+	case AgentApiErrorDetailsReasonRejected:
 		return true
 	default:
 		return false
@@ -640,10 +685,11 @@ func (e AgentReferenceMessageSegmentTargetType) Valid() bool {
 
 // Defines values for AgentRoutineListenerApp.
 const (
-	Gmail          AgentRoutineListenerApp = "gmail"
-	GoogleCalendar AgentRoutineListenerApp = "google_calendar"
-	Outlook        AgentRoutineListenerApp = "outlook"
-	Slack          AgentRoutineListenerApp = "slack"
+	Gmail           AgentRoutineListenerApp = "gmail"
+	GoogleCalendar  AgentRoutineListenerApp = "google_calendar"
+	Outlook         AgentRoutineListenerApp = "outlook"
+	OutlookCalendar AgentRoutineListenerApp = "outlook_calendar"
+	Slack           AgentRoutineListenerApp = "slack"
 )
 
 // Valid indicates whether the value is a known member of the AgentRoutineListenerApp enum.
@@ -655,6 +701,8 @@ func (e AgentRoutineListenerApp) Valid() bool {
 		return true
 	case Outlook:
 		return true
+	case OutlookCalendar:
+		return true
 	case Slack:
 		return true
 	default:
@@ -664,10 +712,11 @@ func (e AgentRoutineListenerApp) Valid() bool {
 
 // Defines values for AgentRoutineScheduleKind.
 const (
-	Daily       AgentRoutineScheduleKind = "daily"
-	EveryNHours AgentRoutineScheduleKind = "every_n_hours"
-	Once        AgentRoutineScheduleKind = "once"
-	Weekly      AgentRoutineScheduleKind = "weekly"
+	Daily         AgentRoutineScheduleKind = "daily"
+	EveryNHours   AgentRoutineScheduleKind = "every_n_hours"
+	EveryNMinutes AgentRoutineScheduleKind = "every_n_minutes"
+	Once          AgentRoutineScheduleKind = "once"
+	Weekly        AgentRoutineScheduleKind = "weekly"
 )
 
 // Valid indicates whether the value is a known member of the AgentRoutineScheduleKind enum.
@@ -676,6 +725,8 @@ func (e AgentRoutineScheduleKind) Valid() bool {
 	case Daily:
 		return true
 	case EveryNHours:
+		return true
+	case EveryNMinutes:
 		return true
 	case Once:
 		return true
@@ -1178,6 +1229,333 @@ func (e TrackingItemUpdateStatus) Valid() bool {
 	}
 }
 
+// Defines values for WebConnectResponseStatus.
+const (
+	WebConnectResponseStatusConnectionRequested WebConnectResponseStatus = "connection_requested"
+	WebConnectResponseStatusReady               WebConnectResponseStatus = "ready"
+)
+
+// Valid indicates whether the value is a known member of the WebConnectResponseStatus enum.
+func (e WebConnectResponseStatus) Valid() bool {
+	switch e {
+	case WebConnectResponseStatusConnectionRequested:
+		return true
+	case WebConnectResponseStatusReady:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for WebOpenRequestBackend.
+const (
+	WebOpenRequestBackendExa       WebOpenRequestBackend = "exa"
+	WebOpenRequestBackendFirecrawl WebOpenRequestBackend = "firecrawl"
+	WebOpenRequestBackendTavily    WebOpenRequestBackend = "tavily"
+	WebOpenRequestBackendYou       WebOpenRequestBackend = "you"
+)
+
+// Valid indicates whether the value is a known member of the WebOpenRequestBackend enum.
+func (e WebOpenRequestBackend) Valid() bool {
+	switch e {
+	case WebOpenRequestBackendExa:
+		return true
+	case WebOpenRequestBackendFirecrawl:
+		return true
+	case WebOpenRequestBackendTavily:
+		return true
+	case WebOpenRequestBackendYou:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for WebSearchBackendKeyState.
+const (
+	WebSearchBackendKeyStateNone       WebSearchBackendKeyState = "none"
+	WebSearchBackendKeyStateRejected   WebSearchBackendKeyState = "rejected"
+	WebSearchBackendKeyStateUnverified WebSearchBackendKeyState = "unverified"
+	WebSearchBackendKeyStateVerified   WebSearchBackendKeyState = "verified"
+)
+
+// Valid indicates whether the value is a known member of the WebSearchBackendKeyState enum.
+func (e WebSearchBackendKeyState) Valid() bool {
+	switch e {
+	case WebSearchBackendKeyStateNone:
+		return true
+	case WebSearchBackendKeyStateRejected:
+		return true
+	case WebSearchBackendKeyStateUnverified:
+		return true
+	case WebSearchBackendKeyStateVerified:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for WebSearchBackendStatus.
+const (
+	WebSearchBackendStatusKeyRejected WebSearchBackendStatus = "key_rejected"
+	WebSearchBackendStatusKeyRequired WebSearchBackendStatus = "key_required"
+	WebSearchBackendStatusReady       WebSearchBackendStatus = "ready"
+)
+
+// Valid indicates whether the value is a known member of the WebSearchBackendStatus enum.
+func (e WebSearchBackendStatus) Valid() bool {
+	switch e {
+	case WebSearchBackendStatusKeyRejected:
+		return true
+	case WebSearchBackendStatusKeyRequired:
+		return true
+	case WebSearchBackendStatusReady:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for WebSearchBackendTier.
+const (
+	WebSearchBackendTierFree WebSearchBackendTier = "free"
+	WebSearchBackendTierKey  WebSearchBackendTier = "key"
+	WebSearchBackendTierNone WebSearchBackendTier = "none"
+)
+
+// Valid indicates whether the value is a known member of the WebSearchBackendTier enum.
+func (e WebSearchBackendTier) Valid() bool {
+	switch e {
+	case WebSearchBackendTierFree:
+		return true
+	case WebSearchBackendTierKey:
+		return true
+	case WebSearchBackendTierNone:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for WebSearchBackendId.
+const (
+	WebSearchBackendIdBrave      WebSearchBackendId = "brave"
+	WebSearchBackendIdDirect     WebSearchBackendId = "direct"
+	WebSearchBackendIdDuckduckgo WebSearchBackendId = "duckduckgo"
+	WebSearchBackendIdExa        WebSearchBackendId = "exa"
+	WebSearchBackendIdFirecrawl  WebSearchBackendId = "firecrawl"
+	WebSearchBackendIdTavily     WebSearchBackendId = "tavily"
+	WebSearchBackendIdYou        WebSearchBackendId = "you"
+)
+
+// Valid indicates whether the value is a known member of the WebSearchBackendId enum.
+func (e WebSearchBackendId) Valid() bool {
+	switch e {
+	case WebSearchBackendIdBrave:
+		return true
+	case WebSearchBackendIdDirect:
+		return true
+	case WebSearchBackendIdDuckduckgo:
+		return true
+	case WebSearchBackendIdExa:
+		return true
+	case WebSearchBackendIdFirecrawl:
+		return true
+	case WebSearchBackendIdTavily:
+		return true
+	case WebSearchBackendIdYou:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for WebSearchCommand.
+const (
+	WebSearchCommandOpen   WebSearchCommand = "open"
+	WebSearchCommandSearch WebSearchCommand = "search"
+)
+
+// Valid indicates whether the value is a known member of the WebSearchCommand enum.
+func (e WebSearchCommand) Valid() bool {
+	switch e {
+	case WebSearchCommandOpen:
+		return true
+	case WebSearchCommandSearch:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for WebSearchFilter.
+const (
+	WebSearchFilterRecency WebSearchFilter = "recency"
+	WebSearchFilterSite    WebSearchFilter = "site"
+)
+
+// Valid indicates whether the value is a known member of the WebSearchFilter enum.
+func (e WebSearchFilter) Valid() bool {
+	switch e {
+	case WebSearchFilterRecency:
+		return true
+	case WebSearchFilterSite:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for WebSearchKeyBackend.
+const (
+	WebSearchKeyBackendBrave     WebSearchKeyBackend = "brave"
+	WebSearchKeyBackendExa       WebSearchKeyBackend = "exa"
+	WebSearchKeyBackendFirecrawl WebSearchKeyBackend = "firecrawl"
+	WebSearchKeyBackendTavily    WebSearchKeyBackend = "tavily"
+	WebSearchKeyBackendYou       WebSearchKeyBackend = "you"
+)
+
+// Valid indicates whether the value is a known member of the WebSearchKeyBackend enum.
+func (e WebSearchKeyBackend) Valid() bool {
+	switch e {
+	case WebSearchKeyBackendBrave:
+		return true
+	case WebSearchKeyBackendExa:
+		return true
+	case WebSearchKeyBackendFirecrawl:
+		return true
+	case WebSearchKeyBackendTavily:
+		return true
+	case WebSearchKeyBackendYou:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for WebSearchQuotaFrom.
+const (
+	WebSearchQuotaFromLastResponse WebSearchQuotaFrom = "last_response"
+	WebSearchQuotaFromProvider     WebSearchQuotaFrom = "provider"
+	WebSearchQuotaFromUnavailable  WebSearchQuotaFrom = "unavailable"
+)
+
+// Valid indicates whether the value is a known member of the WebSearchQuotaFrom enum.
+func (e WebSearchQuotaFrom) Valid() bool {
+	switch e {
+	case WebSearchQuotaFromLastResponse:
+		return true
+	case WebSearchQuotaFromProvider:
+		return true
+	case WebSearchQuotaFromUnavailable:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for WebSearchQuotaReason.
+const (
+	WebSearchQuotaReasonKeyRejected         WebSearchQuotaReason = "key_rejected"
+	WebSearchQuotaReasonNoKey               WebSearchQuotaReason = "no_key"
+	WebSearchQuotaReasonNotObserved         WebSearchQuotaReason = "not_observed"
+	WebSearchQuotaReasonNotReported         WebSearchQuotaReason = "not_reported"
+	WebSearchQuotaReasonProviderUnavailable WebSearchQuotaReason = "provider_unavailable"
+)
+
+// Valid indicates whether the value is a known member of the WebSearchQuotaReason enum.
+func (e WebSearchQuotaReason) Valid() bool {
+	switch e {
+	case WebSearchQuotaReasonKeyRejected:
+		return true
+	case WebSearchQuotaReasonNoKey:
+		return true
+	case WebSearchQuotaReasonNotObserved:
+		return true
+	case WebSearchQuotaReasonNotReported:
+		return true
+	case WebSearchQuotaReasonProviderUnavailable:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for WebSearchQuotaUnit.
+const (
+	WebSearchQuotaUnitCredits  WebSearchQuotaUnit = "credits"
+	WebSearchQuotaUnitRequests WebSearchQuotaUnit = "requests"
+	WebSearchQuotaUnitUsd      WebSearchQuotaUnit = "usd"
+)
+
+// Valid indicates whether the value is a known member of the WebSearchQuotaUnit enum.
+func (e WebSearchQuotaUnit) Valid() bool {
+	switch e {
+	case WebSearchQuotaUnitCredits:
+		return true
+	case WebSearchQuotaUnitRequests:
+		return true
+	case WebSearchQuotaUnitUsd:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for WebSearchRecency.
+const (
+	WebSearchRecencyDay   WebSearchRecency = "day"
+	WebSearchRecencyMonth WebSearchRecency = "month"
+	WebSearchRecencyWeek  WebSearchRecency = "week"
+	WebSearchRecencyYear  WebSearchRecency = "year"
+)
+
+// Valid indicates whether the value is a known member of the WebSearchRecency enum.
+func (e WebSearchRecency) Valid() bool {
+	switch e {
+	case WebSearchRecencyDay:
+		return true
+	case WebSearchRecencyMonth:
+		return true
+	case WebSearchRecencyWeek:
+		return true
+	case WebSearchRecencyYear:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for WebSearchSearchBackend.
+const (
+	WebSearchSearchBackendBrave      WebSearchSearchBackend = "brave"
+	WebSearchSearchBackendDuckduckgo WebSearchSearchBackend = "duckduckgo"
+	WebSearchSearchBackendExa        WebSearchSearchBackend = "exa"
+	WebSearchSearchBackendFirecrawl  WebSearchSearchBackend = "firecrawl"
+	WebSearchSearchBackendTavily     WebSearchSearchBackend = "tavily"
+	WebSearchSearchBackendYou        WebSearchSearchBackend = "you"
+)
+
+// Valid indicates whether the value is a known member of the WebSearchSearchBackend enum.
+func (e WebSearchSearchBackend) Valid() bool {
+	switch e {
+	case WebSearchSearchBackendBrave:
+		return true
+	case WebSearchSearchBackendDuckduckgo:
+		return true
+	case WebSearchSearchBackendExa:
+		return true
+	case WebSearchSearchBackendFirecrawl:
+		return true
+	case WebSearchSearchBackendTavily:
+		return true
+	case WebSearchSearchBackendYou:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ResolveConnectorAccount200JSONResponseBodyStatus.
 const (
 	ResolveConnectorAccount200JSONResponseBodyStatusAccountAmbiguous      ResolveConnectorAccount200JSONResponseBodyStatus = "account_ambiguous"
@@ -1361,6 +1739,9 @@ type AgentApiError struct {
 	// Code Stable machine-readable failure classification.
 	Code AgentApiErrorCode `json:"code"`
 
+	// Details Machine-readable facts a failure carries for the CLI to act on. A search_key_requested failure names the card it posted and the backend it shows; a quota or rate limit names the backend and the other backends ready now.
+	Details *AgentApiErrorDetails `json:"details,omitempty"`
+
 	// Issues Safe field-level validation issues, when the failure has actionable paths.
 	Issues *[]AgentApiErrorIssue `json:"issues,omitempty"`
 
@@ -1373,6 +1754,26 @@ type AgentApiError struct {
 
 // AgentApiErrorCode Stable machine-readable failure classification.
 type AgentApiErrorCode string
+
+// AgentApiErrorDetails Machine-readable facts a failure carries for the CLI to act on. A search_key_requested failure names the card it posted and the backend it shows; a quota or rate limit names the backend and the other backends ready now.
+type AgentApiErrorDetails struct {
+	Backend       *string `json:"backend,omitempty"`
+	InteractionId *string `json:"interaction_id,omitempty"`
+	MessageId     *string `json:"message_id,omitempty"`
+
+	// Origin requested when the command named the backend the card shows; suggested when it named none and TeamHub picked one.
+	Origin            *AgentApiErrorDetailsOrigin `json:"origin,omitempty"`
+	ReadyBackends     *[]string                   `json:"ready_backends,omitempty"`
+	Reason            *AgentApiErrorDetailsReason `json:"reason,omitempty"`
+	RetryAfterSeconds *int                        `json:"retry_after_seconds,omitempty"`
+	RoomId            *string                     `json:"room_id,omitempty"`
+}
+
+// AgentApiErrorDetailsOrigin requested when the command named the backend the card shows; suggested when it named none and TeamHub picked one.
+type AgentApiErrorDetailsOrigin string
+
+// AgentApiErrorDetailsReason defines model for AgentApiErrorDetails.Reason.
+type AgentApiErrorDetailsReason string
 
 // AgentApiErrorEnvelope Standard failure envelope for every TeamHub Agent API operation.
 type AgentApiErrorEnvelope struct {
@@ -2298,6 +2699,36 @@ type AgentRoomCreationEffectivePayload struct {
 	Name string `json:"name"`
 }
 
+// AgentRoomHandoffRequest The Room to hand the Human's request to and the instruction the AnotherMe's Context there carries out. The caller, its direct chat and its Human are derived by TeamHub, never accepted from the caller.
+type AgentRoomHandoffRequest struct {
+	// Instruction Self-contained instruction for the AnotherMe in the target Room. Hidden from the Room's timeline; the receiving Context decides what to post there.
+	Instruction string `json:"instruction"`
+
+	// InvocationId Stable SHA-256 operation identity derived by the CLI from the Agent identity, command, and caller operation ID. Credential rotation and Runtime restarts do not change it.
+	InvocationId AgentInvocationId `json:"invocation_id"`
+
+	// RoomId Opaque, case-sensitive identifier. Clients must not infer type or time from it.
+	RoomId Id `json:"room_id"`
+}
+
+// AgentRoomHandoffResponse The handoff posted in the target Room.
+type AgentRoomHandoffResponse struct {
+	// Accepted Whether TeamHub posted the handoff.
+	Accepted bool `json:"accepted"`
+
+	// DuplicateRequest True only when the server recovered a prior committed operation.
+	DuplicateRequest bool `json:"duplicate_request"`
+
+	// HandoffId Opaque, case-sensitive identifier. Clients must not infer type or time from it.
+	HandoffId Id `json:"handoff_id"`
+
+	// InboxId Canonical public Inbox of the target Room.
+	InboxId string `json:"inbox_id"`
+
+	// Reason Optional public receipt explanation.
+	Reason *string `json:"reason,omitempty"`
+}
+
 // AgentRoomMembersRequest defines model for AgentRoomMembersRequest.
 type AgentRoomMembersRequest struct {
 	InboxId string `json:"inbox_id"`
@@ -2366,9 +2797,12 @@ type AgentRoutineResponse struct {
 
 // AgentRoutineSchedule defines model for AgentRoutineSchedule.
 type AgentRoutineSchedule struct {
-	// IntervalHours Repeat interval for every_n_hours. Do not send a clock or timezone with it.
-	IntervalHours *int                     `json:"interval_hours,omitempty"`
-	Kind          AgentRoutineScheduleKind `json:"kind"`
+	// IntervalHours Repeat interval in whole hours for every_n_hours (1 to 168), accepted on input for compatibility with older clients and stored in minutes. Responses always use every_n_minutes with interval_minutes. Do not send a clock or timezone with it.
+	IntervalHours *int `json:"interval_hours,omitempty"`
+
+	// IntervalMinutes Repeat interval in minutes for every_n_minutes (10 to 10080, in 10-minute increments). Do not send a clock or timezone with it.
+	IntervalMinutes *int                     `json:"interval_minutes,omitempty"`
+	Kind            AgentRoutineScheduleKind `json:"kind"`
 
 	// RunAt The one moment a once Routine fires (RFC 3339 with offset). It must be in the future; the Routine is done (disabled) after it fires. Timezone is optional and only used for display.
 	RunAt *time.Time `json:"run_at,omitempty"`
@@ -2628,14 +3062,21 @@ type AgentTaskSummary struct {
 	UpdatedAt time.Time   `json:"updated_at"`
 }
 
-// AgentTeamMdResponse defines model for AgentTeamMdResponse.
+// AgentTeamMdResponse The Room's current team.md. A readable Room where none has been published yet, the normal state of a new Room, answers published false and revision 0 without raw_markdown or updated_at.
 type AgentTeamMdResponse struct {
-	RawMarkdown string `json:"raw_markdown"`
-	Revision    int64  `json:"revision"`
+	Published bool `json:"published"`
+
+	// RawMarkdown Present exactly when published is true.
+	RawMarkdown *string `json:"raw_markdown,omitempty"`
+
+	// Revision 0 until the first publish, then 1 and up.
+	Revision int64 `json:"revision"`
 
 	// RoomId Opaque, case-sensitive identifier. Clients must not infer type or time from it.
-	RoomId    Id        `json:"room_id"`
-	UpdatedAt time.Time `json:"updated_at"`
+	RoomId Id `json:"room_id"`
+
+	// UpdatedAt Present exactly when published is true.
+	UpdatedAt *time.Time `json:"updated_at,omitempty"`
 }
 
 // AgentTextMessageSegment Plain text segment. Include type: text and content.
@@ -3152,6 +3593,196 @@ type TrackingItemVersion struct {
 	Id               string `json:"id"`
 }
 
+// WebBackendsQuery defines model for WebBackendsQuery.
+type WebBackendsQuery struct {
+	// Backend A web search backend. duckduckgo searches without a key. direct opens pages only and is fetched by the Agent CLI on the Agent's computer; TeamHub never fetches a page itself.
+	Backend *WebSearchBackendId `json:"backend,omitempty"`
+}
+
+// WebConnectRequest defines model for WebConnectRequest.
+type WebConnectRequest struct {
+	// Backend A backend that takes an API key saved in the product.
+	Backend WebSearchKeyBackend `json:"backend"`
+}
+
+// WebConnectResponse defines model for WebConnectResponse.
+type WebConnectResponse struct {
+	// Backend One backend with the static text a client shows for it and its live state. status is ready when a call would run now: DuckDuckGo and direct always, You.com also without a key, the others with a key that is not rejected.
+	Backend       *WebSearchBackend        `json:"backend,omitempty"`
+	InteractionId *string                  `json:"interaction_id,omitempty"`
+	MessageId     *string                  `json:"message_id,omitempty"`
+	RoomId        *string                  `json:"room_id,omitempty"`
+	Status        WebConnectResponseStatus `json:"status"`
+}
+
+// WebConnectResponseStatus defines model for WebConnectResponse.Status.
+type WebConnectResponseStatus string
+
+// WebOpenRequest defines model for WebOpenRequest.
+type WebOpenRequest struct {
+	// Backend A backend that opens pages; direct is fetched by the CLI.
+	Backend WebOpenRequestBackend `json:"backend"`
+	Url     string                `json:"url"`
+}
+
+// WebOpenRequestBackend A backend that opens pages; direct is fetched by the CLI.
+type WebOpenRequestBackend string
+
+// WebOpenResponse defines model for WebOpenResponse.
+type WebOpenResponse struct {
+	Markdown string  `json:"markdown"`
+	Title    *string `json:"title,omitempty"`
+
+	// Truncated True when the page was longer than the 20,000 characters returned.
+	Truncated bool `json:"truncated"`
+
+	// Url The page's final URL when the provider reports one.
+	Url string `json:"url"`
+}
+
+// WebSearchBackend One backend with the static text a client shows for it and its live state. status is ready when a call would run now: DuckDuckGo and direct always, You.com also without a key, the others with a key that is not rejected.
+type WebSearchBackend struct {
+	Commands []WebSearchCommand `json:"commands"`
+
+	// Description The provider's own one-line description of its product.
+	Description string `json:"description"`
+
+	// Filters The search filters the backend honors; any other is refused before a call.
+	Filters []WebSearchFilter `json:"filters"`
+
+	// FreeTier The provider's free allowance, for display.
+	FreeTier *string `json:"free_tier,omitempty"`
+
+	// Id A web search backend. duckduckgo searches without a key. direct opens pages only and is fetched by the Agent CLI on the Agent's computer; TeamHub never fetches a page itself.
+	Id       WebSearchBackendId       `json:"id"`
+	KeyState WebSearchBackendKeyState `json:"key_state"`
+
+	// KeyUrl Where the Human gets a key.
+	KeyUrl *string `json:"key_url,omitempty"`
+
+	// Keyless Whether the backend works without a saved key.
+	Keyless bool `json:"keyless"`
+
+	// MaxLimit The most results one search returns; 0 for a backend without search.
+	MaxLimit int `json:"max_limit"`
+
+	// MaxSites How many sites one search may name; 0 when it takes no site filter.
+	MaxSites int    `json:"max_sites"`
+	Name     string `json:"name"`
+
+	// OfficialKeyCheck Whether the provider has an official endpoint TeamHub checks a key with before saving it. Without one the key is saved unverified and proven by its first call.
+	OfficialKeyCheck bool `json:"official_key_check"`
+
+	// Quota Left out when the caller asked for the list without quota.
+	Quota  *WebSearchQuota        `json:"quota,omitempty"`
+	Status WebSearchBackendStatus `json:"status"`
+
+	// Tier How a call to the backend runs now. key: with an API key saved in the product (or one it still needs); free: without a key, on a free service with limits that TeamHub does not count (DuckDuckGo, and You.com without a key); none: direct, which needs no account.
+	Tier WebSearchBackendTier `json:"tier"`
+
+	// TierText A short display line for the tier, set for free.
+	TierText *string `json:"tier_text,omitempty"`
+}
+
+// WebSearchBackendKeyState defines model for WebSearchBackend.KeyState.
+type WebSearchBackendKeyState string
+
+// WebSearchBackendStatus defines model for WebSearchBackend.Status.
+type WebSearchBackendStatus string
+
+// WebSearchBackendTier How a call to the backend runs now. key: with an API key saved in the product (or one it still needs); free: without a key, on a free service with limits that TeamHub does not count (DuckDuckGo, and You.com without a key); none: direct, which needs no account.
+type WebSearchBackendTier string
+
+// WebSearchBackendId A web search backend. duckduckgo searches without a key. direct opens pages only and is fetched by the Agent CLI on the Agent's computer; TeamHub never fetches a page itself.
+type WebSearchBackendId string
+
+// WebSearchBackendList Every backend in TeamHub's default order. default_search is the backend a search without one uses now: the default a Human saved (chosen_default_search) even when its key stopped working, else the first backend with a usable key in that order, else duckduckgo.
+type WebSearchBackendList struct {
+	Backends []WebSearchBackend `json:"backends"`
+
+	// CanSaveKeys False when the deployment has no TEAMHUB_SECRET_ENCRYPTION_KEY to seal keys with.
+	CanSaveKeys bool `json:"can_save_keys"`
+
+	// ChosenDefaultSearch A backend that runs searches.
+	ChosenDefaultSearch *WebSearchSearchBackend `json:"chosen_default_search,omitempty"`
+	DefaultOpen         string                  `json:"default_open"`
+
+	// DefaultSearch A backend that runs searches.
+	DefaultSearch WebSearchSearchBackend `json:"default_search"`
+}
+
+// WebSearchCommand defines model for WebSearchCommand.
+type WebSearchCommand string
+
+// WebSearchFilter defines model for WebSearchFilter.
+type WebSearchFilter string
+
+// WebSearchKeyBackend A backend that takes an API key saved in the product.
+type WebSearchKeyBackend string
+
+// WebSearchQuota What is left on the backend's account. from says where the numbers came from: provider is the provider's official usage endpoint read for this response; last_response is the rate-limit headers of the last call (Brave), as of observed_at; unavailable carries no numbers and reason says why.
+type WebSearchQuota struct {
+	From WebSearchQuotaFrom `json:"from"`
+
+	// Limit Absent when the provider reports no cap.
+	Limit *float32 `json:"limit,omitempty"`
+
+	// ObservedAt UTC timestamp in RFC 3339 format with an explicit offset.
+	ObservedAt *Timestamp `json:"observed_at,omitempty"`
+	Plan       *string    `json:"plan,omitempty"`
+
+	// Reason no_key: no key is saved; not_reported: there is no usage endpoint to read (keyless You.com, DuckDuckGo, Exa, direct); not_observed: Brave has answered no call yet; key_rejected: the provider refused the saved key; provider_unavailable: the usage endpoint did not answer in time.
+	Reason    *WebSearchQuotaReason `json:"reason,omitempty"`
+	Remaining *float32              `json:"remaining,omitempty"`
+
+	// ResetsAt UTC timestamp in RFC 3339 format with an explicit offset.
+	ResetsAt *Timestamp          `json:"resets_at,omitempty"`
+	Unit     *WebSearchQuotaUnit `json:"unit,omitempty"`
+}
+
+// WebSearchQuotaFrom defines model for WebSearchQuota.From.
+type WebSearchQuotaFrom string
+
+// WebSearchQuotaReason no_key: no key is saved; not_reported: there is no usage endpoint to read (keyless You.com, DuckDuckGo, Exa, direct); not_observed: Brave has answered no call yet; key_rejected: the provider refused the saved key; provider_unavailable: the usage endpoint did not answer in time.
+type WebSearchQuotaReason string
+
+// WebSearchQuotaUnit defines model for WebSearchQuota.Unit.
+type WebSearchQuotaUnit string
+
+// WebSearchRecency defines model for WebSearchRecency.
+type WebSearchRecency string
+
+// WebSearchRequest defines model for WebSearchRequest.
+type WebSearchRequest struct {
+	// Backend A backend that runs searches.
+	Backend *WebSearchSearchBackend `json:"backend,omitempty"`
+
+	// Limit Defaults to 10.
+	Limit   *int              `json:"limit,omitempty"`
+	Query   string            `json:"query"`
+	Recency *WebSearchRecency `json:"recency,omitempty"`
+
+	// Sites Hostnames to search within, up to the backend's max_sites.
+	Sites *[]string `json:"sites,omitempty"`
+}
+
+// WebSearchResponse defines model for WebSearchResponse.
+type WebSearchResponse struct {
+	Results []WebSearchResult `json:"results"`
+}
+
+// WebSearchResult defines model for WebSearchResult.
+type WebSearchResult struct {
+	// PublishedAt The page date as the provider reports it.
+	PublishedAt *string `json:"published_at,omitempty"`
+	Snippet     string  `json:"snippet"`
+	Title       string  `json:"title"`
+	Url         string  `json:"url"`
+}
+
+// WebSearchSearchBackend A backend that runs searches.
+type WebSearchSearchBackend string
+
 // CLIFileDocumentId defines model for CLIFileDocumentId.
 type CLIFileDocumentId = string
 
@@ -3461,6 +4092,9 @@ type ActUnderProactiveMandateJSONRequestBody = ProactiveActRequest
 // RecordProactiveShadowDivergenceJSONRequestBody defines body for RecordProactiveShadowDivergence for application/json ContentType.
 type RecordProactiveShadowDivergenceJSONRequestBody = ProactiveShadowDivergenceRecord
 
+// HandOffAgentRoomWorkJSONRequestBody defines body for HandOffAgentRoomWork for application/json ContentType.
+type HandOffAgentRoomWorkJSONRequestBody = AgentRoomHandoffRequest
+
 // AddAgentRoomMemberJSONRequestBody defines body for AddAgentRoomMember for application/json ContentType.
 type AddAgentRoomMemberJSONRequestBody = AgentAddRoomMemberRequest
 
@@ -3520,6 +4154,18 @@ type UpdateAgentTrackingItemJSONRequestBody = TrackingItemUpdate
 
 // AskAgentUserJSONRequestBody defines body for AskAgentUser for application/json ContentType.
 type AskAgentUserJSONRequestBody = AgentAskUserRequest
+
+// ListAgentWebBackendsJSONRequestBody defines body for ListAgentWebBackends for application/json ContentType.
+type ListAgentWebBackendsJSONRequestBody = WebBackendsQuery
+
+// ConnectAgentWebBackendJSONRequestBody defines body for ConnectAgentWebBackend for application/json ContentType.
+type ConnectAgentWebBackendJSONRequestBody = WebConnectRequest
+
+// OpenAgentWebPageJSONRequestBody defines body for OpenAgentWebPage for application/json ContentType.
+type OpenAgentWebPageJSONRequestBody = WebOpenRequest
+
+// SearchAgentWebJSONRequestBody defines body for SearchAgentWeb for application/json ContentType.
+type SearchAgentWebJSONRequestBody = WebSearchRequest
 
 // AsAgentTextMessageSegment returns the union data inside the AgentCreationMessageSegment as a AgentTextMessageSegment
 func (t AgentCreationMessageSegment) AsAgentTextMessageSegment() (AgentTextMessageSegment, error) {

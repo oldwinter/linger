@@ -26,24 +26,10 @@ export type UpdateState =
   | { readonly kind: "idle" }
   | { readonly kind: "checking" }
   | { readonly kind: "downloading"; readonly version: string }
-  // `services`: the new version is the one this app brings for the
-  // services on this computer, applied without restarting the app.
-  | {
-      readonly kind: "ready";
-      readonly version: string;
-      readonly services?: boolean;
-    }
+  | { readonly kind: "ready"; readonly version: string }
   // Restart was chosen while tasks ran; it happens once they finish.
-  | {
-      readonly kind: "waiting";
-      readonly version: string;
-      readonly services?: boolean;
-    }
-  | {
-      readonly kind: "installing";
-      readonly version: string;
-      readonly services?: boolean;
-    }
+  | { readonly kind: "waiting"; readonly version: string }
+  | { readonly kind: "installing"; readonly version: string }
   // A newer release this installation cannot apply itself; `url` is its
   // release page.
   | {
@@ -52,6 +38,11 @@ export type UpdateState =
       readonly url: string;
     }
   | { readonly kind: "failed"; readonly error: string };
+
+export type AnnouncedUpdate = Extract<
+  UpdateState,
+  { kind: "ready" | "available" }
+>;
 
 // How this installation takes a newer release.
 export type UpdateInstall =
@@ -78,11 +69,8 @@ export interface UpdaterOptions {
   // running, replaces the files and starts the new version.
   readonly quit: () => Promise<void>;
   readonly openExternal: (url: string) => Promise<void>;
-  // The services this app runs on this computer. Their updates come with
-  // the app: a newer app brings a newer version for them.
-  readonly services?: LocalServices;
   // Tells the person once per version that an update is ready or available.
-  readonly announce?: (state: UpdateState) => void;
+  readonly announce?: (state: AnnouncedUpdate) => void;
   readonly fetch?: typeof fetch;
   readonly extract?: (archive: string, directory: string) => Promise<void>;
   readonly spawn?: SpawnSetup;
@@ -90,12 +78,6 @@ export interface UpdaterOptions {
   readonly checkDelayMs?: number;
   readonly checkIntervalMs?: number;
   readonly retryDelayMs?: number;
-}
-
-export interface LocalServices {
-  // Whether this app brings a newer version than the services run.
-  sourceUpdateAvailable(): boolean;
-  updateSource(): Promise<void>;
 }
 
 export interface SetupProcess {
@@ -109,11 +91,12 @@ export type SpawnSetup = (
   options: { detached: true; stdio: "ignore" },
 ) => SetupProcess;
 
-// installer.nsi: /S installs without pages, /relaunch starts Linger after.
-export const SETUP_ARGS = ["/S", "/relaunch"] as const;
+// installer.nsi: /update shows only its progress page and the questions about
+// a locked file, then closes; /relaunch starts Linger after.
+export const SETUP_ARGS = ["/update", "/relaunch"] as const;
 
 const CHECK_DELAY_MS = 60_000;
-const CHECK_INTERVAL_MS = 6 * 60 * 60_000;
+const CHECK_INTERVAL_MS = 60 * 60_000;
 // A dropped connection should not cost a whole check interval.
 const RETRY_DELAY_MS = 5 * 60_000;
 const STAGED_PREFIX = ".Linger-update-";
@@ -152,12 +135,6 @@ export class UpdaterModule implements Module {
 
   async start(ctx: ModuleContext): Promise<void> {
     this.#ctx = ctx;
-    if (this.#options.services) {
-      this.#unsubscribe.push(
-        ctx.bus.on("local-server.changed", () => this.#offerServices()),
-      );
-      this.#offerServices();
-    }
     if (!this.#options.install) return;
     void this.#cleanup();
     const schedule = (delay: number): void => {
@@ -185,16 +162,14 @@ export class UpdaterModule implements Module {
   }
 
   // Fetches and verifies the manifest, then downloads a newer package. Only
-  // one check runs at a time; a downloaded update is not checked again. A
-  // services update on offer is replaced by a newer app, which brings its own.
+  // one check runs at a time; a downloaded update is not checked again.
   check(): Promise<void> {
     if (!this.#options.install) return Promise.resolve();
     const state = this.#state;
     const settled =
       state.kind === "idle" ||
       state.kind === "failed" ||
-      state.kind === "available" ||
-      (state.kind === "ready" && state.services);
+      state.kind === "available";
     if (!settled) return this.#checking ?? Promise.resolve();
     this.#checking = this.#check().finally(() => (this.#checking = undefined));
     return this.#checking;
@@ -212,28 +187,13 @@ export class UpdaterModule implements Module {
     const runtime = this.#ctx!.get<ComputerDaemonModule>("ComputerDaemon");
     if (runtime.running() > 0) {
       if (state.kind === "waiting") return;
-      this.#setState({
-        kind: "waiting",
-        version: state.version,
-        ...(state.services ? { services: true } : {}),
-      });
+      this.#setState({ kind: "waiting", version: state.version });
       const off = this.#ctx!.bus.on("runtime.activity", (running) => {
         if (running !== 0) return;
         off();
         void this.install();
       });
       this.#unsubscribe.push(off);
-      return;
-    }
-    if (state.services) {
-      this.#setState({
-        kind: "installing",
-        version: state.version,
-        services: true,
-      });
-      await this.#options.services?.updateSource();
-      this.#setState({ kind: "idle" });
-      this.#offerServices();
       return;
     }
     this.#setState({ kind: "installing", version: state.version });
@@ -248,26 +208,6 @@ export class UpdaterModule implements Module {
       }
     } catch (error) {
       this.#fail("update.install_failed", error);
-    }
-  }
-
-  // "Update Linger on This Computer", offered once the app
-  // brings a newer version than they run.
-  #offerServices(): void {
-    const services = this.#options.services;
-    if (!services) return;
-    const kind = this.#state.kind;
-    if (services.sourceUpdateAvailable()) {
-      if (kind === "idle" || kind === "failed") {
-        this.#setState({
-          kind: "ready",
-          version: this.#options.version,
-          services: true,
-        });
-        this.#announce("services");
-      }
-    } else if (kind === "ready" && this.#state.services) {
-      this.#setState({ kind: "idle" });
     }
   }
 
@@ -288,7 +228,7 @@ export class UpdaterModule implements Module {
       // offer until one is.
       if (!bytes || !signature) {
         ctx.log.info("update.no_manifest", { feed });
-        this.#settle();
+        this.#setState({ kind: "idle" });
         return;
       }
       const manifest = verifyManifest(
@@ -305,18 +245,17 @@ export class UpdaterModule implements Module {
         compareVersions(manifest.version, this.#options.version) <= 0 ||
         !pkg
       ) {
-        this.#settle();
+        this.#setState({ kind: "idle" });
         return;
       }
       const version = manifest.version;
       if (install.kind === "download") {
         ctx.log.info("update.available", { version });
-        this.#setState({
+        this.#announce({
           kind: "available",
           version,
           url: releasePageUrl(feed, version),
         });
-        this.#announce(version);
         return;
       }
       this.#setState({ kind: "downloading", version });
@@ -328,18 +267,10 @@ export class UpdaterModule implements Module {
           : { path: file, pkg };
       if (install.kind === "app-bundle") await rm(file, { force: true });
       ctx.log.info("update.ready", { version });
-      this.#setState({ kind: "ready", version });
-      this.#announce(version);
+      this.#announce({ kind: "ready", version });
     } catch (error) {
       this.#fail("update.check_failed", error);
-      this.#offerServices();
     }
-  }
-
-  // Nothing newer: back to idle, or to the services update on offer.
-  #settle(): void {
-    this.#setState({ kind: "idle" });
-    this.#offerServices();
   }
 
   // Follows redirects: GitHub sends release files from another host. The
@@ -486,10 +417,12 @@ export class UpdaterModule implements Module {
     }
   }
 
-  #announce(key: string): void {
-    if (this.#announced.has(key)) return;
-    this.#announced.add(key);
-    this.#options.announce?.(this.#state);
+  // Sets the state and tells the person once per version.
+  #announce(state: AnnouncedUpdate): void {
+    this.#setState(state);
+    if (this.#announced.has(state.version)) return;
+    this.#announced.add(state.version);
+    this.#options.announce?.(state);
   }
 
   #fail(event: string, error: unknown): void {

@@ -23,10 +23,13 @@ import { useRecordRecentDocument } from "@/features/library/use-recent-documents
 import { useWikiDocumentLinks } from "@/features/wiki/wiki-document-links";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
 import type { TeamHubDocument } from "@/features/teamhub/teamhub-types";
+import { libraryMessages } from "@/features/library/library.messages";
+import { useT } from "@/i18n/use-translation";
 
 import { DocumentVersionSelectionCommentControl } from "./document-version-selection-comment-control";
 import { DocumentCommentDraftGuard } from "./document-comment-draft-guard";
 import { DocumentShareDialog } from "./document-share-dialog";
+import { documentPageMessages as m } from "./document-page.messages";
 import { UnifiedDocumentBody } from "./unified-document-body";
 import { UnifiedDocumentPageHeader } from "./unified-document-header";
 import {
@@ -290,6 +293,7 @@ function UnifiedDocumentPageDialogs({
   trashError: string | null;
   trashPending: boolean;
 }) {
+  const t = useT();
   return (
     <>
       {historyOpen ? (
@@ -300,11 +304,16 @@ function UnifiedDocumentPageDialogs({
               role="status"
             >
               <Spinner size={16} />
-              Loading history…
+              {t(libraryMessages.loadingHistory)}
             </div>
           }
         >
           <UnifiedDocumentTimelineDialog
+            canWrite={Boolean(
+              document?.capabilities.write &&
+              document.status === "active" &&
+              !isWikiPage,
+            )}
             client={client}
             documentId={documentId}
             onClose={() => setHistoryOpen(false)}
@@ -355,6 +364,7 @@ function UnifiedDocumentCommentsSurface({
   rootRef: MutableRefObject<HTMLDivElement | null>;
   tenantId: string;
 }) {
+  const t = useT();
   const [versionSelection, setVersionSelection] = useState<string | null>(null);
   const [commentsMounted, setCommentsMounted] = useState(false);
   useEffect(() => {
@@ -399,7 +409,7 @@ function UnifiedDocumentCommentsSurface({
         {commentsOpen ? (
           <div
             {...commentsWidth.handleProps}
-            aria-label="Resize Document comments"
+            aria-label={t(m.resizeComments)}
             className={`${commentsWidth.handleProps.className} document-comments-resize-handle`}
           />
         ) : null}

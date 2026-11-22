@@ -314,6 +314,7 @@ describe("composeContextFeatures", () => {
       compose([a, b, c]).contextInstructions({
         connectedApps: true,
         connectedAppKeys: [],
+        connectableAppKeys: [],
         compactInstructions: false,
       }),
     ).toBe("A\n\nC");

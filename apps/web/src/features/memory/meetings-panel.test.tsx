@@ -9,6 +9,7 @@ import {
 import { createMemoryRouter, RouterProvider, useParams } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { defineGlobalProperty } from "@/test/global-properties";
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubMemoryEntry } from "@/features/teamhub/teamhub-types";
@@ -196,7 +197,7 @@ describe("Meetings panel", () => {
     expect(within(calendar).getByText("Today")).toBeVisible();
   });
 
-  it("links each meeting and its ready summary to the meeting entry", async () => {
+  it("links each meeting once and renders a non-interactive Summary badge when ready", async () => {
     const router = renderPanel();
     const today = await screen.findByRole("region", {
       name: "Meetings on 2026-10-01",
@@ -205,35 +206,72 @@ describe("Meetings panel", () => {
       within(today)
         .getAllByRole("link")
         .map((link) => link.textContent),
-    ).toEqual(["Meeting Oct 1, 09:05", "Meeting Oct 1, 17:41", "Summary"]);
+    ).toEqual(["Meeting Oct 1, 09:05", "Meeting Oct 1, 17:41"]);
     const entry =
       "/t/tenant-northstar/library/meetings?entry=meeting_000000000000000000000002";
     expect(screen.getByRole("link", { name: "Up next" })).toHaveAttribute(
       "href",
       "/t/tenant-northstar/library/up-next",
     );
+    const afternoonLink = within(today).getByRole("link", {
+      name: "Meeting Oct 1, 17:41",
+    });
+    expect(afternoonLink).toHaveAttribute("href", entry);
+    const afternoonRow = afternoonLink.closest("li")!;
+    expect(within(afternoonRow).getByText("Summary").tagName).toBe("SPAN");
     expect(
-      within(today).getByRole("link", { name: "Meeting Oct 1, 17:41" }),
-    ).toHaveAttribute("href", entry);
-    expect(
-      within(today).getByRole("link", {
-        name: "Summary of Meeting Oct 1, 17:41",
-      }),
-    ).toHaveAttribute("href", entry);
-    // A meeting without a summary offers no Summary link.
-    expect(
-      within(today).queryByRole("link", {
-        name: "Summary of Meeting Oct 1, 09:05",
-      }),
+      within(afternoonRow).queryByRole("link", { name: /Summary/ }),
     ).toBeNull();
-    fireEvent.click(
-      within(today).getByRole("link", {
-        name: "Summary of Meeting Oct 1, 17:41",
-      }),
-    );
+    // A meeting without a summary renders no Summary badge.
+    const morningRow = within(today)
+      .getByRole("link", { name: "Meeting Oct 1, 09:05" })
+      .closest("li")!;
+    expect(within(morningRow).queryByText("Summary")).toBeNull();
+    fireEvent.click(afternoonLink);
     expect(router.state.location.pathname).toBe(
       "/t/tenant-northstar/library/meetings",
     );
+  });
+
+  it("displays custom meeting title and summary metadata and matches them in search", async () => {
+    const titled: TeamHubMemoryEntry = {
+      ...meeting(
+        "meeting_000000000000000000000006",
+        "Meetings/2026/10/01/Meeting 13-15-00",
+        "sync.m4a",
+        true,
+      ),
+      summary: "**Agreed** to launch the mobile client on Friday.",
+      title: "Q4 Launch Sync",
+    };
+    renderPanel("", [titled]);
+    const today = await screen.findByRole("region", {
+      name: "Meetings on 2026-10-01",
+    });
+    expect(
+      within(today).getByRole("link", {
+        name: /Meeting Oct 1, 13:15.*Q4 Launch Sync.*Agreed to launch the mobile client on Friday\./,
+      }),
+    ).toBeVisible();
+
+    const search = screen.getByRole("searchbox", { name: "Search meetings" });
+    fireEvent.change(search, { target: { value: "mobile client" } });
+    expect(
+      within(today)
+        .getAllByRole("link")
+        .map((link) => link.textContent),
+    ).toEqual([
+      "Meeting Oct 1, 13:15Q4 Launch Sync · Agreed to launch the mobile client on Friday.",
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+    expect(search).toHaveValue("");
+    expect(within(today).getAllByRole("link")).toHaveLength(3);
+
+    fireEvent.change(search, { target: { value: "Q4 Launch" } });
+    expect(within(today).getAllByRole("link")).toHaveLength(1);
+    fireEvent.keyDown(search, { key: "Escape" });
+    expect(search).toHaveValue("");
+    expect(within(today).getAllByRole("link")).toHaveLength(3);
   });
 
   it("deletes a meeting from the list after confirming", async () => {
@@ -302,7 +340,10 @@ describe("Meetings panel", () => {
 
   it("jumps the year calendar and the list back to today", async () => {
     const scrollIntoView = vi.fn();
-    HTMLElement.prototype.scrollIntoView = scrollIntoView;
+    defineGlobalProperty(HTMLElement.prototype, "scrollIntoView", {
+      value: scrollIntoView,
+      writable: true,
+    });
     renderPanel("&meetings=all");
     const calendar = await screen.findByRole("region", {
       name: "Meeting calendar",

@@ -31,7 +31,11 @@ When rules change, update the registry, read compatibility, tests, and user-faci
   Do not reuse old Session file paths as source evidence, and do not invent `Daily`, person, or project identities.
 - Client / Contact organization and person filtering and history merging are kept; the old "read only the CRM cache, never the transcript" restriction
   becomes verifying the authoritative Raw supplied in this run. Standards such as organization/person splitting, low-confidence contacts for unknown organizations, and not merging same-name people stay unchanged.
+  Contacts include internal colleagues and external people under the same identity and ongoing-relationship criteria; shared organization membership is neither an exclusion nor sufficient evidence by itself.
+  Clients remain external organizations; allowing internal Contacts does not create a Client page for the Human's own organization.
+  Contact pages open with the person's relationship to the Human, then explain supported responsibilities and collaboration across interactions. Communication patterns stay scoped and attributed; forwarded text, templates, email prefixes, and copied recipients do not establish personal identity, preferences, or responsibility.
 - Project keeps coarse-grained parent projects, directions, explicit anchor routing, stable names/aliases, cross-project isolation, and status continuity.
+  Coarse page granularity still allows distinct stable directions within a parent project. An update may touch every supported direction; organize each around its goal, supported responsibility, current state, and outcome while keeping tasks inside those directions or core sections. Page paths, registered sections, and section budgets stay unchanged.
   Old `Next Steps` go into `Open Items`; `Related People` and background such as owner, phase, and time go into
   `Project Summary`; `Routing Notes` go into `Change Log`; `Source Links` are adapted to current source citations.
   Do not sneak old frontmatter fields into the restricted JSON Schema.
@@ -72,6 +76,21 @@ These two also keep the old templates' detailed definition of each section. Dail
 
 ## Validation and Deployment
 
+- Contact Basic Info is authored as a cited `intro` plus `details`; Relationship
+  Context and Collaboration Style are rewritten narratives. Project Directions
+  is authored as a `directions` array with a name, current state and evidence for
+  each durable work area, plus nullable goal, owner, outcome and evidence date.
+  On an existing page each of these sections may be kept as it is, like any summary.
+  The renderer produces the existing Markdown sections and direction headings;
+  no persisted fields, page paths, or cross-process contracts change.
+- A section is kept when this run's evidence adds or changes nothing it
+  describes; a written section reorganizes its existing facts under the current
+  rules. A rewritten summary's citations must survive in the text the write
+  authored (its written summaries and the entries it added, merged or changed),
+  so a fact may move to another section. Entries left as they were do not
+  count, and dropping a citation needs that section's own `removed_refs`. Structural
+  checks enforce authoring shapes, unique direction names and evidence references,
+  not the semantic completeness of the model's grouping.
 - `personal-wiki-prompts.llm-wiki.test.ts` checks that each type's complete Markdown is injected and every field/section is described,
   and locks the key semantics of the original Project, CRM, Session, Daily, and Weekly rules.
 - Runtime Wiki backend tests check that the request actually sent contains the detailed rules; Memory `wiki-period-scope.test.ts`

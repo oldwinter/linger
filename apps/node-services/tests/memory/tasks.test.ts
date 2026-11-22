@@ -581,6 +581,58 @@ describe("runMemoryTask", () => {
     expect(taskSteps.wikiSync).toHaveBeenCalledTimes(2);
   });
 
+  it("runs at most `concurrency` AnotherMe subjects at once", async () => {
+    const taskSteps = steps();
+    let active = 0;
+    let peak = 0;
+    taskSteps.daily.mockImplementation(async () => {
+      active += 1;
+      peak = Math.max(peak, active);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      active -= 1;
+      return { processedSubjectCount: 1 };
+    });
+    await runMemoryTask(
+      memoryRoot,
+      { task: "daily", date: "2026-08-31", concurrency: 2 },
+      taskSteps,
+      taskState(),
+      subjects("agent_1", "agent_2", "agent_3", "agent_4", "agent_5"),
+    );
+    expect(taskSteps.daily).toHaveBeenCalledTimes(5);
+    expect(peak).toBe(2);
+  });
+
+  it("does not hold a slot for a subject waiting behind its own lane", async () => {
+    const taskSteps = steps();
+    let releaseBusy: () => void = () => undefined;
+    const busyLane = new Promise<void>((resolve) => {
+      releaseBusy = resolve;
+    });
+    const running = runMemoryTask(
+      memoryRoot,
+      { task: "daily", date: "2026-08-31", concurrency: 1 },
+      taskSteps,
+      taskState(),
+      {
+        ...subjects("agent_busy", "agent_free"),
+        subjectLane: async (subject, work) => {
+          if (subject === "agent_busy") await busyLane;
+          return work();
+        },
+      },
+    );
+    await vi.waitFor(() => {
+      expect(taskSteps.daily).toHaveBeenCalledTimes(1);
+    });
+    expect(taskSteps.daily.mock.calls[0]![0]).toEqual(
+      expect.arrayContaining(["--memory-subject-key", "agent_free"]),
+    );
+    releaseBusy();
+    await running;
+    expect(taskSteps.daily).toHaveBeenCalledTimes(2);
+  });
+
   it("fails the calendar run only when every AnotherMe refresh fails", async () => {
     const taskSteps = steps();
     taskSteps.wiki.mockRejectedValue(new Error("graph failed"));

@@ -107,6 +107,9 @@ func (d *Daemon) sessionCompactBlocked(command protocol.Command) string {
 	if d.draining {
 		return "Local Computer Daemon is draining"
 	}
+	if d.runtimeCleanupUnconfirmed(command.RuntimeType) {
+		return cleanupUnconfirmedMessage
+	}
 	key := command.ExecutionContextKey
 	d.activeMu.Lock()
 	stopped := d.locallyStopped[command.AgentID]

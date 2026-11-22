@@ -102,7 +102,7 @@ describe("Carry a decision", () => {
     ).toBeNull();
   });
 
-  it("offers the link from a meeting that has a decision", async () => {
+  it("offers Carry a decision in the meeting actions menu when a meeting has a decision", async () => {
     const runtime = createTestTeamHubRuntime();
     const router = createMemoryRouter(
       [
@@ -118,6 +118,10 @@ describe("Carry a decision", () => {
           ),
           path: "/t/:tenantId/library/meetings",
         },
+        {
+          element: <p>Carry decision destination</p>,
+          path: "/t/:tenantId/library/carry-decision",
+        },
       ],
       { initialEntries: ["/t/tenant-northstar/library/meetings"] },
     );
@@ -128,11 +132,13 @@ describe("Carry a decision", () => {
         </TeamHubRuntimeProvider>
       </QueryClientProvider>,
     );
-    expect(
-      await screen.findByRole("link", { name: "Carry a decision" }),
-    ).toHaveAttribute(
-      "href",
-      "/t/tenant-northstar/library/carry-decision?entry=meeting-launch",
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Meeting actions" }),
     );
+    fireEvent.click(screen.getByRole("menuitem", { name: "Carry a decision" }));
+    expect(await screen.findByText("Carry decision destination")).toBeVisible();
+    expect(
+      `${router.state.location.pathname}${router.state.location.search}`,
+    ).toBe("/t/tenant-northstar/library/carry-decision?entry=meeting-launch");
   });
 });

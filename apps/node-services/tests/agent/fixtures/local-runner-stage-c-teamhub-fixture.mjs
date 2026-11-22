@@ -118,6 +118,7 @@ async function handleRequest(request, response) {
       effective_sha256: skillPackageSha256,
       connected_apps: true,
       connected_app_keys: [],
+      connectable_app_keys: [],
       skills: [skillItem],
     });
     return;

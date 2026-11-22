@@ -1,7 +1,11 @@
 import { lazy, Suspense, useMemo, type ComponentProps } from "react";
 
+import { Button } from "@/components/ui/button";
 import { isRunWorking } from "@/features/teamhub/run-status";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
+import { commonMessages } from "@/i18n/common.messages";
+import { translate } from "@/i18n/language";
+import { useT } from "@/i18n/use-translation";
 
 import { RoomRejoinBanner } from "../room-participation";
 import { readRoomComposerDraft, writeRoomComposerDraft } from "../room-drafts";
@@ -10,10 +14,18 @@ import { MessageComposer } from "./message-composer";
 import type { MessageDocumentOption } from "./message-composer-references";
 import { RoomChatComposerNotices } from "./room-chat-composer-notices";
 import { BackgroundTasksIndicator } from "./background-tasks-indicator";
-import { SharedStreamingStatus } from "./shared-streaming-status";
-import { AgentStreamingStatusDock } from "./message-timeline";
+import {
+  SharedStreamingStatus,
+  useSharedStreamingStatusActive,
+} from "./shared-streaming-status";
+import {
+  AgentStreamingStatusDock,
+  hasAgentStreamingDockEntries,
+} from "./message-timeline";
+import { useRoomBackgroundTasks } from "./use-room-background-tasks";
 import { roomOffersVoiceMaterials } from "./voice-mode/voice-materials-context";
 import { RoomComposerDock } from "./room-composer-dock";
+import { composerMessages } from "./composer.messages";
 import type { RoomChatData } from "./use-room-chat-data";
 import type { RoomChatConversationState } from "./use-room-chat-conversation-state";
 import type { RoomChatTimelineActions } from "./use-room-chat-timeline-actions";
@@ -36,6 +48,7 @@ export function RoomChatComposerSection({
   data,
   state,
 }: RoomChatComposerSectionProps) {
+  const t = useT();
   const {
     client,
     documentsPending,
@@ -75,6 +88,11 @@ export function RoomChatComposerSection({
     () => new Set(members.items.map((member) => member.actor.id)),
     [members.items],
   );
+  const backgroundTasks = useRoomBackgroundTasks({ client, roomId, tenantId });
+  const hasChatDock = useMemo(() => hasAgentStreamingDockEntries(dock), [dock]);
+  const sharedDockActive = useSharedStreamingStatusActive();
+  const peekSuppressed =
+    hasChatDock || sharedDockActive || backgroundTasks.length > 0;
   return room.participation === "left" ? (
     <RoomRejoinBanner room={room} />
   ) : (
@@ -84,22 +102,26 @@ export function RoomChatComposerSection({
       state={directPeerState}
     >
       {shareableDocuments.isError ? (
-        <p role="alert" className="px-4 py-2 text-sm text-app-danger">
-          Documents outside this Room could not be loaded.{" "}
-          <button
-            type="button"
+        <div
+          className="flex items-center justify-between gap-3 px-4 py-2 text-sm text-app-danger"
+          role="alert"
+        >
+          <span>{t(composerMessages.documentsOutsideRoomFailed)}</span>
+          <Button
             onClick={() => void shareableDocuments.refetch()}
+            size="compact"
+            tone="secondary"
           >
-            Retry
-          </button>
-        </p>
+            {t(commonMessages.retry)}
+          </Button>
+        </div>
       ) : null}
       <BackgroundTasksIndicator
         client={client}
         roomId={roomId}
         tenantId={tenantId}
       />
-      <SharedStreamingStatus surface="chat">
+      <SharedStreamingStatus active={hasChatDock} surface="chat">
         <AgentStreamingStatusDock {...dock} />
       </SharedStreamingStatus>
       <RoomMessageComposer
@@ -111,6 +133,7 @@ export function RoomChatComposerSection({
             room.kind === "direct" && room.direct_peer?.kind === "agent"
               ? room.direct_peer
               : undefined,
+          suppressed: peekSuppressed,
         }}
         agentOptionsReady={agentDirectory.isSuccess}
         agentDirectoryError={agentDirectory.isError}
@@ -196,11 +219,12 @@ export function RoomChatComposerSection({
         onStageAttachment={delivery.stageAttachment}
         placeholder={
           room.kind === "direct" && room.direct_peer
-            ? `Message ${
-                actorDisplayNames[room.direct_peer?.id ?? ""] ??
-                room.direct_peer?.display_name
-              }`
-            : "Message this Room"
+            ? t(composerMessages.messagePeer, {
+                name:
+                  actorDisplayNames[room.direct_peer?.id ?? ""] ??
+                  room.direct_peer?.display_name,
+              })
+            : t(composerMessages.messageThisRoom)
         }
         ref={interactions.composerRef}
         resolveDocumentLink={(link) => resolveRoomDocumentLink(data, link)}
@@ -222,7 +246,7 @@ async function resolveRoomDocumentLink(
   link: RoomDocumentLink,
 ) {
   if (link.tenantId !== tenantId) {
-    throw new Error("Document cannot be shared in this Room.");
+    throw new Error(translate(composerMessages.documentCannotBeShared));
   }
   try {
     const document = await teamHubData(
@@ -266,8 +290,13 @@ async function resolveRoomDocumentLink(
       tenantId,
       updatedAt: document.updated_at,
     };
-  } catch {
-    throw new Error("Document cannot be shared in this Room.");
+  } catch (error) {
+    if (error instanceof Error && error.message.trim()) {
+      throw error;
+    }
+    throw new Error(translate(composerMessages.documentCannotBeShared), {
+      cause: error,
+    });
   }
 }
 

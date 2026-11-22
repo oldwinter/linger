@@ -1,6 +1,8 @@
+import type { Translate } from "@/i18n/language";
 import { formatBytes } from "@/lib/format-bytes";
 
 import { architectureCopy, capabilityCopy } from "./local-models-copy";
+import { localModelsMessages as m } from "./local-models.messages";
 import type {
   LocalModel,
   LocalModelPool,
@@ -39,6 +41,37 @@ export function modelStatus(model: LocalModel): ModelStatus {
   return model.availability.downloadable ? "available" : "unavailable";
 }
 
+/**
+ * Whether a failed model is a download that stopped rather than a load that
+ * failed. The library reports a failed model without a record only for a
+ * download job that ended and kept its partial, and gives it one of these
+ * download codes; such a model resumes with download and is discarded with
+ * cancel, while load and remove are refused. Decided by the structured code,
+ * never by the error detail.
+ */
+export function downloadStopped(model: LocalModel): boolean {
+  return (
+    model.state === "failed" &&
+    (model.error?.code === "DOWNLOAD_FAILED" ||
+      model.error?.code === "NETWORK_UNAVAILABLE")
+  );
+}
+
+/**
+ * Whether the Computer currently holds a model record (loaded, loading, idle,
+ * or a failed load, excluding absent rows and stopped partial downloads).
+ */
+export function isModelOnComputer(
+  model: LocalModel,
+  status: ModelStatus,
+): boolean {
+  return (
+    status !== "available" &&
+    status !== "unavailable" &&
+    !downloadStopped(model)
+  );
+}
+
 const fitOrder: Record<LocalModel["fit"], number> = {
   gpu: 0,
   none: 2,
@@ -71,22 +104,49 @@ function gpuName(view: LocalModelsView, pool: LocalModelPool) {
 }
 
 /** A pool's full name: "GPU 0 · RTX 4090", "System memory", "Unified memory". */
-export function poolLabel(view: LocalModelsView, pool: LocalModelPool) {
-  if (pool.kind === "system") return "System memory";
-  if (pool.kind === "unified") return "Unified memory";
+export function poolLabel(
+  view: LocalModelsView,
+  pool: LocalModelPool,
+  t: Translate,
+) {
+  if (pool.kind === "system") return t(m.poolSystem);
+  if (pool.kind === "unified") return t(m.poolUnified);
   const name = gpuName(view, pool);
-  return name ? `GPU ${pool.gpu_index} · ${name}` : `GPU ${pool.gpu_index}`;
+  return name
+    ? t(m.gpuIndexNamed, { index: gpuIndex(pool), name })
+    : t(m.gpuIndex, { index: gpuIndex(pool) });
+}
+
+/** A GPU's number as the Computer reports it, never grouped like a count. */
+function gpuIndex(pool: LocalModelPool) {
+  return String(pool.gpu_index);
 }
 
 /**
  * A pool's short name for status lines: "GPU 0", "system memory", "memory".
  * Undefined without a pool, so no placement is shown.
  */
-export function placeName(view: LocalModelsView, poolId: string | undefined) {
+export function placeName(
+  view: LocalModelsView,
+  poolId: string | undefined,
+  t: Translate,
+) {
   const pool = poolOf(view, poolId);
   if (!pool) return undefined;
-  if (pool.kind === "gpu") return `GPU ${pool.gpu_index}`;
-  return pool.kind === "system" ? "system memory" : "memory";
+  if (pool.kind === "gpu") return t(m.gpuIndex, { index: gpuIndex(pool) });
+  return t(pool.kind === "system" ? m.placeSystem : m.placeMemory);
+}
+
+/** The same short name where it stands alone: "GPU 0", "System memory", "Memory". */
+export function placeTitle(
+  view: LocalModelsView,
+  poolId: string | undefined,
+  t: Translate,
+) {
+  const pool = poolOf(view, poolId);
+  if (!pool) return undefined;
+  if (pool.kind === "gpu") return t(m.gpuIndex, { index: gpuIndex(pool) });
+  return t(pool.kind === "system" ? m.poolSystem : m.placeMemoryTitle);
 }
 
 /**
@@ -94,23 +154,189 @@ export function placeName(view: LocalModelsView, poolId: string | undefined) {
  * small model and an empty pool compare at a glance with the rest: 0.6 GB and
  * 0 GB, not 614.4 MB and 0 B.
  */
-export function formatGigabytes(bytes: number) {
-  return `${Math.round((bytes / 1024 ** 3) * 10) / 10} GB`;
+export function formatGigabytes(bytes: number, t: Translate) {
+  return t(m.gigabytes, { value: Math.round((bytes / 1024 ** 3) * 10) / 10 });
 }
 
 export function poolFreeBytes(pool: LocalModelPool) {
   return Math.max(0, pool.total_bytes - pool.used_bytes);
 }
 
+/** Memory held by known models and foundation components in one pool. */
+export function poolHolderBytes(pool: LocalModelPool) {
+  return pool.holders.reduce((sum, holder) => sum + holder.bytes, 0);
+}
+
+/** Memory in the pool used by other apps (games, browsers, video players). */
+export function poolOtherBytes(pool: LocalModelPool) {
+  return Math.max(0, pool.used_bytes - poolHolderBytes(pool));
+}
+
+/** Free memory plus memory currently held by external apps in one pool. */
+export function poolReclaimableBytes(pool: LocalModelPool) {
+  return poolFreeBytes(pool) + poolOtherBytes(pool);
+}
+
+function summarizePools(pools: readonly LocalModelPool[], gpu: boolean) {
+  const totalBytes = pools.reduce((sum, pool) => sum + pool.total_bytes, 0);
+  const usedBytes = pools.reduce((sum, pool) => sum + pool.used_bytes, 0);
+  const otherBytes = pools.reduce((sum, pool) => sum + poolOtherBytes(pool), 0);
+  return {
+    freeBytes: Math.max(0, totalBytes - usedBytes),
+    gpu,
+    otherBytes,
+    totalBytes,
+    usedBytes,
+  };
+}
+
 /** What the header adds up: GPU memory when the Computer has GPUs, else its memory. */
 export function memorySummary(view: LocalModelsView) {
   const gpus = view.pools.filter((pool) => pool.kind === "gpu");
+  const { freeBytes, gpu, totalBytes, usedBytes } = summarizePools(
+    gpus.length ? gpus : view.pools,
+    gpus.length > 0,
+  );
+  return { freeBytes, gpu, totalBytes, usedBytes };
+}
+
+export interface MemoryGuidance {
+  kind: "blocked_download" | "blocked_load" | "constrained_pool";
+  gpu: boolean;
+  otherBytes: number;
+  freeBytes: number;
+  totalBytes: number;
+}
+
+function maxHardwareCapacity(view: LocalModelsView) {
+  const gpus = view.pools.filter((pool) => pool.kind === "gpu");
+  if (gpus.length) {
+    return Math.max(
+      ...gpus.map((pool) => pool.total_bytes),
+      ...(view.computer.host?.gpus.map((gpu) => gpu.total_bytes) ?? [0]),
+    );
+  }
+  const unifiedOrSystem = view.pools.map((pool) => pool.total_bytes);
+  return Math.max(
+    view.computer.host?.ram_total_bytes ?? 0,
+    ...unifiedOrSystem,
+    0,
+  );
+}
+
+/**
+ * Whether an unavailable model failed only because external apps currently
+ * hold memory on hardware that could otherwise fit it.
+ */
+export function memoryReclaimable(
+  view: LocalModelsView,
+  model: LocalModel,
+): boolean {
+  const reason = model.availability.reason;
+  if (
+    reason?.code !== "MEMORY_INSUFFICIENT" ||
+    reason.need_bytes === undefined
+  ) {
+    return false;
+  }
+  const gpus = view.pools.filter((pool) => pool.kind === "gpu");
   const pools = gpus.length ? gpus : view.pools;
-  return {
-    gpu: gpus.length > 0,
-    totalBytes: pools.reduce((sum, pool) => sum + pool.total_bytes, 0),
-    usedBytes: pools.reduce((sum, pool) => sum + pool.used_bytes, 0),
-  };
+  return (
+    pools.some((pool) => poolOtherBytes(pool) > 0) &&
+    reason.need_bytes <= maxHardwareCapacity(view)
+  );
+}
+
+/**
+ * Whether external apps hold enough GPU or system memory that closing them
+ * and rechecking could let a larger model download or load. Pool metrics are
+ * scoped per physical memory space so system RAM is never added into GPU VRAM.
+ */
+export function memoryGuidance(view: LocalModelsView): MemoryGuidance | null {
+  if (!view.available || !view.pools.length) return null;
+  const gpus = view.pools.filter((pool) => pool.kind === "gpu");
+  const nonGpus = view.pools.filter((pool) => pool.kind !== "gpu");
+  const groups = [
+    ...(gpus.length ? [{ gpu: true, pools: gpus }] : []),
+    ...(nonGpus.length ? [{ gpu: false, pools: nonGpus }] : []),
+  ];
+  if (!groups.length) return null;
+
+  const entries = modelEntries(view);
+
+  for (const group of groups) {
+    const stats = summarizePools(group.pools, group.gpu);
+    if (stats.otherBytes <= 0) continue;
+    const poolIds = new Set(group.pools.map((pool) => pool.id));
+    const blockedLoad = entries.some(({ model, status }) => {
+      if (status !== "idle" && (status !== "failed" || downloadStopped(model)))
+        return false;
+      if (model.pool === undefined || !poolIds.has(model.pool)) return false;
+      const pool = poolOf(view, model.pool);
+      if (!pool || poolOtherBytes(pool) <= 0) return false;
+      return (
+        model.note?.code === "NO_ROOM_TO_LOAD" ||
+        model.error?.code === "LOAD_NO_ROOM" ||
+        model.error?.code === "OUT_OF_MEMORY" ||
+        loadCheck(view, model) !== null
+      );
+    });
+    if (blockedLoad) {
+      return {
+        freeBytes: stats.freeBytes,
+        gpu: group.gpu,
+        kind: "blocked_load",
+        otherBytes: stats.otherBytes,
+        totalBytes: stats.totalBytes,
+      };
+    }
+  }
+
+  const primary = groups[0]!;
+  const primaryStats = summarizePools(primary.pools, primary.gpu);
+  if (
+    primaryStats.otherBytes > 0 &&
+    entries.some(
+      (entry) =>
+        entry.status === "unavailable" && memoryReclaimable(view, entry.model),
+    )
+  ) {
+    return {
+      freeBytes: primaryStats.freeBytes,
+      gpu: primary.gpu,
+      kind: "blocked_download",
+      otherBytes: primaryStats.otherBytes,
+      totalBytes: primaryStats.totalBytes,
+    };
+  }
+
+  const twoGigabytes = 2 * 1024 ** 3;
+  for (const group of groups) {
+    const stats = summarizePools(group.pools, group.gpu);
+    if (stats.otherBytes < twoGigabytes) continue;
+    const poolIds = new Set(group.pools.map((pool) => pool.id));
+    const constrainedAvailable = entries.some((entry) => {
+      if (entry.status !== "available") return false;
+      const modelPool = entry.model.pool;
+      if (modelPool === undefined || !poolIds.has(modelPool)) return false;
+      const pool = poolOf(view, modelPool);
+      return (
+        pool !== undefined &&
+        poolOtherBytes(pool) > 0 &&
+        entry.model.memory_bytes > poolFreeBytes(pool)
+      );
+    });
+    if (constrainedAvailable) {
+      return {
+        freeBytes: stats.freeBytes,
+        gpu: group.gpu,
+        kind: "constrained_pool",
+        otherBytes: stats.otherBytes,
+        totalBytes: stats.totalBytes,
+      };
+    }
+  }
+  return null;
 }
 
 export interface LoadCheck {
@@ -119,6 +345,11 @@ export interface LoadCheck {
   freeBytes: number;
   /** Loaded models in the same pool, the ones the user could unload. */
   loaded: ModelEntry[];
+  /**
+   * What else holds the pool that Make room cannot unload: components and
+   * models in another state, by holder.
+   */
+  kept: LocalModelPool["holders"];
 }
 
 /** Why a model cannot load now, or `null` when its pool reports room for it. */
@@ -128,14 +359,18 @@ export function loadCheck(
 ): LoadCheck | null {
   const pool = poolOf(view, model.pool);
   if (!pool || poolFreeBytes(pool) >= model.memory_bytes) return null;
+  const loaded = modelEntries(view).filter(
+    (entry) =>
+      entry.status === "loaded" &&
+      entry.model.pool === pool.id &&
+      entry.model.id !== model.id,
+  );
   return {
     freeBytes: poolFreeBytes(pool),
-    loaded: modelEntries(view).filter(
-      (entry) =>
-        entry.status === "loaded" &&
-        entry.model.pool === pool.id &&
-        entry.model.id !== model.id,
+    kept: pool.holders.filter(
+      (holder) => !loaded.some((entry) => entry.model.id === holder.id),
     ),
+    loaded,
     needBytes: model.memory_bytes,
     pool,
   };
@@ -194,13 +429,27 @@ export function downloadPercent(model: LocalModel) {
 }
 
 /** Context length in thousands of tokens, as model cards write it: 128K. */
-export function contextLabel(tokens: number) {
-  return `${Math.round(tokens / 1024)}K tokens`;
+export function contextLabel(tokens: number, t: Translate) {
+  if (tokens < 1024) return t(m.contextTokens, { tokens });
+  return t(m.contextKiloTokens, { thousands: Math.round(tokens / 1024) });
 }
 
-/** Agent names joined for a sentence. */
-export function agentNames(entry: Pick<LocalModelView, "used_by">) {
-  return entry.used_by.map((user) => user.name).join(", ");
+/** Names in one line, separated the way the language lists them. */
+export function joinList(items: readonly string[], t: Translate) {
+  return items.join(t(m.listSeparator));
+}
+
+/** Compact Agent count chip for a model on the Computer, or undefined when unused. */
+export function usedByBadge(
+  entry: Pick<ModelEntry, "model" | "status" | "used_by">,
+  t: Translate,
+  names?: readonly string[],
+): string | undefined {
+  const count = names ? names.length : entry.used_by.length;
+  if (!isModelOnComputer(entry.model, entry.status) || !count) {
+    return undefined;
+  }
+  return t(m.agentCount, { count });
 }
 
 export type LocalModelCapability = NonNullable<
@@ -223,60 +472,88 @@ export function modelCapabilities(model: LocalModel): LocalModelCapability[] {
 }
 
 /** Parameter scale and activation topology for details: "30B · 3B active (MoE)". */
-export function parametersLabel(model: LocalModel) {
+export function parametersLabel(model: LocalModel, t: Translate) {
   const scale = [
     model.parameters,
-    model.active_parameters ? `${model.active_parameters} active` : undefined,
+    model.active_parameters
+      ? t(m.activeParameters, { parameters: model.active_parameters })
+      : undefined,
   ]
     .filter(Boolean)
     .join(" · ");
-  const arch = model.architecture
-    ? architectureCopy(model.architecture)
+  const architecture = model.architecture
+    ? architectureCopy(model.architecture, t)
     : undefined;
-  if (scale && arch) return `${scale} (${arch})`;
-  return scale || arch;
+  if (scale && architecture)
+    return t(m.parametersWithArchitecture, { architecture, scale });
+  return scale || architecture;
 }
 
-/** Concise badges for the collapsed row: parameter scale (when distinct) and capabilities. */
-export function rowBadges(model: LocalModel): string[] {
+function allModelBadges(model: LocalModel, t: Translate): string[] {
   const badges: string[] = [];
   if (model.active_parameters) {
-    badges.push(`${model.active_parameters} active`);
-  } else if (
-    model.parameters &&
-    !model.name.toLowerCase().includes(model.parameters.toLowerCase())
-  ) {
+    badges.push(t(m.activeParameters, { parameters: model.active_parameters }));
+  } else if (model.parameters) {
     badges.push(model.parameters);
   }
   for (const capability of modelCapabilities(model)) {
-    badges.push(capabilityCopy(capability));
-  }
-  if (badges.length > 3) {
-    return [...badges.slice(0, 3), `+${badges.length - 3}`];
+    badges.push(capabilityCopy(capability, t));
   }
   return badges;
 }
 
-function formatRemainingTime(seconds: number) {
-  if (seconds < 60) return `${seconds}s left`;
-  if (seconds < 3600) return `${Math.ceil(seconds / 60)}m left`;
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.ceil((seconds % 3600) / 60);
-  if (minutes >= 60) return `${hours + 1}h left`;
-  return minutes > 0 ? `${hours}h ${minutes}m left` : `${hours}h left`;
+const visibleBadgeCount = 2;
+
+export interface CollapsedRowBadges {
+  badges: string[];
+  overflowTitle?: string;
+}
+
+/** Concise badges and any `+N` overflow tooltip for the collapsed row, built once from structured fields. */
+export function collapsedRowBadges(
+  model: LocalModel,
+  t: Translate,
+): CollapsedRowBadges {
+  const badges = allModelBadges(model, t);
+  if (badges.length <= visibleBadgeCount) {
+    return { badges };
+  }
+  return {
+    badges: [
+      ...badges.slice(0, visibleBadgeCount),
+      `+${badges.length - visibleBadgeCount}`,
+    ],
+    overflowTitle: joinList(badges.slice(visibleBadgeCount), t),
+  };
+}
+
+function formatRemainingTime(seconds: number, t: Translate) {
+  if (seconds < 60) return t(m.secondsLeft, { seconds });
+  const totalMinutes = Math.ceil(seconds / 60);
+  if (totalMinutes < 60) return t(m.minutesLeft, { minutes: totalMinutes });
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return minutes > 0
+    ? t(m.hoursMinutesLeft, { hours, minutes })
+    : t(m.hoursLeft, { hours });
 }
 
 /** Live download progress summary: "checking file", or "25% · 50 MB/s · 5m left". */
-export function downloadStatusDetail(model: LocalModel) {
+export function downloadStatusDetail(model: LocalModel, t: Translate) {
   const download = model.download;
-  if (download?.step === "verify") return "checking file";
-  const parts = [`${downloadPercent(model)}%`];
+  if (download?.step === "verify") return t(m.checkingFile);
+  const parts = [t(m.percent, { percent: downloadPercent(model) })];
   if (download?.bytes_per_second && download.bytes_per_second > 0) {
-    parts.push(`${formatBytes(download.bytes_per_second)}/s`);
+    parts.push(
+      t(m.perSecond, { size: formatBytes(download.bytes_per_second) }),
+    );
     const remaining = download.total_bytes - download.done_bytes;
     if (remaining > 0) {
       parts.push(
-        formatRemainingTime(Math.ceil(remaining / download.bytes_per_second)),
+        formatRemainingTime(
+          Math.ceil(remaining / download.bytes_per_second),
+          t,
+        ),
       );
     }
   }
@@ -284,13 +561,19 @@ export function downloadStatusDetail(model: LocalModel) {
 }
 
 /** Measured generation and prompt-processing throughput for model details. */
-export function speedLabel(model: LocalModel) {
+export function speedLabel(model: LocalModel, t: Translate) {
   const parts: string[] = [];
   if (model.tokens_per_second && model.tokens_per_second > 0) {
-    parts.push(`${Math.round(model.tokens_per_second)} tokens/s`);
+    parts.push(
+      t(m.tokensPerSecond, { speed: Math.round(model.tokens_per_second) }),
+    );
   }
   if (model.prompt_tokens_per_second && model.prompt_tokens_per_second > 0) {
-    parts.push(`${Math.round(model.prompt_tokens_per_second)} prompt tokens/s`);
+    parts.push(
+      t(m.promptTokensPerSecond, {
+        speed: Math.round(model.prompt_tokens_per_second),
+      }),
+    );
   }
   return parts.length ? parts.join(" · ") : undefined;
 }
@@ -310,4 +593,28 @@ export function safeModelSourceUrl(url: string | undefined) {
 export function modelSourceLabel(url: string) {
   const parsed = new URL(url);
   return `${parsed.host}${parsed.pathname.replace(/\/+$/, "")}`;
+}
+
+/** Candidate local models on disk ordered loaded-first, recommended, then largest. */
+export function localSwitchTargets(view: LocalModelsView): LocalModel[] {
+  return view.models
+    .map((item) => item.model)
+    .filter((model) => model.state === "loaded" || model.state === "idle")
+    .sort((left, right) => {
+      if (left.state !== right.state) {
+        return left.state === "loaded" ? -1 : 1;
+      }
+      if (left.recommended !== right.recommended) {
+        return left.recommended ? -1 : 1;
+      }
+      return right.memory_bytes - left.memory_bytes;
+    });
+}
+
+/**
+ * The model a switch to Local model runs by default: a loaded one, else one
+ * on disk. None when the Computer has no model downloaded yet.
+ */
+export function localSwitchTarget(view: LocalModelsView) {
+  return localSwitchTargets(view)[0];
 }

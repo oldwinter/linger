@@ -9,17 +9,29 @@ import preserves the upstream filename suffix, SQL bytes, and relative order.
 The sequence keeps the removal of scanned-document fields before the Memory
 whitelist function that uses the resulting schema.
 
-| Upstream version | Fork version | Migration                         |
-| ---------------- | ------------ | --------------------------------- |
-| 00866            | 00870        | date_wiki_sessions_by_session     |
-| 00867            | 00871        | capture_quick_notes               |
-| 00868            | 00872        | record_local_run_turns            |
-| 00869            | 00873        | retire_holistic_context_skill     |
-| 00870            | 00874        | quiet_proactive_tasks             |
-| 00871            | 00875        | drop_scanned_document_texts       |
-| 00872            | 00876        | memory_raw_follows_wiki_whitelist |
-| 00873            | 00877        | claim_voice_transcript_epochs     |
-| 00874            | 00878        | local_computer_model_snapshots    |
+| Upstream version | Fork version | Migration                                 |
+| ---------------- | ------------ | ----------------------------------------- |
+| 00866            | 00870        | date_wiki_sessions_by_session             |
+| 00867            | 00871        | capture_quick_notes                       |
+| 00868            | 00872        | record_local_run_turns                    |
+| 00869            | 00873        | retire_holistic_context_skill             |
+| 00870            | 00874        | quiet_proactive_tasks                     |
+| 00871            | 00875        | drop_scanned_document_texts               |
+| 00872            | 00876        | memory_raw_follows_wiki_whitelist         |
+| 00873            | 00877        | claim_voice_transcript_epochs             |
+| 00874            | 00878        | local_computer_model_snapshots            |
+| 00875            | 00879        | key_mail_wiki_sources_by_mailbox          |
+| 00876            | 00880        | bind_gmail_canvas_drafts                  |
+| 00877            | 00881        | mail_canvas_delivery                      |
+| 00878            | 00882        | meeting_summary_label                     |
+| 00879            | 00883        | reimport_outlook_mail_by_sent_folder      |
+| 00880            | 00884        | name_default_delegate_linger              |
+| 00881            | 00885        | use_delegate_display_name_in_instructions |
+| 00882            | 00886        | routine_interval_minutes                  |
+| 00883            | 00887        | wiki_refresh_failure_codes                |
+| 00884            | 00888        | allow_antigravity_local_runtime           |
+| 00885            | 00889        | web_search                                |
+| 00886            | 00890        | outlook_calendar_listener                 |
 
 This sequence supports an empty database and an existing fork database,
 including one at version `00869`. Goose records numeric versions without a

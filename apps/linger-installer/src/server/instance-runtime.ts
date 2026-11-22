@@ -1,12 +1,17 @@
 import path from "node:path";
 import { loadInstance } from "@linger/local-installation/instance";
 import { localModelsEnvironment } from "@linger/local-installation/local-models";
+import { readByokEnvironment } from "@linger/local-installation/byok-source";
 import {
   LOCALMODELS_TOOL_ENVIRONMENT,
   localmodelsComputerTool,
   localmodelsToolEnvironment,
 } from "@linger/local-installation/localmodels-computer";
 import { pinnedToolSource } from "@linger/local-installation/localmodels-tool";
+import {
+  runtimeEnvironmentFromDescriptors,
+  type RuntimeDescriptor,
+} from "@linger/local-installation/managed-runtimes";
 import { managedRuntimeEnvironment } from "@linger/local-installation/managed-codex";
 import { readSetupChoice } from "@linger/local-installation/setup-selection";
 import type { components } from "@linger/wire-contracts/linger-installer/types";
@@ -29,13 +34,20 @@ const RUNTIME_ENVIRONMENT = [
 export async function instanceRuntime(
   home: string,
   name: string,
+  options: { runtimeDescriptors?: RuntimeDescriptor[] } = {},
 ): Promise<components["schemas"]["InstanceRuntime"] | undefined> {
   const value = await loadInstance({ name, home });
   if (!value) return undefined;
   const setupChoice = await readSetupChoice({ name, home });
+  const byok = await readByokEnvironment(home);
+  const managedEnv =
+    options.runtimeDescriptors !== undefined
+      ? runtimeEnvironmentFromDescriptors(options.runtimeDescriptors)
+      : await managedRuntimeEnvironment(home, value.root);
   const found: Record<string, string | undefined> = {
-    ...(await managedRuntimeEnvironment(home, value.root)),
+    ...managedEnv,
     ...(await localModelsEnvironment(value)),
+    ...(byok?.mode === "byok" ? byok.environment : {}),
     ...localmodelsToolEnvironment(
       await localmodelsComputerTool(home, pinnedToolSource()),
     ),

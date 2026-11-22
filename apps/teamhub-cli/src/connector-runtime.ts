@@ -18,7 +18,7 @@ import { connectorWriteApproval } from "./connector-approval.js";
 import { id, object, rootSchema } from "./connector-schemas.js";
 import { CliError, ConnectorError } from "./errors.js";
 import type { ConnectorFile } from "./connector-files.js";
-import { displayText } from "./display-text.js";
+import { accountIdentityText, displayText } from "./display-text.js";
 
 export type Json = Record<string, unknown>;
 export interface ConnectorBinding {
@@ -142,7 +142,7 @@ export async function resolveConnectorAccount(
   if (resolution.status === "account_ambiguous")
     throw new ConnectorError(
       "account_ambiguous",
-      "Multiple accounts match. Select a connection ID with --account.",
+      "The requested account is unavailable or more than one account matches. If one of the candidates is the account you meant, run again with --account set to its connection ID; otherwise pass the account's label (for example its email address) with --account to ask the user to authorize it.",
       { candidates: resolution.candidates, operation_rejected: true },
     );
   const selected = record(resolution.account, "selected account");
@@ -156,7 +156,7 @@ export async function resolveConnectorAccount(
 function authorizationCard(resolution: Json): never {
   throw new ConnectorError(
     "authorization_required",
-    "Complete the account authorization card in the chat, then run this command again.",
+    "Waiting for the user to authorize the account; an authorization card is in the chat. End your turn: the card's result wakes you, then run this command again. If the user declines, don't retry.",
     { ...resolution, operation_rejected: true },
   );
 }
@@ -757,7 +757,7 @@ function label(key: string): string {
 export function renderConnectorResult(result: Json): string {
   const account = record(result.account);
   const lines = [
-    `Account: ${clean(account.identityLabel || account.displayName)} (${clean(account.connectionId)})`,
+    `Account: ${clean(accountIdentityText(account.name, account.identityLabel) || account.displayName)} (${clean(account.connectionId)})`,
   ];
   const submitted = record(result.result ?? {});
   if (submitted.action === "confirmation_requested") {

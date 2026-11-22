@@ -290,7 +290,7 @@ export const documentImageCommandDefinitions: readonly CommandDefinition[] = [
         throw inputError(
           "Caption must be one line of at most 1000 characters.",
         );
-      const file = path.resolve(reader.cwd, args.positionals[1]!);
+      const file = reader.localPath(args.positionals[1]!);
       const info = await stat(file).catch(() => undefined);
       if (!info?.isFile()) throw inputError("Provide a regular image file.");
       if (info.size < 1 || info.size > maxImageBytes)
@@ -408,9 +408,7 @@ export const documentImageCommandDefinitions: readonly CommandDefinition[] = [
         input: {
           document_id: documentId,
           block_id: id(args.positionals[1], "block"),
-          ...(output === undefined
-            ? {}
-            : { output: path.resolve(reader.cwd, output) }),
+          ...(output === undefined ? {} : { output: reader.localPath(output) }),
         },
         target: { type: "document", id: documentId },
         scope: { kind: "document", id: documentId },
@@ -470,7 +468,7 @@ export const documentImageCommandDefinitions: readonly CommandDefinition[] = [
       const after = option(args, "--after");
       if (after === undefined)
         throw new CliError("usage", "Provide --after <block-id>.");
-      const file = path.resolve(reader.cwd, args.positionals[1]!);
+      const file = reader.localPath(args.positionals[1]!);
       const info = await stat(file).catch(() => undefined);
       if (!info?.isFile()) throw inputError("Provide a regular file.");
       if (info.size < 1 || info.size > maxFileBytes)

@@ -29,10 +29,10 @@ const spinnerSize: Record<ButtonSize, number> = {
 
 const toneClassName: Record<ButtonTone, string> = {
   danger:
-    "border border-destructive/40 bg-transparent text-destructive hover:border-foreground/15",
+    "border border-destructive/40 bg-transparent text-destructive hover:border-(--app-danger-border-hover) hover:bg-(--app-danger-hover)",
   ghost:
     "border border-transparent bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground",
-  info: "bg-app-info text-white hover:bg-app-info-hover",
+  info: "bg-app-info text-primary-foreground hover:bg-app-info-hover",
   primary:
     "bg-primary text-primary-foreground shadow-button hover:bg-primary/90",
   secondary:
@@ -69,6 +69,7 @@ export function Button({
   size?: ButtonSize;
   tone?: ButtonTone;
 }) {
+  const iconOnly = size === "icon" || size === "compactIcon";
   return (
     <button
       aria-busy={loading || undefined}
@@ -78,7 +79,7 @@ export function Button({
       {...props}
     >
       {loading ? <Spinner size={spinnerSize[size]} /> : null}
-      {children}
+      {loading && iconOnly ? null : children}
     </button>
   );
 }

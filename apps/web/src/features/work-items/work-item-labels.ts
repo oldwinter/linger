@@ -30,6 +30,21 @@ export function workItemPriorityLabel(priority: TeamHubWorkItemPriority) {
   return priority.charAt(0).toUpperCase() + priority.slice(1);
 }
 
+/** Semantic priority badge classes shared between board cards and peek. */
+export function workItemPriorityBadgeClassName(
+  priority: TeamHubWorkItemPriority,
+): string {
+  switch (priority) {
+    case "urgent":
+      return "border-(--app-status-danger-border) bg-(--app-status-danger-surface) text-(--app-status-danger-text)";
+    case "high":
+      return "border-(--app-status-warning-border) bg-(--app-status-warning-surface) text-(--app-status-warning-text)";
+    case "medium":
+    case "low":
+      return "border-app-border-strong bg-transparent text-app-muted";
+  }
+}
+
 function resolutionLabel(
   resolution: NonNullable<TeamHubWorkItem["resolution"]>,
 ) {

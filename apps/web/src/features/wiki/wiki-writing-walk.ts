@@ -1,4 +1,6 @@
-import { wikiCollectionLabels } from "./wiki-display-state";
+import { translate } from "@/i18n/language";
+
+import { wikiCollections } from "./wiki-display-state";
 import { wikiPreviewPages, type WikiPreviewPage } from "./wiki-preview-pages";
 
 const excerptLimit = 240;
@@ -15,7 +17,7 @@ export function wikiWritingPages(
 ): WikiWritingPage[] {
   return wikiPreviewPages(preview).map((page) => ({
     ...page,
-    collectionLabel: wikiCollectionLabels[page.collection],
+    collectionLabel: translate(wikiCollections[page.collection].label),
     excerpt: wikiWritingExcerpt(page.markdown),
   }));
 }

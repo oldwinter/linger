@@ -116,6 +116,13 @@ func TestComputerComingOnlineCreatesAnotherMeOnce(t *testing.T) {
 	if actorID == "" {
 		t.Fatal("the Computer coming online created no Another Me")
 	}
+	var displayName string
+	if err := env.pool.QueryRow(t.Context(), `SELECT display_name FROM actors WHERE id=$1`, actorID).Scan(&displayName); err != nil {
+		t.Fatal(err)
+	}
+	if displayName != "Linger" {
+		t.Fatalf("default Another Me name=%q want=Linger", displayName)
+	}
 	var model, effort, computerID, runtimeType, grantID, createdBy string
 	var receivesAll bool
 	if err := env.pool.QueryRow(t.Context(), `
@@ -146,7 +153,7 @@ func TestComputerComingOnlineCreatesAnotherMeOnce(t *testing.T) {
 	`, roomID, actorID).Scan(&greeting); err != nil {
 		t.Fatal(err)
 	}
-	if greeting != "Hi alice, I'm your Another Me — think of me as another you in Linger." {
+	if greeting != "Hi alice, I'm Linger — your personal AI." {
 		t.Fatalf("Another Me greeting=%q", greeting)
 	}
 	assertAnotherMeChat(t, env, roomID)

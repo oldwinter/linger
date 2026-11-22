@@ -22,6 +22,9 @@ import type {
   TeamHubActor,
   TeamHubActorRef,
 } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import type { Message } from "@/i18n/messages";
+import { useT } from "@/i18n/use-translation";
 import { writeClipboardText } from "@/lib/clipboard";
 
 import {
@@ -32,13 +35,21 @@ import {
   tenantAgentsQueryOptions,
 } from "../room-queries";
 import { eligibleRoomAgents } from "../agent-admission";
+import { roomSettingsMessages as m } from "../room-settings.messages";
 import { ActorAvatar } from "./actor-avatar";
+import { agentInfoMessages } from "./agent-info.messages";
 import { AgentStatus } from "./agent-status";
 import { searchRoomMembers } from "./room-member-search";
 import { roomMembersMarkdown } from "./room-members-markdown";
 
 /** Long enough to read, matching the other copy actions. */
 const MEMBERS_COPIED_MS = 1200;
+
+/** The roles TeamHub names today; any other value is shown as it was sent. */
+const ROLE_LABELS: Record<string, Message<string> | undefined> = {
+  owner: m.roleOwner,
+  member: m.roleMember,
+};
 
 export function RoomMembersSection({
   onOpenProfile,
@@ -53,6 +64,7 @@ export function RoomMembersSection({
   tenantId: string;
 }) {
   const { client } = useTeamHubRuntime();
+  const t = useT();
   const queryClient = useQueryClient();
   const [addOpen, setAddOpen] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<TeamHubActorRef | null>(
@@ -179,10 +191,10 @@ export function RoomMembersSection({
   });
 
   return (
-    <section aria-label="Room members" className="px-5 py-3">
+    <section aria-label={t(m.roomMembers)} className="px-5 py-3">
       {membersPending ? (
         <p className="text-xs text-app-muted" role="status">
-          Loading members...
+          {t(m.loadingMembers)}
         </p>
       ) : null}
       {!membersPending && memberItems.length > 0 ? (
@@ -190,10 +202,10 @@ export function RoomMembersSection({
           <label className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg border border-border bg-card px-2.5 text-muted-foreground transition-colors hover:border-border-hover focus-within:border-foreground focus-within:ring-2 focus-within:ring-ring/40">
             <Icon icon={Search01Icon} size={14} />
             <input
-              aria-label="Search members"
-              className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
+              aria-label={t(m.searchMembers)}
+              className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-app-placeholder"
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search members"
+              placeholder={t(m.searchMembers)}
               role="searchbox"
               type="text"
               value={query}
@@ -238,13 +250,16 @@ export function RoomMembersSection({
             const agent = agentDirectory.data?.items.find(
               (candidate) => candidate.actor.id === member.actor.id,
             );
+            const role = ROLE_LABELS[member.role];
             return (
               <div
                 className="group flex min-h-13 w-full items-center rounded-lg transition-colors duration-300 hover:bg-muted/70"
                 key={member.actor.id}
               >
                 <button
-                  aria-label={`Open ${member.actor.display_name} profile`}
+                  aria-label={t(agentInfoMessages.openProfile, {
+                    name: member.actor.display_name,
+                  })}
                   className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-2 text-left focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-app-focus"
                   onClick={() => onOpenProfile?.(member.actor.id)}
                   type="button"
@@ -265,17 +280,17 @@ export function RoomMembersSection({
                       </span>
                       {member.actor.kind === "agent" ? (
                         <span className="rounded-sm bg-muted px-1.5 py-0.5 text-2xs font-medium text-muted-foreground">
-                          Agent
+                          {t(agentInfoMessages.agent)}
                         </span>
                       ) : null}
                       {sponsoredAgentIds.has(member.actor.id) ? (
                         <span className="rounded-sm bg-muted px-1.5 py-0.5 text-2xs font-medium text-foreground">
-                          Yours
+                          {t(m.yours)}
                         </span>
                       ) : null}
                     </span>
                     <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-                      <span>{member.role}</span>
+                      <span>{role ? t(role) : member.role}</span>
                       {member.actor.kind === "agent" &&
                       agent &&
                       availabilityByActorId.has(member.actor.id) ? (
@@ -294,14 +309,19 @@ export function RoomMembersSection({
                 </button>
                 {isOwner && member.actor.id !== currentActorId ? (
                   <Button
-                    aria-label={`Remove ${member.actor.display_name}`}
+                    data-voice-risk="never"
+                    aria-label={t(m.removeMember, {
+                      name: member.actor.display_name,
+                    })}
                     className="mr-1 opacity-70 group-hover:opacity-100"
                     onClick={() => {
                       removeMember.reset();
                       setRemoveTarget(member.actor);
                     }}
                     size="compactIcon"
-                    title={`Remove ${member.actor.display_name}`}
+                    title={t(m.removeMember, {
+                      name: member.actor.display_name,
+                    })}
                     tone="ghost"
                   >
                     <Icon icon={Delete02Icon} size={16} />
@@ -324,7 +344,7 @@ export function RoomMembersSection({
         </Button>
         {copyState === "copied" ? (
           <span className="text-xs leading-4 text-app-muted" role="status">
-            Copied
+            {t(commonMessages.copied)}
           </span>
         ) : null}
         {copyState === "failed" ? (
@@ -347,7 +367,7 @@ export function RoomMembersSection({
         }}
       >
         <Icon className="text-muted-foreground" icon={PlusSignIcon} size={16} />
-        Add member
+        {t(m.addMember)}
       </Button>
 
       {addOpen ? (
@@ -406,20 +426,26 @@ function RemoveMemberDialog({
   onClose: () => void;
   onRemove: () => void;
 }) {
-  const title = `Remove ${actor.display_name}?`;
+  const t = useT();
+  const title = t(m.removeMemberTitle, { name: actor.display_name });
   return (
     <ModalDialog
-      description="They will lose access to this Room."
+      description={t(m.removeMemberDescription)}
       onClose={onClose}
       size="sm"
       title={title}
       footer={
         <>
           <Button disabled={isPending} onClick={onClose}>
-            Cancel
+            {t(commonMessages.cancel)}
           </Button>
-          <Button loading={isPending} onClick={onRemove} tone="danger">
-            Remove
+          <Button
+            data-voice-risk="never"
+            loading={isPending}
+            onClick={onRemove}
+            tone="danger"
+          >
+            {t(commonMessages.remove)}
           </Button>
         </>
       }
@@ -454,8 +480,9 @@ function AddMemberDialog({
   onRetryAgentDirectory: () => void;
   sponsoredAgentIds: Set<string>;
 }) {
+  const t = useT();
   return (
-    <ModalDialog onClose={onClose} size="md" title="Add Room member">
+    <ModalDialog onClose={onClose} size="md" title={t(m.addRoomMember)}>
       <div className="p-3">
         {agentDirectoryError ? (
           <div
@@ -463,20 +490,20 @@ function AddMemberDialog({
             role="alert"
           >
             <span className="text-sm text-muted-foreground">
-              Your agents are unavailable
+              {t(m.agentsUnavailable)}
             </span>
             <Button
               onClick={onRetryAgentDirectory}
               size="compact"
               tone="secondary"
             >
-              Retry
+              {t(commonMessages.retry)}
             </Button>
           </div>
         ) : null}
         {agentDirectoryLoading ? (
           <p className="mb-3 text-xs text-muted-foreground" role="status">
-            Loading your agents...
+            {t(m.loadingAgents)}
           </p>
         ) : null}
         {error ? (
@@ -507,7 +534,13 @@ function AddMemberDialog({
                   {actor.display_name}
                 </span>
                 <span className="block truncate text-xs text-muted-foreground">
-                  {sponsoredAgentIds.has(actor.id) ? "Yours" : "Human"}
+                  {t(
+                    sponsoredAgentIds.has(actor.id)
+                      ? m.yours
+                      : actor.kind === "agent"
+                        ? agentInfoMessages.agent
+                        : agentInfoMessages.human,
+                  )}
                 </span>
               </span>
               <Icon
@@ -519,7 +552,7 @@ function AddMemberDialog({
           ))
         ) : (
           <p className="p-4 text-center text-sm text-muted-foreground">
-            Every Tenant Actor is already in this Room.
+            Everyone in this space is already in this Room.
           </p>
         )}
       </div>

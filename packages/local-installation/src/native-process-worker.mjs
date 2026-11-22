@@ -2,8 +2,13 @@
 import { spawn } from "node:child_process";
 import { constants, closeSync, writeSync } from "node:fs";
 import { open, rm } from "node:fs/promises";
+import path from "node:path";
 import { lineRedactor } from "./redaction.ts";
 import { nativeLeaseProcesses } from "./native-process-identity.ts";
+import {
+  WITHOUT_ADMINISTRATORS_SCRIPT,
+  windowsCommandLine,
+} from "./windows-restricted-token.ts";
 
 const file = process.argv[2];
 // Windows reports neither owner nor mode bits; the native directory ACL,
@@ -33,7 +38,8 @@ try {
     !job.env ||
     job.env.LINGER_NATIVE_PROCESS_LEASE !==
       process.env.LINGER_NATIVE_PROCESS_LEASE ||
-    !Array.isArray(job.redactions)
+    !Array.isArray(job.redactions) ||
+    ![undefined, true].includes(job.withoutAdministrators)
   )
     throw new Error("Invalid native job");
   output = await open(
@@ -68,14 +74,39 @@ try {
   // Stay group leader after the service exits: descendants may still be alive.
   process.on("SIGINT", () => {});
   process.on("SIGTERM", () => {});
-  const child = spawn(job.executable, job.args, {
-    cwd: job.cwd,
-    env: job.env,
-    // This detached supervisor has no console, so on Windows the service
-    // would open a visible one that air, PowerShell and go then share.
-    windowsHide: true,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  const restricted = job.withoutAdministrators && process.platform === "win32";
+  const child = restricted
+    ? spawn(
+        path.win32.join(
+          process.env.SystemRoot ?? "C:\\Windows",
+          "System32",
+          "WindowsPowerShell",
+          "v1.0",
+          "powershell.exe",
+        ),
+        [
+          "-NoLogo",
+          "-NoProfile",
+          "-NonInteractive",
+          "-EncodedCommand",
+          Buffer.from(WITHOUT_ADMINISTRATORS_SCRIPT, "utf16le").toString(
+            "base64",
+          ),
+        ],
+        { cwd: job.cwd, env: job.env, windowsHide: true },
+      )
+    : spawn(job.executable, job.args, {
+        cwd: job.cwd,
+        env: job.env,
+        // This detached supervisor has no console, so on Windows the service
+        // would open a visible one that air, PowerShell and go then share.
+        windowsHide: true,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+  if (restricted)
+    child.stdin.end(
+      JSON.stringify(windowsCommandLine(job.executable, job.args)),
+    );
   child.stdout.setEncoding("utf8");
   child.stderr.setEncoding("utf8");
   child.stdout.on("data", (chunk) => streams[0].write(chunk));

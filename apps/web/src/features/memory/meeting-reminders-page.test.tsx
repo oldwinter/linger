@@ -4,7 +4,10 @@ import { createMemoryRouter, RouterProvider } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
-import type { TestRouteHandler } from "@/test/teamhub-test-server";
+import {
+  teamHubErrorResponse,
+  type TestRouteHandler,
+} from "@/test/teamhub-test-server";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubMemoryEntry } from "@/features/teamhub/teamhub-types";
 
@@ -123,5 +126,52 @@ describe("MeetingRemindersPage", () => {
     expect(
       screen.queryByRole("button", { name: "Create reminders" }),
     ).toBeNull();
+  });
+
+  it("shows a retryable error alert instead of a missing-meeting message when loading fails", async () => {
+    const runtime = createTestTeamHubRuntime();
+    let attempts = 0;
+    runtime.server.on("GET", "/v0/tenants/{tenantId}/memory", () => {
+      attempts += 1;
+      if (attempts === 1) {
+        return teamHubErrorResponse(500, "UNAVAILABLE", "Failed.");
+      }
+      return { items: [entry("## Action Items\n\n- Send the notes\n")] };
+    });
+    runtime.server.on("GET", "/v0/tenants/{tenantId}/memory/{entryId}", () =>
+      entry("## Action Items\n\n- Send the notes\n"),
+    );
+    const router = createMemoryRouter(
+      [
+        {
+          element: <MeetingRemindersPage />,
+          path: "/t/:tenantId/library/meeting-reminders",
+        },
+      ],
+      {
+        initialEntries: [
+          `/t/tenant-northstar/library/meeting-reminders?entry=${entryId}`,
+        ],
+      },
+    );
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <TeamHubRuntimeProvider runtime={runtime}>
+          <RouterProvider router={router} />
+        </TeamHubRuntimeProvider>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Could not load this meeting.",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(
+      await screen.findByRole("heading", { name: "Meeting Nov 14, 09:05" }),
+    ).toBeVisible();
   });
 });

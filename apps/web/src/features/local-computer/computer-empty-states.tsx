@@ -7,8 +7,12 @@ import {
 import { Icon } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
 import { ModalDialog } from "@/components/ui/modal-dialog";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
 
+import { computerSetupMessages } from "./computer-setup.messages";
 import { ComputerSetupInstructions } from "./computer-setup-instructions";
+import { computersMessages } from "./computers.messages";
 import { ServerConnection } from "./server-connection";
 
 export function UnavailableComputer({
@@ -18,23 +22,26 @@ export function UnavailableComputer({
   onBack: () => void;
   onConnect: () => void;
 }) {
+  const t = useT();
   return (
     <div className="flex min-h-full items-center justify-center px-6 py-12 text-center">
       <div className="max-w-md">
         <span className="mx-auto flex size-12 items-center justify-center rounded-xl bg-muted text-muted-foreground">
           <Icon icon={AlertCircleIcon} size={20} />
         </span>
-        <h1 className="mt-4 text-lg">Computer unavailable</h1>
+        <h1 className="mt-4 text-lg">
+          {t(computersMessages.unavailableTitle)}
+        </h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          This Computer is offline or no longer available to your account.
+          {t(computersMessages.unavailableBody)}
         </p>
         <div className="mt-5 flex justify-center gap-2">
           <Button onClick={onBack} tone="primary">
-            Back to computers
+            {t(computersMessages.backToComputers)}
           </Button>
           <Button onClick={onConnect}>
             <Icon icon={ComputerTerminal01Icon} size={16} />
-            Setup commands
+            {t(computersMessages.setupCommands)}
           </Button>
         </div>
       </div>
@@ -53,17 +60,18 @@ export function ConnectComputerDialog({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const t = useT();
   return (
     <ModalDialog
-      description="Install the CLI, then authorize this workspace from your terminal."
+      description={t(computersMessages.connectDialogDescription)}
       onClose={onClose}
       size="md"
-      title="Connect Local Computer"
+      title={t(computersMessages.connectDialogTitle)}
       footer={
         <>
-          <Button onClick={onClose}>Cancel</Button>
+          <Button onClick={onClose}>{t(commonMessages.cancel)}</Button>
           <Button disabled={!connected} onClick={onDone} tone="primary">
-            Done
+            {t(commonMessages.done)}
           </Button>
         </>
       }
@@ -78,18 +86,19 @@ export function ConnectComputerDialog({
 
 /** Every Computer was removed; the built-in local Computer normally prevents this. */
 export function NoComputers({ onConnect }: { onConnect: () => void }) {
+  const t = useT();
   return (
     <div className="flex flex-col items-center pt-16 text-center">
       <span className="flex size-16 items-center justify-center rounded-[20%] bg-muted text-foreground">
         <Icon icon={LaptopIcon} size={28} />
       </span>
-      <h2 className="mt-6 text-xl">Run Agents on your computer</h2>
+      <h2 className="mt-6 text-xl">{t(computersMessages.noComputersTitle)}</h2>
       <p className="mt-1.5 text-sm text-muted-foreground">
-        About 2 minutes to set up.
+        {t(computersMessages.noComputersBody)}
       </p>
       <Button className="mt-6" onClick={onConnect} tone="primary">
         <Icon icon={Add01Icon} size={14} />
-        Connect a computer
+        {t(computerSetupMessages.title)}
       </Button>
     </div>
   );

@@ -21,6 +21,8 @@ type HTTPGateway struct {
 	client        *agentapi.ClientWithResponses
 	browserClient *agentapi.ClientWithResponses
 	toolClient    *agentapi.ClientWithResponses
+	// modelSourceClient waits out a model-source switch.
+	modelSourceClient *agentapi.ClientWithResponses
 }
 
 const agentManagementRequestTimeout = 15 * time.Second
@@ -55,7 +57,13 @@ func NewHTTPGateway(baseURL, token string, client *http.Client) (*HTTPGateway, e
 	if err != nil {
 		return nil, fmt.Errorf("create Computer tool contract client: %w", err)
 	}
-	return &HTTPGateway{client: generatedClient, browserClient: browserClient, toolClient: toolClient}, nil
+	modelSourceHTTPClient := *client
+	modelSourceHTTPClient.Timeout = localModelSourceRequestTimeout
+	modelSourceClient, err := NewAgentManagementClient(baseURL, token, &modelSourceHTTPClient)
+	if err != nil {
+		return nil, fmt.Errorf("create model source contract client: %w", err)
+	}
+	return &HTTPGateway{client: generatedClient, browserClient: browserClient, toolClient: toolClient, modelSourceClient: modelSourceClient}, nil
 }
 
 // NewAgentManagementClient validates the Agent Service origin and creates a

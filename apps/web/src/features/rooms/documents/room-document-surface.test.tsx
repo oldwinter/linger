@@ -19,6 +19,7 @@ import {
   within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { defineGlobalProperty } from "@/test/global-properties";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import {
   teamHubErrorResponse,
@@ -97,6 +98,7 @@ vi.mock("./room-document-blocknote-editor-loader", () => ({
     knowledgeDocumentTitle,
     surfaceEditorRef,
     onCanvasSentChange,
+    onCanvasTargetChange,
     onHeadingsChange,
   }: {
     commentsOpen?: boolean;
@@ -112,6 +114,7 @@ vi.mock("./room-document-blocknote-editor-loader", () => ({
       } | null;
     };
     onCanvasSentChange?: (sent: boolean) => void;
+    onCanvasTargetChange?: (target?: string) => void;
     onHeadingsChange: (headings: unknown[]) => void;
   }) => {
     const editor = {
@@ -178,6 +181,9 @@ vi.mock("./room-document-blocknote-editor-loader", () => ({
         </button>
         <button onClick={() => onCanvasSentChange?.(true)} type="button">
           Report sent canvas
+        </button>
+        <button onClick={() => onCanvasTargetChange?.("gmail")} type="button">
+          Report mail canvas
         </button>
       </div>
     );
@@ -287,6 +293,32 @@ describe("Unified Document legacy convergence", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Document mode" }));
     expect(screen.getByRole("menuitem", { name: "Edit" })).toBeDisabled();
+  });
+
+  it("uses the Mail header and removes generic document chrome for a mail canvas", async () => {
+    const runtime = createDocumentTestRuntime();
+    const document = seedRoomDocument(runtime, "mail-canvas-layout");
+    showDocument(runtime, { ...document, can_edit_native_content: true });
+    renderUnifiedDocumentPage(
+      runtime,
+      `/t/tenant-northstar/documents/${document.id}`,
+    );
+    await screen.findByTestId("document-body");
+    fireEvent.click(screen.getByRole("button", { name: "Report mail canvas" }));
+    expect(await screen.findByText("Mail", { exact: true })).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "Document mode" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Table of contents" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Report sent canvas" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("document-body")).toHaveAttribute(
+        "data-editable",
+        "false",
+      ),
+    );
   });
 
   it.each(["wiki_page", "wiki_source"] as const)(
@@ -1673,7 +1705,10 @@ describe("Unified Document page", () => {
       screen.queryByRole("button", { name: "Duplicate Document" }),
     ).not.toBeInTheDocument();
     await chooseDocumentAction("Page history");
-    expect(screen.getByRole("heading", { name: "Page history" })).toBeVisible();
+    // The history dialog is a lazy chunk on its first open.
+    expect(
+      await screen.findByRole("heading", { name: "Page history" }),
+    ).toBeVisible();
     expect(await screen.findByText("No page history saved yet.")).toBeVisible();
     expect(screen.queryByRole("tab")).not.toBeInTheDocument();
   });
@@ -2155,6 +2190,16 @@ describe("Unified Document page", () => {
     const runtime = createDocumentTestRuntime();
 
     const document = seedNativeDocument(runtime, "history-actions");
+    const latestEntry = {
+      contributors: [document.owner],
+      created_at: "2026-08-26T10:05:00.000Z",
+      created_by: document.owner,
+      document_id: document.id,
+      id: "history-latest",
+      persisted_seq: 2,
+      revision_id: "revision-latest",
+      trigger: "manual" as const,
+    };
     const entry = {
       contributors: [document.owner],
       created_at: document.created_at,
@@ -2166,16 +2211,17 @@ describe("Unified Document page", () => {
       trigger: "manual" as const,
     };
     runtime.server.on("GET", "/v0/documents/{documentId}/history", () => ({
-      items: [entry],
+      items: [latestEntry, entry],
       page: { has_more: false },
     }));
     runtime.server.on(
       "GET",
       "/v0/document-history/{historyEntryId}/content",
-      () => ({
+      ({ params }) => ({
         asset_manifest: [],
         full_state_fingerprint: "0".repeat(64),
-        history_entry: entry,
+        history_entry:
+          params.historyEntryId === latestEntry.id ? latestEntry : entry,
         state_bytes: "AAA=",
         state_bytes_sha256:
           "96a296d224f285c67bee93c30f8a309157f0daa35dc5b87e410b78630a09cfc7",
@@ -2200,20 +2246,32 @@ describe("Unified Document page", () => {
     expect(await screen.findByText("Room BlockNote editor")).toBeVisible();
     await chooseDocumentAction("Page history");
     const history = await screen.findByRole("dialog", { name: "Page history" });
-    const avatar = await within(history).findByRole("img", {
+    const avatars = await within(history).findAllByRole("img", {
       name: "Jenny Bin avatar",
     });
-    expect(avatar).toBeVisible();
+    expect(avatars[0]).toBeVisible();
     expect(screen.getAllByText("Jenny Bin").length).toBeGreaterThan(0);
     expect(screen.queryByText("No page history saved yet.")).toBeNull();
-    expect(avatar.closest("button")).not.toHaveTextContent(
+    expect(avatars[0]!.closest("button")).not.toHaveTextContent(
       /checkpoint|manual/i,
     );
     expect(
       await screen.findByRole("region", { name: "History preview" }),
     ).toBeVisible();
-    expect(screen.getByText("This checkpoint has no content.")).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Restore checkpoint" }),
+    ).toBeDisabled();
+    fireEvent.click(avatars[1]!.closest("button")!);
+    expect(
+      await screen.findByText("This checkpoint has no content."),
+    ).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Restore checkpoint" }));
+    const confirmDialog = screen.getByRole("dialog", {
+      name: "Restore checkpoint?",
+    });
+    fireEvent.click(
+      within(confirmDialog).getByRole("button", { name: "Restore" }),
+    );
 
     expect(await screen.findByText("Already current.")).toBeVisible();
     await expect(
@@ -2224,7 +2282,9 @@ describe("Unified Document page", () => {
       ),
     ).resolves.toEqual(
       expect.objectContaining({
-        items: [expect.objectContaining({ trigger: "manual" })],
+        items: expect.arrayContaining([
+          expect.objectContaining({ trigger: "manual" }),
+        ]),
       }),
     );
   });
@@ -2474,9 +2534,9 @@ describe("Unified Document page", () => {
     ];
 
     const scrollIntoView = vi.fn();
-    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
-      configurable: true,
+    defineGlobalProperty(HTMLElement.prototype, "scrollIntoView", {
       value: scrollIntoView,
+      writable: true,
     });
     renderUnifiedDocumentPage(
       runtime,
@@ -2655,6 +2715,249 @@ it("routes native menu rename through the existing Draft title editor", async ()
   expect(
     runtime.server.requestsTo("PATCH", "/v0/documents/{documentId}"),
   ).toHaveLength(0);
+});
+
+it("cancels an inline document title edit on Escape without saving", async () => {
+  const runtime = createDocumentTestRuntime();
+  const document = seedNativeDocument(runtime, "escape-cancels-title", {
+    representation_format: "markdown",
+  });
+  const updateTitle = vi.fn<(request: TestRouteRequest) => unknown>();
+  runtime.server.on(
+    "PATCH",
+    "/v0/documents/{documentId}/draft-title",
+    updateTitle,
+  );
+  renderUnifiedDocumentPage(
+    runtime,
+    `/t/tenant-northstar/documents/${document.id}`,
+  );
+
+  await screen.findByText("Room BlockNote editor");
+  fireEvent.click(screen.getByTitle("Rename document"));
+  const input = screen.getByRole("textbox", { name: "Document title" });
+  fireEvent.change(input, { target: { value: "Discarded title" } });
+  fireEvent.keyDown(input, { key: "Escape" });
+  fireEvent.blur(input);
+
+  expect(screen.queryByRole("textbox", { name: "Document title" })).toBeNull();
+  expect(screen.getByRole("heading", { name: "untitled" })).toBeVisible();
+  expect(updateTitle).not.toHaveBeenCalled();
+});
+
+it("switches a native document out of Read mode when Rename is triggered from the header menu", async () => {
+  const runtime = createDocumentTestRuntime();
+  const document = seedNativeDocument(runtime, "rename-from-read-mode", {
+    representation_format: "markdown",
+  });
+  renderUnifiedDocumentPage(
+    runtime,
+    `/t/tenant-northstar/documents/${document.id}`,
+  );
+
+  await screen.findByText("Room BlockNote editor");
+  fireEvent.click(screen.getByRole("button", { name: "Document mode" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: /Read/ }));
+  expect(screen.getByTestId("document-body")).toHaveAttribute(
+    "data-editable",
+    "false",
+  );
+
+  await chooseDocumentAction("Rename");
+  const title = await screen.findByRole("textbox", { name: "Document title" });
+  expect(title).toHaveFocus();
+});
+
+it.each([
+  "durable_ack_conflict",
+  "durable_ack_invalid",
+  "durable_save_failed",
+] as const)(
+  "renders a pinned alert banner with Reload document recovery for protocolError=%s",
+  async (protocolError) => {
+    const runtime = createDocumentTestRuntime();
+    const document = seedNativeDocument(
+      runtime,
+      `protocol-error-${protocolError}`,
+    );
+    const protocolSnapshot = {
+      canEdit: false,
+      durableSequence: 1,
+      protocolError,
+      status: "Local pending" as const,
+    };
+    const openSession = vi
+      .mocked(collaboration.openRoomDocumentSession)
+      .mockClear()
+      .mockImplementationOnce(async (input) => {
+        const session = await openLocalDocumentSession(input);
+        return {
+          ...session,
+          getSaveSnapshot: () => protocolSnapshot,
+        };
+      });
+    try {
+      renderUnifiedDocumentPage(
+        runtime,
+        `/t/tenant-northstar/documents/${document.id}`,
+      );
+      const alert = await screen.findByRole("alert");
+      expect(alert).toBeVisible();
+      expect(
+        within(alert).getByRole("button", { name: "Reload document" }),
+      ).toBeVisible();
+      if (protocolError === "durable_save_failed") {
+        expect(
+          within(alert).getByRole("button", { name: "Download recovery copy" }),
+        ).toBeVisible();
+      }
+      const header = window.document.querySelector(".room-document-header");
+      expect(header).not.toBeNull();
+      expect(
+        within(header as HTMLElement).getByRole("status", {
+          name: "Document save status",
+        }),
+      ).toHaveTextContent("Save protocol error");
+
+      fireEvent.click(
+        within(alert).getByRole("button", { name: "Reload document" }),
+      );
+      await waitFor(() => expect(openSession).toHaveBeenCalledTimes(2));
+    } finally {
+      openSession.mockClear();
+    }
+  },
+);
+
+it("offers Back to Library and Retry on non-403/404 document load errors and hides Retry on 404", async () => {
+  const runtime = createDocumentTestRuntime();
+  let attempts = 0;
+  runtime.server.on("GET", "/v0/documents/{documentId}", () =>
+    teamHubErrorResponse(500, "INTERNAL", "Temporary failure."),
+  );
+  runtime.server.on("POST", "/v0/documents/{documentId}/open", () => {
+    attempts += 1;
+    return teamHubErrorResponse(500, "INTERNAL", "Temporary failure.");
+  });
+  const first = renderUnifiedDocumentPage(
+    runtime,
+    "/t/tenant-northstar/documents/document-retryable-error",
+  );
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Temporary failure.",
+  );
+  const main = screen.getByRole("main");
+  expect(
+    within(main).getByRole("link", { name: "Back to Library" }),
+  ).toHaveAttribute("href", "/t/tenant-northstar/library");
+  fireEvent.click(within(main).getByRole("button", { name: "Retry" }));
+  await waitFor(() => expect(attempts).toBe(2));
+  first.unmount();
+
+  const notFoundRuntime = createDocumentTestRuntime();
+  notFoundRuntime.server.on("POST", "/v0/documents/{documentId}/open", () =>
+    teamHubErrorResponse(404, "NOT_FOUND", "Missing."),
+  );
+  renderUnifiedDocumentPage(
+    notFoundRuntime,
+    "/t/tenant-northstar/documents/document-not-found-error",
+  );
+  expect(await screen.findByRole("alert")).toBeVisible();
+  const notFoundMain = screen.getByRole("main");
+  expect(
+    within(notFoundMain).getByRole("link", { name: "Back to Library" }),
+  ).toHaveAttribute("href", "/t/tenant-northstar/library");
+  expect(
+    within(notFoundMain).queryByRole("button", { name: "Retry" }),
+  ).toBeNull();
+});
+
+it("provides a close button, copy feedback, and room-removal error handling in DocumentShareDialog", async () => {
+  const runtime = createDocumentTestRuntime();
+  const document = seedNativeDocument(runtime, "share-dialog-polish");
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  defineGlobalProperty(navigator, "clipboard", {
+    value: { writeText },
+    writable: true,
+  });
+  runtime.server.on("GET", "/v0/documents/{documentId}/collaborators", () => ({
+    caller_content_role: "owner",
+    can_manage_collaborators: true,
+    general_access: {
+      canonical_url: `/t/tenant-northstar/documents/${document.id}`,
+      mode: "restricted",
+    },
+    management_capabilities: ownerManagementCapabilities,
+    schema_version: 2,
+    sources: [
+      {
+        label: "Launch Room",
+        source: {
+          created_at: "2026-08-29T08:00:00Z",
+          provenance: {
+            binding_kind: "room",
+            context_id: "room-launch",
+            kind: "context_binding",
+            schema_version: 2,
+          },
+          role: "editor",
+          schema_version: 2,
+          source_id: "room-binding-launch",
+          source_kind: "context",
+          source_version: 7,
+          status: "active",
+          updated_at: "2026-08-29T08:00:00Z",
+        },
+      },
+    ],
+  }));
+  runtime.server.on(
+    "POST",
+    "/v0/documents/{documentId}/room-bindings/{roomId}/remove",
+    () => teamHubErrorResponse(500, "INTERNAL", "Removal failed."),
+  );
+  renderUnifiedDocumentPage(
+    runtime,
+    `/t/tenant-northstar/documents/${document.id}`,
+  );
+  await screen.findByText("Room BlockNote editor");
+
+  // Header copy link shows Copied status.
+  await chooseDocumentAction("Copy link");
+  expect(
+    await screen.findByRole("status", { name: "Copy link status" }),
+  ).toHaveTextContent("Copied");
+
+  // Share dialog close button, copy feedback, and caught room removal failure.
+  fireEvent.click(screen.getByRole("button", { name: "Share" }));
+  const shareDialog = await screen.findByRole("dialog", {
+    name: "Share Document",
+  });
+  fireEvent.click(
+    await within(shareDialog).findByRole("button", { name: "Copy link" }),
+  );
+  expect(await within(shareDialog).findByText("Copied")).toBeVisible();
+
+  fireEvent.click(
+    within(shareDialog).getByRole("button", { name: "Remove from Room" }),
+  );
+  const confirmRemoveDialog = await screen.findByRole("dialog", {
+    name: "Remove from Launch Room?",
+  });
+  fireEvent.click(
+    within(confirmRemoveDialog).getByRole("button", { name: "Remove" }),
+  );
+  expect(
+    await within(confirmRemoveDialog).findByRole("alert"),
+  ).toHaveTextContent(
+    "The Document could not be removed from this Room. Refresh and try again.",
+  );
+  fireEvent.click(
+    within(confirmRemoveDialog).getByRole("button", { name: "Cancel" }),
+  );
+
+  fireEvent.click(within(shareDialog).getByRole("button", { name: "Close" }));
+  expect(screen.queryByRole("dialog", { name: "Share Document" })).toBeNull();
 });
 
 function renderUnifiedDocumentPage(

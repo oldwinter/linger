@@ -2,9 +2,11 @@ import type { ThreadData } from "@blocknote/core/comments";
 import { useEffect, useState } from "react";
 
 import type { TeamHubActorRef } from "@/features/teamhub/teamhub-types";
+import { useT } from "@/i18n/use-translation";
 
 import { commentCompositionFromBody } from "./room-document-comment-body";
 import { visibleThreadComments } from "./room-document-comments";
+import { documentCommentsMessages as m } from "./document-comments.messages";
 
 /** Past this, an Agent that never answered stops showing as replying. */
 export const AGENT_REPLY_WAIT_MS = 10 * 60 * 1000;
@@ -43,6 +45,7 @@ export function RoomDocumentCommentAgentReplying({
   anchorText: string | null;
   thread: ThreadData;
 }) {
+  const t = useT();
   const [now, setNow] = useState(() => Date.now());
   const latest = visibleThreadComments(thread).at(-1);
   // An Agent asked to change the anchored text edits the Document before it
@@ -72,8 +75,11 @@ export function RoomDocumentCommentAgentReplying({
   const names = agents.map((agent) => agent.display_name);
   const label =
     names.length === 1
-      ? `${names[0]} is replying`
-      : `${names.slice(0, -1).join(", ")} and ${names.at(-1)} are replying`;
+      ? t(m.agentReplying, { name: names[0]! })
+      : t(m.agentsReplying, {
+          names: names.slice(0, -1).join(t(m.listSeparator)),
+          last: names.at(-1)!,
+        });
 
   return (
     <div aria-live="polite" className="agent-replying" role="status">

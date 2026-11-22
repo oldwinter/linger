@@ -223,6 +223,11 @@ func (a *App) writeAgentRoutineError(c *gin.Context, err error) bool {
 			Path: "name", Code: "routine_limit",
 			Message: "Delete a routine in this room before creating another.",
 		}})
+	case errors.Is(err, reminder.ErrIntervalInvalid):
+		a.writeAgentAPIErrorWithIssues(c, http.StatusBadRequest, teamhubagentapi.AgentApiErrorCodeInvalidRequest, "Routine interval is invalid", []teamhubagentapi.AgentApiErrorIssue{{
+			Path: "schedule.interval_minutes", Code: "invalid_interval",
+			Message: "Use a multiple of 10 minutes between 10 and 10080 (7 days).",
+		}})
 	case errors.Is(err, reminder.ErrInvalid), errors.Is(err, agentauth.ErrInvalid):
 		a.writeAgentAPIError(c, http.StatusBadRequest, teamhubagentapi.AgentApiErrorCodeInvalidRequest, "Routine input is invalid")
 	case errors.Is(err, reminder.ErrNotFound), errors.Is(err, agentauth.ErrForbidden):
@@ -278,6 +283,10 @@ func reminderSchedule(schedule teamhubagentapi.AgentRoutineSchedule) reminder.Sc
 			parsed.Weekdays = append(parsed.Weekdays, string(day))
 		}
 	}
+	if schedule.IntervalMinutes != nil {
+		minutes := *schedule.IntervalMinutes
+		parsed.IntervalMinutes = &minutes
+	}
 	if schedule.IntervalHours != nil {
 		hours := *schedule.IntervalHours
 		parsed.IntervalHours = &hours
@@ -308,7 +317,7 @@ func agentRoutineModel(value reminder.Reminder) teamhubagentapi.AgentRoutine {
 func agentRoutineSchedule(cadence reminder.Cadence) *teamhubagentapi.AgentRoutineSchedule {
 	schedule := reminder.ScheduleFromCadence(cadence)
 	model := &teamhubagentapi.AgentRoutineSchedule{
-		Kind: teamhubagentapi.AgentRoutineScheduleKind(schedule.Kind), IntervalHours: schedule.IntervalHours, RunAt: schedule.RunAt,
+		Kind: teamhubagentapi.AgentRoutineScheduleKind(schedule.Kind), IntervalMinutes: schedule.IntervalMinutes, RunAt: schedule.RunAt,
 	}
 	if schedule.Time != "" {
 		model.Time = &schedule.Time

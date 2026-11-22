@@ -27,8 +27,15 @@
 }
 
 .agent-model-switch-trigger-label {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-model-switch-trigger-effort {
+  flex: none;
+  margin-left: 0.25em;
   white-space: nowrap;
 }
 

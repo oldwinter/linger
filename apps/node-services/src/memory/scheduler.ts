@@ -1,3 +1,4 @@
+import { concurrencyLimit } from "./concurrency.js";
 import type { MemoryScheduleConfig } from "./config.js";
 import {
   memoryScheduleRunLevel,
@@ -822,7 +823,8 @@ export class MemoryScheduler {
     return true;
   }
 
-  /** Runs the whole task, or each durable retry subject on its own lane. */
+  /** Runs the whole task, or each durable retry subject on its own lane, at
+   * most the task's `concurrency` at once. */
   async #runSubjects(
     due: DueTask,
     carried: string[],
@@ -840,17 +842,20 @@ export class MemoryScheduler {
         due.period,
       );
     // Successful subjects are absent from this durable retry set.
+    const limit = concurrencyLimit(due.input.concurrency);
     await Promise.all(
       due.retrySubjects
         .filter((subject) => !carried.includes(subject))
         .map(async (subject) => {
           try {
             await lane(subject, () =>
-              this.#runTask(
-                { ...due.input, memorySubjectKey: subject },
-                due.reason,
-                lane,
-                due.period,
+              limit(() =>
+                this.#runTask(
+                  { ...due.input, memorySubjectKey: subject },
+                  due.reason,
+                  lane,
+                  due.period,
+                ),
               ),
             );
           } catch (error) {

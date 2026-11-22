@@ -2,6 +2,7 @@ import {
   ALL_TAB_GROUP_LIMIT,
   GROUP_ORDER,
   SCOPES,
+  scopeText,
   type GlobalSearchTab,
   type GroupTab,
   type ResultGroup,
@@ -87,7 +88,7 @@ export function resultKindSections({
         (kind === "all" || group.tab === kind),
     )
     .flatMap((group): ResultSection[] => {
-      const label = SCOPES[group.tab].label;
+      const label = scopeText(SCOPES[group.tab].label);
       const loading =
         (group.tab === "messages" && messagesLoading) ||
         (group.tab === "docs" && docsLoading);

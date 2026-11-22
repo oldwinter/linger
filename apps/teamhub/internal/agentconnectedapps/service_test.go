@@ -207,6 +207,10 @@ func (*fakeToolProvider) GetConnectionStatusForToolkit(context.Context, string, 
 	return composio.ConnectionActive, nil
 }
 
+func (*fakeToolProvider) GetDiscordChannelGuild(context.Context, string, string) (string, error) {
+	return "", errors.New("unexpected Discord channel lookup")
+}
+
 func tool(slug, toolkit string) composio.Tool {
 	result := composio.Tool{
 		Slug: slug, Version: "20260817_01", Name: slug,

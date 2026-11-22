@@ -1,3 +1,4 @@
+import type { components } from "@linger/wire-contracts/teamhub-public/types";
 import {
   type QueryClient,
   useMutation,
@@ -10,9 +11,13 @@ import { personalWikiDocumentsQueryKey } from "@/features/teamhub/document-queri
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 
+export type WikiRefreshFailureReason =
+  components["schemas"]["PersonalWikiFailureReason"];
+
 export interface WikiRefreshStatus {
   preview?: Record<string, string>;
   failed: boolean;
+  failureReason?: WikiRefreshFailureReason;
   initializing: boolean;
   refreshing: boolean;
 }
@@ -122,6 +127,8 @@ export function usePersonalWikiRefresh(tenantId: string): WikiRefreshStatus {
   return {
     preview: refreshing && revision ? preview.data : undefined,
     failed: wiki.data?.state === "failed",
+    failureReason:
+      wiki.data?.state === "failed" ? wiki.data.failure_reason : undefined,
     initializing: refreshing && wiki.data?.published_generation === 0,
     refreshing,
   };

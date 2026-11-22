@@ -31,6 +31,8 @@ import {
   voiceMicrophoneOptions,
 } from "../voice-media-room";
 import { VoiceModeDisconnectedError } from "../voice-mode-errors";
+import { translate } from "@/i18n/language";
+import { voiceSessionMessages as m } from "../voice-session.messages";
 
 export const voiceLiveTopic = "linger.voice.live";
 export const voiceLiveReplyTrack = "linger-live-reply";
@@ -152,7 +154,9 @@ export async function openVoiceLive(input: {
         endOffsetMs: turns * 2,
       });
     } else if (event.type === "session_failure")
-      failed(new Error(`Live voice stopped (${event.code ?? "unknown"}).`));
+      failed(
+        new Error(translate(m.liveStopped, { code: event.code ?? "unknown" })),
+      );
     else input.runtime(event);
   };
   const play = (remote: RemoteTrack) => {
@@ -195,7 +199,7 @@ export async function openVoiceLive(input: {
     );
     session = await bounded(creating, 10_000, signal);
     if (session.purpose !== "chat_live")
-      throw new Error("The server did not confirm a live voice session.");
+      throw new Error(translate(m.liveNotConfirmed));
     const sessionId = session.id;
     const credential = await bounded(
       teamHubData(
@@ -237,12 +241,12 @@ export async function openVoiceLive(input: {
     });
     media.on(RoomEvent.DataReceived, receiveData);
     media.on(RoomEvent.Disconnected, () =>
-      failed(new VoiceModeDisconnectedError("Live voice connection was lost.")),
+      failed(new VoiceModeDisconnectedError(translate(m.liveConnectionLost))),
     );
     media.on(RoomEvent.MediaDevicesError, failed);
     media.on(RoomEvent.ParticipantDisconnected, (participant) => {
       if (participant.identity === runtimeIdentity)
-        failed(new Error("Live voice runtime disconnected."));
+        failed(new Error(translate(m.liveRuntimeDisconnected)));
     });
     const [, createdTrack] = await Promise.all([
       bounded(
@@ -260,7 +264,9 @@ export async function openVoiceLive(input: {
       for (const publication of participant.trackPublications.values())
         subscribe(publication, participant);
     track.mediaStreamTrack.addEventListener("ended", () =>
-      failed(new VoiceModeDisconnectedError("Microphone disconnected.")),
+      failed(
+        new VoiceModeDisconnectedError(translate(m.microphoneDisconnected)),
+      ),
     );
     await bounded(
       media.localParticipant.publishTrack(track, {
@@ -373,16 +379,16 @@ export async function openVoiceLive(input: {
       ]);
       if (!current) break;
       if (current.purpose !== "chat_live")
-        throw new Error("Voice Mode authorization changed.");
+        throw new Error(translate(m.authorizationChanged));
       if (current.last_failure_code)
         throw new Error(
-          `Live voice is unavailable (${current.last_failure_code}).`,
+          translate(m.liveUnavailable, { code: current.last_failure_code }),
         );
       // An event from the runtime proves it is listening, like readiness.
       if (current.input_ready_generation === credential.generation || activity)
         break;
       if (Date.now() >= readyDeadline)
-        throw new Error("Live voice did not become ready within 15 seconds.");
+        throw new Error(translate(m.liveNotReady, { seconds: 15 }));
       await waitForVoiceDelay(200, signal);
       signal.throwIfAborted();
     }

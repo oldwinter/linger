@@ -66,5 +66,13 @@ describe("desktop distributions", () => {
       );
       const kit = pin(`STACK_KIT_${target.replace("-", "_")}`);
       if (kit) expect(tool.sha256).toBe(kit);
+      // The same kit as published on npm (and its China mirror), in the
+      // stack's npm version; the pinned sha256 decides either way.
+      const name = `localmodels-${target}`;
+      const version = pin("STACK_NPM_VERSION");
+      expect(tool.mirrors).toEqual([
+        `https://registry.npmjs.org/@simplexai/${name}/-/${name}-${version}.tgz`,
+        `https://cdn.npmmirror.com/packages/@simplexai/${name}/${version}/${name}-${version}.tgz`,
+      ]);
     });
 });

@@ -1,4 +1,5 @@
 import { formatDateTime } from "@/lib/date-format";
+import { writeClipboardText } from "@/lib/clipboard";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Clock01Icon,
@@ -11,10 +12,15 @@ import {
 } from "@hugeicons/core-free-icons";
 import { Spinner } from "@/components/ui/spinner";
 import { Icon } from "@/components/ui/icon";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ModalDialog } from "@/components/ui/modal-dialog";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { commonMessages } from "@/i18n/common.messages";
+import { formatLocale } from "@/i18n/language";
+import { useT } from "@/i18n/use-translation";
+
+import { roomSettingsMessages as m } from "../room-settings.messages";
 
 export function RoomHistoryShareDialog({
   roomId,
@@ -26,6 +32,7 @@ export function RoomHistoryShareDialog({
   onClose: () => void;
 }) {
   const { client } = useTeamHubRuntime();
+  const t = useT();
   const queryClient = useQueryClient();
   const queryKey = ["room-history-shares", roomId];
   const history = useQuery({
@@ -38,12 +45,21 @@ export function RoomHistoryShareDialog({
   );
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
+  const [confirmingRevokeId, setConfirmingRevokeId] = useState<string | null>(
+    null,
+  );
+  useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(() => setCopied(false), 2000);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
   async function copy(value: string) {
     try {
-      await navigator.clipboard.writeText(value);
+      await writeClipboardText(value);
       setCopied(true);
       setCopyError(false);
     } catch {
+      setCopied(false);
       setCopyError(true);
     }
   }
@@ -62,7 +78,10 @@ export function RoomHistoryShareDialog({
   });
   const revoke = useMutation({
     mutationFn: (id: string) => client.roomHistory.revoke(roomId, id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey }),
+    onSuccess: () => {
+      setConfirmingRevokeId(null);
+      return queryClient.invalidateQueries({ queryKey });
+    },
   });
   // Opening a snapshot whose token this session already holds must not issue a
   // new one; the server keeps a single token per snapshot, so reissuing would
@@ -84,12 +103,12 @@ export function RoomHistoryShareDialog({
   });
   return (
     <ModalDialog
-      description="Create a read-only snapshot for sharing or debugging."
+      description={t(m.shareDescription)}
       onClose={() => {
-        if (!create.isPending) onClose();
+        if (!create.isPending && !revoke.isPending) onClose();
       }}
       size="md"
-      title="Share conversation"
+      title={t(m.shareConversation)}
     >
       <div className="px-5 py-4">
         <div className="rounded-xl border border-app-border bg-app-surface-soft p-4">
@@ -99,9 +118,7 @@ export function RoomHistoryShareDialog({
               className="mt-0.5 shrink-0 text-app-info"
             />
             <p className="text-sm leading-6 text-app-body">
-              Anyone with the link can read messages sent up to now, without
-              signing in. New messages and later changes are not included. Files
-              appear as cards; source documents stay private.
+              {t(m.shareNotice)}
             </p>
           </div>
         </div>
@@ -112,11 +129,15 @@ export function RoomHistoryShareDialog({
                 className="text-xs font-medium uppercase tracking-[0.06em] text-app-info"
                 htmlFor="room-share-link"
               >
-                Conversation link
+                {t(m.conversationLink)}
               </label>
               {copied ? (
-                <span className="flex items-center gap-1 text-xs text-app-info">
-                  <Icon icon={Tick02Icon} size={14} /> Copied
+                <span
+                  className="flex items-center gap-1 text-xs text-app-info"
+                  role="status"
+                >
+                  <Icon icon={Tick02Icon} size={14} />{" "}
+                  {t(commonMessages.copied)}
                 </span>
               ) : null}
             </div>
@@ -129,7 +150,7 @@ export function RoomHistoryShareDialog({
                 onFocus={(event) => event.currentTarget.select()}
               />
               <Button
-                aria-label="Copy conversation link"
+                aria-label={t(m.copyConversationLink)}
                 size="compactIcon"
                 tone="secondary"
                 onClick={() => void copy(link)}
@@ -139,7 +160,7 @@ export function RoomHistoryShareDialog({
             </div>
             {copyError ? (
               <p role="status" className="mt-2 text-xs text-app-muted">
-                Select the link above to copy it.
+                {t(m.selectToCopy)}
               </p>
             ) : null}
           </div>
@@ -155,7 +176,7 @@ export function RoomHistoryShareDialog({
             ) : (
               <Icon icon={Link04Icon} />
             )}
-            {create.isPending ? "Creating snapshot..." : "Create share link"}
+            {t(create.isPending ? m.creatingSnapshot : m.createShareLink)}
           </Button>
         )}
         {create.error || revoke.error || issueLink.error ? (
@@ -169,93 +190,146 @@ export function RoomHistoryShareDialog({
         <section className="mt-7 border-t border-app-border pt-5">
           <div>
             <h3 className="text-sm font-semibold text-app-ink">
-              Shared snapshots
+              {t(m.sharedSnapshots)}
               <span className="ml-1.5 text-xs font-normal text-app-muted">
                 {history.data?.items.length ?? 0}
               </span>
             </h3>
             <p className="mt-1 text-xs leading-5 text-app-muted">
-              Each item is a frozen copy of the conversation at that time.
+              {t(m.sharedSnapshotsHint)}
             </p>
           </div>
           {history.isPending ? (
             <div
-              aria-label="Loading shared snapshots"
+              aria-label={t(m.loadingSnapshots)}
               className="mt-4 flex items-center gap-2 rounded-lg border border-dashed border-muted-foreground/30 px-3 py-4 text-sm text-app-muted"
               role="status"
             >
               <Spinner size={16} className="text-app-info" />
-              Loading shared snapshots...
+              {t(m.loadingSnapshots)}
             </div>
           ) : null}
           {history.error ? (
-            <p
+            <div
               role="alert"
-              className="mt-4 rounded-lg border border-app-danger/30 bg-app-danger/5 px-3 py-2 text-sm text-app-danger"
+              className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-app-danger/30 bg-app-danger/5 px-3 py-2 text-sm text-app-danger"
             >
-              Shared snapshots could not be loaded.
-            </p>
+              <span>{t(m.snapshotsLoadFailed)}</span>
+              <Button
+                loading={history.isFetching}
+                onClick={() => void history.refetch()}
+                size="compact"
+                tone="secondary"
+              >
+                {t(commonMessages.retry)}
+              </Button>
+            </div>
           ) : null}
           <ul className="mt-4 max-h-72 space-y-2 overflow-y-auto">
-            {history.data?.items.map((item) => (
-              <li
-                key={item.id}
-                className="rounded-lg border border-app-border bg-card p-3 text-sm transition-colors hover:bg-accent/50"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <span className="min-w-0 flex-1">
-                    <span className="flex items-center gap-1.5 text-sm font-medium text-app-ink">
-                      <Icon
-                        icon={Clock01Icon}
-                        size={14}
-                        className="text-app-muted"
-                      />
-                      {formatDateTime(item.created_at)}
+            {history.data?.items.map((item) => {
+              const createdAt = formatDateTime(
+                item.created_at,
+                undefined,
+                formatLocale(),
+              );
+              const isConfirming = confirmingRevokeId === item.id;
+              const isRevokingRow =
+                revoke.isPending && revoke.variables === item.id;
+              const isIssuingRow =
+                issueLink.isPending && issueLink.variables === item.id;
+              return (
+                <li
+                  key={item.id}
+                  className="rounded-lg border border-app-border bg-card p-3 text-sm transition-colors hover:bg-accent/50"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-1.5 text-sm font-medium text-app-ink">
+                        <Icon
+                          icon={Clock01Icon}
+                          size={14}
+                          className="text-app-muted"
+                        />
+                        {createdAt}
+                      </span>
+                      <small className="mt-1 flex items-center gap-1.5 text-xs text-app-muted">
+                        <Icon icon={Comment01Icon} size={14} />
+                        {t(m.messageCount, { count: item.message_count })}
+                      </small>
+                      {!item.revoked ? (
+                        <Button
+                          aria-label={t(m.openSharedLinkFrom, {
+                            date: createdAt,
+                          })}
+                          className="mt-2 self-start"
+                          disabled={issueLink.isPending}
+                          loading={isIssuingRow}
+                          size="compactIcon"
+                          title={t(m.openSharedLink)}
+                          tone="ghost"
+                          onClick={() => {
+                            const known = snapshotLinks[item.id];
+                            if (known) {
+                              openShare(known);
+                              return;
+                            }
+                            // Reserve the tab inside the click so the browser does
+                            // not treat the post-request open as a popup.
+                            setPendingOpen(reserveShareTab());
+                            issueLink.mutate(item.id);
+                          }}
+                        >
+                          <Icon icon={LinkSquare02Icon} size={14} />
+                        </Button>
+                      ) : null}
                     </span>
-                    <small className="mt-1 flex items-center gap-1.5 text-xs text-app-muted">
-                      <Icon icon={Comment01Icon} size={14} />
-                      {item.message_count} messages
-                    </small>
-                    {!item.revoked ? (
+                    {item.revoked ? (
+                      <span className="rounded-sm bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                        {t(m.revoked)}
+                      </span>
+                    ) : isConfirming ? null : (
                       <Button
-                        aria-label={`Open shared link from ${formatDateTime(item.created_at)}`}
-                        className="mt-2 self-start"
-                        disabled={issueLink.isPending}
-                        size="compactIcon"
-                        title="Open shared link"
-                        tone="ghost"
-                        onClick={() => {
-                          const known = snapshotLinks[item.id];
-                          if (known) {
-                            openShare(known);
-                            return;
-                          }
-                          // Reserve the tab inside the click so the browser does
-                          // not treat the post-request open as a popup.
-                          setPendingOpen(reserveShareTab());
-                          issueLink.mutate(item.id);
-                        }}
+                        data-voice-risk="confirm"
+                        disabled={revoke.isPending}
+                        loading={isRevokingRow}
+                        onClick={() => setConfirmingRevokeId(item.id)}
+                        size="compact"
+                        tone="danger"
                       >
-                        <Icon icon={LinkSquare02Icon} size={14} />
+                        {t(m.revoke)}
                       </Button>
-                    ) : null}
-                  </span>
-                  {item.revoked ? (
-                    <span className="rounded-sm bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-                      Revoked
-                    </span>
-                  ) : (
-                    <Button
-                      size="compact"
-                      disabled={revoke.isPending}
-                      onClick={() => revoke.mutate(item.id)}
-                    >
-                      Revoke
-                    </Button>
-                  )}
-                </div>
-              </li>
-            ))}
+                    )}
+                  </div>
+                  {!item.revoked && isConfirming ? (
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-app-danger/30 bg-app-danger/5 px-2.5 py-2">
+                      <p className="text-xs text-app-danger">
+                        Revoking permanently disables this shared link.
+                      </p>
+                      <div className="flex items-center gap-1.5">
+                        <Button
+                          disabled={revoke.isPending}
+                          onClick={() => setConfirmingRevokeId(null)}
+                          size="compact"
+                          tone="ghost"
+                        >
+                          {t(commonMessages.cancel)}
+                        </Button>
+                        <Button
+                          data-voice-risk="confirm"
+                          disabled={revoke.isPending && !isRevokingRow}
+                          loading={isRevokingRow}
+                          onClick={() => revoke.mutate(item.id)}
+                          size="compact"
+                          tone="danger"
+                        >
+                          Confirm revoke
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
+                </li>
+              );
+            })}
           </ul>
         </section>
       </div>

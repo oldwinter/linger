@@ -103,6 +103,42 @@ func TestUnifiedWikiCandidateGeneratorClassifiesStoppingService(t *testing.T) {
 	}
 }
 
+func TestUnifiedWikiCandidateGeneratorClassifiesRuntimeErrors(t *testing.T) {
+	for _, testCase := range []struct {
+		code        string
+		disposition string
+		status      int
+		want        error
+	}{
+		{"WIKI_RUNTIME_INCOMPATIBLE", "terminal", http.StatusInternalServerError, document.ErrWikiCandidateRuntimeIncompatible},
+		{"WIKI_RUNTIME_AUTH_REQUIRED", "terminal", http.StatusInternalServerError, document.ErrWikiCandidateRuntimeAuthRequired},
+		{"WIKI_RUNTIME_UNAVAILABLE", "retryable", http.StatusServiceUnavailable, document.ErrWikiCandidateRuntimeUnavailable},
+	} {
+		t.Run(testCase.code, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Content-Type", "application/json")
+				writer.WriteHeader(testCase.status)
+				_ = json.NewEncoder(writer).Encode(map[string]any{
+					"error": map[string]any{
+						"code":        testCase.code,
+						"disposition": testCase.disposition,
+						"message":     "runtime failure",
+					},
+				})
+			}))
+			defer server.Close()
+			generator, err := document.NewHTTPWikiCandidateGenerator(server.URL, "service-token-for-test", server.Client())
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = generator.GenerateWikiCandidates(context.Background(), wikiCandidateRequest())
+			if !errors.Is(err, testCase.want) {
+				t.Fatalf("error=%v want %v", err, testCase.want)
+			}
+		})
+	}
+}
+
 func TestUnifiedWikiCandidateGeneratorRejectsLegacyOrInvalidSettlementShape(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		_, _ = writer.Write([]byte(`{"wiki_refresh_id":"document_wiki_refresh_test","pages":[],"generation_id":"legacy"}`))

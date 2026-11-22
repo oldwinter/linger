@@ -1,3 +1,7 @@
+import { translate } from "@/i18n/language";
+
+import { teamHubErrorMessages } from "./teamhub-error.messages";
+import { teamHubErrorText } from "./teamhub-error-text";
 import type { TeamHubErrorResponse } from "./teamhub-types";
 
 export class TeamHubError extends Error {
@@ -6,6 +10,8 @@ export class TeamHubError extends Error {
   readonly requestId?: string;
   readonly retryAfterSeconds?: number;
   readonly retryable: boolean;
+  /** TeamHub's own English message, for diagnostics; `message` is worded. */
+  readonly serverMessage?: string;
   readonly status: number;
 
   constructor(input: {
@@ -15,11 +21,13 @@ export class TeamHubError extends Error {
     requestId?: string;
     retryAfterSeconds?: number;
     retryable?: boolean;
+    serverMessage?: string;
     status: number;
   }) {
     super(input.message);
     this.name = "TeamHubError";
     this.code = input.code;
+    this.serverMessage = input.serverMessage;
     this.details = input.details;
     this.requestId = input.requestId;
     this.retryAfterSeconds = input.retryAfterSeconds;
@@ -28,8 +36,9 @@ export class TeamHubError extends Error {
   }
 }
 
+/** A request that never got a response; it reads as a connection problem. */
 export class TeamHubTransportError extends Error {
-  constructor(message: string) {
+  constructor(message: string = translate(teamHubErrorMessages.unreachable)) {
     super(message);
     this.name = "TeamHubTransportError";
   }
@@ -44,32 +53,23 @@ export async function readTeamHubError(response: Response) {
     body = undefined;
   }
 
+  const code = body?.error?.code ?? `HTTP_${response.status}`;
+  const serverMessage = body?.error?.message;
   return new TeamHubError({
-    code: body?.error?.code ?? `HTTP_${response.status}`,
+    code,
     details: body?.error?.details,
-    message: body?.error?.message ?? fallbackErrorMessage(response.status),
+    message: teamHubErrorText(
+      { code, message: serverMessage, status: response.status },
+      translate,
+    ),
     requestId: body?.error?.request_id,
     retryAfterSeconds: parseRetryAfterSeconds(
       response.headers.get("Retry-After"),
     ),
     retryable: body?.error?.retryable,
+    serverMessage,
     status: response.status,
   });
-}
-
-// A response without a TeamHub error body came from a layer in front of
-// TeamHub (gateway, proxy, WAF), so only the status class is meaningful.
-function fallbackErrorMessage(status: number) {
-  if (status === 401 || status === 403) {
-    return "The server refused this request. Reload the page and try again.";
-  }
-  if (status === 429) {
-    return "Too many requests. Wait a moment and try again.";
-  }
-  if (status >= 500) {
-    return "The server is temporarily unavailable. Try again shortly.";
-  }
-  return `The server could not complete this request (${status}). Try again.`;
 }
 
 function parseRetryAfterSeconds(value: string | null) {

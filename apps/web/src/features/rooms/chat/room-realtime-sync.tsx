@@ -10,8 +10,11 @@ import type {
   TeamHubMessage,
   TeamHubRoomPage,
 } from "@/features/teamhub/teamhub-types";
+import { translate } from "@/i18n/language";
+import { useT } from "@/i18n/use-translation";
 
 import { roomQueryKey, tenantRoomsQueryKey } from "../room-queries";
+import { roomSurfaceMessages } from "../room-surface.messages";
 import { createRoomProjection } from "./room-projection";
 
 /** How long joining or catching up may take before the header says so. */
@@ -49,6 +52,7 @@ export function RoomRealtimeSync({
     return () => window.clearTimeout(timer);
   }, [settled]);
   const [error, setError] = useState<string | null>(null);
+  const t = useT();
   // UI callbacks; read through refs so they never recreate the subscription.
   const onMessageCreatedRef = useRef(onMessageCreated);
   const onTeamMdPublishedRef = useRef(onTeamMdPublished);
@@ -78,7 +82,7 @@ export function RoomRealtimeSync({
         client.api.GET("/v0/rooms/{roomId}", { params: { path: { roomId } } }),
       );
       if (room.id !== roomId || room.tenant_id !== tenantId) {
-        throw new Error("TeamHub returned a Room outside the active scope.");
+        throw new Error(translate(roomSurfaceMessages.roomOutsideScope));
       }
       queryClient.setQueryData(roomQueryKey(tenantId, roomId), room);
     } catch (error) {
@@ -128,7 +132,7 @@ export function RoomRealtimeSync({
             setError(
               realtimeError instanceof Error
                 ? realtimeError.message
-                : "Room refresh failed.",
+                : translate(roomSurfaceMessages.roomRefreshFailed),
             ),
           );
         },
@@ -162,10 +166,10 @@ export function RoomRealtimeSync({
 
   const label =
     status === "offline"
-      ? "Offline"
+      ? t(roomSurfaceMessages.offline)
       : status === "catching-up"
-        ? "Syncing Room"
-        : "Reconnecting";
+        ? t(roomSurfaceMessages.syncingRoom)
+        : t(roomSurfaceMessages.reconnecting);
 
   return (
     <div

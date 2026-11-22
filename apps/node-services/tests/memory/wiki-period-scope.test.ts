@@ -75,6 +75,11 @@ describe("unified Wiki period scope", () => {
       expect(prompt).toContain("`pattern`");
       expect(prompt).toContain("conversations as\ntheir Raw evidence");
       expect(prompt).toContain("A draft is not final delivery");
+      // The report follows the Human's own language, not the English prompt
+      // or an earlier English Daily.
+      expect(prompt).toContain("## Language");
+      expect(prompt).toContain("main language the represented");
+      expect(prompt).toContain("of yesterday's Daily and of");
       expect(prompt).not.toContain("userMemoryPath");
       const schema = JSON.parse(
         await fs.readFile(path.join(directory, "daily.schema.json"), "utf8"),
@@ -122,6 +127,13 @@ describe("unified Wiki period scope", () => {
       );
       expect(weeklyPrompt).toContain(
         "Critically review Daily Pattern candidates",
+      );
+      expect(weeklyPrompt).toContain("## Language");
+      expect(weeklyPrompt).toContain(
+        "the current-week Daily items, giving most weight to the represented Human's own",
+      );
+      expect(weeklyPrompt).toContain(
+        "previous Weekly and the language of this prompt do not decide it",
       );
       expect(weeklyPrompt).not.toContain("EXCLUDED_WORKFLOW_CONTEXT");
     } finally {

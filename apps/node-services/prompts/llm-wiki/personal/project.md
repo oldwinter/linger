@@ -42,8 +42,10 @@ and context continuity against the supplied existing project pages:
   `<project_slug>.md` file.
 - If a matching project file exists and the supported project state changed,
   write the complete updated project page.
-- If a matching project file exists and its supported state did not change,
-  leave that project page unchanged.
+- If a matching project file exists, preserve its supported facts. Keep a
+  section with `{"keep": true}` when this run's evidence adds or changes nothing
+  it describes; a section you write follows the current section rules,
+  reorganizing its existing facts as needed.
 
 ## Project Grouping Rules
 
@@ -88,8 +90,10 @@ detailed workflow log. Use it only for a broad area such as product
 development, market expansion, customer collaboration, hiring, or
 infrastructure. Features, experiments, research questions, meetings,
 milestones, and delivery steps belong in the direction summary or core project
-sections. A session should normally produce at most one primary project file
-and update at most one direction.
+sections. A session should normally produce at most one primary project file,
+but may update every stable direction its evidence concerns. Page granularity
+does not limit a parent project to one direction: give distinct ongoing areas
+readable sections when their goals, responsibilities, or outcomes differ.
 
 Project granularity is intentionally coarse. The parent project represents the
 stable product, company, collaboration, or long-running outcome. Individual
@@ -136,10 +140,10 @@ Quality bar for project memory:
 - The registered project fields and core sections in the template are stable
   schema, but template instructions are not page content. Never copy these
   instructions or angle-bracket placeholders into a generated file.
-- Keep the directory focused on stable, high-level directions without a fixed
-  limit. Add, rename, merge, or close a direction only when the durable project
-  structure changes; fold one-off topics into an existing direction or core
-  section.
+- Keep directions focused on stable, high-level work areas without a fixed
+  count. Reorganize an existing catch-all direction when its supported work has
+  distinct goals or responsibilities; this does not assert that the real project
+  changed. Fold one-off topics into the relevant direction or core section.
 - Separate current state from decisions. A discussion topic is not a decision
   unless the source shows alignment, acceptance, assignment, or closure.
 - `Open Items` should be useful for continuing the project in a future Room.
@@ -174,11 +178,27 @@ date the evidence does not give; do not invent them.
 
 ### Project Directions
 
-##### Direction: <high-level direction name>
+When you write this section, write the complete `directions` array, reconsidering
+the grouping of all supported work on the existing page. For each area supply `name`, `current_state`, and
+`source_refs`; use `goal`, `owner`, `outcome`, and `last_updated` only when
+supported, otherwise null. The application creates `##### Direction: <name>`
+headings and citations. Preserve claim-level citations in prose fields so the
+reader can distinguish sources and attribution.
 
-<A concise summary of this stable project direction. Include only the durable
-goal, current state, and notable outcome. Do not list every feature, meeting,
-question, or action as a separate direction.>
+Summarize this direction's goal, supported current state, and notable outcome
+in short paragraphs or compact bullets. Name the responsible person or team
+when the evidence identifies one, keeping their responsibility scoped to the
+work it actually supports. Connect related facts across sources; do not turn
+the section into a chronological list of emails.
+
+Use separate direction entries for distinct stable areas within the parent
+project, rather than burying them in one generic paragraph.
+Do not create a direction for every feature, meeting, question, channel, or
+action, and do not split by date or source. There is no target number of
+directions. Keep useful facts and citations when reorganizing an existing
+direction; a clearer layout is not a reason to discard them. Put the overall
+product description in `Project Summary` and actionable follow-ups in
+`Open Items`, without repeating their full detail in each direction.
 
 Last updated: <YYYY-MM-DD of the newest evidence for this direction>
 
@@ -187,8 +207,8 @@ Last updated: <YYYY-MM-DD of the newest evidence for this direction>
 One entry per related person, Client, Contact, or Topic: a standard relative
 Markdown link to a registered page when one exists, otherwise the display
 name, plus one evidence-backed sentence
-about the relationship and a citation. A named external person who qualifies
-as a Contact gets a Contact page in the same run and is linked here. Do not
+about the relationship and a citation. A named person, internal or external,
+who qualifies as a Contact gets a Contact page in the same run and is linked here. Do not
 restate the related page's own status.
 
 ### Open Items

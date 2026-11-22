@@ -180,7 +180,7 @@ export async function createCodexModelCall(
       ];
       for (const feature of DISABLED_FEATURES)
         if (!(request.mode === "workspace" && feature === "code_mode_host"))
-          args.push("--disable", feature);
+          args.push("-c", `features.${feature}=false`);
       if (request.outputSchema) {
         await writeFile(
           join(call, "schema.json"),

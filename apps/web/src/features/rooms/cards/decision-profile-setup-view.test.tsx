@@ -114,29 +114,35 @@ function upload(id: string, filename: string): TeamHubMessageAttachmentUpload {
 }
 
 describe("AnotherMe setup card prompt", () => {
-  it.each([[appsForm], [sourcesForm]])(
-    "shows the %j prompt as the box heading",
-    async (form) => {
-      renderCard(setupCard(form));
+  const appsPrompt =
+    "Before I help with replies and follow-ups, I'd like to get to know you. The quickest way is to let me see where you talk about work — one account is enough.";
+  const sourcesPrompt =
+    "Do you have a personal website or portfolio? Paste a link, or upload your resume and work samples.";
 
-      const card = await screen.findByRole("region", {
-        name: "AnotherMe setup",
-      });
-      expect(
-        within(card).getByRole("heading", {
-          level: 3,
-          name: "Connect one account.",
-        }),
-      ).toBeVisible();
-      expect(screen.getAllByText("Connect one account.")).toHaveLength(1);
-      expect(document.querySelector(".card-prompt")).toBeNull();
-      expect(screen.queryByText(/Asks you/)).toBeNull();
-    },
-  );
+  it.each([
+    [appsForm, appsPrompt],
+    [sourcesForm, sourcesPrompt],
+  ])("shows the %j prompt as the box heading", async (form, prompt) => {
+    renderCard(setupCard(form));
+
+    const card = await screen.findByRole("region", {
+      name: "AnotherMe setup",
+    });
+    expect(
+      within(card).getByRole("heading", { level: 3, name: prompt }),
+    ).toBeVisible();
+    expect(screen.getAllByText(prompt)).toHaveLength(1);
+    expect(document.querySelector(".card-prompt")).toBeNull();
+    expect(screen.queryByText(/Asks you/)).toBeNull();
+  });
 
   it("shows anyone else no actions or copy", async () => {
     renderCard(setupCard(sourcesForm), { currentActorId: "actor-maya" });
-    expect(await screen.findByText("Connect one account.")).toBeVisible();
+    expect(
+      await screen.findByText(
+        "Do you have a personal website or portfolio? Paste a link, or upload your resume and work samples.",
+      ),
+    ).toBeVisible();
     expect(screen.queryByText(/Waiting for Jenny Bin/)).toBeNull();
     expect(screen.queryByRole("textbox")).toBeNull();
     expect(screen.queryByRole("button")).toBeNull();

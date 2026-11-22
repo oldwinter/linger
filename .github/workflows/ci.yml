@@ -2,12 +2,13 @@ name: CI
 
 # The repository gate runs on every pull request and merge-queue build; each
 # app's fast check runs only when its paths change; the web check is split
-# into a static job and sharded test jobs. An unchanged app's job is skipped,
+# into a static job and two test shards. An unchanged app's job is skipped,
 # which GitHub reports as success for its required check; a failed path
 # filter makes every app check fail instead of skipping. A merge-queue build
 # checks the paths its whole group changes, on top of the latest main. Pushes
-# to main run every check. CI runs the
-# computer daemon's Go unit tests; the rest of check-computer (TS and process
+# to main run every check. scripts/check-plan.mjs maps paths to checks, here
+# and in `make check`. Only jobs that use BASE check out full history. CI runs
+# the computer daemon's Go unit tests; the rest of check-computer (TS and process
 # tests) and the heavier suites (node-services, voice-runtime, integration,
 # containers and E2E) stay local: run `make check BASE=<target-ref>` and the
 # targets in the Makefile before you open a pull request.
@@ -43,7 +44,7 @@ jobs:
       teamhub: ${{ steps.filter.outputs.teamhub }}
       computer-go: ${{ steps.filter.outputs.computer-go }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - id: filter
@@ -58,33 +59,22 @@ jobs:
           else
             changed=ALL
           fi
-          # Files every Node check depends on.
-          node='^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|\.npmrc|\.node-version|patches/|eslint\.config\.mjs|tsconfig\.base\.json|vitest\.config\.ts|Makefile|\.github/)'
-          match() {
-            if [ "$changed" = ALL ] || grep -Eq "$1" <<<"$changed"; then
-              echo "$2=true" >>"$GITHUB_OUTPUT"
-            else
-              echo "$2=false" >>"$GITHUB_OUTPUT"
-            fi
-          }
-          match "$node|^(apps/web/|packages/|contracts/generated/typescript/)" web
-          match "$node|^(packages/|contracts/generated/typescript/|contracts/fixtures/)" packages
-          match "$node|^(apps/teamhub-cli/|packages/|contracts/)" teamhub-cli
-          match "$node|^(apps/linger-installer/|packages/|contracts/generated/typescript/)" installer
-          match "$node|^(apps/desktop/|apps/computer/local-daemon/|apps/computer/package\.json|packages/|contracts/generated/typescript/)" desktop
-          match "$node|^contracts/" contracts
-          match '^(apps/teamhub/|skills/|contracts/generated/go/|contracts/fixtures/|\.golangci\.yml|Makefile|\.github/)' teamhub
-          match '^(apps/computer/local-daemon/|apps/computer/run-test\.sh|contracts/generated/go/runnergateway/|contracts/runner-gateway/fixtures/|scripts/managed-tools-|scripts/local-computer-node-distributions\.mjs|scripts/test-fixtures/managed-tools-fixture\.mjs|Makefile|\.github/)' computer-go
+          # scripts/check-plan.mjs maps paths to checks for CI and `make
+          # check`; it uses only Node builtins, so the runner's Node runs it.
+          printf '%s\n' "$changed" | node scripts/check-plan.mjs --files-from - --format github >>"$GITHUB_OUTPUT"
 
   repository-gate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: ./.github/actions/setup
         with:
           go: false
+          # Runs on every push to main, so it alone saves the node_modules
+          # entry the other jobs restore.
+          save-node-modules: ${{ github.event_name == 'push' }}
       - run: make check-repository-gate BASE="$BASE"
 
   web-static:
@@ -92,7 +82,7 @@ jobs:
     if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: ./.github/actions/setup
@@ -101,22 +91,20 @@ jobs:
       - run: make check-web-static BASE="$BASE"
 
   web-tests:
-    name: web tests (${{ matrix.shard }}/3)
+    name: web tests (${{ matrix.shard }}/2)
     needs: changes
     if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        shard: [1, 2]
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
         with:
           go: false
-      - run: make check-web-tests SHARD=${{ matrix.shard }}/3
+      - run: make check-web-tests SHARD=${{ matrix.shard }}/2
 
   # Reports the required `check (web)` context from the split web jobs. When
   # web paths changed, every web job must succeed (an unexpected skip fails);
@@ -159,9 +147,7 @@ jobs:
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.packages == 'true') }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/check
         with:
           app: packages
@@ -173,9 +159,7 @@ jobs:
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs['teamhub-cli'] == 'true') }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/check
         with:
           app: teamhub-cli
@@ -187,9 +171,7 @@ jobs:
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.installer == 'true') }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/check
         with:
           app: installer
@@ -201,9 +183,7 @@ jobs:
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.desktop == 'true') }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/check
         with:
           app: desktop
@@ -215,9 +195,7 @@ jobs:
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.contracts == 'true') }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/check
         with:
           app: contracts
@@ -229,7 +207,7 @@ jobs:
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.teamhub == 'true') }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: ./.github/actions/check
@@ -243,9 +221,7 @@ jobs:
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs['computer-go'] == 'true') }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/check
         with:
           app: computer-go

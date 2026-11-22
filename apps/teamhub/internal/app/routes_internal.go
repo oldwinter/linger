@@ -40,6 +40,7 @@ func (a *App) agentServiceRoutes() []contractRoute {
 		route(http.MethodPost, "/v0/agent-runtime/runs/claim", nil, agentService, a.claimAgentLocalRun),
 		route(http.MethodPost, "/v0/agent-runtime/runs/finish", nil, agentService, a.finishAgentLocalRun),
 		route(http.MethodPost, "/v0/agent-runtime/runs/operations", nil, agentService, a.recordAgentLocalRunOperation),
+		route(http.MethodGet, "/v0/agent-runtime/runs/reply-status", teamhubinternal.GetAgentLocalRunReplyStatusParams{}, agentService, a.getAgentLocalRunReplyStatus),
 		route(http.MethodPost, "/v0/agent-runtime/runs/requeue", nil, agentService, a.requeueAgentLocalRun),
 		route(http.MethodGet, "/v0/agent-runtime/runs/waiting", nil, agentService, a.listAgentRuntimeWaitingContexts),
 		route(http.MethodGet, "/v0/agent-runtime/session", teamhubinternal.GetAgentRuntimeSessionParams{}, agentService, a.getAgentRuntimeSession),

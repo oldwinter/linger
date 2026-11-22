@@ -1,6 +1,16 @@
+import { useState } from "react";
 import type { components } from "@linger/wire-contracts/linger-installer/types";
+import {
+  ByokPanel,
+  byokAddressProblem,
+  byokEndpoint,
+  emptyByokDraft,
+  type ByokDraft,
+} from "./ByokPanel.js";
 export type SetupReport = components["schemas"]["SetupReport"];
 export type SetupChoice = components["schemas"]["SetupChoice"];
+export type ByokConfiguration = components["schemas"]["ByokConfiguration"];
+export type PanelChoice = SetupChoice | "byok";
 export function bytes(value: number | null | undefined): string {
   if (value == null) return "—";
   const units = ["B", "KiB", "MiB", "GiB", "TiB"];
@@ -19,22 +29,29 @@ export function SetupChoicePanel({
   blocker,
 }: {
   report: SetupReport;
-  choice?: SetupChoice;
-  onChange: (choice: SetupChoice) => void;
-  onInstall: () => void;
+  choice?: PanelChoice;
+  onChange: (choice: PanelChoice) => void;
+  onInstall: (byok?: ByokConfiguration) => void;
   disabled: boolean;
   blocker?: string;
 }) {
+  const [byok, setByok] = useState<ByokDraft>(emptyByokDraft);
+  const isByok = choice === "byok";
   const selected =
     choice === "local-models"
       ? report.localModels.estimate
-      : report.runtimes.find((r) => r.choice === choice)?.estimate;
-  const label =
-    choice === "local-models"
+      : !isByok
+        ? report.runtimes.find((r) => r.choice === choice)?.estimate
+        : undefined;
+  const label = isByok
+    ? "BYOK"
+    : choice === "local-models"
       ? report.localModels.estimate.model || "Local models"
       : choice
         ? { codex: "Codex", claude: "Claude Code", pi: "Pi" }[choice]
         : "";
+  const byokIncomplete =
+    isByok && (!byok.modelId.trim() || Boolean(byokAddressProblem(byok)));
   return (
     <section className="setup-choice" aria-label={"Deployment plan"}>
       <p className="recommended-plan">
@@ -112,12 +129,45 @@ export function SetupChoicePanel({
                 </label>
               );
             })}
+          <label
+            className={`setup-option ${isByok ? "selected" : ""}`}
+            title="Bring Your Own Key — Connect your own OpenAI-compatible or Anthropic API endpoint, key, and model through Linger's local Bifrost gateway."
+          >
+            <input
+              type="radio"
+              name="setup-choice"
+              value="byok"
+              checked={isByok}
+              onChange={() => onChange("byok")}
+            />
+            <span>
+              <strong>{"BYOK"}</strong>
+              <small>
+                {
+                  "Bring Your Own Key · Mounted on local Bifrost for all runtimes"
+                }
+              </small>
+            </span>
+          </label>
         </div>
+        {isByok && <ByokPanel draft={byok} onDraftChange={setByok} />}
       </div>
       <button
         className="button primary deploy-action"
-        disabled={disabled}
-        onClick={onInstall}
+        disabled={disabled || byokIncomplete}
+        onClick={() => {
+          if (isByok) {
+            const payload: ByokConfiguration = {
+              ...byokEndpoint(byok),
+              modelId: byok.modelId.trim(),
+              runtime: byok.runtime,
+            };
+            setByok((current) => ({ ...current, apiKey: "" }));
+            onInstall(payload);
+          } else {
+            onInstall();
+          }
+        }}
       >
         {"Install Linger"}
       </button>

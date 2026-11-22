@@ -8,6 +8,7 @@ import {
   selectArtifactRenderer,
 } from "./artifact-renderer-policy";
 import { TeamHubError } from "@/features/teamhub/teamhub-error";
+import { translate } from "@/i18n/language";
 import {
   artifactPreviewCache,
   type ArtifactReadingPosition,
@@ -17,6 +18,7 @@ import { dataPreviewLimits } from "./data-preview-protocol";
 import { verifyArtifactDownloadIntegrity } from "./artifact-download-integrity";
 
 import { prepareOfficePreview } from "./office-preview-preparation";
+import { filePreviewErrorMessages } from "./file-preview-errors.messages";
 
 export interface LoadedArtifactPreview {
   blob?: Blob;
@@ -330,7 +332,7 @@ function assertDocumentVersionScope(
     version.id !== scope.versionId ||
     version.document_id !== scope.documentId
   ) {
-    throw new Error("This Version does not belong to the selected Document.");
+    throw new Error(translate(filePreviewErrorMessages.versionNotInDocument));
   }
 }
 

@@ -15,7 +15,7 @@ Use the thread ID from this input: teamhub docs comment get <thread-id> reads it
 <env-knowledge>
 - The request is a comment on the current Document. First read ./<document-id>/comments.md (the thread) and ./<document-id>/latest.md (the Document when this turn started); both are read-only. Read a later version with teamhub docs get <document-id>.
 - ./playground/<document-id>/ is your writable storage. Humans can't see your files; reply through the comment commands.
-- Install packages into ./agent: npm --prefix ./agent install <package>; uv --directory ./agent add <package> and uv --directory ./agent run python ...; system tools with micromamba install --yes --override-channels --channel conda-forge --prefix ./agent/conda <package>. Never use apt or conda. poppler, pandoc, qpdf, tesseract, and ffmpeg are preinstalled. Extract archives with tar --no-same-owner.
+- Install packages into ./agent: npm --prefix ./agent install <package>; uv --directory ./agent add <package> and uv --directory ./agent run python .... If npm, uv, or a system tool is missing, ask the user whether to install it; never install globally (apt, brew, conda, pip --user, npm -g) without their yes. Extract archives with tar --no-same-owner.
 - Directories may be symlinks: use find -L or a trailing slash.
 </env-knowledge>
 

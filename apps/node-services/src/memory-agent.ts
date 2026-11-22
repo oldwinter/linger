@@ -6,7 +6,13 @@ import path from "node:path";
 import { isRecord } from "@linger/service-kit";
 
 import { packageRoot } from "./paths.js";
-import type { ModelCallEffort, ModelChain } from "./runtime-model-call.js";
+import {
+  ModelBudgetSpentError,
+  schemaProblem,
+  type ModelCallEffort,
+  type ModelChain,
+  type ModelRunBudget,
+} from "./runtime-model-call.js";
 
 /**
  * The memory Agent: one controlled loop for every kind of memory upkeep
@@ -126,8 +132,8 @@ export function strictObject(
   };
 }
 
-/** The schema of one step: up to `maxActions` actions of this task. */
-export function agentStepSchema(task: AgentTask): Record<string, unknown> {
+/** Up to `maxActions` actions of this task, as an array. */
+function agentActionsSchema(task: AgentTask): Record<string, unknown> {
   const branches = [
     ...task.tools.map((tool) =>
       strictObject({
@@ -148,12 +154,23 @@ export function agentStepSchema(task: AgentTask): Record<string, unknown> {
       summary: { type: "string", maxLength: 1_000 },
     }),
   ];
+  return {
+    type: "array",
+    maxItems: task.maxActions,
+    items: { anyOf: branches },
+  };
+}
+
+/** The schema of one step: up to `maxActions` actions of this task. */
+export function agentStepSchema(
+  task: AgentTask,
+  actions: Record<string, unknown> = agentActionsSchema(task),
+): Record<string, unknown> {
   return strictObject({
-    actions: {
-      type: "array",
-      maxItems: task.maxActions,
-      items: { anyOf: branches },
-    },
+    // Claude's structured output can send a long array as its JSON text and
+    // then fail validation on every retry; parseActions reads either form,
+    // and the step checks the text against the array schema.
+    actions: { anyOf: [actions, { type: "string" }] },
   });
 }
 
@@ -201,15 +218,16 @@ export async function runAgentTask(request: {
   /** Tokens one step's call may hold; past 85% of it, older steps are
    * shortened. Omitted, half the default context window. */
   readonly maxInputTokens?: number;
-  /** Epoch milliseconds after which no further step starts; the task then
-   * ends unfinished, keeping its accepted proposals. */
-  readonly deadline?: number;
+  /** Once spent, no further step starts; the task then ends unfinished,
+   * keeping its accepted proposals. */
+  readonly budget?: ModelRunBudget;
   readonly environment: AgentEnvironment;
   readonly signal?: AbortSignal;
 }): Promise<AgentRunResult> {
   const { task, environment } = request;
   const instructions = agentInstructions(task);
-  const schema = agentStepSchema(task);
+  const actionsSchema = agentActionsSchema(task);
+  const schema = agentStepSchema(task, actionsSchema);
   const signal = request.signal ?? new AbortController().signal;
   // Session keys of this run never meet a thread an earlier run left open.
   const session = randomUUID();
@@ -220,15 +238,20 @@ export async function runAgentTask(request: {
   let rejected = 0;
   for (let index = 0; index < task.maxSteps; index += 1) {
     signal.throwIfAborted();
-    if (request.deadline !== undefined && Date.now() >= request.deadline) break;
+    if (request.budget?.spent) break;
     const output = await callStep(
       request,
       session,
       instructions,
       schema,
+      actionsSchema,
       steps,
       index,
-    );
+    ).catch((error: unknown) => {
+      if (error instanceof ModelBudgetSpentError) return undefined;
+      throw error;
+    });
+    if (output === undefined) break;
     const actions = parseActions(output, task);
     const calls: string[] = [];
     const results: AgentObservation[] = [];
@@ -332,6 +355,7 @@ async function callStep(
   session: string,
   instructions: string,
   schema: Record<string, unknown>,
+  actionsSchema: Record<string, unknown>,
   steps: readonly AgentStepRecord[],
   index: number,
 ): Promise<Record<string, unknown>> {
@@ -342,7 +366,18 @@ async function callStep(
     input: stepInput(request, instructions, steps, index),
     schemaName: STEP_SCHEMA_NAME,
     outputSchema: schema,
+    validate: (output) => {
+      if (typeof output.actions !== "string") return undefined;
+      const actions = actionList(output.actions);
+      if (actions === undefined)
+        return "`actions` is text that is not a JSON array; send `actions` as an array of action objects";
+      const problem = schemaProblem(actionsSchema, actions);
+      return problem
+        ? `\`actions\` text does not match the action schema: ${problem}; send \`actions\` as an array of action objects`
+        : undefined;
+    },
     timeoutMs: request.task.timeoutMs,
+    ...(request.budget ? { budget: request.budget } : {}),
     ...(request.task.maxOutputChars === undefined
       ? {}
       : { maxOutputChars: request.task.maxOutputChars }),
@@ -443,7 +478,7 @@ function parseActions(
   output: Readonly<Record<string, unknown>>,
   task: AgentTask,
 ): ParsedAction[] {
-  const actions = Array.isArray(output.actions) ? output.actions : [];
+  const actions = actionList(output.actions) ?? [];
   const tools = new Set(task.tools.map((tool) => tool.name));
   const objects = new Set(task.objects.map((object) => object.type));
   const parsed: ParsedAction[] = [];
@@ -472,6 +507,19 @@ function parseActions(
     }
   }
   return parsed;
+}
+
+/** A step's actions, given as an array or as the JSON text of one;
+ * undefined when the text is not a JSON array. */
+function actionList(value: unknown): unknown[] | undefined {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== "string") return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Cuts a step's results to one shared character budget. */

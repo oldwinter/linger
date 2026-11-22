@@ -1,3 +1,8 @@
+import type { Translate } from "@/i18n/language";
+import type { Message } from "@/i18n/messages";
+
+import { chatMessages } from "../chat/chat.messages";
+
 const archiveExtensions = new Set([
   "7z",
   "bz2",
@@ -95,19 +100,20 @@ export type ArtifactFileKind =
   | "video"
   | "workflow";
 
-const fileKindLabels: Record<ArtifactFileKind, string> = {
-  archive: "Archive",
-  audio: "Audio",
-  code: "Code",
-  document: "Document",
+// A format or app name is the same in every language; a kind is a message.
+const fileKindLabels: Record<ArtifactFileKind, Message | string> = {
+  archive: chatMessages.fileTypeArchive,
+  audio: chatMessages.fileTypeAudio,
+  code: chatMessages.fileTypeCode,
+  document: chatMessages.fileTypeDocument,
   html: "HTML",
-  image: "Image",
+  image: chatMessages.fileTypeImage,
   markdown: "Markdown",
   pdf: "PDF",
   presentation: "PowerPoint",
   spreadsheet: "Excel",
-  video: "Video",
-  workflow: "Workflow",
+  video: chatMessages.fileTypeVideo,
+  workflow: chatMessages.fileTypeWorkflow,
 };
 
 export function artifactFileKind(
@@ -137,12 +143,17 @@ export function artifactFileKind(
   return kindFromMediaType(mediaType) ?? "document";
 }
 
-export function artifactFileTypeLabel(filename: string, mediaType?: string) {
+export function artifactFileTypeLabel(
+  filename: string,
+  mediaType: string | undefined,
+  t: Translate,
+) {
   const extension = fileExtension(filename);
   if (extension === "doc" || extension === "docx") return "Word";
   if (extension === "csv" || extension === "tsv") return "CSV";
-  if (textExtensions.has(extension)) return "Text";
-  return fileKindLabels[artifactFileKind(filename, mediaType)];
+  if (textExtensions.has(extension)) return t(chatMessages.fileTypeText);
+  const label = fileKindLabels[artifactFileKind(filename, mediaType)];
+  return typeof label === "string" ? label : t(label);
 }
 
 function fileExtension(filename: string) {

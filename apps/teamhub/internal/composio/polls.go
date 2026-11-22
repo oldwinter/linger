@@ -319,6 +319,157 @@ func (c *Client) ListOutlookMessageDelta(ctx context.Context, connectedAccountID
 
 const outlookDeltaFields = "subject,from,toRecipients,webLink,isRead,parentFolderId,createdDateTime,receivedDateTime"
 
+const outlookCalendarPreferHeader = `odata.maxpagesize=50, outlook.timezone="UTC"`
+
+// OutlookCalendarChange is one event entry returned by Microsoft Graph
+// calendarView/delta. Deleted or out-of-window entries set Removed with
+// RemovedReason ("deleted" or "changed") and carry no event fields beyond ID.
+type OutlookCalendarChange struct {
+	ID            string
+	Subject       string
+	Removed       bool
+	RemovedReason string
+	IsCancelled   bool
+	IsAllDay      bool
+	CreatedAt     time.Time
+	LastModified  time.Time
+	Start         string
+	End           string
+	Organizer     string
+	Description   string
+	Location      string
+}
+
+// ListOutlookCalendarDelta reads one page of Microsoft Graph calendarView/delta.
+// On the first call (deltaLink empty), start and end define the bounded view
+// window baked into Graph's continuation tokens; subsequent calls follow the
+// returned nextLink or deltaLink without re-sending query parameters.
+func (c *Client) ListOutlookCalendarDelta(ctx context.Context, connectedAccountID, calendarID string, start, end time.Time, deltaLink string) ([]OutlookCalendarChange, string, string, error) {
+	request, err := graphPollRequest(connectedAccountID, deltaLink)
+	if err != nil {
+		return nil, "", "", err
+	}
+	if deltaLink == "" {
+		if calendarID == "" || calendarID == "primary" {
+			request.Endpoint = "/v1.0/me/calendarView/delta"
+		} else {
+			request.Endpoint = "/v1.0/me/calendars/" + url.PathEscape(calendarID) + "/calendarView/delta"
+		}
+		request.Parameters = []proxyParameter{
+			{Name: "startDateTime", Value: start.UTC().Format(time.RFC3339), Type: "query"},
+			{Name: "endDateTime", Value: end.UTC().Format(time.RFC3339), Type: "query"},
+		}
+	}
+	request.Parameters = append(request.Parameters, proxyParameter{
+		Name: "Prefer", Value: outlookCalendarPreferHeader, Type: "header",
+	})
+
+	var wire struct {
+		Value []struct {
+			ID                   string `json:"id"`
+			Subject              string `json:"subject"`
+			IsAllDay             bool   `json:"isAllDay"`
+			IsCancelled          bool   `json:"isCancelled"`
+			CreatedDateTime      string `json:"createdDateTime"`
+			LastModifiedDateTime string `json:"lastModifiedDateTime"`
+			Start                struct {
+				DateTime string `json:"dateTime"`
+				TimeZone string `json:"timeZone"`
+			} `json:"start"`
+			End struct {
+				DateTime string `json:"dateTime"`
+				TimeZone string `json:"timeZone"`
+			} `json:"end"`
+			Location struct {
+				DisplayName string `json:"displayName"`
+			} `json:"location"`
+			Organizer outlookRecipient `json:"organizer"`
+			Body      struct {
+				ContentType string `json:"contentType"`
+				Content     string `json:"content"`
+			} `json:"body"`
+			BodyPreview string `json:"bodyPreview"`
+			Removed     *struct {
+				Reason string `json:"reason"`
+			} `json:"@removed"`
+		} `json:"value"`
+		NextLink  string `json:"@odata.nextLink"`
+		DeltaLink string `json:"@odata.deltaLink"`
+	}
+	if err := c.proxy(ctx, request, &wire, "list Outlook calendar delta"); err != nil {
+		var remote *remoteError
+		if errors.As(err, &remote) && remote.status == http.StatusGone {
+			return nil, "", "", ErrOutlookDeltaExpired
+		}
+		return nil, "", "", err
+	}
+	if (wire.NextLink == "") == (wire.DeltaLink == "") || (wire.NextLink != "" && wire.NextLink == deltaLink) {
+		return nil, "", "", errors.New("Outlook calendar delta returned an invalid continuation")
+	}
+	out := make([]OutlookCalendarChange, 0, len(wire.Value))
+	for _, item := range wire.Value {
+		change := OutlookCalendarChange{
+			ID:          item.ID,
+			Subject:     item.Subject,
+			IsCancelled: item.IsCancelled,
+			IsAllDay:    item.IsAllDay,
+			Start:       outlookCalendarTime(item.Start.DateTime, item.Start.TimeZone, item.IsAllDay),
+			End:         outlookCalendarTime(item.End.DateTime, item.End.TimeZone, item.IsAllDay),
+			Organizer:   item.Organizer.String(),
+			Location:    strings.TrimSpace(item.Location.DisplayName),
+		}
+		if item.Removed != nil {
+			change.Removed = true
+			change.RemovedReason = strings.TrimSpace(item.Removed.Reason)
+		}
+		if t, err := time.Parse(time.RFC3339Nano, item.CreatedDateTime); err == nil {
+			change.CreatedAt = t
+		}
+		if t, err := time.Parse(time.RFC3339Nano, item.LastModifiedDateTime); err == nil {
+			change.LastModified = t
+		}
+		description := item.Body.Content
+		if strings.EqualFold(item.Body.ContentType, "html") {
+			description = htmlText(description)
+		}
+		change.Description = pollTextBody(description, false)
+		if change.Description == "" {
+			change.Description = pollTextBody(item.BodyPreview, false)
+		}
+		out = append(out, change)
+	}
+	return out, wire.NextLink, wire.DeltaLink, nil
+}
+
+// outlookCalendarTime normalizes Graph's naive dateTimeTimeZone into an RFC3339
+// instant (or YYYY-MM-DD for all-day events) so downstream callers parse it
+// uniformly alongside Google Calendar timestamps.
+func outlookCalendarTime(dateTime, timeZone string, allDay bool) string {
+	raw := strings.TrimSpace(dateTime)
+	if raw == "" {
+		return ""
+	}
+	if allDay && len(raw) >= len(time.DateOnly) {
+		if _, err := time.Parse(time.DateOnly, raw[:len(time.DateOnly)]); err == nil {
+			return raw[:len(time.DateOnly)]
+		}
+	}
+	if parsed, err := time.Parse(time.RFC3339Nano, raw); err == nil {
+		return parsed.UTC().Format(time.RFC3339)
+	}
+	tz := strings.TrimSpace(timeZone)
+	if tz == "" || strings.EqualFold(tz, "UTC") {
+		if parsed, err := time.Parse("2006-01-02T15:04:05.9999999", raw); err == nil {
+			return parsed.UTC().Format(time.RFC3339)
+		}
+	} else if loc, err := time.LoadLocation(tz); err == nil {
+		if parsed, err := time.ParseInLocation("2006-01-02T15:04:05.9999999", raw, loc); err == nil {
+			return parsed.Format(time.RFC3339)
+		}
+	}
+	return raw
+}
+
 type outlookRecipient struct {
 	EmailAddress struct {
 		Address string `json:"address"`

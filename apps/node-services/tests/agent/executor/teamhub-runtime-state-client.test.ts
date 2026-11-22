@@ -246,6 +246,30 @@ describe("TeamHubRuntimeStateClient retries", () => {
     );
   });
 
+  it("queries whether a Local Run persisted a reply in TeamHub", async () => {
+    const fetchRequest = vi.fn<typeof fetch>(async () =>
+      jsonResponse({ replied: true }),
+    );
+    const client = runtimeStateClient(fetchRequest);
+
+    await expect(
+      client.getRunReplyStatus(
+        '["meta","agent-reviewer","room","room-1"]',
+        "run-1",
+      ),
+    ).resolves.toEqual({ replied: true });
+
+    const [input, init] = fetchRequest.mock.calls[0]!;
+    const url = new URL(requestUrlText(input));
+    expect(url.pathname).toBe("/v0/agent-runtime/runs/reply-status");
+    expect(url.searchParams.get("context_key")).toBe(
+      '["meta","agent-reviewer","room","room-1"]',
+    );
+    expect(url.searchParams.get("local_run_id")).toBe("run-1");
+    expect(init?.method).toBe("GET");
+    expect(init?.body).toBeUndefined();
+  });
+
   it("retries the exact command after a 5xx and an interrupted 2xx body", async () => {
     const fetchRequest = vi
       .fn()

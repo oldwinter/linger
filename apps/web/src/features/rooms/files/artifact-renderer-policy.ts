@@ -1,5 +1,8 @@
 import { mediaTypeForExtension } from "@linger/document-files/media-type";
+import { translate } from "@/i18n/language";
+import type { Message } from "@/i18n/messages";
 import { artifactPreviewMaxFileBytes } from "./artifact-preview-limits";
+import { filePreviewErrorMessages as m } from "./file-preview-errors.messages";
 import {
   isOfficePreviewExtension,
   isOfficePreviewMediaTypeCompatible,
@@ -20,6 +23,7 @@ export type ArtifactRendererKind =
 
 export interface ArtifactRendererDecision {
   kind: ArtifactRendererKind;
+  /** Why the File is only downloaded, worded when the decision is made. */
   reason?: string;
 }
 
@@ -113,7 +117,7 @@ export function selectArtifactRenderer(input: {
       mediaType,
       input.sizeBytes,
       "markdown",
-      "Markdown",
+      m.markdownTooLarge,
     );
   }
 
@@ -123,7 +127,7 @@ export function selectArtifactRenderer(input: {
       mediaType,
       input.sizeBytes,
       "mermaid",
-      "Mermaid",
+      m.mermaidTooLarge,
     );
   }
 
@@ -133,7 +137,7 @@ export function selectArtifactRenderer(input: {
       mediaType,
       input.sizeBytes,
       "html",
-      "HTML",
+      m.htmlTooLarge,
     );
   }
 
@@ -145,7 +149,7 @@ export function selectArtifactRenderer(input: {
       ? { kind: "svg" }
       : {
           kind: "download",
-          reason: "This file is larger than the safe SVG preview limit.",
+          reason: translate(m.svgTooLarge),
         };
   }
 
@@ -157,7 +161,7 @@ export function selectArtifactRenderer(input: {
       ? { kind: "pdf" }
       : {
           kind: "download",
-          reason: "This file is larger than the safe PDF preview limit.",
+          reason: translate(m.pdfTooLarge),
         };
   }
 
@@ -176,8 +180,9 @@ export function selectArtifactRenderer(input: {
       ? { kind: "office" }
       : {
           kind: "download",
-          reason:
-            "This file is larger than the 50 MiB basic Office preview limit.",
+          reason: translate(m.officeTooLarge, {
+            mebibytes: artifactPreviewMaxFileBytes / (1024 * 1024),
+          }),
         };
   }
 
@@ -190,7 +195,7 @@ export function selectArtifactRenderer(input: {
       ? { kind: "image" }
       : {
           kind: "download",
-          reason: "This image is larger than the safe preview limit.",
+          reason: translate(m.imageTooLarge),
         };
   }
 
@@ -206,7 +211,7 @@ export function selectArtifactRenderer(input: {
       ? { kind: "text" }
       : {
           kind: "download",
-          reason: "This text file is larger than the safe preview limit.",
+          reason: translate(m.textTooLarge),
         };
   }
 
@@ -219,7 +224,7 @@ export function selectArtifactRenderer(input: {
 
   return {
     kind: "download",
-    reason: "This format is available as a download only.",
+    reason: translate(m.downloadOnly),
   };
 }
 
@@ -228,7 +233,7 @@ function matchingTextRenderer(
   mediaType: string,
   sizeBytes: number,
   kind: ArtifactRendererKind,
-  label: string,
+  tooLarge: Message<string>,
 ): ArtifactRendererDecision {
   if (!allowedMediaTypes.includes(mediaType)) {
     return mismatchDecision();
@@ -238,14 +243,14 @@ function matchingTextRenderer(
     ? { kind }
     : {
         kind: "download",
-        reason: `This file is larger than the safe ${label} preview limit.`,
+        reason: translate(tooLarge),
       };
 }
 
 function mismatchDecision(): ArtifactRendererDecision {
   return {
     kind: "download",
-    reason: "The filename and media type do not agree, so preview is disabled.",
+    reason: translate(m.mediaTypeMismatch),
   };
 }
 

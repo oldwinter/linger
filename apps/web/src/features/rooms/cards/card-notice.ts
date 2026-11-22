@@ -1,5 +1,15 @@
 import type { TeamHubMessageCard } from "@/features/teamhub/teamhub-types";
+import { webSearchBackendName } from "@/features/web-search/web-search-backends";
+import { commonMessages } from "@/i18n/common.messages";
+import type { Translate, Translation } from "@/i18n/language";
+import {
+  formatMessageParts,
+  type Message,
+  type MessageArguments,
+  type MessagePart,
+} from "@/i18n/messages";
 
+import { cardsMessages } from "./cards.messages";
 import { connectedAppDisplayName } from "./connected-app-names";
 
 /**
@@ -7,13 +17,20 @@ import { connectedAppDisplayName } from "./connected-app-names";
  * one centered system line, the way Room notices do: who did what to what.
  * The object links to where the result lives. A card still waiting or still
  * running returns null and stays a card.
+ *
+ * The notice holds the card and its reader, not text: `cardNoticeLines`
+ * writes the lines in the language on screen.
  */
 export interface CardNotice {
-  text: string;
-  /** The object in the line, linked to where the result lives. */
-  link?: { label: string; to: NoticeTarget };
-  /** Further lines, one per answer after the first on a question card. */
-  more?: string[];
+  card: TeamHubMessageCard;
+  viewerId: string | undefined;
+}
+
+/** One system line: its text, cut where the `link` span sits. */
+export interface CardNoticeLine {
+  parts: readonly MessagePart[];
+  /** Where the line's `link` span goes: where the result lives. */
+  link?: NoticeTarget;
 }
 
 export type NoticeTarget = { room: string } | "apps";
@@ -36,76 +53,132 @@ export function settledCardNotice(
   const finishedApproval =
     card.kind === "runtime_permission" && card.status === "approved";
   if (runningStatuses.has(card.status) && !finishedApproval) return null;
+  return { card, viewerId };
+}
 
-  const who =
-    card.decided_by && card.decided_by.id === viewerId
-      ? "You"
-      : (card.decided_by?.display_name ?? "Someone");
-  const title = `“${card.title}”`;
+/**
+ * The lines of a settled card: the main line, then one per answer after the
+ * first on a question card.
+ */
+export function cardNoticeLines(
+  { card, viewerId }: CardNotice,
+  translation: Translation,
+): CardNoticeLine[] {
+  const { t } = translation;
+  const line = <M extends Message>(
+    message: M,
+    ...values: MessageArguments<M["source"]>
+  ): CardNoticeLine => ({
+    parts: formatMessageParts(
+      message,
+      translation.language,
+      translation.catalog,
+      values[0],
+    ),
+  });
+
+  const who = !card.decided_by
+    ? t(cardsMessages.noticeSomeone)
+    : card.decided_by.id === viewerId
+      ? t(commonMessages.you)
+      : t(cardsMessages.noticeActor, { name: card.decided_by.display_name });
+  const title = card.title;
   const reason = card.answer?.comment?.trim();
   const outcome = card.outcome?.trim();
-  const withOutcome = outcome ? `: ${outcome}` : "";
 
   if (card.kind === "question") {
     if (card.status !== "answered") {
-      return { text: `No one answered ${title} in time` };
+      return [line(cardsMessages.noticeUnanswered, { title })];
     }
     const given = card.answer?.answers ?? {};
-    const lines = (card.question?.questions ?? []).map(
-      (question) =>
-        `${who} answered “${question.prompt}” with “${answerLabels(question, given[question.id]) || "No answer"}”`,
+    const lines = (card.question?.questions ?? []).map((question) =>
+      line(cardsMessages.noticeAnswered, {
+        answer:
+          answerLabels(question, given[question.id], t) ||
+          t(cardsMessages.noAnswer),
+        question: question.prompt,
+        who,
+      }),
     );
-    if (reason) lines.push(`${who} added “${reason}”`);
-    return { text: lines[0] ?? "", more: lines.slice(1) };
+    if (reason)
+      lines.push(line(cardsMessages.noticeAddedNote, { note: reason, who }));
+    return lines.length ? lines : [{ parts: [] }];
   }
 
   if (card.status === "expired") {
-    return { text: `${title} expired` };
+    return [line(cardsMessages.noticeExpired, { title })];
   }
   if (card.status === "denied") {
-    return {
-      text: `${who} declined ${title}${reason ? `: “${reason}”` : ""}`,
-    };
+    return [
+      reason
+        ? line(cardsMessages.noticeDeclinedWithReason, { reason, title, who })
+        : line(cardsMessages.noticeDeclined, { title, who }),
+    ];
   }
 
   switch (card.kind) {
     case "runtime_permission":
-      return {
-        text:
-          card.status === "consumed"
-            ? `${who} allowed ${title} once, and it ran`
-            : `${who} allowed ${title} once`,
-      };
+      return [
+        card.status === "consumed"
+          ? line(cardsMessages.noticeAllowedOnceRan, { title, who })
+          : line(cardsMessages.noticeAllowedOnce, { title, who }),
+      ];
     case "browser_connection":
-      return { text: `${who} connected Chrome` };
+      return [line(cardsMessages.noticeConnectedChrome, { who })];
     case "provider_key":
-      return { text: `${who} added the Composio API key` };
+      return [line(cardsMessages.noticeAddedComposioKey, { who })];
+    case "search_key": {
+      const shown = card.search_key?.backend;
+      const saved = card.answer?.backend ?? shown;
+      if (!saved) break;
+      const backend = webSearchBackendName(saved);
+      return [
+        shown && saved !== shown
+          ? line(cardsMessages.noticeAddedSearchKeyInstead, {
+              backend,
+              requested: webSearchBackendName(shown),
+              who,
+            })
+          : line(cardsMessages.noticeAddedSearchKey, { backend, who }),
+      ];
+    }
     case "connection_auth": {
-      const app = connectedAppDisplayName(card.connection_auth?.app_key);
-      return card.status === "succeeded"
-        ? {
-            text: `${who} connected `,
-            link: { label: app, to: "apps" },
-          }
-        : { text: `${title} did not finish${withOutcome}` };
+      if (card.status === "succeeded") {
+        const app = connectedAppDisplayName(card.connection_auth?.app_key);
+        return [
+          {
+            ...line(cardsMessages.noticeConnectedApp, { app, who }),
+            link: "apps",
+          },
+        ];
+      }
+      return [
+        outcome
+          ? line(cardsMessages.noticeDidNotFinishWithOutcome, {
+              outcome,
+              title,
+            })
+          : line(cardsMessages.noticeDidNotFinish, { title }),
+      ];
     }
     case "computer_permission":
-      return { text: `${who} granted ${title}` };
+      return [line(cardsMessages.noticeGranted, { title, who })];
     case "profile_setup_apps":
     case "profile_setup_sources":
-      return {
-        text:
-          card.answer?.decision === "skipped"
-            ? `${who} skipped ${title}`
-            : `${who} completed ${title}`,
-      };
+      return [
+        card.answer?.decision === "skipped"
+          ? line(cardsMessages.noticeSkipped, { title, who })
+          : line(cardsMessages.noticeCompleted, { title, who }),
+      ];
     case "room_creation": {
       const room = card.room_creation;
       if (card.status === "succeeded" && room?.created_room_id) {
-        return {
-          text: `${who} created Room `,
-          link: { label: room.name, to: { room: room.created_room_id } },
-        };
+        return [
+          {
+            ...line(cardsMessages.noticeCreatedRoom, { room: room.name, who }),
+            link: { room: room.created_room_id },
+          },
+        ];
       }
       break;
     }
@@ -115,29 +188,42 @@ export function settledCardNotice(
 
   // Connector writes, Agent changes and Room creations TeamHub ran.
   if (card.status === "succeeded") {
-    return { text: `${who} approved ${title}` };
+    return [line(cardsMessages.noticeApproved, { title, who })];
   }
   if (card.status === "failed") {
-    return {
-      text: `${who} approved ${title}, but it failed${withOutcome}`,
-    };
+    return [
+      outcome
+        ? line(cardsMessages.noticeApprovedFailedWithOutcome, {
+            outcome,
+            title,
+            who,
+          })
+        : line(cardsMessages.noticeApprovedFailed, { title, who }),
+    ];
   }
   if (card.status === "unknown") {
-    return {
-      text: `${who} approved ${title}; the result is unknown${withOutcome}`,
-    };
+    return [
+      outcome
+        ? line(cardsMessages.noticeApprovedUnknownWithOutcome, {
+            outcome,
+            title,
+            who,
+          })
+        : line(cardsMessages.noticeApprovedUnknown, { title, who }),
+    ];
   }
-  return { text: `${title} ended` };
+  return [line(cardsMessages.noticeEnded, { title })];
 }
 
 function answerLabels(
   question: Question,
   value: string | string[] | undefined,
+  t: Translate,
 ): string {
   const chosen = Array.isArray(value) ? value : value ? [value] : [];
   return chosen
     .map(
       (id) => question.options?.find((option) => option.id === id)?.label ?? id,
     )
-    .join(", ");
+    .join(t(cardsMessages.listSeparator));
 }

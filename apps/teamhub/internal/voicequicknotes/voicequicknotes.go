@@ -15,8 +15,9 @@ import (
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/roomagent"
 )
 
-// Timeout bounds one model call; the recording and transcript are already
-// posted, and without notes they stay as they are.
+// Timeout bounds the model attempt once the Runtime starts it; waiting for a
+// place goes before chat. The recording and transcript are already posted,
+// and without notes they stay as they are.
 const Timeout = 20 * time.Second
 
 const (
@@ -51,8 +52,7 @@ type Writer interface {
 
 type modelWriter struct{ models *roomagent.ModelCallClient }
 
-// NewWriter writes on the owner's Agent Runtime with a call that never
-// queues.
+// NewWriter writes on the owner's Agent Runtime ahead of chat.
 func NewWriter(models *roomagent.ModelCallClient) Writer { return modelWriter{models: models} }
 
 func (w modelWriter) Write(ctx context.Context, owner roomagent.ModelCallOwner, captureID, transcript string) (Notes, error) {

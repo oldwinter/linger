@@ -395,6 +395,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v0/agent-runtime/runs/reply-status": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["getAgentLocalRunReplyStatus"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v0/agent-runtime/runs/waiting": {
     parameters: {
       query?: never;
@@ -1624,6 +1640,11 @@ export interface components {
       /** @description Optional stable classification for this individual validation issue. */
       code?: string;
       reason: string;
+      /**
+       * Format: int64
+       * @description With code too_large, the largest size the field accepts, in bytes.
+       */
+      limit_bytes?: number;
     };
     Error: {
       /** @example ROOM_NOT_FOUND */
@@ -1681,7 +1702,7 @@ export interface components {
     };
     RuntimePermissionAction: {
       /** @enum {string} */
-      runtime: "claude" | "codex";
+      runtime: "claude" | "codex" | "antigravity" | "pi";
       /** @enum {string} */
       surface:
         | "shell"
@@ -1844,7 +1865,7 @@ export interface components {
       | "max"
       | "ultra";
     /** @enum {string} */
-    LocalRuntimeType: "codex" | "claude" | "pi";
+    LocalRuntimeType: "codex" | "claude" | "pi" | "antigravity";
     AgentRuntimeSettingsSnapshot: {
       /** @constant */
       type: "local";
@@ -2082,6 +2103,10 @@ export interface components {
         [key: string]: unknown;
       };
     };
+    AgentLocalRunReplyStatus: {
+      /** @description Whether TeamHub persisted a visible reply from this Local Run: a conversation Message or decision card attributed to the Run, a queued presentation sequence attributed to the Run, or an unattributed conversation Message, presentation sequence, or emoji Reaction written by the Context's Agent in the Room or its Threads since the Run started. */
+      replied: boolean;
+    };
     AgentRuntimeWaitingContexts: {
       context_keys: components["schemas"]["AgentRuntimeContextKey"][];
     };
@@ -2142,7 +2167,7 @@ export interface components {
     AgentRuntimeSuccessResult: {
       success: boolean;
     };
-    /** @description Public classified failure; contains no native error text, paths, credentials, or task input. Each code is set where the failure is observed, from structured signals only. model_unavailable means the model service refused the selected model for the Runtime's account, so the Agent needs another model or another sign-in. model_not_offered means the Agent's Computer does not offer the selected model for its Runtime, or the model does not support the selected reasoning effort, so the Runtime could not start; the Agent needs a model and reasoning effort that Computer offers. context_too_long means the conversation no longer fits the model's context window. model_service_error means the model service reported a server-side error. timeout means the Runtime hit its local execution deadline. execution_outcome_unknown means a command was dispatched but no validated exit was observed before unexpected transport or Runtime failure. Intentional cancellation, authorization loss or unavailability, and normal retirement do not create this classification. Authorization loss or unavailability includes explicit revocation, authorization checks that fail or time out, and authorization expiry. This code does not currently cover unknown effects caused by control-plane disconnection. It remains a failed Run and must not be automatically replayed; verify its effects before starting another Run. reply_undelivered means a Room Run finished, but every message the Agent tried to post failed, so the Room received no reply from it. interrupted means the Run stopped before it finished for a reason other than a user cancellation, such as a restart or a Runner stopped on its Computer; part of its work may have taken effect and it is not replayed. computer_unavailable means the Agent's Computer could not run it: the Computer is unreachable, the Agent's Runner is stopped there, or the Runtime is not enabled. cleanup_unconfirmed means the Runtime process could not be confirmed stopped. response_too_large means the reply exceeded the Room's size limit. unclassified means no structured signal identified the cause. runtime_type is present when the failure belongs to a selected Runtime; it is absent for failures the Agent Service or TeamHub observes without one. */
+    /** @description Public classified failure; contains no native error text, paths, credentials, or task input. Each code is set where the failure is observed, from structured signals only. model_unavailable means the model service refused the selected model for the Runtime's account, so the Agent needs another model or another sign-in. model_not_offered means the Agent's Computer does not offer the selected model for its Runtime, or the model does not support the selected reasoning effort, so the Runtime could not start; the Agent needs a model and reasoning effort that Computer offers. context_too_long means the conversation no longer fits the model's context window. model_service_error means the model service reported a server-side error. timeout means the Runtime hit its local execution deadline. execution_outcome_unknown means a command was dispatched but no validated exit was observed before unexpected transport or Runtime failure. Intentional cancellation, authorization loss or unavailability, and normal retirement do not create this classification. Authorization loss or unavailability includes explicit revocation, authorization checks that fail or time out, and authorization expiry. This code does not currently cover unknown effects caused by control-plane disconnection. It remains a failed Run and must not be automatically replayed; verify its effects before starting another Run. reply_undelivered means a Room Run finished, but every message the Agent tried to post failed, so the Room received no reply from it. reply_not_sent means a Room Run finished without trying to post anything while a Human who mentioned the Agent waited for its reply; the Runtime ended the turn in text nobody sees, which is not posted for it. interrupted means the Run stopped before it finished for a reason other than a user cancellation, such as a restart or a Runner stopped on its Computer; part of its work may have taken effect and it is not replayed. computer_unavailable means the Agent's Computer could not run it: the Computer is unreachable, the Agent's Runner is stopped there, or the Runtime is not enabled. cleanup_unconfirmed means the Runtime process could not be confirmed stopped. response_too_large means the reply exceeded the Room's size limit. unclassified means no structured signal identified the cause. runtime_type is present when the failure belongs to a selected Runtime; it is absent for failures the Agent Service or TeamHub observes without one. */
     AgentRuntimeExecutionFailure: {
       /** @enum {string} */
       code:
@@ -2159,6 +2184,7 @@ export interface components {
         | "execution_failed"
         | "execution_outcome_unknown"
         | "reply_undelivered"
+        | "reply_not_sent"
         | "interrupted"
         | "computer_unavailable"
         | "cleanup_unconfirmed"
@@ -2278,9 +2304,18 @@ export interface components {
     ClearAgentRuntimeSessionResult: {
       cleared: boolean;
     };
+    AgentRunInputOrigin: {
+      notification: boolean;
+      task_inbox: boolean;
+      author_type: string;
+      message_kind: string;
+      fired_routine: boolean;
+    };
     AgentRuntimeWorkState: {
       has_queued_runs: boolean;
       has_pending_work: boolean;
+      /** @description Distinct scheduling metadata of the oldest claimable Run's initial inputs. */
+      next_run_origins?: components["schemas"]["AgentRunInputOrigin"][];
       /** @description Present on the work-state read. Steers a Message transaction queued for this Context that the Agent Service has not settled, in input order: a targeted Message for the running Run that reads its Inbox, or a native question's answer assigned to the Run that asked it. */
       message_steers?: components["schemas"]["StoredAgentRuntimeInput"][];
     };
@@ -2425,7 +2460,7 @@ export interface components {
       /** Format: date-time */
       last_seen_at?: string;
       capacity?: number;
-      runtimes: ("codex" | "claude" | "pi")[];
+      runtimes: ("codex" | "claude" | "pi" | "antigravity")[];
       runtime_diagnostics: {
         [key: string]: unknown;
       }[];
@@ -2456,7 +2491,7 @@ export interface components {
       /** @enum {string} */
       platform?: "darwin" | "linux" | "win32";
       capacity?: number;
-      runtimes: ("codex" | "claude" | "pi")[];
+      runtimes: ("codex" | "claude" | "pi" | "antigravity")[];
       runtime_diagnostics: {
         [key: string]: unknown;
       }[];
@@ -2492,7 +2527,7 @@ export interface components {
       status: "online" | "offline" | "upgrade_required";
       /** Format: date-time */
       seen_at: string;
-      runtimes?: ("codex" | "claude" | "pi")[];
+      runtimes?: ("codex" | "claude" | "pi" | "antigravity")[];
       runtime_diagnostics?: {
         [key: string]: unknown;
       }[];
@@ -2663,6 +2698,13 @@ export interface components {
       code: components["schemas"]["LocalModelErrorCode"];
       /** @description Diagnostic text for display; never matched on. */
       detail?: string;
+      /**
+       * @description Why a GATEWAY_REGISTRATION_FAILED happened, when the Computer supervised the failed job. GATEWAY_HOME_NOT_PRIVATE: the local gateway's private folder at path has another owner; closing Linger and renaming that folder lets the model load.
+       * @enum {string}
+       */
+      cause?: "GATEWAY_HOME_NOT_PRIVATE";
+      /** @description The folder the cause names, on the Computer. The public view carries it only for the Computer's owner. */
+      path?: string;
     };
     LocalModelNote: {
       /** @enum {string} */
@@ -2831,6 +2873,8 @@ export interface components {
       connected_apps: boolean;
       /** @description Sorted keys of the apps with an account granted to this Agent, such as gmail or google_calendar, so its instructions name only sources it can query. Empty without connected_apps. Agent Service requires this field, so TeamHub ships before Agent Service. */
       connected_app_keys: string[];
+      /** @description Sorted keys of every catalog app a Human can connect for Agents, such as linear, with or without a Composio key, so the Agent asks for authorization with teamhub apps connect instead of reaching the app another way. A fixed catalog, so the digest leaves it out; Agent Service renders it again on every Run. */
+      connectable_app_keys: string[];
       skills: components["schemas"]["AgentEffectiveSkill"][];
     };
     ProactiveWindowMessage: {
@@ -4192,6 +4236,33 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["AgentLocalRun"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      404: components["responses"]["NotFound"];
+      500: components["responses"]["InternalError"];
+    };
+  };
+  getAgentLocalRunReplyStatus: {
+    parameters: {
+      query: {
+        context_key: components["parameters"]["ContextKey"];
+        local_run_id: components["parameters"]["LocalRunId"];
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Whether TeamHub recorded a visible reply for the Local Run. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AgentLocalRunReplyStatus"];
         };
       };
       400: components["responses"]["BadRequest"];

@@ -8,7 +8,7 @@ import {
   saveRuntimeApiKey,
   type ApiKeyProvider,
 } from "@linger/local-installation/runtime-credentials";
-import { RuntimeLoginManager } from "./runtime-login.js";
+import { RuntimeLoginManager, type LoginMethod } from "./runtime-login.js";
 import { inspectSetup } from "@linger/local-installation/setup-plan";
 import {
   readSetupChoice,
@@ -50,6 +50,7 @@ export function coreAdapter(
         baseUrl?: string;
         model?: string;
       },
+      method?: LoginMethod,
     ) {
       const value = await instance(name);
       const runtime = await readSetupChoice({ name, home });
@@ -71,7 +72,7 @@ export function coreAdapter(
         );
       const input = { instance: name, home, root: value.root, runtime };
       return start && !credential
-        ? nativeLogin.start(input, code)
+        ? nativeLogin.start(input, code, method)
         : nativeLogin.status(input);
     },
     setup: () =>

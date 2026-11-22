@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	profileSetupGreeting      = "Hi alice, I'm your Another Me — think of me as another you in Linger."
+	profileSetupGreeting      = "Hi alice, I'm Linger — your personal AI."
 	profileSetupAppsPrompt    = "Before I help with replies and follow-ups, I'd like to get to know you. The quickest way is to let me see where you talk about work — one account is enough."
 	profileSetupSourcesPrompt = "Do you have a personal website or portfolio? Paste a link, or upload your resume and work samples."
 )

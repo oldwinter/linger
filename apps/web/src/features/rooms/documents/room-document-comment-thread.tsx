@@ -11,6 +11,9 @@ import { Button } from "@/components/ui/button";
 import { formatDateTime } from "@/lib/date-format";
 
 import type { TeamHubActorRef } from "@/features/teamhub/teamhub-types";
+import { useT } from "@/i18n/use-translation";
+
+import { documentCommentsMessages as m } from "./document-comments.messages";
 
 import { RoomDocumentCommentAgentReplying } from "./room-document-comment-agent-replying";
 import { RoomDocumentCommentReplyComposer } from "./room-document-comment-reply-composer";
@@ -41,6 +44,7 @@ export function RoomDocumentCommentThread({
   thread: ThreadData;
   threadStore: TeamHubDocumentThreadStore;
 }) {
+  const t = useT();
   const actors = useMemo(
     () => new Map(actorDirectory.map((actor) => [actor.id, actor])),
     [actorDirectory],
@@ -91,7 +95,7 @@ export function RoomDocumentCommentThread({
     // react-doctor-disable-next-line no-noninteractive-element-interactions
     // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- clicking the card selects its thread; the card controls stay keyboard accessible
     <article
-      aria-label={`Comment on ${referenceText}`}
+      aria-label={t(m.commentOn, { reference: referenceText })}
       className="room-document-comment-thread"
       data-anchor-pos={anchorPosition}
       data-comment-card={thread.id}
@@ -127,11 +131,11 @@ export function RoomDocumentCommentThread({
           className="room-document-comment-reference"
           onClick={onFocus}
           type="button"
-          title={orphaned ? "Deleted reference" : referenceText}
+          title={orphaned ? t(m.deletedReference) : referenceText}
           disabled={orphaned || selectionPending}
         >
           <Icon icon={QuoteDownIcon} size={14} />
-          <span>{orphaned ? "Deleted reference" : referenceText}</span>
+          <span>{orphaned ? t(m.deletedReference) : referenceText}</span>
         </button>
       </header>
 
@@ -154,9 +158,7 @@ export function RoomDocumentCommentThread({
       />
       {selectionPending && metadata?.attachmentError ? (
         <div className="mt-2" role="alert">
-          <p className="text-xs text-app-danger">
-            Comment saved, but it couldn't be linked to the selected text.
-          </p>
+          <p className="text-xs text-app-danger">{t(m.linkFailed)}</p>
           <Button
             className="mt-2"
             disabled={attachmentPending}
@@ -165,7 +167,7 @@ export function RoomDocumentCommentThread({
             tone="secondary"
           >
             <Icon icon={RotateLeft01Icon} size={14} />
-            {attachmentPending ? "Retrying..." : "Retry linking"}
+            {attachmentPending ? t(m.retrying) : t(m.retryLinking)}
           </Button>
         </div>
       ) : null}

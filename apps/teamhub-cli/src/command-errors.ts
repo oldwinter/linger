@@ -1,6 +1,6 @@
 import type { CommandTarget } from "./command-definition.js";
 import { CliError } from "./errors.js";
-import { displayText } from "./display-text.js";
+import { accountIdentityText, displayText } from "./display-text.js";
 
 export interface CommandError {
   code: string;
@@ -12,11 +12,11 @@ export interface CommandError {
 const singleLine = (value: string) => value.replace(/\p{Cc}/gu, " ");
 const templates: Record<string, string> = {
   authorization_required:
-    "Complete the account authorization card in the chat, then run this command again.",
+    "Waiting for the user to authorize the account; an authorization card is in the chat. End your turn: the card's result wakes you, then run this command again. If the user declines, don't retry.",
   provider_key_required:
     "The user has not set up Composio, which every connected app needs. A card asking them to add a Composio API key was posted in this chat; run this command again after they add it.",
   account_ambiguous:
-    "Multiple accounts match. Select a connection ID with --account.",
+    "The requested account is unavailable or more than one account matches. If one of the candidates is the account you meant, run again with --account set to its connection ID; otherwise pass the account's label (for example its email address) with --account to ask the user to authorize it.",
   capability_unavailable:
     "This command's exact application capability is unavailable.",
   cursor_mismatch: "Use the returned cursor with the same account and filters.",
@@ -89,6 +89,11 @@ export function formatCommandError(
       "candidates",
       "draft_id",
       "partial_receipts",
+      "backend",
+      "origin",
+      "reason",
+      "ready_backends",
+      "retry_after_seconds",
     ]
       .filter((name) => Object.hasOwn(error.details, name))
       .map((name) => [name, error.details[name]]),
@@ -133,6 +138,10 @@ export function renderCommandError(error: CommandError): string {
     typeof error.details?.draft_id === "string"
       ? `Draft: ${singleLine(error.details.draft_id)}`
       : undefined,
+    Array.isArray(error.details?.ready_backends) &&
+    error.details.ready_backends.length
+      ? `Ready backends: ${error.details.ready_backends.map((item) => singleLine(displayText(item))).join(", ")}`
+      : "",
     ...(Array.isArray(error.details?.partial_receipts)
       ? error.details.partial_receipts
       : []
@@ -152,7 +161,7 @@ export function renderCommandError(error: CommandError): string {
       : []
     ).map(
       (item: Record<string, unknown>) =>
-        `Account: ${singleLine(displayText(item.connection_id ?? ""))}  ${singleLine(displayText(item.identity_label ?? ""))}`,
+        `Account: ${singleLine(displayText(item.connection_id ?? ""))}  ${singleLine(accountIdentityText(item.app_key, item.identity_label))}`,
     ),
     ...(Array.isArray(error.details?.issues) ? error.details.issues : []).map(
       (issue: Record<string, unknown>) =>
@@ -179,6 +188,7 @@ export function errorExitCode(failure: CliError): number {
         unsupported_combination: 2,
         authorization_required: 4,
         provider_key_required: 4,
+        search_key_requested: 4,
         unauthenticated: 4,
         conflict: 3,
         ambiguous_name: 2,

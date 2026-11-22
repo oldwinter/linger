@@ -41,63 +41,32 @@
   }
 }
 
-/* The page window: a Town large popover (16px card, shadow-xl) whose title
-   bar shows above it on hover. */
+/* The recording toolbar sits below the browser frame in PiP and forms
+   the top of the recording card in the page. */
 .window {
   box-shadow: var(--town-shadow-xl);
 }
 
 .titleBar {
-  position: absolute;
-  top: -36px;
-  right: 0;
-  left: 0;
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   gap: 4px;
   height: 36px;
   padding: 0 8px;
-  border-radius: 16px 16px 0 0;
-  background: var(--app-canvas);
-  box-shadow: var(--town-shadow-outline);
-  clip-path: inset(-1px -1px 0 -1px);
-  cursor: grab;
-  opacity: 0;
-  pointer-events: none;
-  transform: scaleY(0);
-  transform-origin: bottom center;
-  transition:
-    opacity 150ms cubic-bezier(0.4, 0, 0.2, 1),
-    transform 150ms cubic-bezier(0.4, 0, 0.2, 1);
   user-select: none;
 }
 
-.titleBar:active {
+.titleBar:global(.voice-window-title) {
+  cursor: grab;
+}
+
+.titleBar:global(.voice-window-title):active {
   cursor: grabbing;
 }
 
-:global(.recording-window-frame):hover .titleBar,
-:global(.recording-window-frame):focus-within .titleBar {
-  opacity: 1;
-  pointer-events: auto;
-  transform: scaleY(1);
-}
-
-:global(.recording-window-frame):is(:hover, :focus-within) > section {
-  border-top-left-radius: 0;
-  border-top-right-radius: 0;
-}
-
-/* The picture-in-picture window docks the title bar above the window instead of floating it. */
-.titleBarDocked {
-  position: static;
-  border-radius: 0;
-  box-shadow: none;
-  clip-path: none;
-  cursor: default;
-  opacity: 1;
-  pointer-events: auto;
-  transform: none;
+.titleBar:global(.voice-window-title) .windowButton:not(:hover) {
+  color: inherit;
 }
 
 /* Town ghost icon button: 28px, muted icon, Accent fill on hover. */

@@ -1,17 +1,18 @@
 import { useEffect, useState } from "react";
 
-import { figureKey } from "@/features/rooms/members/agent-avatar";
 import { AgentAvatarPortrait } from "@/features/rooms/members/agent-avatar-portrait";
+import { useT } from "@/i18n/use-translation";
 
-/** What Another Me says first, one nudge at a time, across a working day. */
+import { authMessages as m } from "./auth.messages";
+
+/** What Linger says first, one nudge at a time, across a working day. */
 const NUDGES = [
-  { time: "9:00 AM", text: "Demo is tomorrow. I drafted the brief." },
-  { time: "1:30 PM", text: "Codex reviewed the code. Two notes." },
-  { time: "5:00 PM", text: "Before you go: the deck is ready." },
+  { key: "morning", time: m.nudgeMorningTime, text: m.nudgeMorning },
+  { key: "midday", time: m.nudgeMiddayTime, text: m.nudgeMidday },
+  { key: "evening", time: m.nudgeEveningTime, text: m.nudgeEvening },
 ] as const;
 
-// A white fox on the seam's apricot, so the figure stands out from its tile.
-const ANOTHER_ME = figureKey("arctic_fox", "#F2A15F");
+const LINGER_AVATAR = "figure:red_panda:79524A";
 // The first nudge waits for the headline and the timeline to settle.
 const FIRST_NUDGE_MS = 3_000;
 const NUDGE_EVERY_MS = 4_000;
@@ -22,7 +23,7 @@ const AWAKE_MS = 1_000;
 type MomentState = "later" | "now" | "past";
 
 /**
- * The login page's picture: Another Me's working day, a personal AI on your
+ * The login page's picture: Linger's working day, a personal AI on your
  * own computer reaching out before it is asked, one nudge lighting up at a
  * time. It is decorative; the login shell hides it from assistive technology.
  */
@@ -30,6 +31,7 @@ export function AuthIllustration() {
   // Reduced motion keeps the first nudge lit and never starts the loop.
   const [landed, setLanded] = useState(() => (prefersReducedMotion() ? 1 : 0));
   const [awake, setAwake] = useState(false);
+  const t = useT();
 
   useEffect(() => {
     if (prefersReducedMotion()) return;
@@ -58,19 +60,16 @@ export function AuthIllustration() {
     <div className="auth-art">
       <div className="auth-art-copy">
         <h2 className="auth-art-title">
-          <span>Your personal AI.</span>
-          <span>A step ahead.</span>
+          <span>{t(m.artTitleFirst)}</span>
+          <span>{t(m.artTitleSecond)}</span>
         </h2>
-        <p className="auth-art-lede">
-          Another Me runs on your own computer, keeps track of your work, and
-          reaches out before anything slips.
-        </p>
+        <p className="auth-art-lede">{t(m.artLede)}</p>
       </div>
 
       <div className="auth-art-day">
         <div className="auth-art-day-head">
           <span className="auth-art-avatar">
-            <AgentAvatarPortrait animate={awake} avatarKey={ANOTHER_ME} />
+            <AgentAvatarPortrait animate={awake} avatarKey={LINGER_AVATAR} />
             {/* Keyed by the landing so the badge pops again for each nudge. */}
             {current === null ? null : (
               <span className="auth-art-badge town-pill-pop" key={landed}>
@@ -78,17 +77,17 @@ export function AuthIllustration() {
               </span>
             )}
           </span>
-          <span className="auth-art-day-name">Another Me</span>
+          <span className="auth-art-day-name">Linger</span>
         </div>
         <ol className="auth-art-timeline">
           {NUDGES.map((nudge, index) => (
             <li
               className="auth-art-moment"
               data-state={momentState(index, current)}
-              key={nudge.time}
+              key={nudge.key}
             >
-              <span className="auth-art-moment-time">{nudge.time}</span>
-              <span className="auth-art-moment-text">{nudge.text}</span>
+              <span className="auth-art-moment-time">{t(nudge.time)}</span>
+              <span className="auth-art-moment-text">{t(nudge.text)}</span>
             </li>
           ))}
         </ol>

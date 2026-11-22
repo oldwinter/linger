@@ -1,15 +1,23 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 
+import { localComputersQueryKey } from "@/features/local-computer/local-computer-queries";
 import type {
   TeamHubLocalComputerPage,
   TeamHubTenantAgent,
 } from "@/features/teamhub/teamhub-types";
 
 import { OFFLINE_COMPUTER_HINT } from "./agent-move-target";
+import { agentRuntimeMessages } from "./agent-runtime.messages";
 import {
-  agentMoveHint,
   type AgentRuntimeField,
   EditAgentRuntimeDialog,
   type AgentRuntimeUpdateInput,
@@ -151,6 +159,99 @@ describe("EditAgentRuntimeDialog", () => {
     },
   );
 
+  it("names a missing runtime and gives its install command", async () => {
+    const computer = localComputer("computer-old", "Old Mac", "online", {
+      platform: "darwin",
+    });
+    computer.runtimes = [
+      ...computer.runtimes,
+      {
+        error_code: "RUNTIME_NOT_INSTALLED",
+        message: "Runtime executable not found",
+        models: [],
+        status: "not_installed",
+        type: "pi",
+      },
+    ];
+    renderDialog({ computersOverride: { items: [computer] }, onSave: vi.fn() });
+    const runtime = await screen.findByRole("combobox", {
+      name: "Agent runtime",
+    });
+    fireEvent.click(runtime);
+    fireEvent.click(
+      await screen.findByRole("option", { name: "Pi · Not installed" }),
+    );
+    expect(
+      screen.getByText("npm install -g @earendil-works/pi-coding-agent"),
+    ).toBeVisible();
+    expect(
+      screen.queryByText("Runtime executable not found"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save Runtime" })).toBeDisabled();
+  });
+
+  it("picks a model once the chosen runtime turns ready while open", async () => {
+    const onSave = vi.fn<(input: AgentRuntimeUpdateInput) => void>();
+    const computer = localComputer("computer-old", "Old Mac", "online");
+    // A signed-out runtime reports no models until it is ready.
+    const claudeModels = computer.runtimes[0]!.models;
+    computer.runtimes[0] = { ...computer.runtimes[0]!, models: [] };
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    renderDialog({
+      computersOverride: { items: [computer] },
+      onSave,
+      queryClient,
+    });
+    const runtime = await screen.findByRole("combobox", {
+      name: "Agent runtime",
+    });
+    fireEvent.click(runtime);
+    fireEvent.click(
+      await screen.findByRole("option", {
+        name: "Claude Code · Sign-in required",
+      }),
+    );
+    expect(screen.getByRole("button", { name: "Save Runtime" })).toBeDisabled();
+
+    await act(async () => {
+      queryClient.setQueryData(localComputersQueryKey("tenant-northstar"), {
+        items: [
+          {
+            ...computer,
+            runtimes: computer.runtimes.map((item) =>
+              item.type === "claude"
+                ? {
+                    models: claudeModels,
+                    status: "ready" as const,
+                    type: item.type,
+                  }
+                : item,
+            ),
+          },
+        ],
+      });
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByRole("combobox", { name: "Agent model" }),
+      ).toHaveTextContent("Claude default"),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Save Runtime" }));
+    expect(onSave).toHaveBeenCalledWith({
+      runtime: {
+        model: "claude-default",
+        placement: {
+          computer_id: "computer-old",
+          runtime_type: "claude",
+          type: "local",
+          workspace_grant_id: "grant-workspace",
+        },
+      },
+    });
+  });
+
   it("blocks an unauthenticated target and allows choosing a ready runtime again", async () => {
     const onSave = vi.fn();
     renderDialog({ onSave });
@@ -160,9 +261,12 @@ describe("EditAgentRuntimeDialog", () => {
     await waitFor(() => expect(runtime).toHaveTextContent("Codex"));
     fireEvent.click(runtime);
     fireEvent.click(
-      await screen.findByRole("option", { name: "Claude Code · Unavailable" }),
+      await screen.findByRole("option", {
+        name: "Claude Code · Sign-in required",
+      }),
     );
-    expect(screen.getByText("Claude authentication is required")).toBeVisible();
+    expect(screen.getByText("Claude Code sign-in required")).toBeVisible();
+    expect(screen.getByText("claude auth login")).toBeVisible();
     expect(screen.getByRole("button", { name: "Save Runtime" })).toBeDisabled();
     fireEvent.click(runtime);
     fireEvent.click(await screen.findByRole("option", { name: "Codex" }));
@@ -212,7 +316,7 @@ describe("EditAgentRuntimeDialog", () => {
       name: "Agent computer",
     });
     await waitFor(() => expect(computer).toHaveTextContent("Old Mac · Online"));
-    expect(screen.queryByText(agentMoveHint)).toBeNull();
+    expect(screen.queryByText(agentRuntimeMessages.moveHint.source)).toBeNull();
     fireEvent.click(computer);
     fireEvent.click(
       await screen.findByRole("option", { name: "New Mac · Online" }),
@@ -226,7 +330,9 @@ describe("EditAgentRuntimeDialog", () => {
     expect(
       screen.getByRole("combobox", { name: "Agent reasoning effort" }),
     ).toHaveTextContent("High");
-    expect(screen.getByText(agentMoveHint)).toBeVisible();
+    expect(
+      screen.getByText(agentRuntimeMessages.moveHint.source),
+    ).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Move Agent" }));
     expect(onSave).toHaveBeenCalledWith({
       runtime: {
@@ -414,15 +520,168 @@ describe("EditAgentRuntimeDialog", () => {
     expect(screen.getByRole("button", { name: "Move Agent" })).toBeDisabled();
     expect(onSave).not.toHaveBeenCalled();
   });
+
+  it("links Pi runtime settings to Local models when ready with models", async () => {
+    const onClose = vi.fn();
+    const computer = localComputer("computer-old", "Old Mac", "online");
+    computer.runtimes = [
+      ...computer.runtimes,
+      {
+        models: [
+          {
+            id: "localmodels-library/qwen3-coder-30b",
+            label: "Qwen3 Coder 30B",
+          },
+        ],
+        status: "ready",
+        type: "pi",
+      },
+    ];
+    renderDialog({
+      computersOverride: { items: [computer] },
+      onClose,
+      onSave: vi.fn(),
+    });
+    const runtime = await screen.findByRole("combobox", {
+      name: "Agent runtime",
+    });
+    fireEvent.click(runtime);
+    fireEvent.click(await screen.findByRole("option", { name: "Pi" }));
+
+    const link = await screen.findByRole("link", { name: "Settings › Models" });
+    expect(link).toHaveAttribute(
+      "href",
+      "/t/tenant-northstar/settings/models?computer=computer-old",
+    );
+    expect(link.closest("p")).toHaveTextContent(
+      "Manage downloaded models in Settings › Models.",
+    );
+    fireEvent.click(link);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["ready-empty", "not-installed"] as const)(
+    "guides Pi setup in Local models when %s",
+    async (mode) => {
+      const onClose = vi.fn();
+      const computer = localComputer("computer-old", "Old Mac", "online");
+      computer.runtimes = [
+        ...computer.runtimes,
+        mode === "ready-empty"
+          ? {
+              models: [],
+              status: "ready",
+              type: "pi",
+            }
+          : {
+              message: "Install Pi on this computer.",
+              models: [],
+              status: "not_installed",
+              type: "pi",
+            },
+      ];
+      renderDialog({
+        computersOverride: { items: [computer] },
+        onClose,
+        onSave: vi.fn(),
+      });
+      const runtime = await screen.findByRole("combobox", {
+        name: "Agent runtime",
+      });
+      fireEvent.click(runtime);
+      fireEvent.click(
+        await screen.findByRole("option", {
+          name: mode === "ready-empty" ? "Pi" : "Pi · Not installed",
+        }),
+      );
+
+      const link = await screen.findByRole("link", {
+        name: "Settings › Models",
+      });
+      expect(link).toHaveAttribute(
+        "href",
+        "/t/tenant-northstar/settings/models?computer=computer-old",
+      );
+      expect(link.closest("p")).toHaveTextContent(
+        "Download and load a local model in Settings › Models to run Agents with Pi on this computer.",
+      );
+      fireEvent.click(link);
+      expect(onClose).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("resolves an unloaded local model name in the unavailable Model option", async () => {
+    const computer = localComputer("computer-old", "Old Mac", "online");
+    computer.runtimes = [
+      ...computer.runtimes,
+      { models: [], status: "ready", type: "pi" },
+    ];
+    const registration = localCodexAgent();
+    registration.runtime = {
+      model: "localmodels-library/qwen3-coder-30b",
+      placement: {
+        computer_id: "computer-old",
+        runtime_type: "pi",
+        type: "local",
+        workspace_grant_id: "grant-workspace",
+      },
+    };
+    const api = {
+      GET: vi.fn().mockResolvedValue({
+        data: {
+          available: true,
+          computer: {
+            computer_id: "computer-old",
+            display_name: "Old Mac",
+            status: "online",
+          },
+          models: [
+            {
+              model: {
+                id: "qwen3-coder-30b:Q4_K_M",
+                name: "Qwen3 Coder 30B",
+                pi_model: "localmodels-library/qwen3-coder-30b",
+                state: "idle",
+              },
+              used_by: [],
+            },
+          ],
+          pools: [],
+          viewer_is_owner: true,
+        },
+        response: new Response(null, { status: 200 }),
+      }),
+    };
+    renderDialog({
+      api,
+      computersOverride: { items: [computer] },
+      onSave: vi.fn(),
+      registration,
+    });
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("combobox", { name: "Agent model" }),
+      ).toHaveTextContent("Qwen3 Coder 30B · Unavailable"),
+    );
+  });
 });
 
 function renderDialog({
+  api,
   field = "runtime",
+  onClose = vi.fn(),
   onSave,
   registration = localCodexAgent(),
   computersOverride,
+  queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  }),
 }: {
+  api?: { GET: ReturnType<typeof vi.fn> };
+  queryClient?: QueryClient;
   field?: AgentRuntimeField;
+  onClose?: () => void;
   onSave: (input: AgentRuntimeUpdateInput) => void;
   registration?: TeamHubTenantAgent;
   computersOverride?: TeamHubLocalComputerPage;
@@ -434,25 +693,24 @@ function renderDialog({
     ],
   };
   const client = {
+    ...(api ? { api: api as never } : {}),
     listTenantLocalComputers: vi.fn().mockResolvedValue(computers),
   };
 
   render(
-    <QueryClientProvider
-      client={
-        new QueryClient({ defaultOptions: { queries: { retry: false } } })
-      }
-    >
-      <EditAgentRuntimeDialog
-        field={field}
-        client={client}
-        isPending={false}
-        onClose={vi.fn()}
-        onSave={onSave}
-        registration={registration}
-        tenantId="tenant-northstar"
-      />
-    </QueryClientProvider>,
+    <MemoryRouter>
+      <QueryClientProvider client={queryClient}>
+        <EditAgentRuntimeDialog
+          field={field}
+          client={client}
+          isPending={false}
+          onClose={onClose}
+          onSave={onSave}
+          registration={registration}
+          tenantId="tenant-northstar"
+        />
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
 }
 

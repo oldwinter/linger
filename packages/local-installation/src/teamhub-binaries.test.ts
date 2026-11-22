@@ -74,6 +74,30 @@ test("copies the binaries of its own source package into the source", async () =
   ).toBe("absent");
 });
 
+test.each(["missing", "truncated", "same-sized change"])(
+  "repairs a %s installed binary even when its manifest is current",
+  async (damage) => {
+    const f = await bundle();
+    const expected = { target, sourceArchiveSha256 };
+    await installTeamhubBinaries(f.from, f.repo, expected);
+    const file = path.join(f.repo, TEAMHUB_BINARY_DIRECTORY, "teamhub.exe");
+    if (damage === "missing") await rm(file);
+    else
+      await writeFile(
+        file,
+        damage === "truncated" ? "teamhub" : "teamhub for windowz",
+      );
+    expect(await installTeamhubBinaries(f.from, f.repo, expected)).toBe(
+      "installed",
+    );
+    expect(await readFile(file, "utf8")).toBe("teamhub for windows");
+    expect(await checkTeamhubBinaries(f.repo, target)).toBe("verified");
+    expect(await installTeamhubBinaries(f.from, f.repo, expected)).toBe(
+      "current",
+    );
+  },
+);
+
 test("refuses binaries of another target or source package", async () => {
   const f = await bundle();
   await expect(

@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
+import { useT } from "@/i18n/use-translation";
+
 import {
   clampPanelSidebarWidth,
   PANEL_SIDEBAR_DEFAULT_WIDTH,
@@ -7,6 +9,7 @@ import {
   PANEL_SIDEBAR_MIN_WIDTH,
   writePanelSidebarWidth,
 } from "./panel-width";
+import { sidePanelMessages as m } from "./side-panel.messages";
 
 export function PanelResizeHandle({
   accountId,
@@ -19,6 +22,7 @@ export function PanelResizeHandle({
   onWidthChange: (width: number) => void;
   width: number;
 }) {
+  const t = useT();
   const dragRef = useRef<{ originX: number; originWidth: number } | null>(null);
   const widthRef = useRef(width);
   const onWidthChangeRef = useRef(onWidthChange);
@@ -78,12 +82,13 @@ export function PanelResizeHandle({
   return (
     // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- pointer dragging for the resize separator; keyboard input is handled by onKeyDown
     <div
-      aria-label="Resize sidebar"
+      aria-label={t(m.resizeSidebar)}
       aria-orientation="vertical"
       aria-valuemax={panelSidebarMaxWidth()}
       aria-valuemin={PANEL_SIDEBAR_MIN_WIDTH}
       aria-valuenow={width}
       className="group absolute inset-y-0 left-0 z-20 w-3 -translate-x-1/2 cursor-col-resize touch-none"
+      data-panel-resize-handle=""
       onDoubleClick={() => {
         const next = writePanelSidebarWidth(
           PANEL_SIDEBAR_DEFAULT_WIDTH,
@@ -121,7 +126,7 @@ export function PanelResizeHandle({
       role="separator"
       // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- keyboard-operable resize separator
       tabIndex={0}
-      title="Drag to resize"
+      title={t(m.dragToResize)}
     >
       <span
         aria-hidden="true"

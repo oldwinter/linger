@@ -10,6 +10,7 @@ import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { useTaskActivities } from "@/features/work-items/use-task-activities";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubRunStatus } from "@/features/teamhub/teamhub-types";
+import { useT } from "@/i18n/use-translation";
 
 import { CancelTaskButton } from "../../chat/cancel-task-button";
 import { useCancelRoomBackgroundTask } from "../../chat/use-room-background-tasks";
@@ -28,6 +29,8 @@ import {
 import { useTaskActivityEvents } from "../../runtime-status/use-task-activity-events";
 import { PanelLoading } from "../panel-loading";
 import { RunningDots } from "../running-dots";
+import { sidePanelMessages } from "../side-panel.messages";
+import { activityPanelMessages as m } from "./activity-panel.messages";
 import { RuntimeTrajectoryView } from "./runtime-trajectory-view";
 import { TaskInputBubble } from "./task-input-bubble";
 
@@ -82,6 +85,7 @@ export function TaskConversationDialog({
   tenantId: string;
   title: string;
 }) {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const cancel = useCancelRoomBackgroundTask({
     client,
@@ -154,12 +158,12 @@ export function TaskConversationDialog({
       }
     >
       <div
-        aria-label="Task conversation"
+        aria-label={t(m.taskConversation)}
         className="flex min-h-64 flex-col gap-3 px-5 py-4 text-[15px] leading-[22px]"
         role="log"
       >
         {conversation.isPending || data.activities.isPending ? (
-          <PanelLoading label="Loading task" />
+          <PanelLoading label={t(sidePanelMessages.loadingTask)} />
         ) : (
           entries.map((entry) =>
             entry.kind === "input" ? (
@@ -216,6 +220,7 @@ function TaskConversationRun({
   stopped: boolean;
   tenantId: string;
 }) {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const active = runStatus.status === "active" && !stopped;
   // Native history is read from the Runtime's session file on the Computer,
@@ -273,9 +278,9 @@ function TaskConversationRun({
           {runStatus.agent.display_name}
           {active && !paused ? (
             <span className="flex items-center gap-1.5 text-xs text-app-muted">
-              Working
+              {t(m.runWorking)}
               <span
-                aria-label="Agent working"
+                aria-label={t(m.agentWorking)}
                 className="flex h-3.5 items-center text-app-info"
                 role="img"
               >
@@ -304,7 +309,7 @@ function TaskConversationRun({
             />
           </div>
         ) : (
-          <PanelLoading label="Loading activity" />
+          <PanelLoading label={t(sidePanelMessages.loadingActivity)} />
         )}
       </div>
     </div>

@@ -29,6 +29,15 @@ or a sources list yourself. The application renders the correct dates, labels an
 links. Preserve original occurrence dates in prose when an event is merely
 mentioned again this week.
 
+## Language
+
+Write `description`, every item and `work_intensity` in the main language of
+the current-week Daily items, giving most weight to the represented Human's own
+quoted words. The Dailies' fixed English headings and empty-section lines, the
+previous Weekly and the language of this prompt do not decide it. Keep JSON
+keys, `source_ref` values, citations, names, identifiers and quoted words
+exactly as given.
+
 ## Current-week work and status
 
 Group meaningful outcomes and work by topic, without replaying each day. Preserve

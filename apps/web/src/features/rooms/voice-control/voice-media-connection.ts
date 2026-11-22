@@ -14,6 +14,8 @@ import {
   retryOnVoiceMediaAbort,
   voiceMicrophoneConstraints,
 } from "./microphone-devices";
+import { translate } from "@/i18n/language";
+import { recordingMessages as m } from "./recording.messages";
 
 /**
  * The LiveKit steps the recording window and Voice Mode share. Each caller
@@ -155,7 +157,7 @@ export async function bounded<T>(
       operation,
       new Promise<never>((_, reject) => {
         timer = setTimeout(
-          () => reject(new Error("Voice request timed out.")),
+          () => reject(new Error(translate(m.requestTimedOut))),
           milliseconds,
         );
         abort = () =>

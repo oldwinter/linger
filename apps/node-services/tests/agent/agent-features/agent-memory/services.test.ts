@@ -16,7 +16,6 @@ const fixture = (
   overrides: Partial<AgentMemoryServicesOptions> = {},
 ): AgentMemoryServicesOptions => ({
   memory: { read: vi.fn(), commit: vi.fn() },
-  contextHost: { ensureAgentRoots: vi.fn() },
   runtimeState: {
     listContexts: async () => [],
     getWorkState: vi.fn(),

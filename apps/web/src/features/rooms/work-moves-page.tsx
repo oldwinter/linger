@@ -1,7 +1,12 @@
+import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
 import { useQuery } from "@tanstack/react-query";
+import { useId } from "react";
 import { Link, useParams } from "react-router";
 
+import { Button } from "@/components/ui/button";
+import { Icon } from "@/components/ui/icon";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { useT } from "@/i18n/use-translation";
 import { requireRoomRouteParam } from "./room-route-params";
 import { roomTeamMdQueryOptions } from "./task-sidebar/team-md-query";
 import {
@@ -16,20 +21,36 @@ import {
  * refreshes, so a new protocol replaces this page while it is open.
  */
 export function WorkMovesPage() {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const params = useParams();
   const tenantId = requireRoomRouteParam(params.tenantId, "Tenant");
   const roomId = requireRoomRouteParam(params.roomId, "Room");
+  const headingId = useId();
   const protocol = useQuery(roomTeamMdQueryOptions(client, tenantId, roomId));
   const document = protocol.data;
   const steps = document ? workMoves(document) : [];
   const chat = `/t/${encodeURIComponent(tenantId)}/rooms/${encodeURIComponent(roomId)}/chat`;
 
   return (
-    <main className="min-h-0 flex-1 overflow-y-auto bg-app-surface px-5 py-7">
+    <section
+      aria-labelledby={headingId}
+      className="min-h-0 flex-1 overflow-y-auto bg-app-surface px-5 py-7"
+    >
       <div className="mx-auto flex w-full max-w-xl flex-col gap-6">
+        <div>
+          <Link
+            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            to={chat}
+          >
+            <Icon icon={ArrowLeft01Icon} size={14} />
+            Back to room
+          </Link>
+        </div>
         <header>
-          <h1 className="text-xl text-foreground">How work moves</h1>
+          <h2 className="text-xl text-foreground" id={headingId}>
+            How work moves
+          </h2>
           <p className="mt-2 text-sm text-muted-foreground">
             The path an agent published for this room. A newer team.md replaces
             it here.
@@ -40,9 +61,19 @@ export function WorkMovesPage() {
             Loading how work moves.
           </p>
         ) : protocol.isError ? (
-          <p className="text-sm text-destructive" role="alert">
-            How work moves could not be loaded.
-          </p>
+          <div className="flex items-center justify-between gap-3" role="alert">
+            <p className="text-sm text-destructive">
+              How work moves could not be loaded.
+            </p>
+            <Button
+              onClick={() => void protocol.refetch()}
+              size="compact"
+              tone="secondary"
+              type="button"
+            >
+              Retry
+            </Button>
+          </div>
         ) : !document ? (
           <p className="text-sm text-muted-foreground" role="status">
             No collaboration plan yet. When an agent publishes one, the path
@@ -51,9 +82,9 @@ export function WorkMovesPage() {
         ) : (
           <>
             <section aria-labelledby="work-moves-pattern">
-              <h2 className="text-lg text-foreground" id="work-moves-pattern">
-                {patternTitle(document.collaborate_pattern)}
-              </h2>
+              <h3 className="text-lg text-foreground" id="work-moves-pattern">
+                {t(patternTitle(document.collaborate_pattern))}
+              </h3>
               <p className="mt-2 text-sm text-foreground">
                 {patternAccounts[document.collaborate_pattern]}
               </p>
@@ -80,13 +111,7 @@ export function WorkMovesPage() {
             </ol>
           </>
         )}
-        <Link
-          className="text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          to={chat}
-        >
-          Back to chat
-        </Link>
       </div>
-    </main>
+    </section>
   );
 }

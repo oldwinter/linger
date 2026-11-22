@@ -125,12 +125,15 @@ func (f *piResidentFakeState) handle(id, kind, message string) int {
 	return -1
 }
 
+// piSettleLaterDelay is how long a "settle_later" turn runs before it settles.
+const piSettleLaterDelay = 200 * time.Millisecond
+
 func (f *piResidentFakeState) act(message string) {
 	switch message {
 	case "hold":
 	case "settle_later":
 		go func() {
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(piSettleLaterDelay)
 			f.finish()
 		}()
 	case "fail":

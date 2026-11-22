@@ -17,6 +17,7 @@ import {
   Suspense,
   type ReactNode,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -24,6 +25,7 @@ import { Link, useNavigate } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { Spinner } from "@/components/ui/spinner";
 import { jumpPath } from "@/features/jump/jump-path";
 import { jumpShortcutLabel } from "@/features/jump/jump-shortcut";
 import { searchShortcutLabel } from "@/features/search/search-shortcut";
@@ -33,13 +35,20 @@ import { markdownPlainText } from "@/features/teamhub/markdown-plain-text";
 import { myRulesQueryOptions } from "@/features/settings/my-rules-queries";
 import { teamHubIdentityQueryOptions } from "./room-queries";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { useT } from "@/i18n/use-translation";
 import { cn } from "@/lib/cn";
 
 import { latestShadowLine } from "./shadow-line";
 
 import { AgentCreateMenu } from "./agent-create-menu";
-import { AwayRecapCard } from "./away-recap-card";
-import { beginCatchUp } from "./catch-up";
+import {
+  awayRecap,
+  awayRecapVisible,
+  readAwayRecapDismissal,
+  writeAwayRecapDismissal,
+} from "./away-recap";
+import { AwayRecapCard, type AwayRecapCatchUp } from "./away-recap-card";
+import { beginCatchUp, readCatchUpWalk } from "./catch-up";
 import type {
   TeamHubRoomListItem,
   TeamHubTenant,
@@ -69,6 +78,7 @@ import {
   type RunYouStarted,
 } from "./working-now";
 import { RecordingEntry } from "./voice-control/recording-entry";
+import { roomListMessages } from "./room-list.messages";
 import { useNavReorderFlip } from "./use-nav-reorder-flip";
 import {
   useWorkingClock,
@@ -199,6 +209,10 @@ export function RoomSecondaryNavigation({
 }) {
   usePrefetchTemplateFlow();
   const { client } = useTeamHubRuntime();
+  const t = useT();
+  const searchTitle = t(roomListMessages.searchShortcut, {
+    shortcut: searchShortcutLabel(),
+  });
   const rules = useQuery({
     ...myRulesQueryOptions(client, tenant.id),
     enabled: Boolean(anotherMeRoomId) && typeof client.api?.GET === "function",
@@ -261,6 +275,47 @@ export function RoomSecondaryNavigation({
   const durationFor = (roomId: string) =>
     workingDuration(workingClock.since[roomId], workingClock.now);
   const catchUpCount = beginCatchUp(rooms).rooms.length;
+  const storedCatchUp = accountId
+    ? readCatchUpWalk(accountId, tenant.id)
+    : undefined;
+  const remainingCatchUpCount =
+    storedCatchUp && storedCatchUp.index < storedCatchUp.rooms.length
+      ? storedCatchUp.rooms.length - storedCatchUp.index
+      : 0;
+  const recap = useMemo(
+    () => awayRecap(rooms, activeRoomId),
+    [activeRoomId, rooms],
+  );
+  const recapScopeKey = `${accountId}:${tenant.id}`;
+  const [recapDismissal, setRecapDismissal] = useState<{
+    at: string | null;
+    scopeKey: string;
+  }>(() => ({
+    at: readAwayRecapDismissal(accountId, tenant.id),
+    scopeKey: recapScopeKey,
+  }));
+  const awayRecapDismissedAt =
+    recapDismissal.scopeKey === recapScopeKey
+      ? recapDismissal.at
+      : readAwayRecapDismissal(accountId, tenant.id);
+  const showingAwayRecap =
+    !navigationStatus && awayRecapVisible(recap, awayRecapDismissedAt);
+  function dismissAwayRecap(cutoff: string) {
+    writeAwayRecapDismissal(accountId, tenant.id, cutoff);
+    setRecapDismissal({ at: cutoff, scopeKey: recapScopeKey });
+  }
+  const catchUpAction: AwayRecapCatchUp | undefined =
+    catchUpCount > 0 || remainingCatchUpCount > 0
+      ? {
+          ariaLabel:
+            catchUpCount > 0
+              ? `Catch up, ${catchUpCount} ${catchUpCount === 1 ? "chat" : "chats"}`
+              : `Resume catch up, ${remainingCatchUpCount} ${remainingCatchUpCount === 1 ? "chat" : "chats"} left`,
+          count: catchUpCount > 0 ? catchUpCount : remainingCatchUpCount,
+          label: catchUpCount > 0 ? "Catch up" : "Resume catch up",
+          onClick: onCloseMobile,
+        }
+      : undefined;
   const visibleRoomIds = new Set(
     rooms.flatMap((room) =>
       room.parent_room_id ? [room.parent_room_id] : [room.id],
@@ -350,35 +405,36 @@ export function RoomSecondaryNavigation({
   const searchButton = (
     <button
       aria-keyshortcuts="Control+k Meta+k"
-      aria-label="Search"
+      aria-label={t(roomListMessages.search)}
       className="room-secondary-navigation-search flex h-7 w-full min-w-0 shrink items-center justify-between gap-1.5 rounded-lg bg-card px-2.5 text-xs text-muted-foreground shadow-outline transition-colors duration-150 hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring max-md:h-11"
       onClick={() => {
         onOpenSearch?.();
         onCloseMobile();
       }}
-      title={`Search (${searchShortcutLabel()})`}
+      title={searchTitle}
       type="button"
     >
-      <span className="truncate">Search chats</span>
+      <span className="truncate">{t(roomListMessages.searchChats)}</span>
       <Icon className="shrink-0" icon={Search01Icon} size={14} />
     </button>
   );
 
   return (
     <nav
-      aria-label="Room navigation"
+      aria-label={t(roomListMessages.navigation)}
+      data-voice-area="sidebar"
       className="app-secondary-navigation relative flex w-[var(--sidebar-width)] min-w-0 flex-col bg-card"
     >
       {onCollapse ? (
         // Shares the 57px height of the chat header so both titles sit on
         // one line; a hairline fades in under it once the list scrolls.
         <header
-          aria-label="Message actions"
+          aria-label={t(roomListMessages.messageActions)}
           className="app-secondary-navigation-header room-secondary-navigation-header relative z-40 flex h-(--app-header-height) shrink-0 items-center justify-between gap-2 pl-px pr-4"
           role="toolbar"
         >
           <span className="room-secondary-navigation-title truncate">
-            Messages
+            {t(roomListMessages.messages)}
           </span>
           <div className="flex items-center gap-0.5">
             {accountId ? (
@@ -395,10 +451,11 @@ export function RoomSecondaryNavigation({
             <RoomListCopyMenu rooms={shownChats} tenantId={tenant.id} />
           </div>
           <button
-            aria-label="Hide Chat list"
+            data-voice-close
+            aria-label={t(roomListMessages.hideChatList)}
             className="room-secondary-navigation-collapse flex size-7 shrink-0 items-center justify-center rounded-md text-app-muted transition-colors hover:bg-app-hover hover:text-app-ink"
             onClick={onCollapse}
-            title="Hide Chat list"
+            title={t(roomListMessages.hideChatList)}
             type="button"
           >
             <Icon icon={SidebarLeftIcon} />
@@ -407,7 +464,7 @@ export function RoomSecondaryNavigation({
       ) : (
         <div
           className="xs-nav-quick flex shrink-0 items-center gap-1.5 pl-0 pr-1.5 pt-3"
-          aria-label="Quick access"
+          aria-label={t(roomListMessages.quickAccess)}
         >
           {accountId ? (
             <QuietRemindersControl accountId={accountId} variant="toolbar" />
@@ -423,8 +480,8 @@ export function RoomSecondaryNavigation({
           <RoomListCopyMenu rooms={shownChats} tenantId={tenant.id} />
           <button
             aria-keyshortcuts="Control+k Meta+k"
-            aria-label="Search"
-            title={`Search (${searchShortcutLabel()})`}
+            aria-label={t(roomListMessages.search)}
+            title={searchTitle}
             className="xs-nav-search"
             onClick={() => {
               onOpenSearch?.();
@@ -462,40 +519,60 @@ export function RoomSecondaryNavigation({
         className="room-secondary-navigation-list workspace-scrollbar flex-1 space-y-3 overflow-y-auto pb-1 pt-2"
         ref={listRef}
       >
-        <Link
-          aria-keyshortcuts="Control+j Meta+j"
-          className="mx-2 flex h-7 items-center justify-between gap-2 rounded-lg px-2.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={onCloseMobile}
-          title={`Jump (${jumpShortcutLabel()})`}
-          to={jumpPath(tenant.id)}
+        <div
+          aria-label="Room shortcuts"
+          className="mx-2 flex items-center gap-1"
+          role="group"
         >
-          <span>Jump anywhere</span>
-          <span>{jumpShortcutLabel()}</span>
-        </Link>
-        <Link
-          className="mx-2 flex h-7 items-center rounded-lg px-2.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={onCloseMobile}
-          to={whoIsAwakePath(tenant.id)}
-        >
-          Who is awake
-        </Link>
-        <Link
-          className="mx-2 flex h-7 items-center rounded-lg px-2.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={onCloseMobile}
-          to={surprisePath(tenant.id)}
-        >
-          Surprise me
-        </Link>
-        {onCollapse ? searchButton : null}
-        {catchUpCount > 0 ? (
           <Link
-            aria-label={`Catch up, ${catchUpCount} ${catchUpCount === 1 ? "chat" : "chats"}`}
-            className="mx-2 flex items-center justify-between rounded-lg bg-app-hover px-2.5 py-2 text-sm text-app-ink hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+            aria-keyshortcuts="Control+j Meta+j"
+            aria-label="Jump anywhere"
+            className="flex h-7 min-w-0 flex-1 items-center justify-center gap-1 rounded-lg px-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             onClick={onCloseMobile}
+            title={`Jump anywhere (${jumpShortcutLabel()})`}
+            to={jumpPath(tenant.id)}
+          >
+            <span className="truncate">Jump</span>
+            <span
+              aria-hidden="true"
+              className="shrink-0 text-2xs text-app-subtle"
+            >
+              {jumpShortcutLabel()}
+            </span>
+          </Link>
+          <span aria-hidden="true" className="h-3 w-px shrink-0 bg-border/60" />
+          <Link
+            aria-label="Who is awake"
+            className="flex h-7 min-w-0 flex-1 items-center justify-center rounded-lg px-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={onCloseMobile}
+            title="Who is awake"
+            to={whoIsAwakePath(tenant.id)}
+          >
+            <span className="truncate">Awake</span>
+          </Link>
+          <span aria-hidden="true" className="h-3 w-px shrink-0 bg-border/60" />
+          <Link
+            aria-label="Surprise me"
+            className="flex h-7 min-w-0 flex-1 items-center justify-center rounded-lg px-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={onCloseMobile}
+            title="Surprise me"
+            to={surprisePath(tenant.id)}
+          >
+            <span className="truncate">Surprise</span>
+          </Link>
+        </div>
+        {onCollapse ? searchButton : null}
+        {!showingAwayRecap && catchUpAction ? (
+          <Link
+            aria-label={catchUpAction.ariaLabel}
+            className="mx-2 flex items-center justify-between rounded-lg bg-app-hover px-2.5 py-2 text-sm text-app-ink hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={catchUpAction.onClick}
             to={`/t/${tenant.id}/rooms/catch-up`}
           >
-            Catch up
-            <span className="text-xs text-app-muted">{catchUpCount}</span>
+            {catchUpAction.label}
+            <span className="text-xs text-app-muted">
+              {catchUpAction.count}
+            </span>
           </Link>
         ) : null}
         <WorkingNowStrip
@@ -511,7 +588,10 @@ export function RoomSecondaryNavigation({
             <AwayRecapCard
               accountId={accountId}
               activeRoomId={activeRoomId}
-              key={`${accountId}:${tenant.id}`}
+              catchUp={catchUpAction}
+              dismissedAt={awayRecapDismissedAt}
+              key={recapScopeKey}
+              onDismiss={dismissAwayRecap}
               onNavigate={completeNavigation}
               rooms={rooms}
               tenantId={tenant.id}
@@ -536,7 +616,7 @@ export function RoomSecondaryNavigation({
                 <>
                   <Button
                     aria-label="Mark all Rooms as read"
-                    className="!rounded-lg border-0 text-app-muted"
+                    className="border-0 text-app-muted"
                     disabled={unreadRoomCount === 0}
                     loading={markAllRead.running}
                     onClick={() => void markAllRead.markAll(chats)}
@@ -556,7 +636,7 @@ export function RoomSecondaryNavigation({
                   />
                 </>
               }
-              title="Messages"
+              title={t(roomListMessages.messages)}
             >
               {markAllRead.running && markAllRead.progress ? (
                 <p className="px-2 text-xs text-app-muted" role="status">
@@ -646,7 +726,8 @@ export function RoomSecondaryNavigation({
                               ? markdownPlainText(
                                   room.latest_message.raw_message,
                                 )
-                              : (room.description ?? "No messages yet")}
+                              : (room.description ??
+                                t(roomListMessages.noMessages))}
                           </span>
                         </span>
                         <RoomRowStatus
@@ -757,7 +838,7 @@ function RoomFilterChoice({
             className={cn(
               "flex h-6 min-w-0 flex-1 items-center justify-center truncate rounded-md px-1.5 text-2xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               active
-                ? "bg-(--app-unread) text-(--app-unread-foreground)"
+                ? "bg-primary text-primary-foreground"
                 : "text-muted-foreground hover:bg-accent hover:text-foreground",
             )}
             key={choice.mode}
@@ -955,9 +1036,10 @@ function NavRow({
 
 /** The same marker on a Room row and on its snoozed row. */
 function RoomPinnedMarker() {
+  const t = useT();
   return (
     <span
-      aria-label="Pinned"
+      aria-label={t(roomListMessages.pinned)}
       className="room-pin-badge town-pill-pop ml-0.5 flex shrink-0 text-muted-foreground"
       role="img"
     >
@@ -1029,11 +1111,16 @@ function DirectRoomLink({
   const peer = room.direct_peer!;
   const displayName = peer.display_name;
   const inactive = room.direct_peer_active === false;
+  const t = useT();
   const [hovered, setHovered] = useState(false);
   return (
     <Link
       aria-current={active ? "page" : undefined}
-      aria-label={`${displayName}${inactive ? ", Deleted" : ""}`}
+      aria-label={
+        inactive
+          ? t(roomListMessages.deletedChat, { name: displayName })
+          : displayName
+      }
       className={roomNavClass()}
       onClick={onNavigate}
       onPointerEnter={(event) => {
@@ -1055,10 +1142,10 @@ function DirectRoomLink({
         </RoomRowTitle>
         <span className="mt-0.5 block truncate text-xs leading-4 text-muted-foreground">
           {inactive
-            ? "Deleted"
+            ? t(roomListMessages.deleted)
             : room.latest_message
               ? markdownPlainText(room.latest_message.raw_message)
-              : "No messages yet"}
+              : t(roomListMessages.noMessages)}
         </span>
       </span>
       <RoomRowStatus
@@ -1072,6 +1159,7 @@ function DirectRoomLink({
 }
 
 function RoomAttentionBadge({ room }: { room: TeamHubRoomListItem }) {
+  const t = useT();
   if (room.unread_message_count === 0 && room.unread_mention_count === 0) {
     return null;
   }
@@ -1080,9 +1168,12 @@ function RoomAttentionBadge({ room }: { room: TeamHubRoomListItem }) {
   const count = mentions
     ? room.unread_mention_count
     : room.unread_message_count;
-  const label = mentions
-    ? `${count} unread mention${count === 1 ? "" : "s"}`
-    : `${count} unread message${count === 1 ? "" : "s"}`;
+  const label = t(
+    mentions
+      ? roomListMessages.unreadMentions
+      : roomListMessages.unreadMessages,
+    { count },
+  );
 
   return (
     <span
@@ -1122,6 +1213,7 @@ function AnotherMeCard({
   tenantId: string;
   working: boolean;
 }) {
+  const t = useT();
   const name = room.direct_peer?.display_name ?? "Another Me";
   const { client } = useTeamHubRuntime();
   const identity = useQuery(teamHubIdentityQueryOptions(client));
@@ -1207,14 +1299,14 @@ function AnotherMeCard({
       style={
         {
           "--am-brand": brand,
-          "--am-text": darkText ? "#1a1a16" : "#fff",
+          "--am-text": darkText ? "var(--app-ink)" : "var(--app-surface)",
           "--am-sub-opacity": contrast >= 7 ? 0.82 : 1,
         } as CSSProperties
       }
     >
       <Link
         aria-current={active ? "page" : undefined}
-        aria-label="Another Me Chat"
+        aria-label={`${name} chat`}
         className="workspace-nav-row another-me-card-link flex text-app-ink"
         onClick={onNavigate}
         to={`/t/${tenantId}/rooms/${room.id}/chat`}
@@ -1237,7 +1329,7 @@ function AnotherMeCard({
             {quiet.label ??
               (room.latest_message
                 ? markdownPlainText(room.latest_message.raw_message)
-                : "Your personal agent")}
+                : t(roomListMessages.personalAgent))}
           </span>
         </span>
         <RoomRowStatus
@@ -1270,58 +1362,52 @@ function RoomRowStatus({
   room: TeamHubRoomListItem;
   working: boolean;
 }) {
+  const t = useT();
   useRoomRenderTiming("room_list", {
     roomId: room.id,
     result: working ? "working" : "stopped",
   });
+  const hasUnread =
+    room.unread_message_count > 0 || room.unread_mention_count > 0;
+  const hasActivity = working || failed;
+  if (!hasUnread && !hasActivity) return null;
   return (
     <span className="row-reveal-hide ml-auto flex shrink-0 items-center gap-1.5">
-      <RoomAttentionBadge room={room} />
-      <span className="flex shrink-0 items-center gap-1">
-        {working && duration ? (
-          <span
-            aria-hidden="true"
-            className="text-2xs tabular-nums text-app-muted"
-          >
-            {duration.short}
-          </span>
-        ) : null}
-        <span className="flex size-4 shrink-0 items-center justify-center">
-          {working ? (
-            <svg
-              aria-label={duration?.speech ?? "Agent working"}
-              className="size-3.5 animate-spin text-app-muted motion-reduce:animate-none"
-              fill="none"
-              role="img"
-              viewBox="0 0 16 16"
-            >
-              <title>{duration?.speech ?? "Agent working"}</title>
-              <circle
-                cx="8"
-                cy="8"
-                r="5.75"
-                stroke="currentColor"
-                strokeOpacity="0.2"
-                strokeWidth="1.5"
-              />
-              <path
-                d="M8 2.25a5.75 5.75 0 0 1 5.75 5.75"
-                stroke="currentColor"
-                strokeLinecap="round"
-                strokeWidth="1.5"
-              />
-            </svg>
-          ) : failed ? (
+      {hasUnread ? <RoomAttentionBadge room={room} /> : null}
+      {hasActivity ? (
+        <span className="flex shrink-0 items-center gap-1">
+          {working && duration ? (
             <span
-              aria-label="Last run failed"
-              className="flex text-app-danger"
-              role="img"
+              aria-hidden="true"
+              className="text-2xs tabular-nums text-app-muted"
             >
-              <Icon icon={AlertCircleIcon} size={14} />
+              {duration.short}
             </span>
           ) : null}
+          <span className="flex size-4 shrink-0 items-center justify-center">
+            {working ? (
+              <span
+                aria-label={
+                  duration?.speech ?? t(roomListMessages.agentWorking)
+                }
+                className="flex text-app-muted"
+                role="img"
+                title={duration?.speech ?? t(roomListMessages.agentWorking)}
+              >
+                <Spinner size={14} />
+              </span>
+            ) : (
+              <span
+                aria-label={t(roomListMessages.lastRunFailed)}
+                className="flex text-app-danger"
+                role="img"
+              >
+                <Icon icon={AlertCircleIcon} size={14} />
+              </span>
+            )}
+          </span>
         </span>
-      </span>
+      ) : null}
     </span>
   );
 }

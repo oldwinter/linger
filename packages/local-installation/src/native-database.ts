@@ -27,8 +27,10 @@ export function postgresProgram(
 }
 
 // postgres.exe refuses to run with an elevated token ("Run as administrator",
-// or an administrator account with UAC off). Elevated tokens carry the High
-// (or System) mandatory label, which `whoami` names by SID in every language.
+// the built-in Administrator, or an administrator account with UAC off), so
+// such a token starts it with Administrators disabled, as pg_ctl does.
+// Elevated tokens carry the High (or System) mandatory label, which `whoami`
+// names by SID in every language.
 export async function windowsElevated(
   run: typeof runProcess = runProcess,
 ): Promise<boolean> {
@@ -51,6 +53,7 @@ export async function windowsElevated(
 export async function prepareNativeDatabase(options: {
   instance: Instance;
   postgresBin: string;
+  postgresConfigurationExecutable?: string;
   env: NodeJS.ProcessEnv;
   signal: AbortSignal;
   onOutput: (chunk: string) => void;
@@ -60,10 +63,8 @@ export async function prepareNativeDatabase(options: {
     throw new Error(
       "Native PostgreSQL must run as a normal user; run Linger without sudo.",
     );
-  if (process.platform === "win32" && (await windowsElevated()))
-    throw new Error(
-      "Native PostgreSQL cannot run as administrator; start Linger normally, not with Run as administrator.",
-    );
+  const withoutAdministrators =
+    process.platform === "win32" && (await windowsElevated());
   if (!instance.source || instance.mode !== "source-native")
     throw new Error("Native database needs a native source instance");
   const port = instance.source.ports.postgres;
@@ -149,6 +150,7 @@ export async function prepareNativeDatabase(options: {
       root: instance.root,
       name: "postgres",
       executable: postgresProgram(postgresBin, "postgres"),
+      configurationExecutable: options.postgresConfigurationExecutable,
       args: [
         "-D",
         data,
@@ -169,6 +171,7 @@ export async function prepareNativeDatabase(options: {
       env,
       signal,
       redactions: [password],
+      withoutAdministrators,
     });
     const connection = [
       "--host",

@@ -3,7 +3,10 @@ import type {
   TeamHubLocalRuntimeType,
 } from "@/features/teamhub/teamhub-types";
 
+import type { Message } from "@/i18n/messages";
+
 import type { ComputerDisplayStatus } from "./computer-connection-status";
+import { computersMessages } from "./computers.messages";
 
 type LocalComputer = TeamHubLocalComputerPage["items"][number];
 type RuntimeStatus = LocalComputer["runtimes"][number]["status"];
@@ -13,19 +16,31 @@ export const appOrder: readonly TeamHubLocalRuntimeType[] = [
   "claude",
   "codex",
   "pi",
+  "antigravity",
 ];
 
 export const appNames = {
   claude: "Claude Code",
   codex: "Codex",
   pi: "Pi",
+  antigravity: "Antigravity",
 } satisfies Record<TeamHubLocalRuntimeType, string>;
 
 export const appDescriptions = {
-  claude: "Anthropic's coding agent",
-  codex: "OpenAI's coding agent",
-  pi: "Open-source coding agent",
-} satisfies Record<TeamHubLocalRuntimeType, string>;
+  claude: computersMessages.descriptionClaude,
+  codex: computersMessages.descriptionCodex,
+  pi: computersMessages.descriptionPi,
+  antigravity: computersMessages.descriptionAntigravity,
+} satisfies Record<TeamHubLocalRuntimeType, Message<string>>;
+
+export const runtimeStatusLabels = {
+  authentication_required: computersMessages.statusSignInRequired,
+  error: computersMessages.statusCouldNotCheck,
+  incompatible: computersMessages.updateNeeded,
+  not_installed: computersMessages.notInstalled,
+  ready: computersMessages.ready,
+  unknown: computersMessages.statusChecking,
+} satisfies Record<RuntimeStatus, Message<string>>;
 
 export type ComputerReadiness =
   | { kind: "reconnecting" }

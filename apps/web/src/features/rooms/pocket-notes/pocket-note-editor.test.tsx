@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { createRef } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { defineGlobalProperty } from "@/test/global-properties";
 
 import {
   PocketNoteEditor,
@@ -10,9 +11,11 @@ import {
 describe("PocketNoteEditor", () => {
   beforeEach(() => {
     // JSDOM has no text-range layout; browser coverage exercises caret scrolling.
-    Object.defineProperties(Range.prototype, {
-      getClientRects: { configurable: true, value: () => [] },
-      getBoundingClientRect: { configurable: true, value: () => new DOMRect() },
+    defineGlobalProperty(Range.prototype, "getClientRects", {
+      value: () => [],
+    });
+    defineGlobalProperty(Range.prototype, "getBoundingClientRect", {
+      value: () => new DOMRect(),
     });
   });
   it("renders headings and maps dictation offsets to the saved Markdown", () => {

@@ -13,6 +13,8 @@ import { describeError } from "./voice-control-helpers";
 import { deviceStorageKey, writeStorage } from "./voice-control-storage";
 import { setVoiceMicrophoneMuted } from "./voice-media-connection";
 import type { VoiceControlState } from "./use-voice-control-state";
+import { translate } from "@/i18n/language";
+import { recordingMessages as m } from "./recording.messages";
 
 /** Lists, binds, connects, mutes and disables the hardware microphone. */
 export function useVoiceDevices(
@@ -56,7 +58,7 @@ export function useVoiceDevices(
       const device = available.find(
         (candidate) => candidate.deviceId === deviceId,
       );
-      if (!device) throw new Error("The selected microphone is unavailable");
+      if (!device) throw new Error(translate(m.selectedMicrophoneUnavailable));
       refs.bindingRef.current = device;
       setBoundDevice(device);
       setSelectedDeviceId(device.deviceId);

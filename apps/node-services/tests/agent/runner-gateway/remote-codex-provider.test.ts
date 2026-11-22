@@ -1,4 +1,5 @@
 import {
+  OPERATION_OUTCOME_UNKNOWN,
   RunnerOperationInputError,
   type RunnerSessionCompactOptions,
   type RunnerSessionCompactOutcome,
@@ -231,6 +232,104 @@ describe("RemoteCodexProvider", () => {
           ),
         );
       }
+      await provider.close();
+    },
+  );
+
+  it.each([
+    ["block decision", false],
+    ["fail-open allow when hook throws", true],
+  ])(
+    "routes runtime_hook stop events with %s and declares stop_hook in run_context",
+    async (_name, fails) => {
+      const base = new ScriptedDispatcher();
+      const logger = {
+        log: vi.fn(),
+        child() {
+          return this;
+        },
+      };
+      const originalStart = base.startOperation.bind(base);
+      const dispatcher = {
+        startOperation: async (target: RunnerOperationTarget) => {
+          const operation = await originalStart(target);
+          if (target.request.kind !== "run.start") return operation;
+          return {
+            ...operation,
+            events: (async function* () {
+              let first = true;
+              for await (const event of operation.events) {
+                yield event;
+                if (first) {
+                  first = false;
+                  yield {
+                    type: "human_interaction.requested" as const,
+                    request: {
+                      request_id: "stop-1",
+                      kind: "runtime_hook",
+                      hook: "stop",
+                      runtime: "claude",
+                      attempt: 0,
+                      stop_hook_active: false,
+                    },
+                  };
+                }
+              }
+            })(),
+          };
+        },
+      };
+      const onStopHook = vi.fn(
+        async (_event: unknown, _signal: AbortSignal) => {
+          if (fails) throw new Error("stop hook failed");
+          return { action: "block" as const, reason: "Send your reply." };
+        },
+      );
+      const provider = new RemoteCodexProvider({
+        dispatcher,
+        runtime: { type: "claude" },
+        target: {
+          tenantId: "tenant-acme",
+          runnerId: "runner-local",
+          ...contextScope,
+          agentId: "agent-reviewer",
+          workspaceGrantId: "grant-repo",
+        },
+        stopHook: true,
+        logger,
+        contextRunResources: contextRunResources(),
+      });
+      const session = await provider.createSession(sessionOptions());
+      const run = await provider.startRun(
+        session,
+        { type: "text", text: "work" },
+        {
+          ...runSpec,
+          onStopHook,
+        },
+      );
+      await run.wait();
+      expect(onStopHook).toHaveBeenCalledTimes(1);
+      expect(onStopHook.mock.calls[0]?.[0]).toEqual({
+        runtime: "claude",
+        attempt: 0,
+        stopHookActive: false,
+      });
+      const start = base.requests.find(
+        ({ request }) => request.kind === "run.start",
+      );
+      expect(start?.request).toMatchObject({
+        run_context: { stop_hook: true },
+      });
+      await vi.waitFor(() => expect(base.runInputs).toHaveLength(1));
+      expect(base.runInputs[0]?.input).toMatchObject({
+        runtime_response: {
+          request_id: "stop-1",
+          payload: fails
+            ? { action: "allow" }
+            : { action: "block", reason: "Send your reply." },
+        },
+      });
       await provider.close();
     },
   );
@@ -759,6 +858,49 @@ describe("RemoteCodexProvider", () => {
       await provider.close();
     },
   );
+
+  it("succeeds with an empty reply when the final answer follows streamed commentary", async () => {
+    const provider = createProvider({
+      async startOperation() {
+        return {
+          operationId: "run",
+          events: iterate([
+            {
+              type: "run.started",
+              turn_id: "turn-1",
+              session: { threadId: "thread-1" },
+            },
+            {
+              type: "message.delta",
+              message_id: "commentary",
+              delta: "Draft saved.",
+            },
+            { type: "message.delta", message_id: "final", delta: "" },
+            { type: "run.completed" },
+          ]),
+          result: Promise.resolve({
+            type: "run",
+            status: "succeeded",
+            final_response: "",
+            session: { threadId: "thread-1" },
+          }),
+          input: async () => ({ turnId: "turn-1" }),
+          cancel: async () => {},
+        };
+      },
+    });
+    const session = await provider.createSession(sessionOptions());
+    const run = await provider.startRun(
+      session,
+      { type: "text", text: "Reply to Anna" },
+      runSpec,
+    );
+    for await (const _event of run.events) {
+      // Drain the stream so the Run can settle.
+    }
+    await expect(run.wait()).resolves.toEqual({ finalResponse: "" });
+    await provider.close();
+  });
 
   it("defers a missing existing session to its Run and never silently creates a replacement", async () => {
     const requests: string[] = [];
@@ -1474,6 +1616,24 @@ describe("RemoteCodexProvider", () => {
       ).toHaveLength(1);
     },
   );
+
+  it("reports a start the Computer never confirmed as interrupted", async () => {
+    const dispatcher = new ScriptedDispatcher({
+      runStartError: new RunnerOperationError(
+        OPERATION_OUTCOME_UNKNOWN,
+        "The Computer never confirmed the Operation start; its outcome is unknown",
+        false,
+      ),
+    });
+    const provider = createProvider(dispatcher);
+    const session = await provider.createSession(sessionOptions());
+    await expect(
+      provider.startRun(session, { type: "text", text: "Run once" }, runSpec),
+    ).rejects.toBeInstanceOf(ProviderRunInterruptedError);
+    expect(
+      dispatcher.requests.filter(({ request }) => request.kind === "run.start"),
+    ).toHaveLength(1);
+  });
 
   it("never maps a post-start failure into a retryable Provider start", async () => {
     const dispatcher = new ScriptedDispatcher({

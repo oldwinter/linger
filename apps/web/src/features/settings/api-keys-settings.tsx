@@ -10,6 +10,7 @@ import { AppLogoTile } from "@/features/apps/app-logo";
 import { externalAppsQueryOptions } from "@/features/apps/connected-apps-queries";
 import { ComposioKeyForm } from "@/features/apps/provider-key-form";
 import { ComposioKeyGuide } from "@/features/apps/provider-key-guide";
+import { roomListMessages } from "@/features/rooms/room-list.messages";
 import { LazyVoiceKeyDialog } from "@/features/rooms/voice-control/lazy-voice-key-dialog";
 import { useVoiceMediaPolicy } from "@/features/rooms/voice-control/use-voice-media-policy";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
@@ -17,36 +18,42 @@ import type {
   TeamHubVoiceProvider,
   TeamHubVoiceProviderKeyStatus,
 } from "@/features/teamhub/teamhub-types";
+import { useT } from "@/i18n/use-translation";
 import { useParams } from "react-router";
+
+import { accountSettingsMessages } from "./account-settings.messages";
 
 /** Composio serves its own mark the same way it serves connector logos. */
 const composioLogoUrl = "https://logos.composio.dev/api/composio";
 
 /** Every provider key this server uses, managed in one list in Security. */
 export function ApiKeysSettings() {
+  const t = useT();
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [notice, setNotice] = useState<string>();
+  // The provider whose key was just saved, named in the notice below.
+  const [savedProvider, setSavedProvider] = useState<string>();
   const [voiceDialog, setVoiceDialog] = useState<TeamHubVoiceProvider>();
   // Voice keys matter only where this deployment can run voice; the policy
   // is read per Space, so Security outside a Space shows no voice rows.
   const tenantId = useParams().tenantId ?? "";
   const voicePolicy = useVoiceMediaPolicy(tenantId, Boolean(tenantId));
   function open() {
-    setNotice(undefined);
+    setSavedProvider(undefined);
     setDialogOpen(true);
   }
   function openVoice(provider: TeamHubVoiceProvider) {
-    setNotice(undefined);
+    setSavedProvider(undefined);
     setVoiceDialog(provider);
   }
 
   return (
     <section className="flex flex-col gap-3">
       <header>
-        <h2 className="text-base text-foreground">API keys</h2>
+        <h2 className="text-base text-foreground">
+          {t(accountSettingsMessages.apiKeys)}
+        </h2>
         <p className="text-sm text-muted-foreground">
-          Used by everyone on this server. Stored encrypted and never shown
-          again.
+          {t(accountSettingsMessages.apiKeysDescription)}
         </p>
       </header>
       <div className="divide-y divide-border rounded-2xl border border-border bg-background">
@@ -54,14 +61,16 @@ export function ApiKeysSettings() {
         {voicePolicy?.voice_available ? (
           <>
             <VoiceKeyRow
-              detail="Transcribes meetings, Pocket Notes dictation and Voice Mode dictation."
+              detail={t(accountSettingsMessages.sonioxDetail, {
+                pocketNotes: t(roomListMessages.pocketNotes),
+              })}
               environmentVariable="SONIOX_API_KEY"
               onOpen={() => openVoice("soniox")}
               status={voicePolicy.soniox_key}
               title="Soniox"
             />
             <VoiceKeyRow
-              detail="Turns Voice Mode into a live conversation with Grok."
+              detail={t(accountSettingsMessages.xaiDetail)}
               environmentVariable="XAI_API_KEY"
               onOpen={() => openVoice("xai")}
               status={voicePolicy.xai_key}
@@ -71,13 +80,15 @@ export function ApiKeysSettings() {
         ) : null}
       </div>
 
-      {notice ? (
+      {savedProvider ? (
         <p
           className="flex items-center gap-2 text-sm text-app-success"
           role="status"
         >
           <Icon icon={Tick02Icon} size={16} />
-          {notice}
+          {t(accountSettingsMessages.providerKeySaved, {
+            provider: savedProvider,
+          })}
         </p>
       ) : null}
 
@@ -85,13 +96,13 @@ export function ApiKeysSettings() {
         <ModalDialog
           className="app-key-dialog"
           closeOnBackdrop
-          description="Connects Gmail, GitHub, Slack, Notion and other apps for everyone here."
+          description={t(accountSettingsMessages.composioDialogDescription)}
           onClose={() => setDialogOpen(false)}
           size="md"
           title={
             <span className="flex items-center gap-2.5">
               <AppLogoTile name="Composio" small url={composioLogoUrl} />
-              Composio key
+              {t(accountSettingsMessages.providerKey, { provider: "Composio" })}
             </span>
           }
         >
@@ -99,7 +110,7 @@ export function ApiKeysSettings() {
             <ComposioKeyGuide />
             <ComposioKeyForm
               onSaved={() => {
-                setNotice("Composio key saved");
+                setSavedProvider("Composio");
                 setDialogOpen(false);
               }}
             />
@@ -111,7 +122,7 @@ export function ApiKeysSettings() {
         <LazyVoiceKeyDialog
           onClose={() => setVoiceDialog(undefined)}
           onReady={(provider) => {
-            setNotice(`${provider === "soniox" ? "Soniox" : "xAI"} key saved`);
+            setSavedProvider(provider === "soniox" ? "Soniox" : "xAI");
             setVoiceDialog(undefined);
           }}
           policy={voicePolicy}
@@ -129,12 +140,15 @@ function KeySourcePill({
 }: {
   source: TeamHubVoiceProviderKeyStatus["source"];
 }) {
+  const t = useT();
   return source === "environment" ? (
-    <StatusPill>Set by your server</StatusPill>
+    <StatusPill>{t(accountSettingsMessages.keySetByServer)}</StatusPill>
   ) : source === "stored" ? (
-    <StatusPill tone="success">Active</StatusPill>
+    <StatusPill tone="success">
+      {t(accountSettingsMessages.keyActive)}
+    </StatusPill>
   ) : (
-    <StatusPill>Not set</StatusPill>
+    <StatusPill>{t(accountSettingsMessages.keyNotSet)}</StatusPill>
   );
 }
 
@@ -151,23 +165,37 @@ function VoiceKeyRow({
   status: TeamHubVoiceProviderKeyStatus | undefined;
   title: string;
 }) {
+  const t = useT();
   return (
     <KeyRow
       actions={
         status?.can_save ? (
           <Button
-            aria-label={`${status.source === "stored" ? "Replace" : "Add"} ${title} key`}
+            aria-label={t(
+              status.source === "stored"
+                ? accountSettingsMessages.replaceProviderKey
+                : accountSettingsMessages.addProviderKey,
+              { provider: title },
+            )}
             onClick={onOpen}
           >
-            {status.source === "stored" ? "Replace key" : "Add key"}
+            {status.source === "stored"
+              ? t(accountSettingsMessages.replaceKey)
+              : t(accountSettingsMessages.addKey)}
           </Button>
         ) : null
       }
       detail={
         status?.source === "environment"
-          ? `${detail} Set with ${environmentVariable} on the server.`
+          ? t(accountSettingsMessages.voiceKeyFromEnvironment, {
+              detail,
+              variable: environmentVariable,
+            })
           : status?.can_save === false
-            ? `${detail} Set ${environmentVariable} on the server, or set TEAMHUB_SECRET_ENCRYPTION_KEY to save the key here.`
+            ? t(accountSettingsMessages.voiceKeyCannotSave, {
+                detail,
+                variable: environmentVariable,
+              })
             : detail
       }
       logo={<AppLogoTile name={title} />}
@@ -180,12 +208,14 @@ function VoiceKeyRow({
 function KeyRow({
   actions,
   detail,
+  error,
   logo,
   pill,
   title,
 }: {
   actions?: ReactNode;
   detail: string;
+  error?: ReactNode;
   logo: ReactNode;
   pill?: ReactNode;
   title: string;
@@ -199,6 +229,7 @@ function KeyRow({
           {pill}
         </p>
         <p className="text-sm text-muted-foreground">{detail}</p>
+        {error}
       </div>
       {actions ? <div className="flex shrink-0 gap-2">{actions}</div> : null}
     </div>
@@ -206,25 +237,45 @@ function KeyRow({
 }
 
 function ComposioKeyRow({ onOpen }: { onOpen: () => void }) {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const catalog = useQuery(externalAppsQueryOptions(client));
   const key = catalog.data?.provider_key;
-  const detail =
+  const detail = t(
     key?.source === "environment"
-      ? "Connects Gmail, GitHub, Slack, Notion and other apps. Set with COMPOSIO_API_KEY on the server, in user.env when Linger is installed on this computer."
+      ? accountSettingsMessages.composioDetailFromEnvironment
       : key?.can_save === false
-        ? "Connects Gmail, GitHub, Slack, Notion and other apps. When Linger is installed on this computer, set COMPOSIO_API_KEY in user.env, then reopen the Linger app. On a server you run yourself, set it there, or set TEAMHUB_SECRET_ENCRYPTION_KEY to save the key here."
-        : "Connects Gmail, GitHub, Slack, Notion and other apps. Use a key with full read and write access.";
+        ? accountSettingsMessages.composioDetailCannotSave
+        : accountSettingsMessages.composioDetail,
+  );
   return (
     <KeyRow
       actions={
-        key?.can_save ? (
+        catalog.isError ? (
+          <Button
+            loading={catalog.isFetching}
+            onClick={() => void catalog.refetch()}
+            size="compact"
+            tone="secondary"
+          >
+            Retry
+          </Button>
+        ) : key?.can_save ? (
           <Button onClick={onOpen}>
-            {key.source === "stored" ? "Replace key" : "Add key"}
+            {key.source === "stored"
+              ? t(accountSettingsMessages.replaceKey)
+              : t(accountSettingsMessages.addKey)}
           </Button>
         ) : null
       }
       detail={detail}
+      error={
+        catalog.isError ? (
+          <p className="mt-1 text-xs text-destructive" role="alert">
+            Could not load Composio key status. Try again.
+          </p>
+        ) : null
+      }
       logo={<AppLogoTile name="Composio" url={composioLogoUrl} />}
       pill={key ? <KeySourcePill source={key.source} /> : null}
       title="Composio"

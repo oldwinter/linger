@@ -56,6 +56,33 @@ func (q *Queries) CountVoiceLiveTurnConfirmations(ctx context.Context, arg Count
 	return count, err
 }
 
+const createUsedVoiceLiveConfirmation = `-- name: CreateUsedVoiceLiveConfirmation :exec
+INSERT INTO voice_live_confirmations(id,voice_session_id,turn_id,tool,arguments_hash,goal,surface,used_at,used_turn_id)
+VALUES($1::text,$2::text,$3::text,$4::text,
+  $5::text,'','',clock_timestamp(),$3::text)
+`
+
+type CreateUsedVoiceLiveConfirmationParams struct {
+	ID             string `json:"id"`
+	VoiceSessionID string `json:"voice_session_id"`
+	TurnID         string `json:"turn_id"`
+	Tool           string `json:"tool"`
+	ArgumentsHash  string `json:"arguments_hash"`
+}
+
+// A yes the user gave in their own turn without a question first, used at
+// once, so a retry within that turn is admitted like any used yes.
+func (q *Queries) CreateUsedVoiceLiveConfirmation(ctx context.Context, arg CreateUsedVoiceLiveConfirmationParams) error {
+	_, err := q.db.Exec(ctx, createUsedVoiceLiveConfirmation,
+		arg.ID,
+		arg.VoiceSessionID,
+		arg.TurnID,
+		arg.Tool,
+		arg.ArgumentsHash,
+	)
+	return err
+}
+
 const createVoiceLiveConfirmation = `-- name: CreateVoiceLiveConfirmation :exec
 INSERT INTO voice_live_confirmations(id,voice_session_id,turn_id,tool,arguments_hash,goal,surface)
 VALUES($1::text,$2::text,$3::text,$4::text,

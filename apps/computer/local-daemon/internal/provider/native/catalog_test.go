@@ -18,7 +18,7 @@ func TestClaudeCatalog(t *testing.T) {
 		t.Fatalf("models = %+v", list.Models)
 	}
 	first, second := list.Models[0], list.Models[1]
-	if first.ID != "organization-alias" || first.Default || first.Label != "Organization" || first.Provider != "anthropic" {
+	if first.ID != "organization-alias" || first.Default || first.Label != "Organization · organization-model" || first.Provider != "anthropic" {
 		t.Fatalf("first = %+v", first)
 	}
 	if first.Effort == nil || first.Effort.Default != "" ||
@@ -121,7 +121,7 @@ func TestClaudeCatalogPreservesNativeChoicesAndVersions(t *testing.T) {
 	}
 	wantIDs := []string{"default", "opus", "claude-fable-5-1[1m]", "sonnet", "custom-future", "no-description", "resolved-only",
 		"claude-opus-5-5", "claude-fable-5-1", "claude-sonnet-5-5", "organization-model"}
-	wantLabels := []string{"Default (recommended) · Use the default model (currently Opus 5.5)", "Opus 5.5", "Fable 5.1", "Sonnet 5.5", "Organization 42", "Fallback", "Resolved only",
+	wantLabels := []string{"Default (recommended) · claude-opus-5-5", "Opus · claude-opus-5-5", "Fable", "Sonnet · claude-sonnet-5-5", "Custom · organization-model", "Fallback", "Resolved only",
 		"claude-opus-5-5", "claude-fable-5-1", "claude-sonnet-5-5", "organization-model"}
 	if !reflect.DeepEqual(ids, wantIDs) || !reflect.DeepEqual(labels, wantLabels) {
 		t.Fatalf("models = %+v", list.Models)
@@ -146,5 +146,45 @@ func TestClaudeCatalogPreservesNativeChoicesAndVersions(t *testing.T) {
 	// declares them, even when the default alias resolving to it does not.
 	if pinned := list.Models[7]; pinned.Default || pinned.Effort == nil || len(pinned.Effort.Options) != 2 {
 		t.Fatalf("concrete choice = %+v", pinned)
+	}
+}
+
+func TestClaudeCatalogFormatsStructuredLabelsAndDisambiguatesDuplicates(t *testing.T) {
+	list, err := DiscoverModels(context.Background(), "claude", fixtureInvocation(t, "claude-catalog", map[string]string{
+		"FIXTURE_MODELS": `[
+   {"value":"auto/deepseek[1m]","resolvedModel":"auto/deepseek[1m]","displayName":"DeepSeek Flash · routing group","description":"via gateway"},
+   {"value":"cursor/grok@500k","resolvedModel":"cursor/grok@500k","displayName":"Grok @ 500k · Cursor","description":"user@example.com · via gateway"},
+   {"value":"sub2api/claude-opus[1m]","resolvedModel":"sub2api/claude-opus","displayName":"Claude Opus · Sub2API","description":"via gateway"},
+   {"value":"custom-alias","resolvedModel":"org-model","displayName":"Org-Model (custom)","description":"Custom model"},
+   {"value":"us.anthropic.claude-sonnet-v1:0","resolvedModel":"us.anthropic.claude-sonnet-v1:0","displayName":"Claude Sonnet","description":"Best for complex coding tasks"},
+   {"value":"raw-id","resolvedModel":"raw-id","displayName":"","description":"Some tagline"},
+   {"value":"provider-a/gpt-5","resolvedModel":"provider-a/gpt-5","displayName":"GPT-5","description":"via provider A"},
+   {"value":"provider-b/gpt-5","resolvedModel":"provider-b/gpt-5","displayName":"GPT-5","description":"via provider B"},
+   {"value":"alias-x","resolvedModel":"model-x","displayName":"model-x","description":"ignored"}
+  ]`,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, model := range list.Models {
+		got = append(got, model.Label)
+	}
+	want := []string{
+		"DeepSeek Flash · routing group",
+		"Grok @ 500k · Cursor",
+		"Claude Opus · Sub2API",
+		"Org-Model (custom)",
+		"Claude Sonnet",
+		"raw-id",
+		"GPT-5 (provider-a/gpt-5)",
+		"GPT-5 (provider-b/gpt-5)",
+		"model-x (alias-x)",
+		"sub2api/claude-opus",
+		"org-model",
+		"model-x",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("labels = %q, want %q", got, want)
 	}
 }

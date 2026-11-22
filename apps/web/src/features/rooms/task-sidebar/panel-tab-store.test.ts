@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { defineGlobalProperty } from "@/test/global-properties";
 
 import {
   closePanelTab,
@@ -19,7 +20,7 @@ const scope = {
 describe("panel tab store", () => {
   beforeEach(() => {
     const store = new Map<string, string>();
-    Object.defineProperty(globalThis, "localStorage", {
+    defineGlobalProperty(globalThis, "localStorage", {
       configurable: true,
       value: {
         get length() {
@@ -363,7 +364,7 @@ describe("panel tab store", () => {
     expect(next.tabs[next.activeTabId!]?.actorId).toBe("agent-created");
     expect(next.tabs[next.activeTabId!]?.kind).toBe("agentInfo");
     expect(next.tabs[next.activeTabId!]?.activityRunStatusId).toBeUndefined();
-    expect(next.tabs[next.activeTabId!]?.title).toBe("Agent · Slide Expert");
+    expect(next.tabs[next.activeTabId!]?.title).toBe("Slide Expert");
     expect(next.openTabIds).not.toContain(
       panelTabKey("agentInfo", { actorId: "previous-agent" }),
     );

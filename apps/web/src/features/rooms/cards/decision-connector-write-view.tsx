@@ -1,17 +1,87 @@
 import DOMPurify from "dompurify";
-import { Attachment01Icon } from "@hugeicons/core-free-icons";
-import { Fragment, useMemo, useState } from "react";
+import {
+  ArrowDown01Icon,
+  Attachment01Icon,
+  Mail01Icon,
+} from "@hugeicons/core-free-icons";
+import { Fragment, useId, useMemo, useState } from "react";
 
+import { AutoHeight } from "@/components/ui/auto-height";
 import { Icon } from "@/components/ui/icon";
+import type { Message } from "@/i18n/messages";
+import { useT } from "@/i18n/use-translation";
+import { cn } from "@/lib/cn";
 
 import { MessageMarkdown } from "../chat/message-markdown";
-import { FullCallBlock } from "./approval-card-parts";
+import { CardRowDetails, FullCallBlock } from "./approval-card-parts";
+import { cardsMessages } from "./cards.messages";
 import type { DecisionMessageCard } from "./decision-card";
 import { SlackMrkdwn } from "./slack-mrkdwn";
 
 type ConnectorWriteView = NonNullable<DecisionMessageCard["connector_write"]>;
 type ConnectorWriteMessage = NonNullable<ConnectorWriteView["message"]>;
 type ConnectorWriteField = NonNullable<ConnectorWriteView["fields"]>[number];
+
+/** Email headers replace the compact recipient line when the preview opens. */
+export function EmailDecisionView({
+  account,
+  message,
+}: {
+  account: string;
+  message: ConnectorWriteMessage;
+}) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const previewId = useId();
+  return (
+    <>
+      <h3>
+        <button
+          aria-controls={previewId}
+          aria-expanded={open}
+          className="-mx-2 flex min-h-9 w-[calc(100%+1rem)] items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors duration-150 hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-app-focus motion-reduce:transition-none"
+          onClick={() => setOpen((current) => !current)}
+          type="button"
+        >
+          <Icon
+            className="shrink-0 text-app-muted"
+            icon={Mail01Icon}
+            size={16}
+          />
+          <span className="min-w-0 flex-1 text-sm font-semibold text-app-ink [overflow-wrap:anywhere]">
+            {message.subject?.trim() || t(cardsMessages.noSubject)}
+          </span>
+          <Icon
+            className={cn(
+              "shrink-0 text-app-muted transition-transform duration-(--chat-resize-duration) ease-(--app-out-quint) motion-reduce:transition-none",
+              open && "rotate-180",
+            )}
+            icon={ArrowDown01Icon}
+            size={14}
+          />
+        </button>
+      </h3>
+      {message.to?.length ? (
+        <AutoHeight open={!open}>
+          <p className="pt-1 text-sm text-app-muted [overflow-wrap:anywhere]">
+            {t(cardsMessages.emailToLine, {
+              recipients: message.to.map(displayEmailAddress).join(", "),
+            })}
+          </p>
+        </AutoHeight>
+      ) : null}
+      <div id={previewId}>
+        <CardRowDetails open={open}>
+          <MessagePreview emailFrom={account} message={message} />
+        </CardRowDetails>
+      </div>
+    </>
+  );
+}
+
+function displayEmailAddress(address: string) {
+  return address.trim().replace(/^<([^<>]+)>$/, "$1");
+}
 
 /**
  * The full view of one connected app write that TeamHub holds: the message or
@@ -37,42 +107,88 @@ export function ConnectorWriteDecisionView({
 }
 
 /** The message exactly as it will be sent: headers, body, attachments. */
-function MessagePreview({ message }: { message: ConnectorWriteMessage }) {
-  const rows: [string, string | undefined][] = [
-    ["To", message.to?.join(", ")],
-    ["Cc", message.cc?.join(", ")],
-    ["Bcc", message.bcc?.join(", ")],
-    ["Subject", message.subject],
-    ["Where", message.destination],
+function MessagePreview({
+  emailFrom,
+  message,
+}: {
+  emailFrom?: string;
+  message: ConnectorWriteMessage;
+}) {
+  const t = useT();
+  const email = emailFrom !== undefined;
+  function recipients(addresses?: string[]) {
+    return (email ? addresses?.map(displayEmailAddress) : addresses)?.join(
+      ", ",
+    );
+  }
+  const rows: [Message<string>, string | undefined][] = [
+    [
+      cardsMessages.emailFrom,
+      emailFrom === undefined ? undefined : displayEmailAddress(emailFrom),
+    ],
+    [cardsMessages.emailTo, recipients(message.to)],
+    [
+      cardsMessages.emailCc,
+      recipients(message.cc) || (email ? t(cardsMessages.none) : undefined),
+    ],
+    [cardsMessages.emailBcc, recipients(message.bcc)],
+    [cardsMessages.emailSubject, email ? undefined : message.subject],
+    [cardsMessages.messageWhere, message.destination],
   ];
-  const shown = rows.filter((row): row is [string, string] => Boolean(row[1]));
+  const shown = rows.filter((row): row is [Message<string>, string] =>
+    Boolean(row[1]),
+  );
   return (
     <section
-      aria-label="Message preview"
-      className="overflow-hidden rounded-lg border border-app-border bg-app-surface"
+      aria-label={t(cardsMessages.messagePreview)}
+      className={cn(
+        email
+          ? "mt-2"
+          : "overflow-hidden rounded-lg border border-app-border bg-app-surface",
+      )}
     >
       {shown.length ? (
-        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-0.5 border-b border-app-border px-3 py-2 text-xs leading-5">
+        <dl
+          className={cn(
+            "border-b border-app-border",
+            email
+              ? "divide-y divide-app-border text-sm"
+              : "grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-0.5 px-3 py-2 text-xs leading-5",
+          )}
+        >
           {shown.map(([label, value]) => (
-            <Fragment key={label}>
-              <dt className="text-app-muted">{label}</dt>
+            <div
+              className={
+                email
+                  ? "grid grid-cols-[3rem_minmax(0,1fr)] gap-x-3 py-3"
+                  : "contents"
+              }
+              key={label.id}
+            >
+              <dt className="text-app-muted">{t(label)}</dt>
               <dd
-                className={`[overflow-wrap:anywhere] text-app-ink ${label === "Subject" ? "font-semibold" : ""}`}
+                className={`[overflow-wrap:anywhere] text-app-ink ${label === cardsMessages.emailSubject ? "font-semibold" : ""}`}
               >
                 {value}
               </dd>
-            </Fragment>
+            </div>
           ))}
         </dl>
       ) : null}
       {message.body.trim() ? (
-        <MessageBody body={message.body} format={message.format} />
+        <MessageBody
+          body={message.body}
+          expanded={email}
+          format={message.format}
+        />
       ) : (
-        <p className="px-3 py-2.5 text-xs text-app-muted">No message text.</p>
+        <p className="px-3 py-2.5 text-xs text-app-muted">
+          {t(cardsMessages.noMessageText)}
+        </p>
       )}
       {message.attachments?.length ? (
         <ul
-          aria-label="Attachments"
+          aria-label={t(cardsMessages.attachments)}
           className="flex flex-wrap gap-1.5 border-t border-app-border px-3 py-2"
         >
           {message.attachments.map((name, index) => (
@@ -96,15 +212,18 @@ function MessagePreview({ message }: { message: ConnectorWriteMessage }) {
 
 function MessageBody({
   body,
+  expanded = false,
   format,
 }: {
   body: string;
+  expanded?: boolean;
   format: ConnectorWriteMessage["format"];
 }) {
-  if (format === "html") return <HtmlMessageBody html={body} />;
+  if (format === "html")
+    return <HtmlMessageBody expanded={expanded} html={body} />;
   return (
     <div
-      className="max-h-80 overflow-auto px-3 py-2.5"
+      className={expanded ? "py-4" : "max-h-80 overflow-auto px-3 py-2.5"}
       data-testid="message-body"
     >
       {format === "markdown" ? (
@@ -127,11 +246,21 @@ const htmlBodyMaxHeight = 320;
  * An HTML email in its own sandboxed document, so its styles stay inside the
  * preview. Nothing in it runs or loads: DOMPurify strips scripts, the
  * sandbox has no allow-scripts, and the policy blocks remote resources. The
- * frame grows with the email up to a cap, then scrolls.
+ * frame grows with an expanded email; compact message previews cap its height.
  */
-function HtmlMessageBody({ html }: { html: string }) {
+function HtmlMessageBody({
+  expanded,
+  html,
+}: {
+  expanded: boolean;
+  html: string;
+}) {
+  const t = useT();
   const [height, setHeight] = useState(120);
-  const source = useMemo(() => htmlEmailDocument(html), [html]);
+  const source = useMemo(
+    () => htmlEmailDocument(html, expanded),
+    [html, expanded],
+  );
   return (
     <iframe
       className="block w-full border-0 bg-white"
@@ -141,7 +270,7 @@ function HtmlMessageBody({ html }: { html: string }) {
         setHeight(
           Math.min(
             Math.max(root.scrollHeight, htmlBodyMinHeight),
-            htmlBodyMaxHeight,
+            expanded ? Infinity : htmlBodyMaxHeight,
           ),
         );
       }}
@@ -150,12 +279,12 @@ function HtmlMessageBody({ html }: { html: string }) {
       sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin"
       srcDoc={source}
       style={{ height }}
-      title="Message body"
+      title={t(cardsMessages.messageBody)}
     />
   );
 }
 
-function htmlEmailDocument(html: string) {
+function htmlEmailDocument(html: string, expanded: boolean) {
   const root = DOMPurify.sanitize(html, {
     RETURN_DOM: true,
     WHOLE_DOCUMENT: true,
@@ -174,8 +303,7 @@ function htmlEmailDocument(html: string) {
   charset.setAttribute("charset", "utf-8");
   // The email's own styles come later and win.
   const base = owner.createElement("style");
-  base.textContent =
-    "html{color-scheme:light}body{margin:0;padding:10px 12px;background:#fff;color:#202020;font:14px/1.5 Inter,system-ui,sans-serif;overflow-wrap:anywhere}img{max-width:100%;height:auto}";
+  base.textContent = `html{color-scheme:light}body{margin:0;padding:${expanded ? "16px 0" : "10px 12px"};background:#fff;color:#202020;font:14px/1.5 Inter,system-ui,sans-serif;overflow-wrap:anywhere}img{max-width:100%;height:auto}`;
   head.prepend(charset, policy, base);
   for (const link of root.querySelectorAll("a[href]")) {
     link.setAttribute("target", "_blank");

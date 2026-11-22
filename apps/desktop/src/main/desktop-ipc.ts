@@ -1,17 +1,20 @@
-import { ipcMain, type IpcMainInvokeEvent } from "electron";
+import { app, ipcMain, type IpcMainInvokeEvent } from "electron";
 import { z } from "zod";
 
 import {
-  DAEMON_IDENTITY_CONFLICT,
   IPC,
   type ComputerStatus,
   type DesktopSettings,
+  type DesktopUpdateState,
   type LocalAccountSignIn,
   type WorkspaceGrantView,
 } from "../shared/api.js";
+import { LANGUAGES } from "../i18n/language.js";
 import type { ComputerDaemonModule } from "./computer-daemon.js";
 import type { WorkspaceGrant } from "./config.js";
+import { ConnectorOAuth } from "./connector-oauth.js";
 import type { EnrollmentModule } from "./enrollment.js";
+import type { LanguageModule } from "./language.js";
 import type { LocalServerModule } from "./local-server.js";
 import type { Module, ModuleContext } from "./modules.js";
 import { sameOrigin } from "./navigation.js";
@@ -21,6 +24,7 @@ import {
   type DesktopPermissionHost,
 } from "./system-permissions.js";
 import type { DesktopTrayHost } from "./tray.js";
+import type { UpdaterModule, UpdateState } from "./updater.js";
 import type { WindowManagerModule } from "./window-manager.js";
 import type { WorkspaceGrantsModule } from "./workspace-grants.js";
 
@@ -28,6 +32,7 @@ const grantIdInput = z.string().min(1).max(128);
 // Electron's badge is a count on the app icon, so it takes only a small
 // non-negative integer.
 const badgeCountInput = z.number().int().min(0).max(1_000_000);
+const languageInput = z.enum(LANGUAGES);
 // The server address is not settable from the SPA: a page served by one
 // server must not be able to repoint the app. It changes on app://offline.
 const settingsPatchInput = z
@@ -62,6 +67,13 @@ export interface DesktopBadgeHost {
   setBadgeCount(count: number): boolean;
 }
 
+// The page learns what the tray shows; Install opens a release page itself,
+// so its URL stays in the main process.
+const updateView = (state: UpdateState): DesktopUpdateState =>
+  state.kind === "available"
+    ? { kind: state.kind, version: state.version }
+    : state;
+
 // The preload API handlers. Every call must come from a frame on
 // the configured server origin; inputs are validated with zod.
 export class DesktopIpcModule implements Module {
@@ -74,6 +86,8 @@ export class DesktopIpcModule implements Module {
     "WindowManager",
     "WorkspaceGrants",
     "Tray",
+    "Updater",
+    "Language",
   ];
   readonly #badge: DesktopBadgeHost | undefined;
   readonly #defaultDisplayName: string;
@@ -101,20 +115,47 @@ export class DesktopIpcModule implements Module {
     const windows = ctx.get<WindowManagerModule>("WindowManager");
     const power = ctx.get<PowerGuardModule>("PowerGuard");
     const localServer = ctx.get<LocalServerModule>("LocalServer");
+    const updater = ctx.get<UpdaterModule>("Updater");
+    const language = ctx.get<LanguageModule>("Language");
+
+    const oauth = new ConnectorOAuth();
+    ipcMain.handle(IPC.connectorOAuthPrepare, (event: IpcMainInvokeEvent) => {
+      const contents = windows.webContents();
+      const origin = ctx.config.get().serverUrl;
+      if (
+        !contents ||
+        !origin ||
+        event.sender !== contents ||
+        event.senderFrame !== contents.mainFrame ||
+        !sameOrigin(contents.getURL(), origin)
+      ) {
+        throw new Error("Not allowed");
+      }
+      return oauth.prepare((account) => {
+        if (
+          contents.isDestroyed() ||
+          !sameOrigin(contents.getURL(), origin) ||
+          contents !== windows.webContents()
+        )
+          return;
+        windows.show();
+        if (process.platform === "darwin") app.focus({ steal: true });
+        contents.send(IPC.connectorOAuthReturn, account);
+      });
+    });
+    this.#unsubscribe.push(() => {
+      ipcMain.removeHandler(IPC.connectorOAuthPrepare);
+      oauth.stop();
+    });
 
     const status = (): ComputerStatus => {
-      const config = ctx.config.get();
-      const computerId = config.computerId;
-      const connectionError =
-        daemon.connectionError() ??
-        (config.identityConflict ? DAEMON_IDENTITY_CONFLICT : undefined);
+      const computerId = ctx.config.get().computerId;
       return {
         bridge: daemon.connection(),
         runtime: daemon.state(),
         ...(computerId ? { computerId } : {}),
         activeOperations: daemon.running(),
         preventSleep: power.active(),
-        ...(connectionError ? { connectionError } : {}),
       };
     };
     const settings = (): DesktopSettings => {
@@ -180,6 +221,22 @@ export class DesktopIpcModule implements Module {
       }
     });
 
+    // The way back from the floating voice window, which stays up while the
+    // main window is minimized, hidden to the tray or behind another app.
+    // macOS brings a window forward only within the app, so the app comes
+    // forward too.
+    handle(IPC.voiceWindowShowMain, () => {
+      windows.show();
+      if (process.platform === "darwin") app.focus({ steal: true });
+    });
+    // The language picked in the page's Settings, for the shell's own text.
+    handle(IPC.languageSet, (tag) => {
+      language.choose(languageInput.parse(tag));
+    });
+    handle(IPC.updateState, () => updateView(updater.state()));
+    handle(IPC.updateInstall, () => updater.install());
+    handle(IPC.updateCheck, () => updater.check());
+
     const permissions = this.#permissions;
     if (permissions)
       handle(IPC.permissionAct, (step) =>
@@ -191,11 +248,15 @@ export class DesktopIpcModule implements Module {
     };
     this.#unsubscribe.push(
       ctx.bus.on("computer.connection", push),
-      ctx.bus.on("computer.identity_conflict", push),
       ctx.bus.on("runtime.state", push),
       ctx.bus.on("runtime.activity", push),
       ctx.bus.on("power.changed", push),
       ctx.bus.on("computer.changed", push),
+      ctx.bus.on("update.changed", () =>
+        windows
+          .webContents()
+          ?.send(IPC.updateStateEvent, updateView(updater.state())),
+      ),
     );
   }
 

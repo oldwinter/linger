@@ -2,14 +2,18 @@ import { ArrowRight01Icon, SparklesIcon } from "@hugeicons/core-free-icons";
 import { useMemo } from "react";
 
 import { Icon } from "@/components/ui/icon";
+import type { Translate } from "@/i18n/language";
+import { formatMessageParts } from "@/i18n/messages";
+import { RichMessage, useTranslation } from "@/i18n/use-translation";
 import { cn } from "@/lib/cn";
 import {
+  toolAppearance,
   toolNameLabel,
-  toolPresentation,
 } from "@/features/rooms/runtime-status/runtime-tool-presentation";
 import type { TeamHubMessageActivityRecord } from "@/features/teamhub/teamhub-types";
 
 import { MessageMarkdown } from "../../chat/message-markdown";
+import { runtimeStatusMessages } from "../../runtime-status/runtime-status.messages";
 import {
   activityMessageText,
   asObject,
@@ -27,6 +31,19 @@ import {
   thinkingSummary,
   type ToolCallPair,
 } from "./native-activity-records";
+import { runPanelMessages as m } from "./run-panel.messages";
+
+/** What a call did, worded around what it acted on. */
+type CallVerb = (typeof m)[
+  | "ran"
+  | "read"
+  | "edited"
+  | "wrote"
+  | "searched"
+  | "listed"
+  | "fetched"
+  | "delegated"
+  | "called"];
 
 type TrajectoryItem =
   | { key: string; kind: "reasoning"; text: string }
@@ -44,7 +61,7 @@ interface TrajectoryCall {
   kind: string;
   output?: string;
   pending: boolean;
-  verb: string;
+  verb: CallVerb;
 }
 
 /**
@@ -60,10 +77,14 @@ export function RuntimeTrajectoryView({
   live: boolean;
   records: TeamHubMessageActivityRecord[];
 }) {
-  const items = useMemo(() => trajectoryItems(records, live), [records, live]);
+  const { t } = useTranslation();
+  const items = useMemo(
+    () => trajectoryItems(t, records, live),
+    [t, records, live],
+  );
   return (
     <ol
-      aria-label="Activity log"
+      aria-label={t(runtimeStatusMessages.activityLog)}
       className="space-y-1 text-xs leading-5 font-normal text-app-body"
     >
       {items.map((item) =>
@@ -88,17 +109,27 @@ export function RuntimeTrajectoryView({
 }
 
 function TrajectoryCallRow({ call }: { call: TrajectoryCall }) {
-  const { glyph } = toolPresentation(call.kind);
+  const { catalog, language, t } = useTranslation();
+  const { glyph } = toolAppearance(call.kind);
   const output = call.diff ?? call.output;
+  const values = { detail: call.detail };
   const label = (
     <span
       className={cn(
         "min-w-0 flex-1 truncate",
         call.pending && "town-shimmer-text",
       )}
-      title={`${call.verb} ${call.detail}`}
+      title={formatMessageParts(call.verb, language, catalog, values)
+        .map((part) => part.text)
+        .join("")}
     >
-      {call.verb} <span className="text-app-body">{call.detail}</span>
+      <RichMessage
+        message={call.verb}
+        tags={{
+          detail: (text) => <span className="text-app-body">{text}</span>,
+        }}
+        values={values}
+      />
     </span>
   );
   if (!output && !call.input)
@@ -124,12 +155,12 @@ function TrajectoryCallRow({ call }: { call: TrajectoryCall }) {
         </summary>
         <div className="space-y-2 pb-2 pl-[1.4rem]">
           {call.input ? (
-            <TrajectoryText label="Input" text={call.input} />
+            <TrajectoryText label={t(m.input)} text={call.input} />
           ) : null}
           {output ? (
             <TrajectoryText
               diff={Boolean(call.diff)}
-              label={call.diff ? "Changes" : "Output"}
+              label={t(call.diff ? m.changes : m.output)}
               text={output}
             />
           ) : null}
@@ -172,6 +203,7 @@ function diffTone(line: string) {
 }
 
 function trajectoryItems(
+  t: Translate,
   records: TeamHubMessageActivityRecord[],
   live: boolean,
 ): TrajectoryItem[] {
@@ -184,7 +216,7 @@ function trajectoryItems(
   for (const record of ordered) {
     const key = `${record.ordinal}:${items.length}`;
     if (record.category === "reasoning") {
-      const text = reasoningSummary(record);
+      const text = reasoningSummary(t, record);
       if (!text || seenReasoning.has(text)) continue;
       seenReasoning.add(text);
       items.push({ key, kind: "reasoning", text });
@@ -193,13 +225,13 @@ function trajectoryItems(
       isAssistantMessage(record) &&
       !isEventRecord(record)
     ) {
-      items.push({ key, kind: "reply", text: activityMessageText(record) });
+      items.push({ key, kind: "reply", text: activityMessageText(t, record) });
     } else if (record.category === "tool_call") {
       const pair = record.tool_call_id
         ? pairs.get(record.tool_call_id)
         : undefined;
       items.push({
-        call: trajectoryCall(record, pair, live),
+        call: trajectoryCall(t, record, pair, live),
         key,
         kind: "call",
       });
@@ -212,9 +244,9 @@ function trajectoryItems(
  * The readable summary of a reasoning step. Private thinking without a
  * summary says nothing to show, so it is left out.
  */
-function reasoningSummary(record: TeamHubMessageActivityRecord) {
+function reasoningSummary(t: Translate, record: TeamHubMessageActivityRecord) {
   const block = nativeContentBlock(record, nativePayload(record));
-  const text = block ? thinkingSummary(block) : reasoningText(record);
+  const text = block ? thinkingSummary(block) : reasoningText(t, record);
   return text?.replace(/^\*\*([\s\S]+)\*\*$/, "$1").trim();
 }
 
@@ -224,6 +256,7 @@ function reasoningSummary(record: TeamHubMessageActivityRecord) {
  * `Edit`, Pi `bash`, `read` and `edit`; MCP tools keep their own names.
  */
 function trajectoryCall(
+  t: Translate,
   record: TeamHubMessageActivityRecord,
   pair: ToolCallPair | undefined,
   live: boolean,
@@ -261,18 +294,18 @@ function trajectoryCall(
       "bash",
     ].includes(tool)
   )
-    return { ...base, detail: command, kind: "command", verb: "Ran" };
+    return { ...base, detail: command, kind: "command", verb: m.ran };
   const path = stringValue(args?.path ?? args?.file_path ?? args?.filePath);
   if (["read", "read_file", "view"].includes(tool) && path)
-    return { ...base, detail: path, kind: "read", verb: "Read" };
+    return { ...base, detail: path, kind: "read", verb: m.read };
   if (tool === "apply_patch") {
     const patch = stringValue(args?.input) ?? rawInput ?? "";
     return {
       ...base,
-      detail: patchFiles(patch) || "files",
+      detail: patchFiles(patch) || t(m.files),
       diff: patchLines(patch),
       kind: "file_change",
-      verb: "Edited",
+      verb: m.edited,
     };
   }
   if (
@@ -286,7 +319,7 @@ function trajectoryCall(
       detail: path,
       diff: editLines(args) || undefined,
       kind: "file_change",
-      verb: tool === "write" ? "Wrote" : "Edited",
+      verb: tool === "write" ? m.wrote : m.edited,
     };
   const query = stringValue(args?.query ?? args?.pattern);
   if (
@@ -303,26 +336,26 @@ function trajectoryCall(
     const scope = stringValue(args?.path);
     return {
       ...base,
-      detail: scope ? `${query} in ${scope}` : query,
+      detail: scope ? t(m.searchIn, { query, scope }) : query,
       kind: "search",
-      verb: "Searched",
+      verb: m.searched,
     };
   }
   if (tool === "ls")
-    return { ...base, detail: path ?? ".", kind: "read", verb: "Listed" };
+    return { ...base, detail: path ?? ".", kind: "read", verb: m.listed };
   const url = stringValue(args?.url);
   if (["web_fetch", "webfetch"].includes(tool) && url)
-    return { ...base, detail: url, kind: "browse", verb: "Fetched" };
+    return { ...base, detail: url, kind: "browse", verb: m.fetched };
   const task = stringValue(args?.description);
   if (["task", "agent"].includes(tool) && task)
-    return { ...base, detail: task, kind: "delegation", verb: "Delegated" };
+    return { ...base, detail: task, kind: "delegation", verb: m.delegated };
   const input = args ? JSON.stringify(args, null, 2) : rawInput;
   return {
     ...base,
     detail: toolNameLabel(name),
     ...(input ? { input } : {}),
     kind: "tool",
-    verb: "Called",
+    verb: m.called,
   };
 }
 

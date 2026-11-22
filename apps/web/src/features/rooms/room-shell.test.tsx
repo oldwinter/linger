@@ -35,7 +35,11 @@ import {
   TeamHubRuntimeProvider,
 } from "@/features/teamhub/teamhub-runtime";
 
-import { teamHubIdentityQueryKey } from "./room-queries";
+import {
+  teamHubIdentityQueryKey,
+  teamHubIdentityQueryOptions,
+  teamHubTenantQueryOptions,
+} from "./room-queries";
 import { browserRoomMessageOutbox } from "./chat/room-message-outbox";
 import { RoomShell } from "./room-shell";
 import {
@@ -190,9 +194,26 @@ describe("Room shell Account menu", () => {
         screen.queryByRole("dialog", { name: "Search" }),
       ).not.toBeInTheDocument(),
     );
-    fireEvent.click(await shellControl("Search"));
+    const primaryNavigation = await screen.findByRole(
+      "navigation",
+      { name: "Primary navigation" },
+      { timeout: 10_000 },
+    );
+    fireEvent.click(
+      within(primaryNavigation).getByRole("button", { name: "Search" }),
+    );
     expect(await screen.findByRole("dialog", { name: "Search" })).toBeVisible();
     expect(screen.getByText("Shell content")).toBeVisible();
+  });
+
+  it("opens global search from the persistent primary rail button on non-Room routes", async () => {
+    await renderAccountShell({ initialEntry: "/t/tenant-northstar/apps" });
+    await act(async () => {
+      await import("@/features/search/global-search-dialog");
+    });
+
+    fireEvent.click(await shellControl("Search"));
+    expect(await screen.findByRole("dialog", { name: "Search" })).toBeVisible();
   });
 
   it("leaves Cmd/Ctrl+F to the browser outside a Room", async () => {
@@ -205,6 +226,94 @@ describe("Room shell Account menu", () => {
     // browser's.
     expect(fireEvent.keyDown(window, { key: "f", ctrlKey: true })).toBe(true);
     expect(screen.queryByRole("dialog", { name: "Search" })).toBeNull();
+  });
+
+  it("toggles global search closed on Cmd/Ctrl+K and ignores Cmd/Ctrl+K and Cmd/Ctrl+J when another modal is open", async () => {
+    const { router } = await renderAccountShell({
+      initialEntry: "/t/tenant-northstar/rooms/room-all/chat",
+    });
+    await act(async () => {
+      await import("@/features/search/global-search-dialog");
+    });
+
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    expect(await screen.findByRole("dialog", { name: "Search" })).toBeVisible();
+
+    // Cmd+J is ignored while Search is open.
+    fireEvent.keyDown(window, { key: "j", metaKey: true });
+    expect(router.state.location.pathname).toBe(
+      "/t/tenant-northstar/rooms/room-all/chat",
+    );
+
+    // Cmd+K toggles Search closed when it is the active dialog.
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "Search" }),
+      ).not.toBeInTheDocument(),
+    );
+
+    // Another modal dialog blocks both Cmd+K and Cmd+J.
+    const modal = document.createElement("div");
+    modal.setAttribute("role", "dialog");
+    modal.setAttribute("aria-modal", "true");
+    document.body.append(modal);
+    try {
+      fireEvent.keyDown(window, { key: "k", metaKey: true });
+      fireEvent.keyDown(window, { key: "j", metaKey: true });
+      expect(screen.queryByRole("dialog", { name: "Search" })).toBeNull();
+      expect(router.state.location.pathname).toBe(
+        "/t/tenant-northstar/rooms/room-all/chat",
+      );
+    } finally {
+      modal.remove();
+    }
+  });
+
+  it("disables Cmd/Ctrl+K and Cmd/Ctrl+J while the LocalComputerGate is active", async () => {
+    const { router } = await renderAccountShell({
+      initialEntry: "/t/tenant-northstar/rooms/room-all/chat",
+      configureRuntime: (runtime) => {
+        runtime.server.on(
+          "GET",
+          "/v0/tenants/{tenantId}/another-me",
+          () => ({}),
+        );
+      },
+    });
+    await act(async () => {
+      await import("@/features/search/global-search-dialog");
+    });
+    // Wait for the shell to mark itself inert under the setup gate.
+    await waitFor(() =>
+      expect(document.querySelector(".app-shell")?.hasAttribute("inert")).toBe(
+        true,
+      ),
+    );
+
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    fireEvent.keyDown(window, { key: "j", metaKey: true });
+    expect(screen.queryByRole("dialog", { name: "Search" })).toBeNull();
+    expect(router.state.location.pathname).toBe(
+      "/t/tenant-northstar/rooms/room-all/chat",
+    );
+  });
+
+  it("lets Settings › Shortcuts rehearse Cmd+K and Cmd+J without opening search or jumping", async () => {
+    const { router } = await renderAccountShell({
+      initialEntry: "/t/tenant-northstar/rooms/room-all/chat",
+    });
+    await act(async () => {
+      await import("@/features/search/global-search-dialog");
+      await router.navigate("/t/tenant-northstar/settings/shortcuts");
+    });
+
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    fireEvent.keyDown(window, { key: "j", metaKey: true });
+    expect(screen.queryByRole("dialog", { name: "Search" })).toBeNull();
+    expect(router.state.location.pathname).toBe(
+      "/t/tenant-northstar/settings/shortcuts",
+    );
   });
 
   it("lets Live voice switch pages and open a search already filled in", async () => {
@@ -488,6 +597,14 @@ describe("Room shell Tenant transition", () => {
       ],
       { initialEntries: ["/t/tenant-northstar/rooms/room-all/chat"] },
     );
+    // Loading what RoomShell suspends on before rendering skips React's
+    // Suspense reveal throttle, which otherwise costs the test a fixed delay.
+    await Promise.all([
+      queryClient.ensureQueryData(teamHubIdentityQueryOptions(runtime.client)),
+      queryClient.ensureQueryData(
+        teamHubTenantQueryOptions(runtime.client, "tenant-northstar"),
+      ),
+    ]);
     render(
       <QueryClientProvider client={queryClient}>
         <TeamHubRuntimeProvider runtime={runtime}>
@@ -698,7 +815,8 @@ describe("Room shell Tenant transition", () => {
     );
 
     expect(await screen.findByText("Current Room content")).toBeVisible();
-    fireEvent.click(screen.getByRole("link", { name: "gtm-launch" }));
+    // The Room list is a lazy chunk that can settle after the Room content.
+    fireEvent.click(await screen.findByRole("link", { name: "gtm-launch" }));
     await waitFor(() =>
       expect(router.state.location.pathname).toBe(
         "/t/tenant-northstar/rooms/room-gtm-launch/chat",
@@ -769,6 +887,18 @@ describe("Room shell Tenant transition", () => {
 
     await act(async () => releaseProfile());
     await waitFor(() => expect(router.state.navigation.state).toBe("idle"));
+  });
+
+  it("records room.shell_visible on first shell commit", async () => {
+    const markSpy = vi.spyOn(performance, "mark");
+    await renderAccountShell({
+      initialEntry: "/t/tenant-northstar/rooms/room-all/chat",
+    });
+    // The mark is a passive effect, which may run after the shell's DOM is
+    // found on a loaded runner.
+    await waitFor(() =>
+      expect(markSpy).toHaveBeenCalledWith("room.shell_visible"),
+    );
   });
 });
 

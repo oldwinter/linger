@@ -52,7 +52,19 @@ interface RoutineRoutes {
   updateRoutine?: TestRouteHandler;
 }
 
-function renderPanel(routes: RoutineRoutes, agentScoped = true) {
+function renderPanel(
+  routes: RoutineRoutes,
+  agentScoped = true,
+  options: {
+    includeMessageOnly?: boolean;
+    mentionOptions?: {
+      display_name: string;
+      id: string;
+      kind: "agent" | "human";
+      tenant_id: string;
+    }[];
+  } = {},
+) {
   const runtime = createTestTeamHubRuntime();
   runtime.server.on(
     "GET",
@@ -91,7 +103,8 @@ function renderPanel(routes: RoutineRoutes, agentScoped = true) {
       <TeamHubRuntimeProvider runtime={runtime}>
         <RemindersPanel
           agentActorId={agentScoped ? AGENT : undefined}
-          mentionOptions={[]}
+          includeMessageOnly={options.includeMessageOnly}
+          mentionOptions={options.mentionOptions ?? []}
           roomId="room-1"
           tenantId="tenant-1"
         />
@@ -329,6 +342,14 @@ describe("RemindersPanel", () => {
       within(dialog).queryByRole("combobox", { name: "Mention" }),
     ).toBeNull();
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+    expect(deleteRoutine).not.toHaveBeenCalled();
+    expect(within(dialog).getByText("Delete?")).toBeVisible();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(deleteRoutine).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Confirm delete routine" }),
+    );
     await waitFor(() =>
       expect(deletedRoutines(deleteRoutine)).toContainEqual(["routine_1", 1]),
     );
@@ -363,7 +384,7 @@ describe("RemindersPanel", () => {
     );
   });
 
-  it.each(["Save", "Run now", "Delete"])(
+  it.each(["Save", "Run now", "Delete"] as const)(
     "protects edits and other commands while %s is pending",
     async (action) => {
       let finish!: (response: Response) => void;
@@ -382,14 +403,25 @@ describe("RemindersPanel", () => {
       );
       const dialog = await openRoutine(/Daily brief/);
       const instruction = within(dialog).getByLabelText("Instruction");
-      fireEvent.change(instruction, {
-        target: { value: "Prepare the updated brief" },
-      });
-      await chooseWhen(dialog, "Weekdays");
-      const buttons = ["Save", "Run now", "Delete"].map((name) =>
-        within(dialog).getByRole("button", { name }),
-      );
-      fireEvent.click(within(dialog).getByRole("button", { name: action }));
+      if (action === "Save") {
+        fireEvent.change(instruction, {
+          target: { value: "Prepare the updated brief" },
+        });
+        await chooseWhen(dialog, "Weekdays");
+        expect(
+          within(dialog).getByRole("button", { name: "Run now" }),
+        ).toBeDisabled();
+      }
+      if (action === "Delete") {
+        fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+        fireEvent.click(
+          within(dialog).getByRole("button", {
+            name: "Confirm delete routine",
+          }),
+        );
+      } else {
+        fireEvent.click(within(dialog).getByRole("button", { name: action }));
+      }
       await waitFor(() => expect(pending).toHaveBeenCalledOnce());
 
       for (const label of [
@@ -403,13 +435,16 @@ describe("RemindersPanel", () => {
       for (const name of ["When", "Mention"]) {
         expect(within(dialog).getByRole("combobox", { name })).toBeDisabled();
       }
-      expect(
-        within(dialog).getByRole("checkbox", { name: "Friday" }),
-      ).toBeDisabled();
+      if (action === "Save") {
+        expect(
+          within(dialog).getByRole("checkbox", { name: "Friday" }),
+        ).toBeDisabled();
+      }
       expect(
         within(dialog).getByRole("button", { name: "9 AM" }),
       ).toBeDisabled();
-      for (const button of buttons) {
+      for (const button of within(dialog).getAllByRole("button")) {
+        if (button.getAttribute("aria-label") === "Close") continue;
         expect(button).toBeDisabled();
         fireEvent.click(button);
       }
@@ -433,10 +468,28 @@ describe("RemindersPanel", () => {
       expect(await within(dialog).findByRole("alert")).toHaveTextContent(
         "This routine changed. Try again.",
       );
-      expect(instruction).toHaveValue("Prepare the updated brief");
+      expect(instruction).toHaveValue(
+        action === "Save"
+          ? "Prepare the updated brief"
+          : "Write the daily brief",
+      );
       expect(instruction).toBeEnabled();
       expect(within(dialog).getByLabelText("Hour")).toBeEnabled();
-      for (const button of buttons) expect(button).toBeEnabled();
+      expect(
+        within(dialog).getByRole("button", { name: "Save" }),
+      ).toBeEnabled();
+      expect(
+        within(dialog).getByRole("button", { name: "Delete" }),
+      ).toBeEnabled();
+      if (action === "Save") {
+        expect(
+          within(dialog).getByRole("button", { name: "Run now" }),
+        ).toBeDisabled();
+      } else {
+        expect(
+          within(dialog).getByRole("button", { name: "Run now" }),
+        ).toBeEnabled();
+      }
       fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
       expect(dialog).not.toBeInTheDocument();
     },
@@ -769,5 +822,333 @@ describe("weekly routine editing", () => {
       "Choose at least one weekday.",
     );
     expect(updateRoutine).not.toHaveBeenCalled();
+  });
+});
+
+describe("minute-interval routines", () => {
+  it("displays Every N min without an edit entry while allowing pause, resume, and delete", async () => {
+    const minuteRoutine: TeamHubRoutine = {
+      ...reminder,
+      id: "routine_min_10",
+      name: "Check build",
+      instruction: "Check CI status",
+      mention_actor_id: AGENT,
+      cadence: {
+        kind: "every_n_minutes",
+        timezone: "UTC",
+        interval_minutes: 10,
+      },
+      enabled: true,
+      revision: 3,
+    };
+    const pausedRoutine: TeamHubRoutine = {
+      ...minuteRoutine,
+      enabled: false,
+      revision: 4,
+    };
+    const resumedRoutine: TeamHubRoutine = {
+      ...minuteRoutine,
+      enabled: true,
+      revision: 5,
+    };
+    let current = minuteRoutine;
+    const updateRoutine = vi
+      .fn<TestRouteHandler>()
+      .mockImplementationOnce(() => {
+        current = pausedRoutine;
+        return pausedRoutine;
+      })
+      .mockImplementationOnce(() => {
+        current = resumedRoutine;
+        return resumedRoutine;
+      });
+    const deleteRoutine = vi.fn<TestRouteHandler>();
+    renderPanel({
+      listRoomRoutines: () => ({ items: [current], page: { has_more: false } }),
+      updateRoutine,
+      deleteRoutine,
+    });
+    expect(await screen.findByText("Check build")).toBeVisible();
+    expect(screen.getByText("Every 10 min")).toBeVisible();
+    // Clicking the minute routine row does not open an edit dialog.
+    expect(screen.queryByRole("button", { name: /^Check build/ })).toBeNull();
+    fireEvent.click(screen.getByText("Check build"));
+    expect(screen.queryByRole("dialog", { name: "Edit routine" })).toBeNull();
+    // Pause sends only expected_revision and enabled (never alters cadence).
+    fireEvent.click(screen.getByRole("switch", { name: "Pause routine" }));
+    await waitFor(() => expect(updateRoutine).toHaveBeenCalledTimes(1));
+    expect(sentBody(updateRoutine, 0)).toEqual({
+      expected_revision: 3,
+      enabled: false,
+    });
+    // Resume sends only expected_revision and enabled.
+    fireEvent.click(
+      await screen.findByRole("switch", { name: "Enable routine" }),
+    );
+    await waitFor(() => expect(updateRoutine).toHaveBeenCalledTimes(2));
+    expect(sentBody(updateRoutine, 1)).toEqual({
+      expected_revision: 4,
+      enabled: true,
+    });
+    expect(await screen.findByText("Every 10 min")).toBeVisible();
+    // Delete asks for confirmation from the row before deleting.
+    fireEvent.click(screen.getByRole("button", { name: "Delete routine" }));
+    expect(deleteRoutine).not.toHaveBeenCalled();
+    expect(screen.getByText("Delete?")).toBeVisible();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Confirm delete routine" }),
+    );
+    await waitFor(() =>
+      expect(deletedRoutines(deleteRoutine)).toContainEqual([
+        "routine_min_10",
+        5,
+      ]),
+    );
+  });
+
+  it("shows an error alert when deleting a minute-interval routine fails", async () => {
+    const minuteRoutine: TeamHubRoutine = {
+      ...reminder,
+      id: "routine_min_conflict",
+      name: "Check build",
+      cadence: {
+        kind: "every_n_minutes",
+        timezone: "UTC",
+        interval_minutes: 10,
+      },
+      revision: 3,
+    };
+    const deleteRoutine = vi.fn<TestRouteHandler>(
+      () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              code: "CONFLICT",
+              message: "Routine revision is out of date.",
+              request_id: "req-conflict",
+            },
+          }),
+          { status: 409, headers: { "content-type": "application/json" } },
+        ),
+    );
+    renderPanel({
+      listRoomRoutines: list([minuteRoutine]),
+      deleteRoutine,
+    });
+    expect(await screen.findByText("Check build")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Delete routine" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Confirm delete routine" }),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /revision is out of date/i,
+    );
+  });
+
+  it("keeps creating and editing hourly routines unchanged without minute options", async () => {
+    const createRoomRoutine = vi.fn<TestRouteHandler>(() => reminder);
+    renderPanel({ listRoomRoutines: list([]), createRoomRoutine });
+    fireEvent.click(await screen.findByRole("button", { name: "New routine" }));
+    const dialog = screen.getByRole("dialog", { name: "New routine" });
+    fireEvent.change(within(dialog).getByLabelText("Instruction"), {
+      target: { value: "Hourly status check" },
+    });
+    await chooseWhen(dialog, "Every few hours");
+    for (const label of ["1h", "2h", "3h", "4h", "6h", "12h"]) {
+      expect(within(dialog).getByRole("button", { name: label })).toBeVisible();
+    }
+    expect(within(dialog).queryByRole("button", { name: /min/i })).toBeNull();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create" }));
+    await waitFor(() => expect(createRoomRoutine).toHaveBeenCalledTimes(1));
+    expect(sentBody(createRoomRoutine, 0)).toMatchObject({
+      cadence: { kind: "every_n_hours", interval_hours: 2 },
+    });
+  });
+
+  it("shows an error alert when toggling a routine switch fails", async () => {
+    renderPanel({
+      listRoomRoutines: list([reminder]),
+      updateRoutine: vi.fn<TestRouteHandler>(() =>
+        teamHubErrorResponse(
+          503,
+          "ROUTINE_UNAVAILABLE",
+          "Could not pause this routine.",
+        ),
+      ),
+    });
+    const toggle = await screen.findByRole("switch", { name: "Pause routine" });
+    fireEvent.click(toggle);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Could not pause this routine.",
+    );
+  });
+
+  it("shows all room routines with clear audience labels when not scoped to one agent", async () => {
+    renderPanel(
+      {
+        listRoomRoutines: list([
+          {
+            ...reminder,
+            id: "r-agent",
+            name: "Standup summary",
+            created_by_actor_id: "human-1",
+            mention_actor_id: AGENT,
+            next_run_at: inDays(1, 9),
+          },
+          {
+            ...reminder,
+            id: "r-message-only",
+            name: "Water the plants",
+            created_by_actor_id: "human-1",
+            mention_actor_id: undefined,
+            next_run_at: inDays(1, 10),
+          },
+        ]),
+      },
+      false,
+      {
+        mentionOptions: [
+          {
+            display_name: "Codex",
+            id: AGENT,
+            kind: "agent",
+            tenant_id: "tenant-1",
+          },
+        ],
+      },
+    );
+    expect(await screen.findByText("Standup summary")).toBeVisible();
+    expect(screen.getByText(/Wakes Codex$/)).toBeVisible();
+    expect(screen.getByText("Water the plants")).toBeVisible();
+    expect(screen.getByText(/Message only$/)).toBeVisible();
+  });
+
+  it("includes message-only routines for an Agent when includeMessageOnly is set", async () => {
+    renderPanel(
+      {
+        listRoomRoutines: list([
+          {
+            ...reminder,
+            id: "r-dm-msg",
+            name: "Stretch break",
+            created_by_actor_id: "human-1",
+            mention_actor_id: undefined,
+            next_run_at: inDays(1, 9),
+          },
+          {
+            ...reminder,
+            id: "r-other-agent",
+            name: "Other agent work",
+            created_by_actor_id: "human-1",
+            mention_actor_id: "agent-other",
+            next_run_at: inDays(1, 10),
+          },
+        ]),
+      },
+      true,
+      { includeMessageOnly: true },
+    );
+    expect(await screen.findByText("Stretch break")).toBeVisible();
+    expect(screen.getByText(/Message only$/)).toBeVisible();
+    expect(screen.queryByText("Other agent work")).toBeNull();
+  });
+
+  it("supports Today and Pick a date defaulting to today with past-time validation", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 10, 14, 14, 30, 0));
+    try {
+      const createRoomRoutine = vi.fn<TestRouteHandler>(() => reminder);
+      renderPanel({ listRoomRoutines: list([]), createRoomRoutine });
+      fireEvent.click(
+        await screen.findByRole("button", { name: "New routine" }),
+      );
+      const dialog = screen.getByRole("dialog", { name: "New routine" });
+      fireEvent.change(within(dialog).getByLabelText("Instruction"), {
+        target: { value: "Check evening deploy" },
+      });
+
+      // Pick a date defaults to today's local date.
+      await chooseWhen(dialog, "Pick a date");
+      expect(within(dialog).getByLabelText("Date")).toHaveValue("2026-11-14");
+
+      // Choosing Today at 9:00 AM (already passed at 2:30 PM) warns and prevents submission.
+      await chooseWhen(dialog, "Today");
+      expect(
+        within(dialog).getByText(
+          "That time has already passed today. Choose a later time or another day.",
+        ),
+      ).toBeVisible();
+      fireEvent.click(within(dialog).getByRole("button", { name: "Create" }));
+      expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+        "That time has already passed today.",
+      );
+      expect(createRoomRoutine).not.toHaveBeenCalled();
+
+      // Choosing a later time today clears the hint and allows creating.
+      fireEvent.click(within(dialog).getByRole("button", { name: "6 PM" }));
+      expect(
+        within(dialog).queryByText(/already passed today/i),
+      ).not.toBeInTheDocument();
+      fireEvent.click(within(dialog).getByRole("button", { name: "Create" }));
+      await waitFor(() => expect(createRoomRoutine).toHaveBeenCalledTimes(1));
+      const body = sentBody(createRoomRoutine, 0) as {
+        cadence: { kind: string; run_at: string };
+      };
+      expect(body.cadence.kind).toBe("once");
+      expect(new Date(body.cadence.run_at).getTime()).toBe(
+        new Date(2026, 10, 14, 18, 0, 0).getTime(),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("disables Run now while edits are unsaved and explains why", async () => {
+    const runRoutine = vi.fn<TestRouteHandler>(() => ({ ok: true }));
+    renderPanel({ listRoomRoutines: list([reminder]), runRoutine });
+    const dialog = await openRoutine(/Daily brief/);
+    const runNow = within(dialog).getByRole("button", { name: "Run now" });
+    expect(runNow).toBeEnabled();
+    expect(
+      within(dialog).queryByText("Save changes before running now."),
+    ).toBeNull();
+
+    const instruction = within(dialog).getByLabelText("Instruction");
+    fireEvent.change(instruction, {
+      target: { value: "Write a shorter brief" },
+    });
+    expect(runNow).toBeDisabled();
+    expect(
+      within(dialog).getByText("Save changes before running now."),
+    ).toBeVisible();
+    fireEvent.click(runNow);
+    expect(runRoutine).not.toHaveBeenCalled();
+
+    // Reverting to the original value re-enables Run now.
+    fireEvent.change(instruction, {
+      target: { value: "Write the daily brief" },
+    });
+    expect(runNow).toBeEnabled();
+    expect(
+      within(dialog).queryByText("Save changes before running now."),
+    ).toBeNull();
+  });
+
+  it("offers Retry when routines fail to load", async () => {
+    let fail = true;
+    renderPanel({
+      listRoomRoutines: () => {
+        if (fail) {
+          fail = false;
+          return teamHubErrorResponse(503, "ROUTINES_UNAVAILABLE");
+        }
+        return { items: [reminder], page: { has_more: false } };
+      },
+    });
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Routines could not be loaded.",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("Daily brief")).toBeVisible();
   });
 });

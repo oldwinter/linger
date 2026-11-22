@@ -111,7 +111,7 @@ export class RunnerDebugInspection {
   /** Whether detached native history can be read from this Computer now. */
   canReadDetachedHistory(
     computerId: string,
-    runtimeType: "codex" | "claude" | "pi",
+    runtimeType: "codex" | "claude" | "pi" | "antigravity",
   ): boolean {
     const connection = this.owners.connections().getConnection(computerId);
     if (!isServingConnection(connection)) return false;

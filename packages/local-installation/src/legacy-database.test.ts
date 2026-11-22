@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { readLocalLogin } from "./account.js";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   latestLegacyBackup,
@@ -131,6 +132,9 @@ describe("setAsideLegacyData", () => {
     expect(
       JSON.parse(await readFile(path.join(root, "local-account.json"), "utf8")),
     ).toEqual({ ...account, provisioned: false });
+    await expect(readLocalLogin({ root })).rejects.toThrow(
+      "The local account file is invalid or the account has not been created.",
+    );
     expect(await latestLegacyBackup(root)).toBe(backup);
   });
 

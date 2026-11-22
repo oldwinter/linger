@@ -1,17 +1,21 @@
+import type { Message } from "@/i18n/messages";
+import { useT } from "@/i18n/use-translation";
+
 import type {
   RuntimeActivityContentBlock,
   RuntimeActivityEntry,
   RuntimeActivityPresentation,
 } from "./runtime-presentation-events";
+import { runtimeStatusMessages as m } from "./runtime-status.messages";
 
 const outcomeLabels: Record<
   NonNullable<RuntimeActivityPresentation["outcome"]>,
-  string
+  Message<string>
 > = {
-  canceled: "Canceled",
-  declined: "Declined",
-  failed: "Failed",
-  succeeded: "Succeeded",
+  canceled: m.outcomeCanceled,
+  declined: m.outcomeDeclined,
+  failed: m.outcomeFailed,
+  succeeded: m.outcomeSucceeded,
 };
 
 /**
@@ -29,20 +33,24 @@ export function RuntimeActivityEntries({
   title: string;
   tool: string;
 }) {
+  const t = useT();
   return (
-    <div aria-label={`${title} details`} className="mt-1.5 space-y-1.5">
+    <div
+      aria-label={t(m.stepDetails, { title })}
+      className="mt-1.5 space-y-1.5"
+    >
       <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-[12px] leading-4">
-        <dt className="text-app-subtle">Tool</dt>
+        <dt className="text-app-subtle">{t(m.tool)}</dt>
         <dd className="break-all font-mono text-app-body">{tool}</dd>
         {outcome ? (
           <>
-            <dt className="text-app-subtle">Outcome</dt>
+            <dt className="text-app-subtle">{t(m.outcome)}</dt>
             <dd
               className={
                 outcome === "failed" ? "text-app-danger" : "text-app-body"
               }
             >
-              {outcomeLabels[outcome]}
+              {t(outcomeLabels[outcome])}
             </dd>
           </>
         ) : null}

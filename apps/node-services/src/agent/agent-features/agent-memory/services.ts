@@ -1,4 +1,3 @@
-import type { AgentContextHost } from "../../executor/workspace.js";
 import type { ModelCall } from "../../../runtime-model-call.js";
 import type { AgentLogger } from "../../observability/agent-log.js";
 import type { TeamHubRuntimeStateClient } from "../../executor/teamhub-runtime-state-client.js";
@@ -19,7 +18,6 @@ export interface AgentMemoryMaintenance {
  */
 export interface AgentMemoryServicesOptions {
   readonly memory: MemoryClient;
-  readonly contextHost: Pick<AgentContextHost, "ensureAgentRoots">;
   readonly runtimeState: TeamHubRuntimeStateClient;
   readonly logger: Pick<AgentLogger, "log">;
   /**
@@ -60,10 +58,7 @@ export interface AgentMemoryServices {
 export const createAgentMemoryServices = (
   options: AgentMemoryServicesOptions,
 ): AgentMemoryServices => {
-  const projection = createMemoryProjection(
-    options.memory,
-    options.contextHost,
-  );
+  const projection = createMemoryProjection(options.memory);
   let coordinator: AgentMemoryCoordinator | undefined;
   let started = false;
   let closed = false;

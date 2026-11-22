@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -13,12 +14,31 @@ import (
 
 func TestDiscordAndGoogleCalendarProxyPaginationAndRendering(t *testing.T) {
 	var requests []proxyRequest
+	toolRequests := map[string]discordToolRequest{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet && r.URL.Path == "/api/v3.1/connected_accounts/discord-account" {
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"toolkit": map[string]string{"slug": "discordbot"},
-				"state":   map[string]any{"val": map[string]any{"guild": map[string]string{"id": "guild-1", "name": "Workspace Guild"}}},
-			})
+		if slug, ok := strings.CutPrefix(r.URL.Path, "/api/v3.1/tools/execute/DISCORDBOT_"); ok {
+			var request discordToolRequest
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil || r.Method != http.MethodPost {
+				t.Errorf("tool request %s err=%v", r.Method, err)
+			}
+			toolRequests[slug] = request
+			var data json.RawMessage
+			switch slug {
+			case "GET_CONNECTED_GUILD":
+				data = json.RawMessage(`{"id":"GUILD","name":"Workspace Guild"}`)
+			case "LIST_GUILD_CHANNELS":
+				data = json.RawMessage(`{"channels":[{"id":"channel-1","guild_id":"GUILD","parent_id":null,"name":"product","type":0},{"id":"voice-1","guild_id":"GUILD","name":"standup","type":2}]}`)
+			case "GET_ACTIVE_GUILD_THREADS":
+				data = json.RawMessage(`{"threads":[{"id":"thread-1","guild_id":"GUILD","parent_id":"channel-1","name":"launch","type":11,"thread_metadata":{"archive_timestamp":"2026-08-10T10:00:00Z"}}],"has_more":false,"members":[]}`)
+			case "LIST_PUBLIC_ARCHIVED_THREADS":
+				data = json.RawMessage(`{"threads":[{"id":"thread-2","guild_id":"GUILD","parent_id":"channel-1","name":"archive","type":11,"thread_metadata":{"archive_timestamp":"2026-08-09T10:00:00Z"}}],"has_more":true}`)
+			case "LIST_MESSAGES":
+				data = json.RawMessage(`{"messages":[{"id":"message-1","channel_id":"channel-1","content":"Hello <team>","timestamp":"2026-08-10T08:30:00Z","edited_timestamp":null,"type":0,"author":{"id":"user-1","username":"alice","global_name":"Alice","bot":false},"member":{"nick":"Alice P"},"attachments":[]}]}`)
+			default:
+				t.Errorf("unexpected Discord tool %s", slug)
+			}
+			data = json.RawMessage(strings.ReplaceAll(string(data), "GUILD", "1537440822578913330"))
+			_ = json.NewEncoder(w).Encode(map[string]any{"successful": true, "data": data})
 			return
 		}
 		var request proxyRequest
@@ -30,16 +50,6 @@ func TestDiscordAndGoogleCalendarProxyPaginationAndRendering(t *testing.T) {
 		requests = append(requests, request)
 		var data json.RawMessage
 		switch request.Endpoint {
-		case "/guilds/guild-1":
-			data = json.RawMessage(`{"id":"guild-1","name":"Workspace Guild"}`)
-		case "/guilds/guild-1/channels":
-			data = json.RawMessage(`[{"id":"channel-1","guild_id":"guild-1","name":"product","type":0},{"id":"voice-1","guild_id":"guild-1","name":"standup","type":2}]`)
-		case "/guilds/guild-1/threads/active":
-			data = json.RawMessage(`{"threads":[{"id":"thread-1","guild_id":"guild-1","parent_id":"channel-1","name":"launch","type":11,"thread_metadata":{"archive_timestamp":"2026-08-10T10:00:00Z"}}]}`)
-		case "/channels/channel-1/threads/archived/public":
-			data = json.RawMessage(`{"threads":[{"id":"thread-2","guild_id":"guild-1","parent_id":"channel-1","name":"archive","type":11,"thread_metadata":{"archive_timestamp":"2026-08-09T10:00:00Z"}}],"has_more":true}`)
-		case "/channels/channel-1/messages":
-			data = json.RawMessage(`[{"id":"message-1","channel_id":"channel-1","content":"Hello <team>","timestamp":"2026-08-10T08:30:00Z","type":0,"author":{"id":"user-1","username":"alice","global_name":"Alice","bot":false},"member":{"nick":"Alice P"},"attachments":[]}]`)
 		case "/users/me/calendarList/primary":
 			data = json.RawMessage(`{"id":"primary@example.test","summary":"Alice","timeZone":"Asia/Shanghai","primary":true}`)
 		case "/users/me/calendarList":
@@ -59,11 +69,14 @@ func TestDiscordAndGoogleCalendarProxyPaginationAndRendering(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	client.SetConnectionAuthority(func(context.Context, string) (ConnectionBinding, error) {
+		return ConnectionBinding{UserID: "binding-user"}, nil
+	})
 	ctx := context.Background()
 	start, end := time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC), time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC)
 
 	discordIdentity, err := client.IdentifyDiscord(ctx, "discord-account")
-	if err != nil || discordIdentity.GuildID != "guild-1" {
+	if err != nil || discordIdentity.GuildID != "1537440822578913330" {
 		t.Fatalf("Discord identity=%+v err=%v", discordIdentity, err)
 	}
 	channels, err := client.ListDiscordChannels(ctx, "discord-account", discordIdentity.GuildID)
@@ -83,7 +96,7 @@ func TestDiscordAndGoogleCalendarProxyPaginationAndRendering(t *testing.T) {
 		t.Fatalf("Discord messages=%+v err=%v", messages, err)
 	}
 	discordDocuments, err := RenderDiscordDocumentsWithLimits(discordIdentity, map[string]DiscordChannel{"channel-1": channels[0]}, messages.Messages, DefaultAppImportLimits())
-	if err != nil || len(discordDocuments) != 1 || !strings.Contains(string(discordDocuments[0].Markdown), "Author: Alice P") || !strings.Contains(string(discordDocuments[0].Markdown), "Hello <team>") || !strings.Contains(string(discordDocuments[0].Markdown), "discord.com/channels/guild-1/channel-1/message-1") {
+	if err != nil || len(discordDocuments) != 1 || !strings.Contains(string(discordDocuments[0].Markdown), "Author: Alice P") || !strings.Contains(string(discordDocuments[0].Markdown), "Hello <team>") || !strings.Contains(string(discordDocuments[0].Markdown), "discord.com/channels/1537440822578913330/channel-1/message-1") {
 		t.Fatalf("Discord documents=%+v err=%v", discordDocuments, err)
 	}
 
@@ -104,8 +117,23 @@ func TestDiscordAndGoogleCalendarProxyPaginationAndRendering(t *testing.T) {
 		t.Fatalf("Calendar documents=%+v err=%v", calendarDocuments, err)
 	}
 
-	assertProxyParameter(t, requests, "/channels/channel-1/threads/archived/public", "before", "archive-cursor")
-	assertProxyParameter(t, requests, "/channels/channel-1/messages", "before", "message-cursor")
+	firstPage, err := client.ListDiscordMessages(ctx, "discord-account", "channel-1", "", 100)
+	if err != nil || firstPage.NextBefore != "" || !firstPage.Messages[0].EditedTimestamp.IsZero() {
+		t.Fatalf("Discord first message page=%+v err=%v", firstPage, err)
+	}
+	wantArguments := map[string]map[string]any{
+		"GET_CONNECTED_GUILD":          {},
+		"LIST_GUILD_CHANNELS":          {"guild_id": "1537440822578913330"},
+		"GET_ACTIVE_GUILD_THREADS":     {"guild_id": "1537440822578913330"},
+		"LIST_PUBLIC_ARCHIVED_THREADS": {"channel_id": "channel-1", "limit": float64(100), "before": "archive-cursor"},
+		"LIST_MESSAGES":                {"channel_id": "channel-1", "limit": float64(100)},
+	}
+	for slug, want := range wantArguments {
+		request := toolRequests[slug]
+		if request.ConnectedAccountID != "discord-account" || request.UserID != "binding-user" || request.Version != "20261116_00" || !reflect.DeepEqual(request.Arguments, want) {
+			t.Fatalf("Discord tool %s request=%+v want arguments %v", slug, request, want)
+		}
+	}
 	assertProxyParameter(t, requests, "/users/me/calendarList", "pageToken", "calendar-cursor")
 	assertProxyParameter(t, requests, "/calendars/team@example.test/events", "pageToken", "event-cursor")
 	for _, request := range requests {
@@ -151,47 +179,92 @@ func TestGoogleCalendarDeletedTombstoneWithoutStartRemainsImportable(t *testing.
 	}
 }
 
-func TestDiscordIdentityFailsClosedWithoutAuthorizedGuild(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{"toolkit": map[string]string{"slug": "discordbot"}, "state": map[string]any{"val": map[string]any{}}})
-	}))
-	defer server.Close()
+func newDiscordIdentityTestClient(t *testing.T, handler http.HandlerFunc) *Client {
+	t.Helper()
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
 	client, err := newTestClient(Config{BaseURL: server.URL, APIKey: "key", HTTPClient: server.Client(), RetryLimit: -1})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = client.IdentifyDiscord(context.Background(), "discord-account"); !errors.Is(err, ErrDiscordGuildRequired) {
-		t.Fatalf("Discord identity error=%v want ErrDiscordGuildRequired", err)
+	client.SetConnectionAuthority(func(context.Context, string) (ConnectionBinding, error) {
+		return ConnectionBinding{UserID: "binding-user"}, nil
+	})
+	return client
+}
+
+func TestDiscordIdentityReadsConnectedGuildTool(t *testing.T) {
+	for name, data := range map[string]any{
+		"object": map[string]any{"id": "1537440822578913330", "name": "Workspace Guild", "owner_id": "1"},
+		"string": `{"id":"1537440822578913330","name":"Workspace Guild"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			client := newDiscordIdentityTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPost || r.URL.Path != "/api/v3.1/tools/execute/DISCORDBOT_GET_CONNECTED_GUILD" {
+					t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				var body struct {
+					ConnectedAccountID string                     `json:"connected_account_id"`
+					UserID             string                     `json:"user_id"`
+					Version            string                     `json:"version"`
+					Arguments          map[string]json.RawMessage `json:"arguments"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.ConnectedAccountID != "discord-account" || body.UserID != "binding-user" || body.Version != "20261116_00" || body.Arguments == nil || len(body.Arguments) != 0 {
+					t.Errorf("tool request=%+v err=%v", body, err)
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"successful": true, "data": data})
+			})
+			identity, err := client.IdentifyDiscord(context.Background(), "discord-account")
+			if err != nil || identity != (DiscordIdentity{GuildID: "1537440822578913330", GuildName: "Workspace Guild"}) {
+				t.Fatalf("Discord identity=%+v err=%v", identity, err)
+			}
+		})
 	}
 }
 
-func TestDiscordIdentityRequiresExplicitGuildWhenStateIsRedacted(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.URL.Path, "/guilds/") {
-			t.Fatalf("redacted guild id must not be sent to Discord: %s", r.URL.Path)
-		}
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"toolkit": map[string]string{"slug": "discordbot"},
-			"state": map[string]any{"val": map[string]any{
-				"guild": map[string]string{"id": "REDACTED", "name": "REDACTED"},
-			}},
-		})
-	}))
-	defer server.Close()
-	client, err := newTestClient(Config{BaseURL: server.URL, APIKey: "key", HTTPClient: server.Client(), RetryLimit: -1})
-	if err != nil {
-		t.Fatal(err)
+func TestDiscordIdentityRejectsUnusableGuild(t *testing.T) {
+	cases := map[string]struct {
+		response     map[string]any
+		guildMissing bool
+	}{
+		"unsuccessful":      {response: map[string]any{"successful": false, "data": map[string]string{"id": "1537440822578913330", "name": "Guild"}}},
+		"array data":        {response: map[string]any{"successful": true, "data": []string{"1537440822578913330"}}},
+		"number data":       {response: map[string]any{"successful": true, "data": 1537440822578913330}},
+		"non-object string": {response: map[string]any{"successful": true, "data": "not json"}},
+		"redacted id":       {response: map[string]any{"successful": true, "data": map[string]string{"id": "REDACTED", "name": "Guild"}}, guildMissing: true},
+		"non-numeric id":    {response: map[string]any{"successful": true, "data": map[string]string{"id": "15374408225789133x0", "name": "Guild"}}, guildMissing: true},
+		"short id":          {response: map[string]any{"successful": true, "data": map[string]string{"id": "1234567890", "name": "Guild"}}, guildMissing: true},
+		"empty id":          {response: map[string]any{"successful": true, "data": map[string]string{"id": "", "name": "Guild"}}, guildMissing: true},
+		"redacted name":     {response: map[string]any{"successful": true, "data": map[string]string{"id": "1537440822578913330", "name": "redacted"}}, guildMissing: true},
+		"empty name":        {response: map[string]any{"successful": true, "data": map[string]string{"id": "1537440822578913330", "name": ""}}, guildMissing: true},
+		"whitespace name":   {response: map[string]any{"successful": true, "data": map[string]string{"id": "1537440822578913330", "name": "  "}}, guildMissing: true},
 	}
-	if _, err = client.IdentifyDiscord(context.Background(), "discord-account"); !errors.Is(err, ErrDiscordGuildRequired) {
-		t.Fatalf("Discord identity error=%v want ErrDiscordGuildRequired", err)
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			client := newDiscordIdentityTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/api/v3.1/tools/execute/DISCORDBOT_GET_CONNECTED_GUILD" {
+					t.Errorf("unexpected request %s", r.URL.Path)
+				}
+				_ = json.NewEncoder(w).Encode(tc.response)
+			})
+			_, err := client.IdentifyDiscord(context.Background(), "discord-account")
+			if err == nil || errors.Is(err, ErrDiscordGuildRequired) != tc.guildMissing {
+				t.Fatalf("Discord identity error=%v want guild required=%v", err, tc.guildMissing)
+			}
+		})
 	}
 }
 
 func TestDiscordGuildMapsMissingOrForbiddenServerToAccessibleError(t *testing.T) {
 	for _, remoteStatus := range []int{http.StatusForbidden, http.StatusNotFound} {
 		t.Run(http.StatusText(remoteStatus), func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				_ = json.NewEncoder(w).Encode(proxyResponse{Status: remoteStatus, Data: json.RawMessage(`{}`)})
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/api/v3.1/tools/execute/DISCORDBOT_GET_GUILD" {
+					t.Errorf("unexpected request %s", r.URL.Path)
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"successful": false, "error": "denied", "data": map[string]any{"message": "denied", "status_code": remoteStatus}})
 			}))
 			defer server.Close()
 			client, err := newTestClient(Config{BaseURL: server.URL, APIKey: "key", HTTPClient: server.Client(), RetryLimit: -1})
@@ -200,6 +273,44 @@ func TestDiscordGuildMapsMissingOrForbiddenServerToAccessibleError(t *testing.T)
 			}
 			if _, err = client.GetDiscordGuild(context.Background(), "discord-account", "1537440822578913330"); !errors.Is(err, ErrDiscordGuildNotAccessible) {
 				t.Fatalf("Discord guild error=%v want ErrDiscordGuildNotAccessible", err)
+			}
+		})
+	}
+}
+
+type discordToolRequest struct {
+	ConnectedAccountID string         `json:"connected_account_id"`
+	UserID             string         `json:"user_id"`
+	Version            string         `json:"version"`
+	Arguments          map[string]any `json:"arguments"`
+}
+
+func TestDiscordToolFailureUsesStructuredStatus(t *testing.T) {
+	for name, data := range map[string]any{
+		"rate limited": map[string]any{"message": "slow down", "status_code": 429},
+		"unauthorized": map[string]any{"message": "no", "status_code": 401},
+		"no status":    map[string]any{"message": "Forbidden 403"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			client := newDiscordIdentityTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+				_ = json.NewEncoder(w).Encode(map[string]any{"successful": false, "error": "status 403", "data": data})
+			})
+			_, err := client.ListDiscordChannels(context.Background(), "discord-account", "1537440822578913330")
+			var limited *RateLimitError
+			_, hasStatus := ErrorStatus(err)
+			switch name {
+			case "rate limited":
+				if !errors.As(err, &limited) {
+					t.Fatalf("error=%v want RateLimitError", err)
+				}
+			case "unauthorized":
+				if !IsAuthFailure(err) {
+					t.Fatalf("error=%v want auth failure", err)
+				}
+			default:
+				if err == nil || hasStatus || errors.As(err, &limited) {
+					t.Fatalf("error=%v want plain error", err)
+				}
 			}
 		})
 	}
@@ -286,4 +397,64 @@ func assertProxyParameter(t *testing.T, requests []proxyRequest, endpoint, name,
 		}
 	}
 	t.Fatalf("missing %s=%s query parameter for %s: %+v", name, value, endpoint, requests)
+}
+
+func TestDiscordChannelGuildReadsPinnedChannelTool(t *testing.T) {
+	var request discordToolRequest
+	client := newDiscordIdentityTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/v3.1/tools/execute/DISCORDBOT_GET_CHANNEL" {
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"successful": true, "data": map[string]any{"id": "c1", "guild_id": "g1"}})
+	})
+	guildID, err := client.GetDiscordChannelGuild(context.Background(), "discord-account", "c1")
+	want := discordToolRequest{ConnectedAccountID: "discord-account", UserID: "binding-user", Version: discordToolVersion, Arguments: map[string]any{"channel_id": "c1"}}
+	if err != nil || guildID != "g1" || !reflect.DeepEqual(request, want) {
+		t.Fatalf("guild=%q err=%v request=%+v", guildID, err, request)
+	}
+}
+
+func TestDiscordChannelGuildClassifiesFailures(t *testing.T) {
+	for name, response := range map[string]map[string]any{
+		"missing guild":    {"successful": true, "data": map[string]any{"id": "c1"}},
+		"non-string guild": {"successful": true, "data": map[string]any{"id": "c1", "guild_id": 7}},
+		"refused":          {"successful": false, "data": map[string]any{"message": "no"}},
+		"forbidden":        {"successful": false, "data": map[string]any{"status_code": 403}},
+		"rate limited":     {"successful": false, "data": map[string]any{"status_code": 429}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			client := newDiscordIdentityTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+				_ = json.NewEncoder(w).Encode(response)
+			})
+			guildID, err := client.GetDiscordChannelGuild(context.Background(), "discord-account", "c1")
+			status, _ := ErrorStatus(err)
+			var limited *RateLimitError
+			var ok bool
+			switch name {
+			case "missing guild", "non-string guild":
+				ok = errors.Is(err, ErrDiscordChannelGuildUnknown)
+			case "refused":
+				ok = errors.Is(err, ErrDiscordToolRefused)
+			case "forbidden":
+				ok = status == http.StatusForbidden && !errors.Is(err, ErrDiscordToolRefused)
+			case "rate limited":
+				ok = errors.As(err, &limited)
+			}
+			if !ok || guildID != "" {
+				t.Fatalf("guild=%q err=%v", guildID, err)
+			}
+		})
+	}
+}
+
+func TestDiscordChannelGuildRequiresChannelID(t *testing.T) {
+	client := newDiscordIdentityTestClient(t, func(http.ResponseWriter, *http.Request) {
+		t.Error("empty channel id reached Composio")
+	})
+	if _, err := client.GetDiscordChannelGuild(context.Background(), "discord-account", ""); err == nil {
+		t.Fatal("empty channel id was accepted")
+	}
 }

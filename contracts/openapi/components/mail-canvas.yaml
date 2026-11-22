@@ -1,0 +1,35 @@
+components:
+  schemas:
+    MailCanvasState:
+      type: object
+      additionalProperties: false
+      required: [status, subject, to, source_digest, can_edit]
+      properties:
+        status:
+          type: string
+          enum:
+            [draft, queued, uploading, sending, sent, failed, unknown, declined]
+        subject: { type: string }
+        to: { type: string }
+        error: { type: string }
+        message_id: { type: string }
+        can_edit:
+          type: boolean
+          description: Whether the caller may send or decline this email.
+        source_digest:
+          type: string
+          description: Fingerprint of the saved email; Send must echo it so only the reviewed version goes out.
+    SendMailCanvasRequest:
+      type: object
+      additionalProperties: false
+      required: [connection_id, request_id, source_digest]
+      properties:
+        connection_id:
+          $ref: "./common.yaml#/components/schemas/Id"
+        request_id:
+          type: string
+          minLength: 16
+          maxLength: 120
+        source_digest:
+          type: string
+          pattern: "^sha256:[0-9a-f]{64}$"

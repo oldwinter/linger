@@ -1,12 +1,14 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { defineGlobalProperty } from "@/test/global-properties";
 
 import { JumpPage } from "@/features/jump/jump-page";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubMemoryEntry } from "@/features/teamhub/teamhub-types";
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
+import { teamHubErrorResponse } from "@/test/teamhub-test-server";
 
 function meeting(id: string, path: string): TeamHubMemoryEntry {
   return {
@@ -102,5 +104,81 @@ describe("JumpPage", () => {
     expect(await screen.findByRole("status")).toHaveTextContent(
       "Nothing matches that.",
     );
+  });
+
+  it("navigates back on Escape or Back, scrolls active option into view, and keeps healthy places on partial failure", async () => {
+    const runtime = createTestTeamHubRuntime();
+    let failMeetings = true;
+    runtime.server.on("GET", "/v0/tenants/{tenantId}/memory", ({ query }) => {
+      if (failMeetings) {
+        return teamHubErrorResponse(503, "UNAVAILABLE", "Meetings unavailable");
+      }
+      return {
+        items:
+          query.get("kind") === "meeting"
+            ? [
+                meeting(
+                  "meeting-launch",
+                  "Meetings/2026/11/12/Meeting 15-30-00",
+                ),
+              ]
+            : [],
+      };
+    });
+    const scrollIntoView = vi.fn();
+    defineGlobalProperty(HTMLElement.prototype, "scrollIntoView", {
+      value: scrollIntoView,
+      writable: true,
+    });
+    const router = createMemoryRouter(
+      [
+        { element: <p>Previous page</p>, path: "/t/:tenantId/apps" },
+        { element: <JumpPage />, path: "/t/:tenantId/jump" },
+      ],
+      {
+        initialEntries: [
+          "/t/tenant-northstar/apps",
+          "/t/tenant-northstar/jump",
+        ],
+      },
+    );
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <TeamHubRuntimeProvider runtime={runtime}>
+          <RouterProvider router={router} />
+        </TeamHubRuntimeProvider>
+      </QueryClientProvider>,
+    );
+
+    const list = await screen.findByRole("listbox", { name: "Places" });
+    expect(
+      within(list).getByRole("option", { name: /Another Me/ }),
+    ).toBeVisible();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Meetings could not be loaded.",
+    );
+
+    failMeetings = false;
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(
+      await within(list).findByRole("option", { name: /Nov 12, 15:30/ }),
+    ).toBeVisible();
+
+    const field = screen.getByRole("combobox", {
+      name: "Where do you want to go?",
+    });
+    fireEvent.keyDown(field, { key: "ArrowDown" });
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" });
+
+    fireEvent.keyDown(field, { key: "Escape" });
+    expect(await screen.findByText("Previous page")).toBeVisible();
+
+    await router.navigate("/t/tenant-northstar/jump");
+    fireEvent.click(await screen.findByRole("button", { name: "Back" }));
+    expect(await screen.findByText("Previous page")).toBeVisible();
   });
 });

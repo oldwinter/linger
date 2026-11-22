@@ -1,4 +1,4 @@
-import type { RunKind } from "../../model-tasks.js";
+import type { RunKind, CapacityPriority } from "../../model-tasks.js";
 import type { RuntimeHistoryOptions, RuntimeHistoryPage } from "./history.js";
 
 export interface McpServerResource {
@@ -125,11 +125,28 @@ export interface ProviderRunContext {
   readonly sourceInboxIds: readonly string[];
 }
 
+export interface RuntimeStopHookEvent {
+  readonly runtime?: string;
+  readonly attempt: number;
+  readonly stopHookActive: boolean;
+}
+
+export type RuntimeStopHookDecision =
+  | { readonly action: "allow" }
+  | { readonly action: "block"; readonly reason: string };
+
 export interface ExecutionSpec {
   /** Process-local monotonic acceptance time; never persisted or sent over the wire. */
   acceptedAtMonotonicMs?: number;
   /** What queued the Run, for model scheduling; never sent over the wire. */
   runKind?: RunKind;
+  /** Revalidate the live claim after readmission and before resuming its native session. */
+  beforeYieldResume?: () => Promise<void>;
+  /** Evaluated before a Runtime finishes a turn when stop interception is active. */
+  onStopHook?: (
+    event: RuntimeStopHookEvent,
+    signal: AbortSignal,
+  ) => Promise<RuntimeStopHookDecision>;
   signal?: AbortSignal;
   resources?: ProviderResourceBundle;
   runContext?: ProviderRunContext;
@@ -266,6 +283,13 @@ export interface RunResult {
   finalResponse: string;
 }
 
+/** A delegated Task's native Operation stopped and its session can continue. */
+export class ProviderRunYieldedError extends Error {
+  constructor(readonly session: Record<string, string | boolean>) {
+    super("Task yielded its model slot");
+  }
+}
+
 export class ProviderRunCleanupError extends Error {
   constructor(options?: ErrorOptions) {
     super("Provider cancellation cleanup is unconfirmed", options);
@@ -342,7 +366,10 @@ export interface ProviderSessionOptions extends SessionSpec {
 
 export interface AgentProvider {
   /** Reserve execution capacity before claiming a durable Run. Always release. */
-  acquireRunCapacity?(signal: AbortSignal): Promise<() => void>;
+  acquireRunCapacity?(
+    signal: AbortSignal,
+    priority?: CapacityPriority,
+  ): Promise<() => void>;
 
   createSession(options: ProviderSessionOptions): Promise<RuntimeSession>;
 
@@ -447,13 +474,14 @@ export interface RuntimeExecutionFailure {
     | "execution_failed"
     | "execution_outcome_unknown"
     | "reply_undelivered"
+    | "reply_not_sent"
     | "interrupted"
     | "computer_unavailable"
     | "cleanup_unconfirmed"
     | "response_too_large"
     | "unclassified";
   /** Absent when the failure was observed without a selected Runtime. */
-  runtime_type?: "codex" | "claude" | "pi";
+  runtime_type?: "codex" | "claude" | "pi" | "antigravity";
   runtime_version?: string;
 }
 

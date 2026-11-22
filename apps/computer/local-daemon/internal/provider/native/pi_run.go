@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/permission"
 )
 
 const piEventBuffer = 256
@@ -17,11 +19,12 @@ const piEventBuffer = 256
 // steering belong to this turn only, never to a later turn of the same
 // reused process.
 type piTurn struct {
-	proc   *piProcess
-	id     string
-	reused bool
-	fence  releaseFence
-	logger *slog.Logger
+	proc    *piProcess
+	id      string
+	reused  bool
+	oneShot bool
+	fence   releaseFence
+	logger  *slog.Logger
 
 	runCtx context.Context
 	cancel context.CancelFunc
@@ -31,18 +34,23 @@ type piTurn struct {
 	emitMu       sync.RWMutex
 	eventsClosed bool
 
-	steerMu     sync.Mutex
-	settled     chan struct{}
-	settledOnce sync.Once
+	steerMu sync.Mutex
 
 	requests  *modelRequestClock
 	readiness *ReadinessCounters
+	// reviewer judges the calls the managed extension asks about; nil
+	// allows them all. dir is the workspace commands are judged in.
+	reviewer *permission.Reviewer
+	dir      string
+	stopHook StopHookFunc
 
 	// steering is the steer waiting for Pi to show its user message; at most
 	// one, as steerMu serializes steers.
 	steering *piSteering
 
-	mu sync.Mutex
+	mu            sync.Mutex
+	settled       chan struct{}
+	settledClosed bool
 	piTurnState
 }
 
@@ -108,6 +116,36 @@ func (t *piTurn) deliver(outcome Outcome) {
 	close(t.outcome)
 }
 
+// settledCh returns the settlement signal for the current prompt pass.
+func (t *piTurn) settledCh() <-chan struct{} {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.settled
+}
+
+// markSettled records agent_settled for the current prompt pass.
+func (t *piTurn) markSettled(aborted bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.active = false
+	t.settleAborted = aborted
+	if !t.settledClosed {
+		t.settledClosed = true
+		close(t.settled)
+	}
+}
+
+// resetForContinuation prepares the turn to wait for a follow-up prompt pass
+// on the same bound Pi process.
+func (t *piTurn) resetForContinuation() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.settled = make(chan struct{})
+	t.settledClosed = false
+	t.sawAssistant = false
+	t.settleAborted = false
+}
+
 // live: the turn runs and is not stopping. The caller may hold proc.mu.
 func (t *piTurn) live() bool {
 	t.mu.Lock()
@@ -168,10 +206,11 @@ func (t *piTurn) steer(ctx context.Context, request SteerRequest) (SteerAck, err
 	if data.Disposition != "queued" {
 		return SteerAck{}, uncertain(fmt.Sprintf("Pi did not queue steer input (disposition %q)", data.Disposition))
 	}
+	settledCh := t.settledCh()
 	select {
 	case <-steering.consumed:
 		return SteerAck{TurnID: t.id}, nil
-	case <-t.settled:
+	case <-settledCh:
 		select {
 		case <-steering.consumed:
 			return SteerAck{TurnID: t.id}, nil

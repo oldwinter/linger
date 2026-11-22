@@ -10,6 +10,7 @@
   --color-app-ink: var(--app-ink);
   --color-app-body: var(--app-body);
   --color-app-muted: var(--app-muted);
+  --color-app-placeholder: var(--app-placeholder);
   --color-app-subtle: var(--app-subtle);
   --color-app-border: var(--app-border);
   --color-app-border-strong: var(--app-border-strong);
@@ -33,6 +34,10 @@
   --color-app-warning: var(--app-status-warning-text);
   --color-app-work-surface: var(--app-work-surface);
   --color-app-link: var(--app-link);
+  --color-app-heat-0: var(--app-heat-0);
+  --color-app-heat-1: var(--app-heat-1);
+  --color-app-heat-2: var(--app-heat-2);
+  --color-app-heat-3: var(--app-heat-3);
   --color-background: hsl(var(--town-background));
   --color-foreground: hsl(var(--town-foreground));
   --color-card: hsl(var(--town-card));
@@ -127,6 +132,11 @@
 
 :root[data-han-font="sc"] {
   --app-font-han: "PingFang SC", "Noto Sans SC Variable";
+  /* No Chinese slab face pairs with Roboto Slab, and Songti reads as a
+     different voice next to the sans interface, so Han text in slab headings
+     uses the same sans Han font as the rest of the interface. */
+  --app-font-slab:
+    "Roboto Slab Variable", Georgia, var(--app-font-han), sans-serif;
 }
 
 :root {
@@ -294,6 +304,12 @@ body {
     font: inherit;
   }
 
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--app-placeholder);
+    opacity: 1;
+  }
+
   :focus-visible {
     outline: 2px solid var(--app-ring);
     outline-offset: 1px;
@@ -376,6 +392,13 @@ a[href][aria-disabled="true"],
   position: relative;
 }
 
+.bn-container :is(input, textarea)::placeholder,
+.bn-container
+  .bn-block-content:has(.ProseMirror-trailingBreak:only-child)::after {
+  color: var(--app-placeholder);
+  opacity: 1;
+}
+
 @layer components {
   .ui-field-control {
     min-height: 2.25rem;
@@ -422,15 +445,18 @@ a[href][aria-disabled="true"],
   line-height: 24px;
 }
 
-/* The login page: Another Me's working day on ink, the form on paper. The
-   ink does not stop at a hard edge; it warms as it fades and dissolves into
-   the paper through a faint, blurred apricot glow. */
+/* The white grid fades into the form's paper without a panel edge or blur. */
 .auth-page {
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1.05fr) minmax(30rem, 1fr);
   overflow: hidden;
   background: hsl(var(--town-background));
+  font-family: var(--app-room-font);
+  font-size: var(--chat-card-text-size);
+  font-weight: 400;
+  line-height: var(--chat-card-text-leading);
+  letter-spacing: 0.02em;
 }
 
 .auth-page ::selection {
@@ -440,26 +466,16 @@ a[href][aria-disabled="true"],
 .auth-brand {
   position: absolute;
   top: 2rem;
-  left: 2.5rem;
+  left: 5.5rem;
   z-index: 3;
   display: inline-flex;
   width: fit-content;
-  align-items: center;
-  gap: 0.625rem;
-  color: hsl(var(--town-background));
 }
 
-.auth-brand .linger-brand-mark {
-  width: 2.25rem;
-  height: 2.25rem;
-  border-radius: 9px;
-  box-shadow: 0 0 0 1px hsl(var(--town-background) / 0.18);
-}
-
-.auth-brand-name {
-  font-size: 1.0625rem;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+.auth-brand-wordmark {
+  display: block;
+  width: 8rem;
+  height: auto;
 }
 
 .linger-brand-mark {
@@ -481,6 +497,7 @@ a[href][aria-disabled="true"],
   width: min(25rem, calc(100% - 3rem));
   align-self: center;
   justify-self: center;
+  margin-inline-end: 6rem;
   padding: 6rem 0 4rem;
 }
 
@@ -497,10 +514,34 @@ a[href][aria-disabled="true"],
   text-wrap: balance;
 }
 
+/* Login copy shares the Room's body and metadata type; titles keep their scale. */
+.auth-subtitle,
+.auth-art-lede,
+.auth-art-day-name,
+.auth-art-moment-text,
+.auth-form .ui-field > label,
+.auth-panel .ui-field-control,
+.auth-panel .ui-button-large,
+.auth-panel [role="alert"],
+.auth-panel [role="status"] {
+  font-size: var(--chat-card-text-size);
+  font-weight: 400;
+  line-height: var(--chat-card-text-leading);
+  letter-spacing: 0.02em;
+}
+
+.auth-divider,
+.auth-footer,
+.auth-art-moment-time {
+  font-size: var(--chat-card-meta-size);
+  font-weight: 400;
+  line-height: var(--chat-card-meta-leading);
+  letter-spacing: 0.02em;
+}
+
 .auth-subtitle {
   margin-top: 0.75rem;
   color: hsl(var(--town-muted-foreground));
-  font-size: 0.9375rem;
 }
 
 .auth-form {
@@ -513,8 +554,7 @@ a[href][aria-disabled="true"],
   border-color: hsl(var(--town-border-hover));
   border-radius: 10px;
   background: hsl(var(--town-card));
-  padding-inline: 0.875rem;
-  font-size: 0.9375rem;
+  padding-inline-start: 0.875rem;
 }
 
 .auth-form .ui-field-control:hover:not(:disabled) {
@@ -543,7 +583,6 @@ a[href][aria-disabled="true"],
   height: 2.75rem;
   margin-top: 0.375rem;
   border-radius: 10px;
-  font-size: 0.9375rem;
 }
 
 .auth-local-account {
@@ -561,7 +600,6 @@ a[href][aria-disabled="true"],
   gap: 0.75rem;
   margin-top: 1.25rem;
   color: hsl(var(--town-muted-foreground));
-  font-size: 0.75rem;
 }
 
 .auth-divider > span:not(:nth-child(2)) {
@@ -576,8 +614,8 @@ a[href][aria-disabled="true"],
   grid-row: 1;
   align-self: end;
   margin-bottom: 1.5rem;
+  margin-inline-end: 6rem;
   color: hsl(var(--town-muted-foreground));
-  font-size: 0.75rem;
   text-align: center;
 }
 
@@ -587,58 +625,39 @@ a[href][aria-disabled="true"],
   grid-column: 1;
   grid-row: 1;
   min-height: 100dvh;
-  color: hsl(var(--town-background));
+  color: hsl(var(--town-foreground));
   pointer-events: none;
   /* The picture is sized in em off this panel, so it scales with the window. */
   container-type: size;
 }
 
-/* The ink reaches past its column and fades out over the seam. */
+/* Only the grid lines fade; the text remains crisp above this layer. */
 .auth-illustration::before {
   position: absolute;
-  inset: 0 -14rem 0 0;
-  /* Warmed as it fades, so the hand-off passes through brown, not grey. */
-  background: linear-gradient(
-    90deg,
-    hsl(var(--town-foreground)) 56%,
-    hsl(22 28% 12%) 70%,
-    hsl(24 40% 20%) 82%,
-    hsl(28 60% 38%) 94%
-  );
+  inset: 0 -3rem 0 0;
+  background-image:
+    linear-gradient(hsl(var(--town-foreground) / 0.045) 1px, transparent 1px),
+    linear-gradient(
+      90deg,
+      hsl(var(--town-foreground) / 0.045) 1px,
+      transparent 1px
+    );
+  background-position: center;
+  background-size: 2.5rem 2.5rem;
+  mask-image: linear-gradient(90deg, black 0%, black 62%, transparent 98%);
   content: "";
-  /* Eased, not linear: a straight alpha ramp leaves a visible crease where
-     it meets the paper. */
-  mask-image: linear-gradient(
-    90deg,
-    black 52%,
-    rgb(0 0 0 / 0.82) 62%,
-    rgb(0 0 0 / 0.55) 72%,
-    rgb(0 0 0 / 0.28) 81%,
-    rgb(0 0 0 / 0.1) 89%,
-    rgb(0 0 0 / 0.02) 95%,
-    transparent
-  );
 }
 
-/* The glow on the seam: light apricot, faint at the top and bottom, blurred
-   into one wash so the warmed ink turns to orange before the paper. */
 .auth-illustration::after {
   position: absolute;
-  top: -20%;
-  right: -12rem;
-  bottom: -20%;
-  width: 38rem;
-  background:
-    radial-gradient(42% 26% at 52% 28%, hsl(28 96% 74% / 0.6), transparent 70%),
-    radial-gradient(40% 24% at 54% 52%, hsl(20 92% 78% / 0.6), transparent 70%),
-    radial-gradient(42% 26% at 52% 74%, hsl(34 96% 76% / 0.6), transparent 70%),
-    radial-gradient(50% 16% at 56% 10%, hsl(32 95% 80% / 0.3), transparent 75%),
-    radial-gradient(50% 16% at 56% 90%, hsl(26 92% 78% / 0.3), transparent 75%);
+  inset: 0 -3rem 0 48%;
+  background: linear-gradient(
+    90deg,
+    hsl(var(--town-card) / 0),
+    hsl(var(--town-card) / 0.62) 68%,
+    hsl(var(--town-background))
+  );
   content: "";
-  filter: blur(64px);
-  animation:
-    auth-art-fade 1.6s var(--ease-town-out) both,
-    auth-seam-drift 18s ease-in-out 1.6s infinite alternate;
 }
 
 .auth-art {
@@ -649,7 +668,7 @@ a[href][aria-disabled="true"],
   flex-direction: column;
   justify-content: center;
   gap: 4.5em;
-  padding: 7.5em 4em 5em;
+  padding: 7.5em 4em 5em calc(7em + 5rem);
   font-size: clamp(12px, 2.1cqmin, 19px);
 }
 
@@ -675,9 +694,7 @@ a[href][aria-disabled="true"],
 .auth-art-lede {
   max-width: 25em;
   margin-top: 1em;
-  color: hsl(var(--town-background) / 0.66);
-  font-size: 1.0625em;
-  line-height: 1.55;
+  color: hsl(var(--town-muted-foreground));
   text-wrap: pretty;
   animation: auth-art-rise 0.9s var(--ease-town-out) 0.6s both;
 }
@@ -693,7 +710,7 @@ a[href][aria-disabled="true"],
   margin-bottom: 1.75em;
 }
 
-/* The figure on its own apricot tile, no mat around it. */
+/* The figure sits directly on its colored tile. */
 .auth-art-avatar {
   position: relative;
   display: block;
@@ -712,15 +729,11 @@ a[href][aria-disabled="true"],
   place-items: center;
   border-radius: 999px;
   background: var(--app-unread);
-  box-shadow: 0 0 0 0.2em hsl(var(--town-foreground));
+  box-shadow: 0 0 0 0.2em hsl(var(--town-background));
   color: var(--app-unread-foreground);
   font-size: 0.875em;
   font-weight: 580;
   line-height: 1;
-}
-
-.auth-art-day-name {
-  font-weight: 560;
 }
 
 .auth-art-timeline {
@@ -737,7 +750,7 @@ a[href][aria-disabled="true"],
   bottom: 0.5em;
   left: 0.3125em;
   width: 1px;
-  background: hsl(var(--town-background) / 0.16);
+  background: hsl(var(--town-border-hover));
   content: "";
 }
 
@@ -745,7 +758,7 @@ a[href][aria-disabled="true"],
   position: relative;
   display: grid;
   padding-left: 2em;
-  transition: opacity 0.5s var(--ease-town-out);
+  transition: color 0.5s var(--ease-town-out);
 }
 
 .auth-art-moment::before {
@@ -755,8 +768,8 @@ a[href][aria-disabled="true"],
   width: 0.625em;
   height: 0.625em;
   border-radius: 999px;
-  background: hsl(var(--town-foreground));
-  box-shadow: inset 0 0 0 1.5px hsl(var(--town-background) / 0.7);
+  background: hsl(var(--town-background));
+  box-shadow: inset 0 0 0 1.5px hsl(var(--town-muted-foreground));
   content: "";
   transition:
     background-color 0.5s var(--ease-town-out),
@@ -764,15 +777,15 @@ a[href][aria-disabled="true"],
 }
 
 .auth-art-moment[data-state="later"] {
-  opacity: 0.4;
+  color: hsl(var(--town-muted-foreground));
 }
 
 .auth-art-moment[data-state="past"] {
-  opacity: 0.62;
+  color: hsl(var(--town-foreground) / 0.8);
 }
 
 .auth-art-moment[data-state="past"]::before {
-  background: hsl(var(--town-background) / 0.55);
+  background: hsl(var(--town-muted-foreground));
   box-shadow: none;
 }
 
@@ -784,20 +797,8 @@ a[href][aria-disabled="true"],
 
 .auth-art-moment-time {
   margin-bottom: 0.125em;
-  color: hsl(var(--town-background) / 0.6);
-  font-size: 0.8em;
+  color: hsl(var(--town-muted-foreground));
   font-variant-numeric: tabular-nums;
-}
-
-.auth-art-moment-text {
-  font-size: 1.125em;
-  line-height: 1.4;
-}
-
-@keyframes auth-art-fade {
-  from {
-    opacity: 0;
-  }
 }
 
 @keyframes auth-art-rise {
@@ -807,14 +808,7 @@ a[href][aria-disabled="true"],
   }
 }
 
-@keyframes auth-seam-drift {
-  to {
-    transform: translateY(6%) scaleY(1.06);
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .auth-illustration::after,
   .auth-art-title > span,
   .auth-art-lede,
   .auth-art-day,
@@ -838,11 +832,6 @@ a[href][aria-disabled="true"],
 
   .auth-brand {
     position: static;
-    color: inherit;
-  }
-
-  .auth-brand .linger-brand-mark {
-    box-shadow: none;
   }
 
   .auth-stage {
@@ -858,13 +847,21 @@ a[href][aria-disabled="true"],
   .auth-panel {
     grid-column: 1;
     width: min(100%, 25rem);
+    margin-inline-end: 0;
     padding: 2rem 0;
+  }
+
+  .auth-local-account .ui-button-large {
+    height: auto;
+    min-height: 2.75rem;
+    white-space: normal;
   }
 
   .auth-footer {
     grid-column: 1;
     grid-row: auto;
     margin-bottom: 0;
+    margin-inline-end: 0;
   }
 }
 
@@ -1675,13 +1672,14 @@ a[href][aria-disabled="true"],
   :root[data-desktop-shell] .room-secondary-navigation-search:hover {
     background: rgb(0 0 0 / 8%);
   }
-  /* The rail and the list sit on the frame, as the bar along the top does. */
-  :root[data-desktop-shell] .app-navigation,
+  /* The list sits on the frame, as the bar along the top does. The rail
+     and the navigation around it stack above the page for the rail's
+     labels, so they let the frame show through rather than paint over the
+     shadow on the left edge of the card beside them. */
   :root[data-desktop-shell] .app-navigation .app-secondary-navigation {
     background: var(--app-sidebar);
   }
-  /* The rail stacks above the page for its labels, so it lets the frame
-     show through rather than paint over the card's edge beside it. */
+  :root[data-desktop-shell] .app-navigation,
   :root[data-desktop-shell] .app-primary-navigation {
     background: transparent;
   }
@@ -1925,8 +1923,10 @@ a[href][aria-disabled="true"],
     line-height: 1.25;
   }
 
-  /* Library: the browser layout, as one card under an empty bar. */
+  /* Library: the browser layout, as one card under an empty bar. The
+     layout leaves the card's shadow unclipped; the card clips its content. */
   :root[data-desktop-shell] .library-layout {
+    overflow: visible;
     background: transparent;
   }
   :root[data-desktop-shell] .library-layout-body {
@@ -2425,8 +2425,8 @@ a[href][aria-disabled="true"],
 
 /* A small gap sets the pinned rows apart from the rest, without a divider. */
 .room-secondary-navigation-list
-  .group:has([aria-label="Pinned"])
-  + .group:not(:has([aria-label="Pinned"])) {
+  .group:has(.room-pin-badge)
+  + .group:not(:has(.room-pin-badge)) {
   margin-top: 6px;
 }
 
@@ -2457,8 +2457,8 @@ a[href][aria-disabled="true"],
 }
 
 .room-message-card {
-  /* Three 24px targets, two 2px gaps, 4px padding and a 4px bubble gap. */
-  --message-actions-room: 84px;
+  /* Four 24px targets, three 2px gaps, 4px padding and a 4px bubble gap. */
+  --message-actions-room: 112px;
   position: relative;
   display: grid;
   grid-template-columns: var(--chat-avatar-size) minmax(0, 1fr);
@@ -2785,22 +2785,17 @@ a[href][aria-disabled="true"],
 }
 
 .message-composer-input::placeholder {
-  color: var(--app-muted);
-  -webkit-text-fill-color: var(--app-muted);
+  color: var(--app-placeholder);
+  -webkit-text-fill-color: var(--app-placeholder);
 }
 
 .message-composer-input::selection {
   background: color-mix(in srgb, var(--app-info) 24%, transparent);
 }
 
-.message-composer-input[data-composing="true"] {
-  color: var(--app-ink);
-  -webkit-text-fill-color: var(--app-ink);
-}
-
-.message-composer-input[data-composing="true"]
-  + .message-composer-highlight-layer {
-  visibility: hidden;
+.message-composer-composition {
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .message-composer-highlight-layer {
@@ -3010,6 +3005,8 @@ a[href][aria-disabled="true"],
   height: calc(18 * var(--room-avatar-unit));
   overflow: hidden;
   border-radius: calc(6 * var(--room-avatar-unit));
+  /* Translucent initials and uploaded images must not reveal faces behind them. */
+  background: var(--room-avatar-ring);
   box-shadow: 0 0 0 calc(1.5 * var(--room-avatar-unit)) var(--room-avatar-ring);
 }
 
@@ -4365,7 +4362,56 @@ button.question-choice:focus-visible {
 
 @media (pointer: coarse) {
   .room-message-card {
-    --message-actions-room: 136px;
+    --message-actions-room: 0px;
+  }
+
+  .room-message-body-line {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .room-message-card[data-current-actor="true"] .room-message-body-line {
+    align-items: flex-end;
+  }
+
+  .room-message-card .room-message-body-line > .message-row-actions,
+  .room-message-card[data-current-actor="true"]
+    .room-message-body-line
+    > .message-row-actions,
+  .room-message-card.has-wide-card
+    .room-message-body-line
+    > .message-row-actions {
+    position: static;
+    right: auto;
+    left: auto;
+    margin: 2px 0 0;
+    transform: none;
+  }
+
+  .room-message-bubble:has(> .message-row-actions) {
+    margin-bottom: 44px;
+  }
+
+  .room-message-bubble:has(> .message-row-actions) + .message-reactions {
+    margin-top: 0;
+  }
+
+  .room-message-bubble > .message-row-actions {
+    top: 100%;
+    right: auto;
+    left: 0;
+    margin: 0;
+    transform: none;
+  }
+
+  .room-message-card[data-current-actor="true"]
+    .room-message-bubble
+    > .message-row-actions {
+    top: 100%;
+    right: 0;
+    left: auto;
+    margin: 0;
+    transform: none;
   }
 
   .message-row-actions {
@@ -4438,7 +4484,7 @@ button.question-choice:focus-visible {
     margin-right: -100%;
   }
 
-  .app-room-layout .panel-sidebar [aria-label="Resize sidebar"],
+  .app-room-layout .panel-sidebar [data-panel-resize-handle],
   .panel-maximize-control {
     display: none;
   }
@@ -4732,6 +4778,11 @@ button.question-choice:focus-visible {
 .xs-nav-quick .xs-nav-btn:hover {
   background: var(--app-hover);
 }
+.xs-nav-quick .xs-nav-btn:not(:has(.xs-nav-btn-label)) {
+  flex: none;
+  width: 36px;
+  padding: 0;
+}
 .xs-nav-quick .xs-nav-btn-label {
   display: block;
   font-size: 13px;
@@ -4800,8 +4851,7 @@ button.question-choice:focus-visible {
     width var(--app-emphasized-duration) var(--app-out-quint),
     background-color var(--app-micro-duration) var(--app-out-quint),
     color var(--app-micro-duration) var(--app-out-quint),
-    box-shadow var(--app-floating-duration) var(--app-out-quint),
-    transform var(--app-floating-duration) var(--app-out-quint);
+    box-shadow var(--app-floating-duration) var(--app-out-quint);
 }
 
 .primary-navigation-items .room-rail-link[aria-current="page"] {
@@ -4873,6 +4923,8 @@ button.question-choice:focus-visible {
 }
 
 @media (hover: hover) and (pointer: fine) {
+  /* Keep targets anchored: moving a hovered link or its neighbours can move
+     an edge out from under a stationary pointer and toggle hover endlessly. */
   .app-navigation[data-expanded="false"] .room-rail-link:hover {
     width: max-content;
     padding-right: 10px;
@@ -4880,7 +4932,6 @@ button.question-choice:focus-visible {
     color: hsl(var(--town-primary-foreground));
     font-size: 12px;
     font-weight: 400;
-    transform: translateY(-2px);
     box-shadow: var(--town-shadow-md);
   }
   .app-navigation[data-expanded="false"] .room-rail-link:hover > svg {
@@ -4892,15 +4943,6 @@ button.question-choice:focus-visible {
     position: static;
     transform: none;
     opacity: 1;
-  }
-  .app-navigation[data-expanded="false"]
-    .room-rail-link:has(~ .room-rail-link:hover) {
-    transform: translateY(-4px);
-  }
-  .app-navigation[data-expanded="false"]
-    .room-rail-link:hover
-    ~ .room-rail-link {
-    transform: translateY(4px);
   }
   .app-navigation[data-expanded="true"]
     .room-rail-link:not([aria-current="page"]):hover {
@@ -4956,20 +4998,35 @@ button.question-choice:focus-visible {
 }
 
 @media (max-width: 767px), (pointer: coarse) {
+  .primary-navigation-items {
+    padding-inline: 6px;
+  }
+  .app-navigation[data-expanded="true"] .primary-navigation-items {
+    padding-inline: 12px;
+  }
   .primary-navigation-items .room-rail-link {
     min-width: 44px;
     min-height: 44px;
   }
+  .app-navigation[data-expanded="false"]
+    .primary-navigation-items
+    .room-rail-link:not(:focus-visible)
+    > svg {
+    margin-inline: 12px;
+  }
 }
 
 @media (max-width: 767px) {
-  .app-navigation[data-expanded="true"] .app-primary-navigation {
+  .app-navigation[data-expanded="true"][data-secondary-navigation="true"]
+    .app-primary-navigation {
     width: 120px;
   }
-  .app-navigation[data-expanded="true"] .primary-navigation-items {
+  .app-navigation[data-expanded="true"][data-secondary-navigation="true"]
+    .primary-navigation-items {
     padding-inline: 4px;
   }
-  .app-navigation[data-expanded="true"] .room-rail-link {
+  .app-navigation[data-expanded="true"][data-secondary-navigation="true"]
+    .room-rail-link {
     gap: 6px;
     font-size: 12px;
   }
@@ -5626,4 +5683,25 @@ button.question-choice:focus-visible {
 .card-box .ui-button-icon {
   width: 2.25rem;
   height: 2.25rem;
+}
+
+.voice-window-title {
+  background-color: #242527;
+  color: #f8f8f8;
+  font-size: 12px;
+  font-weight: 500;
+}
+/* A voice window inside the desktop app's page takes the window's own surface
+   for its bar instead of a browser-style dark frame. */
+:root[data-desktop-shell] .voice-window-title {
+  background-color: var(--app-canvas);
+  color: var(--app-ink);
+  box-shadow: var(--town-shadow-outline);
+  clip-path: inset(-1px -1px 0 -1px);
+}
+/* Voice windows can be dragged up under the macOS window drag strip; they
+   keep their own drag and controls there instead of moving the app window. */
+:root[data-desktop-chrome="inset"]
+  :is(.voice-mode-window, .recording-window-frame) {
+  -webkit-app-region: no-drag;
 }

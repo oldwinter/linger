@@ -92,7 +92,11 @@ func DeleteTemplateRoutinesTx(ctx context.Context, queries *store.Queries, key s
 // lockListenerConnectionsTx verifies the Agent's grant for every connection
 // the listener specs reference and share-locks it for the transaction.
 func lockListenerConnectionsTx(ctx context.Context, queries *store.Queries, tenantID, agentActorID string, specs []ListenerSpec) error {
+	locked := make(map[string]bool, len(specs))
 	for _, spec := range specs {
+		if locked[spec.Account] {
+			continue
+		}
 		if _, err := queries.LockGrantedConnectionForListener(ctx, store.LockGrantedConnectionForListenerParams{
 			ConnectionID: spec.Account, AgentActorID: agentActorID, TenantID: tenantID,
 		}); errors.Is(err, pgx.ErrNoRows) {
@@ -100,6 +104,7 @@ func lockListenerConnectionsTx(ctx context.Context, queries *store.Queries, tena
 		} else if err != nil {
 			return err
 		}
+		locked[spec.Account] = true
 	}
 	return nil
 }

@@ -6,23 +6,16 @@ match their manifests and that package; scripts/build-teamhub.mjs and
 scripts/build-native-runtime.mjs write them. Every package script runs these
 before staging the app.
 """
-import hashlib
 import json
 import os
 import sys
+
+from archive import sha256
 
 DESKTOP = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NATIVE = os.path.join(DESKTOP, "dist", "installer", "native")
 SOURCE = os.path.join(DESKTOP, "dist", "installer", "source")
 TEAMHUB_COMMANDS = ("teamhub", "migrate", "account")
-
-
-def sha256(path):
-    digest = hashlib.sha256()
-    with open(path, "rb") as source:
-        for chunk in iter(lambda: source.read(1 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def matches(path, item):

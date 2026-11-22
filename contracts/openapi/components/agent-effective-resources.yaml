@@ -37,7 +37,14 @@ components:
     AgentEffectiveResources:
       type: object
       additionalProperties: false
-      required: [effective_sha256, skills, connected_apps, connected_app_keys]
+      required:
+        [
+          effective_sha256,
+          skills,
+          connected_apps,
+          connected_app_keys,
+          connectable_app_keys,
+        ]
       properties:
         effective_sha256:
           type: string
@@ -59,6 +66,21 @@ components:
             as gmail or google_calendar, so its instructions name only sources
             it can query. Empty without connected_apps. Agent Service requires
             this field, so TeamHub ships before Agent Service.
+          maxItems: 100
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 64
+            pattern: "^[a-z0-9_]+$"
+        connectable_app_keys:
+          type: array
+          description: >-
+            Sorted keys of every catalog app a Human can connect for Agents,
+            such as linear, with or without a Composio key, so the Agent asks
+            for authorization with teamhub apps connect instead of reaching the
+            app another way. A fixed catalog, so the digest leaves it out;
+            Agent Service renders it again on every Run.
           maxItems: 100
           uniqueItems: true
           items:

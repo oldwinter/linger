@@ -77,6 +77,10 @@ test("duplicate starts return current job and task survives subscriber disconnec
     return { state: "ready", code: 0, message: "Complete" };
   });
   const first = await jobs.start(input);
+  cleanup.push(async () => {
+    release?.();
+    await jobs.wait(first.id);
+  });
   const second = await jobs.start(input);
   expect(second.id).toBe(first.id);
   await new Promise((resolve) => setTimeout(resolve, 20));
@@ -256,6 +260,73 @@ test.each([
     expect(jobs.get(job.id)?.errorCode).toBe("INSTALL_RESULT_INVALID");
   },
 );
+
+test.each([
+  ["RUNTIME_PLAN_REFUSED", "RUNTIME_PLAN_REFUSED"],
+  ["RUNTIME_ACTION_FAILED", "RUNTIME_ACTION_FAILED"],
+  ["RUNTIME_EXTENSIONS_FAILED", "RUNTIME_EXTENSIONS_FAILED"],
+  ["NATIVE_SOURCE_INSTALLATION_FAILED", "INSTALL_FAILED"],
+])(
+  "a failed installation with runtime cause %s reports it as %s",
+  async (code, errorCode) => {
+    const { jobs } = await setup(async () => ({
+      code: 5,
+      state: "failed",
+      message: "The runtime could not be installed.",
+      details: { code, stage: "runtime" },
+    }));
+    const job = await jobs.start({ instance: "default" });
+    await jobs.wait(job.id);
+    expect(jobs.get(job.id)).toMatchObject({ state: "failed", errorCode });
+  },
+);
+
+test("a runtime failure stays on the persisted job after checkout cleanup logs", async () => {
+  const { jobs, dir } = await setup(async (_input, _signal, emit) => {
+    emit({
+      kind: "stage",
+      stage: "runtime",
+      state: "failed",
+      message: "Could not mount the model endpoint.",
+    });
+    emit({
+      kind: "log",
+      stage: "services",
+      message: "Stopping PostgreSQL after the installation failure.",
+    });
+    return {
+      code: 1,
+      state: "failed",
+      message: "Could not mount the model endpoint.",
+      details: { stage: "runtime" },
+    };
+  });
+  const job = await jobs.start({ instance: "default" });
+  await jobs.wait(job.id);
+  const saved: unknown = JSON.parse(
+    await readFile(path.join(dir, `${job.id}.json`), "utf8"),
+  );
+  expect(saved).toMatchObject({
+    job: {
+      state: "failed",
+      stage: "runtime",
+      stages: expect.arrayContaining([
+        expect.objectContaining({
+          id: "runtime",
+          state: "failed",
+          message: "Could not mount the model endpoint.",
+        }),
+      ]),
+    },
+    events: expect.arrayContaining([
+      expect.objectContaining({
+        kind: "stage",
+        stage: "runtime",
+        state: "failed",
+      }),
+    ]),
+  });
+});
 
 const localPlan = {
   planId: "a".repeat(64),

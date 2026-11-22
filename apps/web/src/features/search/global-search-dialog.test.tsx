@@ -10,6 +10,7 @@ import {
 import { useState } from "react";
 import { createMemoryRouter, RouterProvider, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { defineGlobalProperty } from "@/test/global-properties";
 
 import { createAppQueryClient } from "@/app/query-client";
 import {
@@ -29,6 +30,7 @@ import {
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
 import type {
   TeamHubDocument,
+  TeamHubMemoryEntry,
   TeamHubMessage,
   TeamHubMessageSearchHit,
 } from "@/features/teamhub/teamhub-types";
@@ -50,7 +52,7 @@ const results = () => within(screen.getByRole("listbox"));
 
 describe("Global search dialog", () => {
   beforeEach(() => {
-    Object.defineProperty(window, "localStorage", {
+    defineGlobalProperty(window, "localStorage", {
       configurable: true,
       value: createTestStorage(),
     });
@@ -68,9 +70,9 @@ describe("Global search dialog", () => {
     );
     expect(screen.getByRole("combobox", { name: INPUT_NAME })).toHaveAttribute(
       "placeholder",
-      "Search messages, docs, members and rooms",
+      "Search messages, docs, members, rooms and places",
     );
-    expect(screen.getByRole("button", { name: "Esc" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Close search" })).toBeVisible();
     expect(screen.getByRole("listbox")).toHaveClass("workspace-scrollbar");
     // Types are scopes the person steps into, not tabs or filter selects.
     expect(screen.queryByRole("tablist")).toBeNull();
@@ -348,7 +350,7 @@ describe("Global search dialog", () => {
     ).toBeNull();
     expect(input).toHaveAttribute(
       "placeholder",
-      "Search messages, docs, members and rooms",
+      "Search messages, docs, members, rooms and places",
     );
   });
 
@@ -456,7 +458,7 @@ describe("Global search dialog", () => {
     ).toBeVisible();
   });
 
-  it("starts on All and composes kind chips with the Room scope chip", async () => {
+  it("hides redundant single-kind filter chips inside a Room-scoped search", async () => {
     const harness = await renderDialog({
       room: { id: "room-all", name: "All hands" },
     });
@@ -479,39 +481,42 @@ describe("Global search dialog", () => {
     const input = screen.getByRole("combobox", { name: INPUT_NAME });
     fireEvent.change(input, { target: { value: "deploy" } });
 
-    const chips = await screen.findByRole("group", {
-      name: "Filter search results by kind",
-    });
-    await waitFor(() =>
-      expect(
-        within(chips).getByRole("button", { name: "Messages 2" }),
-      ).toBeEnabled(),
-    );
+    await results().findByRole("option", { name: /Deploy to test/ });
     expect(screen.getByText("This Room")).toBeVisible();
+    // A Room-scoped search has only Messages, so no kind filter row is needed.
     expect(
-      within(chips).getByRole("button", { name: "All 2" }),
-    ).toHaveAttribute("aria-pressed", "true");
-    // A Room-scoped search produces Messages alone.
-    expect(within(chips).queryByRole("button", { name: /^Docs / })).toBeNull();
+      screen.queryByRole("group", { name: "Filter search results by kind" }),
+    ).toBeNull();
     expect(harness.searchDocuments).not.toHaveBeenCalled();
   });
 
-  it("offers the kind chips for the type scope in effect", async () => {
+  it("hides redundant single-kind filter chips when scoped to one type", async () => {
     await renderDialog();
     fireEvent.click(results().getByRole("option", { name: /^Members/ }));
 
-    const chips = await screen.findByRole("group", {
-      name: "Filter search results by kind",
-    });
-    await waitFor(() =>
-      expect(
-        within(chips).getByRole("button", { name: /^Members \d+$/ }),
-      ).toBeEnabled(),
-    );
+    await results().findByRole("option", { name: /Codex/ });
     expect(
-      within(chips).getByRole("button", { name: /^All \d+$/ }),
-    ).toHaveAttribute("aria-pressed", "true");
-    expect(within(chips).queryByRole("button", { name: /^Docs / })).toBeNull();
+      screen.queryByRole("group", { name: "Filter search results by kind" }),
+    ).toBeNull();
+  });
+
+  it("clears the query via the Clear search button and skips the 2-character hint in Rooms", async () => {
+    await renderDialog();
+    const input = screen.getByRole("combobox", { name: INPUT_NAME });
+    expect(screen.queryByRole("button", { name: "Clear search" })).toBeNull();
+
+    fireEvent.click(results().getByRole("option", { name: /^Rooms/ }));
+    fireEvent.change(input, { target: { value: "z" } });
+    const clearButton = screen.getByRole("button", { name: "Clear search" });
+    expect(clearButton).toBeVisible();
+    expect(
+      await screen.findByText("Nothing in Rooms. Try searching everywhere."),
+    ).toBeVisible();
+
+    fireEvent.click(clearButton);
+    expect(input).toHaveValue("");
+    expect(input).toHaveFocus();
+    expect(screen.queryByRole("button", { name: "Clear search" })).toBeNull();
   });
 
   it("returns to All when the dialog closes and opens again", async () => {
@@ -1179,6 +1184,104 @@ describe("Global search dialog", () => {
     expect(seen).toBeDefined();
     expect(isGlobalSearchShortcut(seen!)).toBe(true);
     editor.remove();
+  });
+
+  it.each([
+    ["dashboard", /^Dashboard/, `/t/${TENANT}/dashboard`],
+    ["library", /^Library/, `/t/${TENANT}/library`],
+    ["meetings", /^Meetings/, `/t/${TENANT}/library?tab=meetings`],
+    ["wiki", /^Wiki/, `/t/${TENANT}/library/wiki`],
+    ["connectors", /^Connectors/, `/t/${TENANT}/apps`],
+    ["settings", /^Settings/, `/t/${TENANT}/settings/account`],
+    ["profile", /^Profile/, `/t/${TENANT}/settings/account`],
+    ["security", /^Security/, `/t/${TENANT}/settings/security`],
+    ["rules", /^My Rules/, `/t/${TENANT}/settings/my-rules`],
+    ["shortcuts", /^Shortcuts/, `/t/${TENANT}/settings/shortcuts`],
+    ["computers", /^Computers/, `/t/${TENANT}/settings/computers`],
+    ["models", /^Models/, `/t/${TENANT}/settings/models`],
+  ])(
+    "opens the %s place directly from Cmd+K",
+    async (query, rowPattern, expectedPath) => {
+      const harness = await renderDialog();
+      const input = screen.getByRole("combobox", { name: INPUT_NAME });
+      fireEvent.change(input, { target: { value: query } });
+
+      const row = await results().findByRole("option", { name: rowPattern });
+      expect(results().getByText("Places")).toBeVisible();
+      fireEvent.click(row);
+
+      await waitFor(() =>
+        expect(screen.getByTestId("location")).toHaveTextContent(expectedPath),
+      );
+      expect(harness.onClose).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("narrows into Places with Tab or See all, clears with Backspace, and includes cached meetings", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const cachedMeeting: TeamHubMemoryEntry = {
+      content: "",
+      id: "meeting-launch",
+      kind: "meeting",
+      meeting: {
+        capture_id: "capture-launch",
+        recording_document_id: "audio",
+        recording_filename: "launch-review.m4a",
+        recording_version_id: "audio-v1",
+        started_at: "2026-11-12T15:30:00Z",
+        summary_ready: true,
+        transcript_document_id: "transcript",
+        transcript_version_id: "transcript-v1",
+      },
+      path: "Meetings/2026/11/12/Meeting 15-30-00",
+      summary: "",
+      title: "Launch review",
+      updated_at: "2026-11-12T15:30:00Z",
+    };
+    queryClient.setQueryData(
+      ["teamhub", TENANT, "personal-memory", "meetings"],
+      [cachedMeeting],
+    );
+
+    const harness = await renderDialog({ queryClient });
+    const input = screen.getByRole("combobox", { name: INPUT_NAME });
+    fireEvent.change(input, { target: { value: "settings" } });
+
+    await results().findByRole("option", { name: /^Settings/ });
+    const seeAll = await screen.findByRole("button", {
+      name: /See all in Places/,
+    });
+    fireEvent.click(seeAll);
+
+    expect(
+      screen.getByRole("button", { name: "Remove Places scope" }),
+    ).toBeVisible();
+    expect(input).toHaveAttribute("placeholder", "Search places");
+    expect(results().getByRole("option", { name: /^Models/ })).toBeVisible();
+    expect(results().getByRole("option", { name: /^Shortcuts/ })).toBeVisible();
+
+    // Clearing the query inside Places browses every place without backend calls.
+    const callsBefore =
+      harness.searchMessages.mock.calls.length +
+      harness.searchDocuments.mock.calls.length;
+    fireEvent.change(input, { target: { value: "launch-review" } });
+    const meetingRow = await results().findByRole("option", {
+      name: /Nov 12, 15:30/,
+    });
+    expect(meetingRow).toBeVisible();
+    expect(
+      harness.searchMessages.mock.calls.length +
+        harness.searchDocuments.mock.calls.length,
+    ).toBe(callsBefore);
+
+    // Backspace when empty leaves the Places scope back to All.
+    fireEvent.change(input, { target: { value: "" } });
+    fireEvent.keyDown(input, { key: "Backspace" });
+    expect(
+      screen.queryByRole("button", { name: "Remove Places scope" }),
+    ).toBeNull();
   });
 });
 

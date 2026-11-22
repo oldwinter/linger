@@ -255,6 +255,61 @@ describe("voice material composer", () => {
     );
   });
 
+  it("rejects a voice turn whose draft mentions an unavailable Agent", async () => {
+    const staleActor = {
+      display_name: "Retired Agent",
+      id: "actor-retired",
+      kind: "agent" as const,
+      tenant_id: scope.tenantId,
+    };
+    const f = mount({
+      agentOptionsReady: true,
+      initialMentions: [staleActor],
+      initialValue: "@Retired Agent",
+    });
+    fireEvent.click(screen.getByText("Select document paragraph"));
+    act(() =>
+      voice.binding!.onChange({
+        entered: true,
+        text: "Explain this",
+        sourceId: "source-1",
+      }),
+    );
+    await expect(
+      voice.binding!.prepareSend("Explain this", "turn-retired")(),
+    ).rejects.toThrow(
+      "@Retired Agent is not available in this Room. Exit to review the draft.",
+    );
+    expect(f.onSend).not.toHaveBeenCalled();
+
+    // After removing the mention, the next turn still carries the material.
+    act(() =>
+      voice.binding!.onChange({
+        entered: false,
+        text: "",
+        sourceId: "source-1",
+      }),
+    );
+    fireEvent.change(screen.getByLabelText("Message Room"), {
+      target: { value: "" },
+    });
+    act(() =>
+      voice.binding!.onChange({
+        entered: true,
+        text: "Explain this",
+        sourceId: "source-2",
+      }),
+    );
+    await act(async () =>
+      voice.binding!.prepareSend("Explain this", "turn-after-removal")(),
+    );
+    expect(f.onSend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.stringContaining(selection.quote),
+      }),
+    );
+  });
+
   it("offers only Send once the draft addresses someone", async () => {
     const codex = {
       display_name: "Codex",

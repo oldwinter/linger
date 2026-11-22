@@ -1,3 +1,4 @@
+import type { ModelLease } from "./model-tasks.js";
 import { Ajv, type ValidateFunction } from "ajv";
 import { isRecord, sleep } from "@linger/service-kit";
 import { sha256Hex, type JsonLogger } from "@linger/service-kit/node";
@@ -19,9 +20,8 @@ import { modelCallPolicies, type ModelCallKind } from "./model-tasks.js";
 type AnotherMePlacement = components["schemas"]["AnotherMePlacement"];
 
 /**
- * Background model calls run on the owner's own Agent Runtime (Codex or
- * Claude) through the Daemon's one-shot model invocation, with the Runtime's
- * default model. No gateway, API key or model name is involved.
+ * Background model calls use the Daemon's one-shot model invocation and the
+ * selected Runtime's default model. The request names no endpoint, key or model.
  */
 
 export type ModelCallEffort = ModelInvoke["reasoning_effort"];
@@ -31,7 +31,7 @@ export const modelCallEfforts: readonly ModelCallEffort[] = [
   "high",
 ];
 
-export type LocalRuntimeType = "codex" | "claude" | "pi";
+export type LocalRuntimeType = "codex" | "claude" | "pi" | "antigravity";
 
 export interface ModelOwner {
   readonly tenantId: string;
@@ -131,6 +131,9 @@ export interface WorkspaceModelCallRequest
 /** One step of a chain; its key is `<chain key>/<step>`. */
 export interface ModelChainTextRequest extends ModelPrompt {
   readonly step: string;
+  /** An attempt starts only while the budget lasts, and its run counts
+   * against it. */
+  readonly budget?: ModelRunBudget;
 }
 
 export interface ModelChainCallRequest
@@ -147,20 +150,18 @@ export interface ModelChainSpec extends ModelTarget {
   readonly kind: ModelCallKind;
   /** Names the whole chain, for example `wiki:<refresh id>/route:1`. */
   readonly key: string;
-  /** Bounds the chain from the moment it is admitted; omitted, unbounded. */
-  readonly timeoutMs?: number;
   /** Stops the chain and every call it started. */
   readonly signal?: AbortSignal;
 }
 
 /**
  * Calls that each build on the one before, with the flow's own fallback
- * logic, queued once as a whole. They run one at a time in the order they
- * are made, each retried and corrected within the kind's attempts like a
+ * logic. Each attempt queues on the same endpoint, one at a time in the
+ * order the calls are made. Each call is retried and corrected like a
  * lone call; a ModelCallError past them is the flow's to handle.
  */
 export interface ModelChain {
-  /** Aborts on the caller's signal, the chain deadline and process shutdown. */
+  /** Aborts on the caller's signal and process shutdown. */
   readonly signal: AbortSignal;
   call(
     request: ModelChainCallRequest,
@@ -189,7 +190,7 @@ export interface ModelCall {
   workspace(
     request: WorkspaceModelCallRequest,
   ): Promise<ModelCallResult<readonly WorkspaceFile[]>>;
-  /** Runs body as one queued unit on the target's endpoint. */
+  /** Runs the chain's ordered steps on the target's endpoint. */
   chain<T>(
     spec: ModelChainSpec,
     body: (chain: ModelChain) => Promise<T>,
@@ -215,7 +216,7 @@ export interface RuntimeModelCall extends ModelCall {
 export type ModelCallErrorKind =
   /** Offline, updating or draining: retry once the Computer is back. */
   | "computer_offline"
-  /** No model invocation support or no ready Codex or Claude on the Computer. */
+  /** No supported, ready Runtime on the Computer. */
   | "runtime_unavailable"
   /** No owner given and not exactly one Another Me, or the owner or Another
    * Me has no placement. */
@@ -229,7 +230,15 @@ export type ModelCallErrorKind =
   /** Background work still queued or running when the caller stopped
    * waiting; the same request later joins it or receives its result. */
   | "pending"
+  /** Swapped out for interactive work; the attempt runs again once admitted
+   * and does not count as one. */
+  | "yielded"
   | "failed";
+
+export type ModelCallRuntimeOutcome =
+  | "runtime_unavailable"
+  | "auth_required"
+  | "runtime_incompatible";
 
 /** Shared by every offline ModelCallError, so a failure that only survives as
  * a message can still be recognized. */
@@ -240,14 +249,20 @@ export class ModelCallError extends Error {
   /** The model's text when it did not match the schema, for a correction,
    * or what it streamed before it timed out or passed its output cap. */
   readonly output?: string;
+  /** The Daemon's structured outcome when kind is runtime_unavailable. */
+  readonly runtimeOutcome?: ModelCallRuntimeOutcome;
 
   constructor(
     readonly kind: ModelCallErrorKind,
     message: string,
-    options?: ErrorOptions & { readonly output?: string },
+    options?: ErrorOptions & {
+      readonly output?: string;
+      readonly runtimeOutcome?: ModelCallRuntimeOutcome;
+    },
   ) {
     super(message, options);
     this.output = options?.output;
+    this.runtimeOutcome = options?.runtimeOutcome;
   }
 }
 
@@ -257,11 +272,6 @@ export function isComputerOffline(error: unknown): boolean {
     ? error.kind === "computer_offline"
     : error instanceof Error &&
         error.message.startsWith(COMPUTER_OFFLINE_MESSAGE);
-}
-
-/** A queue place a chain holds on its endpoint until release. */
-export interface ModelChainLease {
-  release(result: { readonly outcome: string; readonly usage?: unknown }): void;
 }
 
 /** A place in one endpoint's queue. */
@@ -299,9 +309,8 @@ export interface RuntimeModelGateway {
       readonly sessionKey?: string;
       readonly timeoutMs: number;
       readonly maxOutputChars?: number;
-      /** Absent, the call runs at once: a chain's call runs in its chain's
-       * place, and some kinds never queue. */
-      readonly queue?: ModelQueueWork & { readonly runOperationId?: string };
+      readonly callLease?: ModelLease;
+      readonly queue: ModelQueueWork & { readonly runOperationId?: string };
       readonly signal: AbortSignal;
     },
   ): Promise<
@@ -320,14 +329,14 @@ export interface RuntimeModelGateway {
     computerId: string,
     runtimeType: LocalRuntimeType,
   ): readonly RuntimeModelInfo[] | undefined;
-  acquireModelChain(
+  acquireModelCall(
     endpoint: {
       readonly computerId: string;
       readonly runtimeType: ModelInvoke["runtime_type"];
     },
     work: ModelQueueWork,
     signal: AbortSignal,
-  ): Promise<ModelChainLease>;
+  ): Promise<ModelLease>;
 }
 
 /** Placements of active Another Me Agents; with an owner, only that owner's. */
@@ -365,6 +374,15 @@ function validatorFor(schema: object): ValidateFunction {
   return validate;
 }
 
+/** Why a value does not match a schema, or undefined when it does. */
+export function schemaProblem(
+  schema: object,
+  value: unknown,
+): string | undefined {
+  const validate = validatorFor(schema);
+  return validate(value) ? undefined : ajv.errorsText(validate.errors);
+}
+
 const silentLogger: Pick<JsonLogger, "log"> = { log: () => undefined };
 
 /** How long a finished call's answer waits for a caller that left. */
@@ -385,6 +403,7 @@ interface CallRequest {
   readonly kind: ModelCallKind;
   readonly key: string;
   readonly target: ModelTarget;
+  readonly budget?: ModelRunBudget;
   readonly mode: "text" | "structured" | "workspace";
   readonly effort?: ModelCallEffort;
   readonly instructions?: string;
@@ -404,14 +423,67 @@ interface Call extends CallRequest {
   readonly id: string;
 }
 
+/** A chain starts its body after admission. Its first attempt takes that
+ * place and each later attempt queues for its own. */
+interface ChainAdmission {
+  readonly runtimeType: ModelInvoke["runtime_type"];
+  acquire(key: string, signal: AbortSignal): Promise<ModelLease>;
+  releaseUnused(outcome: string): void;
+}
+
+/** A queued chain step found its budget spent. An already sent call can finish. */
+export class ModelBudgetSpentError extends Error {}
+
+/**
+ * Model time a flow may spend across its parallel chains. It runs only while
+ * at least one of its attempts holds a place, so waiting for a place, also
+ * behind interactive work or a swapped-in chat, costs nothing. A caller that
+ * itself waits by wall clock gives the budget a wall-clock cap below its wait.
+ */
+export class ModelRunBudget {
+  readonly #limitMs: number;
+  readonly #now: () => number;
+  readonly #endsAt: number;
+  #spentMs = 0;
+  #running = 0;
+  #since = 0;
+
+  constructor(
+    limitMs: number,
+    options: {
+      /** Also spent this long after it was made, however little ran. */
+      readonly wallClockMs?: number;
+      readonly now?: () => number;
+    } = {},
+  ) {
+    this.#limitMs = limitMs;
+    this.#now = options.now ?? Date.now;
+    this.#endsAt = this.#now() + (options.wallClockMs ?? Infinity);
+  }
+
+  get spent(): boolean {
+    const now = this.#now();
+    const running = this.#running ? now - this.#since : 0;
+    return this.#spentMs + running >= this.#limitMs || now >= this.#endsAt;
+  }
+
+  /** Counts an admitted attempt until the returned function is called. */
+  run(): () => void {
+    if (this.#running++ === 0) this.#since = this.#now();
+    let running = true;
+    return () => {
+      if (!running) return;
+      running = false;
+      if (--this.#running === 0) this.#spentMs += this.#now() - this.#since;
+    };
+  }
+}
+
 /** One execution of a call, shared by every caller asking the same. */
 interface Entry {
   readonly call: Call;
-  /** A chain's call, which runs in its chain's place. */
-  readonly admitted: boolean;
+  readonly chain?: ChainAdmission;
   readonly controller: AbortController;
-  /** Token usage of each attempt, as the Runtime reported it. */
-  readonly usage: unknown[];
   result: Promise<ModelCallAnswer>;
   waiters: number;
 }
@@ -454,6 +526,7 @@ function callId(call: CallRequest): string {
       call.input,
       call.schemaName ?? null,
       call.outputSchema ?? null,
+      call.sessionKey ?? null,
       (call.files ?? []).map((file) => [
         file.path,
         sha256Hex(file.content_base64),
@@ -638,11 +711,10 @@ async function resolvePlacement(
   return { placement, key };
 }
 
-/** Where a call on this placement runs: the placement's own Runtime when it
- * can run model calls, else the other ready one on that Computer, and the
- * model that Runtime runs by default, since a model invocation names none.
- * With neither Runtime ready the placement's is still tried, so an offline
- * Computer reports offline. */
+/** Pi stays on Pi, even when it is unavailable. Codex and Claude retain
+ * their same-Computer fallback. Antigravity has no model.invoke, so it uses
+ * Claude, falling back to Codex. Invocations use the selected Runtime's
+ * default. */
 function resolveTarget(
   gateway: RuntimeModelGateway,
   placement: ModelPlacement,
@@ -651,14 +723,15 @@ function resolveTarget(
   readonly offline: boolean;
   readonly model?: RuntimeModelInfo;
 } {
-  const preferred: readonly ModelInvoke["runtime_type"][] =
-    placement.runtimeType === "claude"
-      ? ["claude", "codex"]
-      : ["codex", "claude"];
+  const preferred =
+    placement.runtimeType === "antigravity" ? "claude" : placement.runtimeType;
+  const fallback = preferred === "claude" ? "codex" : "claude";
   const runtimeType =
-    preferred.find((runtime) =>
-      gateway.supportsModelInvoke(placement.computerId, runtime),
-    ) ?? preferred[0]!;
+    preferred !== "pi" &&
+    !gateway.supportsModelInvoke(placement.computerId, preferred) &&
+    gateway.supportsModelInvoke(placement.computerId, fallback)
+      ? fallback
+      : preferred;
   const models = gateway.runtimeModels(placement.computerId, runtimeType);
   const model = models?.find(({ isDefault }) => isDefault);
   return {
@@ -691,7 +764,9 @@ async function invokeAttempt(
   const { call } = entry;
   const signal = entry.controller.signal;
   const { placement, key } = await resolvePlacement(state, call.target, signal);
-  const { runtimeType } = resolveTarget(state.options.gateway, placement);
+  const runtimeType =
+    entry.chain?.runtimeType ??
+    resolveTarget(state.options.gateway, placement).runtimeType;
   const policy = modelCallPolicies[call.kind];
   const startedAt = state.now();
   const callLog = state.options.callLog;
@@ -703,8 +778,18 @@ async function invokeAttempt(
     ...(call.instructions ? { instructions: call.instructions } : {}),
     input,
   });
-  let outcome: Awaited<ReturnType<RuntimeModelGateway["invokeModel"]>>;
+  let outcome:
+    | Awaited<ReturnType<RuntimeModelGateway["invokeModel"]>>
+    | undefined;
+  let lease: ModelLease | undefined;
+  let stopBudget: (() => void) | undefined;
+  let yielded = false;
+  const timeoutMs = call.timeoutMs ?? policy.timeoutMs;
   try {
+    if (entry.chain) lease = await entry.chain.acquire(call.key, signal);
+    if (call.budget?.spent)
+      throw new ModelBudgetSpentError("The model step's budget is spent");
+    stopBudget = call.budget?.run();
     outcome = await state.options.gateway.invokeModel(placement.computerId, {
       tenantId: placement.tenantId,
       ownerActorId: placement.ownerActorId,
@@ -721,34 +806,33 @@ async function invokeAttempt(
       ...(call.sessionKey
         ? { sessionKey: attemptSession(call.sessionKey, attempt) }
         : {}),
-      timeoutMs: call.timeoutMs ?? policy.timeoutMs,
+      timeoutMs,
       ...(call.maxOutputChars === undefined
         ? {}
         : { maxOutputChars: call.maxOutputChars }),
-      ...(policy.queued && !entry.admitted
-        ? {
-            queue: {
-              priority: policy.priority,
-              kind: call.kind,
-              key: call.key,
-              ...(call.runOperationId
-                ? { runOperationId: call.runOperationId }
-                : {}),
-            },
-          }
-        : {}),
+      queue: {
+        priority: policy.priority,
+        kind: call.kind,
+        key: call.key,
+        ...(call.kind === "approval" && call.runOperationId
+          ? { runOperationId: call.runOperationId }
+          : {}),
+      },
+      ...(lease ? { callLease: lease } : {}),
       signal,
     });
   } catch (error) {
+    yielded = error instanceof ModelCallError && error.kind === "yielded";
     callLog?.finished({
       kind: call.kind,
       key: call.key,
       attempt,
-      outcome: signal.aborted ? "abandoned" : "failed",
+      outcome: signal.aborted ? "abandoned" : yielded ? "yielded" : "failed",
       durationMs: state.now() - startedAt,
       error: error instanceof Error ? error.message : String(error),
     });
     if (signal.aborted) throw signal.reason;
+    if (error instanceof ModelBudgetSpentError) throw error;
     if (error instanceof ModelCallError) {
       if (error.kind === "computer_offline" && key !== undefined)
         state.placementCache.delete(key);
@@ -757,8 +841,15 @@ async function invokeAttempt(
     throw new ModelCallError("failed", "Model invocation failed", {
       cause: error,
     });
+  } finally {
+    stopBudget?.();
+    lease?.release({
+      outcome:
+        outcome?.outcome ??
+        (signal.aborted ? "aborted" : yielded ? "yielded" : "failed"),
+      ...(outcome?.usage === undefined ? {} : { usage: outcome.usage }),
+    });
   }
-  if (outcome.usage !== undefined) entry.usage.push(outcome.usage);
   const failure = outcomeFailure(outcome);
   callLog?.finished({
     kind: call.kind,
@@ -829,7 +920,10 @@ async function executeCall(
 ): Promise<ModelCallAnswer> {
   const { call } = entry;
   const cached = state.results.get(call.id);
-  if (cached) return cached;
+  if (cached) {
+    entry.chain?.releaseUnused("cached");
+    return cached;
+  }
   const signal = entry.controller.signal;
   const { attempts } = modelCallPolicies[call.kind];
   let input = call.input;
@@ -858,6 +952,8 @@ async function executeCall(
     } catch (error) {
       if (signal.aborted) throw signal.reason;
       if (!(error instanceof ModelCallError)) throw error;
+      // It queues again at once behind the work it yielded to.
+      if (error.kind === "yielded") continue;
       if (!retryableKinds.has(error.kind) || attempt >= attempts) throw error;
       attempt += 1;
       await sleep(RETRY_DELAY_MS, signal);
@@ -888,13 +984,12 @@ function settleCall(
 function startCall(
   state: ModelCallState,
   call: Call,
-  admitted: boolean,
+  chain?: ChainAdmission,
 ): Entry {
   const entry: Entry = {
     call,
-    admitted,
+    chain,
     controller: new AbortController(),
-    usage: [],
     result: Promise.resolve(undefined as never),
     waiters: 0,
   };
@@ -921,29 +1016,23 @@ async function requestCall(
   state: ModelCallState,
   call: CallRequest,
   signal: AbortSignal | undefined,
-  admitted = false,
-): Promise<{
-  readonly settled: ModelCallAnswer;
-  readonly usage: readonly unknown[];
-}> {
+  chain?: ChainAdmission,
+): Promise<ModelCallAnswer> {
   state.stopped.signal.throwIfAborted();
   signal?.throwIfAborted();
   const id = callId(call);
-  const entry =
-    state.entries.get(id) ?? startCall(state, { ...call, id }, admitted);
+  const existing = state.entries.get(id);
+  if (existing) chain?.releaseUnused("joined");
+  const entry = existing ?? startCall(state, { ...call, id }, chain);
   entry.waiters += 1;
   try {
-    const settled = await untilAborted(entry.result, [
-      signal,
-      state.stopped.signal,
-    ]);
-    return { settled, usage: entry.usage };
+    return await untilAborted(entry.result, [signal, state.stopped.signal]);
   } finally {
     entry.waiters -= 1;
     if (
       entry.waiters === 0 &&
       state.entries.get(id) === entry &&
-      (entry.admitted || modelCallPolicies[entry.call.kind].interactive)
+      (entry.chain || modelCallPolicies[entry.call.kind].interactive)
     )
       entry.controller.abort(
         new ModelCallError("failed", "Nobody waits for the model call"),
@@ -956,6 +1045,7 @@ function callRequest(
     ModelPrompt & {
       readonly kind: ModelCallKind;
       readonly runOperationId?: string;
+      readonly budget?: ModelRunBudget;
     },
   key: string,
   mode: CallRequest["mode"],
@@ -971,6 +1061,7 @@ function callRequest(
     kind: request.kind,
     key,
     target: targetOf(request),
+    ...(request.budget ? { budget: request.budget } : {}),
     mode,
     ...(request.effort ? { effort: request.effort } : {}),
     ...(request.instructions ? { instructions: request.instructions } : {}),
@@ -1002,15 +1093,15 @@ function structuredCall(request: ModelCallRequest): CallRequest {
 }
 
 const answer = {
-  structured: ({ settled }: { readonly settled: ModelCallAnswer }) => ({
+  structured: (settled: ModelCallAnswer) => ({
     output: settled.output as Record<string, unknown>,
     model: settled.model,
   }),
-  text: ({ settled }: { readonly settled: ModelCallAnswer }) => ({
+  text: (settled: ModelCallAnswer) => ({
     output: settled.output as string,
     model: settled.model,
   }),
-  workspace: ({ settled }: { readonly settled: ModelCallAnswer }) => ({
+  workspace: (settled: ModelCallAnswer) => ({
     output: decodeFiles(settled.output as readonly ModelInvokeFile[]),
     model: settled.model,
   }),
@@ -1033,11 +1124,11 @@ async function runModelChain<T>(
     signal.addEventListener("abort", abort, { once: true });
   }
   state.chains.add(controller);
-  let lease: ModelChainLease | undefined;
-  let deadline: NodeJS.Timeout | undefined;
-  let outcome = "failed";
-  let calls = 0;
-  const usage: unknown[] = [];
+  let initialPlace: ModelLease | undefined;
+  const releaseUnused = (outcome: string) => {
+    initialPlace?.release({ outcome });
+    initialPlace = undefined;
+  };
   try {
     controller.signal.throwIfAborted();
     const { placement } = await resolvePlacement(
@@ -1047,46 +1138,42 @@ async function runModelChain<T>(
     );
     const { runtimeType } = resolveTarget(state.options.gateway, placement);
     const policy = modelCallPolicies[spec.kind];
-    if (policy.queued)
-      lease = await state.options.gateway.acquireModelChain(
+    const acquire = (key: string, signal: AbortSignal) =>
+      state.options.gateway.acquireModelCall(
         { computerId: placement.computerId, runtimeType },
-        { priority: policy.priority, kind: spec.kind, key: spec.key },
-        controller.signal,
+        { priority: policy.priority, kind: spec.kind, key },
+        signal,
       );
-    if (spec.timeoutMs !== undefined)
-      deadline = setTimeout(
-        () =>
-          controller.abort(
-            new ModelCallError(
-              "timed_out",
-              "The model chain did not finish in time",
-            ),
-          ),
-        spec.timeoutMs,
-      );
-    // Every call runs on the endpoint the chain was admitted to, in its
-    // place, one at a time in the order the body makes them.
+    initialPlace = await acquire(spec.key, controller.signal);
+    controller.signal.throwIfAborted();
+    const admission: ChainAdmission = {
+      runtimeType,
+      acquire(key, signal) {
+        if (!initialPlace) return acquire(key, signal);
+        const place = initialPlace;
+        initialPlace = undefined;
+        return Promise.resolve(place);
+      },
+      releaseUnused,
+    };
     const inChain = {
       kind: spec.kind,
       placement: { ...placement, runtimeType },
     };
     let previous: Promise<unknown> = Promise.resolve();
     const step = (call: (key: string) => CallRequest, stepName: string) => {
-      const run = previous.then(async () => {
-        const settled = await requestCall(
+      const run = previous.then(() =>
+        requestCall(
           state,
           call(`${spec.key}/${stepName}`),
           controller.signal,
-          true,
-        );
-        calls += 1;
-        if (settled.usage.length) usage.push(settled.usage);
-        return settled;
-      });
+          admission,
+        ),
+      );
       previous = run.catch(() => undefined);
       return run;
     };
-    const result = await body({
+    return await body({
       signal: controller.signal,
       call: async ({ step: name, ...call }) =>
         answer.structured(
@@ -1113,20 +1200,11 @@ async function runModelChain<T>(
           ),
         ),
     });
-    outcome = "completed";
-    return result;
-  } catch (error) {
-    if (controller.signal.aborted) outcome = "aborted";
-    throw error;
   } finally {
-    clearTimeout(deadline);
     for (const signal of signals) signal.removeEventListener("abort", abort);
     state.chains.delete(controller);
     controller.abort();
-    lease?.release({
-      outcome,
-      usage: { calls, ...(usage.length ? { per_call: usage } : {}) },
-    });
+    releaseUnused("unused");
   }
 }
 
@@ -1166,6 +1244,7 @@ function outcomeFailure(
       return new ModelCallError(
         "runtime_unavailable",
         `The Local Computer Runtime cannot run model calls (${outcome.outcome})${reason}`,
+        { runtimeOutcome: outcome.outcome },
       );
     case "timed_out":
       return new ModelCallError(
@@ -1234,6 +1313,7 @@ function isPlacementItem(item: unknown): item is AnotherMePlacement {
     typeof item.computer_id === "string" &&
     (item.local_runtime_type === "codex" ||
       item.local_runtime_type === "claude" ||
-      item.local_runtime_type === "pi")
+      item.local_runtime_type === "pi" ||
+      item.local_runtime_type === "antigravity")
   );
 }

@@ -43,7 +43,7 @@ export function SettingsGroup({
         <div className="-mt-px">{children}</div>
       </div>
       {footer ? (
-        <div className="px-1.5 pt-1.5 text-xs leading-[18px] text-muted-foreground">
+        <div className="px-1.5 pt-1.5 text-xs leading-4 text-muted-foreground">
           {footer}
         </div>
       ) : null}
@@ -95,7 +95,7 @@ export function SettingsRowText({
     <span className="min-w-0 flex-1">
       <span
         className={cn(
-          "block truncate text-[14px] font-medium leading-[18px]",
+          "block truncate text-sm font-medium leading-5",
           muted ? "text-muted-foreground" : "text-foreground",
           titleClassName,
         )}
@@ -103,7 +103,7 @@ export function SettingsRowText({
         {title}
       </span>
       {description ? (
-        <span className="mt-px block truncate text-xs leading-[17px] text-muted-foreground">
+        <span className="mt-px block text-xs leading-4 text-muted-foreground">
           {description}
         </span>
       ) : null}

@@ -463,7 +463,11 @@ export interface paths {
      */
     get: operations["getLocalComputerModels"];
     put?: never;
-    post?: never;
+    /**
+     * Ask an owned Local Computer to recheck memory and refresh its model library.
+     * @description Only the Computer owner may ask it to refresh. TeamHub forwards a refresh command to the Computer, which answers at once; 202 means the Computer will re-probe free memory and models and send a fresh snapshot.
+     */
+    post: operations["refreshLocalComputerModels"];
     delete?: never;
     options?: never;
     head?: never;
@@ -488,6 +492,67 @@ export interface paths {
      * @description The click is the approval. TeamHub forwards the action to the Computer, which answers at once; 202 means the Computer started it. Progress and the outcome arrive as new snapshots, announced by local-models invalidation hints. A retried request sends the action again.
      */
     post: operations["actOnLocalComputerModel"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v0/tenants/{tenantId}/local-computers/{computerId}/model-source": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+        computerId: components["parameters"]["ComputerId"];
+      };
+      cookie?: never;
+    };
+    /** Read the active model source and redacted BYOK configuration of one Local Computer. */
+    get: operations["getLocalComputerModelSource"];
+    put?: never;
+    /** Switch a Local Computer between local models, subscriptions, and BYOK on Bifrost. */
+    post: operations["switchLocalComputerModelSource"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v0/tenants/{tenantId}/local-computers/{computerId}/model-source/models": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+        computerId: components["parameters"]["ComputerId"];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** List the models a BYOK endpoint serves, asked from an owned Local Computer without saving anything. */
+    post: operations["listLocalComputerByokModels"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v0/tenants/{tenantId}/local-computers/{computerId}/model-source/test": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+        computerId: components["parameters"]["ComputerId"];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Verify a BYOK upstream endpoint from an owned Local Computer without saving credentials. */
+    post: operations["testLocalComputerModelSource"];
     delete?: never;
     options?: never;
     head?: never;
@@ -2503,6 +2568,73 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v0/web-search/backends": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * List the web search backends with their display text, state and live quota.
+     * @description Every backend in TeamHub's default order, with what a client needs to render one row each: name, commands, filters, free tier text, where to get a key, the key state and live quota. Quota is read from each provider's official usage endpoint for this request, in parallel and briefly; with include_quota=false TeamHub calls no provider and leaves quota out of every backend.
+     */
+    get: operations["listWebSearchBackends"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v0/web-search/backends/{backend}/key": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        backend: components["schemas"]["WebSearchKeyBackend"];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    /**
+     * Save the deployment's API key for one web search backend.
+     * @description From a search_key card (decision_id, its decision owner only), TeamHub first runs the search or page open the card was posted for against this backend with the new key. A provider refusing the key leaves it unsaved and the card open (400 WEB_SEARCH_KEY_REJECTED). Any other outcome saves the key, verified once the provider proved it, and answers the card configured with this backend and that call's results or error code, so the Agent need not run it again. Otherwise TeamHub checks the key with the provider's official endpoint when it has one (Tavily usage, You.com account balance, Firecrawl credit usage); a Brave key is saved unverified and its first call proves it. Keys are stored encrypted with TEAMHUB_SECRET_ENCRYPTION_KEY and never returned; any signed-in Human may save one. Saving answers every other open search_key card configured with this backend and wakes the waiting Agents. 400 carries INVALID_REQUEST or WEB_SEARCH_KEY_REJECTED, 403 FORBIDDEN, 404 NOT_FOUND for a card the caller cannot see, 503 WEB_SEARCH_KEY_STORAGE_UNAVAILABLE or WEB_SEARCH_PROVIDER_UNAVAILABLE.
+     */
+    put: operations["saveWebSearchKey"];
+    post?: never;
+    /**
+     * Remove the saved API key of one web search backend.
+     * @description The backend also stops being the chosen default, so searches without a backend fall back to TeamHub's order. Removing a key that is not saved succeeds.
+     */
+    delete: operations["deleteWebSearchKey"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v0/web-search/default": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /**
+     * Choose the backend a search without one uses.
+     * @description The backend must be ready (409 WEB_SEARCH_KEY_REQUIRED otherwise). Any signed-in Human may choose it; it applies to the whole deployment.
+     */
+    put: operations["setWebSearchDefault"];
+    post?: never;
+    /** Return searches without a backend to TeamHub's order. */
+    delete: operations["clearWebSearchDefault"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v0/work-items/{workItemId}/documents/uploads": {
     parameters: {
       query?: never;
@@ -3145,6 +3277,45 @@ export interface paths {
      * @description A repeated submission finds the entry current and reports already_current.
      */
     post: operations["restoreDocumentHistoryEntry"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v0/documents/{documentId}/mail": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        documentId: components["parameters"]["DocumentId"];
+      };
+      cookie?: never;
+    };
+    /** Read the local email and its delivery status without contacting Gmail. */
+    get: operations["getMailCanvas"];
+    put?: never;
+    /** Upload and send the exact local email the Human reviewed. */
+    post: operations["sendMailCanvas"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v0/documents/{documentId}/mail/decline": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        documentId: components["parameters"]["DocumentId"];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Record that the Human chose not to send this email. */
+    post: operations["declineMailCanvas"];
     delete?: never;
     options?: never;
     head?: never;
@@ -4249,6 +4420,8 @@ export interface components {
       account: components["schemas"]["Account"];
       /** @description Active Human Actor identities available to this Account, one per Tenant in V0. */
       actors: components["schemas"]["Actor"][];
+      /** @description Request fields this TeamHub accepts that earlier releases rejected, so a client newer than its server sends one only when the server lists it. A TeamHub that predates this list omits it. local_computer_enrollment_daemon_id: Local Computer enrollment accepts daemon_id. */
+      server_capabilities?: "local_computer_enrollment_daemon_id"[];
     };
     Session: {
       id: components["schemas"]["Id"];
@@ -4262,6 +4435,11 @@ export interface components {
       /** @description Optional stable classification for this individual validation issue. */
       code?: string;
       reason: string;
+      /**
+       * Format: int64
+       * @description With code too_large, the largest size the field accepts, in bytes.
+       */
+      limit_bytes?: number;
     };
     Error: {
       /** @example ROOM_NOT_FOUND */
@@ -4325,7 +4503,7 @@ export interface components {
       | "max"
       | "ultra";
     /** @enum {string} */
-    LocalRuntimeType: "codex" | "claude" | "pi";
+    LocalRuntimeType: "codex" | "claude" | "pi" | "antigravity";
     /** @description Agents run on one of the Sponsor's Local Computers. Placement requires computer_id, runtime_type, and workspace_grant_id; TeamHub validates that invariant before persistence. */
     AgentRuntimePlacement: {
       /** @enum {string} */
@@ -4419,6 +4597,19 @@ export interface components {
      * @enum {string}
      */
     TenantAgentAvailabilityStatus: "online" | "error" | "offline" | "unknown";
+    /**
+     * @description Why the Agent has its status, as a stable code clients word in their own language. `label` and `current_activity.summary` carry the same state in English for clients that do not know the code. With `runtime_error` the summary is the Runtime's own diagnostic text.
+     * @enum {string}
+     */
+    TenantAgentAvailabilityReason:
+      | "online"
+      | "status_unavailable"
+      | "reconnecting"
+      | "authentication_required"
+      | "waiting_for_computer"
+      | "runtime_not_installed"
+      | "runtime_incompatible"
+      | "runtime_error";
     TenantAgentCurrentActivity: {
       summary: string;
       run_id?: components["schemas"]["Id"];
@@ -4426,7 +4617,9 @@ export interface components {
     };
     TenantAgentAvailability: {
       status: components["schemas"]["TenantAgentAvailabilityStatus"];
+      /** @description English wording of the status, the fallback for clients that do not know `reason`. */
       label: string;
+      reason?: components["schemas"]["TenantAgentAvailabilityReason"];
       /**
        * Format: int64
        * @description Number of non-terminal managed Tasks assigned to this Agent.
@@ -4753,6 +4946,13 @@ export interface components {
       code: components["schemas"]["LocalModelErrorCode"];
       /** @description Diagnostic text for display; never matched on. */
       detail?: string;
+      /**
+       * @description Why a GATEWAY_REGISTRATION_FAILED happened, when the Computer supervised the failed job. GATEWAY_HOME_NOT_PRIVATE: the local gateway's private folder at path has another owner; closing Linger and renaming that folder lets the model load.
+       * @enum {string}
+       */
+      cause?: "GATEWAY_HOME_NOT_PRIVATE";
+      /** @description The folder the cause names, on the Computer. The public view carries it only for the Computer's owner. */
+      path?: string;
     };
     LocalModelNote: {
       /** @enum {string} */
@@ -4865,18 +5065,10 @@ export interface components {
       pools: components["schemas"]["LocalModelPool"][];
       models: components["schemas"]["LocalModelView"][];
     };
-    /** @description A Human's action on one model. The click is the approval; there is no separate confirm step on the Computer. unload_first only with load. */
-    LocalModelActionRequest: {
-      /** @enum {string} */
-      action: "download" | "cancel" | "load" | "unload" | "remove";
-      /** @description Loaded models in the same pool to unload before the load starts. */
-      unload_first?: components["schemas"]["LocalModelId"][];
-    };
-    LocalModelActionAccepted: {
+    LocalModelsRefreshAccepted: {
       computer_id: components["schemas"]["Id"];
-      model_id: components["schemas"]["LocalModelId"];
       /** @enum {string} */
-      action: "download" | "cancel" | "load" | "unload" | "remove";
+      action: "refresh";
     };
     /**
      * @description error.code of a refused local-models action (403, 409, 502, 503, 504); 400, 401, and 404 use the common codes. LOCAL_COMPUTER_OFFLINE: the Computer is not connected. LOCAL_MODEL_ACTION_FORBIDDEN: the viewer is not the Computer owner. LOCAL_MODELS_UNAVAILABLE: the Computer has no usable localmodels tool. LOCAL_MODEL_ACTION_FAILED: the Computer refused with a library error that has no code of its own here (502). LOCAL_MODELS_SERVICE_UNAVAILABLE: Agent Service could not be reached (503). LOCAL_MODEL_ACTION_UNCONFIRMED: the connected Computer had not decided by the action's deadline; it may still run the action, and the library snapshots show the outcome (504). The other LOCAL_MODEL_ codes are the Computer's refusal codes of the same name (409).
@@ -4908,6 +5100,153 @@ export interface components {
     };
     LocalModelsErrorResponse: {
       error: components["schemas"]["LocalModelsError"];
+    };
+    /** @description A Human's action on one model. The click is the approval; there is no separate confirm step on the Computer. unload_first only with load. */
+    LocalModelActionRequest: {
+      /** @enum {string} */
+      action: "download" | "cancel" | "load" | "unload" | "remove";
+      /** @description Loaded models in the same pool to unload before the load starts. */
+      unload_first?: components["schemas"]["LocalModelId"][];
+    };
+    LocalModelActionAccepted: {
+      computer_id: components["schemas"]["Id"];
+      model_id: components["schemas"]["LocalModelId"];
+      /** @enum {string} */
+      action: "download" | "cancel" | "load" | "unload" | "remove";
+    };
+    /**
+     * @description Active model source mode on a Local Computer.
+     * @enum {string}
+     */
+    ModelSourceMode: "local" | "subscription" | "byok";
+    /**
+     * @description Agent runtime harness driving turns on the Computer.
+     * @enum {string}
+     */
+    ModelSourceRuntime: "claude" | "codex" | "pi";
+    /**
+     * @description Wire format of a BYOK upstream endpoint. The owner's client derives it from the end of the request address, else from the Runtime's own format; the Computer does not probe for it.
+     * @enum {string}
+     */
+    ByokProtocol: "openai-chat" | "openai-responses" | "anthropic";
+    /** @description A path appended to a BYOK base URL: empty, or whole segments each led by one slash, so it can only extend the base URL's path. */
+    ByokUrlPath: string;
+    /** @description Redacted BYOK configuration metadata reported by the Computer. path and endpoint are omitted when empty: a configured summary without them appends nothing there. */
+    ByokSummary: {
+      configured: boolean;
+      protocol?: components["schemas"]["ByokProtocol"];
+      base_url?: string;
+      path?: components["schemas"]["ByokUrlPath"];
+      endpoint?: components["schemas"]["ByokUrlPath"];
+      model_id?: string;
+      context_window?: number;
+      key_saved: boolean;
+    };
+    /** @description Active model source and redacted BYOK metadata on one Local Computer. */
+    ModelSourceStatus: {
+      mode: components["schemas"]["ModelSourceMode"];
+      runtime: components["schemas"]["ModelSourceRuntime"];
+      /** @description After a switch, the model the Computer's Agents run: the target model when the active Runtime offers it, else that Runtime's default. */
+      runtime_model: string;
+      reasoning_effort?: components["schemas"]["AgentReasoningEffort"];
+      gateway_url?: string;
+      byok: components["schemas"]["ByokSummary"];
+    };
+    /** @description Current model source state of one Local Computer as viewed from Settings. */
+    ModelSourceView: {
+      computer_id: components["schemas"]["Id"];
+      viewer_is_owner: boolean;
+      online: boolean;
+      status?: components["schemas"]["ModelSourceStatus"];
+      updated_agent_count?: number;
+      terminated_run_count?: number;
+    };
+    /**
+     * @description error.code of a refused model-source request (403, 409, 502, 503, 504); 400, 401, and 404 use the common codes. LOCAL_COMPUTER_OFFLINE: the Computer is not connected. MODEL_SOURCE_FORBIDDEN: the viewer is not the Computer owner. MODEL_SOURCE_UNAVAILABLE: the Computer has no localmodels tool or cannot switch model sources. AGENT_HAS_ACTIVE_RUNS: Agents on the Computer have running work and force_terminate was false; details carries one entry per such Agent, with field "agent" and the Agent's display name as reason. RUNTIME_NOT_ENABLED, LOCAL_MODEL_NO_ROOM, LOCAL_MODEL_UNKNOWN, and the BYOK endpoint refusals (BYOK_INVALID_CONFIG, BYOK_AUTH_FAILED, BYOK_NOT_FOUND, BYOK_UNREACHABLE, BYOK_UPSTREAM_REJECTED) are the Computer's refusals (409); for BYOK_AUTH_FAILED, BYOK_NOT_FOUND, BYOK_UNREACHABLE and BYOK_UPSTREAM_REJECTED, message is the Computer's own and names the address it sent to and the endpoint's HTTP status. BYOK_GATEWAY_FAILED: the Computer could not start, stop, or configure its local BYOK gateway (502); when the Computer reported a diagnostic message, message carries it and details carries one entry with field "gateway" and that diagnostic as reason. MODEL_SOURCE_FAILED: the Computer failed with an error that has no code of its own here (502). MODEL_SOURCE_SERVICE_UNAVAILABLE: Agent Service could not be reached (503). MODEL_SOURCE_UNCONFIRMED: the Computer had not answered by the deadline; it may still switch (504).
+     * @enum {string}
+     */
+    ModelSourceErrorCode:
+      | "LOCAL_COMPUTER_OFFLINE"
+      | "MODEL_SOURCE_FORBIDDEN"
+      | "MODEL_SOURCE_UNAVAILABLE"
+      | "AGENT_HAS_ACTIVE_RUNS"
+      | "RUNTIME_NOT_ENABLED"
+      | "LOCAL_MODEL_NO_ROOM"
+      | "LOCAL_MODEL_UNKNOWN"
+      | "BYOK_INVALID_CONFIG"
+      | "BYOK_AUTH_FAILED"
+      | "BYOK_NOT_FOUND"
+      | "BYOK_UNREACHABLE"
+      | "BYOK_UPSTREAM_REJECTED"
+      | "BYOK_GATEWAY_FAILED"
+      | "MODEL_SOURCE_FAILED"
+      | "MODEL_SOURCE_SERVICE_UNAVAILABLE"
+      | "MODEL_SOURCE_UNCONFIRMED";
+    /** @description The common error body with error.code narrowed to ModelSourceErrorCode. */
+    ModelSourceError: {
+      code: components["schemas"]["ModelSourceErrorCode"];
+      /** @description Human-readable summary safe to display; clients branch on code, not message. */
+      message: string;
+      request_id: string;
+      details?: components["schemas"]["ErrorDetail"][];
+    };
+    ModelSourceErrorResponse: {
+      error: components["schemas"]["ModelSourceError"];
+    };
+    /** @description Upstream endpoint configuration supplied by the Computer owner. Requests go to base_url + path + endpoint in protocol, and models are listed at base_url + path + /models. The API key is never persisted in TeamHub or Agent Service; only the Local Computer stores it in a private 0600 file. */
+    ByokInput: {
+      base_url: string;
+      path: components["schemas"]["ByokUrlPath"];
+      endpoint: components["schemas"]["ByokUrlPath"];
+      protocol: components["schemas"]["ByokProtocol"];
+      api_key?: string;
+      model_id: string;
+      context_window?: number;
+      reuse_saved_key?: boolean;
+    };
+    /** @description Owner request to switch a Computer between local models, native subscriptions, and BYOK on Bifrost. When active Runs exist on the Computer's affected Agents and force_terminate is false, TeamHub refuses with 409 AGENT_HAS_ACTIVE_RUNS; retrying with force_terminate true terminates those Runs and applies the switch. */
+    ModelSourceSwitchRequest: {
+      mode: components["schemas"]["ModelSourceMode"];
+      runtime?: components["schemas"]["ModelSourceRuntime"];
+      local_model_id?: components["schemas"]["LocalModelId"];
+      byok?: components["schemas"]["ByokInput"];
+      /** @description True ends running work on the Computer's Agents; absent means false. */
+      force_terminate?: boolean;
+    };
+    /** @description A BYOK endpoint address and key, enough to list its models at base_url + path + /models with protocol's key header. The API key is never persisted in TeamHub or Agent Service. */
+    ByokEndpointInput: {
+      base_url: string;
+      path: components["schemas"]["ByokUrlPath"];
+      endpoint: components["schemas"]["ByokUrlPath"];
+      protocol: components["schemas"]["ByokProtocol"];
+      api_key?: string;
+      reuse_saved_key?: boolean;
+    };
+    /** @description A model a BYOK endpoint lists. */
+    ByokModel: {
+      id: string;
+      /** @description The endpoint's display name, when it differs from id. */
+      name?: string;
+      context_window?: number;
+    };
+    /** @description The models a BYOK endpoint lists, sorted by id. */
+    ByokModelList: {
+      /** @description The address that listed them. */
+      url: string;
+      models: components["schemas"]["ByokModel"][];
+    };
+    /** @description A BYOK endpoint to verify with one request from the Computer. */
+    ByokTestRequest: {
+      byok: components["schemas"]["ByokInput"];
+    };
+    /** @description Outcome of one request to an upstream BYOK endpoint from the Local Computer. */
+    ByokTestResult: {
+      ok: boolean;
+      protocol: components["schemas"]["ByokProtocol"];
+      /** @description The address the request went to. */
+      url: string;
+      model_id: string;
+      context_window: number;
     };
     /**
      * @description The app macOS grants the permission to. linger is the Linger desktop app, which owns shell commands such as screencapture; computer_use is CuaDriver, which owns the computer-use tools.
@@ -4962,6 +5301,8 @@ export interface components {
     };
     LocalComputerEnrollmentCreateRequest: {
       computer_id?: components["schemas"]["Id"];
+      /** @description SHA-256 of the local Daemon Ed25519 public key in base64url. When supplied, TeamHub renews a live Computer already bound to this Daemon Identity for the same owner and rejects claims by another owner with 409 DAEMON_IDENTITY_IN_USE. */
+      daemon_id?: string;
       display_name: string;
       /** Format: uri */
       redirect_uri: string;
@@ -5047,7 +5388,12 @@ export interface components {
     /** @description Stable catalog key. TeamHub validates app availability and capabilities. */
     ExternalAppKey: string;
     /** @enum {string} */
-    RoutineCadenceKind: "daily" | "weekly" | "every_n_hours" | "once";
+    RoutineCadenceKind:
+      | "daily"
+      | "weekly"
+      | "every_n_hours"
+      | "every_n_minutes"
+      | "once";
     /** @enum {string} */
     RoutineWeekday:
       | "monday"
@@ -5069,6 +5415,8 @@ export interface components {
       weekdays?: components["schemas"]["RoutineWeekday"][];
       /** @description Repeat interval for every_n_hours cadences. */
       interval_hours?: number;
+      /** @description Repeat interval in minutes for every_n_minutes cadences, in 10-minute increments. */
+      interval_minutes?: number;
       /**
        * Format: date-time
        * @description The one moment a once cadence fires; the Routine is done (disabled) afterwards.
@@ -5396,9 +5744,10 @@ export interface components {
       | "provider_key"
       | "browser_connection"
       | "room_creation"
-      | "computer_permission";
+      | "computer_permission"
+      | "search_key";
     /**
-     * @description For connector_write and agent_change, approved and executing mean TeamHub is running the approved request, and unknown means a run stopped midway and may have taken effect; TeamHub does not run it again. A question or AnotherMe setup card ends answered. An approved runtime_permission lets the Agent retry that one call until expires_at, and ends consumed once it does. An approved connection_auth is authorizing until the OAuth it started completes (succeeded), fails, or expires. A provider_key ends answered when someone saves a Composio key, denied when its Human declines. A browser_connection ends answered when its owner connects, denied when they decline. A room_creation ends succeeded with its Room created, or denied. A computer_permission ends answered once every permission it asks for is granted, denied when its owner declines.
+     * @description For connector_write and agent_change, approved and executing mean TeamHub is running the approved request, and unknown means a run stopped midway and may have taken effect; TeamHub does not run it again. A question or AnotherMe setup card ends answered. An approved runtime_permission lets the Agent retry that one call until expires_at, and ends consumed once it does. An approved connection_auth is authorizing until the OAuth it started completes (succeeded), fails, or expires. A provider_key ends answered when someone saves a Composio key, denied when its Human declines. A browser_connection ends answered when its owner connects, denied when they decline. A room_creation ends succeeded with its Room created, or denied. A computer_permission ends answered once every permission it asks for is granted, denied when its owner declines. A search_key ends answered when someone saves any web search key, denied when its Human declines.
      * @enum {string}
      */
     DecisionStatus:
@@ -5413,13 +5762,18 @@ export interface components {
       | "answered"
       | "consumed"
       | "authorizing";
+    /**
+     * @description A backend that takes an API key saved in the product.
+     * @enum {string}
+     */
+    WebSearchKeyBackend: "tavily" | "brave" | "firecrawl" | "exa" | "you";
     /** @description A radio or checkbox answer names option ids. Any other value is the Human's own written answer, which every option question accepts, so a checkbox answer holds up to 20 options and one written answer. */
     DecisionAnswerValue: string | string[];
     /** @description Service-signed upload credential. It names the uploading Human, the Room, and the stored file, and it expires at the upload's expires_at; clients must not construct or parse it. */
     AttachmentUploadToken: string;
     DecisionAnswer: {
       /**
-       * @description approve or deny for connector_write, agent_change, runtime_permission, connection_auth and room_creation; deny or connected (recorded by TeamHub once the owner connects Chrome) for browser_connection; deny or configured (recorded by TeamHub once a Composio key is saved) for provider_key; deny or granted (recorded by TeamHub once the Computer reports every permission granted) for computer_permission; submit for question; connected or skipped for profile_setup_apps; done or skipped for profile_setup_sources.
+       * @description approve or deny for connector_write, agent_change, runtime_permission, connection_auth and room_creation; deny or connected (recorded by TeamHub once the owner connects Chrome) for browser_connection; deny or configured (recorded by TeamHub once a Composio key is saved) for provider_key and search_key (with the backend whose key was saved); deny or granted (recorded by TeamHub once the Computer reports every permission granted) for computer_permission; submit for question; connected or skipped for profile_setup_apps; done or skipped for profile_setup_sources.
        * @enum {string}
        */
       decision:
@@ -5435,6 +5789,8 @@ export interface components {
       comment?: string;
       /** @description The Connection a connection_auth approval chose. */
       connection_id?: components["schemas"]["Id"];
+      /** @description The web search backend whose key was saved, on a configured search_key answer; it may differ from the backend the card showed. */
+      backend?: components["schemas"]["WebSearchKeyBackend"];
       /** @description Map of question id to the Human's answer; only with submit. */
       answers?: {
         [key: string]: components["schemas"]["DecisionAnswerValue"];
@@ -5560,9 +5916,10 @@ export interface components {
       /** @description Connected App keys a profile_setup_apps card offers behind "more". */
       more_apps?: string[];
     };
-    /** @description The view of a connection_auth decision: the Connected App the Agent needs. connection_id is the Connection the Human chose, once they approved. */
+    /** @description The view of a connection_auth decision: the Connected App the Agent needs. account is the identity the Agent asked for, when it named one. connection_id is the Connection the Human chose, once they approved. */
     ConnectionAuthDecisionView: {
       app_key: string;
+      account?: string;
       connection_id?: components["schemas"]["Id"];
     };
     /** @description The view of a provider_key decision: the deployment has no Composio API key, which every Connected App needs. app_key names the app the Agent wanted, when its command said. Saving a key answers it configured. */
@@ -5590,6 +5947,14 @@ export interface components {
       subject: components["schemas"]["ComputerPermissionSubject"];
       permissions: components["schemas"]["ComputerPermissionId"][];
       reason?: string;
+    };
+    /** @description The view of a search_key decision: the web search backend the card shows. origin is requested when the Agent's command named it, and suggested when the command named none and nothing was usable, so TeamHub picked the first backend in its order that still needs a key. reason says why: no key is saved (missing), the provider refused the saved one (rejected), or the keyless You.com searches are used up (free_limit). The Human may add a key for any other backend instead; saving any web search key answers the card configured with that backend. */
+    SearchKeyDecisionView: {
+      backend: components["schemas"]["WebSearchKeyBackend"];
+      /** @enum {string} */
+      origin: "requested" | "suggested";
+      /** @enum {string} */
+      reason: "missing" | "rejected" | "free_limit";
     };
     /** @description A request waiting on one Human's decision. TeamHub runs what the decision approves and reports the result to the requesting Agent. Exactly the view property named by kind is present; both AnotherMe setup kinds use profile_setup. */
     DecisionRequestedMessageCard: {
@@ -5626,6 +5991,7 @@ export interface components {
       browser_connection?: components["schemas"]["BrowserConnectionDecisionView"];
       room_creation?: components["schemas"]["RoomCreationDecisionView"];
       computer_permission?: components["schemas"]["ComputerPermissionDecisionView"];
+      search_key?: components["schemas"]["SearchKeyDecisionView"];
     };
     /** @description The Message author, an Agent, created this General Agent. Without approved_by it was created here and joined this Room; with approved_by it was created after that Human approved the confirmation card and joined no Room. */
     AgentCreatedNotice: {
@@ -5796,7 +6162,12 @@ export interface components {
        * @description Connected app whose new events the Routine hands to proactive judgement.
        * @enum {string}
        */
-      app: "gmail" | "outlook" | "google_calendar" | "slack";
+      app:
+        | "gmail"
+        | "outlook"
+        | "google_calendar"
+        | "outlook_calendar"
+        | "slack";
     };
     /** @description A Routine has exactly one of cadence and listener. A listener Routine is AnotherMe's app listener; it can only be paused and resumed, and goes away when the Human revokes AnotherMe's access to the app. */
     Routine: {
@@ -6349,7 +6720,7 @@ export interface components {
       /** @description Optional public queue label for queued, or the full provider-visible reasoning summary title for thinking. Omit for working; raw reasoning is never allowed. */
       title?: string;
     };
-    /** @description Public classified failure; contains no native error text, paths, credentials, or task input. Each code is set where the failure is observed, from structured signals only. model_unavailable means the model service refused the selected model for the Runtime's account, so the Agent needs another model or another sign-in. model_not_offered means the Agent's Computer does not offer the selected model for its Runtime, or the model does not support the selected reasoning effort, so the Runtime could not start; the Agent needs a model and reasoning effort that Computer offers. context_too_long means the conversation no longer fits the model's context window. model_service_error means the model service reported a server-side error. timeout means the Runtime hit its local execution deadline. execution_outcome_unknown means a command was dispatched but no validated exit was observed before unexpected transport or Runtime failure. Intentional cancellation, authorization loss or unavailability, and normal retirement do not create this classification. Authorization loss or unavailability includes explicit revocation, authorization checks that fail or time out, and authorization expiry. This code does not currently cover unknown effects caused by control-plane disconnection. It remains a failed Run and must not be automatically replayed; verify its effects before starting another Run. reply_undelivered means a Room Run finished, but every message the Agent tried to post failed, so the Room received no reply from it. interrupted means the Run stopped before it finished for a reason other than a user cancellation, such as a restart or a Runner stopped on its Computer; part of its work may have taken effect and it is not replayed. computer_unavailable means the Agent's Computer could not run it: the Computer is unreachable, the Agent's Runner is stopped there, or the Runtime is not enabled. cleanup_unconfirmed means the Runtime process could not be confirmed stopped. response_too_large means the reply exceeded the Room's size limit. unclassified means no structured signal identified the cause. runtime_type is present when the failure belongs to a selected Runtime; it is absent for failures the Agent Service or TeamHub observes without one. */
+    /** @description Public classified failure; contains no native error text, paths, credentials, or task input. Each code is set where the failure is observed, from structured signals only. model_unavailable means the model service refused the selected model for the Runtime's account, so the Agent needs another model or another sign-in. model_not_offered means the Agent's Computer does not offer the selected model for its Runtime, or the model does not support the selected reasoning effort, so the Runtime could not start; the Agent needs a model and reasoning effort that Computer offers. context_too_long means the conversation no longer fits the model's context window. model_service_error means the model service reported a server-side error. timeout means the Runtime hit its local execution deadline. execution_outcome_unknown means a command was dispatched but no validated exit was observed before unexpected transport or Runtime failure. Intentional cancellation, authorization loss or unavailability, and normal retirement do not create this classification. Authorization loss or unavailability includes explicit revocation, authorization checks that fail or time out, and authorization expiry. This code does not currently cover unknown effects caused by control-plane disconnection. It remains a failed Run and must not be automatically replayed; verify its effects before starting another Run. reply_undelivered means a Room Run finished, but every message the Agent tried to post failed, so the Room received no reply from it. reply_not_sent means a Room Run finished without trying to post anything while a Human who mentioned the Agent waited for its reply; the Runtime ended the turn in text nobody sees, which is not posted for it. interrupted means the Run stopped before it finished for a reason other than a user cancellation, such as a restart or a Runner stopped on its Computer; part of its work may have taken effect and it is not replayed. computer_unavailable means the Agent's Computer could not run it: the Computer is unreachable, the Agent's Runner is stopped there, or the Runtime is not enabled. cleanup_unconfirmed means the Runtime process could not be confirmed stopped. response_too_large means the reply exceeded the Room's size limit. unclassified means no structured signal identified the cause. runtime_type is present when the failure belongs to a selected Runtime; it is absent for failures the Agent Service or TeamHub observes without one. */
     AgentRuntimeExecutionFailure: {
       /** @enum {string} */
       code:
@@ -6366,6 +6737,7 @@ export interface components {
         | "execution_failed"
         | "execution_outcome_unknown"
         | "reply_undelivered"
+        | "reply_not_sent"
         | "interrupted"
         | "computer_unavailable"
         | "cleanup_unconfirmed"
@@ -6730,6 +7102,15 @@ export interface components {
      * @enum {string}
      */
     PersonalWikiState: "idle" | "refreshing" | "failed";
+    /**
+     * @description Actionable cause of the latest failed refresh when known: computer_offline, runtime_incompatible, runtime_auth_required, or runtime_unavailable.
+     * @enum {string}
+     */
+    PersonalWikiFailureReason:
+      | "computer_offline"
+      | "runtime_incompatible"
+      | "runtime_auth_required"
+      | "runtime_unavailable";
     PersonalWiki: {
       /** @description Absent until a write (binding or uploading a source, a refresh request from Memory) creates the Wiki root. */
       id?: components["schemas"]["Id"];
@@ -6741,6 +7122,8 @@ export interface components {
        */
       published_generation: number;
       state: components["schemas"]["PersonalWikiState"];
+      /** @description Present when state is failed and the refresh failed for an actionable Computer or Runtime cause. */
+      failure_reason?: components["schemas"]["PersonalWikiFailureReason"];
       /**
        * Format: int64
        * @description Advances when the active refresh has a new three-minute preview.
@@ -6858,8 +7241,11 @@ export interface components {
     ExternalConnectionList: {
       connections: components["schemas"]["ExternalConnection"][];
     };
+    /** @description One-time OAuth return address on the desktop client's IPv4 loopback listener. */
+    ExternalConnectionDesktopCallbackURL: string;
     CreateExternalConnectionRequest: {
       app_key: components["schemas"]["ExternalAppKey"];
+      desktop_callback_url?: components["schemas"]["ExternalConnectionDesktopCallbackURL"];
     };
     CompleteExternalConnectionAuthorizationRequest: {
       /** @description The connected account the Composio callback named, when it named one. */
@@ -6894,6 +7280,7 @@ export interface components {
     CreateExternalConnectionReauthorizationRequest: {
       /** Format: int64 */
       expected_revision: number;
+      desktop_callback_url?: components["schemas"]["ExternalConnectionDesktopCallbackURL"];
     };
     SlackConversation: {
       id: string;
@@ -7262,6 +7649,116 @@ export interface components {
       /** Format: binary */
       content: string;
     };
+    /**
+     * @description A backend that runs searches.
+     * @enum {string}
+     */
+    WebSearchSearchBackend:
+      | "tavily"
+      | "brave"
+      | "firecrawl"
+      | "exa"
+      | "you"
+      | "duckduckgo";
+    /**
+     * @description A web search backend. duckduckgo searches without a key. direct opens pages only and is fetched by the Agent CLI on the Agent's computer; TeamHub never fetches a page itself.
+     * @enum {string}
+     */
+    WebSearchBackendId:
+      | "tavily"
+      | "brave"
+      | "firecrawl"
+      | "exa"
+      | "you"
+      | "duckduckgo"
+      | "direct";
+    /** @enum {string} */
+    WebSearchCommand: "search" | "open";
+    /** @enum {string} */
+    WebSearchFilter: "recency" | "site";
+    /** @description What is left on the backend's account. from says where the numbers came from: provider is the provider's official usage endpoint read for this response; last_response is the rate-limit headers of the last call (Brave), as of observed_at; unavailable carries no numbers and reason says why. */
+    WebSearchQuota: {
+      /** @enum {string} */
+      from: "provider" | "last_response" | "unavailable";
+      remaining?: number;
+      /** @description Absent when the provider reports no cap. */
+      limit?: number;
+      /** @enum {string} */
+      unit?: "credits" | "usd" | "requests";
+      plan?: string;
+      resets_at?: components["schemas"]["Timestamp"];
+      observed_at?: components["schemas"]["Timestamp"];
+      /**
+       * @description no_key: no key is saved; not_reported: there is no usage endpoint to read (keyless You.com, DuckDuckGo, Exa, direct); not_observed: Brave has answered no call yet; key_rejected: the provider refused the saved key; provider_unavailable: the usage endpoint did not answer in time.
+       * @enum {string}
+       */
+      reason?:
+        | "no_key"
+        | "not_reported"
+        | "not_observed"
+        | "key_rejected"
+        | "provider_unavailable";
+    };
+    /** @description One backend with the static text a client shows for it and its live state. status is ready when a call would run now: DuckDuckGo and direct always, You.com also without a key, the others with a key that is not rejected. */
+    WebSearchBackend: {
+      id: components["schemas"]["WebSearchBackendId"];
+      name: string;
+      /** @description The provider's own one-line description of its product. */
+      description: string;
+      /**
+       * @description How a call to the backend runs now. key: with an API key saved in the product (or one it still needs); free: without a key, on a free service with limits that TeamHub does not count (DuckDuckGo, and You.com without a key); none: direct, which needs no account.
+       * @enum {string}
+       */
+      tier: "key" | "free" | "none";
+      /** @description A short display line for the tier, set for free. */
+      tier_text?: string;
+      commands: components["schemas"]["WebSearchCommand"][];
+      /** @description The search filters the backend honors; any other is refused before a call. */
+      filters: components["schemas"]["WebSearchFilter"][];
+      /** @description The most results one search returns; 0 for a backend without search. */
+      max_limit: number;
+      /** @description How many sites one search may name; 0 when it takes no site filter. */
+      max_sites: number;
+      /** @description Whether the backend works without a saved key. */
+      keyless: boolean;
+      /** @description Whether the provider has an official endpoint TeamHub checks a key with before saving it. Without one the key is saved unverified and proven by its first call. */
+      official_key_check: boolean;
+      /** @description The provider's free allowance, for display. */
+      free_tier?: string;
+      /**
+       * Format: uri
+       * @description Where the Human gets a key.
+       */
+      key_url?: string;
+      /** @enum {string} */
+      status: "ready" | "key_required" | "key_rejected";
+      /** @enum {string} */
+      key_state: "none" | "verified" | "unverified" | "rejected";
+      /** @description Left out when the caller asked for the list without quota. */
+      quota?: components["schemas"]["WebSearchQuota"];
+    };
+    /** @description Every backend in TeamHub's default order. default_search is the backend a search without one uses now: the default a Human saved (chosen_default_search) even when its key stopped working, else the first backend with a usable key in that order, else duckduckgo. */
+    WebSearchBackendList: {
+      default_search: components["schemas"]["WebSearchSearchBackend"];
+      chosen_default_search?: components["schemas"]["WebSearchSearchBackend"];
+      /** @constant */
+      default_open: "direct";
+      /** @description False when the deployment has no TEAMHUB_SECRET_ENCRYPTION_KEY to seal keys with. */
+      can_save_keys: boolean;
+      backends: components["schemas"]["WebSearchBackend"][];
+    };
+    SaveWebSearchKeyRequest: {
+      api_key: string;
+      /** @description The search_key card the key is added from. TeamHub then runs the search or page open that card was posted for against this backend with the new key before saving it, and answers the card with what that call returned. Without it, or for a card posted by a connect request, the key gets the official check. */
+      decision_id?: string;
+    };
+    SetWebSearchDefaultRequest: {
+      backend: components["schemas"]["WebSearchSearchBackend"];
+    };
+    WebSearchDefault: {
+      default_search: components["schemas"]["WebSearchSearchBackend"];
+      chosen_default_search?: components["schemas"]["WebSearchSearchBackend"];
+    };
     DocumentMetadataUpdateRequest: {
       title: string;
     };
@@ -7513,6 +8010,31 @@ export interface components {
       /** @enum {string} */
       status: "restored" | "already_current";
       history_entry: components["schemas"]["DocumentHistoryEntry"];
+    };
+    MailCanvasState: {
+      /** @enum {string} */
+      status:
+        | "draft"
+        | "queued"
+        | "uploading"
+        | "sending"
+        | "sent"
+        | "failed"
+        | "unknown"
+        | "declined";
+      subject: string;
+      to: string;
+      error?: string;
+      message_id?: string;
+      /** @description Whether the caller may send or decline this email. */
+      can_edit: boolean;
+      /** @description Fingerprint of the saved email; Send must echo it so only the reviewed version goes out. */
+      source_digest: string;
+    };
+    SendMailCanvasRequest: {
+      connection_id: components["schemas"]["Id"];
+      request_id: string;
+      source_digest: string;
     };
     RoomDocumentCollaborationCredential: {
       document_id: components["schemas"]["Id"];
@@ -8351,6 +8873,15 @@ export interface components {
         "application/json": components["schemas"]["LocalModelsErrorResponse"];
       };
     };
+    /** @description The Computer or TeamHub refused the model-source request; error.code is one of ModelSourceErrorCode. */
+    ModelSourceRefused: {
+      headers: {
+        [name: string]: unknown;
+      };
+      content: {
+        "application/json": components["schemas"]["ModelSourceErrorResponse"];
+      };
+    };
     /** @description The resource existed but was explicitly removed and cannot be reused. */
     Gone: {
       headers: {
@@ -9165,6 +9696,36 @@ export interface operations {
       404: components["responses"]["NotFound"];
     };
   };
+  refreshLocalComputerModels: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+        computerId: components["parameters"]["ComputerId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The Computer started refreshing its model library. */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LocalModelsRefreshAccepted"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["LocalModelsRefused"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["LocalModelsRefused"];
+      502: components["responses"]["LocalModelsRefused"];
+      503: components["responses"]["LocalModelsRefused"];
+      504: components["responses"]["LocalModelsRefused"];
+    };
+  };
   actOnLocalComputerModel: {
     parameters: {
       query?: never;
@@ -9199,6 +9760,138 @@ export interface operations {
       502: components["responses"]["LocalModelsRefused"];
       503: components["responses"]["LocalModelsRefused"];
       504: components["responses"]["LocalModelsRefused"];
+    };
+  };
+  getLocalComputerModelSource: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+        computerId: components["parameters"]["ComputerId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Current model source view. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ModelSourceView"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      404: components["responses"]["NotFound"];
+      502: components["responses"]["ModelSourceRefused"];
+      503: components["responses"]["ModelSourceRefused"];
+    };
+  };
+  switchLocalComputerModelSource: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+        computerId: components["parameters"]["ComputerId"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ModelSourceSwitchRequest"];
+      };
+    };
+    responses: {
+      /** @description Switched model source view. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ModelSourceView"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["ModelSourceRefused"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["ModelSourceRefused"];
+      502: components["responses"]["ModelSourceRefused"];
+      503: components["responses"]["ModelSourceRefused"];
+      504: components["responses"]["ModelSourceRefused"];
+    };
+  };
+  listLocalComputerByokModels: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+        computerId: components["parameters"]["ComputerId"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ByokEndpointInput"];
+      };
+    };
+    responses: {
+      /** @description The endpoint's models. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ByokModelList"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["ModelSourceRefused"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["ModelSourceRefused"];
+      502: components["responses"]["ModelSourceRefused"];
+      503: components["responses"]["ModelSourceRefused"];
+      504: components["responses"]["ModelSourceRefused"];
+    };
+  };
+  testLocalComputerModelSource: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+        computerId: components["parameters"]["ComputerId"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ByokTestRequest"];
+      };
+    };
+    responses: {
+      /** @description BYOK verification result. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ByokTestResult"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["ModelSourceRefused"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["ModelSourceRefused"];
+      502: components["responses"]["ModelSourceRefused"];
+      503: components["responses"]["ModelSourceRefused"];
+      504: components["responses"]["ModelSourceRefused"];
     };
   };
   getLocalComputerPermissions: {
@@ -9289,6 +9982,7 @@ export interface operations {
       400: components["responses"]["BadRequest"];
       401: components["responses"]["Unauthenticated"];
       404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
       410: components["responses"]["Gone"];
       503: components["responses"]["ServiceUnavailable"];
     };
@@ -12463,6 +13157,131 @@ export interface operations {
       503: components["responses"]["ServiceUnavailable"];
     };
   };
+  listWebSearchBackends: {
+    parameters: {
+      query?: {
+        /** @description Read each backend's live quota from its provider. */
+        include_quota?: boolean;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The backends. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["WebSearchBackendList"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+    };
+  };
+  saveWebSearchKey: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        backend: components["schemas"]["WebSearchKeyBackend"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["SaveWebSearchKeyRequest"];
+      };
+    };
+    responses: {
+      /** @description The backend after saving. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["WebSearchBackend"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  deleteWebSearchKey: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        backend: components["schemas"]["WebSearchKeyBackend"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The key is gone. */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+    };
+  };
+  setWebSearchDefault: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["SetWebSearchDefaultRequest"];
+      };
+    };
+    responses: {
+      /** @description The default now in effect. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["WebSearchDefault"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      409: components["responses"]["Conflict"];
+    };
+  };
+  clearWebSearchDefault: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The default now in effect. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["WebSearchDefault"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+    };
+  };
   uploadWorkItemDocument: {
     parameters: {
       query?: never;
@@ -13674,6 +14493,90 @@ export interface operations {
       401: components["responses"]["Unauthenticated"];
       404: components["responses"]["NotFound"];
       409: components["responses"]["Conflict"];
+    };
+  };
+  getMailCanvas: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        documentId: components["parameters"]["DocumentId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Local draft or delivery receipt. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["MailCanvasState"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      404: components["responses"]["NotFound"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  sendMailCanvas: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        documentId: components["parameters"]["DocumentId"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["SendMailCanvasRequest"];
+      };
+    };
+    responses: {
+      /** @description Delivery accepted. Editing alone never creates a Gmail draft. */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["MailCanvasState"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  declineMailCanvas: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        documentId: components["parameters"]["DocumentId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The email is marked as not sent; Send is no longer offered. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["MailCanvasState"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      503: components["responses"]["ServiceUnavailable"];
     };
   };
   openDocument: {

@@ -112,3 +112,68 @@ Progress and outcomes travel back only as snapshots:
    with runtime `pi` whose runtime model is the model's `pi_model`. localmodels
    reports `pi_model` for every model on the Computer, loaded or not, so an
    idle model still lists the Agents that will run on it.
+
+## Model source flow
+
+Which source a Computer's Agents use (local model, subscription or BYOK) is
+the `localmodels` tool's `<state>/model-source.json`. Schemas live in
+`openapi/components/model-source.yaml` and the `CapabilityModelSource*`
+definitions of `runner-gateway/envelope.schema.json`.
+
+Web → TeamHub → Agent Service → Computer → `localmodels source`:
+
+1. Web calls `getLocalComputerModelSource`, `switchLocalComputerModelSource`,
+   `testLocalComputerModelSource` or `listLocalComputerByokModels` under
+   `/v0/tenants/{tenantId}/local-computers/{computerId}/model-source`. Only the
+   Computer owner sees the source or acts on it.
+2. TeamHub calls Node Services `getLocalComputerModelSource`,
+   `applyLocalComputerModelSource`, `testLocalComputerByok` or
+   `listLocalComputerByokModels` under
+   `/v1/tenants/{tenantId}/owners/{ownerActorId}/local-computers/{computerId}/model-source`.
+3. Agent Service sends `execute` with kind `model_source` (`status`, `test`,
+   `models` or `apply`), only to Computer 0.54.0 or later; an older Computer,
+   or one whose installed `localmodels` tool lacks the `source` command, answers
+   `MODEL_SOURCE_UNSUPPORTED`. The Daemon runs
+   `localmodels source status|check|models|apply` and answers `executed`. A BYOK
+   API key travels in the request and the envelope only, reaches `localmodels`
+   on stdin, and is kept on the Computer in an owner-only file.
+
+A BYOK input names its address as `base_url`, `path` and `endpoint`, with the
+`protocol` the owner's client derived from the address's ending (else the
+Runtime's own format). Requests go to `base_url + path + endpoint`, models are
+listed at `base_url + path + /models`, and nothing is probed. Agent Service
+sends a BYOK input only to Computer 0.56.0 or later
+(`FIRST_BYOK_ENDPOINT_COMPUTER_VERSION`), and declares `byok_endpoint` in
+`runner.welcome`'s `service_features` to the same releases; the Computer's BYOK
+summary carries `path` and `endpoint` only after that declaration, because an
+older Agent Service rejects unknown summary keys.
+
+A switch runs `apply` on the Computer first, then moves the owner's Agents on it
+to the Runtime and model it now serves, in one TeamHub transaction. An Agent
+with running work stays where it is unless the owner chose to end that work:
+work found before `apply` refuses the switch with `AGENT_HAS_ACTIVE_RUNS`, and
+work that started during it leaves only that Agent behind, answered with the
+same code after the others moved.
+
+## Stop hook flow
+
+A Feature may register a `stop` hook on an Agent Run so the Runtime asks the
+Agent Service before finishing a turn:
+
+1. Agent Service sets `stop_hook: true` on `provider.prepare`
+   (`run_context.stop_hook`), `operation.prepare` (`stop_hook`), and
+   `operation.start` (`request.run_context.stop_hook`) only when the Run's
+   composed Features have a `stop` hook and the Computer is version `0.57.0` or
+   later (`FIRST_STOP_HOOK_COMPUTER_VERSION`). Older Computers decode
+   `provider.prepare` and `operation.prepare` with `DisallowUnknownFields()` and
+   would close the connection on an unknown field; omitting `stop_hook` keeps
+   older Computers compatible and falls back to Agent Service's post-hoc
+   `reply_not_sent` check.
+2. When the Runtime is about to finish a turn, the Daemon emits an
+   `operation.event` carrying `human_interaction.requested` with
+   `kind: "runtime_hook"` and `hook: "stop"`, and waits for an
+   `operation.input` `runtime_response` (`{ action: "allow" | "block", reason? }`).
+   On `block`, the Runtime continues the turn with that reason (Claude Code and
+   Codex via their native `Stop` hooks; Pi via a follow-up `prompt` RPC on the
+   bound process). Timeout, disconnect, or an invalid decision fails open to
+   `allow`.

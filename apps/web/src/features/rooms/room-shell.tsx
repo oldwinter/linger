@@ -25,7 +25,8 @@ import {
 import { DesktopBarSlot } from "@/app/desktop-frame";
 import { isDesktopShell } from "@/app/desktop-shell";
 import { AccountMenu } from "@/features/auth/account-menu";
-import { LOGOUT_ERROR_MESSAGE, useLogout } from "@/features/auth/use-logout";
+import { authMessages } from "@/features/auth/auth.messages";
+import { useLogout } from "@/features/auth/use-logout";
 
 import { Button } from "@/components/ui/button";
 import { useCarriedMeeting } from "@/features/memory/meeting-carry";
@@ -38,6 +39,7 @@ import type {
 } from "@/features/search/room-search-scope";
 import { useGlobalSearchShortcut } from "@/features/search/search-shortcut";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { useT } from "@/i18n/use-translation";
 import type {
   TeamHubCurrentIdentity,
   TeamHubRoomListItem,
@@ -58,6 +60,8 @@ import {
 } from "./chat/voice-mode/voice-mode-session";
 import { registerVoiceShell } from "./chat/voice-mode/voice-ui-bridge";
 import { RoomNavigation } from "./room-navigation";
+import { navigationMessages } from "./room-navigation.messages";
+import { roomSurfaceMessages } from "./room-surface.messages";
 import {
   AuthenticatedRouteLoading,
   RoomNavigationLoading,
@@ -125,6 +129,7 @@ function RoomShellReady({
 }) {
   const { client } = useTeamHubRuntime();
   const queryClient = useQueryClient();
+  const t = useT();
   const roomsQuery = useQuery(tenantRoomsQueryOptions(client, tenantId));
   const { data: identity } = useSuspenseQuery(
     teamHubIdentityQueryOptions(client),
@@ -137,7 +142,7 @@ function RoomShellReady({
   // pushing every row down.
   const navigationPending = roomsQuery.isPending || anotherMeQuery.isPending;
   // Settings stays open under the gate: a Computer whose only app is Pi gets
-  // its first model from Settings › Local models.
+  // its first model from Settings › Models.
   const onSettings = useMatch("/t/:tenantId/settings/*") !== null;
   const gated =
     anotherMeQuery.isSuccess && !anotherMe?.agent_actor_id && !onSettings;
@@ -179,6 +184,7 @@ function RoomShellReady({
   });
   // The shell is above the Room route, so it reads the open Room from the URL.
   const activeRoomId = useMatch("/t/:tenantId/rooms/:roomId/*")?.params.roomId;
+  const onRoomRoute = useMatch("/t/:tenantId/rooms/*") !== null;
   const arrived = useAnotherMeArrival({
     accountId: identity.account.id,
     activeRoomId,
@@ -193,18 +199,25 @@ function RoomShellReady({
     open: openRoom,
   });
   useRoomWindowTitle({
-    baseTitle: `${spaceOwnerName}'s space`,
+    baseTitle: t(navigationMessages.space, { name: spaceOwnerName }),
     rooms: roomsQuery.data?.items,
   });
   useReturnToArrivedRoom({
+    accountId: identity.account.id,
     activeRoomId,
     client,
+    gated,
     navigate,
+    onRoomRoute,
     queryClient,
     rooms: roomsQuery.data?.items,
     tenantId,
   });
   useOpenMeetingAtStart(tenantId);
+
+  useEffect(() => {
+    performance.mark("room.shell_visible");
+  }, []);
 
   const rooms = roomsQuery.data;
   return (
@@ -234,15 +247,15 @@ function RoomShellReady({
             navigationPending ? (
               <>
                 <span className="sr-only" role="status">
-                  Loading Rooms…
+                  {t(navigationMessages.loadingRooms)}
                 </span>
                 <RoomNavigationLoading />
               </>
             ) : roomsQuery.isError ? (
               <div role="alert">
-                Rooms could not be loaded.{" "}
+                {t(navigationMessages.roomsUnavailable)}{" "}
                 <Button onClick={() => void roomsQuery.refetch()}>
-                  Retry Rooms
+                  {t(navigationMessages.retryRooms)}
                 </Button>
               </div>
             ) : undefined
@@ -335,6 +348,7 @@ function RoomShellContent({
   const carriedMeeting = useCarriedMeeting();
   const location = useLocation();
   const navigate = useNavigate();
+  const t = useT();
   useScrollPaneActivity();
   const newRoomId =
     typeof location.state?.newRoomId === "string" &&
@@ -367,6 +381,11 @@ function RoomShellContent({
   // The Room header opens the same dialog narrowed to its Room. The shortcut
   // and voice stay Tenant-wide.
   const [searchRoom, setSearchRoom] = useState<SearchRoomScope>();
+  const closeGlobalSearch = useCallback(() => {
+    setSearchOpen(false);
+    setSearchQuery("");
+    setSearchRoom(undefined);
+  }, []);
   const openGlobalSearch = useCallback(() => {
     setSearchQuery("");
     setSearchRoom(undefined);
@@ -381,13 +400,36 @@ function RoomShellContent({
     () => ({ openRoomSearch }),
     [openRoomSearch],
   );
-  useGlobalSearchShortcut(openGlobalSearch);
-  useJumpShortcut(() => {
-    setSearchOpen(false);
-    setSearchQuery("");
-    setSearchRoom(undefined);
-    void navigate(jumpPath(tenantId));
-  });
+  const onShortcutsSettings =
+    location.pathname === `/t/${tenantId}/settings/shortcuts`;
+  useGlobalSearchShortcut(
+    () => {
+      if (searchOpen) closeGlobalSearch();
+      else openGlobalSearch();
+    },
+    {
+      canTrigger: (event) => {
+        if (onShortcutsSettings && !isEditableEventTarget(event.target)) {
+          return false;
+        }
+        if (searchOpen) return !hasOtherOpenModal(".global-search");
+        return !hasOpenModal();
+      },
+      enabled: !inert,
+    },
+  );
+  useJumpShortcut(
+    () => {
+      closeGlobalSearch();
+      void navigate(jumpPath(tenantId));
+    },
+    {
+      canTrigger: (event) =>
+        !(onShortcutsSettings && !isEditableEventTarget(event.target)) &&
+        !hasOpenModal(),
+      enabled: !inert,
+    },
+  );
   // Voice page actions wait while a route is loading: lazy routes commit
   // their URL only once their code has arrived.
   const navigating = useRef(false);
@@ -454,7 +496,7 @@ function RoomShellContent({
             mobileOpen={mobileNavigationOpen}
             onCloseMobile={() => setMobileNavigationOpen(false)}
             onCreateRoom={() => setCreateRoomOpen(true)}
-            onOpenSearch={() => setSearchOpen(true)}
+            onOpenSearch={openGlobalSearch}
             pendingPathname={navigation.location?.pathname}
             rooms={rooms}
             anotherMeRoomId={anotherMeRoomId}
@@ -468,7 +510,9 @@ function RoomShellContent({
               <div className="flex h-(--app-header-height) shrink-0 items-center gap-3 border-b border-border/60 bg-app-sidebar px-3 md:hidden">
                 <MobileNavigationButton />
                 <span className="truncate text-sm font-medium">
-                  {spaceOwnerNameFor(identity, tenantId)}'s space
+                  {t(navigationMessages.space, {
+                    name: spaceOwnerNameFor(identity, tenantId),
+                  })}
                 </span>
               </div>
             )}
@@ -477,13 +521,16 @@ function RoomShellContent({
                 className="flex shrink-0 items-center gap-3 border-b border-border/60 px-4 py-3 text-sm text-app-danger"
                 role="alert"
               >
-                <span>{LOGOUT_ERROR_MESSAGE}</span>
+                <span>{t(authMessages.logoutUnconfirmed)}</span>
                 <Button
+                  data-voice-risk="never"
                   loading={logout.isPending}
                   onClick={logout.mutate}
                   tone="ghost"
                 >
-                  {logout.isPending ? "Logging out" : "Retry logout"}
+                  {logout.isPending
+                    ? t(roomSurfaceMessages.loggingOut)
+                    : t(roomSurfaceMessages.retryLogout)}
                 </Button>
               </div>
             ) : null}
@@ -552,11 +599,7 @@ function RoomShellContent({
               <GlobalSearchDialog
                 key={searchRoom?.id ?? "global"}
                 initialQuery={searchQuery}
-                onClose={() => {
-                  setSearchOpen(false);
-                  setSearchQuery("");
-                  setSearchRoom(undefined);
-                }}
+                onClose={closeGlobalSearch}
                 room={searchRoom}
                 tenantId={tenantId}
               />
@@ -565,5 +608,26 @@ function RoomShellContent({
         </div>
       </OpenMobileNavigationContext>
     </ActorAvatarImageProvider>
+  );
+}
+
+const OPEN_MODAL_SELECTOR = 'dialog[open], [role="dialog"][aria-modal="true"]';
+
+function hasOpenModal() {
+  return document.querySelector(OPEN_MODAL_SELECTOR) !== null;
+}
+
+function hasOtherOpenModal(exemptSelector: string) {
+  return Array.from(document.querySelectorAll(OPEN_MODAL_SELECTOR)).some(
+    (modal) => !modal.matches(exemptSelector),
+  );
+}
+
+function isEditableEventTarget(target: EventTarget | null) {
+  return (
+    target instanceof Element &&
+    target.closest(
+      "input, textarea, select, [contenteditable]:not([contenteditable='false'])",
+    ) !== null
   );
 }

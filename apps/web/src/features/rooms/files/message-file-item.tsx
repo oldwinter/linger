@@ -1,7 +1,11 @@
 import type { ReactNode } from "react";
 
 import type { TeamHubMessageArtifactTreeSegment } from "@/features/teamhub/teamhub-types";
+import type { Translate } from "@/i18n/language";
+import { useT } from "@/i18n/use-translation";
 import { cn } from "@/lib/cn";
+
+import { chatMessages } from "../chat/chat.messages";
 
 /**
  * One file in a chat Message, whatever attached it: an uploaded or delivered
@@ -26,6 +30,7 @@ export function MessageFileItem({
   /** The icon or thumbnail shown beside the name. */
   visual: ReactNode;
 }) {
+  const t = useT();
   const row = "flex w-full min-w-0 items-center gap-3 rounded-xl p-4 text-left";
   const content = (
     <>
@@ -50,7 +55,7 @@ export function MessageFileItem({
     >
       {disabled ? (
         <button
-          aria-label={`${name} is unavailable`}
+          aria-label={t(chatMessages.fileUnavailable, { name })}
           className={cn(row, "cursor-not-allowed")}
           disabled
           type="button"
@@ -59,7 +64,12 @@ export function MessageFileItem({
         </button>
       ) : onOpen ? (
         <button
-          aria-label={`${actionLabel} ${name}`}
+          aria-label={t(
+            actionLabel === "Open"
+              ? chatMessages.openFile
+              : chatMessages.previewFile,
+            { name },
+          )}
           className={cn(
             row,
             "group/item transition-colors duration-150 hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary/40 motion-reduce:transition-none",
@@ -84,12 +94,15 @@ export function fileItemDetail(typeLabel: string, sizeBytes?: number) {
 }
 
 /** "7 files · 3 folders · 80 KB" for a published folder. */
-export function artifactTreeDetail(segment: TeamHubMessageArtifactTreeSegment) {
-  return `${countLabel(segment.file_count, "file")} · ${countLabel(segment.directory_count, "folder")} · ${formatBytes(segment.total_bytes)}`;
-}
-
-function countLabel(count: number, noun: string) {
-  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+export function artifactTreeDetail(
+  segment: TeamHubMessageArtifactTreeSegment,
+  t: Translate,
+) {
+  return [
+    t(chatMessages.fileCount, { count: segment.file_count }),
+    t(chatMessages.folderCount, { count: segment.directory_count }),
+    formatBytes(segment.total_bytes),
+  ].join(" · ");
 }
 
 function formatBytes(size: number) {

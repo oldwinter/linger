@@ -20,17 +20,19 @@ describe("result kind filter", () => {
         group("docs", 0),
         group("people", 1),
         group("rooms", 4),
+        group("places", 3),
       ],
       roomScoped: false,
       tab: "all",
     });
 
     expect(options).toEqual([
-      { count: 7, tab: "all" },
+      { count: 10, tab: "all" },
       { count: 2, tab: "messages" },
       { count: 0, tab: "docs" },
       { count: 1, tab: "people" },
       { count: 4, tab: "rooms" },
+      { count: 3, tab: "places" },
     ]);
   });
 
@@ -46,6 +48,7 @@ describe("result kind filter", () => {
       "docs",
       "people",
       "rooms",
+      "places",
     ]);
 
     expect(

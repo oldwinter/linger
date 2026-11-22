@@ -173,6 +173,46 @@ export class RealTeamHubFixtureManager {
       ON CONFLICT (computer_id) DO UPDATE SET status='online',last_seen_at=now()`;
   }
 
+  // The Web covers the product until the Human's Another Me exists, and
+  // TeamHub creates it only when it observes her Computer online. Send the
+  // Runner heartbeat once, then remove the Computer again so every test still
+  // starts without a connected one.
+  async ensureAnotherMe(teamHubInternalToken: string): Promise<void> {
+    await this.connectOwnerComputer();
+    const [computer] = await this.#sql<{ computer_id: string }[]>`
+      SELECT computer_id FROM agent_registrations WHERE actor_id='actor_acme_official'`;
+    if (computer === undefined) {
+      throw new Error("The seeded @official Agent has no Computer");
+    }
+    const response = await fetchTeamHub(
+      `${this.#baseUrl}/v0/agent-runtime/local-computers/touch`,
+      {
+        body: JSON.stringify({
+          computer_id: computer.computer_id,
+          // TeamHub ignores a heartbeat no newer than the stored one.
+          seen_at: new Date(Date.now() + 1_000).toISOString(),
+          status: "online",
+        }),
+        headers: {
+          authorization: `Bearer ${teamHubInternalToken}`,
+          connection: "close",
+          "content-type": "application/json",
+        },
+        method: "POST",
+      },
+      "POST /v0/agent-runtime/local-computers/touch",
+    );
+    await assertStatus(response, 200);
+    const [anotherMe] = await this.#sql`
+      SELECT 1 FROM agent_registrations
+      WHERE tenant_id='tenant_acme' AND agent_type='anotherme' AND status='active'`;
+    await this
+      .#sql`DELETE FROM local_computers WHERE computer_id=${computer.computer_id}`;
+    if (anotherMe === undefined) {
+      throw new Error("TeamHub did not create Alice's Another Me");
+    }
+  }
+
   async cleanup(fixture: RoomDocumentE2EFixture): Promise<void> {
     await this.#sql`DELETE FROM local_computers WHERE computer_id=(
       SELECT computer_id FROM agent_registrations WHERE actor_id='actor_acme_official')`;

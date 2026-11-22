@@ -1,6 +1,24 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
-import { createRef, type ReactNode } from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  fireEvent,
+  render as renderUi,
+  screen,
+  within,
+} from "@testing-library/react";
+import { createRef, type ReactElement, type ReactNode } from "react";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+
+import {
+  VoiceMaterialsContext,
+  type VoiceMaterials,
+} from "../chat/voice-mode/voice-materials-context";
 
 import { DocumentVoiceSelectionControl } from "./document-voice-selection-control";
 
@@ -12,9 +30,29 @@ const context = vi.hoisted(() => ({
   addSelection: vi.fn(),
 }));
 
-vi.mock("../chat/voice-mode/voice-materials-context", () => ({
-  useOptionalVoiceMaterials: () => (context.enabled ? context : undefined),
-}));
+// Read on every render, so a test configures the context before rendering.
+function VoiceMaterialsFromTest({ children }: { children: ReactNode }) {
+  return (
+    <VoiceMaterialsContext
+      value={
+        context.enabled ? (context as unknown as VoiceMaterials) : undefined
+      }
+    >
+      {children}
+    </VoiceMaterialsContext>
+  );
+}
+
+function render(ui: ReactElement) {
+  return renderUi(ui, { wrapper: VoiceMaterialsFromTest });
+}
+
+// React binds its own document selectionchange listener on its first render.
+// Render once before any test so a test that counts document listeners counts
+// only the control's, whichever test runs first.
+beforeAll(() => {
+  renderUi(<span />).unmount();
+});
 
 beforeEach(() => {
   context.acceptsDocuments = true;
@@ -44,7 +82,10 @@ function createSurface({
   const content = children ?? (
     <>
       <h1>Document title</h1>
-      <section aria-label="Room Document editor">
+      <section
+        aria-label="Room Document editor"
+        className="room-document-blocknote"
+      >
         <div className="bn-editor">
           <p>Review this sentence</p>
           <p>And the next paragraph</p>
@@ -175,7 +216,10 @@ describe("Document voice material selection", () => {
   it("rejects a range with either endpoint outside its panel or in another document", () => {
     const first = createSurface();
     render(
-      <section aria-label="Room Document editor">
+      <section
+        aria-label="Room Document editor"
+        className="room-document-blocknote"
+      >
         <div className="bn-editor">
           <p>Other document</p>
         </div>
@@ -188,6 +232,7 @@ describe("Document voice material selection", () => {
     expect(screen.queryByRole("button", { name: actionName })).toBeNull();
     const secondBody = document.createElement("section");
     secondBody.setAttribute("aria-label", "Room Document editor");
+    secondBody.className = "room-document-blocknote";
     const editor = document.createElement("div");
     editor.className = "bn-editor";
     editor.textContent = "Nested other document";
@@ -214,7 +259,10 @@ describe("Document voice material selection", () => {
   it("rejects selections crossing hidden content or a control inside the body", () => {
     createSurface({
       children: (
-        <section aria-label="Room Document editor">
+        <section
+          aria-label="Room Document editor"
+          className="room-document-blocknote"
+        >
           <div className="bn-editor">
             <p>Start here</p>
             <span hidden>Hidden data</span>
@@ -234,7 +282,10 @@ describe("Document voice material selection", () => {
       const text = "a".repeat(length);
       createSurface({
         children: (
-          <section aria-label="Room Document editor">
+          <section
+            aria-label="Room Document editor"
+            className="room-document-blocknote"
+          >
             <div className="bn-editor">
               <p>{text}</p>
             </div>
@@ -299,8 +350,22 @@ describe("Document voice material selection", () => {
   });
 
   it("keeps the subscription across presentation rerenders and cleans up on identity change and unmount", () => {
+    // React adds its own document selectionchange listener the first time it
+    // renders, so count only the listeners the control also binds to its root.
+    const rootListen = vi.spyOn(HTMLElement.prototype, "addEventListener");
     const subscribe = vi.spyOn(document, "addEventListener");
     const unsubscribe = vi.spyOn(document, "removeEventListener");
+    const controlCalls = (spy: typeof subscribe) => {
+      const controlListeners = new Set(
+        rootListen.mock.calls
+          .filter(([name]) => name === "mouseup")
+          .map(([, listener]) => listener),
+      );
+      return spy.mock.calls.filter(
+        ([name, listener]) =>
+          name === "selectionchange" && controlListeners.has(listener),
+      );
+    };
     const { rootRef, rerender, unmount, content } = createSurface();
     const tree = (documentId: string, title: string) => (
       <section ref={rootRef}>
@@ -313,21 +378,13 @@ describe("Document voice material selection", () => {
       </section>
     );
     rerender(tree("document-one", "Renamed title"));
-    expect(
-      subscribe.mock.calls.filter(([name]) => name === "selectionchange"),
-    ).toHaveLength(1);
+    expect(controlCalls(subscribe)).toHaveLength(1);
     select(screen.getByText("Review this sentence"));
     rerender(tree("document-two", "New document"));
     expect(screen.queryByRole("button", { name: actionName })).toBeNull();
-    expect(
-      subscribe.mock.calls.filter(([name]) => name === "selectionchange"),
-    ).toHaveLength(2);
-    expect(
-      unsubscribe.mock.calls.filter(([name]) => name === "selectionchange"),
-    ).toHaveLength(1);
+    expect(controlCalls(subscribe)).toHaveLength(2);
+    expect(controlCalls(unsubscribe)).toHaveLength(1);
     unmount();
-    expect(
-      unsubscribe.mock.calls.filter(([name]) => name === "selectionchange"),
-    ).toHaveLength(2);
+    expect(controlCalls(unsubscribe)).toHaveLength(2);
   });
 });

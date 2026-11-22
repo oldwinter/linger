@@ -1,5 +1,5 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { ArrowUp02Icon, PlusSignIcon } from "@hugeicons/core-free-icons";
+import { Message01Icon } from "@hugeicons/core-free-icons";
 import {
   lazy,
   Suspense,
@@ -14,6 +14,8 @@ import { useReducedMotion } from "motion/react";
 
 import { Button } from "@/components/ui/button";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
 import { roomMessagesInfiniteQueryOptions } from "../room-queries";
 import { Icon } from "@/components/ui/icon";
 import type {
@@ -23,7 +25,6 @@ import type {
   TeamHubMessage,
 } from "@/features/teamhub/teamhub-types";
 
-import { ActorAvatar } from "../members/actor-avatar";
 import {
   AgentActivityLog,
   AgentInfoPanelTab,
@@ -44,6 +45,7 @@ import { selectMountedTaskTabs } from "./task-keep-alive";
 import type { TaskAnchorResolution } from "./task-tab-types";
 import { UrlPreviewPanel } from "./url-preview-panel";
 import { PanelLoading } from "./panel-loading";
+import { sidePanelMessages as m } from "./side-panel.messages";
 
 // Opening Agent info or tasks should not load the document editor.
 const TaskActivitiesPanelTab = lazy(() =>
@@ -60,6 +62,11 @@ const KEEP_ALIVE_WINDOW = 3;
 const CollaborationPanel = lazy(() =>
   import("./collaboration-panel").then((module) => ({
     default: module.CollaborationPanel,
+  })),
+);
+const RemindersPanel = lazy(() =>
+  import("./reminders-panel").then((module) => ({
+    default: module.RemindersPanel,
   })),
 );
 /** Matches the panel reveal/collapse duration declared in globals.css. */
@@ -88,13 +95,24 @@ function resolvePanelAgentActor(
 
 function isEditableTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
-  if (target.isContentEditable) return true;
+  if (
+    target.isContentEditable ||
+    Boolean(target.closest("[contenteditable=''], [contenteditable='true']"))
+  ) {
+    return true;
+  }
   const tag = target.tagName;
   return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
 }
 
 function shouldDeferEscape(event: KeyboardEvent) {
   if (event.defaultPrevented || event.isComposing || event.keyCode === 229) {
+    return true;
+  }
+  if (
+    isEditableTarget(event.target) ||
+    isEditableTarget(document.activeElement)
+  ) {
     return true;
   }
   if (
@@ -202,6 +220,7 @@ export function TaskSidebar({
   const focusActiveTabRef = useRef(false);
   const activeTabIdRef = useRef(activeTabId);
   const sidebarWidth = clampPanelSidebarWidth(preferredWidth);
+  const t = useT();
   const reduceMotion = useReducedMotion();
   const exitAnimationEndRef = useRef(onExitAnimationEnd);
   useLayoutEffect(() => {
@@ -281,6 +300,7 @@ export function TaskSidebar({
       else collapseSidebar();
     },
     onRestoreClosed,
+    open,
     openTabIds,
   });
 
@@ -319,10 +339,11 @@ export function TaskSidebar({
   return (
     <aside
       aria-busy={activeResolution === "loading" || undefined}
-      aria-label="Panel sidebar"
+      aria-label={t(m.panelSidebar)}
       className={`panel-sidebar relative h-full min-h-0 shrink-0 ${activeTab?.kind === "agentInfo" ? "bg-card" : "bg-sidebar"}`}
       data-dragging={dragging || undefined}
       data-open={expanded ? "true" : "false"}
+      data-voice-area="sidebar"
       data-voice-closable={expanded || undefined}
       data-maximized={maximized || undefined}
       inert={!open || undefined}
@@ -444,6 +465,10 @@ export function TaskSidebar({
                       onOpenDocument={onOpenDocument}
                       onOpenProfile={onOpenProfile}
                       onOpenRoomSettings={onOpenRoomSettings}
+                      onOpenRoutines={() => {
+                        focusActiveTabRef.current = true;
+                        onCreate("routines");
+                      }}
                       onRetryResolution={onRetryResolution}
                       roomId={roomId}
                       roomName={roomName}
@@ -470,6 +495,7 @@ function usePanelKeyboardShortcuts({
   onActiveChange,
   onCollapse,
   onRestoreClosed,
+  open,
   openTabIds,
 }: {
   activeTabId: string | null;
@@ -477,6 +503,7 @@ function usePanelKeyboardShortcuts({
   onActiveChange: (tabId: string) => void;
   onCollapse: () => void;
   onRestoreClosed?: () => void;
+  open: boolean;
   openTabIds: string[];
 }) {
   const handleKeyDown = useEffectEvent((event: KeyboardEvent) => {
@@ -484,7 +511,7 @@ function usePanelKeyboardShortcuts({
     if (meta && event.key.toLowerCase() === "k") return;
 
     if (event.key === "Escape") {
-      if (shouldDeferEscape(event)) return;
+      if (!open || shouldDeferEscape(event)) return;
       event.preventDefault();
       if (activeTabId) closeActiveTab(activeTabId);
       else onCollapse();
@@ -551,6 +578,7 @@ interface MountedPanelTabProps {
   onOpenDocument?: (document: TeamHubDocument) => void;
   onOpenProfile?: (actorId: string) => void;
   onOpenRoomSettings?: () => void;
+  onOpenRoutines?: () => void;
   onRetryResolution?: () => void;
   roomId: string;
   roomMembers: TeamHubActorRef[];
@@ -578,6 +606,7 @@ function MountedPanelTab({
   onOpenDocument,
   onOpenProfile,
   onOpenRoomSettings,
+  onOpenRoutines,
   onRetryResolution,
   roomId,
   roomMembers,
@@ -589,12 +618,13 @@ function MountedPanelTab({
   tasksByMessageId,
   tenantId,
 }: MountedPanelTabProps) {
+  const t = useT();
   if (!tab) return null;
   const hidden = tabId !== activeTabId;
 
   if (tab.kind === "taskActivity" && tab.taskId) {
     return (
-      <Suspense fallback={<PanelLoading label="Loading task" />}>
+      <Suspense fallback={<PanelLoading label={t(m.loadingTask)} />}>
         <TaskActivitiesPanelTab
           hidden={hidden || !sidebarOpen}
           taskId={tab.taskId}
@@ -609,7 +639,7 @@ function MountedPanelTab({
     return (
       <AgentActivityTab
         actorId={actor?.id ?? tab.actorId ?? ""}
-        actorName={actor?.display_name ?? "Agent"}
+        actorName={actor?.display_name ?? t(m.agentFallbackName)}
         hidden={hidden || !sidebarOpen}
         onChange={onAgentActivityChange}
         roomId={roomId}
@@ -623,7 +653,7 @@ function MountedPanelTab({
   if (tab.kind === "agentInfo") {
     const actor = resolvePanelAgentActor(actors, tab.actorId, directPeer);
     const activityActorId = actor?.id ?? tab.actorId ?? "";
-    const actorName = actor?.display_name ?? "Agent";
+    const actorName = actor?.display_name ?? t(m.agentFallbackName);
     const nestedActivityMessage = tab.anchorMessageId
       ? roomMessages.find((message) => message.id === tab.anchorMessageId)
       : undefined;
@@ -669,7 +699,7 @@ function MountedPanelTab({
   if (isPanelCollectionTab(tab)) {
     if (tab.kind === "collaboration") {
       return (
-        <Suspense fallback={<PanelLoading label="Loading collaboration" />}>
+        <Suspense fallback={<PanelLoading label={t(m.loadingCollaboration)} />}>
           <CollaborationPanel
             actors={roomMembers}
             hidden={hidden || !sidebarOpen}
@@ -679,10 +709,25 @@ function MountedPanelTab({
         </Suspense>
       );
     }
+    if (tab.kind === "routines") {
+      return (
+        <Suspense fallback={<PanelLoading label="Loading routines" />}>
+          <div className="flex h-full min-h-0 flex-col bg-sidebar/50 px-2 pt-4">
+            <RemindersPanel
+              hidden={hidden || !sidebarOpen}
+              mentionOptions={mentionOptions}
+              roomId={roomId}
+              tenantId={tenantId}
+            />
+          </div>
+        </Suspense>
+      );
+    }
     if (tab.kind === "roomSettings")
       return (
         <RoomSettingsPanel
           onOpenProfile={onOpenProfile}
+          onOpenRoutines={onOpenRoutines}
           roomId={roomId}
           tenantId={tenantId}
         />
@@ -712,23 +757,14 @@ function MountedPanelTab({
       );
     }
     if (tab.kind === "thread") {
-      return (
-        <AnothermePanel
-          agent={mentionOptions.find((option) => option.kind === "agent")}
-          displayName={
-            mentionOptions.find((option) => option.id === currentActorId)
-              ?.display_name
-          }
-          hidden={hidden}
-        />
-      );
+      return <EmptyThreadPanel hidden={hidden} />;
     }
     return null;
   }
 
   if (tab.kind === "file") {
     return (
-      <Suspense fallback={<PanelLoading label="Loading file" />}>
+      <Suspense fallback={<PanelLoading label={t(m.loadingFile)} />}>
         <ConnectedFilePanelTab
           currentActorId={currentActorId}
           documentId={tab.documentId!}
@@ -774,61 +810,29 @@ function MountedPanelTab({
   return null;
 }
 
-function AnothermePanel({
-  agent,
-  displayName,
-  hidden,
-}: {
-  agent?: TeamHubActorRef;
-  displayName?: string;
-  hidden: boolean;
-}) {
+function EmptyThreadPanel({ hidden }: { hidden: boolean }) {
   return (
     <div
       className={
         hidden
           ? "hidden"
-          : "relative flex min-h-0 flex-1 flex-col items-center justify-center overflow-hidden bg-card px-6 pb-20 text-center"
+          : "flex min-h-0 flex-1 flex-col items-center justify-center overflow-hidden bg-card px-6 text-center"
       }
       data-testid="panel-tab-thread-draft"
       hidden={hidden || undefined}
       inert={hidden || undefined}
     >
-      {agent ? (
-        <ActorAvatar
-          actorId={agent.id}
-          kind={agent.kind}
-          name={agent.display_name}
-          size="lg"
-        />
-      ) : (
-        <span className="size-16 rounded-full bg-muted" />
-      )}
-      <h3 className="mt-5 text-base font-semibold text-foreground">
-        Good afternoon{displayName ? `, ${displayName}` : ""}
-      </h3>
-      <div className="absolute inset-x-3 bottom-3 flex h-12 items-center gap-2 rounded-xl bg-card px-2 shadow-sm">
-        <button
-          aria-label="Attach to Anotherme message"
-          className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
-          disabled
-          title="Attach"
-          type="button"
-        >
-          <Icon icon={PlusSignIcon} size={16} />
-        </button>
-        <span className="min-w-0 flex-1 text-left text-sm text-muted-foreground">
-          Message Anotherme
+      <div className="flex max-w-64 flex-col items-center gap-2">
+        <span className="flex size-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
+          <Icon icon={Message01Icon} size={16} />
         </span>
-        <button
-          aria-label="Send Anotherme message"
-          className="flex size-8 shrink-0 items-center justify-center rounded-full bg-(--composer-send) text-white opacity-50"
-          disabled
-          title="Send"
-          type="button"
-        >
-          <Icon icon={ArrowUp02Icon} size={16} />
-        </button>
+        <h3 className="text-sm font-semibold text-foreground">
+          No thread selected
+        </h3>
+        <p className="text-xs leading-5 text-app-muted">
+          Choose Reply in Thread on any message in this Room to follow and
+          continue the discussion here.
+        </p>
       </div>
     </div>
   );
@@ -847,18 +851,19 @@ function TaskResolutionBody({
   tabId: string;
   title?: string;
 }) {
+  const t = useT();
   const content = {
     error: {
-      description: "The complete Room history could not be loaded.",
-      title: title ?? "Task could not be loaded",
+      description: t(m.taskLoadFailedBody),
+      title: title ?? t(m.taskLoadFailedTitle),
     },
     loading: {
-      description: "Looking through the Room history...",
-      title: title ?? "Loading Task",
+      description: t(m.taskLoadingBody),
+      title: title ?? t(m.taskLoadingTitle),
     },
     unavailable: {
-      description: "This Message is not available in the current Room history.",
-      title: title ?? "This message no longer exists",
+      description: t(m.messageGoneBody),
+      title: title ?? t(m.messageGoneTitle),
     },
   }[resolution];
 
@@ -880,7 +885,7 @@ function TaskResolutionBody({
         </p>
         {onRetry ? (
           <Button className="mt-3" onClick={onRetry} size="compact">
-            Retry
+            {t(commonMessages.retry)}
           </Button>
         ) : null}
       </div>
@@ -907,6 +912,7 @@ function AgentActivityTab({
   tab: PanelTab;
   tenantId: string;
 }) {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const targetRoomId = tab.activityRoomId ?? roomId;
   const query = useInfiniteQuery({
@@ -934,19 +940,19 @@ function AgentActivityTab({
         messages={roomMessages}
         messagesRoomId={roomId}
         onBack={back}
-        backLabel="Back to Activity"
+        backLabel={t(m.backToActivity)}
         roomId={targetRoomId}
         tenantId={tenantId}
       />
     );
   if (targetRoomId !== roomId && query.isPending && !hidden)
-    return <PanelLoading label="Loading activity" />;
+    return <PanelLoading label={t(m.loadingActivity)} />;
   if (targetRoomId !== roomId && query.isError && !query.data && !hidden)
     return (
       <div role="alert" className="p-4 text-sm">
-        <p>Activity history could not be loaded.</p>
+        <p>{t(m.activityLoadFailed)}</p>
         <Button tone="secondary" onClick={() => void query.refetch()}>
-          Retry
+          {t(commonMessages.retry)}
         </Button>
       </div>
     );
@@ -957,14 +963,14 @@ function AgentActivityTab({
         hidden={hidden}
         message={message}
         onBack={back}
-        backLabel="Back to Activity"
+        backLabel={t(m.backToActivity)}
         roomId={targetRoomId}
         tenantId={tenantId}
       />
     );
   return (
     <div
-      aria-label={`${actorName} activity`}
+      aria-label={t(m.agentActivityRegion, { name: actorName })}
       className={
         hidden ? "hidden" : "workspace-scrollbar h-full min-h-0 overflow-y-auto"
       }
@@ -995,10 +1001,10 @@ function AgentActivityTab({
             onClick={() => void query.fetchNextPage()}
           >
             {query.isFetchingNextPage
-              ? "Loading…"
+              ? t(commonMessages.loading)
               : query.isFetchNextPageError
-                ? "Retry loading earlier activity"
-                : "Load earlier activity"}
+                ? t(m.retryEarlierActivity)
+                : t(m.loadEarlierActivity)}
           </Button>
         </div>
       ) : null}

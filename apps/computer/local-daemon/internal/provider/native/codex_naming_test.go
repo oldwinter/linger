@@ -27,7 +27,7 @@ func codexSetupOrder(fake *codexFake) []string {
 func TestCodexNamesNewThreadAfterTurnStart(t *testing.T) {
 	// The fake holds turn/completed briefly so the deferred name request is
 	// on the wire before the Operation ends.
-	turn := []codexFakeTurn{{Status: "completed", DelayMs: 200}}
+	turn := []codexFakeTurn{{Status: "completed", DelayMs: 100}}
 	t.Run("slow name answer", func(t *testing.T) {
 		fake := newCodexFake(t, turn, map[string]string{"FAKE_MODES": "name_slow"})
 		spec := fake.spec()
@@ -80,7 +80,7 @@ func TestCodexNamesNewThreadAfterTurnStart(t *testing.T) {
 }
 
 func TestCodexResumeKeepsName(t *testing.T) {
-	fake := newCodexFake(t, []codexFakeTurn{{Status: "completed", DelayMs: 200}}, nil)
+	fake := newCodexFake(t, []codexFakeTurn{{Status: "completed", DelayMs: 100}}, nil)
 	rt := fake.runtime(nil)
 	spec := fake.spec()
 	spec.Title = "Trip plan"

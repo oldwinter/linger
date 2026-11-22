@@ -12,9 +12,9 @@ import {
 import type { FileHandle } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { executeMessageSend } from "./message-send-executor.js";
-import type { TeamHubHttpClient } from "./http-client.js";
+import { createTeamHubClient, type TeamHubHttpClient } from "./http-client.js";
 import { displayText } from "./display-text.js";
 
 const roots: string[] = [];
@@ -65,6 +65,44 @@ function result(body: FormData) {
   });
 }
 describe("atomic message resource execution", () => {
+  it("retains the operation ID when a successful message response is unreadable", async () => {
+    const cwd = await root();
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response('{"accepted":', { status: 201 }));
+    const transport = createTeamHubClient(
+      {
+        url: "https://example.test",
+        token: "th_agent_fixture",
+        identityKey: "test-identity",
+      },
+      { fetch: fetcher },
+    );
+    await expect(
+      executeMessageSend(
+        {
+          inbox_id: "room_example",
+          message_segments: [{ type: "text", content: "On it" }],
+        },
+        {
+          client: transport,
+          cwd,
+          stateRoot: cwd,
+          operationId: "operation-reply",
+          target: { type: "room", id: "room_example" },
+        },
+      ),
+    ).rejects.toMatchObject({
+      code: "outcome_unknown",
+      details: { operation_id: "operation-reply" },
+    });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(
+      new Headers(fetcher.mock.calls[0]![1]!.headers).get(
+        "x-teamhub-operation-id",
+      ),
+    ).toBe("operation-reply");
+  });
   it("sends the continuation declaration only when declared and one invocation per operation", async () => {
     const cwd = await root();
     const observed: unknown[] = [];

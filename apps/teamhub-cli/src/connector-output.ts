@@ -310,7 +310,7 @@ export function connectorOutputDescription(command: readonly string[]): string {
         archive: "The actual message ID and archive receipt.",
       } as Record<string, string>
     )[action]!;
-  if (app === "gcal")
+  if (app === "gcal" || app === "outlook-calendar")
     return (
       {
         calendars:

@@ -3,19 +3,23 @@ import { useState } from "react";
 import { useNavigate } from "react-router";
 
 import { Button } from "@/components/ui/button";
+import { commonMessages } from "@/i18n/common.messages";
 import { ModalDialog } from "@/components/ui/modal-dialog";
 import { Select, SelectItem } from "@/components/ui/select";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
 import type { TeamHubDocumentPlacementNode } from "@/features/teamhub/teamhub-types";
+import { useT } from "@/i18n/use-translation";
 
 import type { LibraryRowDocument } from "./library-document-results";
+import { libraryMessages as m } from "./library.messages";
 import type { DocumentTreeFolder } from "./my-documents-tree-helpers";
 
 /** Copies a shared Document into My pages through the canonical Duplicate command. */
 export function useCopyToMyDocuments(client: TeamHubClient, tenantId: string) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const t = useT();
   const [copyingDocument, setCopyingDocument] =
     useState<LibraryRowDocument | null>(null);
   const [copyPending, setCopyPending] = useState(false);
@@ -48,7 +52,7 @@ export function useCopyToMyDocuments(client: TeamHubClient, tenantId: string) {
       setCopyError(
         copyDocumentError instanceof Error
           ? copyDocumentError.message
-          : "The Document could not be copied.",
+          : t(m.documentNotCopied),
       );
     } finally {
       setCopyPending(false);
@@ -88,18 +92,22 @@ export function CopyToMyDocumentsDialog({
   onCopy: (targetFolderId?: string) => void;
   pending: boolean;
 }) {
+  const t = useT();
   const [targetId, setTargetId] = useState("__root__");
+  const close = () => {
+    if (!pending) onCancel();
+  };
   return (
     <ModalDialog
-      closeOnBackdrop
+      closeOnBackdrop={!pending}
       description={document.title}
-      onClose={onCancel}
+      onClose={close}
       size="sm"
-      title="Copy to My Documents"
+      title={t(m.copyToMyDocuments)}
       footer={
         <>
-          <Button disabled={pending} onClick={onCancel} tone="secondary">
-            Cancel
+          <Button disabled={pending} onClick={close} tone="secondary">
+            {t(commonMessages.cancel)}
           </Button>
           <Button
             loading={pending}
@@ -108,21 +116,21 @@ export function CopyToMyDocumentsDialog({
             }
             tone="primary"
           >
-            Copy
+            {t(commonMessages.copy)}
           </Button>
         </>
       }
     >
       <div className="px-5 py-4">
         <label className="block text-sm font-medium text-app-body">
-          Destination
+          {t(m.destination)}
           <Select
-            aria-label="Copy destination"
+            aria-label={t(m.copyDestination)}
             className="mt-1 w-full"
             onValueChange={setTargetId}
             value={targetId}
           >
-            <SelectItem value="__root__">My Documents</SelectItem>
+            <SelectItem value="__root__">{t(m.myDocuments)}</SelectItem>
             {folders.map((folder) => (
               <SelectItem key={folder.id} value={folder.id}>
                 {folderPathLabel(folder, items)}

@@ -52,9 +52,11 @@ another computer needs an HTTPS proxy in front of port 3000.
 ## When a recording ends
 
 As soon as a recording stops, Another Me posts the recording and its
-transcript in its chat. Quick notes follow under them a few seconds later: a
-title and a few topics with short bullets, written from the transcript by your
-Another Me's model. The full meeting notes (summary, decisions, action items)
-take a few minutes more and appear in Library › Meetings; the card says so and
-links to them once they are written. If the quick notes cannot be written, the
-recording and transcript stay as they are.
+transcript in its chat. A meeting summary follows under them a few seconds
+later: a title and a few topics with short bullets, written from the transcript
+by your Another Me's model. Grok Live reads the summaries of the recordings
+among the chat's recent messages, so it can answer about a meeting that just
+ended without opening its transcript. The full meeting notes (summary,
+decisions, action items) take a few minutes more and appear in Library ›
+Meetings; the card says so and links to them once they are written. If the
+summary cannot be written, the recording and transcript stay as they are.

@@ -3,9 +3,11 @@ import {
   PencilEdit01Icon,
   UserGroupIcon,
 } from "@hugeicons/core-free-icons";
-import { useState } from "react";
+import { useId, useRef, useState } from "react";
 
-import { Icon } from "@/components/ui/icon";
+import { Icon, type IconSvgElement } from "@/components/ui/icon";
+import type { Message } from "@/i18n/messages";
+import { useT } from "@/i18n/use-translation";
 
 import type {
   TeamHubActorRef,
@@ -16,7 +18,17 @@ import { ActorAvatar } from "../members/actor-avatar";
 import { RoomAvatar } from "../members/room-avatar";
 import { cn } from "@/lib/cn";
 
-type InfoView = "agents" | "files";
+import { roomSettingsMessages } from "../room-settings.messages";
+import { sidePanelMessages as m } from "./side-panel.messages";
+
+type InfoView = "members" | "files";
+
+const INFO_TABS: ReadonlyArray<{ id: InfoView; label: Message<string> }> = [
+  { id: "members", label: roomSettingsMessages.members },
+  { id: "files", label: m.filesTab },
+];
+
+const kindLabels = { agent: m.kindAgent, human: m.kindHuman };
 
 export function RoomInfoPanel({
   documents,
@@ -33,7 +45,10 @@ export function RoomInfoPanel({
   onOpenRoomSettings?: () => void;
   roomName: string;
 }) {
-  const [view, setView] = useState<InfoView>("agents");
+  const t = useT();
+  const [view, setView] = useState<InfoView>("members");
+  const tabIdPrefix = useId();
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   return (
     <div
@@ -50,13 +65,13 @@ export function RoomInfoPanel({
         <header className="flex min-h-[218px] flex-col items-center justify-center pb-3 text-center @min-[500px]/sidebar:min-h-[238px]">
           <RoomAvatar members={members} size="lg" />
           <div className="mt-4 flex max-w-full items-center gap-1.5">
-            <h1 className="truncate text-xl text-foreground">{roomName}</h1>
+            <h2 className="truncate text-xl text-foreground">{roomName}</h2>
             {onOpenRoomSettings ? (
               <button
-                aria-label="Edit Room"
+                aria-label={t(m.editRoom)}
                 className="flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                 onClick={onOpenRoomSettings}
-                title="Edit Room"
+                title={t(m.editRoom)}
                 type="button"
               >
                 <Icon icon={PencilEdit01Icon} size={14} />
@@ -64,14 +79,14 @@ export function RoomInfoPanel({
             ) : null}
           </div>
           <div
-            aria-label={`${members.length} ${members.length === 1 ? "member" : "members"}`}
+            aria-label={t(m.memberCount, { count: members.length })}
             className="mt-5 flex h-7 items-center justify-center rounded-full bg-muted px-2.5"
           >
             <div className="flex items-center pl-1">
               {members.slice(0, 7).map((member, index) => (
                 <span
                   className={cn(
-                    "rounded-full ring-1 ring-card",
+                    "overflow-hidden rounded-[20%] bg-card ring-1 ring-card",
                     index ? "-ml-1" : false,
                   )}
                   key={member.id}
@@ -92,39 +107,68 @@ export function RoomInfoPanel({
         </header>
 
         <div
-          aria-label="Room info sections"
+          aria-label={t(m.roomInfoSections)}
           className="mt-6 flex items-center gap-1"
           role="tablist"
         >
-          {(["agents", "files"] as const).map((item) => {
-            const selected = item === view;
+          {INFO_TABS.map((item, index) => {
+            const selected = item.id === view;
             return (
               <button
+                aria-controls={`${tabIdPrefix}-panel-${item.id}`}
                 aria-selected={selected}
                 className={cn(
-                  "h-8 shrink-0 whitespace-nowrap rounded-full px-3 text-sm font-medium capitalize transition-colors duration-150",
+                  "h-8 shrink-0 whitespace-nowrap rounded-full px-3 text-sm font-medium transition-colors duration-150",
                   selected
                     ? "bg-muted text-foreground"
                     : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
                 )}
-                key={item}
-                onClick={() => setView(item)}
+                id={`${tabIdPrefix}-tab-${item.id}`}
+                key={item.id}
+                onClick={() => setView(item.id)}
+                onKeyDown={(event) => {
+                  const nextIndex =
+                    event.key === "ArrowRight"
+                      ? (index + 1) % INFO_TABS.length
+                      : event.key === "ArrowLeft"
+                        ? (index - 1 + INFO_TABS.length) % INFO_TABS.length
+                        : event.key === "Home"
+                          ? 0
+                          : event.key === "End"
+                            ? INFO_TABS.length - 1
+                            : null;
+                  if (nextIndex === null) return;
+                  const nextTab = INFO_TABS[nextIndex];
+                  if (!nextTab) return;
+                  event.preventDefault();
+                  tabRefs.current[nextIndex]?.focus();
+                  setView(nextTab.id);
+                }}
+                ref={(node) => {
+                  tabRefs.current[index] = node;
+                }}
                 role="tab"
+                tabIndex={selected ? 0 : -1}
                 type="button"
               >
-                {item}
+                {t(item.label)}
               </button>
             );
           })}
         </div>
 
-        <div className="pt-2">
-          {view === "agents" ? (
+        <div
+          aria-labelledby={`${tabIdPrefix}-tab-${view}`}
+          className="pt-2"
+          id={`${tabIdPrefix}-panel-${view}`}
+          role="tabpanel"
+        >
+          {view === "members" ? (
             members.length ? (
               <div className="space-y-1">
                 {members.map((member) => (
                   <div
-                    className="flex items-center gap-3 rounded-lg px-2 py-2 transition-colors duration-300 hover:bg-muted/70"
+                    className="flex items-center gap-3 rounded-lg px-2 py-2"
                     key={member.id}
                   >
                     <ActorAvatar
@@ -137,13 +181,13 @@ export function RoomInfoPanel({
                       {member.display_name}
                     </span>
                     <span className="text-xs capitalize text-muted-foreground">
-                      {member.kind}
+                      {t(kindLabels[member.kind])}
                     </span>
                   </div>
                 ))}
               </div>
             ) : (
-              <EmptyInfo label="No members" />
+              <EmptyInfo icon={UserGroupIcon} label={t(m.noMembers)} />
             )
           ) : documents.length ? (
             <div className="space-y-1">
@@ -166,7 +210,7 @@ export function RoomInfoPanel({
               ))}
             </div>
           ) : (
-            <EmptyInfo label="No Room files" />
+            <EmptyInfo icon={File01Icon} label={t(m.noRoomFiles)} />
           )}
         </div>
       </div>
@@ -174,10 +218,10 @@ export function RoomInfoPanel({
   );
 }
 
-function EmptyInfo({ label }: { label: string }) {
+function EmptyInfo({ icon, label }: { icon: IconSvgElement; label: string }) {
   return (
     <div className="flex min-h-28 items-center justify-center rounded-xl border border-dashed border-border px-3 text-center text-sm text-muted-foreground">
-      <Icon className="mr-2" icon={UserGroupIcon} size={14} />
+      <Icon className="mr-2" icon={icon} size={14} />
       {label}
     </div>
   );

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import {
   configurationDirectory,
+  createLocalPathResolver,
   loadConfig,
   withScope,
   type TeamHubConfig,
@@ -169,6 +170,10 @@ export async function runCli(
         "configuration_error",
         "TEAMHUB_STATE_ROOT must be an absolute directory without control characters.",
       );
+    const localPath = createLocalPathResolver(
+      dependencies.cwd,
+      dependencies.env,
+    );
     const normalize = async (): Promise<
       NormalizedCommandInput & { operationId?: string }
     > => {
@@ -176,6 +181,7 @@ export async function runCli(
         ? dependencies.timing.measure("command_dependencies", () =>
             parseDomainCommand(args, {
               ...dependencies,
+              localPath,
               beforeNormalize: (value) => {
                 target = value;
               },
@@ -183,6 +189,7 @@ export async function runCli(
           )
         : parseDomainCommand(args, {
             ...dependencies,
+            localPath,
             beforeNormalize: (value) => {
               target = value;
             },
@@ -309,6 +316,7 @@ export async function runCli(
           return selected!.execute(input, {
             client,
             cwd: dependencies.cwd,
+            localPath,
             stateRoot,
             operationId,
             fetch: dependencies.fetch,

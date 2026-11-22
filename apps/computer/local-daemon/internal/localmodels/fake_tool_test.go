@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +19,7 @@ import (
 //     fail with that exit code.
 //   - <verb>.json is a fakeScript for every other verb.
 //   - calls.log records each call's arguments and tool environment.
+//   - jobs/<pid> exists while a download or load runs.
 func TestMain(m *testing.M) {
 	if os.Getenv("LOCALMODELS_FAKE_TOOL") == "1" {
 		os.Exit(runFakeTool(os.Args[1:]))
@@ -35,21 +37,34 @@ type fakeScript struct {
 }
 
 type fakeLine struct {
-	Line    json.RawMessage `json:"line"`
-	DelayMS int             `json:"delay_ms,omitempty"`
+	Line     json.RawMessage `json:"line"`
+	DelayMS  int             `json:"delay_ms,omitempty"`
+	WaitFile string          `json:"wait_file,omitempty"`
 	// CancelAware lines stop the call with CANCELLED once a cancel ran.
 	CancelAware bool `json:"cancel_aware,omitempty"`
 }
 
 func runFakeTool(args []string) int {
 	state := os.Getenv("LOCALMODELS_STATE")
+	if len(args) >= 6 && strings.Join(args[:5], " ") == "-P -s -m localmodels source" {
+		return runFakeSourceTool(state, args[5:])
+	}
+	if len(args) >= 6 && strings.Join(args[:5], " ") == "-P -s -m localmodels harness" {
+		return runFakeHarness(state, args[5:])
+	}
 	if len(args) < 6 || strings.Join(args[:5], " ") != "-P -s -m localmodels library" {
 		fmt.Fprintln(os.Stderr, "unexpected invocation", args)
 		return 3
 	}
 	verb := args[5]
+	if verb == "download" || verb == "load" {
+		marker := filepath.Join(state, "jobs", strconv.Itoa(os.Getpid()))
+		_ = os.MkdirAll(filepath.Dir(marker), 0o700)
+		_ = os.WriteFile(marker, nil, 0o600)
+		defer func() { _ = os.Remove(marker) }()
+	}
 	log, _ := os.OpenFile(filepath.Join(state, "calls.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-	_, _ = fmt.Fprintf(log, "%s|PYTHONPATH=%s|cwd=%s\n", strings.Join(args[5:], " "), os.Getenv("PYTHONPATH"), workingDirectory())
+	_, _ = fmt.Fprintf(log, "%s|PYTHONPATH=%s|cwd=%s|PI_CODING_AGENT_DIR=%s\n", strings.Join(args[5:], " "), os.Getenv("PYTHONPATH"), workingDirectory(), os.Getenv("PI_CODING_AGENT_DIR"))
 	_ = log.Close()
 	if verb == "status" {
 		if code, err := os.ReadFile(filepath.Join(state, "status-exit")); err == nil {
@@ -77,6 +92,9 @@ func runFakeTool(args []string) int {
 		_ = os.WriteFile(filepath.Join(state, "cancelled"), nil, 0o600)
 	}
 	for _, line := range script.Lines {
+		if line.WaitFile != "" {
+			waitForGateRemoval(filepath.Join(state, line.WaitFile), 30*time.Second)
+		}
 		time.Sleep(time.Duration(line.DelayMS) * time.Millisecond)
 		if _, err := os.Stat(filepath.Join(state, "cancelled")); line.CancelAware && err == nil {
 			fmt.Printf(`{"schema":"localmodels.library-event/v1","event":"error","ok":false,"code":"CANCELLED","detail":"the download was cancelled","model":%q}`+"\n", args[6])
@@ -90,9 +108,83 @@ func runFakeTool(args []string) int {
 	return script.Exit
 }
 
+func waitForGateRemoval(gatePath string, timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(gatePath); err != nil {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 func workingDirectory() string {
 	directory, _ := os.Getwd()
 	return directory
+}
+
+func runFakeHarness(state string, args []string) int {
+	if len(args) < 1 {
+		return 3
+	}
+	verb := args[0]
+	log, _ := os.OpenFile(filepath.Join(state, "calls.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	_, _ = fmt.Fprintf(log, "harness %s|PI_CODING_AGENT_DIR=%s\n", strings.Join(args, " "), os.Getenv("PI_CODING_AGENT_DIR"))
+	_ = log.Close()
+	argValue := func(flag string) string {
+		for index := 0; index+1 < len(args); index++ {
+			if args[index] == flag {
+				return args[index+1]
+			}
+		}
+		return ""
+	}
+	root := argValue("--root")
+	installedPath := filepath.Join(root, "tools", "pi", "1.3.0", "pi")
+	statusJSON := func(installed bool) string {
+		if installed {
+			return fmt.Sprintf(`{"schema":"localmodels.harness-status/v1","runtimes":[{"runtime":"pi","installed":true,"executable":%q,"argvPrefix":[]}]}`, installedPath)
+		}
+		return `{"schema":"localmodels.harness-status/v1","runtimes":[{"runtime":"pi","installed":false,"executable":null,"argvPrefix":[]}]}`
+	}
+	switch verb {
+	case "status":
+		if _, err := os.Stat(filepath.Join(state, "harness-status-fail")); err == nil {
+			return 1
+		}
+		_, err := os.Stat(filepath.Join(state, "harness-pi-installed"))
+		fmt.Println(statusJSON(err == nil))
+		return 0
+	case "plan":
+		waitGate := filepath.Join(state, "harness-plan-wait")
+		if _, err := os.Stat(waitGate); err == nil {
+			_ = os.WriteFile(filepath.Join(state, "harness-plan-entered"), []byte("1"), 0o600)
+			waitForGateRemoval(waitGate, 30*time.Second)
+		}
+		if _, err := os.Stat(filepath.Join(state, "harness-plan-fail")); err == nil {
+			return 1
+		}
+		outPath := argValue("--out")
+		plan := fmt.Sprintf(`{"schema":"localmodels.harness-plan/v1","id":%q,"runtime":"pi","root":%q}`, strings.Repeat("a", 64), root)
+		if outPath != "" {
+			_ = os.WriteFile(outPath, []byte(plan), 0o600)
+		}
+		fmt.Println(plan)
+		return 0
+	case "apply":
+		if _, err := os.Stat(filepath.Join(state, "harness-apply-fail")); err == nil {
+			return 1
+		}
+		if argValue("--approve") != strings.Repeat("a", 64) {
+			return 2
+		}
+		_ = os.WriteFile(filepath.Join(state, "harness-pi-installed"), []byte(installedPath), 0o600)
+		fmt.Println(`{"kind":"stage","stage":"install","state":"running"}`)
+		fmt.Println(statusJSON(true))
+		return 0
+	default:
+		return 3
+	}
 }
 
 // fakeTool lays out a Tool that runs the fake.
@@ -104,7 +196,21 @@ type fakeTool struct {
 
 func newFakeTool(t *testing.T) *fakeTool {
 	t.Helper()
-	root := t.TempDir()
+	// The tool reports its working directory as the OS resolves it, and on
+	// macOS the temporary directory sits behind the /var symlink.
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Jobs outlive Library.Close and write into this directory until they
+	// exit; wait for them before the TempDir cleanup removes it. Cleanups
+	// run last-registered first, so this runs after every Close.
+	t.Cleanup(func() {
+		waitFor(t, "the fake tool's jobs to exit", func() bool {
+			entries, err := os.ReadDir(filepath.Join(root, "state", "jobs"))
+			return err != nil || len(entries) == 0
+		})
+	})
 	executable, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)

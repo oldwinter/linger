@@ -41,3 +41,30 @@ describe("once Routine cadence", () => {
     ).toThrow("Choose when the Routine runs.");
   });
 });
+
+describe("minute-interval Routine cadence", () => {
+  it("formats every_n_minutes as Every N min and refuses draft conversion", () => {
+    const cadence = {
+      kind: "every_n_minutes" as const,
+      timezone: "UTC",
+      interval_minutes: 10,
+    };
+    expect(cadenceLabel(cadence)).toBe("Every 10 min");
+    expect(
+      cadenceLabel({
+        kind: "every_n_minutes",
+        timezone: "UTC",
+        interval_minutes: 90,
+      }),
+    ).toBe("Every 90 min");
+    const routine = {
+      name: "Poll",
+      instruction: "Check",
+      cadence,
+      enabled: true,
+    } as Parameters<typeof draftFromRoutine>[0];
+    expect(() => draftFromRoutine(routine)).toThrow(
+      "Minute-interval routines can only be edited by an Agent.",
+    );
+  });
+});

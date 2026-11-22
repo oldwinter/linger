@@ -53,5 +53,15 @@ describe("keyboardShortcutGroups", () => {
     expect(byTitle[0]?.shortcuts.length).toBeGreaterThan(1);
 
     expect(filterKeyboardShortcutGroups("does-not-exist")).toEqual([]);
+
+    const jump = filterKeyboardShortcutGroups("ctrl j");
+    expect(jump[0]?.shortcuts.map((shortcut) => shortcut.action)).toEqual([
+      "Jump to a room, meeting, or library place",
+    ]);
+
+    const roomFind = filterKeyboardShortcutGroups("ctrl f");
+    expect(roomFind[0]?.shortcuts.map((shortcut) => shortcut.action)).toEqual([
+      "Search in current room",
+    ]);
   });
 });

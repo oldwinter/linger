@@ -11,6 +11,9 @@ import { anotherMeQueryKey } from "@/features/rooms/room-queries";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { useOptionalTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubPersonalProfileDocument } from "@/features/teamhub/teamhub-types";
+import { useT } from "@/i18n/use-translation";
+
+import { chatMessages } from "./chat.messages";
 
 /** Select a short paragraph from the published Profile's fields. */
 export function profilePreview(
@@ -46,6 +49,7 @@ export function useProfileCardContent({
   roomId?: string;
   authorId?: string;
 }) {
+  const t = useT();
   const runtime = useOptionalTeamHubRuntime();
   const anotherMe = useQuery({
     queryKey: anotherMeQueryKey(tenantId ?? ""),
@@ -107,7 +111,7 @@ export function useProfileCardContent({
     ),
     sources: apps.length ? (
       <ul
-        aria-label="Profile sources"
+        aria-label={t(chatMessages.profileSources)}
         className="flex flex-wrap items-center gap-1.5"
       >
         {apps.map((app) => (

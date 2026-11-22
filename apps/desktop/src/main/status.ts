@@ -1,6 +1,9 @@
+import { translator, type Translate } from "../i18n/language.js";
 import type { RuntimeState } from "../shared/api.js";
 import type { ComputerDaemonModule } from "./computer-daemon.js";
+import type { LanguageModule } from "./language.js";
 import type { Module, ModuleContext } from "./modules.js";
+import { statusMessages as m } from "./tray.messages.js";
 
 export type StatusTone = "online" | "busy" | "offline" | "error" | "setup";
 
@@ -10,8 +13,6 @@ export interface StatusInput {
   readonly runtime: RuntimeState;
   readonly enrolled: boolean;
   readonly running: number;
-  // The Gateway refused this computer's identity as another Computer's.
-  readonly identityConflict?: boolean;
 }
 
 export interface StatusSummary {
@@ -20,40 +21,40 @@ export interface StatusSummary {
 }
 
 // One line shown at the top of the tray menu.
-export const summarizeStatus = (input: StatusInput): StatusSummary => {
-  if (!input.enrolled) return { tone: "setup", label: "Not Connected" };
-  // Reconnecting cannot clear a refusal: only a new setup enrolls this
-  // computer again.
-  if (input.identityConflict)
-    return { tone: "error", label: "Identity Conflict · Set Up Again" };
+export const summarizeStatus = (
+  input: StatusInput,
+  t: Translate,
+): StatusSummary => {
+  if (!input.enrolled) return { tone: "setup", label: t(m.notConnected) };
   switch (input.connection) {
     case "auth_failed":
-      return {
-        tone: "error",
-        label: "Sign-in Expired · Reconnect This Computer",
-      };
+      return { tone: "error", label: t(m.signInExpired) };
+    case "identity_conflict":
+      return { tone: "error", label: t(m.identityConflict) };
     case "upgrade_required":
-      return { tone: "error", label: "Update Required" };
+      return { tone: "error", label: t(m.updateRequired) };
   }
   if (input.runtime === "crashed")
-    return { tone: "error", label: "Runtime Error · Restarting" };
-  if (input.runtime !== "ready") return { tone: "offline", label: "Starting…" };
+    return { tone: "error", label: t(m.runtimeError) };
+  if (input.runtime !== "ready")
+    return { tone: "offline", label: t(m.starting) };
   if (input.connection !== "online")
-    return { tone: "offline", label: "Offline · Reconnecting" };
+    return { tone: "offline", label: t(m.offline) };
   if (input.running > 0)
-    return {
-      tone: "busy",
-      label: `Running ${input.running} ${input.running === 1 ? "Task" : "Tasks"}`,
-    };
-  return { tone: "online", label: "Online · Idle" };
+    return { tone: "busy", label: t(m.running, { count: input.running }) };
+  return { tone: "online", label: t(m.idle) };
 };
 
 // Recomputes the summary from module state and announces changes.
 export class StatusModule implements Module {
   readonly name = "Status";
-  readonly dependsOn = ["ComputerDaemon"];
+  readonly dependsOn = ["ComputerDaemon", "Language"];
   #ctx: ModuleContext | undefined;
-  #current: StatusSummary = { tone: "offline", label: "Starting…" };
+  // Replaced on start, in the shell's language.
+  #current: StatusSummary = {
+    tone: "offline",
+    label: translator("en")(m.starting),
+  };
   readonly #unsubscribe: (() => void)[] = [];
 
   async start(ctx: ModuleContext): Promise<void> {
@@ -61,10 +62,10 @@ export class StatusModule implements Module {
     const update = (): void => this.#update();
     this.#unsubscribe.push(
       ctx.bus.on("computer.connection", update),
-      ctx.bus.on("computer.identity_conflict", update),
       ctx.bus.on("runtime.state", update),
       ctx.bus.on("runtime.activity", update),
       ctx.bus.on("computer.changed", update),
+      ctx.bus.on("language.changed", update),
     );
     this.#update();
   }
@@ -80,15 +81,15 @@ export class StatusModule implements Module {
   #update(): void {
     const ctx = this.#ctx!;
     const daemon = ctx.get<ComputerDaemonModule>("ComputerDaemon");
-    const next = summarizeStatus({
-      connection: daemon.connection(),
-      runtime: daemon.state(),
-      enrolled: !!ctx.config.get().computerId,
-      running: daemon.running(),
-      identityConflict:
-        daemon.connectionError() !== undefined ||
-        !!ctx.config.get().identityConflict,
-    });
+    const next = summarizeStatus(
+      {
+        connection: daemon.connection(),
+        runtime: daemon.state(),
+        enrolled: !!ctx.config.get().computerId,
+        running: daemon.running(),
+      },
+      ctx.get<LanguageModule>("Language").t,
+    );
     if (next.tone === this.#current.tone && next.label === this.#current.label)
       return;
     this.#current = next;

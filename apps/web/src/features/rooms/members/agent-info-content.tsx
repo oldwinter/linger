@@ -1,4 +1,5 @@
 /* eslint-disable jsx-a11y/no-autofocus -- The name input is mounted only after an explicit edit action. */
+import { ArrowDown01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import { useQuery } from "@tanstack/react-query";
 import {
   lazy,
@@ -10,8 +11,11 @@ import {
   type ReactNode,
 } from "react";
 
+import { Icon } from "@/components/ui/icon";
 import { AgentConnectors } from "@/features/apps/agent-connectors";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import type { Message } from "@/i18n/messages";
+import { useT } from "@/i18n/use-translation";
 import type {
   TeamHubActor,
   TeamHubTenantAgent,
@@ -19,16 +23,21 @@ import type {
 } from "@/features/teamhub/teamhub-types";
 
 import {
+  roomQueryOptions,
   teamHubIdentityQueryOptions,
   tenantAgentsQueryOptions,
 } from "../room-queries";
 import { ActorAvatar } from "./actor-avatar";
-import { AgentSkillUploadPanel } from "./agent-skill-upload-panel";
+import { agentInfoMessages } from "./agent-info.messages";
+import {
+  AgentSkillUploadPanel,
+  type SkillManageHint,
+} from "./agent-skill-upload-panel";
 import { AgentStatus } from "./agent-status";
 
-const skillUploadHint = {
-  title: "ZIP or SKILL.md",
-  detail: "Same name upgrades this Skill.",
+const skillUploadHint: SkillManageHint = {
+  title: agentInfoMessages.uploadFormats,
+  detail: agentInfoMessages.uploadUpgrades,
 };
 
 const RemindersPanel = lazy(() =>
@@ -38,10 +47,10 @@ const RemindersPanel = lazy(() =>
 );
 
 const AGENT_INFO_TABS = [
-  ["basic", "Details"],
-  ["routines", "Routines"],
-  ["connectors", "Connectors"],
-] as const;
+  ["basic", agentInfoMessages.tabDetails],
+  ["routines", agentInfoMessages.tabRoutines],
+  ["connectors", agentInfoMessages.tabConnectors],
+] as const satisfies readonly (readonly [string, Message<string>])[];
 
 type AgentInfoTab = (typeof AGENT_INFO_TABS)[number][0];
 
@@ -85,6 +94,7 @@ export function AgentInfoContent({
   /** Routines are listed per Room, so the Routines tab needs the open Room. */
   roomId?: string;
 }) {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const identityQuery = useQuery(teamHubIdentityQueryOptions(client));
   const { data: agents } = useQuery(tenantAgentsQueryOptions(client, tenantId));
@@ -95,13 +105,13 @@ export function AgentInfoContent({
   )?.id;
   const isSponsor = liveRegistration?.created_by.id === currentActorId;
   const canManageSkills = Boolean(identityQuery.isSuccess && isSponsor);
-  const skillManageHint = !identityQuery.isSuccess
-    ? skillUploadHint
-    : !isSponsor
-      ? { title: "Only the Sponsor can change Skills" }
+  const skillManageHint: SkillManageHint =
+    identityQuery.isSuccess && !isSponsor
+      ? { title: agentInfoMessages.sponsorOnlySkills }
       : skillUploadHint;
   const [tab, setTab] = useState<AgentInfoTab>("basic");
   const [showAllSkills, setShowAllSkills] = useState(false);
+  const [showRuntimeDetails, setShowRuntimeDetails] = useState(false);
   const skills = liveRegistration?.skill_bindings ?? [];
   const tabId = useId();
   return (
@@ -122,9 +132,9 @@ export function AgentInfoContent({
       />
       <div className="shrink-0 px-4 pb-4">
         <div
-          className="mx-auto flex w-fit max-w-full gap-1.5"
+          className="mx-auto flex w-fit max-w-full flex-wrap justify-center gap-1.5"
           role="tablist"
-          aria-label="Agent settings"
+          aria-label={t(agentInfoMessages.settingsTabs)}
         >
           {AGENT_INFO_TABS.map(([id, label]) => (
             <button
@@ -155,13 +165,13 @@ export function AgentInfoContent({
               aria-controls={`${tabId}-${id}`}
               id={`${tabId}-tab-${id}`}
               onClick={() => setTab(id)}
-              className={`h-7 w-[92px] min-w-0 shrink truncate rounded-full px-3 font-(family-name:--app-room-font) transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+              className={`h-7 shrink-0 whitespace-nowrap rounded-full px-3 font-(family-name:--app-room-font) transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                 tab === id
                   ? "bg-sidebar-muted text-foreground"
                   : "text-muted-foreground hover:bg-sidebar-muted/50 hover:text-foreground"
               }`}
             >
-              {label}
+              {t(label)}
             </button>
           ))}
         </div>
@@ -188,6 +198,25 @@ export function AgentInfoContent({
               : undefined
           }
         />
+        {runtimeDetails ? (
+          <section aria-label="Model & Runtime" className="px-1.5">
+            <button
+              aria-expanded={showRuntimeDetails}
+              className="flex min-h-7 w-full items-center justify-between gap-1.5 rounded-md px-1.5 text-xs font-medium text-muted-foreground transition-colors duration-150 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => setShowRuntimeDetails((value) => !value)}
+              type="button"
+            >
+              <span>Model &amp; Runtime</span>
+              <Icon
+                icon={showRuntimeDetails ? ArrowDown01Icon : ArrowRight01Icon}
+                size={14}
+              />
+            </button>
+            {showRuntimeDetails ? (
+              <div className="mt-1.5">{runtimeDetails}</div>
+            ) : null}
+          </section>
+        ) : null}
         {detailsActions}
       </div>
       {tab === "routines" ? (
@@ -207,7 +236,6 @@ export function AgentInfoContent({
           id={`${tabId}-connectors`}
           aria-labelledby={`${tabId}-tab-connectors`}
         >
-          {runtimeDetails ? <div hidden>{runtimeDetails}</div> : null}
           <AgentConnectors agentActorId={actor.id} tenantId={tenantId} />
         </div>
       ) : null}
@@ -225,20 +253,30 @@ function AgentRoutines({
   roomId?: string;
   tenantId: string;
 }) {
+  const t = useT();
+  const { client } = useTeamHubRuntime();
+  const roomQuery = useQuery({
+    ...roomQueryOptions(client, tenantId, roomId ?? ""),
+    enabled: Boolean(roomId),
+  });
   if (!roomId) {
     return (
       <p
         className="px-6 py-8 text-center text-xs text-muted-foreground"
         role="status"
       >
-        Open this Agent from a Room to see its routines there.
+        {t(agentInfoMessages.routinesNeedRoom)}
       </p>
     );
   }
+  const isDirectRoomWithAgent =
+    roomQuery.data?.kind === "direct" &&
+    roomQuery.data.direct_peer?.id === actor.id;
   return (
     <Suspense fallback={null}>
       <RemindersPanel
         agentActorId={actor.id}
+        includeMessageOnly={isDirectRoomWithAgent}
         mentionOptions={[actor]}
         roomId={roomId}
         tenantId={tenantId}
@@ -270,6 +308,7 @@ function AgentInfoIdentity({
   onSaveName?: (name: string) => Promise<unknown>;
   onEdit?: () => void;
 }) {
+  const t = useT();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(actor.display_name);
   const [focusAfterError, setFocusAfterError] = useState(false);
@@ -322,7 +361,7 @@ function AgentInfoIdentity({
       {action ? <div className="absolute right-3 top-3">{action}</div> : null}
       {canEdit ? (
         <button
-          aria-label="Edit avatar"
+          aria-label={t(agentInfoMessages.editAvatar)}
           className="rounded-[20%] outline-none transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-app-focus"
           onClick={onEdit}
           type="button"
@@ -334,7 +373,7 @@ function AgentInfoIdentity({
       )}
       {editing ? (
         <input
-          aria-label="Agent name"
+          aria-label={t(agentInfoMessages.agentName)}
           ref={nameInput}
           autoFocus
           className="mt-2.5 max-w-full rounded-md bg-card px-2 text-center text-[15px] font-semibold leading-5 text-foreground shadow-outline outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
@@ -362,7 +401,9 @@ function AgentInfoIdentity({
         <h2 className="mt-2.5 max-w-full text-[15px] font-semibold leading-5 text-foreground">
           <button
             ref={editNameButton}
-            aria-label={`Edit name ${actor.display_name}`}
+            aria-label={t(agentInfoMessages.editName, {
+              name: actor.display_name,
+            })}
             className="max-w-full break-words rounded-md px-2 py-0.5 hover:bg-sidebar-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus disabled:opacity-50"
             disabled={nameBusy}
             onClick={() => {

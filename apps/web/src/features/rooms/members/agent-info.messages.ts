@@ -1,0 +1,129 @@
+import { defineMessages } from "@/i18n/messages";
+
+import { UNSET_AGENT_INSTRUCTIONS } from "./agent-instruction-text";
+
+/** The Agent info panel, its edit dialogs, and a Human's profile panel. */
+export const agentInfoMessages = defineMessages("agentInfo", {
+  // The panel's tabs and the identity header.
+  settingsTabs: "Agent settings",
+  tabDetails: "Details",
+  tabRoutines: "Routines",
+  tabConnectors: "Connectors",
+  routinesNeedRoom: "Open this Agent from a Room to see its routines there.",
+  editAvatar: "Edit avatar",
+  agentName: "Agent name",
+  editName: "Edit name {name}",
+
+  // The status line and the avatar's status popover.
+  online: "Online",
+  tasksInProgress: {
+    one: "{count} task in progress",
+    other: "{count} tasks in progress",
+  },
+  openStatus: "Open {name} status",
+  openProfile: "Open {name} profile",
+  viewActivity: "View activity",
+
+  // Instructions.
+  instructions: "Instructions",
+  agentInstructions: "Agent instructions",
+  editInstructions: "Edit instructions",
+  instructionsContent: "Instructions content",
+  instructionsUnset: UNSET_AGENT_INSTRUCTIONS,
+  instructionsDescription: "Define how your Agent should work and respond.",
+  showMore: "Show more",
+  showLess: "Show less",
+
+  // Where the Agent runs.
+  runtimeConfiguration: "Runtime configuration",
+  runsOn: "Runs on",
+  runsOnLocal: "Local · {computer}",
+  runsOnLocalOnline: "Local · {computer} · Online",
+  runsOnLocalOffline: "Local · {computer} · Offline",
+  localComputer: "Local Computer",
+  modelWithEffort: "{model} · {effort}",
+  runtimeDetails: "Runtime details",
+  runtimeStatus: "<term>Status:</term> <value>{status}</value>",
+  runtimeVersion: "<term>Version:</term> <value>{version}</value>",
+  runtimeBusy: "Runtime settings can't change while this Agent is working.",
+  agentActions: "Agent actions",
+  profileUnavailable: "Agent profile is unavailable.",
+
+  // Skills.
+  skills: "Skills",
+  skillCount: { one: "{count} Skill", other: "{count} Skills" },
+  add: "Add",
+  upload: "Upload",
+  uploadSkill: "Upload Skill",
+  uploadSkillPackage: "Upload Skill package",
+  uploadFormats: "ZIP or SKILL.md",
+  uploadUpgrades: "Same name upgrades this Skill.",
+  sponsorOnlySkills: "Only the Sponsor can change Skills",
+  removeSkill: "Remove {name}",
+  noSkillsTitle: "No Skills added",
+  noSkillsBody:
+    "Add a Skill to give this Agent a repeatable way to handle a task.",
+  showFewerSkills: "Show fewer",
+  showAllSkills: {
+    one: "Show all {count} Skill",
+    other: "Show all {count} Skills",
+  },
+  addSkill: "Add Skill",
+  searchSkills: "Search Skills",
+  loadingSkills: "Loading Skills…",
+  noSkillsMatch: "No Skills match that search.",
+  noMoreSkills: "No more built-in Skills to add.",
+  skillsSaved: "Saved. Future runs will use the new configuration.",
+  skillsLoadIncomplete: "Could not load all Skills. Please retry.",
+  reloadSkillsFirst: "Reload Skill configuration first.",
+  skillOperationFailed: "The Skill operation failed. Please retry.",
+
+  // The avatar editor and the profile dialog.
+  chooseAvatar: "Choose avatar",
+  avatars: "Avatars",
+  avatarOption: "Avatar {number}",
+  uploadImage: "Upload image",
+  avatarImageFile: "Avatar image file",
+  avatarBackgroundColor: "Avatar background color",
+  avatarUnusable: "This image could not be used. Try a JPEG, PNG, or WebP.",
+  editProfile: "Edit profile",
+  profileDescription: "Update your Agent's name and avatar.",
+  avatarDescription: "Update your Agent's avatar.",
+  editAgentName: "Edit agent name",
+  avatarSaveFailed: "The avatar could not be saved. Try again.",
+
+  // Choosing a Computer and Runtime for an Agent.
+  placementLabel: "Agent runtime placement",
+  lookingForComputers: "Looking for Local Computers...",
+  computersUnavailable: "Local Computers are unavailable.",
+  noComputerOnline: "No Local Computer online",
+  localRuntime: "Local Runtime",
+  staysOnMachine: "Apps and Skills stay on this machine.",
+  runtimeOption: "{runtime} - {status}",
+  statusSignInRequired: "Sign in required",
+  statusDetectionFailed: "Detection failed",
+  statusUpgradeRequired: "Upgrade required",
+  retryComputers: "Retry Local Computers",
+
+  // The Agent's activity list in the side panel.
+  activityHistory: "Agent activity history",
+  recentActivity: "Recent activity in this conversation",
+  viewAgentActivity: "View {name} activity: {prompt}",
+  noRecentActivity: "No recent activity",
+  activityPages: "Activity pages",
+  previous: "Previous",
+  next: "Next",
+
+  // A Human's profile panel.
+  profileLabel: "{name} profile",
+  closeProfile: "Close profile",
+  noPublicHandle: "No public handle",
+  handleMember: "{handle} · Member",
+  human: "Human",
+  agent: "Agent",
+  noDescription: "No description",
+  role: "Role",
+  joined: "Joined",
+  createdAgents: "Created Agents",
+  noCreatedAgents: "No created Agents.",
+});

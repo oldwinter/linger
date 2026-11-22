@@ -155,6 +155,19 @@ const agentFrames = [
     unload_first: ["gemma3-4b:Q4_K_M"],
   },
   {
+    type: "execute",
+    kind: "model_source",
+    ...localCapability,
+    action: "test",
+    byok: {
+      base_url: "https://open.bigmodel.cn",
+      path: "/api/paas/v4",
+      endpoint: "/chat/completions",
+      protocol: "openai-chat",
+      model_id: "vendor/model",
+    },
+  },
+  {
     type: "prepare",
     target: "operation",
     ...operation,
@@ -210,6 +223,16 @@ const agentFrames = [
     input: "Write the pages.",
     workspace_files: [{ path: "raw/notes.md", content_base64: "bm90ZXM=" }],
     timeout_ms: 4 * 60 * 60_000,
+  },
+  {
+    type: "cancel",
+    target: "model_invoke",
+    protocol_version: "2",
+    command_id: "invoke-cancel-1",
+    invoke_id: "invoke-1",
+    runner_id: assignment.runner_id,
+    connection_epoch: 1,
+    reason: "scheduler_yield",
   },
   ...[
     {

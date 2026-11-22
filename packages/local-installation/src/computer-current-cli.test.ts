@@ -18,6 +18,11 @@ vi.mock("./localmodels-tool.js", () => ({
     }),
   }),
 }));
+vi.mock("./process.js", async (original) => {
+  const actual = await original<typeof import("./process.js")>();
+  const { withComputerFixture } = await import("./test-support/computer.js");
+  return { ...actual, runProcess: withComputerFixture(actual.runProcess) };
+});
 const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(
@@ -27,7 +32,14 @@ afterEach(async () => {
 
 // Synthetic process contract from Computer 0.40's published login/daemon help.
 // Login starts the daemon; connection/reconciliation can finish after it returns.
-it("enrolls and starts the current Computer CLI automatically", async () => {
+// On Windows this lifecycle runs dozens of real PowerShell ACL checks.
+it(
+  "enrolls and starts the current Computer CLI automatically",
+  enrollAndRestartCurrentComputer,
+  process.platform === "win32" ? 180_000 : undefined,
+);
+
+async function enrollAndRestartCurrentComputer() {
   const root = await mkdtemp(path.join(tmpdir(), "computer-current-cli-"));
   roots.push(root);
   const executable = path.join(root, "computer"),
@@ -91,4 +103,4 @@ else {console.error('Unknown command: '+args.join(' '));process.exit(9);}
     true,
   );
   expect(JSON.stringify(commands)).not.toContain("synthetic-private-token");
-});
+}

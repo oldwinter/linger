@@ -168,6 +168,7 @@ describe("CreateAgentFromTemplateDialog", () => {
     });
 
     expect(remove.className).not.toMatch(/\babsolute\b/);
+    expect(remove).toHaveClass("[@media(hover:none)]:opacity-100");
     expect(remove.parentElement?.className).toMatch(/\babsolute\b/);
     expect(card.className).toMatch(/\brelative\b/);
   });
@@ -353,6 +354,59 @@ describe("CreateAgentFromTemplateDialog", () => {
       await screen.findByRole("list", { name: "Official templates" }),
     ).toBeVisible();
   });
+
+  it("blocks Cancel, Escape, and backdrop dismissal while Agent creation is in flight", async () => {
+    let finishCreate!: () => void;
+    const { onClose } = await renderDialog((runtime) => {
+      runtime.server.on(
+        "POST",
+        "/v0/tenants/{tenantId}/agents",
+        () =>
+          new Promise((resolve) => {
+            finishCreate = () =>
+              resolve({
+                actor: {
+                  created_at: "2026-09-21T10:00:00.000Z",
+                  display_name: "PR Reviewer",
+                  id: "actor-from-template",
+                  kind: "agent",
+                  tenant_id: "tenant-northstar",
+                },
+              });
+          }),
+      );
+    });
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Code Reviewer/ }),
+    );
+    const submit = screen.getByRole("button", { name: "Create Agent" });
+    await waitFor(() => expect(submit).toBeEnabled());
+    fireEvent.click(submit);
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled(),
+    );
+    expect(
+      screen.getByRole("button", { name: "Close Agent templates" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Back to templates" }),
+    ).toBeDisabled();
+
+    const dialog = screen.getByRole("dialog", { name: "Agent templates" });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(dialog);
+    fireEvent(dialog, new Event("cancel", { cancelable: true }));
+    expect(onClose).not.toHaveBeenCalled();
+
+    finishCreate();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Cancel" })).toBeEnabled(),
+    );
+    fireEvent.click(dialog);
+    expect(onClose).toHaveBeenCalledOnce();
+  });
 });
 
 async function renderDialog(
@@ -370,6 +424,7 @@ async function renderDialog(
   }));
   runtime.server.on("POST", "/v0/tenants/{tenantId}/agents", createAgent);
   configure(runtime);
+  const onClose = vi.fn();
   const onCreated = vi.fn();
   render(
     <QueryClientProvider
@@ -379,12 +434,12 @@ async function renderDialog(
     >
       <TeamHubRuntimeProvider runtime={runtime}>
         <CreateAgentFromTemplateDialog
-          onClose={vi.fn()}
+          onClose={onClose}
           onCreated={onCreated}
           tenantId="tenant-northstar"
         />
       </TeamHubRuntimeProvider>
     </QueryClientProvider>,
   );
-  return { createAgent, onCreated };
+  return { createAgent, onClose, onCreated };
 }

@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -11,6 +12,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
 import type { TestRouteRequest } from "@/test/teamhub-test-server";
 import type { TeamHubRoomBackgroundTask } from "@/features/teamhub/teamhub-types";
+import { translate } from "@/i18n/language";
 import {
   BackgroundTasksIndicator,
   BackgroundTasksPill,
@@ -76,6 +78,57 @@ describe("BackgroundTasksPill", () => {
       screen.getByRole("button", { name: "1 task running in the background" }),
     ).toBeVisible();
   });
+
+  it("refreshes relative timestamps on a 30s interval without recreating it on unrelated rerenders", () => {
+    vi.useFakeTimers();
+    const setIntervalSpy = vi.spyOn(window, "setInterval");
+    const clearIntervalSpy = vi.spyOn(window, "clearInterval");
+    try {
+      const start = Date.parse("2026-10-28T14:31:00Z");
+      vi.setSystemTime(start);
+      const active: TeamHubRoomBackgroundTask[] = [
+        {
+          id: "task-live",
+          title: "Check release notes",
+          requirement: "Verify every section",
+          created_at: "2026-10-28T14:30:40Z",
+        },
+      ];
+      const view = render(
+        <BackgroundTasksPill onOpen={vi.fn()} tasks={active} />,
+      );
+      expect(setIntervalSpy).toHaveBeenCalledTimes(1);
+      expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 30_000);
+
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: "1 task running in the background",
+        }),
+      );
+      expect(screen.getByText("just now")).toBeVisible();
+
+      view.rerender(
+        <BackgroundTasksPill onOpen={vi.fn()} tasks={[...active]} />,
+      );
+      expect(setIntervalSpy).toHaveBeenCalledTimes(1);
+      expect(clearIntervalSpy).not.toHaveBeenCalled();
+
+      act(() => {
+        vi.advanceTimersByTime(60_000);
+      });
+      expect(screen.getByText("1 min")).toBeVisible();
+
+      view.rerender(<BackgroundTasksPill onOpen={vi.fn()} tasks={[]} />);
+      expect(clearIntervalSpy).toHaveBeenCalledTimes(1);
+
+      view.unmount();
+      expect(clearIntervalSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      // Restore timer spies first so afterEach does not write fake timers back.
+      vi.restoreAllMocks();
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("BackgroundTasksIndicator", () => {
@@ -119,13 +172,15 @@ describe("BackgroundTasksIndicator", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("floats the pill while Tasks run", async () => {
+  it("renders the pill in normal flow above the composer while Tasks run", async () => {
     renderIndicator(tasks);
-    expect(
-      await screen.findByRole("button", {
-        name: "2 tasks running in the background",
-      }),
-    ).toBeVisible();
+    const pill = await screen.findByRole("button", {
+      name: "2 tasks running in the background",
+    });
+    expect(pill).toBeVisible();
+    const container = screen.getByTestId("background-tasks-indicator");
+    expect(container).not.toHaveClass("h-0");
+    expect(pill.parentElement).not.toHaveClass("absolute");
   });
 
   it("cancels one Task and drops it from the list", async () => {
@@ -182,8 +237,8 @@ describe("BackgroundTasksIndicator", () => {
 
 describe("runningFor", () => {
   it("uses the coarsest unit that fits", () => {
-    expect(runningFor("2026-10-28T14:30:30Z", now)).toBe("just now");
-    expect(runningFor("2026-10-28T12:00:00Z", now)).toBe("2 h");
-    expect(runningFor("2026-10-25T14:31:00Z", now)).toBe("3 d");
+    expect(runningFor("2026-10-28T14:30:30Z", now, translate)).toBe("just now");
+    expect(runningFor("2026-10-28T12:00:00Z", now, translate)).toBe("2 h");
+    expect(runningFor("2026-10-25T14:31:00Z", now, translate)).toBe("3 d");
   });
 });

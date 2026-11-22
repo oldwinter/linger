@@ -198,6 +198,41 @@ function stateHash(document: Y.Doc): string {
 }
 
 describe("Room Document offline save recovery", () => {
+  it("treats browser offline as a hint that does not reset transport sync", () => {
+    const document = new Y.Doc({ gc: true });
+    document.getText("content").insert(0, "durable");
+    const tracker = createTracker(document);
+    tracker.markLocalHydrated();
+    tracker.setConnected(true);
+    tracker.markRemoteHydrated();
+    tracker.acceptDurableAck(envelope(document, 1));
+    expect(tracker.getSnapshot().status).toBe("Saved");
+
+    tracker.setBrowserOffline(true);
+    expect(tracker.getSnapshot().status).toBe("Offline");
+    tracker.setBrowserOffline(false);
+    expect(tracker.getSnapshot().status).toBe("Saved");
+
+    document.getText("content").insert(0, "new ");
+    tracker.setUnsyncedChanges(0);
+    tracker.setBrowserOffline(true);
+    expect(tracker.getSnapshot().status).toBe("Offline pending");
+    tracker.setBrowserOffline(false);
+    expect(tracker.getSnapshot().status).toBe("Local pending");
+    tracker.acceptDurableAck(envelope(document, 2));
+    expect(tracker.getSnapshot().status).toBe("Saved");
+
+    // An ACK that predates the latest edit must not clear it.
+    const staleAck = envelope(document, 3);
+    document.getText("content").insert(0, "newer ");
+    tracker.setUnsyncedChanges(0);
+    tracker.setBrowserOffline(true);
+    tracker.setBrowserOffline(false);
+    tracker.acceptDurableAck(staleAck);
+    expect(tracker.getSnapshot().status).toBe("Local pending");
+    expect(tracker.hasUnsavedLocalChanges()).toBe(true);
+  });
+
   it("does not mark a restored offline deletion saved before the server persists it", () => {
     const server = new Y.Doc();
     server.getText("content").insert(0, "keep delete");

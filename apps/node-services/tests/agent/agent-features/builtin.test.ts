@@ -83,6 +83,9 @@ const fullServices = () => ({
       read: vi.fn(async () => ({ live_foreground: false, tasks: [] })),
     },
   },
+  roomReplyGuard: {
+    hasRunReplied: vi.fn(async () => true),
+  },
   agentMemory: {
     agentMemory: {
       recordRun: vi.fn(async () => undefined),
@@ -184,6 +187,7 @@ describe("createBuiltinAgentFeatures", () => {
       composed.contextInstructions({
         connectedApps: true,
         connectedAppKeys: [],
+        connectableAppKeys: [],
         compactInstructions: false,
       }),
     ).not.toContain("<tool-approval-protocol>");
@@ -208,6 +212,7 @@ describe("createBuiltinAgentFeatures", () => {
           composed.contextInstructions({
             connectedApps: true,
             connectedAppKeys: [],
+            connectableAppKeys: [],
             compactInstructions: false,
           }) ?? "",
       };
@@ -292,6 +297,7 @@ describe("createBuiltinAgentFeatures", () => {
       composed.contextInstructions({
         connectedApps: true,
         connectedAppKeys: [],
+        connectableAppKeys: [],
         compactInstructions: false,
       }),
     ).toContain("## Who you are");
@@ -299,6 +305,7 @@ describe("createBuiltinAgentFeatures", () => {
       composed.contextInstructions({
         connectedApps: true,
         connectedAppKeys: [],
+        connectableAppKeys: [],
         compactInstructions: false,
       }),
     ).toContain("teamhub message emoji <message-id> <emoji>");
@@ -415,7 +422,6 @@ describe("createBuiltinAgentFeatures", () => {
   it("propagates the shared Memory services' late start() binding loudly", async () => {
     const services = createAgentMemoryServices({
       memory: { read: vi.fn(), commit: vi.fn() },
-      contextHost: { ensureAgentRoots: vi.fn() },
       runtimeState: {} as never,
       logger: logger(),
     });

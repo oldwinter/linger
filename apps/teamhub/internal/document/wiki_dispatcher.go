@@ -116,6 +116,19 @@ var ErrWikiCandidateComputerOffline = errors.New("Wiki owner's Computer is offli
 // without spending an attempt.
 var ErrWikiCandidateServiceStopping = errors.New("LLM Wiki is stopping")
 
+// ErrWikiCandidateRuntimeIncompatible means the Wiki owner's Local Computer
+// Runtime rejected model invocation as incompatible. Retrying the same refresh
+// cannot fix it, while a later refresh can retry once the Runtime is updated.
+var ErrWikiCandidateRuntimeIncompatible = errors.New("Wiki owner's Local Computer Runtime is incompatible")
+
+// ErrWikiCandidateRuntimeAuthRequired means the Wiki owner's Local Computer
+// Runtime requires sign-in before running model calls.
+var ErrWikiCandidateRuntimeAuthRequired = errors.New("Wiki owner's Local Computer Runtime requires sign-in")
+
+// ErrWikiCandidateRuntimeUnavailable means the Wiki owner's Local Computer
+// Runtime is not currently ready to run model calls.
+var ErrWikiCandidateRuntimeUnavailable = errors.New("Wiki owner's Local Computer Runtime is unavailable")
+
 // ErrWikiCandidateInvalidRequest marks frozen input that cannot be normalized,
 // a request or result that fails TeamHub's own candidate checks, or page heads
 // that cannot be reconciled without a new source delta. The same source set
@@ -234,8 +247,19 @@ func validateWikiCandidateGenerationResult(
 		if errors.Is(err, ErrWikiCandidateInvalidRequest) || errors.Is(err, ErrInvalidInput) {
 			return nil, "", "candidate_invalid", err
 		}
-		if errors.Is(err, ErrWikiCandidateTerminal) || errors.Is(err, ErrWikiCandidateComputerOffline) ||
-			errors.Is(err, ErrWikiCandidateServiceStopping) {
+		if errors.Is(err, ErrWikiCandidateComputerOffline) {
+			return nil, "", "computer_offline", err
+		}
+		if errors.Is(err, ErrWikiCandidateRuntimeIncompatible) {
+			return nil, "", "runtime_incompatible", err
+		}
+		if errors.Is(err, ErrWikiCandidateRuntimeAuthRequired) {
+			return nil, "", "runtime_auth_required", err
+		}
+		if errors.Is(err, ErrWikiCandidateRuntimeUnavailable) {
+			return nil, "", "runtime_unavailable", err
+		}
+		if errors.Is(err, ErrWikiCandidateTerminal) || errors.Is(err, ErrWikiCandidateServiceStopping) {
 			return nil, "", "candidate_unavailable", err
 		}
 		return nil, "", "candidate_unavailable", errors.Join(ErrRuntimeUnavailable, err)
@@ -603,5 +627,7 @@ func (d *WikiRefreshDispatcher) readExactObject(
 
 // isWikiCandidateTerminal reports rejections that retrying cannot fix.
 func isWikiCandidateTerminal(err error) bool {
-	return errors.Is(err, ErrWikiCandidateTerminal) || errors.Is(err, ErrWikiCandidateInvalidRequest) || errors.Is(err, ErrInvalidInput)
+	return errors.Is(err, ErrWikiCandidateTerminal) || errors.Is(err, ErrWikiCandidateInvalidRequest) ||
+		errors.Is(err, ErrWikiCandidateRuntimeIncompatible) || errors.Is(err, ErrWikiCandidateRuntimeAuthRequired) ||
+		errors.Is(err, ErrInvalidInput)
 }

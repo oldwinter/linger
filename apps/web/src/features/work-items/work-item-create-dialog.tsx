@@ -6,8 +6,10 @@ import { Button } from "@/components/ui/button";
 import { ModalDialog } from "@/components/ui/modal-dialog";
 import { Select, SelectItem } from "@/components/ui/select";
 import { idempotencyHeader, teamHubData } from "@/features/teamhub/teamhub-api";
-import { classifyTeamHubCommandFailure } from "@/features/teamhub/teamhub-command-outcome";
-import { createTeamHubIdempotencyKey } from "@/features/teamhub/teamhub-client";
+import {
+  createTeamHubIdempotencyKey,
+  TeamHubError,
+} from "@/features/teamhub/teamhub-client";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type {
   TeamHubRoomListItem,
@@ -127,12 +129,10 @@ export function WorkItemCreateDialog({
     description !== (initial?.description ?? "") ||
     priority !== (initial?.priority ?? "medium") ||
     originRoomId !== (initial?.originRoomId ?? "");
-  const failure = createIssue.error
-    ? classifyTeamHubCommandFailure(
-        createIssue.error,
-        "the issue was created",
-        "Retrying sends the same request.",
-      )
+  const failureMessage = createIssue.error
+    ? createIssue.error instanceof TeamHubError
+      ? createIssue.error.message
+      : "TeamHub did not confirm whether the issue was created. Retrying sends the same request."
     : null;
   const originRooms = rooms
     // A Thread is a reply surface, except when it is the origin already given.
@@ -286,9 +286,9 @@ export function WorkItemCreateDialog({
           </Select>
         </label>
 
-        {failure ? (
+        {failureMessage ? (
           <p className="mt-3 text-sm text-app-danger" role="alert">
-            {failure.message}
+            {failureMessage}
           </p>
         ) : null}
         {closeBlocked && createIssue.isPending ? (

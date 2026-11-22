@@ -1,0 +1,303 @@
+import { spawn, spawnSync } from "node:child_process";
+import { access, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { dirname, isAbsolute, join } from "node:path";
+import { createInterface } from "node:readline";
+import { setTimeout as delay } from "node:timers/promises";
+import { pathToFileURL } from "node:url";
+
+export function probePi(executable, args, options, timeoutMs = 30_000) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(executable, args, { ...options, windowsHide: true });
+    const output = createInterface({ input: child.stdout });
+    const pending = new Set(["get_state", "get_commands"]);
+    let stderr = "";
+    let finished = false;
+    const timer = setTimeout(() => finish("RPC deadline exceeded"), timeoutMs);
+    function finish(reason) {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      output.close();
+      child.kill();
+      if (reason) {
+        const diagnostic = stderr.trim().slice(-1500).replaceAll("\x1b", "");
+        reject(
+          new Error(
+            `Pi smoke: ${reason}${diagnostic ? `\n${diagnostic}` : ""}`,
+          ),
+        );
+      } else {
+        resolve();
+      }
+    }
+    child.stderr.setEncoding("utf8").on("data", (chunk) => {
+      stderr = (stderr + chunk).slice(-1500);
+    });
+    child.on("error", (error) =>
+      finish(`process error: ${error.code ?? error.name}`),
+    );
+    child.on("close", (code) =>
+      finish(`process closed before handshake (exit ${code})`),
+    );
+    child.stdin.on("error", (error) => {
+      if (error.code !== "EPIPE") finish("RPC stdin failed");
+    });
+    output.on("line", (line) => {
+      let reply;
+      try {
+        reply = JSON.parse(line);
+      } catch {
+        return;
+      }
+      if (reply?.type === "extension_error")
+        return finish("extension initialization failed");
+      if (reply?.type !== "response" || !pending.has(reply.id)) return;
+      if (reply.command !== reply.id || reply.success !== true)
+        return finish("RPC command failed");
+      if (
+        reply.id === "get_commands" &&
+        !reply.data?.commands?.some(
+          (command) => command.name === "mcp" && command.source === "extension",
+        )
+      )
+        return finish("the managed MCP command was not registered");
+      pending.delete(reply.id);
+      if (!pending.size) finish();
+    });
+    for (const type of pending)
+      child.stdin.write(`${JSON.stringify({ id: type, type })}\n`);
+  });
+}
+
+async function main() {
+  const home = process.env.LINGER_HOME;
+  if (
+    process.platform !== "win32" ||
+    process.arch !== "x64" ||
+    !home ||
+    !isAbsolute(home)
+  )
+    throw new Error(
+      "Expected a Windows x64 package and an absolute smoke home",
+    );
+  const resources = join(dirname(process.execPath), "resources");
+  const node = join(resources, "runtime", "bin", "node.exe");
+  const installer = join(resources, "app", "dist", "installer", "installer.js");
+  const extension = join(
+    resources,
+    "cli",
+    "computer-tools",
+    "extensions",
+    "pi-mcp.mjs",
+  );
+  await access(node);
+  await access(installer);
+  await access(extension);
+  await mkdir(home);
+  const source = join(home, "unused-source");
+  await mkdir(source);
+  const managerEnv = { ...process.env };
+  delete managerEnv.ELECTRON_RUN_AS_NODE;
+  delete managerEnv.NODE_PATH;
+  delete managerEnv.NODE_OPTIONS;
+  const started = performance.now();
+  const manager = spawn(
+    node,
+    [
+      installer,
+      "--home",
+      home,
+      "--source-repo",
+      source,
+      "--instance",
+      "desktop",
+      "--external-computer",
+      "--no-open",
+      "--port",
+      "0",
+    ],
+    { cwd: home, env: managerEnv, windowsHide: true, stdio: "ignore" },
+  );
+  let managerError;
+  manager.on("error", (error) => {
+    managerError = error.code ?? error.name;
+  });
+  function checkManager() {
+    if (managerError || manager.exitCode !== null)
+      throw new Error(
+        `Packaged installer exited (${managerError ?? manager.exitCode})`,
+      );
+  }
+  try {
+    const launcher = join(home, "installer", "launch.html");
+    const startup = AbortSignal.timeout(45_000);
+    let session;
+    while (!session) {
+      checkManager();
+      const html = await readFile(launcher, "utf8").catch((error) => {
+        if (error.code !== "ENOENT") throw error;
+        return "";
+      });
+      session =
+        /href="(http:\/\/127\.0\.0\.1:\d{1,5})\/#token=([A-Za-z0-9_-]{43})"/.exec(
+          html,
+        );
+      if (!session) await delay(500, undefined, { signal: startup });
+    }
+    const [, origin, token] = session;
+    let cookie;
+    async function request(route, signal, body) {
+      checkManager();
+      const response = await fetch(origin + route, {
+        ...(body && { method: "POST", body: JSON.stringify(body) }),
+        headers: {
+          origin,
+          "content-type": "application/json",
+          ...(cookie && { cookie }),
+        },
+        signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
+        redirect: "error",
+      });
+      if (!response.ok)
+        throw new Error(
+          `Installer API returned ${response.status} at ${route}`,
+        );
+      if (route === "/api/session")
+        cookie = response.headers.getSetCookie()[0]?.split(";")[0];
+      return response.json();
+    }
+    await request("/api/session", startup, { token });
+    if (!cookie)
+      throw new Error("The packaged installer did not establish a session");
+    const preparation = AbortSignal.timeout(780_000);
+    let job = await request("/api/jobs", preparation, {
+      instance: "desktop",
+      preparation: "pi",
+    });
+    if (!/^[a-f0-9-]{36}$/.test(job.id))
+      throw new Error("Installer returned an invalid job ID");
+    const jobRoute = `/api/jobs/${job.id}`;
+    let lastStatus = "";
+    const logProgress = (current) => {
+      const key = `${current.state}:${current.stage ?? ""}:${current.message ?? ""}`;
+      if (key === lastStatus) return;
+      lastStatus = key;
+      console.log(
+        JSON.stringify({
+          phase: "pi_preparation_progress",
+          job_id: current.id,
+          state: current.state,
+          ...(current.stage ? { stage: current.stage } : {}),
+          ...(current.message ? { message: current.message } : {}),
+          elapsed_ms: Math.round(performance.now() - started),
+        }),
+      );
+    };
+    logProgress(job);
+    try {
+      while (job.state === "queued" || job.state === "running") {
+        await delay(1000, undefined, { signal: preparation });
+        job = await request(jobRoute, preparation);
+        logProgress(job);
+      }
+    } catch (error) {
+      if (preparation.aborted) {
+        console.log(
+          JSON.stringify({
+            phase: "pi_preparation_timeout",
+            job_id: job.id,
+            state: job.state,
+            ...(job.stage ? { stage: job.stage } : {}),
+            ...(job.message ? { message: job.message } : {}),
+            elapsed_ms: Math.round(performance.now() - started),
+          }),
+        );
+      }
+      throw error;
+    }
+    console.log(
+      JSON.stringify({
+        phase: "pi_preparation",
+        job_id: job.id,
+        state: job.state,
+        code: job.errorCode,
+        ...(job.message ? { message: job.message } : {}),
+        elapsed_ms: Math.round(performance.now() - started),
+      }),
+    );
+    if (job.state !== "succeeded")
+      throw new Error("Packaged Pi preparation did not succeed");
+
+    const root = join(home, "runtime", "harness", "tools", "pi");
+    const candidates = [];
+    for (const entry of await readdir(root, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const candidate = join(root, entry.name, "pi.exe");
+      if (
+        await access(candidate).then(
+          () => true,
+          () => false,
+        )
+      )
+        candidates.push(candidate);
+    }
+    if (candidates.length !== 1)
+      throw new Error("Expected exactly one freshly installed Pi executable");
+    const config = join(home, "mcp.json");
+    await writeFile(config, '{"mcpServers":{}}', { flag: "wx", mode: 0o600 });
+    const env = {
+      ...process.env,
+      PI_CODING_AGENT_DIR: join(home, "pi-profile"),
+      LINGER_PI_MANAGED_MCP_CONFIG: config,
+    };
+    delete env.ELECTRON_RUN_AS_NODE;
+    delete env.NODE_PATH;
+    delete env.NODE_OPTIONS;
+    const probeStart = performance.now();
+    // Resource flags match PiRPCResourceArgs in
+    // apps/computer/local-daemon/internal/provider/native/pi_catalog.go.
+    await probePi(
+      candidates[0],
+      [
+        "--mode",
+        "rpc",
+        "--no-session",
+        "--no-extensions",
+        "--no-mcp",
+        "--no-skills",
+        "--no-prompt-templates",
+        "--no-context-files",
+        "--no-approve",
+        "--system-prompt",
+        "",
+        "--extension",
+        extension,
+      ],
+      { cwd: home, env },
+    );
+    console.log(
+      JSON.stringify({
+        phase: "pi_mcp_rpc",
+        result: "passed",
+        elapsed_ms: Math.round(performance.now() - probeStart),
+      }),
+    );
+  } finally {
+    if (manager.pid && manager.exitCode === null)
+      spawnSync("taskkill.exe", ["/PID", String(manager.pid), "/T", "/F"], {
+        stdio: "ignore",
+        timeout: 5000,
+        windowsHide: true,
+      });
+  }
+}
+
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
+  main().catch((error) => {
+    console.error(error.message);
+    process.exitCode = 1;
+  });
+}

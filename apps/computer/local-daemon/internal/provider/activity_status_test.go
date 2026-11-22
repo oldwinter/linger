@@ -27,6 +27,8 @@ func TestShellScriptsAreNamedByTheirSteps(t *testing.T) {
 		{`teamhub agent create --name "GTA6 Story Extractor" --description "Official facts; no leaks." --prompt "You research"`, "tool", []string{"Creating GTA6 Story Extractor"}},
 		{"teamhub agent create --help", "tool", []string{"Checking TeamHub commands"}},
 		{"teamhub docs get doc_123 --json", "read", []string{"Reading a document"}},
+		{"teamhub web search 'rust 2026 edition' --limit 5", "search", []string{"Searching the web"}},
+		{"teamhub web open https://example.com/a --output a.md", "read", []string{"Reading a page"}},
 		{"teamhub docs update doc_123 --file notes.md", "file_change", []string{"Editing a document"}},
 		{"teamhub task create --title 'Check fares'", "delegation", []string{"Assigning a task"}},
 		{"teamhub gmail send --to a@example.com", "tool", []string{"Posting in Gmail"}},

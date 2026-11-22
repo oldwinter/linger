@@ -199,6 +199,7 @@ describe("collectDiagnostics", () => {
       homes: [home, home],
       output,
       summary: { version: "0.16.27" },
+      userHome: path.join(root, "another-user"),
       now: new Date("2026-11-06T07:08:09Z"),
     });
 
@@ -313,7 +314,6 @@ describe("collectDiagnostics", () => {
           state: () => "ready",
           connection: () => "online",
           running: () => 2,
-          connectionError: () => undefined,
           failure: () => undefined,
         }),
         Object.assign(stubModule("Status"), {

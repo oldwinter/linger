@@ -12,6 +12,12 @@ output schema and write validation use the same scope. The file system still pro
 `timeline/weekly/`; the current version in PostgreSQL is the query authority. Period reports are read through the
 Memory browsing entry and do not enter OpenWiki's native graph.
 
+When reading existing Markdown, metadata parsing first tries the recorded YAML
+and then the repair for unquoted colon-bearing values. If neither parses, the
+reader uses the body heading and summary with empty metadata. A damaged report
+therefore remains readable without blocking other reports in the Memory browser;
+the reader does not rewrite the file. Publication validation remains strict.
+
 ## Search
 
 Memory keeps one index, `memory_index.sources` and `chunks`: Room Sessions, recordings, My pages, imported
@@ -79,6 +85,10 @@ validator owns these checks and loads no graph schema. If any file fails, nothin
 Daily and Weekly models return one JSON object of report fields (title,
 description, `source_refs`, one array per section, Weekly `work_intensity`)
 under a strict JSON schema; they never write Markdown, paths or headings. The
+field text is in the main language the represented Human uses: Daily reads it
+from that day's conversations and Pocket Note, and Weekly from the week's
+Daily items. Neither takes it from the prompt, an earlier report or another
+participant, so a Chinese-speaking Human gets Chinese reports. The
 application renders the whole file: YAML frontmatter, the fixed English H2
 headings (`DAILY_REPORT_SECTIONS` / `WEEKLY_REPORT_SECTIONS` in
 `@linger/knowledge-format/sections`), one bullet per item, `None observed.`
@@ -155,14 +165,16 @@ Core configuration:
 - Business dates use the process's local time zone (`TZ`): the collection window, Session dates, meeting
   directories, Pocket Note reads and calendar scheduling all use it, and there is no separate time zone variable.
   Compose containers default to UTC; set `TZ` in `.env` when needed.
+  Explicit dates must name an actual calendar day in `YYYY-MM-DD` form. Invalid `--date` and
+  `--week-start` values are rejected before collection instead of being normalized to another day.
 - These features are always on, with no switch: the in-process scheduled sync (hourly Wiki, daily Daily and weekly
   Weekly), the targeted refresh after a Room is quiet for 10 minutes, the separate Session refresh of formal
   recording transcripts, Session fact extraction and fact recall, the nightly tracking-item pass, and the nightly
   revision of a person's reminder guidelines from the day's proactive reminder feedback. Session facts need
   `TEAMHUB_DATABASE_URL`.
-- Built-in constants (no longer environment variables): hourly tasks run each AnotherMe in parallel (a deployment
-  has one account, usually one AnotherMe); one `weekly` handles at most 4 Subjects at once, and each person's Room
-  Sessions also run 4 at a time; `weekly` always runs on Monday; Memory model requests share a 10-minute business
+- Built-in constants (no longer environment variables): calendar tasks and their retries run at most 4 AnotherMes
+  at once (a deployment has one account, usually one AnotherMe), and each person's Room Sessions also run 4 at a
+  time; `weekly` always runs on Monday; Memory model requests share a 10-minute business
   cancellation, response header and body read timeout, with no streaming; the Chunk reconciliation runs hourly,
   with at most 4 Sources indexed at once per Agent.
 - `TEAMHUB_DATABASE_URL` is required: the Memory role keeps its scheduler state in that database
@@ -181,8 +193,8 @@ Core configuration:
   windows of at most 3,000 characters, extracted with `apps/node-services/prompts/memory/facts/fact-extraction.md`
   (the Hindsight concise prompt) at low reasoning effort. Up to 16 windows form one batch, and each batch runs as one
   ModelCall chain of kind `memory`, keyed `memory.facts:<sha256 of the batch's sorted window hashes>` so a restart
-  asks the same key. The chain is queued once and holds its place in the queue; its calls run one at a time, each
-  corrected within the `memory` kind's attempts. An answer still invalid after them is split into two halves, and windows whose facts drift into another
+  asks the same key. Its calls run in order. Each model attempt queues separately, so chat can start before the next
+  step, retry or correction. An answer still invalid after them is split into two halves, and windows whose facts drift into another
   language are extracted once more; both are steps of the same chain (`first`, `split-<n>`, `<step>-drift`). Each
   sync keeps at most two batches on the queue at once. Backfill write transactions are short and share Memory's connection pool
   with recall. Windows are recorded by content hash in `memory_index.session_fact_windows`, so only new or changed
@@ -617,7 +629,8 @@ same subject's Daily → Wiki → Graph for that date runs again, and the recove
 chain succeeds, without updating other subjects. Per-person lanes hold only within one process and are no
 distributed multi-process lock; each data root still needs exactly one Scheduler process.
 
-The calendar tasks run each AnotherMe isolated and in parallel:
+The calendar tasks run each AnotherMe isolated and in parallel, at most 4 at once. A slot is taken only when the
+subject's lane is free, so a subject still busy with its own earlier work does not hold one:
 
 - Hourly `wiki`: lists every authorized AnotherMe (a deployment usually has one) and runs each in isolation. The chain is Session Raw staging → indexing that Raw.
   Only the 00:00 run that closes the previous day, and a meeting's recording, then ask TeamHub for a Wiki

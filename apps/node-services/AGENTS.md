@@ -19,11 +19,15 @@
   lifecycle, so other roles remain available and replacements can mount.
 - The `document` role keeps its own port (4321 by default) on its own worker
   thread (`src/document/main.ts`) because it installs jsdom globals and
-  replaces the global `Request`/`Response`. The `voice` role supervises separate ASR, recorder and Live child processes (ports 4324–4326); it does not run audio jobs on the main thread. Voice workers follow TeamHub's effective provider keys (`GET /internal/v1/voice/provider-keys` with the `voice-runtime` credential): a Soniox key runs ASR and recorder, an xAI key runs Live. The role reconciles at startup, on TeamHub's `POST /v1/voice/workers:reconcile` (`node-services-internal` bearer), and every 60 seconds, so workers start, drain, or restart with a new key without restarting node-services. The reconcile route answers `{ready}` only after every wanted worker's health port reports it registered with LiveKit, or after 20 seconds, so TeamHub answers a key save once a voice session can be dispatched. Keys reach a worker only through its environment; a failed key fetch leaves the running workers unchanged. Other roles run on the main thread
+  replaces the global `Request`/`Response`. The `voice` role supervises separate ASR, recorder and Live child processes, each on a health port the system offers when it starts (`VOICE_WORKER_PORT`); it does not run audio jobs on the main thread. Voice workers follow TeamHub's effective provider keys (`GET /internal/v1/voice/provider-keys` with the `voice-runtime` credential): a Soniox key runs ASR and recorder, an xAI key runs Live. The role reconciles at startup, on TeamHub's `POST /v1/voice/workers:reconcile` (`node-services-internal` bearer), and every 60 seconds, so workers start, drain, or restart with a new key without restarting node-services. The reconcile route answers `{ready}` only after every wanted worker's health port reports it registered with LiveKit, or after 20 seconds, so TeamHub answers a key save once a voice session can be dispatched. Keys reach a worker only through its environment; a failed key fetch leaves the running workers unchanged. Other roles run on the main thread
   and must not install process globals.
 - `NODE_SERVICES_ROLES` selects roles as a comma-separated list. An unset or
   empty value starts every role; an unknown role fails startup. Selected roles
-  always start in the order `memory`, `llm-wiki`, `agent`, `voice`, `document`. Shutdown starts media draining immediately while other roles stop in reverse. The shared listener starts only when an HTTP role is selected.
+  always start in the order `memory`, `llm-wiki`, `agent`, `voice`, `document`. Shutdown starts media draining immediately while other roles stop in reverse.
+  Background work that uses a later role's seam starts from the role's
+  `started()`, which the host calls once every selected role has started, and
+  stops from `stopping()`, called before the first role stops: Memory's
+  scheduler runs only while the agent role's model call can be there. The shared listener starts only when an HTTP role is selected.
 - `src/main.ts` is the only process entrypoint. It owns SIGINT/SIGTERM through
   `src/process-lifecycle.ts`: the first signal aborts startup or starts
   ordered shutdown under the fixed 95-second `SHUTDOWN_TIMEOUT_MS`, later
@@ -38,6 +42,13 @@
   start functions. The memory role returns its flashback (`src/flashback.ts`),
   and the host passes it to the agent role only when both run in the same
   process; the Agent calls it directly, not over HTTP.
+
+## Text document conversion
+
+Imported code, JSON, XML and YAML remain literal code-block content in the
+normalized Markdown. Embedded backtick runs must not close the surrounding
+fence, and filename-derived language metadata must not introduce backticks or
+line breaks into its opening line.
 
 ## Configuration and Paths
 
@@ -67,6 +78,12 @@
   plain text. Shared guards and hashing (`isRecord`, `isNodeError`, `sleep`,
   `sha256Hex`) come from `@linger/service-kit`; do not redefine them.
 
+## Document normalization
+
+MIME document normalization prefers extractable HTML, then the recorded
+plain-text alternative when HTML has no extractable body. Headers alone do
+not make an empty message indexable.
+
 ## Structure
 
 - `tests/<role>/` mirrors `src/<role>/`; host-level tests such as
@@ -81,6 +98,16 @@
 - `scripts/generate-feature-catalog.ts` generates
   `src/agent/agent-features/catalog.generated.ts`; `typecheck` verifies it.
 
+## JSON document conversion
+
+JSON imports validate and pretty-print the source while retaining each numeric
+literal. The converter uses Node's source-aware JSON reviver and raw JSON values
+so large identifiers, precise decimals and extreme exponents are not rounded or
+replaced with `null`. JSON conversion uses the normalizer's queued worker so
+per-value revival does not block the shared Node Services event loop, and it
+obeys the worker's cancellation, memory and timeout limits. UTF-8 validation
+is unchanged. Invalid JSON remains `DOCUMENT_SOURCE_INVALID`.
+
 ## Commands
 
 - `pnpm --filter @linger/node-services check`: typecheck and lint
@@ -94,6 +121,19 @@
 - `pnpm --filter @linger/node-services dev`: watch every role during
   focused work; `NODE_SERVICES_ROLES=agent` (or another role) narrows it.
 - Memory CLIs: `pnpm --filter @linger/node-services memory:<command>`.
+
+## Large text documents
+
+CSV and TSV normalization accepts large row counts within the existing source
+and Markdown byte limits. An output that exceeds its configured byte budget
+fails with `DOCUMENT_MARKDOWN_TOO_LARGE`, independently of the number of rows.
+
+## Imported table cells
+
+CSV, TSV and XLSX values are table data. Both table converters use the shared
+cell escaping function so backslashes and inline Markdown delimiters remain
+visible text after document materialization. CR, LF and CRLF inside a
+cell become spaces instead of introducing new Markdown rows.
 
 ## Image
 

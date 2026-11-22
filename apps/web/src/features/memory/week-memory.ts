@@ -23,12 +23,18 @@ export function weekDays(today: string) {
   });
 }
 
+export interface WeekMemoryLine {
+  date: string;
+  text: string;
+}
+
 export function describeWeek(days: readonly WeekMemoryDay[]) {
   const meetings = days.reduce((sum, day) => sum + day.meetings, 0);
   const dailyDays = days.filter((day) => day.daily).length;
   const noteDays = days.filter((day) => day.note).length;
   if (meetings === 0 && dailyDays === 0 && noteDays === 0) {
     return {
+      entries: [] as WeekMemoryLine[],
       lines: [] as string[],
       summary: "This week is still open. No meetings, dailies, or notes yet.",
     };
@@ -66,7 +72,7 @@ export function describeWeek(days: readonly WeekMemoryDay[]) {
         ? "You kept a note on 1 day."
         : `You kept a note on ${noteDays} days.`,
   );
-  const lines = days
+  const entries: WeekMemoryLine[] = days
     .filter((day) => day.meetings > 0 || day.daily || day.note)
     .map((day) => {
       const parts = [formatMeetingDay(day.date)];
@@ -77,7 +83,11 @@ export function describeWeek(days: readonly WeekMemoryDay[]) {
       }
       if (day.daily) parts.push("a daily");
       if (day.note) parts.push("a note");
-      return parts.join(" · ");
+      return { date: day.date, text: parts.join(" · ") };
     });
-  return { lines, summary: sentences.join(" ") };
+  return {
+    entries,
+    lines: entries.map((entry) => entry.text),
+    summary: sentences.join(" "),
+  };
 }

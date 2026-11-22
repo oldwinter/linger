@@ -818,6 +818,19 @@ type ExternalMailImportDocument struct {
 	ConnectionID string `json:"connection_id"`
 }
 
+type GmailCanvasDraft struct {
+	ConnectionID string `json:"connection_id"`
+	DraftID      string `json:"draft_id"`
+	DocumentID   string `json:"document_id"`
+	SourceDigest string `json:"source_digest"`
+}
+
+type GmailCanvasDraftLease struct {
+	ConnectionID string             `json:"connection_id"`
+	Holder       string             `json:"holder"`
+	ExpiresAt    pgtype.Timestamptz `json:"expires_at"`
+}
+
 type LocalComputer struct {
 	ComputerID            string             `json:"computer_id"`
 	DisplayName           string             `json:"display_name"`
@@ -864,6 +877,19 @@ type LocalComputerModelSnapshot struct {
 	Host       []byte             `json:"host"`
 	ObservedAt pgtype.Timestamptz `json:"observed_at"`
 	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+}
+
+type MailCanvasDelivery struct {
+	DocumentID   string             `json:"document_id"`
+	ID           string             `json:"id"`
+	AccountID    string             `json:"account_id"`
+	ConnectionID pgtype.Text        `json:"connection_id"`
+	SourceDigest string             `json:"source_digest"`
+	Status       string             `json:"status"`
+	DraftID      string             `json:"draft_id"`
+	MessageID    string             `json:"message_id"`
+	ErrorMessage string             `json:"error_message"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
 }
 
 type MemoryIndexChunk struct {
@@ -1548,7 +1574,6 @@ type RoomReminder struct {
 	Timezone             string             `json:"timezone"`
 	Hour                 pgtype.Int4        `json:"hour"`
 	Minute               pgtype.Int4        `json:"minute"`
-	IntervalHours        pgtype.Int4        `json:"interval_hours"`
 	Enabled              bool               `json:"enabled"`
 	NextRunAt            pgtype.Timestamptz `json:"next_run_at"`
 	Revision             int64              `json:"revision"`
@@ -1562,6 +1587,7 @@ type RoomReminder struct {
 	RunAt                pgtype.Timestamptz `json:"run_at"`
 	TrackingItemID       pgtype.Text        `json:"tracking_item_id"`
 	TrackingPurpose      pgtype.Text        `json:"tracking_purpose"`
+	IntervalMinutes      pgtype.Int4        `json:"interval_minutes"`
 }
 
 type RoomRoutineListener struct {
@@ -1941,6 +1967,23 @@ type VoiceTranscriptUncertainty struct {
 	EndOffsetMs      int64              `json:"end_offset_ms"`
 	Reason           string             `json:"reason"`
 	RecoveredAt      pgtype.Timestamptz `json:"recovered_at"`
+}
+
+type WebSearchKey struct {
+	Backend          string             `json:"backend"`
+	ApiKeyCiphertext []byte             `json:"api_key_ciphertext"`
+	State            string             `json:"state"`
+	QuotaRemaining   pgtype.Float8      `json:"quota_remaining"`
+	QuotaLimit       pgtype.Float8      `json:"quota_limit"`
+	QuotaResetsAt    pgtype.Timestamptz `json:"quota_resets_at"`
+	QuotaObservedAt  pgtype.Timestamptz `json:"quota_observed_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+}
+
+type WebSearchSetting struct {
+	Singleton      bool               `json:"singleton"`
+	DefaultBackend pgtype.Text        `json:"default_backend"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
 type WikiCurrentSource struct {

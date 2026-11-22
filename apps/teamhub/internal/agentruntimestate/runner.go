@@ -249,70 +249,145 @@ func (s *Service) RemoveLocalComputer(ctx context.Context, input LocalComputerCr
 		if assignedAgents > 0 {
 			return "has_agents", nil, nil
 		}
-		if err := queries.PurgeAgentRuntimeLocalComputerEnrollmentsByComputer(ctx, input.ComputerID); err != nil {
-			return "", nil, err
-		}
-		if err := queries.DeleteLocalComputerModelSnapshot(ctx, input.ComputerID); err != nil {
-			return "", nil, err
-		}
-		if _, err := queries.RemoveAgentRuntimeLocalComputer(ctx, input.ComputerID); err != nil {
+		if err := purgeAndRemoveLocalComputer(ctx, queries, input.ComputerID); err != nil {
 			return "", nil, err
 		}
 		return "removed", &input.Owner, nil
 	})
 }
 
-func (s *Service) CreateLocalComputerEnrollment(ctx context.Context, input CreateLocalComputerEnrollmentInput) error {
+// CreateLocalComputerEnrollment records a pending PKCE enrollment and returns
+// the resolved Computer ID. When DaemonID matches a live Computer owned by the
+// same owner, that Computer is renewed so existing Agent placements stay intact;
+// claiming another owner's bound DaemonID returns ErrDaemonIdentityInUse. A
+// renewal that moves from another Computer of the owner that never bound a
+// Daemon Identity and has no Agents removes that orphan in the same
+// transaction.
+func (s *Service) CreateLocalComputerEnrollment(ctx context.Context, input CreateLocalComputerEnrollmentInput) (string, error) {
 	if !validText(input.EnrollmentID, 8, 128) || !validComputerID(input.ComputerID) ||
+		(input.DaemonID != "" && !daemonIDPattern.MatchString(input.DaemonID)) ||
 		!validDisplayName(input.DisplayName) || !validOwner(input.Owner) || !validText(input.RedirectURI, 1, 2000) ||
 		!validText(input.CodeChallenge, 43, 128) || len(input.AuthorizationCodeHash) != sha256.Size || input.ExpiresAt.IsZero() {
-		return ErrInvalid
+		return "", ErrInvalid
 	}
-	_, err := executeLocalComputerTx(ctx, s, func(ctx context.Context, _ pgx.Tx, queries *store.Queries) (bool, *LocalComputerOwner, error) {
+	return executeLocalComputerTx(ctx, s, func(ctx context.Context, _ pgx.Tx, queries *store.Queries) (string, *LocalComputerOwner, error) {
 		now, err := queries.AgentRuntimeDatabaseNow(ctx)
 		if err != nil {
-			return false, nil, err
+			return "", nil, err
 		}
 		if !now.Valid || !input.ExpiresAt.After(now.Time) {
-			return false, nil, ErrInvalid
+			return "", nil, ErrInvalid
 		}
 		if err := requireOwnerActor(ctx, queries, input.Owner); err != nil {
-			return false, nil, err
+			return "", nil, err
 		}
-		computer, lockComputerErr := queries.LockAgentRuntimeLocalComputer(ctx, input.ComputerID)
-		if input.RenewsExistingComputer {
+		computerID := input.ComputerID
+		renews := input.RenewsExistingComputer
+		var changed *LocalComputerOwner
+		if input.DaemonID != "" {
+			bound, boundErr := queries.LockAgentRuntimeLocalComputerByDaemonID(ctx, input.DaemonID)
+			if boundErr != nil && !isNoRows(boundErr) {
+				return "", nil, boundErr
+			}
+			if boundErr == nil {
+				if bound.OwnerTenantID != input.Owner.TenantID || bound.OwnerActorID != input.Owner.OwnerActorID {
+					return "", nil, ErrDaemonIdentityInUse
+				}
+				// Renew the owner's Computer already bound to this Daemon Identity
+				// instead of creating a duplicate Computer that would fail connect.
+				if bound.ComputerID != computerID && renews {
+					removed, err := removeOrphanLocalComputer(ctx, queries, input.Owner, computerID)
+					if err != nil {
+						return "", nil, err
+					}
+					if removed {
+						changed = &input.Owner
+					}
+				}
+				computerID = bound.ComputerID
+				renews = true
+			}
+		}
+		computer, lockComputerErr := queries.LockAgentRuntimeLocalComputer(ctx, computerID)
+		if renews {
 			if isNoRows(lockComputerErr) {
-				return false, nil, ErrNotFound
+				return "", nil, ErrNotFound
 			}
 			if lockComputerErr != nil {
-				return false, nil, lockComputerErr
+				return "", nil, lockComputerErr
 			}
 			if computer.OwnerTenantID != input.Owner.TenantID || computer.OwnerActorID != input.Owner.OwnerActorID {
-				return false, nil, ErrNotFound
+				return "", nil, ErrNotFound
 			}
 			if computer.Status == "removed" {
-				return false, nil, ErrRemoved
+				return "", nil, ErrRemoved
+			}
+			if input.DaemonID != "" && computer.DaemonID.Valid && computer.DaemonID.String != input.DaemonID {
+				return "", nil, ErrComputerDaemonMismatch
 			}
 		} else if lockComputerErr == nil || !isNoRows(lockComputerErr) {
 			if lockComputerErr != nil {
-				return false, nil, lockComputerErr
+				return "", nil, lockComputerErr
 			}
-			return false, nil, ErrConflict
+			return "", nil, ErrConflict
 		}
 		if err := queries.DeletePendingAgentRuntimeLocalComputerEnrollments(ctx, store.DeletePendingAgentRuntimeLocalComputerEnrollmentsParams{
 			TenantID: input.Owner.TenantID, OwnerActorID: input.Owner.OwnerActorID,
 		}); err != nil {
-			return false, nil, err
+			return "", nil, err
 		}
 		_, err = queries.InsertAgentRuntimeLocalComputerEnrollment(ctx, store.InsertAgentRuntimeLocalComputerEnrollmentParams{
 			EnrollmentID: input.EnrollmentID, TenantID: input.Owner.TenantID, OwnerActorID: input.Owner.OwnerActorID,
-			ComputerID: input.ComputerID, RenewsExistingComputer: input.RenewsExistingComputer,
+			ComputerID: computerID, RenewsExistingComputer: renews,
 			DisplayName: strings.TrimSpace(input.DisplayName), RedirectUri: input.RedirectURI,
 			CodeChallenge: input.CodeChallenge, AuthorizationCodeHash: append([]byte(nil), input.AuthorizationCodeHash...),
 			ExpiresAt: timestamptz(input.ExpiresAt),
 		})
-		return true, nil, err
+		if err != nil {
+			return "", nil, err
+		}
+		return computerID, changed, nil
 	})
+}
+
+// removeOrphanLocalComputer removes the owner's Computer that an earlier Set
+// Up Again paired: it never bound a Daemon Identity, because its daemon's was
+// held by another Computer, and no Agent was placed on it. It reports whether
+// the Computer was removed; any other Computer is left alone.
+func removeOrphanLocalComputer(ctx context.Context, queries *store.Queries, owner LocalComputerOwner, computerID string) (bool, error) {
+	orphan, err := queries.LockAgentRuntimeLocalComputer(ctx, computerID)
+	if isNoRows(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if orphan.Status == "removed" || orphan.DaemonID.Valid ||
+		orphan.OwnerTenantID != owner.TenantID || orphan.OwnerActorID != owner.OwnerActorID {
+		return false, nil
+	}
+	placedAgents, err := queries.CountLocalAgentRegistrationsByComputer(ctx, store.CountLocalAgentRegistrationsByComputerParams{
+		TenantID: owner.TenantID, ComputerID: computerID,
+	})
+	if err != nil || placedAgents > 0 {
+		return false, err
+	}
+	if err := purgeAndRemoveLocalComputer(ctx, queries, computerID); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// purgeAndRemoveLocalComputer drops the Computer's enrollments and model
+// snapshot and marks it removed. Callers check ownership, status and Agents.
+func purgeAndRemoveLocalComputer(ctx context.Context, queries *store.Queries, computerID string) error {
+	if err := queries.PurgeAgentRuntimeLocalComputerEnrollmentsByComputer(ctx, computerID); err != nil {
+		return err
+	}
+	if err := queries.DeleteLocalComputerModelSnapshot(ctx, computerID); err != nil {
+		return err
+	}
+	_, err := queries.RemoveAgentRuntimeLocalComputer(ctx, computerID)
 	return err
 }
 
@@ -576,7 +651,7 @@ func canonicalJSONArray(raw json.RawMessage) ([]byte, error) {
 
 // IsSupportedLocalRuntimeType excludes historical providers from active reads and admission.
 func IsSupportedLocalRuntimeType(runtimeType string) bool {
-	return slices.Contains([]string{"codex", "claude", "pi"}, runtimeType)
+	return slices.Contains([]string{"codex", "claude", "pi", "antigravity"}, runtimeType)
 }
 
 func localComputerEnrollmentFromRow(row store.LocalComputerEnrollment) (LocalComputerEnrollment, error) {

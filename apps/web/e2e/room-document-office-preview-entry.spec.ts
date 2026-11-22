@@ -29,7 +29,7 @@ test("ordinary Office entry and direct link load only preview dependencies", asy
     await page
       .getByLabel("Password", { exact: true })
       .fill("teamhub-dev-alice");
-    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    await page.getByRole("button", { name: "Log in", exact: true }).click();
     await expect(page).toHaveURL(/\/t\//);
     const content = await readFile(
       "apps/web/e2e/fixtures/office/single-100kb.docx",
@@ -149,7 +149,10 @@ test("ordinary Office entry and direct link load only preview dependencies", asy
           await cardVersion;
           clickedAt = performance.now();
           await reader
-            .getByRole("button", { name: `Open ${entryFilename}`, exact: true })
+            .getByRole("button", {
+              name: `Preview ${entryFilename}`,
+              exact: true,
+            })
             .click();
         } else {
           const pinned = await page.request.post(
@@ -177,7 +180,7 @@ test("ordinary Office entry and direct link load only preview dependencies", asy
           await reader
             .getByRole("article")
             .filter({ hasText: "Pinned Version" })
-            .getByRole("button", { name: `Open ${filename}`, exact: true })
+            .getByRole("button", { name: `Preview ${filename}`, exact: true })
             .click();
         }
         const frame = reader.frameLocator(

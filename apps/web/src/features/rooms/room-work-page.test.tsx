@@ -1,9 +1,10 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { describe, expect, it } from "vitest";
 
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
+import { teamHubErrorResponse } from "@/test/teamhub-test-server";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
 import type {
   TeamHubRunStatus,
@@ -70,14 +71,78 @@ function renderWork() {
 describe("RoomWorkPage", () => {
   it("shows the run that is still working and the step it has published", async () => {
     renderWork();
-    expect(
-      await screen.findByRole("heading", { name: "Codex is working" }),
-    ).toBeVisible();
+    const heading = await screen.findByRole("heading", {
+      level: 2,
+      name: "Codex is working",
+    });
+    expect(heading).toBeVisible();
+    expect(screen.queryByRole("main")).toBeNull();
     expect(await screen.findByText("Reading the brief")).toBeVisible();
-    expect(screen.getByRole("link", { name: "Back to chat" })).toHaveAttribute(
+    const back = screen.getByRole("link", { name: "Back to room" });
+    expect(back).toHaveAttribute(
       "href",
       "/t/tenant-northstar/rooms/room-all/chat",
     );
+    expect(
+      back.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("offers Retry when room runs or work events fail to load", async () => {
+    const runtime = createTestTeamHubRuntime();
+    let failRuns = true;
+    let failEvents = true;
+    runtime.server.on("GET", "/v0/rooms/{roomId}/run-statuses", () => {
+      if (failRuns) {
+        failRuns = false;
+        return teamHubErrorResponse(503, "RUN_STATUS_UNAVAILABLE");
+      }
+      return { items: [run()] };
+    });
+    runtime.server.on(
+      "GET",
+      "/v0/rooms/{roomId}/runs/{runId}/runtime-presentation-events",
+      () => {
+        if (failEvents) {
+          failEvents = false;
+          return teamHubErrorResponse(503, "EVENTS_UNAVAILABLE");
+        }
+        return {
+          has_more: false,
+          items: [thinking()],
+          published_through_ordinal: "1",
+        };
+      },
+    );
+    const router = createMemoryRouter(
+      [
+        {
+          element: <RoomWorkPage />,
+          path: "/t/:tenantId/rooms/:roomId/working",
+        },
+      ],
+      { initialEntries: ["/t/tenant-northstar/rooms/room-all/working"] },
+    );
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <TeamHubRuntimeProvider runtime={runtime}>
+          <RouterProvider router={router} />
+        </TeamHubRuntimeProvider>
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "This room could not be read.",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(
+      await screen.findByText("The work could not be loaded."),
+    ).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("Reading the brief")).toBeVisible();
   });
 
   it("says when the room has no run", async () => {

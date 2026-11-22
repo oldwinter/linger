@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +19,11 @@ import (
 // names a file to record its arguments and environment in.
 const fakeSessionServerKey = "PROVIDER_FAKE_CODEX_SESSION"
 
+// fakeSessionRequireModelKey makes the fake app-server fail every turn, as an
+// account that rejects Codex's built-in default does, unless it was launched
+// with a model.
+const fakeSessionRequireModelKey = "PROVIDER_FAKE_CODEX_REQUIRE_MODEL"
+
 func init() {
 	if record := os.Getenv(fakeSessionServerKey); record != "" {
 		os.Exit(fakeSessionServer(record))
@@ -25,6 +31,15 @@ func init() {
 }
 
 func fakeSessionServer(record string) int {
+	for index, arg := range os.Args[1:] {
+		if arg == "--disable" && index+2 < len(os.Args) {
+			name := os.Args[index+2]
+			if name != "plugins" && name != "goals" {
+				fmt.Fprintf(os.Stderr, "Error: Unknown feature flag: %s\n", name)
+				return 1
+			}
+		}
+	}
 	launch, _ := json.Marshal(map[string]any{"args": os.Args[1:], "codex_home": os.Getenv("CODEX_HOME"), "tmpdir": os.Getenv("TMPDIR"), "teamhub": os.Getenv("TEAMHUB_CLI_TOKEN")})
 	file, err := os.OpenFile(record, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
@@ -55,6 +70,12 @@ func fakeSessionServer(record string) int {
 		case "turn/start":
 			turns++
 			send(map[string]any{"id": message["id"], "result": map[string]any{"turn": map[string]any{"id": "turn-1"}}})
+			if os.Getenv(fakeSessionRequireModelKey) != "" && !slices.ContainsFunc(os.Args, func(arg string) bool { return strings.HasPrefix(arg, "model=") }) {
+				failure := map[string]any{"message": `{"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The 'gpt-builtin' model is not supported when using Codex with a ChatGPT account.","code":"model_not_found"}}`}
+				send(map[string]any{"method": "error", "params": map[string]any{"threadId": "thread-1", "willRetry": false, "error": failure}})
+				send(map[string]any{"method": "turn/completed", "params": map[string]any{"threadId": "thread-1", "turn": map[string]any{"id": "turn-1", "status": "failed", "error": failure}}})
+				continue
+			}
 			send(map[string]any{"method": "item/completed", "params": map[string]any{"threadId": "thread-1", "item": map[string]any{"type": "agentMessage", "text": fmt.Sprintf(`{"answer":"turn %d"}`, turns)}}})
 			send(map[string]any{"method": "thread/tokenUsage/updated", "params": map[string]any{"threadId": "thread-1", "tokenUsage": map[string]any{
 				"total": map[string]any{"inputTokens": 5000, "cachedInputTokens": 4900, "outputTokens": 30},
@@ -111,7 +132,9 @@ func TestModelInvokerAnswersSessionCallsOnOneResidentCodex(t *testing.T) {
 		t.Fatal(err)
 	}
 	args := strings.Join(launch.Args, " ")
-	if launch.Args[0] != "app-server" || !strings.Contains(args, "--disable shell_tool") || !strings.Contains(args, `--config web_search="disabled"`) {
+	if launch.Args[0] != "app-server" || !strings.Contains(args, "--config features.shell_tool=false") ||
+		!strings.Contains(args, "--config features.sleep_tool=false") || strings.Contains(args, "--disable sleep_tool") ||
+		!strings.Contains(args, `--config web_search="disabled"`) {
 		t.Fatalf("app-server args %v", launch.Args)
 	}
 	if launch.CodexHome != filepath.Join(root, "codex-home") || launch.TempDir != filepath.Join(root, "tmp") || launch.TeamHub != "" {
@@ -154,5 +177,49 @@ func TestCodexSessionsStopWithTheInvoker(t *testing.T) {
 	case <-done:
 	case <-time.After(10 * time.Second):
 		t.Fatal("Close did not stop the app-server")
+	}
+}
+
+func TestCodexSessionsRunTheCatalogDefaultWhenConfigNamesNoModel(t *testing.T) {
+	record := filepath.Join(t.TempDir(), "launches.jsonl")
+	fixture := newCodexInvokeFixture(t, nil)
+	writeCodexConfig(t, fixture, "")
+	lookup := fixture.invoker.Lookup
+	defaultModel := ""
+	fixture.invoker.Lookup = func(ctx context.Context, runtimeType string) (ModelInvokeRuntime, bool, error) {
+		installed, ok, err := lookup(ctx, runtimeType)
+		installed.ExecutablePath = os.Args[0]
+		installed.Environment[fakeSessionServerKey] = record
+		installed.Environment[fakeSessionRequireModelKey] = "1"
+		installed.DefaultModel = defaultModel
+		return installed, ok, err
+	}
+	fixture.invoker.CodexSessions = &CodexSessions{Root: t.TempDir()}
+	defer fixture.invoker.Close()
+	request := structuredRequest()
+	request.SessionKey = "memory-profile:abc"
+	request.Timeout = 30 * time.Second
+
+	// Without a catalog default the account rejects Codex's own choice, and
+	// the failure is not a transient one.
+	if result := fixture.invoker.Invoke(context.Background(), request); result.Outcome != ModelInvokeRuntimeIncompatible ||
+		!strings.HasPrefix(result.Reason, "The model is not available to this account") {
+		t.Fatalf("result without a default %+v", result)
+	}
+	defaultModel = "gpt-account-default"
+	if result := fixture.invoker.Invoke(context.Background(), request); result.Outcome != ModelInvokeCompleted {
+		t.Fatalf("result %+v", result)
+	}
+	launches, err := os.ReadFile(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(launches)), "\n")
+	var launch struct {
+		Args []string `json:"args"`
+	}
+	if len(lines) != 2 || json.Unmarshal([]byte(lines[1]), &launch) != nil ||
+		!strings.Contains(strings.Join(launch.Args, " "), `--config model="gpt-account-default"`) {
+		t.Fatalf("app-server launches %s", launches)
 	}
 }

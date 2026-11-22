@@ -14,7 +14,11 @@ import { personalWikiDocumentsQueryKey } from "@/features/teamhub/document-queri
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
 import type { TeamHubDocument } from "@/features/teamhub/teamhub-types";
+import type { Message } from "@/i18n/messages";
+import { useT } from "@/i18n/use-translation";
+
 import { isWikiCitationHref } from "./wiki-citation-links";
+import { wikiMessages as m } from "./wiki.messages";
 
 type WikiDocument = Pick<TeamHubDocument, "id" | "tenant_id" | "from">;
 
@@ -94,7 +98,9 @@ export function useWikiDocumentLinks(
   const queryClient = useQueryClient();
   const request = useRef(0);
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Held as a message so the sentence follows the language on screen.
+  const [error, setError] = useState<Message<string> | null>(null);
+  const t = useT();
   const documentId = document?.id;
   const anchorLinks = useDocumentAnchorLinks(contentRef, documentId);
   useEffect(() => {
@@ -138,7 +144,7 @@ export function useWikiDocumentLinks(
       event.stopPropagation();
       request.current += 1;
       setPending(false);
-      setError("This link does not point to an available Wiki page.");
+      setError(m.linkNotWikiPage);
       return;
     }
     event.preventDefault();
@@ -177,13 +183,11 @@ export function useWikiDocumentLinks(
       .catch(() => {
         if (request.current !== currentRequest) return;
         setPending(false);
-        setError(
-          "This linked Wiki page could not be opened. It may be unavailable or you may no longer have access. Please try again.",
-        );
+        setError(m.linkCouldNotOpen);
       });
   }
   return {
-    error: pending ? null : (anchorLinks.error ?? error),
+    error: pending ? null : (anchorLinks.error ?? (error ? t(error) : null)),
     openLink,
     pending,
   };

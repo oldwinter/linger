@@ -2,29 +2,23 @@ import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ReadOnlyBlockNoteDocument } from "./read-only-blocknote-document";
-import { renderMermaidSvg } from "@/features/rooms/mermaid-preview-adapter";
-
-vi.mock("@/features/rooms/mermaid-preview-adapter", async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import("@/features/rooms/mermaid-preview-adapter")
-  >()),
-  renderMermaidSvg: vi
-    .fn()
-    .mockResolvedValue(
-      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 120"><text>Diagram</text></svg>',
-    ),
-}));
+import { serveMermaidRuntime } from "@/test/mermaid-runtime";
 
 describe("ReadOnlyBlockNoteDocument", () => {
-  beforeEach(() =>
+  beforeEach(() => {
+    serveMermaidRuntime((source) =>
+      source.startsWith("invalid")
+        ? new Error("Invalid diagram")
+        : '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 120"><text>Diagram</text></svg>',
+    );
     vi.stubGlobal(
       "ResizeObserver",
       class {
         observe() {}
         disconnect() {}
       },
-    ),
-  );
+    );
+  });
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
@@ -54,9 +48,6 @@ describe("ReadOnlyBlockNoteDocument", () => {
   });
 
   it("reports a Mermaid error without showing raw source in reading mode", async () => {
-    vi.mocked(renderMermaidSvg).mockRejectedValueOnce(
-      new Error("Invalid diagram"),
-    );
     const view = render(
       <ReadOnlyBlockNoteDocument
         ariaLabel="Wiki page"

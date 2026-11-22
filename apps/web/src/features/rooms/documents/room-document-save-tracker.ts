@@ -36,6 +36,9 @@ export class RoomDocumentSaveTracker {
   readonly #stateHashVersion: number;
   readonly #readOnly: boolean;
   #authenticationFailed = false;
+  // The browser's offline event is only a hint: the socket may survive it and
+  // then emit no new status or sync events, so it must not reset transport state.
+  #browserOffline = false;
   #connected = false;
   #connectionObserved = false;
   #durableHead?: DurableHead;
@@ -162,6 +165,11 @@ export class RoomDocumentSaveTracker {
     this.#refresh();
   }
 
+  setBrowserOffline(offline: boolean): void {
+    this.#browserOffline = offline;
+    this.#refresh();
+  }
+
   setConnected(connected: boolean): void {
     this.#connectionObserved = true;
     this.#connected = connected;
@@ -243,7 +251,7 @@ export class RoomDocumentSaveTracker {
       if (!this.#connectionObserved) {
         return { ...shared, status: "Connecting" };
       }
-      if (!this.#connected) {
+      if (!this.#connected || this.#browserOffline) {
         return { ...shared, status: "Offline" };
       }
       if (
@@ -265,7 +273,7 @@ export class RoomDocumentSaveTracker {
     if (!this.#connectionObserved) {
       return { ...shared, status: "Connecting" };
     }
-    if (!this.#connected) {
+    if (!this.#connected || this.#browserOffline) {
       return {
         ...shared,
         status: hasPendingLocalChanges ? "Offline pending" : "Offline",

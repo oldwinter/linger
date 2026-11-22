@@ -32,5 +32,6 @@ var runtimeDetectionPolicies = map[string]runtimeDetectionPolicy{
 		authenticationBeforeProtocol: true,
 		authenticationRefresh:        true,
 	},
-	"pi": {authenticationProbe: probePiAuthentication, authenticationRefresh: true},
+	"pi":          {authenticationProbe: probePiAuthentication, authenticationRefresh: true},
+	"antigravity": {authenticationProbe: probeAntigravityAuthentication, authenticationRefresh: true},
 }

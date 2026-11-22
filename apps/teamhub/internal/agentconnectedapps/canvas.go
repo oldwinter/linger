@@ -47,7 +47,9 @@ func (e *CanvasDraftError) Error() string { return e.Message }
 
 // CanvasDraft is a canvas built as a Gmail draft.
 type CanvasDraft struct {
-	Raw string
+	Raw          string
+	DocumentID   string
+	SourceDigest string
 	// InlineImages counts the images shown in the body.
 	InlineImages int
 	// Attachments names the files the email carries, in canvas order.
@@ -58,7 +60,7 @@ type CanvasDraft struct {
 // the body and its file blocks go as attachments. Recipients and subject left
 // nil come from the canvas header.
 func (s *Canvas) GmailCanvasDraftRaw(ctx context.Context, tenantID, agentID, documentID string, to, cc *[]string, subject *string) (CanvasDraft, error) {
-	blocks, err := s.canvasBlocks(ctx, tenantID, agentID, documentID)
+	blocks, sourceDigest, err := s.canvasBlocks(ctx, tenantID, agentID, documentID)
 	if err != nil {
 		return CanvasDraft{}, err
 	}
@@ -152,12 +154,29 @@ func (s *Canvas) GmailCanvasDraftRaw(ctx context.Context, tenantID, agentID, doc
 	for i, attachment := range attachments {
 		names[i] = attachment.Filename
 	}
-	return CanvasDraft{Raw: raw, InlineImages: len(images), Attachments: names}, nil
+	current, err := s.SourceDigest(ctx, tenantID, agentID, documentID)
+	if err != nil {
+		return CanvasDraft{}, err
+	}
+	if current != sourceDigest {
+		return CanvasDraft{}, &CanvasDraftError{Message: "The canvas changed while its draft was being built. Save the draft again from the current canvas."}
+	}
+	return CanvasDraft{Raw: raw, InlineImages: len(images), Attachments: names, DocumentID: documentID, SourceDigest: sourceDigest}, nil
 }
 
 // assetBytes reads one canvas Asset, at most limit bytes.
 func (s *Canvas) assetBytes(ctx context.Context, tenantID, agentID, documentID, assetID string, limit int) ([]byte, document.Asset, error) {
-	content, err := s.documents.OpenAgentAssetContent(ctx, tenantID, agentID, documentID, assetID)
+	var content document.AssetContent
+	var err error
+	if s.accountID != "" {
+		content, err = s.documents.OpenAssetContent(ctx, s.accountID, assetID)
+		if err == nil && content.Asset.DocumentID != documentID {
+			_ = content.Reader.Close()
+			return nil, document.Asset{}, document.ErrNotFound
+		}
+	} else {
+		content, err = s.documents.OpenAgentAssetContent(ctx, tenantID, agentID, documentID, assetID)
+	}
 	if err != nil {
 		return nil, document.Asset{}, err
 	}
@@ -195,7 +214,13 @@ func canvasFileAssets(blocks []CanvasBlock) []string {
 
 // CanvasExport reads the canvas in one export format, up to 1 MiB.
 func (s *Canvas) CanvasExport(ctx context.Context, tenantID, agentID, documentID, format string) ([]byte, error) {
-	download, err := s.documents.DownloadAgentFileAs(ctx, tenantID, agentID, documentID, format)
+	var download document.AgentFileDownload
+	var err error
+	if s.accountID != "" {
+		download, err = s.documents.DownloadHumanFileAs(ctx, s.accountID, documentID, format)
+	} else {
+		download, err = s.documents.DownloadAgentFileAs(ctx, tenantID, agentID, documentID, format)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -217,18 +242,19 @@ func (s *Canvas) CanvasExport(ctx context.Context, tenantID, agentID, documentID
 }
 
 // canvasBlocks reads the canvas as blocks, for its header and image widths.
-func (s *Canvas) canvasBlocks(ctx context.Context, tenantID, agentID, documentID string) ([]CanvasBlock, error) {
+func (s *Canvas) canvasBlocks(ctx context.Context, tenantID, agentID, documentID string) ([]CanvasBlock, string, error) {
 	content, err := s.CanvasExport(ctx, tenantID, agentID, documentID, "blocks")
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	var export struct {
 		Blocks []CanvasBlock `json:"blocks"`
 	}
 	if err := json.Unmarshal(content, &export); err != nil {
-		return nil, document.ErrInvalidInput
+		return nil, "", document.ErrInvalidInput
 	}
-	return export.Blocks, nil
+	digest, err := canvasSourceDigest(content)
+	return export.Blocks, digest, err
 }
 
 // CanvasHeader is the header code block of a canvas: its target app and fields.
@@ -369,6 +395,12 @@ func ptr[T any](value T) *T { return &value }
 type Canvas struct {
 	documents *document.Service
 	artifacts artifactstore.ObjectStore
+	accountID string
+}
+
+// ForAccount reads a canvas using the Human's current document permissions.
+func (s *Canvas) ForAccount(accountID string) *Canvas {
+	return &Canvas{documents: s.documents, artifacts: s.artifacts, accountID: accountID}
 }
 
 // NewCanvas builds the canvas reader.

@@ -1,9 +1,17 @@
+import { commonMessages } from "@/i18n/common.messages";
+import { formatLocale, type Translation } from "@/i18n/language";
+
 export const APP_LOCALE = "en-US";
 
+/**
+ * Text that is translated passes the locale of the language on screen
+ * (`formatLocale()` of `@/i18n/language`); everything else stays in English.
+ */
 export function dateTimeFormat(
   options?: Intl.DateTimeFormatOptions,
+  locale: string = APP_LOCALE,
 ): Intl.DateTimeFormat {
-  return new Intl.DateTimeFormat(APP_LOCALE, options);
+  return new Intl.DateTimeFormat(locale, options);
 }
 
 export function formatDateTime(
@@ -12,8 +20,9 @@ export function formatDateTime(
     dateStyle: "medium",
     timeStyle: "short",
   },
+  locale?: string,
 ): string {
-  return dateTimeFormat(options).format(new Date(value));
+  return dateTimeFormat(options, locale).format(new Date(value));
 }
 
 /** `YYYY-MM-DD` of the instant in the browser's time zone. Memory, Pocket Notes
@@ -30,9 +39,17 @@ export function dayKey(value: Date): string {
   return `${part("year")}-${part("month")}-${part("day")}`;
 }
 
-const relativeFormatter = new Intl.RelativeTimeFormat(APP_LOCALE, {
-  numeric: "auto",
-});
+const relativeFormatters = new Map<string, Intl.RelativeTimeFormat>();
+
+function relativeFormatter(locale: string) {
+  let formatter = relativeFormatters.get(locale);
+  if (!formatter) {
+    formatter = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
+    relativeFormatters.set(locale, formatter);
+  }
+  return formatter;
+}
+
 const relativeUnits = [
   ["day", 86_400_000],
   ["hour", 3_600_000],
@@ -43,23 +60,31 @@ const RELATIVE_WINDOW_MS = 7 * 86_400_000;
 /**
  * When something last changed, the one way lists and cards say it: "2 hours
  * ago" within a week, then "Nov 7", with the year only when it is not this one.
+ * A translated surface passes its `translation`; without it the text is
+ * English.
  */
 export function formatUpdatedAt(
   value: Date | string | number,
   now = Date.now(),
+  translation?: Translation,
 ): string {
   const time = new Date(value).getTime();
   if (!Number.isFinite(time)) return "—";
+  const locale = translation ? formatLocale(translation.language) : APP_LOCALE;
   const elapsed = Math.max(0, now - time);
-  if (elapsed < 60_000) return "just now";
+  if (elapsed < 60_000)
+    return translation ? translation.t(commonMessages.justNow) : "just now";
   if (elapsed < RELATIVE_WINDOW_MS) {
     const [unit, size] = relativeUnits.find(([, size]) => elapsed >= size)!;
-    return relativeFormatter.format(-Math.floor(elapsed / size), unit);
+    return relativeFormatter(locale).format(-Math.floor(elapsed / size), unit);
   }
   const sameYear = new Date(time).getFullYear() === new Date(now).getFullYear();
-  return dateTimeFormat({
-    day: "numeric",
-    month: "short",
-    ...(sameYear ? {} : { year: "numeric" }),
-  }).format(time);
+  return dateTimeFormat(
+    {
+      day: "numeric",
+      month: "short",
+      ...(sameYear ? {} : { year: "numeric" }),
+    },
+    locale,
+  ).format(time);
 }

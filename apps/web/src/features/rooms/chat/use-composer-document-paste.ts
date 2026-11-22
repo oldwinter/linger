@@ -1,6 +1,8 @@
 import type { ClipboardEvent } from "react";
 
 import { readDocumentClipboardLink } from "@/features/rooms/files/document-clipboard-link";
+import { translate } from "@/i18n/language";
+import { composerMessages } from "./composer.messages";
 import type { MessageComposerProps } from "./message-composer";
 import {
   formatDocumentToken,
@@ -64,7 +66,9 @@ export function useComposerDocumentPaste({
     );
     const provisional: MessageDocumentOption = {
       documentId: link.documentId,
-      name: clipboardLink?.title ?? "Document",
+      name:
+        clipboardLink?.title ??
+        translate(composerMessages.documentFallbackName),
       tenantId: link.tenantId,
       updatedAt: "",
     };
@@ -104,7 +108,7 @@ export function useComposerDocumentPaste({
           (resolved.tenantId !== undefined &&
             resolved.tenantId !== link.tenantId)
         ) {
-          throw new Error("Document cannot be shared in this Room.");
+          throw new Error(translate(composerMessages.documentCannotBeShared));
         }
         const options = [...documentOptions, resolved];
         const token = formatDocumentToken(resolved, options);
@@ -147,7 +151,7 @@ export function useComposerDocumentPaste({
         setMessageError(
           error instanceof Error
             ? error.message
-            : "Document cannot be shared in this Room.",
+            : translate(composerMessages.documentCannotBeShared),
         );
       })
       .finally(() => {

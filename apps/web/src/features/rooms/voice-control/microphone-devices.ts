@@ -1,4 +1,8 @@
 import { displayText } from "@linger/service-kit";
+
+import { translate } from "@/i18n/language";
+import { recordingMessages as m } from "./recording.messages";
+
 export interface VoiceMicrophoneDevice {
   deviceId: string;
   groupId: string;
@@ -6,6 +10,27 @@ export interface VoiceMicrophoneDevice {
 }
 
 export type VoiceMicrophoneBinding = VoiceMicrophoneDevice;
+
+export type VoiceMicrophoneErrorCode = "no-binding" | "timeout";
+
+const microphoneErrorText = {
+  "no-binding": m.connectMicrophone,
+  timeout: m.microphoneTimedOut,
+} as const;
+
+/**
+ * A microphone that is not bound or did not connect in time. Code tells it
+ * apart by its code; people see it worded from the code.
+ */
+export class VoiceMicrophoneError extends Error {
+  readonly code: VoiceMicrophoneErrorCode;
+
+  constructor(code: VoiceMicrophoneErrorCode) {
+    super(microphoneErrorText[code].source);
+    this.name = "VoiceMicrophoneError";
+    this.code = code;
+  }
+}
 
 const voiceMediaAbortRetryDelaysMs = [0, 120, 240] as const;
 
@@ -41,11 +66,14 @@ export function isVoiceAbortError(error: unknown) {
 }
 
 export function describeVoiceMediaError(error: unknown) {
+  if (error instanceof VoiceMicrophoneError) {
+    return translate(microphoneErrorText[error.code]);
+  }
   if (errorName(error) === "NotAllowedError") {
-    return "Microphone permission was denied";
+    return translate(m.microphoneDenied);
   }
   if (isVoiceAbortError(error)) {
-    return "Microphone connection was interrupted";
+    return translate(m.microphoneInterrupted);
   }
   const message = errorMessage(error);
   return message || String(error);
@@ -85,7 +113,7 @@ export async function discoverVoiceMicrophones(
   } = {},
 ) {
   const mediaDevices = input.mediaDevices ?? navigator.mediaDevices;
-  if (!mediaDevices) throw new Error("Microphone access is unavailable");
+  if (!mediaDevices) throw new Error(translate(m.microphoneUnavailable));
   const enumerated = await mediaDevices.enumerateDevices();
   // Without a remembered device, ask the browser which microphone it grants:
   // that is the one the person chose in its prompt or site settings.
@@ -175,10 +203,7 @@ function selectVoiceMicrophones(
   grantedDeviceId?: string,
 ) {
   if (devices.length === 0) {
-    throw new DOMException(
-      "No audio input device is available",
-      "NotFoundError",
-    );
+    throw new DOMException(translate(m.noAudioInput), "NotFoundError");
   }
   const selectedDeviceId =
     devices.find((device) => device.deviceId === preferredDeviceId)?.deviceId ??
@@ -206,7 +231,7 @@ function getUserMediaAttempt(input: {
   return new Promise<MediaStream>((resolve, reject) => {
     const timeout = globalThis.setTimeout(() => {
       expired = true;
-      reject(new Error("Microphone connection timed out"));
+      reject(new VoiceMicrophoneError("timeout"));
     }, timeoutMs);
     void pending.then(
       (stream) => {

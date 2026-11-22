@@ -3,7 +3,7 @@ import {
   useQueryClient,
   useSuspenseQuery,
 } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 
 import {
@@ -17,6 +17,7 @@ import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import { Add01Icon, ArrowLeft01Icon } from "@hugeicons/core-free-icons";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { useT } from "@/i18n/use-translation";
 
 import { ComputerBrowserConnection } from "./browser-connection/computer-browser-connection";
 import { computerCanDoPath } from "./computer-can-do";
@@ -30,6 +31,8 @@ import {
   NoComputers,
   UnavailableComputer,
 } from "./computer-empty-states";
+import { computerSetupMessages } from "./computer-setup.messages";
+import { computersMessages } from "./computers.messages";
 import {
   localComputersQueryKey,
   localComputersQueryOptions,
@@ -38,6 +41,7 @@ import { subscribeLocalComputerEnrollment } from "./local-computer-enrollment-ev
 import { RemoveComputerDialog } from "./remove-computer-dialog";
 
 export function ComputersPage() {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const queryClient = useQueryClient();
   const tenantId = requireRoomRouteParam(useParams().tenantId, "Tenant");
@@ -72,6 +76,9 @@ export function ComputersPage() {
   );
   const [removeComputerId, setRemoveComputerId] = useState<string | null>(null);
   const [showingDirectory, setShowingDirectory] = useState(false);
+  // Checked in the auto-open effect so a Back click before the passive effect
+  // flushes cannot have its directory navigation overwritten by a stale render.
+  const showingDirectoryRef = useRef(false);
   const desktop = useDesktopComputer();
   const { data: inventory } = useSuspenseQuery(
     localComputersQueryOptions(client, tenantId),
@@ -166,7 +173,7 @@ export function ComputersPage() {
   );
 
   useEffect(() => {
-    if (!openThisComputer) return;
+    if (!openThisComputer || showingDirectoryRef.current) return;
     setSearchParams(
       (current) => {
         const next = new URLSearchParams(current);
@@ -193,6 +200,7 @@ export function ComputersPage() {
   }
 
   function showDirectory() {
+    showingDirectoryRef.current = true;
     setShowingDirectory(true);
     setSearchParams((current) => {
       const next = new URLSearchParams(current);
@@ -214,9 +222,9 @@ export function ComputersPage() {
 
   return (
     <>
-      <main
+      <div
         aria-hidden={setupOpen ? true : undefined}
-        // Settings owns the scrolling, so this page never nests a second bar.
+        // Settings owns the scrolling and main landmark, so this page nests neither.
         className="mx-auto flex min-h-0 w-full max-w-(--app-settings-width) flex-col pb-4"
       >
         <header className="flex items-center justify-between gap-4">
@@ -224,7 +232,7 @@ export function ComputersPage() {
             {(requestedComputerId || openThisComputer) &&
             inventory.items.length > 1 ? (
               <Button
-                aria-label="All computers"
+                aria-label={t(computersMessages.allComputers)}
                 onClick={showDirectory}
                 size="icon"
                 tone="ghost"
@@ -232,16 +240,16 @@ export function ComputersPage() {
                 <Icon icon={ArrowLeft01Icon} size={16} />
               </Button>
             ) : null}
-            Computers
+            {t(computersMessages.pageTitle)}
           </h1>
           {inventory.items.length ? (
             <Button
-              aria-label="Connect a Local Computer"
+              aria-label={t(computerSetupMessages.label)}
               onClick={openSetup}
               size="compact"
             >
               <Icon icon={Add01Icon} size={14} />
-              Connect
+              {t(computersMessages.connect)}
             </Button>
           ) : null}
         </header>
@@ -265,13 +273,14 @@ export function ComputersPage() {
                   variant={variant}
                 />
               )}
-              canDoHref={computerCanDoPath(
-                tenantId,
-                selectedComputer.computer_id,
-              )}
+              canDoHref={
+                selectedComputer.platform === "darwin"
+                  ? computerCanDoPath(tenantId, selectedComputer.computer_id)
+                  : undefined
+              }
               computer={selectedComputer}
               key={selectedComputer.computer_id}
-              localModelsHref={`/t/${tenantId}/settings/local-models?computer=${encodeURIComponent(selectedComputer.computer_id)}`}
+              localModelsHref={`/t/${tenantId}/settings/models?computer=${encodeURIComponent(selectedComputer.computer_id)}`}
               onConnect={openSetup}
               onOpenAgent={(actorId) => {
                 if (!openAgent.isPending) openAgent.mutate(actorId);
@@ -291,7 +300,7 @@ export function ComputersPage() {
             />
           )}
         </div>
-      </main>
+      </div>
 
       {setupOpen ? (
         <ConnectComputerDialog

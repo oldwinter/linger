@@ -9,12 +9,15 @@ import { cn } from "@/lib/cn";
 export function Hint({
   children,
   className,
+  display = "inline-flex",
   focusable = false,
   placement = "top",
   text,
 }: {
   children: ReactNode;
   className?: string;
+  /** Chooses the wrapper display class without stacking competing Tailwind utilities. */
+  display?: "flex" | "inline-flex";
   /** Lets keyboard users reach a hint whose content is not itself a control. */
   focusable?: boolean;
   placement?: "top" | "bottom";
@@ -25,14 +28,18 @@ export function Hint({
   return (
     <span
       aria-describedby={focusable ? tooltipId : undefined}
-      className={cn("group/hint relative inline-flex", className)}
+      className={cn(
+        "group/hint relative",
+        display === "flex" ? "flex" : "inline-flex",
+        className,
+      )}
       // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- the focusable wrapper reveals its hint for keyboard users
       tabIndex={focusable ? 0 : undefined}
     >
       {children}
       <span
         className={cn(
-          "pointer-events-none invisible absolute left-1/2 z-30 w-max max-w-64 -translate-x-1/2 rounded-md bg-primary px-2 py-1 text-left text-xs font-normal text-primary-foreground opacity-0 transition-opacity delay-200 duration-150 group-focus-within/hint:visible group-focus-within/hint:opacity-100 group-hover/hint:visible group-hover/hint:opacity-100 motion-reduce:transition-none",
+          "pointer-events-none invisible absolute left-1/2 z-30 w-max max-w-64 -translate-x-1/2 rounded-md bg-primary px-2 py-1 text-left text-xs font-normal text-primary-foreground opacity-0 transition-opacity delay-200 duration-150 group-focus-visible/hint:visible group-focus-visible/hint:opacity-100 group-has-[:focus-visible]/hint:visible group-has-[:focus-visible]/hint:opacity-100 group-hover/hint:visible group-hover/hint:opacity-100 motion-reduce:transition-none",
           placement === "top" ? "bottom-full mb-1.5" : "top-full mt-1.5",
         )}
         id={tooltipId}

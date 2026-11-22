@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/permission"
 )
 
 type piHarness struct {
@@ -134,13 +136,14 @@ func TestPiStartPreconditions(t *testing.T) {
 		prompt string
 		spec   RunSpec
 	}{
-		"blank prompt":     {"  \n", RunSpec{}},
-		"computer args":    {"x", RunSpec{ComputerArgs: []string{"--x"}}},
-		"agent args":       {"x", RunSpec{AgentArgs: []string{"--x"}}},
-		"bad effort":       {"x", RunSpec{Effort: "ultra"}},
-		"invalid mcp":      {"x", RunSpec{MCPServers: json.RawMessage(`[1]`)}},
-		"missing session":  {"x", RunSpec{ResumeID: "never-created"}},
-		"extension absent": {"x", RunSpec{MCPServers: json.RawMessage(`{"mcpServers":{"computer":{"type":"http","url":"http://127.0.0.1:1/"}}}`)}},
+		"blank prompt":             {"  \n", RunSpec{}},
+		"computer args":            {"x", RunSpec{ComputerArgs: []string{"--x"}}},
+		"agent args":               {"x", RunSpec{AgentArgs: []string{"--x"}}},
+		"bad effort":               {"x", RunSpec{Effort: "ultra"}},
+		"invalid mcp":              {"x", RunSpec{MCPServers: json.RawMessage(`[1]`)}},
+		"missing session":          {"x", RunSpec{ResumeID: "never-created"}},
+		"extension absent":         {"x", RunSpec{MCPServers: json.RawMessage(`{"mcpServers":{"computer":{"type":"http","url":"http://127.0.0.1:1/"}}}`)}},
+		"review without extension": {"x", RunSpec{PermissionReviewer: &permission.Reviewer{}}},
 	}
 	for name, tc := range cases {
 		tc.spec.Dir = h.dir
@@ -267,6 +270,19 @@ func TestPiSteerCompletionRace(t *testing.T) {
 	}
 }
 
+func TestPiCompletionRacingAbort(t *testing.T) {
+	h := piNewHarness(t, "complete-on-abort", nil)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	run := h.start(ctx, "go", RunSpec{})
+	piWaitRunning(t, run)
+	cancel()
+	_, out := piCollect(t, run)
+	if out.Status != statusCompleted || out.Output != "done" || !out.ExitConfirmed || out.ExitUnconfirmed {
+		t.Fatalf("outcome = %+v", out)
+	}
+}
+
 func TestPiCancelClearsQueueAndReapsChildren(t *testing.T) {
 	pidFile := filepath.Join(t.TempDir(), "child.pid")
 	commands := filepath.Join(t.TempDir(), "commands")
@@ -343,6 +359,54 @@ func TestPiRecoverableToolFailure(t *testing.T) {
 	}
 	if !found || outcome.Status != statusCompleted {
 		t.Fatalf("events=%+v outcome=%+v", events, outcome)
+	}
+}
+
+func TestPiAnswersTheManagedExtensionsReview(t *testing.T) {
+	extension := filepath.Join(t.TempDir(), "pi-mcp.mjs")
+	if err := os.WriteFile(extension, []byte("export default {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name     string
+		reviewer bool
+		want     piVerdict
+	}{
+		{name: "without review", want: piVerdict{Allow: true}},
+		{name: "denied", reviewer: true, want: piVerdict{Message: "not now"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			dialogs := filepath.Join(t.TempDir(), "dialogs")
+			h := piNewHarness(t, "review", map[string]string{piFakeDialogEnv: dialogs})
+			h.runtime, _ = Open("pi", Profile{Program: h.runtime.(*piRuntime).profile.Program, Env: h.env, ManagedMCPExtension: extension})
+			requester := agyDenyingRequester{asked: make(chan string, 1)}
+			spec := RunSpec{}
+			if c.reviewer {
+				spec.PermissionReviewer = &permission.Reviewer{Requester: requester, Timeout: time.Minute}
+			}
+			if _, outcome := piCollect(t, h.start(t.Context(), "push it", spec)); outcome.Status != statusCompleted {
+				t.Fatalf("outcome = %+v", outcome)
+			}
+			if asked := len(requester.asked); asked != map[bool]int{true: 1}[c.reviewer] {
+				t.Fatalf("reviews asked = %d", asked)
+			}
+			data, _ := os.ReadFile(dialogs)
+			answers := map[string]map[string]any{}
+			for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+				var answer map[string]any
+				if json.Unmarshal([]byte(line), &answer) != nil {
+					t.Fatalf("answer %q", line)
+				}
+				answers[answer["id"].(string)] = answer
+			}
+			if len(answers) != 2 || answers["ui-other"]["cancelled"] != true {
+				t.Fatalf("answers = %v", answers)
+			}
+			var verdict piVerdict
+			if value, _ := answers["ui-review"]["value"].(string); json.Unmarshal([]byte(value), &verdict) != nil || verdict != c.want {
+				t.Fatalf("verdict = %+v, want %+v", verdict, c.want)
+			}
+		})
 	}
 }
 
@@ -448,6 +512,9 @@ func TestPiLaunchArguments(t *testing.T) {
 	if got := strings.Split(string(data), "\n"); strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("argv\n got %q\nwant %q", got, want)
 	}
+	if nodePath, _ := os.ReadFile(argv + ".node_path"); string(nodePath) != filepath.Join(filepath.Dir(filepath.Dir(extension)), "node_modules") {
+		t.Fatalf("NODE_PATH = %q", nodePath)
+	}
 	instructions, err := os.ReadFile(filepath.Join(sessionDir, piInstructionsName))
 	if err != nil || string(instructions) != "be brief" {
 		t.Fatalf("instructions = %q, %v", instructions, err)
@@ -460,6 +527,37 @@ func TestPiLaunchArguments(t *testing.T) {
 	data, _ = os.ReadFile(argv)
 	if outcome.Status != statusCompleted || strings.Contains(string(data), "--model") || strings.Contains(string(data), "--thinking") || !strings.HasSuffix(string(data), "--tools\n"+piBaseTools) {
 		t.Fatalf("default argv = %q (%+v)", data, outcome)
+	}
+	if nodePath, _ := os.ReadFile(argv + ".node_path"); len(nodePath) != 0 {
+		t.Fatalf("NODE_PATH without an extension = %q", nodePath)
+	}
+
+	// The managed extension runs the shell-text-hook without MCP servers.
+	_, outcome = piCollect(t, h.start(t.Context(), "go", RunSpec{Model: piDefaultModel, ShellTextHook: "/opt/linger/linger-computer-daemon"}))
+	data, _ = os.ReadFile(argv)
+	if outcome.Status != statusCompleted || !strings.HasSuffix(string(data), "--extension\n"+extension+"\n--tools\n"+piBaseTools) {
+		t.Fatalf("shell text argv = %q (%+v)", data, outcome)
+	}
+	if hook, _ := os.ReadFile(argv + ".shell_text_hook"); string(hook) != "/opt/linger/linger-computer-daemon" {
+		t.Fatalf("%s = %q", piShellTextHookEnvKey, hook)
+	}
+	if nodePath, _ := os.ReadFile(argv + ".node_path"); string(nodePath) != filepath.Join(filepath.Dir(filepath.Dir(extension)), "node_modules") {
+		t.Fatalf("NODE_PATH = %q", nodePath)
+	}
+}
+
+func TestPiExtensionNodePath(t *testing.T) {
+	extension := filepath.Join("tools", "extensions", "pi-mcp.mjs")
+	modules := filepath.Join("tools", "node_modules")
+	env := map[string]string{}
+	piExtensionNodePath(env, extension)
+	if env[piNodePathKey] != modules || env[piInheritedNodePathKey] != "" || len(env) != 2 {
+		t.Fatalf("fresh env = %q", env)
+	}
+	env = map[string]string{"Node_Path": "own"}
+	piExtensionNodePath(env, extension)
+	if len(env) != 2 || env["Node_Path"] != modules+string(filepath.ListSeparator)+"own" || env[piInheritedNodePathKey] != "own" {
+		t.Fatalf("existing NODE_PATH = %q", env)
 	}
 }
 
@@ -623,6 +721,8 @@ func TestPiCatalogLabelsAModelByItsName(t *testing.T) {
 		json.RawMessage(`{"id":"same","name":"same","provider":"local"}`),
 		json.RawMessage(`{"id":"blank","name":" ","provider":"local"}`),
 		json.RawMessage(`{"id":"unnamed","provider":"local"}`),
+		json.RawMessage(`{"id":"q4","name":"Qwen 27B","provider":"localmodels-library"}`),
+		json.RawMessage(`{"id":"q4","name":"Qwen 27B","provider":"other"}`),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -632,10 +732,10 @@ func TestPiCatalogLabelsAModelByItsName(t *testing.T) {
 		ids = append(ids, model.ID)
 		labels = append(labels, model.Label)
 	}
-	if !slices.Equal(ids, []string{"localmodels/localmodels-agent", "local/same", "local/blank", "local/unnamed"}) {
+	if !slices.Equal(ids, []string{"localmodels/localmodels-agent", "local/same", "local/blank", "local/unnamed", "localmodels-library/q4", "other/q4"}) {
 		t.Fatalf("ids = %v", ids)
 	}
-	if !slices.Equal(labels, []string{"ling-3.0-tiny (localmodels/localmodels-agent)", "local/same", "local/blank", "local/unnamed"}) {
+	if !slices.Equal(labels, []string{"ling-3.0-tiny", "local/same", "local/blank", "local/unnamed", "Qwen 27B (localmodels-library/q4)", "Qwen 27B (other/q4)"}) {
 		t.Fatalf("labels = %v", labels)
 	}
 }

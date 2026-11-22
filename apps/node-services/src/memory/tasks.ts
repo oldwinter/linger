@@ -1,4 +1,5 @@
 import { loadAnotherMeSubjects } from "./collector.js";
+import { concurrencyLimit } from "./concurrency.js";
 import { runDailyCli } from "./daily-cli.js";
 import { localDate } from "./date.js";
 import { recordSubjectFailure, recordWikiRefresh } from "./run-telemetry.js";
@@ -55,14 +56,19 @@ export async function runMemoryTask(
     const subjectKeys = allSubjectKeys.filter((key) => !held?.includes(key));
     if (subjectKeys.length === 0) return;
     const lane: SubjectLane = runtime.subjectLane ?? ((_, work) => work());
+    // A slot is taken inside the lane, so a subject waiting behind its own
+    // earlier work does not hold one of the `concurrency` slots.
+    const limit = concurrencyLimit(input.concurrency);
     const runOne = (memorySubjectKey: string) =>
       lane(memorySubjectKey, () =>
-        runMemoryTask(
-          memoryRoot,
-          scopedTask(input, memorySubjectKey),
-          steps,
-          taskState,
-          runtime,
+        limit(() =>
+          runMemoryTask(
+            memoryRoot,
+            scopedTask(input, memorySubjectKey),
+            steps,
+            taskState,
+            runtime,
+          ),
         ),
       );
     // A deployment has one account and so normally one subject.
@@ -210,7 +216,8 @@ function scopedTask(
   return { ...input, memorySubjectKey };
 }
 
-/** Each subject runs on its own lane; one failure does not stop the others. */
+/** Each subject runs on its own lane, at most `concurrency` at once; one
+ * failure does not stop the others. */
 async function runIsolatedSubjects(
   subjectKeys: string[],
   runOne: (memorySubjectKey: string) => Promise<void>,

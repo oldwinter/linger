@@ -11,6 +11,7 @@ import type {
   TeamHubMemoryEntry,
 } from "@/features/teamhub/teamhub-types";
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
+import { teamHubErrorResponse } from "@/test/teamhub-test-server";
 
 import { KeepMeetingPage } from "./keep-meeting-page";
 
@@ -77,6 +78,34 @@ it("waits for a summary before keeping a page", async () => {
     ),
   ).toBeVisible();
   expect(upload).not.toHaveBeenCalled();
+});
+
+it("renders a scrollable error state with Back to meetings and Retry", async () => {
+  const runtime = createTestTeamHubRuntime();
+  let attempts = 0;
+  runtime.server.on("GET", "/v0/tenants/{tenantId}/memory", () => {
+    attempts += 1;
+    if (attempts === 1) {
+      return teamHubErrorResponse(500, "MEETINGS_UNAVAILABLE", "Unavailable.");
+    }
+    return { items: [meeting] };
+  });
+  renderPage(runtime);
+
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Could not load this meeting.",
+  );
+  expect(
+    screen.getByRole("link", { name: "Back to meetings" }),
+  ).toHaveAttribute(
+    "href",
+    "/t/tenant-northstar/library?tab=meetings&meetings=7d",
+  );
+  expect(screen.getByRole("main")).toHaveClass("overflow-y-auto");
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  expect(
+    await screen.findByText("We decided to ship on Friday."),
+  ).toBeVisible();
 });
 
 function OpenedDocument() {

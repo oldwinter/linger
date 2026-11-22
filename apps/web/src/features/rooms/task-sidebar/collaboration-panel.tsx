@@ -15,13 +15,18 @@ import { Button } from "@/components/ui/button";
 import { Icon, type IconSvgElement } from "@/components/ui/icon";
 import { TeamHubError } from "@/features/teamhub/teamhub-client";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { commonMessages } from "@/i18n/common.messages";
+import type { Message } from "@/i18n/messages";
+import { useT } from "@/i18n/use-translation";
 import type {
   TeamHubActorRef,
   TeamHubTeamMdDocument,
 } from "@/features/teamhub/teamhub-types";
 
 import { ActorAvatar } from "../members/actor-avatar";
+import { collaborationMessages as m } from "./collaboration.messages";
 import { PanelLoading } from "./panel-loading";
+import { sidePanelMessages } from "./side-panel.messages";
 import {
   layoutTeamGraph,
   patternTitles,
@@ -52,6 +57,7 @@ export function CollaborationPanel({
   roomId: string;
   tenantId: string;
 }) {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   // team_md.published refreshes this query, so it does not poll.
   const query = useQuery({
@@ -68,7 +74,7 @@ export function CollaborationPanel({
     : null;
   return (
     <section
-      aria-label="Room collaboration"
+      aria-label={t(m.roomCollaboration)}
       className={
         hidden
           ? "hidden"
@@ -81,17 +87,19 @@ export function CollaborationPanel({
           <>
             <span className="inline-flex items-center gap-1.5 font-medium text-app-body">
               <Icon icon={patternIcon} size={14} />
-              {patternTitles[query.data.collaborate_pattern]}
+              {t(patternTitles[query.data.collaborate_pattern])}
             </span>
             <span
               aria-hidden
               className="size-[3px] rounded-full bg-app-border-strong"
             />
-            <span>{query.data.members.length + 1} Agents</span>
+            <span>
+              {t(m.agentCount, { count: query.data.members.length + 1 })}
+            </span>
           </>
         ) : null}
         <Button
-          aria-label="Refresh collaboration"
+          aria-label={t(m.refresh)}
           className="ml-auto"
           disabled={refreshing}
           onClick={() => {
@@ -111,20 +119,16 @@ export function CollaborationPanel({
         </Button>
       </div>
       {query.isPending ? (
-        <PanelLoading label="Loading collaboration" />
+        <PanelLoading label={t(sidePanelMessages.loadingCollaboration)} />
       ) : query.isError ? (
         <div className="p-6 text-sm" role="alert">
-          <p>
-            {denied
-              ? "You no longer have access to this collaboration."
-              : "Could not load collaboration."}
-          </p>
+          <p>{denied ? t(m.accessLost) : t(m.loadFailed)}</p>
           <Button
             className="mt-3"
             onClick={() => void query.refetch()}
             size="compact"
           >
-            Retry
+            {t(commonMessages.retry)}
           </Button>
         </div>
       ) : query.data ? (
@@ -140,10 +144,9 @@ export function CollaborationPanel({
             className="mx-auto mb-3 text-app-muted"
             size={24}
           />
-          <h3 className="text-sm font-medium">No collaboration plan yet</h3>
+          <h3 className="text-sm font-medium">{t(m.emptyTitle)}</h3>
           <p className="mt-2 text-xs leading-5 text-app-muted">
-            When an Agent publishes team.md for this Room, its team and
-            relationships appear here.
+            {t(m.emptyBody)}
           </p>
         </div>
       )}
@@ -151,9 +154,9 @@ export function CollaborationPanel({
   );
 }
 
-const relationshipLabels: Record<Relationship, string> = {
-  handoff: "Handoff",
-  report: "Report",
+const relationshipLabels: Record<Relationship, Message<string>> = {
+  handoff: m.handoff,
+  report: m.report,
 };
 
 function lineStroke(kind: Relationship) {
@@ -171,6 +174,7 @@ export function CollaborationGraph({
   actors: TeamHubActorRef[];
   document: TeamHubTeamMdDocument;
 }) {
+  const t = useT();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [visible, setVisible] = useState<RelationshipVisibility>({
@@ -193,7 +197,7 @@ export function CollaborationGraph({
     observer.observe(canvas);
     return () => observer.disconnect();
   }, []);
-  const graph = layoutTeamGraph(document, width, visible);
+  const graph = layoutTeamGraph(document, width, visible, t);
   const coordinator = document.orchestrator.actor_id;
   const selected = graph.nodes.find((node) => node.actor_id === selectedId);
   const focusId =
@@ -238,7 +242,7 @@ export function CollaborationGraph({
           className="workspace-scrollbar overflow-x-auto overflow-y-hidden"
           ref={canvasRef}
           role="group"
-          aria-label="Agent collaboration graph"
+          aria-label={t(m.graph)}
         >
           <div
             className="relative mx-auto"
@@ -293,6 +297,10 @@ export function CollaborationGraph({
             </svg>
             {graph.nodes.map((node) => {
               const name = displayName(node.actor_id);
+              const label = t(m.agentIdentity, {
+                name,
+                identity: node.identity,
+              });
               const active = selected?.actor_id === node.actor_id;
               const lead = node.actor_id === coordinator;
               const faded = Boolean(focusId && !linked.has(node.actor_id));
@@ -300,12 +308,12 @@ export function CollaborationGraph({
                 <button
                   type="button"
                   key={node.actor_id}
-                  aria-label={`${name} · ${node.identity}`}
+                  aria-label={label}
                   aria-pressed={active}
                   data-agent-id={node.actor_id}
                   data-center={node.center || undefined}
                   data-faded={faded || undefined}
-                  title={`${name} · ${node.identity}${node.role ? `\n${node.role}` : ""}`}
+                  title={node.role ? `${label}\n${node.role}` : label}
                   className="group absolute flex w-20 -translate-x-1/2 flex-col items-center rounded-lg text-center transition-opacity focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-app-focus"
                   style={{
                     left: node.x,
@@ -367,7 +375,7 @@ export function CollaborationGraph({
                   {displayName(coordinator)}
                 </span>
                 <span className="mt-px whitespace-nowrap text-[12px] leading-[14px] text-app-subtle">
-                  {graph.loop ? "Decides" : "Collects"}
+                  {graph.loop ? t(m.decides) : t(m.collects)}
                 </span>
               </div>
             ) : null}
@@ -377,19 +385,19 @@ export function CollaborationGraph({
                 style={{ left: graph.loop.labelX, top: graph.loop.labelY }}
               >
                 <Icon icon={RepeatIcon} size={12} />
-                Repeat until done
+                {t(m.repeatUntilDone)}
               </span>
             ) : null}
           </div>
         </div>
         <div
           className="flex items-center gap-1 border-t border-app-border bg-app-surface-soft/40 py-1.5 pl-3 pr-2 text-[12px] text-app-muted"
-          aria-label="Relationship legend"
+          aria-label={t(m.legend)}
           role="group"
         >
           <span className="inline-flex items-center gap-1.5">
             <span className="size-2.5 rounded-[3px] shadow-[inset_0_0_0_1.5px_var(--app-ink)]" />
-            Coordinator
+            {t(m.coordinator)}
           </span>
           {(["handoff", "report"] as const).map((kind) => (
             <button
@@ -414,7 +422,7 @@ export function CollaborationGraph({
                   strokeDasharray={kind === "report" ? "3 3" : undefined}
                 />
               </svg>
-              {relationshipLabels[kind]}
+              {t(relationshipLabels[kind])}
             </button>
           ))}
         </div>
@@ -431,20 +439,18 @@ export function CollaborationGraph({
             node={selected}
           />
         ) : (
-          <p className="text-center text-app-subtle">
-            Select an Agent to see its responsibility and who it works with.
-          </p>
+          <p className="text-center text-app-subtle">{t(m.selectAgent)}</p>
         )}
       </div>
       <details className="group mx-4 border-t border-app-border text-[12px]">
         <summary className="flex cursor-pointer list-none items-center gap-1.5 py-3 text-app-subtle [&::-webkit-details-marker]:hidden">
           <Icon icon={File01Icon} size={12} />
-          team.md · Revision {document.revision}
+          {t(m.sourceRevision, { revision: document.revision })}
           <span className="ml-auto text-app-muted hover:text-app-ink group-open:hidden">
-            View source
+            {t(m.viewSource)}
           </span>
           <span className="ml-auto hidden text-app-muted hover:text-app-ink group-open:inline">
-            Hide source
+            {t(m.hideSource)}
           </span>
         </summary>
         <pre className="mb-4 whitespace-pre-wrap break-words rounded-lg bg-app-sidebar p-3 font-mono text-[12px] leading-[1.55] text-app-body">
@@ -464,6 +470,7 @@ function AgentDetail({
   edges: TeamGraph["edges"];
   node: TeamGraph["nodes"][number];
 }) {
+  const t = useT();
   const name = displayName(node.actor_id);
   const related = (direction: "from" | "to") =>
     edges.flatMap((edge) =>
@@ -479,9 +486,9 @@ function AgentDetail({
         : [],
     );
   const rows = [
-    ...(name !== node.name ? [["Name in team.md", node.name] as const] : []),
-    ["Receives from", related("from")] as const,
-    ["Sends to", related("to")] as const,
+    ...(name !== node.name ? [[t(m.nameInTeamMd), node.name] as const] : []),
+    [t(m.receivesFrom), related("from")] as const,
+    [t(m.sendsTo), related("to")] as const,
   ];
   return (
     <>
@@ -502,7 +509,7 @@ function AgentDetail({
         </div>
       </div>
       <p className="mb-3 mt-2.5 whitespace-pre-wrap break-words text-[14px] leading-[1.5] text-app-body">
-        {node.role?.trim() || "No responsibility specified in team.md."}
+        {node.role?.trim() || t(m.noResponsibility)}
       </p>
       <dl className="grid gap-2">
         {rows.map(([label, value]) => (
@@ -528,13 +535,13 @@ function AgentDetail({
                     {displayName(id)}
                     {kind === "report" ? (
                       <span className="text-[12px] text-app-subtle">
-                        report
+                        {t(m.reportTag)}
                       </span>
                     ) : null}
                   </span>
                 ))
               ) : (
-                <span className="text-xs text-app-subtle">None</span>
+                <span className="text-xs text-app-subtle">{t(m.none)}</span>
               )}
             </dd>
           </div>

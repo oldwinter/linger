@@ -29,31 +29,39 @@ import {
   Wrench,
 } from "lucide-react";
 
+import type { Translate } from "@/i18n/language";
+import type { Message } from "@/i18n/messages";
+
 import type { RuntimeActivityEntry } from "./runtime-presentation-events";
+import { runtimeStatusMessages as m } from "./runtime-status.messages";
 
 // `icon` stays Lucide for the Runtime history view; other surfaces render `glyph`.
 const presentations = {
-  command: { icon: SquareTerminal, glyph: CommandLineIcon, label: "Command" },
-  read: { icon: BookOpen, glyph: BookOpen01Icon, label: "Read file" },
-  edit: { icon: FilePenLine, glyph: FileEditIcon, label: "Edit files" },
-  search: { icon: Search, glyph: Search01Icon, label: "Search" },
-  browser: { icon: Globe, glyph: Globe02Icon, label: "Web browsing" },
-  message: { icon: MessageCircle, glyph: BubbleChatIcon, label: "Message" },
+  command: {
+    icon: SquareTerminal,
+    glyph: CommandLineIcon,
+    label: m.toolCommand,
+  },
+  read: { icon: BookOpen, glyph: BookOpen01Icon, label: m.toolRead },
+  edit: { icon: FilePenLine, glyph: FileEditIcon, label: m.toolEdit },
+  search: { icon: Search, glyph: Search01Icon, label: m.toolSearch },
+  browser: { icon: Globe, glyph: Globe02Icon, label: m.toolBrowser },
+  message: { icon: MessageCircle, glyph: BubbleChatIcon, label: m.toolMessage },
   message_read: {
     icon: MessageCircle,
     glyph: BubbleChatIcon,
-    label: "Read messages",
+    label: m.toolMessageRead,
   },
   delegation: {
     icon: Users,
     glyph: UserGroupIcon,
-    label: "Agent collaboration",
+    label: m.toolDelegation,
   },
-  image: { icon: Image, glyph: Image01Icon, label: "Image" },
-  interaction: { icon: UserRound, glyph: UserIcon, label: "User input" },
-  recovery: { icon: RefreshCw, glyph: RefreshIcon, label: "Recovery" },
-  review: { icon: ScanSearch, glyph: SearchVisualIcon, label: "Review" },
-  tool: { icon: Wrench, glyph: Wrench01Icon, label: "Tool" },
+  image: { icon: Image, glyph: Image01Icon, label: m.toolImage },
+  interaction: { icon: UserRound, glyph: UserIcon, label: m.toolInteraction },
+  recovery: { icon: RefreshCw, glyph: RefreshIcon, label: m.toolRecovery },
+  review: { icon: ScanSearch, glyph: SearchVisualIcon, label: m.toolReview },
+  tool: { icon: Wrench, glyph: Wrench01Icon, label: m.tool },
 };
 type ToolCategory = keyof typeof presentations;
 
@@ -79,14 +87,25 @@ const kinds: Record<string, ToolCategory> = {
  * How a tool call is shown. A call of the generic kind says nothing on its
  * own, so its tool name labels it when one is known.
  */
-export function toolPresentation(kind: string, name?: string) {
+export function toolPresentation(t: Translate, kind: string, name?: string) {
   const category = kinds[kind] ?? "tool";
+  const { glyph, icon } = presentations[category];
+  const label: Message<string> = presentations[category].label;
   const named = category === "tool" && name ? toolNameLabel(name) : "";
   return {
     category,
-    ...presentations[category],
-    summary: named || summaries[category],
+    icon,
+    glyph,
+    label: t(label),
+    summary: named || t(summaries[category]),
   };
+}
+
+/** A tool call's kind and icons, which read the same in every language. */
+export function toolAppearance(kind: string) {
+  const category = kinds[kind] ?? "tool";
+  const { glyph, icon } = presentations[category];
+  return { category, glyph, icon };
 }
 
 /**
@@ -101,23 +120,24 @@ export function toolNameLabel(name: string) {
   return words ? words.charAt(0).toUpperCase() + words.slice(1) : name;
 }
 
-const summaries: Record<ToolCategory, string> = {
-  command: "Running a command",
-  read: "Reviewing files",
-  edit: "Updating files",
-  search: "Searching for information",
-  browser: "Reviewing online information",
-  message: "Sending an update",
-  message_read: "Reading messages",
-  delegation: "Coordinating with another agent",
-  image: "Working with images",
-  interaction: "Waiting for your input",
-  recovery: "Recovering the task",
-  review: "Reviewing the results",
-  tool: "Working on the task",
+const summaries: Record<ToolCategory, Message<string>> = {
+  command: m.summaryCommand,
+  read: m.summaryRead,
+  edit: m.summaryEdit,
+  search: m.summarySearch,
+  browser: m.summaryBrowser,
+  message: m.summaryMessage,
+  message_read: m.readingMessages,
+  delegation: m.summaryDelegation,
+  image: m.workingWithImages,
+  interaction: m.stateWaitingForInput,
+  recovery: m.recoveringTask,
+  review: m.reviewingResults,
+  tool: m.summaryTool,
 };
 
 export function toolGroupPresentation(
+  t: Translate,
   calls: readonly ReturnType<typeof toolPresentation>[],
 ) {
   const single = calls.length === 1 ? calls[0] : undefined;
@@ -131,10 +151,10 @@ export function toolGroupPresentation(
     glyph: calls[0]?.glyph ?? CheckListIcon,
     label:
       calls.length > 1 && (!category || category === "tool")
-        ? `Working through ${calls.length} steps`
+        ? t(m.workingThroughSteps, { count: calls.length })
         : category
-          ? summaries[category]
-          : "Working through the task",
+          ? t(summaries[category])
+          : t(m.workingThroughTask),
   };
 }
 
@@ -166,19 +186,22 @@ export function toolInputFromEntries(
 
 // Phrases for Activities the Computer does not name itself, such as an MCP
 // tool. An unnamed command has none: the status line keeps its last text.
-const statusPhrases: Record<Exclude<ToolCategory, "command">, string> = {
-  read: "Reading files",
-  edit: "Editing files",
-  search: "Searching",
-  browser: "Browsing the web",
-  message: "Sending a message",
-  message_read: "Reading messages",
-  delegation: "Working with another agent",
-  image: "Working with images",
-  interaction: "Waiting for your input",
-  recovery: "Recovering the task",
-  review: "Reviewing the results",
-  tool: "Using tools",
+const statusPhrases: Record<
+  Exclude<ToolCategory, "command">,
+  Message<string>
+> = {
+  read: m.phraseRead,
+  edit: m.phraseEdit,
+  search: m.phraseSearch,
+  browser: m.phraseBrowser,
+  message: m.phraseMessage,
+  message_read: m.readingMessages,
+  delegation: m.phraseDelegation,
+  image: m.workingWithImages,
+  interaction: m.stateWaitingForInput,
+  recovery: m.recoveringTask,
+  review: m.reviewingResults,
+  tool: m.phraseTool,
 };
 
 /** How the Room status line names an Activity. */
@@ -194,6 +217,7 @@ export interface ActivityStatusLine {
  * the steps the Computer read from it, else its kind's phrase.
  */
 export function activityStatusLine(
+  t: Translate,
   kind: string,
   input?: unknown,
 ): ActivityStatusLine {
@@ -208,8 +232,8 @@ export function activityStatusLine(
       )
     : [];
   if (steps.length > 0) return { steps };
-  const category = toolPresentation(kind).category;
-  return { steps: category === "command" ? [] : [statusPhrases[category]] };
+  const category = toolAppearance(kind).category;
+  return { steps: category === "command" ? [] : [t(statusPhrases[category])] };
 }
 
 function inputFields(input: unknown): Record<string, unknown> {

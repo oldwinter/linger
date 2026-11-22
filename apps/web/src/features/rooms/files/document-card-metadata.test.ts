@@ -1,19 +1,24 @@
 import { describe, expect, it } from "vitest";
+import { translate } from "@/i18n/language";
+
 import { documentCardPresentation } from "./document-card-metadata";
 
 describe("Document card metadata", () => {
   it("uses current Version metadata for binary uploads instead of a renamed title", () => {
     expect(
-      documentCardPresentation({
-        title: "Report.md",
-        format: "binary",
-        representation_format: "binary",
-        version: {
-          filename: "budget.xlsx",
-          media_type:
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      documentCardPresentation(
+        {
+          title: "Report.md",
+          format: "binary",
+          representation_format: "binary",
+          version: {
+            filename: "budget.xlsx",
+            media_type:
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          },
         },
-      }),
+        translate,
+      ),
     ).toEqual({
       filename: "Report.md",
       iconKind: "spreadsheet",
@@ -22,11 +27,14 @@ describe("Document card metadata", () => {
   });
   it("does not turn a native Document into Markdown because its title ends in md", () => {
     expect(
-      documentCardPresentation({
-        title: "Report.md",
-        format: "blocknote",
-        representation_format: "markdown",
-      }),
+      documentCardPresentation(
+        {
+          title: "Report.md",
+          format: "blocknote",
+          representation_format: "markdown",
+        },
+        translate,
+      ),
     ).toEqual({
       filename: "Report.md",
       iconKind: "document",
@@ -42,16 +50,19 @@ describe("Document card metadata", () => {
     "uses the authoritative %s format even when the title claims another format",
     (format, iconKind, typeLabel) => {
       expect(
-        documentCardPresentation({
-          title: "Misleading.pdf.md",
-          format,
-          representation_format: format,
-        }),
+        documentCardPresentation(
+          {
+            title: "Misleading.pdf.md",
+            format,
+            representation_format: format,
+          },
+          translate,
+        ),
       ).toEqual({ filename: "Misleading.pdf.md", iconKind, typeLabel });
     },
   );
   it("uses a neutral card while authorized metadata is unavailable", () => {
-    expect(documentCardPresentation()).toEqual({
+    expect(documentCardPresentation(undefined, translate)).toEqual({
       filename: "Document",
       iconKind: "document",
       typeLabel: "Document",

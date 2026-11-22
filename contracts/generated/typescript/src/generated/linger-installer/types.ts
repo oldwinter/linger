@@ -283,6 +283,40 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/byok/check": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Validate BYOK upstream endpoint via localmodels */
+    post: operations["checkInstallerByok"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/byok/models": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** List the models a BYOK upstream endpoint serves via localmodels */
+    post: operations["listInstallerByokModels"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/runtime-login": {
     parameters: {
       query?: never;
@@ -398,6 +432,47 @@ export interface components {
     ModelCheckReport: {
       checks: components["schemas"]["CheckResult"][];
     };
+    /** @description Empty, or whole path segments each led by one slash, appended to baseUrl. */
+    ByokUrlPath: string;
+    /** @enum {string} */
+    ByokProtocol: "openai-chat" | "openai-responses" | "anthropic";
+    /** @description Requests go to baseUrl + path + endpoint in protocol; models are listed at baseUrl + path + /models. */
+    ByokEndpoint: {
+      baseUrl: string;
+      path: components["schemas"]["ByokUrlPath"];
+      endpoint: components["schemas"]["ByokUrlPath"];
+      protocol: components["schemas"]["ByokProtocol"];
+      apiKey?: string;
+    };
+    ByokConfiguration: {
+      baseUrl: string;
+      path: components["schemas"]["ByokUrlPath"];
+      endpoint: components["schemas"]["ByokUrlPath"];
+      protocol: components["schemas"]["ByokProtocol"];
+      apiKey?: string;
+      modelId: string;
+      contextWindow?: number;
+      /**
+       * @description The Runtime BYOK is mounted for when the job applies it.
+       * @enum {string}
+       */
+      runtime?: "claude" | "codex" | "pi";
+    };
+    ByokModelReport: {
+      url: string;
+      models: {
+        id: string;
+        name?: string;
+        contextWindow?: number;
+      }[];
+    };
+    ByokCheckReport: {
+      ok: boolean;
+      protocol: components["schemas"]["ByokProtocol"];
+      url: string;
+      modelId: string;
+      contextWindow: number;
+    };
     /** @description Continue the private saved job input, replacing only model approval or explicit review. Omit both for an ordinary retry without spent authority. */
     LocalModelsAuthority: {
       localModelsApproval?: string;
@@ -429,6 +504,7 @@ export interface components {
        */
       preparation?: "codex" | "claude" | "pi";
       runtimeModel?: components["schemas"]["ModelConfiguration"];
+      byok?: components["schemas"]["ByokConfiguration"];
       /** @default default */
       instance: string;
       port?: number;
@@ -526,6 +602,11 @@ export interface components {
       deviceCode?: string;
       acceptsCode?: boolean;
       message?: string;
+      /**
+       * @description Why a failed sign-in ended. unavailable - this runtime has no native sign-in; timed_out - nobody finished it in time; ended - the login process stopped without a sign-in.
+       * @enum {string}
+       */
+      reason?: "unavailable" | "timed_out" | "ended";
     };
     InstallationJob: {
       /** @description Explicit consent to share currently free GPU memory with existing tasks; defaults to false and never stops other processes. */
@@ -624,7 +705,7 @@ export interface components {
       localModels: {
         eligible: boolean;
         /**
-         * @description Upstream stack.state. blocked-now means the hardware can run the plan, but installing now would stop until other programs free memory; a tool without stack.state reports that case as basis capacity or reason free-memory-required.
+         * @description Upstream stack.state. blocked-now means the hardware can run the plan, but installing now would stop until a local blocker clears (such as freeing memory or updating the NVIDIA driver); a tool without stack.state reports memory blocks as basis capacity or reason free-memory-required.
          * @enum {string}
          */
         state: "ready" | "blocked-now" | "unavailable";
@@ -637,9 +718,23 @@ export interface components {
           vramFreeBytes?: number;
           vramRequiredBytes?: number;
         };
-        reasons: string[];
-        /** @description Human-readable upstream explanations in the same order as reasons; model eligibility remains upstream-owned. */
-        reasonMessages?: string[];
+        /** @description Upstream stack.reasons. Clients choose their copy by code and its counts; message is upstream diagnostic text for logs, never shown or matched on. */
+        reasons: {
+          code: string;
+          message: string;
+          /** @description On gpu-memory-required, the card other programs hold memory on. */
+          gpuIndex?: number;
+          /** @description On gpu-memory-required (that card's VRAM) and free-memory-required (RAM), the memory free now. */
+          freeBytes?: number;
+          /** @description The memory the install needs free, for the same resource as freeBytes. */
+          requiredBytes?: number;
+          /** @description On cuda-driver-update-required, the CUDA version the installed NVIDIA driver reports. */
+          detectedCudaVersion?: string;
+          /** @description On cuda-driver-update-required and cuda-driver-version-unknown, the minimum CUDA version the pinned engine requires. */
+          requiredCudaVersion?: string;
+          /** @description On CUDA driver reasons, the installed NVIDIA driver version when known. */
+          driverVersion?: string;
+        }[];
         /**
          * @description Present when the upstream plan fits this computer's hardware only once other programs release the memory they hold now (reason free-memory-required); installing plans again against the memory free then.
          * @enum {string}
@@ -1528,6 +1623,90 @@ export interface operations {
       };
     };
   };
+  checkInstallerByok: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ByokConfiguration"];
+      };
+    };
+    responses: {
+      /** @description BYOK check result */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ByokCheckReport"];
+        };
+      };
+      /** @description Invalid request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["InstallerError"];
+        };
+      };
+      /** @description Local installer session required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["InstallerError"];
+        };
+      };
+    };
+  };
+  listInstallerByokModels: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ByokEndpoint"];
+      };
+    };
+    responses: {
+      /** @description The endpoint's models, sorted by id */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ByokModelReport"];
+        };
+      };
+      /** @description Invalid request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["InstallerError"];
+        };
+      };
+      /** @description Local installer session required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["InstallerError"];
+        };
+      };
+    };
+  };
   inspectInstallerRuntimeLogin: {
     parameters: {
       query: {
@@ -1590,6 +1769,11 @@ export interface operations {
           /** @description Existing Pi compatible model ID; not a model download request. */
           model?: string;
           code?: string;
+          /**
+           * @description Codex only. browser runs the localhost-callback login, finished in a browser on this computer; on Linux the runtime does not open its link, which is left to the caller, and elsewhere it opens the page itself. device runs the device-code login, finished in any browser. Defaults to browser on macOS and Windows and device elsewhere, with the runtime opening its own page.
+           * @enum {string}
+           */
+          method?: "browser" | "device";
         };
       };
     };

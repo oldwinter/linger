@@ -19,6 +19,20 @@ afterEach(async () => {
 });
 
 describe("document normalization HTTP API", () => {
+  it("imports HTML table relationships and links through the real worker", async () => {
+    const httpUrl = await startServer(new WorkerDocumentNormalizer());
+    const response = await fetch(`${httpUrl}/v0/document-normalizations`, {
+      body: '<p>agent@example<span>.com</span></p><table><tr><th>Item</th><th>USD</th></tr><tr><td><a href="https://example.test/item">Widget</a></td><td>37.50</td></tr></table>',
+      headers: serviceHeaders("text/html"),
+      method: "POST",
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-normalizer-version")).toBe("3");
+    await expect(response.text()).resolves.toBe(
+      "agent@example.com\n\n| Item | USD |\n| --- | --- |\n| [Widget](https://example.test/item) | 37.50 |\n",
+    );
+  });
+
   it("streams raw source bytes to the normalizer and returns versioned Markdown", async () => {
     const requests: Array<{ mediaType: string; source: Uint8Array }> = [];
     const normalizer: DocumentNormalizer = {

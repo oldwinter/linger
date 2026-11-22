@@ -2,6 +2,10 @@ import { ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import { Fragment } from "react";
 
 import { Icon } from "@/components/ui/icon";
+import type { Message } from "@/i18n/messages";
+import { useT } from "@/i18n/use-translation";
+
+import { cardsMessages } from "./cards.messages";
 
 export interface AgentFieldChange {
   field: "name" | "description" | "prompt";
@@ -9,10 +13,10 @@ export interface AgentFieldChange {
   after: string;
 }
 
-const fieldLabel: Record<AgentFieldChange["field"], string> = {
-  description: "Description",
-  name: "Name",
-  prompt: "Instructions",
+const fieldLabel: Record<AgentFieldChange["field"], Message<string>> = {
+  description: cardsMessages.fieldDescription,
+  name: cardsMessages.fieldName,
+  prompt: cardsMessages.instructions,
 };
 
 /** The name and description: the current value, then the new one. Shared by
@@ -22,16 +26,17 @@ export function AgentChangeFields({
 }: {
   changes: readonly AgentFieldChange[];
 }) {
+  const t = useT();
   return (
     <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 rounded-lg border border-app-border bg-app-surface px-3 py-2 text-xs leading-5">
       {changes.map((change) => (
         <Fragment key={change.field}>
-          <dt className="text-app-muted">{fieldLabel[change.field]}</dt>
+          <dt className="text-app-muted">{t(fieldLabel[change.field])}</dt>
           <dd className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-app-ink">
             {change.before === undefined ? null : (
               <>
                 <del className="whitespace-pre-wrap [overflow-wrap:anywhere] text-app-muted">
-                  {change.before || "None"}
+                  {change.before || t(cardsMessages.none)}
                 </del>
                 <Icon
                   className="shrink-0 text-app-muted"

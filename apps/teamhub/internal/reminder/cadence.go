@@ -38,6 +38,12 @@ func normalizePrompt(value string) (string, error) {
 	return trimmed, nil
 }
 
+const (
+	minIntervalMinutes = 10
+	maxIntervalMinutes = 7 * 24 * 60
+	intervalMinuteStep = 10
+)
+
 func validateCadence(cadence Cadence) (Cadence, error) {
 	timezone := strings.TrimSpace(cadence.Timezone)
 	if timezone == "" {
@@ -50,13 +56,13 @@ func validateCadence(cadence Cadence) (Cadence, error) {
 	switch kind {
 	case "daily":
 		hour, minute, err := requireClock(cadence.Hour, cadence.Minute)
-		if err != nil || cadence.Weekdays != nil || cadence.IntervalHours != nil {
+		if err != nil || cadence.Weekdays != nil || cadence.IntervalMinutes != nil || cadence.RunAt != nil {
 			return Cadence{}, ErrInvalid
 		}
 		return Cadence{Kind: kind, Timezone: timezone, Hour: &hour, Minute: &minute}, nil
 	case "weekly":
 		hour, minute, err := requireClock(cadence.Hour, cadence.Minute)
-		if err != nil || cadence.IntervalHours != nil {
+		if err != nil || cadence.IntervalMinutes != nil || cadence.RunAt != nil {
 			return Cadence{}, ErrInvalid
 		}
 		weekdays, err := normalizeWeekdays(cadence.Weekdays)
@@ -64,18 +70,21 @@ func validateCadence(cadence Cadence) (Cadence, error) {
 			return Cadence{}, err
 		}
 		return Cadence{Kind: kind, Timezone: timezone, Hour: &hour, Minute: &minute, Weekdays: weekdays}, nil
-	case "every_n_hours":
-		if cadence.IntervalHours == nil || *cadence.IntervalHours < 1 || *cadence.IntervalHours > 168 {
+	case "every_n_minutes":
+		if cadence.Hour != nil || cadence.Minute != nil || cadence.Weekdays != nil || cadence.RunAt != nil {
 			return Cadence{}, ErrInvalid
 		}
-		if cadence.Hour != nil || cadence.Minute != nil || cadence.Weekdays != nil {
-			return Cadence{}, ErrInvalid
+		if cadence.IntervalMinutes == nil ||
+			*cadence.IntervalMinutes < minIntervalMinutes ||
+			*cadence.IntervalMinutes > maxIntervalMinutes ||
+			*cadence.IntervalMinutes%intervalMinuteStep != 0 {
+			return Cadence{}, ErrIntervalInvalid
 		}
-		hours := *cadence.IntervalHours
-		return Cadence{Kind: kind, Timezone: timezone, IntervalHours: &hours}, nil
+		minutes := *cadence.IntervalMinutes
+		return Cadence{Kind: kind, Timezone: timezone, IntervalMinutes: &minutes}, nil
 	case "once":
 		if cadence.RunAt == nil || cadence.Hour != nil || cadence.Minute != nil ||
-			cadence.Weekdays != nil || cadence.IntervalHours != nil {
+			cadence.Weekdays != nil || cadence.IntervalMinutes != nil {
 			return Cadence{}, ErrInvalid
 		}
 		runAt := cadence.RunAt.UTC().Truncate(time.Second)
@@ -85,11 +94,12 @@ func validateCadence(cadence Cadence) (Cadence, error) {
 	}
 }
 
+// ParseSchedule validates an Agent-facing Schedule and returns a Cadence.
 func ParseSchedule(schedule Schedule) (Cadence, error) {
 	kind := strings.TrimSpace(schedule.Kind)
 	switch kind {
 	case "daily", "weekly":
-		if schedule.IntervalHours != nil || (kind == "daily" && schedule.Weekdays != nil) {
+		if schedule.IntervalMinutes != nil || schedule.IntervalHours != nil || schedule.RunAt != nil || (kind == "daily" && schedule.Weekdays != nil) {
 			return Cadence{}, ErrInvalid
 		}
 		hour, minute, err := parseClock(schedule.Time)
@@ -103,15 +113,27 @@ func ParseSchedule(schedule Schedule) (Cadence, error) {
 			cadence.Weekdays = schedule.Weekdays
 		}
 		return validateCadence(cadence)
-	case "every_n_hours":
-		if strings.TrimSpace(schedule.Time) != "" || strings.TrimSpace(schedule.Timezone) != "" || schedule.Weekdays != nil || schedule.IntervalHours == nil {
+	case "every_n_minutes":
+		if strings.TrimSpace(schedule.Time) != "" || strings.TrimSpace(schedule.Timezone) != "" || schedule.Weekdays != nil || schedule.RunAt != nil || schedule.IntervalHours != nil {
 			return Cadence{}, ErrInvalid
 		}
-		hours := *schedule.IntervalHours
-		return validateCadence(Cadence{Kind: kind, Timezone: "UTC", IntervalHours: &hours})
+		if schedule.IntervalMinutes == nil {
+			return Cadence{}, ErrIntervalInvalid
+		}
+		minutes := *schedule.IntervalMinutes
+		return validateCadence(Cadence{Kind: kind, Timezone: "UTC", IntervalMinutes: &minutes})
+	case "every_n_hours":
+		if strings.TrimSpace(schedule.Time) != "" || strings.TrimSpace(schedule.Timezone) != "" || schedule.Weekdays != nil || schedule.RunAt != nil || schedule.IntervalMinutes != nil {
+			return Cadence{}, ErrInvalid
+		}
+		if schedule.IntervalHours == nil || *schedule.IntervalHours < 1 || *schedule.IntervalHours > maxIntervalMinutes/60 {
+			return Cadence{}, ErrIntervalInvalid
+		}
+		minutes := *schedule.IntervalHours * 60
+		return validateCadence(Cadence{Kind: "every_n_minutes", Timezone: "UTC", IntervalMinutes: &minutes})
 	case "once":
 		if strings.TrimSpace(schedule.Time) != "" || schedule.Weekdays != nil ||
-			schedule.IntervalHours != nil || schedule.RunAt == nil {
+			schedule.IntervalMinutes != nil || schedule.IntervalHours != nil || schedule.RunAt == nil {
 			return Cadence{}, ErrInvalid
 		}
 		timezone := strings.TrimSpace(schedule.Timezone)
@@ -124,9 +146,10 @@ func ParseSchedule(schedule Schedule) (Cadence, error) {
 	}
 }
 
+// ScheduleFromCadence projects a persisted Cadence to the Agent-facing Schedule.
 func ScheduleFromCadence(cadence Cadence) Schedule {
-	if cadence.Kind == "every_n_hours" {
-		return Schedule{Kind: cadence.Kind, IntervalHours: cadence.IntervalHours}
+	if cadence.Kind == "every_n_minutes" {
+		return Schedule{Kind: cadence.Kind, IntervalMinutes: cadence.IntervalMinutes}
 	}
 	if cadence.Kind == "once" {
 		return Schedule{Kind: cadence.Kind, Timezone: cadence.Timezone, RunAt: cadence.RunAt}
@@ -192,8 +215,8 @@ func nextRunAt(cadence Cadence, after time.Time) (time.Time, error) {
 			}
 		}
 		return next, nil
-	case "every_n_hours":
-		next := after.Add(time.Duration(*normalized.IntervalHours) * time.Hour)
+	case "every_n_minutes":
+		next := after.Add(time.Duration(*normalized.IntervalMinutes) * time.Minute)
 		if !next.After(after) {
 			return time.Time{}, ErrInvalid
 		}
@@ -207,6 +230,34 @@ func nextRunAt(cadence Cadence, after time.Time) (time.Time, error) {
 	default:
 		return time.Time{}, ErrInvalid
 	}
+}
+
+// nextOccurrenceAt advances a fired or skipped occurrence to the next future
+// slot. Interval cadences advance on the fixed dueAt + k*interval grid so
+// scheduling latency never accumulates drift and downtime never replays missed
+// slots.
+func nextOccurrenceAt(cadence Cadence, dueAt, now time.Time) (time.Time, error) {
+	normalized, err := validateCadence(cadence)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if normalized.Kind == "every_n_minutes" {
+		return nextIntervalRunAt(dueAt, now, time.Duration(*normalized.IntervalMinutes)*time.Minute)
+	}
+	return nextRunAt(normalized, maxTime(now, dueAt))
+}
+
+func nextIntervalRunAt(dueAt, now time.Time, interval time.Duration) (time.Time, error) {
+	if interval <= 0 {
+		return time.Time{}, ErrInvalid
+	}
+	dueAt = dueAt.UTC()
+	now = now.UTC()
+	if now.Before(dueAt) {
+		return dueAt.Add(interval), nil
+	}
+	steps := int64(now.Sub(dueAt)/interval) + 1
+	return dueAt.Add(time.Duration(steps) * interval), nil
 }
 
 func nextDaily(hour, minute int, timezone string, after time.Time) (time.Time, error) {

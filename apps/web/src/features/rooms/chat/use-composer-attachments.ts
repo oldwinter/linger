@@ -8,10 +8,14 @@ import {
 } from "react";
 
 import { createTeamHubIdempotencyKey } from "@/features/teamhub/teamhub-client";
+import { TeamHubError } from "@/features/teamhub/teamhub-error";
+import { translate } from "@/i18n/language";
+import { formatBytes } from "@/lib/format-bytes";
 import {
   type ComposerAttachment,
   composerAttachmentStore,
 } from "./composer-attachment-drafts";
+import { composerMessages } from "./composer.messages";
 import type { MessageComposerProps } from "./message-composer";
 import {
   decodeLocalImage,
@@ -174,8 +178,7 @@ export function useComposerAttachments({
           candidate.clientId === attachment.clientId
             ? {
                 ...candidate,
-                error:
-                  error instanceof Error ? error.message : "Upload failed.",
+                error: uploadFailureCopy(error, attachment.file),
                 status: "failed",
               }
             : candidate,
@@ -214,8 +217,10 @@ export function useComposerAttachments({
     }).catch((error) =>
       setAttachmentError(
         error instanceof Error
-          ? `Attachment cleanup failed: ${error.message}`
-          : "Attachment cleanup failed.",
+          ? translate(composerMessages.attachmentCleanupFailedDetail, {
+              detail: error.message,
+            })
+          : translate(composerMessages.attachmentCleanupFailed),
       ),
     );
   }
@@ -260,10 +265,29 @@ export function filesFromClipboard(clipboardData: DataTransfer): File[] {
   });
 }
 
+/** Why one upload failed; TeamHub's limit refusal names both sizes. */
+function uploadFailureCopy(error: unknown, file: File) {
+  if (error instanceof TeamHubError && error.code === "PAYLOAD_TOO_LARGE") {
+    const limit = error.details?.find(
+      (detail) => detail.code === "too_large",
+    )?.limit_bytes;
+    if (limit !== undefined)
+      return translate(composerMessages.attachmentTooLarge, {
+        limit: formatBytes(limit),
+        size: formatBytes(file.size),
+      });
+  }
+  return error instanceof Error
+    ? error.message
+    : translate(composerMessages.uploadFailed);
+}
+
 function validateMessageAttachments(files: File[]) {
   if (files.length > maximumAttachmentCount) {
     return {
-      error: `Attach up to ${maximumAttachmentCount} files at a time.`,
+      error: translate(composerMessages.attachmentLimit, {
+        limit: maximumAttachmentCount,
+      }),
       files: [],
     };
   }

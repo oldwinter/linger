@@ -1243,6 +1243,16 @@ function installSeedRoutes(server: TeamHubTestServer, seed: TeamHubTestSeed) {
     .on("GET", "/v0/external-connections", () => ({
       connections: seed.externalSources.connections,
     }))
+    .on("GET", "/v0/web-search/backends", ({ query }) =>
+      query.get("include_quota") === "false"
+        ? {
+            ...seed.webSearch,
+            backends: seed.webSearch.backends.map(
+              ({ quota: _quota, ...backend }) => backend,
+            ),
+          }
+        : seed.webSearch,
+    )
     .on(
       "GET",
       "/v0/external-connections/{externalConnectionId}",

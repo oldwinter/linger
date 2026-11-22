@@ -4,6 +4,7 @@ import {
   CheckListIcon,
   Loading03Icon,
   SparklesIcon,
+  Tick02Icon,
 } from "@hugeicons/core-free-icons";
 import { HeadlessMantineProvider, Spoiler } from "@mantine/core";
 import { Icon, type IconSvgElement } from "@/components/ui/icon";
@@ -13,6 +14,8 @@ import type {
   TeamHubMessage,
   TeamHubRuntimePresentationEventRecord,
 } from "@/features/teamhub/teamhub-types";
+import type { Translate } from "@/i18n/language";
+import { useT } from "@/i18n/use-translation";
 
 import { MessageMarkdown } from "../chat/message-markdown";
 import {
@@ -24,8 +27,11 @@ import {
 } from "./runtime-activity-path";
 import type { RuntimeActivityEntry } from "./runtime-presentation-events";
 import { RuntimeActivityEntries } from "./runtime-activity-entries";
+import { runtimeFailureMessage } from "./runtime-failure-message";
+import { runtimeStatusMessages as m } from "./runtime-status.messages";
 import { TaskActivityBlock } from "./task-activity-block";
 import {
+  toolAppearance,
   toolGroupPresentation,
   toolPresentation,
 } from "./runtime-tool-presentation";
@@ -43,6 +49,7 @@ export function RuntimeActivityPath({
   embedded?: boolean;
   records: readonly TeamHubRuntimePresentationEventRecord[];
 }) {
+  const t = useT();
   const items = useMemo(
     () =>
       projectRuntimeActivityPath(records, replyTextById(messages), lifecycle),
@@ -52,7 +59,10 @@ export function RuntimeActivityPath({
   const shouldFollowLatestRef = useRef(true);
   const [showEarlier, setShowEarlier] = useState(false);
   const latestKey = items.at(-1)?.key;
-  const conciseItems = useMemo(() => compactActivityItems(items), [items]);
+  const conciseItems = useMemo(
+    () => compactActivityItems(items, t),
+    [items, t],
+  );
   const recentItems = conciseItems.slice(-8);
   const latestPlan = [...conciseItems]
     .reverse()
@@ -91,7 +101,7 @@ export function RuntimeActivityPath({
 
   return (
     <ol
-      aria-label="Activity log"
+      aria-label={t(m.activityLog)}
       className={
         embedded
           ? "space-y-2 bg-card px-4 py-3 text-xs leading-5 text-app-muted"
@@ -119,8 +129,8 @@ export function RuntimeActivityPath({
             type="button"
           >
             {showEarlier
-              ? "Show less activity"
-              : `Show all activity (${earlierCount} more)`}
+              ? t(m.showLessActivity)
+              : t(m.showAllActivity, { count: earlierCount })}
           </button>
         </li>
       ) : null}
@@ -133,6 +143,7 @@ export function RuntimeActivityPath({
 
 function compactActivityItems(
   items: readonly RuntimeActivityPathItem[],
+  t: Translate,
 ): RuntimeActivityPathItem[] {
   const lastReplyKey = [...items]
     .reverse()
@@ -148,7 +159,7 @@ function compactActivityItems(
       previous &&
       isRepeatableActivityItem(item) &&
       isRepeatableActivityItem(previous) &&
-      activityItemLabel(previous) === activityItemLabel(item)
+      activityItemLabel(previous, t) === activityItemLabel(item, t)
     ) {
       // One row per repeated step. A failure this same step then got past
       // would otherwise vanish, so the two lines it published stay on the row.
@@ -185,9 +196,8 @@ function isSuccessfulMessageOnlyGroup(
   return (
     item.calls.length > 0 &&
     item.calls.every((call) => {
-      const presentation = toolPresentation(call.kind);
       return (
-        presentation.category === "message" &&
+        toolAppearance(call.kind).category === "message" &&
         call.outcome !== "failed" &&
         !call.unconfirmed
       );
@@ -286,23 +296,28 @@ function entryLine(entry: RuntimeActivityEntry): string | undefined {
   return line || undefined;
 }
 
-function activityItemLabel(item: RuntimeActivityPathItem): string {
+function activityItemLabel(
+  item: RuntimeActivityPathItem,
+  t: Translate,
+): string {
   if (item.kind === "command") {
-    return toolPresentation("command").summary;
+    return toolPresentation(t, "command").summary;
   }
   if (item.kind === "activity") {
-    return toolPresentation(item.activityKind).summary;
+    return toolPresentation(t, item.activityKind).summary;
   }
   if (item.kind === "tool_calls") {
     return toolGroupPresentation(
-      item.calls.map((call) => toolPresentation(call.kind, call.name)),
+      t,
+      item.calls.map((call) => toolPresentation(t, call.kind, call.name)),
     ).label;
   }
-  if (item.kind === "reply") return "Prepared a reply";
+  if (item.kind === "reply") return t(m.preparedReply);
   return item.kind;
 }
 
 function RuntimeActivityPathRow({ item }: { item: RuntimeActivityPathItem }) {
+  const t = useT();
   if (item.kind === "thinking") {
     return (
       <li className="runtime-activity-step flex min-h-8 items-start gap-2 py-1.5">
@@ -334,7 +349,7 @@ function RuntimeActivityPathRow({ item }: { item: RuntimeActivityPathItem }) {
     );
   }
   if (item.kind === "command") {
-    const presentation = toolPresentation("command");
+    const presentation = toolPresentation(t, "command");
     return (
       <ActivitySummaryRow
         active={item.active}
@@ -349,7 +364,7 @@ function RuntimeActivityPathRow({ item }: { item: RuntimeActivityPathItem }) {
     );
   }
   if (item.kind === "activity") {
-    const presentation = toolPresentation(item.activityKind);
+    const presentation = toolPresentation(t, item.activityKind);
     return (
       <ActivitySummaryRow
         active={item.active}
@@ -375,7 +390,10 @@ function RuntimeActivityPathRow({ item }: { item: RuntimeActivityPathItem }) {
   return (
     <li className="runtime-activity-step py-1.5">
       <p className={item.tone === "failed" ? "text-app-danger" : undefined}>
-        {item.text}
+        {/* An interrupted Run says why it stopped, without the error colour. */}
+        {item.tone === "failed" || item.failure
+          ? runtimeFailureMessage(t, item.failure)
+          : t(m.runCanceled)}
       </p>
     </li>
   );
@@ -400,6 +418,7 @@ function ActivitySummaryRow({
   summary: string;
   tool: string;
 }) {
+  const t = useT();
   return (
     <li className="runtime-activity-step">
       <details className="group">
@@ -424,7 +443,9 @@ function ActivitySummaryRow({
           </span>
           {active ? <ActiveMark /> : null}
           {unconfirmed ? (
-            <span className="text-[10px] text-app-muted">Unconfirmed</span>
+            <span className="text-[10px] text-app-muted">
+              {t(m.unconfirmed)}
+            </span>
           ) : null}
           <Icon
             icon={ArrowRight01Icon}
@@ -461,14 +482,15 @@ function ToolCallsRow({
   calls: readonly RuntimeActivityPathToolCall[];
   recovery?: ActivityRecovery;
 }) {
+  const t = useT();
   const active = calls.some((call) => call.active);
   const presentedCalls = calls.map((call) => {
     return {
       ...call,
-      ...toolPresentation(call.kind, call.name),
+      ...toolPresentation(t, call.kind, call.name),
     };
   });
-  const { glyph: groupGlyph, label } = toolGroupPresentation(presentedCalls);
+  const { glyph: groupGlyph, label } = toolGroupPresentation(t, presentedCalls);
   const lines = recovery ?? recoveryAcrossCalls(calls);
   return (
     <li className="runtime-activity-step">
@@ -480,13 +502,13 @@ function ToolCallsRow({
             className={`relative inline-flex size-[15px] shrink-0 items-center justify-center ${lines ? "mt-0.5" : ""}`}
           >
             <Icon
-              className="absolute inset-0 m-auto group-hover:hidden group-focus-within:hidden group-open:hidden"
+              className="absolute inset-0 m-auto transition-opacity group-hover:opacity-0 group-focus-within:opacity-0 group-open:opacity-0 [@media(hover:none)]:opacity-0 motion-reduce:transition-none"
               icon={groupGlyph}
               size={14}
             />
             <Icon
               icon={ArrowRight01Icon}
-              className="absolute inset-0 m-auto hidden group-hover:block group-focus-within:block group-open:block group-open:rotate-90 motion-reduce:transition-none"
+              className="absolute inset-0 m-auto opacity-0 transition-[opacity,transform] group-hover:opacity-100 group-focus-within:opacity-100 group-open:opacity-100 group-open:rotate-90 [@media(hover:none)]:opacity-100 motion-reduce:transition-none"
               size={14}
             />
           </span>
@@ -506,6 +528,7 @@ function ToolCallsRow({
         <ul className="space-y-1 pb-2 pl-[1.45rem]">
           {presentedCalls.map((call) => {
             const { glyph, label } = call;
+            const labeledName = t(m.labeled, { label, value: call.name });
             const name = (
               <>
                 <span
@@ -515,16 +538,13 @@ function ToolCallsRow({
                 >
                   <Icon icon={glyph} size={14} />
                 </span>
-                <span
-                  className="min-w-0 flex-1 truncate"
-                  title={`${label}: ${call.name}`}
-                >
+                <span className="min-w-0 flex-1 truncate" title={labeledName}>
                   {call.summary}
                 </span>
                 {call.active ? <ActiveMark /> : null}
                 {call.unconfirmed ? (
                   <span className="text-[10px] text-app-muted">
-                    Unconfirmed
+                    {t(m.unconfirmed)}
                   </span>
                 ) : null}
               </>
@@ -538,7 +558,7 @@ function ToolCallsRow({
                   <RuntimeActivityEntries
                     entries={call.entries}
                     outcome={call.outcome}
-                    title={`${label}: ${call.name}`}
+                    title={labeledName}
                     tool={call.name}
                   />
                 </details>
@@ -552,12 +572,13 @@ function ToolCallsRow({
 }
 
 function ReplyRow({ text }: { text: string }) {
+  const t = useT();
   return (
     <li className="runtime-activity-step py-1.5">
       <details className="group/reply">
         <summary className="flex min-h-8 cursor-pointer list-none items-center gap-2 hover:text-app-body focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-app-focus [&::-webkit-details-marker]:hidden">
           <Icon icon={BubbleChatIcon} className="shrink-0" size={14} />
-          <span className="min-w-0 flex-1 truncate">Prepared a reply</span>
+          <span className="min-w-0 flex-1 truncate">{t(m.preparedReply)}</span>
           <Icon
             icon={ArrowRight01Icon}
             className="shrink-0 transition-transform group-open/reply:rotate-90 motion-reduce:transition-none"
@@ -577,18 +598,19 @@ function PlanRow({
 }: {
   item: Extract<RuntimeActivityPathItem, { kind: "plan" }>;
 }) {
+  const t = useT();
   return (
     <li className="runtime-activity-step py-1.5">
       <div className="flex min-h-8 items-center gap-2">
         <Icon icon={CheckListIcon} className="shrink-0" size={14} />
-        <span className="min-w-0 flex-1 truncate">Plan</span>
+        <span className="min-w-0 flex-1 truncate">{t(m.plan)}</span>
       </div>
       {item.explanation ? (
         <p className="whitespace-pre-wrap break-words pb-1 pl-[1.45rem]">
           {item.explanation}
         </p>
       ) : null}
-      <ol aria-label="Run plan" className="space-y-1 pb-1 pl-[1.45rem]">
+      <ol aria-label={t(m.runPlan)} className="space-y-1 pb-1 pl-[1.45rem]">
         {item.steps.map((step) => (
           <li
             className="flex min-w-0 items-start gap-2"
@@ -615,9 +637,20 @@ function PlanMark({
     return (
       <Icon
         icon={Loading03Icon}
-        className="mt-1 shrink-0 animate-spin text-app-info"
+        className="mt-1 shrink-0 animate-spin text-app-info motion-reduce:animate-none"
         size={12}
       />
+    );
+  }
+  if (status === "completed") {
+    return (
+      <span
+        aria-label="Completed"
+        className="mt-1 inline-flex shrink-0 text-app-success"
+        role="img"
+      >
+        <Icon icon={Tick02Icon} size={12} />
+      </span>
     );
   }
   return (
@@ -628,6 +661,7 @@ function PlanMark({
 // Spoiler owns measurement, resize updates, disclosure state and ARIA wiring.
 // Headless mode keeps the existing app styles and avoids global Mantine CSS.
 function ThinkingText({ children }: { children: ReactNode }) {
+  const t = useT();
   return (
     <HeadlessMantineProvider>
       <Spoiler
@@ -637,9 +671,9 @@ function ThinkingText({ children }: { children: ReactNode }) {
           control:
             "mt-1 inline-flex min-h-7 items-center rounded-md px-1 text-xs font-medium text-app-muted hover:bg-app-hover hover:text-app-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-app-focus",
         }}
-        hideLabel="Show less"
+        hideLabel={t(m.showLess)}
         maxHeight={40}
-        showLabel="Show more"
+        showLabel={t(m.showMore)}
       >
         {children}
       </Spoiler>
@@ -654,9 +688,10 @@ function replyTextById(messages: readonly TeamHubMessage[]) {
 }
 
 function ActiveMark() {
+  const t = useT();
   return (
     <span
-      aria-label="In progress"
+      aria-label={t(m.inProgress)}
       className="town-dots shrink-0 text-app-muted"
       role="img"
     >

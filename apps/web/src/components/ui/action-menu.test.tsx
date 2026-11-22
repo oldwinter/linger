@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { defineGlobalProperty } from "@/test/global-properties";
 
 import { ActionMenu, type MenuPlacement } from "./action-menu";
 
@@ -101,11 +102,11 @@ describe("ActionMenu", () => {
     ({ triggerLeft, expectedLeft }) => {
       const originalWidth = window.innerWidth;
       const originalHeight = window.innerHeight;
-      Object.defineProperty(window, "innerWidth", {
+      defineGlobalProperty(window, "innerWidth", {
         configurable: true,
         value: 1024,
       });
-      Object.defineProperty(window, "innerHeight", {
+      defineGlobalProperty(window, "innerHeight", {
         configurable: true,
         value: 768,
       });
@@ -139,11 +140,11 @@ describe("ActionMenu", () => {
         );
       } finally {
         bounds.mockRestore();
-        Object.defineProperty(window, "innerWidth", {
+        defineGlobalProperty(window, "innerWidth", {
           configurable: true,
           value: originalWidth,
         });
-        Object.defineProperty(window, "innerHeight", {
+        defineGlobalProperty(window, "innerHeight", {
           configurable: true,
           value: originalHeight,
         });
@@ -429,5 +430,49 @@ describe("ActionMenu", () => {
     fireEvent.scroll(menu.firstElementChild!);
     expect(screen.queryByRole("menu", { name: "Project" })).toBeNull();
     expect(menu).toBeVisible();
+  });
+
+  it("omits empty icon columns, marks separators, supports submenu danger/separators and Enter/Space focus, and click-toggles openOnHover", async () => {
+    render(
+      <ActionMenu
+        items={[
+          {
+            children: [
+              { label: "Archive" },
+              { danger: true, label: "Delete", separatorBefore: true },
+            ],
+            label: "More",
+          },
+          { label: "Rename", separatorBefore: true },
+        ]}
+        label="Row actions"
+        openOnHover
+      />,
+    );
+
+    const trigger = screen.getByRole("button", { name: "Row actions" });
+    fireEvent.click(trigger);
+    const menu = screen.getByRole("menu", { name: "Row actions" });
+    expect(within(menu).getByRole("separator")).toBeInTheDocument();
+    const rename = within(menu).getByRole("menuitem", { name: "Rename" });
+    // No items have icons, so only the label span is rendered inside the item.
+    expect(rename.children).toHaveLength(1);
+
+    const more = within(menu).getByRole("menuitem", { name: "More" });
+    fireEvent.keyDown(more, { key: "Enter" });
+    const submenu = await screen.findByRole("menu", { name: "More" });
+    await vi.waitFor(() =>
+      expect(
+        within(submenu).getByRole("menuitem", { name: "Archive" }),
+      ).toHaveFocus(),
+    );
+    expect(within(submenu).getByRole("separator")).toBeInTheDocument();
+    expect(
+      within(submenu).getByRole("menuitem", { name: "Delete" }),
+    ).toHaveClass("text-destructive");
+
+    // Clicking an openOnHover trigger toggles the menu closed.
+    fireEvent.click(trigger);
+    expect(screen.queryByRole("menu")).toBeNull();
   });
 });

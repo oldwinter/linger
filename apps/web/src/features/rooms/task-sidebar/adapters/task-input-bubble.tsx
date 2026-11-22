@@ -3,9 +3,11 @@ import { HeadlessMantineProvider, Spoiler } from "@mantine/core";
 import { useState } from "react";
 
 import { Icon } from "@/components/ui/icon";
+import { useT } from "@/i18n/use-translation";
 import { cn } from "@/lib/cn";
 
 import { MessageMarkdown } from "../../chat/message-markdown";
+import { runtimeStatusMessages as m } from "../../runtime-status/runtime-status.messages";
 
 /** About four lines of message text. */
 const FOLDED_HEIGHT = 110;
@@ -21,6 +23,7 @@ export function TaskInputBubble({
   authorKind: "agent" | "human";
   body: string;
 }) {
+  const t = useT();
   const [expanded, setExpanded] = useState(false);
   return (
     <div className="flex justify-end">
@@ -43,7 +46,7 @@ export function TaskInputBubble({
               expanded={expanded}
               hideLabel={
                 <>
-                  Show less
+                  {t(m.showLess)}
                   <Icon
                     className="rotate-180"
                     icon={ArrowDown01Icon}
@@ -55,7 +58,7 @@ export function TaskInputBubble({
               onExpandedChange={setExpanded}
               showLabel={
                 <>
-                  Show more
+                  {t(m.showMore)}
                   <Icon icon={ArrowDown01Icon} size={14} />
                 </>
               }

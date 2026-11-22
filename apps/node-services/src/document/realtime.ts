@@ -32,6 +32,8 @@ export interface DocumentRealtimeServerOptions {
   // Verifies the connection tokens TeamHub signs.
   connectionTokenKey: string;
   maxUnsavedBacklogBytes?: number;
+  // Tests shorten the deadline a queued mutation waits for authorization.
+  mutationAuthorizationDeadlineMs?: number;
   failureEvidenceDirectory?: string;
   realtimeAdmission?: Partial<RealtimeAdmissionLimits>;
   hostname?: string;
@@ -134,6 +136,7 @@ export function createDocumentRealtimeServer(
     durability,
     ordering,
     bodies: options.bodies,
+    authorizationDeadlineMs: options.mutationAuthorizationDeadlineMs,
   });
   const changes = new DocumentChangeCoordinator({
     durability,

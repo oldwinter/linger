@@ -351,6 +351,11 @@ components:
         reason:
           type: string
           minLength: 1
+        limit_bytes:
+          description: With code too_large, the largest size the field accepts, in bytes.
+          type: integer
+          format: int64
+          minimum: 0
     Error:
       type: object
       additionalProperties: false

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { summarizeStatus } from "./status.js";
+import zhCN from "../i18n/locales/zh-CN.json" with { type: "json" };
+import { translator } from "../i18n/language.js";
+import { summarizeStatus, type StatusInput } from "./status.js";
+
+const summarize = (input: StatusInput) =>
+  summarizeStatus(input, translator("en"));
 
 const base = {
   connection: "online",
@@ -11,31 +16,29 @@ const base = {
 
 describe("summarizeStatus", () => {
   it("describes each state in one line", () => {
-    expect(summarizeStatus(base)).toEqual({
+    expect(summarize(base)).toEqual({
       tone: "online",
       label: "Online · Idle",
     });
-    expect(summarizeStatus({ ...base, running: 2 })).toEqual({
+    expect(summarize({ ...base, running: 2 })).toEqual({
       tone: "busy",
       label: "Running 2 Tasks",
     });
-    expect(summarizeStatus({ ...base, connection: "connecting" })).toEqual({
+    expect(summarize({ ...base, connection: "connecting" })).toEqual({
       tone: "offline",
       label: "Offline · Reconnecting",
     });
-    expect(summarizeStatus({ ...base, connection: "auth_failed" }).tone).toBe(
+    expect(summarize({ ...base, connection: "auth_failed" }).tone).toBe(
       "error",
     );
-    expect(summarizeStatus({ ...base, runtime: "crashed" }).tone).toBe("error");
-    expect(summarizeStatus({ ...base, runtime: "starting" }).label).toBe(
-      "Starting…",
-    );
-    expect(summarizeStatus({ ...base, enrolled: false }).tone).toBe("setup");
+    expect(summarize({ ...base, runtime: "crashed" }).tone).toBe("error");
+    expect(summarize({ ...base, runtime: "starting" }).label).toBe("Starting…");
+    expect(summarize({ ...base, enrolled: false }).tone).toBe("setup");
   });
 
   it("asks to reconnect when the daemon has no valid credential", () => {
     expect(
-      summarizeStatus({
+      summarize({
         ...base,
         connection: "auth_failed",
         runtime: "stopped",
@@ -46,15 +49,24 @@ describe("summarizeStatus", () => {
     });
   });
 
-  it("never reports a Computer whose identity another Computer holds as healthy", () => {
-    expect(summarizeStatus({ ...base, identityConflict: true })).toEqual({
+  it("asks to reconnect on a Daemon Identity conflict", () => {
+    expect(
+      summarize({
+        ...base,
+        connection: "identity_conflict",
+      }),
+    ).toEqual({
       tone: "error",
-      label: "Identity Conflict · Set Up Again",
+      label: "Computer Identity Conflict · Reconnect This Computer",
     });
-    // An absent conflict leaves every other state as it was.
-    expect(summarizeStatus({ ...base, identityConflict: false })).toEqual({
-      tone: "online",
-      label: "Online · Idle",
-    });
+  });
+
+  it("speaks the shell's language, counting tasks its way", () => {
+    expect(
+      summarizeStatus({ ...base, running: 2 }, translator("zh-CN")).label,
+    ).toBe(zhCN.status.running.other.replace("{count}", "2"));
+    expect(summarizeStatus(base, translator("zh-CN")).label).toBe(
+      zhCN.status.idle,
+    );
   });
 });

@@ -1,7 +1,9 @@
 import { Select, SelectItem } from "@/components/ui/select";
 import type { AgentMoveTargetOption } from "@/features/rooms/members/agent-move-target";
 import type { TeamHubTenantAgent } from "@/features/teamhub/teamhub-types";
+import { useT } from "@/i18n/use-translation";
 
+import { computersMessages } from "./computers.messages";
 import type { AgentMoveProgress } from "./use-move-agents-then-remove";
 
 export const DELETE_AGENT_CHOICE = "delete";
@@ -23,6 +25,7 @@ export function RemoveComputerAgentRow({
   progress?: AgentMoveProgress;
   value: string;
 }) {
+  const t = useT();
   const name = agent.actor.display_name;
   const anotherMe = agent.agent_type === "anotherme";
   return (
@@ -36,11 +39,11 @@ export function RemoveComputerAgentRow({
         ) : null}
       </p>
       <Select
-        aria-label={`Target for ${name}`}
+        aria-label={t(computersMessages.targetFor, { name })}
         className="ui-field-control w-full"
         disabled={disabled}
         onValueChange={onChange}
-        placeholder="Choose a target"
+        placeholder={t(computersMessages.chooseTarget)}
         value={value}
       >
         {options.map((option) => (
@@ -50,18 +53,18 @@ export function RemoveComputerAgentRow({
         ))}
         {anotherMe ? null : (
           <SelectItem value={DELETE_AGENT_CHOICE}>
-            Delete this Agent instead
+            {t(computersMessages.deleteAgentInstead)}
           </SelectItem>
         )}
       </Select>
       <p className="text-xs text-app-muted">{hint}</p>
       {progress?.state === "failed" ? (
         <p className="text-xs text-app-danger" role="alert">
-          Failed: {progress.message}
+          {t(computersMessages.moveFailed, { message: progress.message })}
         </p>
       ) : progress ? (
         <p className="text-xs text-app-subtle" role="status">
-          {progressLabel[progress.state]}
+          {t(progressLabel[progress.state])}
         </p>
       ) : null}
     </li>
@@ -69,8 +72,8 @@ export function RemoveComputerAgentRow({
 }
 
 const progressLabel = {
-  deleted: "Deleted",
-  deleting: "Deleting…",
-  moved: "Moved",
-  moving: "Moving…",
+  deleted: computersMessages.deleted,
+  deleting: computersMessages.deleting,
+  moved: computersMessages.moved,
+  moving: computersMessages.moving,
 } as const;

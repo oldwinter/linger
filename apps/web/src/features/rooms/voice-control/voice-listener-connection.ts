@@ -16,7 +16,10 @@ import {
   type VoiceRequestScope,
   waitForVoiceDelay as delay,
 } from "@/features/teamhub/voice-request-scope";
+import { translate } from "@/i18n/language";
 
+import { VoiceMicrophoneError } from "./microphone-devices";
+import { recordingMessages as m } from "./recording.messages";
 import type { VoiceListenerStatus } from "./voice-control-context";
 import {
   describeError,
@@ -76,12 +79,12 @@ export async function connectVoiceListener(
   }
   controller.signal.throwIfAborted();
   const binding = refs.bindingRef.current;
-  if (!binding) throw new Error("Connect a microphone before enabling voice");
+  if (!binding) throw new VoiceMicrophoneError("no-binding");
   if (!refs.pageActiveRef.current && !refs.publisherLeaseRef.current) {
-    throw new Error("Hardware voice is active in another tab");
+    throw new Error(translate(m.hardwareVoiceOtherTab));
   }
   if (refs.composerLeaseRef.current)
-    throw new Error("Composer is using the microphone");
+    throw new Error(translate(m.composerUsesMicrophone));
   refs.manuallyDisabledRef.current = false;
   if (!connection.automatic) resumeVoiceListening(tenantId);
   connection.setListenerError(undefined);

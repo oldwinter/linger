@@ -56,9 +56,7 @@ export function createTeamHubApi(options: {
     },
     onError({ error }) {
       if (error instanceof Error && error.name === "AbortError") return error;
-      return new TeamHubTransportError(
-        "TeamHub request failed before receiving a response.",
-      );
+      return new TeamHubTransportError();
     },
   };
   api.use(errors);

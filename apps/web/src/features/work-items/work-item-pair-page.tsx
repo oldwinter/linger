@@ -1,8 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams, useSearchParams } from "react-router";
 
+import { Button } from "@/components/ui/button";
 import { collectTeamHubCursorPages } from "@/features/teamhub/teamhub-cursor-pages";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
+import { TeamHubError } from "@/features/teamhub/teamhub-error";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubWorkItem } from "@/features/teamhub/teamhub-types";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
@@ -64,13 +66,19 @@ export function WorkItemPairPage() {
         ) : (
           <div className="grid gap-6 md:grid-cols-2">
             <WorkItemColumn
+              error={left.error}
+              fetching={left.isFetching}
               item={left.data}
+              onRetry={() => void left.refetch()}
               pending={left.isPending}
               tenantId={tenantId}
               workItemId={leftId}
             />
             <WorkItemColumn
+              error={right.error}
+              fetching={right.isFetching}
               item={right.data}
+              onRetry={() => void right.refetch()}
               pending={right.isPending}
               tenantId={tenantId}
               workItemId={rightId}
@@ -89,12 +97,18 @@ export function WorkItemPairPage() {
 }
 
 function WorkItemColumn({
+  error,
+  fetching,
   item,
+  onRetry,
   pending,
   tenantId,
   workItemId,
 }: {
+  error: Error | null;
+  fetching: boolean;
   item: TeamHubWorkItem | undefined;
+  onRetry: () => void;
   pending: boolean;
   tenantId: string;
   workItemId: string;
@@ -117,6 +131,23 @@ function WorkItemColumn({
       <p className="text-sm text-muted-foreground" role="status">
         Loading this Work Item.
       </p>
+    );
+  }
+  if (error && !(error instanceof TeamHubError && error.status === 404)) {
+    return (
+      <div className="space-y-3" role="alert">
+        <p className="text-sm text-app-danger">
+          {error.message || "This Work Item could not be loaded."}
+        </p>
+        <Button
+          disabled={fetching}
+          onClick={onRetry}
+          size="compact"
+          tone="secondary"
+        >
+          {fetching ? "Retrying…" : "Retry"}
+        </Button>
+      </div>
     );
   }
   if (!item) {

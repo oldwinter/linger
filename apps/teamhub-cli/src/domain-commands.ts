@@ -22,6 +22,8 @@ import { businessCommandDefinitions } from "./business-commands.js";
 import { mailCommandDefinitions } from "./connector-mail.js";
 import { gmailCanvasCommandDefinitions } from "./connector-gmail-canvas.js";
 import { calendarCommandDefinitions } from "./connector-calendar.js";
+import { outlookCalendarCommandDefinitions } from "./connector-outlook-calendar.js";
+import { webCommandDefinitions } from "./web-commands.js";
 import { publicBusinessSchemas } from "./business-schemas.js";
 import { CliError } from "./errors.js";
 
@@ -39,6 +41,8 @@ export const commandDefinitions: readonly CommandDefinition[] = [
   ...notionCommandDefinitions,
   ...slackCommandDefinitions,
   ...calendarCommandDefinitions,
+  ...outlookCalendarCommandDefinitions,
+  ...webCommandDefinitions,
 ];
 export interface DomainCommand {
   readonly route: "commands" | "schema" | "help";
@@ -111,6 +115,7 @@ export function domainHelp(prefix: readonly string[] = []): string {
     [
       "gmail",
       "outlook",
+      "outlook-calendar",
       "slack",
       "gcal",
       "notion",
@@ -119,6 +124,7 @@ export function domainHelp(prefix: readonly string[] = []): string {
       "github",
       "fal",
       "higgsfield",
+      "web",
     ].includes(prefix[0]!)
   ) {
     const children = new Map<string, string>();
@@ -214,6 +220,7 @@ export async function parseDomainCommand(
   args: readonly string[],
   dependencies: {
     cwd: string;
+    localPath?: (source: string) => string;
     readInput?: (source: string) => Promise<string>;
     beforeNormalize?: (target?: CommandTarget) => void;
     syntaxOnly?: boolean;

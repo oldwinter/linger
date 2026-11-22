@@ -12,12 +12,15 @@ import type {
   TeamHubLocalComputerPage,
   TeamHubLocalRuntimeType,
 } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
 import { cn } from "@/lib/cn";
 
 import { appIcons } from "./computer-app-icons";
 import { Hint } from "./computer-hint";
 import { appNames, appOrder, appStatus } from "./computer-readiness";
 import { CopyValueButton } from "./computer-setup-instructions";
+import { computersMessages } from "./computers.messages";
 import { installCommand, loginCommands } from "./local-runtime-commands";
 
 type LocalComputer = TeamHubLocalComputerPage["items"][number];
@@ -41,6 +44,7 @@ export function AppSetupDialog({
   computer: LocalComputer;
   onClose: () => void;
 }) {
+  const t = useT();
   const [app, setApp] = useState(initialApp);
   const [waiting, setWaiting] = useState(false);
   const status = appStatus(computer, app);
@@ -82,11 +86,13 @@ export function AppSetupDialog({
             role="status"
           >
             {!online ? (
-              `${computer.display_name} is offline`
+              t(computersMessages.computerOffline, {
+                computer: computer.display_name,
+              })
             ) : ready ? (
               <>
                 <Icon icon={Tick02Icon} size={14} />
-                {name} is ready
+                {t(computersMessages.appReady, { app: name })}
               </>
             ) : waiting ? (
               <>
@@ -95,11 +101,15 @@ export function AppSetupDialog({
                   icon={Loading03Icon}
                   size={14}
                 />
-                <span className="town-shimmer-text">Checking {name}…</span>
+                <span className="town-shimmer-text">
+                  {t(computersMessages.checkingApp, { app: name })}
+                </span>
               </>
             ) : null}
           </span>
-          <Button onClick={onClose}>Close</Button>
+          <Button data-voice-close onClick={onClose}>
+            {t(commonMessages.close)}
+          </Button>
         </>
       }
       onClose={onClose}
@@ -107,16 +117,21 @@ export function AppSetupDialog({
       title={
         <span className="flex flex-wrap items-center gap-2">
           <Icon icon={appIcons[app]} size={16} />
-          {outdated
-            ? `Update ${name}`
-            : installed
-              ? `Sign in to ${name}`
-              : `Set up ${name}`}
+          {t(
+            outdated
+              ? computersMessages.updateApp
+              : installed
+                ? computersMessages.signInToApp
+                : computersMessages.setUpApp,
+            { app: name },
+          )}
           <Hint
             focusable
             className="text-muted-foreground/70"
             placement="bottom"
-            text={`On ${computer.display_name}, in the same account you used to connect it.`}
+            text={t(computersMessages.setupAccountHint, {
+              computer: computer.display_name,
+            })}
           >
             <span className="inline-flex">
               <Icon icon={InformationCircleIcon} size={14} />
@@ -152,7 +167,7 @@ export function AppSetupDialog({
         ) : null}
         <ol className="grid grid-cols-3 gap-3">
           <VisualStep
-            label="Install"
+            label={t(computersMessages.stepInstall)}
             number={1}
             state={installed ? "done" : "current"}
           >
@@ -161,10 +176,10 @@ export function AppSetupDialog({
           <VisualStep
             hint={
               app === "pi"
-                ? "Then type /login in Pi"
-                : "A sign-in page opens in your browser"
+                ? t(computersMessages.piLoginHint)
+                : t(computersMessages.signInPageHint)
             }
-            label="Sign in"
+            label={t(computersMessages.signIn)}
             number={2}
             state={ready ? "done" : installed ? "current" : "todo"}
           >
@@ -173,12 +188,16 @@ export function AppSetupDialog({
               <MiniWindow>
                 <Icon icon={appIcons[app]} size={14} />
                 <span className="rounded-md bg-primary px-2.5 py-0.5 text-[12px] font-medium text-primary-foreground">
-                  Sign in
+                  {t(computersMessages.signIn)}
                 </span>
               </MiniWindow>
             </div>
           </VisualStep>
-          <VisualStep label="Ready" number={3} state={ready ? "done" : "todo"}>
+          <VisualStep
+            label={t(computersMessages.ready)}
+            number={3}
+            state={ready ? "done" : "todo"}
+          >
             <span className="inline-flex h-8 items-center gap-1.5 rounded-full bg-card pr-2.5 pl-2 text-xs shadow-outline">
               <Icon icon={appIcons[app]} size={14} />
               {name}
@@ -190,8 +209,10 @@ export function AppSetupDialog({
           <div className="mt-4">
             <p className="text-xs text-muted-foreground">
               {current === "install"
-                ? `Paste into Terminal on ${computer.display_name}`
-                : "Run this, then sign in on the page that opens"}
+                ? t(computersMessages.pasteIntoTerminal, {
+                    computer: computer.display_name,
+                  })
+                : t(computersMessages.runThenSignIn)}
             </p>
             <CommandLine
               command={current === "install" ? install : login}

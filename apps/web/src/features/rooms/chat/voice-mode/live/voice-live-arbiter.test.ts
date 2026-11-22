@@ -11,19 +11,19 @@ import {
   type VoicePageSource,
 } from "./voice-live-arbiter";
 
-const pageTools = vi.hoisted(() => ({ runs: [] as unknown[] }));
-vi.mock("./voice-live-page-tools", () => ({
+let pageActions: unknown[] = [];
+const pageTools = {
   pageReady: async () => undefined,
   readPageTargets: () => "e1 Pocket Note",
-  runPageAction: vi.fn(async (request: unknown) => {
-    pageTools.runs.push(request);
-    return { status: "done" };
-  }),
-}));
+  runPageAction: async (request: unknown) => {
+    pageActions.push(request);
+    return { status: "done" as const };
+  },
+};
 
 afterEach(() => {
   vi.useRealTimers();
-  pageTools.runs = [];
+  pageActions = [];
 });
 
 function fixture(page?: VoicePageSource) {
@@ -45,6 +45,7 @@ function fixture(page?: VoicePageSource) {
     onTranscript: (lines) => {
       transcript = lines;
     },
+    pageTools,
     ...(page ? { page } : {}),
   });
   return {
@@ -204,7 +205,7 @@ describe("voice live arbiter", () => {
       clickable: "e1 Pocket Note",
     });
     expect(results.p1).toEqual({ status: "done" });
-    expect(pageTools.runs).toEqual([{ action: "scroll", target: "down" }]);
+    expect(pageActions).toEqual([{ action: "scroll", target: "down" }]);
     f.arbiter.dispose();
   });
 

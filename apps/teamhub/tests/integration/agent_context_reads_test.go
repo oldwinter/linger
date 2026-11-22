@@ -95,7 +95,7 @@ func TestAgentContextReadsCurrentAuthorityWithoutRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	code, body = read("team-md/query", map[string]any{"inbox_id": roomID})
-	if code != http.StatusOK || !strings.Contains(string(body), `"revision":3`) || !strings.Contains(string(body), `# Current protocol`) || strings.Contains(string(body), `"path"`) {
+	if code != http.StatusOK || !strings.Contains(string(body), `"published":true`) || !strings.Contains(string(body), `"revision":3`) || !strings.Contains(string(body), `# Current protocol`) || strings.Contains(string(body), `"path"`) {
 		t.Fatalf("team.md: %d %s", code, body)
 	}
 	// Historical message text remains unchanged; the attachment supplies its ID.
@@ -206,5 +206,34 @@ func TestAgentContextReadsCurrentAuthorityWithoutRun(t *testing.T) {
 	}
 	if countRows(t, env, `SELECT count(*) FROM agent_local_runs`) != 0 {
 		t.Fatal("reads created a Local Run")
+	}
+}
+
+func TestAgentTeamMdReadReportsUnpublishedProtocolOnlyForReadableRoom(t *testing.T) {
+	allowParallelIntegrationTest(t)
+	env, alice, credential, roomID := newAgentCLIIdentity(t)
+	unreadableRoomID := createPrivateRoom(t, env, alice, "Room without the Agent", "team-md-unreadable-room")
+	read := func(inboxID string) (int, []byte) {
+		t.Helper()
+		code, _, body := taskWorkerJSONRequest(t, env, http.MethodPost, "/api/agent/v1/team-md/query", credential.AccessToken, map[string]any{"inbox_id": inboxID})
+		return code, body
+	}
+	code, body := read(roomID)
+	if code != http.StatusOK || string(body) != `{"published":false,"revision":0,"room_id":"`+roomID+`"}` {
+		t.Fatalf("readable Room without team.md: %d %s", code, body)
+	}
+	// Neither a Room the Agent cannot read nor a missing one may reveal
+	// whether it has a team.md.
+	for _, inboxID := range []string{unreadableRoomID, "room_team_md_missing"} {
+		code, body := read(inboxID)
+		var response struct {
+			Error struct {
+				Code string `json:"code"`
+			} `json:"error"`
+		}
+		decode(t, body, &response)
+		if code != http.StatusNotFound || response.Error.Code != "NOT_FOUND" {
+			t.Fatalf("unavailable Room %s: %d %s", inboxID, code, body)
+		}
 	}
 }

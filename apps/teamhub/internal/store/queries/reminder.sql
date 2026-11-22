@@ -23,13 +23,13 @@ WHERE room_id=sqlc.arg(room_id)::text AND tenant_id=sqlc.arg(tenant_id)::text
 -- name: CreateRoomReminder :one
 INSERT INTO room_reminders (
     id, tenant_id, room_id, created_by_actor_id, name, instruction, mention_actor_id,
-    cadence_kind, timezone, hour, minute, weekdays, interval_hours, run_at,
+    cadence_kind, timezone, hour, minute, weekdays, interval_minutes, run_at,
     enabled, next_run_at, template_agent_actor_id, template_routine_key, "trigger",
     tracking_item_id, tracking_purpose
 ) VALUES (
     sqlc.arg(id), sqlc.arg(tenant_id), sqlc.arg(room_id), sqlc.arg(created_by_actor_id),
     sqlc.arg(name), sqlc.arg(instruction), sqlc.narg(mention_actor_id), sqlc.narg(cadence_kind), sqlc.arg(timezone),
-    sqlc.narg(hour), sqlc.narg(minute), sqlc.narg(weekdays)::text[], sqlc.narg(interval_hours),
+    sqlc.narg(hour), sqlc.narg(minute), sqlc.narg(weekdays)::text[], sqlc.narg(interval_minutes),
     sqlc.narg(run_at), sqlc.arg(enabled), sqlc.narg(next_run_at), sqlc.narg(template_agent_actor_id),
     sqlc.narg(template_routine_key), sqlc.narg(trigger_spec)::jsonb,
     sqlc.narg(tracking_item_id), sqlc.narg(tracking_purpose)
@@ -69,7 +69,7 @@ SET name=sqlc.arg(name),
     hour=sqlc.narg(hour),
     minute=sqlc.narg(minute),
     weekdays=sqlc.narg(weekdays)::text[],
-    interval_hours=sqlc.narg(interval_hours),
+    interval_minutes=sqlc.narg(interval_minutes),
     run_at=sqlc.narg(run_at),
     enabled=sqlc.arg(enabled),
     next_run_at=sqlc.narg(next_run_at),
@@ -222,3 +222,66 @@ SELECT EXISTS (
 
 -- name: GetHumanActorTenantID :one
 SELECT tenant_id FROM actors WHERE id=sqlc.arg(id)::text AND kind='human';
+
+-- name: GetRoutineLatestOccurrenceState :one
+-- Reports the Routine's newest undelivered quiet wake and newest trigger
+-- Message (and whether that Message reached a terminal Run), so the scheduler
+-- can skip overlapping fires without blocking forever after 24 hours.
+WITH latest_wake AS (
+    SELECT wake.created_at
+    FROM proactive_pending_wakes wake
+    WHERE wake.room_id=sqlc.arg(room_id)::text
+      AND wake.fired_routine_id=sqlc.arg(routine_id)::text
+      AND wake.delivered_at IS NULL
+    ORDER BY wake.created_at DESC, wake.id DESC
+    LIMIT 1
+),
+latest_message AS (
+    SELECT m.id, m.created_at, m.mentioned_actor_ids
+    FROM messages m
+    WHERE m.room_id=sqlc.arg(room_id)::text
+      AND m.fired_routine_id=sqlc.arg(routine_id)::text
+    ORDER BY m.created_at DESC, m.id DESC
+    LIMIT 1
+)
+SELECT
+    (SELECT created_at FROM latest_wake)::timestamptz AS latest_undelivered_wake_at,
+    (SELECT created_at FROM latest_message)::timestamptz AS latest_message_created_at,
+    coalesce((
+        SELECT (
+            EXISTS (
+                SELECT 1
+                FROM agent_runtime_inputs input
+                JOIN agent_local_run_inputs relation
+                  ON relation.context_key=input.context_key
+                 AND relation.input_id=input.input_id
+                JOIN agent_local_runs run
+                  ON run.context_key=relation.context_key
+                 AND run.run_id=relation.run_id
+                WHERE input.source_kind='inbox'
+                  AND input.source_message_id=lm.id
+                  AND run.status IN ('succeeded', 'failed', 'canceled')
+            )
+            OR EXISTS (
+                SELECT 1
+                FROM agent_execution_contexts ctx
+                JOIN agent_runtime_inputs input
+                  ON input.context_key=ctx.context_key
+                JOIN agent_local_run_inputs relation
+                  ON relation.context_key=input.context_key
+                 AND relation.input_id=input.input_id
+                JOIN agent_local_runs run
+                  ON run.context_key=relation.context_key
+                 AND run.run_id=relation.run_id
+                WHERE ctx.context_kind='meta'
+                  AND ctx.room_id=sqlc.arg(room_id)::text
+                  AND ctx.agent_actor_id=ANY(lm.mentioned_actor_ids)
+                  AND input.source_kind='inbox'
+                  AND input.created_at>=lm.created_at
+                  AND jsonb_typeof(input.payload->'invocationMessageIds')='array'
+                  AND (input.payload->'invocationMessageIds') ? lm.id
+                  AND run.status IN ('succeeded', 'failed', 'canceled')
+            )
+        )
+        FROM latest_message lm
+    ), false)::boolean AS latest_message_terminal;

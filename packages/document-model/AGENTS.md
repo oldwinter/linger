@@ -20,3 +20,6 @@
 - Test deterministic behavior through exported interfaces with fixed
   Yjs/BlockNote fixtures. Do not test private helpers or reproduce the
   implementation to compute expected values.
+- Replacing or updating blocks may retain the IDs of their removed descendants.
+  Check replacement ID collisions against the blocks outside the complete
+  replaced subtrees, while keeping all replacement IDs unique.

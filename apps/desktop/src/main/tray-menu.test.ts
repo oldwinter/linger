@@ -1,10 +1,17 @@
 import { describe, expect, it } from "vitest";
 
-import { trayMenu, updateNotice } from "./tray-menu.js";
+import zhCN from "../i18n/locales/zh-CN.json" with { type: "json" };
+import { translator } from "../i18n/language.js";
+import { trayMenu, updateNotice, type TrayMenuState } from "./tray-menu.js";
+import type { AnnouncedUpdate } from "./updater.js";
+
+const en = translator("en");
+const menu = (state: TrayMenuState) => trayMenu(state, en);
+const notice = (update: AnnouncedUpdate) => updateNotice(update, en);
 
 describe("trayMenu", () => {
   it("leads with the status and ends with quit", () => {
-    const items = trayMenu({
+    const items = menu({
       status: { tone: "busy", label: "Running 2 Tasks" },
       preventSleep: true,
       enrolled: true,
@@ -29,7 +36,7 @@ describe("trayMenu", () => {
   });
 
   it("offers a new note next to opening the app", () => {
-    const items = trayMenu({
+    const items = menu({
       status: { tone: "online", label: "Online" },
       preventSleep: false,
       enrolled: true,
@@ -46,7 +53,7 @@ describe("trayMenu", () => {
 
   it("offers Send Diagnostics only while a receiver is set up", () => {
     const actions = (canSendDiagnostics: boolean) =>
-      trayMenu({
+      menu({
         status: { tone: "error", label: "Offline" },
         preventSleep: false,
         enrolled: true,
@@ -60,7 +67,7 @@ describe("trayMenu", () => {
 
   it("connects an unenrolled computer and reconnects an enrolled one", () => {
     const label = (enrolled: boolean) =>
-      trayMenu({
+      menu({
         status: { tone: "setup", label: "Not Connected" },
         preventSleep: false,
         enrolled,
@@ -70,49 +77,26 @@ describe("trayMenu", () => {
   });
 
   it("offers a downloaded update and says when it waits for tasks", () => {
-    const menu = (waiting: boolean) =>
-      trayMenu({
+    const items = (waiting: boolean) =>
+      menu({
         status: { tone: "busy", label: "Running 1 Task" },
         preventSleep: false,
         enrolled: true,
         update: { kind: waiting ? "waiting" : "ready", version: "0.17.0" },
       }).slice(0, 2);
-    expect(menu(false)[1]).toEqual({
+    expect(items(false)[1]).toEqual({
       kind: "action",
       action: "install-update",
       label: "Restart to Update (0.17.0)",
     });
-    expect(menu(true)[1]).toEqual({
+    expect(items(true)[1]).toEqual({
       kind: "label",
       label: "Updating to 0.17.0 When Tasks Finish",
     });
   });
 
-  it("offers to update the services on this computer", () => {
-    const menu = (kind: "ready" | "waiting" | "installing") =>
-      trayMenu({
-        status: { tone: "online", label: "Online" },
-        preventSleep: false,
-        enrolled: true,
-        update: { kind, version: "0.16.20", services: true },
-      })[1];
-    expect(menu("ready")).toEqual({
-      kind: "action",
-      action: "install-update",
-      label: "Update Linger on This Computer",
-    });
-    expect(menu("waiting")).toEqual({
-      kind: "label",
-      label: "Updating When Tasks Finish",
-    });
-    expect(menu("installing")).toEqual({
-      kind: "label",
-      label: "Updating Linger on This Computer…",
-    });
-  });
-
   it("shows a download in progress", () => {
-    const items = trayMenu({
+    const items = menu({
       status: { tone: "online", label: "Online" },
       preventSleep: false,
       enrolled: true,
@@ -125,7 +109,7 @@ describe("trayMenu", () => {
   });
 
   it("says why an update failed and offers to try again", () => {
-    const items = trayMenu({
+    const items = menu({
       status: { tone: "online", label: "Online" },
       preventSleep: false,
       enrolled: true,
@@ -144,7 +128,7 @@ describe("trayMenu", () => {
 
   it("shows nothing while idle or checking", () => {
     for (const kind of ["idle", "checking"] as const) {
-      const items = trayMenu({
+      const items = menu({
         status: { tone: "online", label: "Online" },
         preventSleep: false,
         enrolled: true,
@@ -154,22 +138,8 @@ describe("trayMenu", () => {
     }
   });
 
-  it("offers Set Up Again when an identity conflict is active", () => {
-    const items = trayMenu({
-      status: { tone: "error", label: "Identity Conflict · Set Up Again" },
-      preventSleep: false,
-      enrolled: true,
-      identityConflict: true,
-    });
-    expect(items[1]).toEqual({
-      kind: "action",
-      action: "resolve-identity-conflict",
-      label: "Set Up Again…",
-    });
-  });
-
   it("links a release this installation cannot apply itself", () => {
-    const item = trayMenu({
+    const item = menu({
       status: { tone: "online", label: "Online" },
       preventSleep: false,
       enrolled: true,
@@ -189,20 +159,44 @@ describe("trayMenu", () => {
 
 describe("updateNotice", () => {
   it("names what clicking it does", () => {
-    expect(updateNotice({ kind: "ready", version: "0.17.0" })).toEqual({
+    expect(notice({ kind: "ready", version: "0.17.0" })).toEqual({
       title: "Update ready",
       body: "Linger 0.17.0 is downloaded. Click to restart Linger and update.",
     });
     expect(
-      updateNotice({ kind: "available", version: "0.17.0", url: "https://x" }),
+      notice({ kind: "available", version: "0.17.0", url: "https://x" }),
     ).toEqual({
       title: "Update available",
       body: "Linger 0.17.0 is available. Click to open its download page.",
     });
-    expect(
-      updateNotice({ kind: "ready", version: "0.16.7", services: true }).body,
-    ).toBe(
-      "Click to update Linger on this computer. It restarts in about a minute.",
+  });
+});
+
+describe("the tray in Chinese", () => {
+  it("labels the menu and the notifications from the catalog", () => {
+    const zh = translator("zh-CN");
+    const items = trayMenu(
+      {
+        status: { tone: "online", label: zhCN.status.idle },
+        preventSleep: false,
+        enrolled: true,
+        update: { kind: "ready", version: "0.17.0" },
+      },
+      zh,
     );
+    expect(items).toContainEqual({
+      kind: "action",
+      action: "quit",
+      label: zhCN.tray.quit,
+    });
+    expect(items).toContainEqual({
+      kind: "action",
+      action: "install-update",
+      label: zhCN.tray.restartToUpdate.replace("{version}", "0.17.0"),
+    });
+    expect(updateNotice({ kind: "ready", version: "0.17.0" }, zh)).toEqual({
+      title: zhCN.tray.readyTitle,
+      body: zhCN.tray.ready.replace("{version}", "0.17.0"),
+    });
   });
 });

@@ -89,9 +89,12 @@ type TouchLocalComputerInput struct {
 	RecommendedVersion string `json:"recommended_version,omitempty"`
 }
 
+// CreateLocalComputerEnrollmentInput describes one PKCE Local Computer
+// enrollment request.
 type CreateLocalComputerEnrollmentInput struct {
 	EnrollmentID           string             `json:"enrollment_id"`
 	ComputerID             string             `json:"computer_id"`
+	DaemonID               string             `json:"daemon_id,omitempty"`
 	DisplayName            string             `json:"display_name"`
 	Owner                  LocalComputerOwner `json:"owner"`
 	RedirectURI            string             `json:"redirect_uri"`

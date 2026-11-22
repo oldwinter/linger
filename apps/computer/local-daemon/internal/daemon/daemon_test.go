@@ -416,6 +416,105 @@ func TestDaemonDoesNotReportCancelledWhenProviderCleanupIsUnconfirmed(t *testing
 	testDaemonDrainCleanup(t, true)
 }
 
+func TestSchedulerYieldIsDeclinedAfterTheSessionMoved(t *testing.T) {
+	d, err := newTestDaemon(t, Options{ComputerID: "computer-1", ControlPlane: fakeControlPlane{stream: &fakeStream{}}, IdentityStore: fakeStore{}, OperationResolver: fakeOperationResolver{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := daemonOperationStart("moved", "agent-1")
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	active := &activeOperation{identity: operationIdentity(start), cancel: cancel}
+	active.sessionMoved.Store(true)
+	d.activeOperations[start.OperationID] = active
+	yield := operationCancelCommand(start)
+	yield.Payload = mustJSON(map[string]string{"reason": schedulerYield})
+	if err := d.handleOperationCancel(yield); err != nil {
+		t.Fatal(err)
+	}
+	if ctx.Err() != nil || active.reason != "" {
+		t.Fatalf("the yield cancelled the Run: reason %q", active.reason)
+	}
+	// Agent Service resends the retained yield after a reconnect.
+	if err := d.handleOperationCancel(yield); err != nil {
+		t.Fatal(err)
+	}
+	if ctx.Err() != nil || active.reason != "" {
+		t.Fatalf("a resent yield cancelled the Run: reason %q", active.reason)
+	}
+	stop := operationCancelCommand(start)
+	stop.Payload = mustJSON(map[string]string{"reason": "Stopped by user"})
+	if err := d.handleOperationCancel(stop); err != nil {
+		t.Fatal(err)
+	}
+	if ctx.Err() == nil || active.reason != "Stopped by user" {
+		t.Fatalf("Stop did not cancel the Run: reason %q", active.reason)
+	}
+}
+
+func TestSchedulerYieldRequiresConfirmedCleanup(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		result  provider.Result
+		want    string
+		blocked bool
+	}{
+		{"confirmed interrupt", provider.Result{Status: "aborted", CleanupConfirmed: true}, protocol.EventOperationCancelled, false},
+		{"confirmed Pi interrupt", provider.Result{Status: "cancelled", CleanupConfirmed: true}, protocol.EventOperationCancelled, false},
+		{"missing confirmation", provider.Result{Status: "aborted"}, protocol.EventOperationFailed, true},
+		{"unconfirmed interrupt", provider.Result{Status: "failed", CleanupUnconfirmed: true}, protocol.EventOperationFailed, true},
+		{"already finished", provider.Result{Status: "completed", Output: "done"}, protocol.EventOperationCompleted, false},
+		{"failed before interrupt", provider.Result{Status: "failed", CleanupConfirmed: true}, protocol.EventOperationFailed, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stream := &fakeStream{}
+			d, err := newTestDaemon(t, Options{ComputerID: "computer-1", Capacity: intPointer(1), ControlPlane: fakeControlPlane{stream: stream}, IdentityStore: fakeStore{}, OperationResolver: fakeOperationResolver{}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			d.operationStream = stream
+			start := daemonOperationStart("yield", "agent-1")
+			_, err = d.ledger.Begin(t.Context(), operationIdentity(start))
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			d.activeOperations[start.OperationID] = &activeOperation{identity: operationIdentity(start), cancel: cancel}
+			stop := operationCancelCommand(start)
+			stop.Payload = mustJSON(map[string]string{"reason": schedulerYield})
+			if err := d.handleOperationCancel(stop); err != nil {
+				t.Fatal(err)
+			}
+			d.finishOperation(t.Context(), start, provider.OperationSpec{OperationKind: "run.start", Provider: start.RuntimeType}, tc.result)
+			events := stream.snapshotEvents()
+			if len(events) != 1 || events[0].Type != tc.want {
+				t.Fatalf("terminal=%+v, want %s", events, tc.want)
+			}
+			if d.runtimeCleanupUnconfirmed(start.RuntimeType) != tc.blocked {
+				t.Fatal("incorrect Runtime availability")
+			}
+			if !tc.blocked {
+				return
+			}
+			next := daemonOperationStart("late-chat", "agent-2")
+			if err := d.handleOperationStart(t.Context(), stream, next); err != nil {
+				t.Fatal(err)
+			}
+			events = stream.snapshotEvents()
+			if len(events) != 2 || events[1].Type != protocol.EventOperationFailed || !strings.Contains(string(events[1].Payload), cleanupUnconfirmedCode) {
+				t.Fatalf("unconfirmed cleanup admitted chat: %+v", events)
+			}
+			if blocked := d.modelInvokeBlocked(next, modelInvokeRequest{}); blocked.Reason != cleanupUnconfirmedMessage {
+				t.Fatalf("unconfirmed cleanup admitted inference: %+v", blocked)
+			}
+			if count, _ := d.operationOccupancy(operationIdentity(next)); count != 1 {
+				t.Fatalf("Computer occupation=%d", count)
+			}
+		})
+	}
+}
+
 func testDaemonDrainCleanup(t *testing.T, cleanupUnconfirmed bool) {
 	t.Helper()
 	cancelled := make(chan struct{})
@@ -474,6 +573,9 @@ func testDaemonDrainCleanup(t *testing.T, cleanupUnconfirmed bool) {
 	}
 	if len(events) < 2 || events[len(events)-1].Type != wantTerminal {
 		t.Fatalf("terminal was not delivered before slot release: %+v", events)
+	}
+	if d.runtimeCleanupUnconfirmed(start.RuntimeType) {
+		t.Fatal("an ordinary stop with unknown cleanup blocked its Runtime")
 	}
 	if cleanupUnconfirmed {
 		var failure struct {
@@ -1369,46 +1471,6 @@ func TestDaemonReconnectsAfterTransientDisconnect(t *testing.T) {
 	}
 }
 
-func TestDaemonReportsDaemonIdentityConflict(t *testing.T) {
-	device, err := transport.GenerateIdentity()
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	controlPlane := &sequenceControlPlane{streams: []*fakeStream{{
-		commands: []protocol.Command{{Type: "runner.welcome", ConnectionEpoch: 1}},
-		receiveErr: &websocket.CloseError{
-			Code: websocket.CloseInternalServerErr,
-			Text: "Runner daemon identity conflict",
-		},
-	}}}
-	var daemon *Daemon
-	controlPlane.onConnect = func(call int) {
-		if call != 2 {
-			return
-		}
-		if current := daemon.GatewayConnectionError(); current != "daemon_identity_conflict" {
-			t.Errorf("connection error = %q, want daemon_identity_conflict", current)
-		}
-		cancel()
-	}
-	daemon, err = newTestDaemon(t, Options{
-		ComputerID: "computer-1", ControlPlane: controlPlane,
-		IdentityStore: fakeStore{value: device}, OperationResolver: fakeOperationResolver{},
-		RetryDelay: func(int) time.Duration { return 0 },
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := daemon.Run(ctx); !errors.Is(err, context.Canceled) {
-		t.Fatalf("Run() error = %v, want context cancellation", err)
-	}
-	if controlPlane.calls != 2 {
-		t.Fatalf("connections = %d, want 2", controlPlane.calls)
-	}
-}
-
 func TestDefaultRetryDelayJittersWithinExponentialWindow(t *testing.T) {
 	delay := defaultRetryDelay(nil)
 	for attempt, ceiling := range []time.Duration{
@@ -1658,6 +1720,37 @@ func TestDaemonRetainsUpgradeRequiredStatus(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- daemon.Run(ctx) }()
 	waitForGatewayState(t, daemon, "upgrade-required")
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run() error = %v, want context cancellation", err)
+	}
+}
+
+func TestDaemonRetainsIdentityConflictStatusWithoutRedialing(t *testing.T) {
+	device, err := transport.GenerateIdentity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream := &fakeStream{receiveErr: &transport.DaemonIdentityInUseError{Reason: "daemon_identity_in_use: reconnect this Computer"}}
+	controlPlane := &sequenceControlPlane{streams: []*fakeStream{stream}}
+	daemon, err := newTestDaemon(t, Options{
+		ComputerID: "computer-1", ControlPlane: controlPlane,
+		IdentityStore: fakeStore{value: device}, OperationResolver: fakeOperationResolver{},
+		RetryDelay: func(int) time.Duration { return 0 },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- daemon.Run(ctx) }()
+	waitForGatewayState(t, daemon, "identity-conflict")
+	controlPlane.mu.Lock()
+	calls := controlPlane.calls
+	controlPlane.mu.Unlock()
+	if calls != 1 {
+		t.Fatalf("identity-conflict connect attempts = %d, want 1", calls)
+	}
 	cancel()
 	if err := <-done; !errors.Is(err, context.Canceled) {
 		t.Fatalf("Run() error = %v, want context cancellation", err)

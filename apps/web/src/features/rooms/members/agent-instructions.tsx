@@ -4,11 +4,11 @@ import {
   SettingsGroup,
   SettingsGroupAction,
 } from "@/components/ui/settings-group";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
 
-import {
-  presentAgentInstructions,
-  UNSET_AGENT_INSTRUCTIONS,
-} from "./agent-instruction-text";
+import { agentInfoMessages } from "./agent-info.messages";
+import { presentAgentInstructions } from "./agent-instruction-text";
 
 const COLLAPSED_LINES = "line-clamp-4";
 
@@ -19,6 +19,7 @@ export function AgentInstructions({
   instructions: string;
   onEdit?: () => void;
 }) {
+  const t = useT();
   const presented = presentAgentInstructions(instructions);
   const text = useRef<HTMLParagraphElement>(null);
   const [expanded, setExpanded] = useState(false);
@@ -37,18 +38,21 @@ export function AgentInstructions({
     <SettingsGroup
       action={
         onEdit ? (
-          <SettingsGroupAction aria-label="Edit instructions" onClick={onEdit}>
-            Edit
+          <SettingsGroupAction
+            aria-label={t(agentInfoMessages.editInstructions)}
+            onClick={onEdit}
+          >
+            {t(commonMessages.edit)}
           </SettingsGroupAction>
         ) : null
       }
-      ariaLabel="Agent instructions"
-      label="Instructions"
+      ariaLabel={t(agentInfoMessages.agentInstructions)}
+      label={t(agentInfoMessages.instructions)}
     >
       <div className="border-t border-border px-3.5 py-3">
         {presented ? (
           <p
-            aria-label="Instructions content"
+            aria-label={t(agentInfoMessages.instructionsContent)}
             className={`whitespace-pre-wrap break-words text-[14px] leading-5 text-app-body [overflow-wrap:anywhere] ${
               expanded ? "" : COLLAPSED_LINES
             }`}
@@ -58,7 +62,7 @@ export function AgentInstructions({
           </p>
         ) : (
           <p className="text-[14px] leading-5 text-muted-foreground">
-            {UNSET_AGENT_INSTRUCTIONS}
+            {t(agentInfoMessages.instructionsUnset)}
           </p>
         )}
         {clipped || expanded ? (
@@ -68,7 +72,11 @@ export function AgentInstructions({
             onClick={() => setExpanded((value) => !value)}
             type="button"
           >
-            {expanded ? "Show less" : "Show more"}
+            {t(
+              expanded
+                ? agentInfoMessages.showLess
+                : agentInfoMessages.showMore,
+            )}
           </button>
         ) : null}
       </div>

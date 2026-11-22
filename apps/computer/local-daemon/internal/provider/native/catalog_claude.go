@@ -25,7 +25,6 @@ type claudeCatalogModel struct {
 	Value                 string   `json:"value"`
 	ResolvedModel         string   `json:"resolvedModel"`
 	DisplayName           string   `json:"displayName"`
-	Description           string   `json:"description"`
 	SupportedEffortLevels []string `json:"supportedEffortLevels"`
 	SupportsEffort        *bool    `json:"supportsEffort"`
 }
@@ -89,7 +88,7 @@ func claudeCatalog(ctx context.Context, inv Invocation) (ModelList, error) {
 				efforts.add(level, "")
 			}
 		}
-		option := ModelOption{ID: id, Label: claudeModelLabel(entry), Provider: "anthropic", Default: entry.Value == "default", Effort: efforts.support("")}
+		option := ModelOption{ID: id, Label: claudeModelLabel(id, entry), Provider: "anthropic", Default: entry.Value == "default", Effort: efforts.support("")}
 		if entry.ResolvedModel != id {
 			option.Resolved = entry.ResolvedModel
 		}
@@ -110,19 +109,51 @@ func claudeCatalog(ctx context.Context, inv Invocation) (ModelList, error) {
 	if len(models.models) == 0 {
 		return ModelList{}, errors.New("Claude initialized without a selectable model catalog")
 	}
-	return models.list(), nil
+	list := models.list()
+	disambiguateModelLabels(list.Models)
+	return list, nil
 }
 
-// The native picker puts the concrete version in its description, while the
-// display name is only a family label. This formatting never selects a model.
-func claudeModelLabel(entry claudeCatalogModel) string {
+// claudeModelLabel formats a Claude catalog entry using only structured fields
+// (displayName, id, and resolvedModel). Free-form description prose varies
+// across Anthropic first-party, cloud hosts, and third-party gateways, so it is
+// never parsed into the display label. When id is an alias for a different
+// concrete model, the resolved model id is appended unless the display name
+// already contains it. This formatting never selects a model.
+func claudeModelLabel(id string, entry claudeCatalogModel) string {
 	label := strings.TrimSpace(entry.DisplayName)
-	summary, _, _ := strings.Cut(strings.TrimSpace(entry.Description), " · ")
-	if summary == "" {
-		return label
+	if label == "" {
+		return ""
 	}
-	if entry.Value == "default" && label != "" {
-		return label + " · " + summary
+	resolved := strings.TrimSpace(entry.ResolvedModel)
+	if validCatalogToken(resolved) && claudeIsAlias(id, resolved) && !strings.Contains(strings.ToLower(label), strings.ToLower(resolved)) {
+		return label + " · " + resolved
 	}
-	return summary
+	return label
+}
+
+// claudeIsAlias reports whether id selects resolved through an alias rather
+// than naming resolved directly (or with a bracket modifier such as "[1m]").
+func claudeIsAlias(id, resolved string) bool {
+	if id == resolved {
+		return false
+	}
+	if strings.HasPrefix(id, resolved+"[") && strings.HasSuffix(id, "]") {
+		return false
+	}
+	return true
+}
+
+// disambiguateModelLabels appends the selectable id to entries that share the
+// same display label so distinct models remain distinguishable.
+func disambiguateModelLabels(models []ModelOption) {
+	counts := make(map[string]int, len(models))
+	for _, model := range models {
+		counts[model.Label]++
+	}
+	for i := range models {
+		if counts[models[i].Label] > 1 && models[i].Label != models[i].ID {
+			models[i].Label += " (" + models[i].ID + ")"
+		}
+	}
 }

@@ -31,7 +31,7 @@ func validateProjectionUpdate(workspace string, previous projectionOwnership, co
 	for _, readonly := range current.ReadOnlyRoots {
 		for _, writable := range current.WritableRoots {
 			if pathWithin(readonly, writable) || pathWithin(writable, readonly) {
-				return ErrContextConflict
+				return contextConflict("read-only mapping %s overlaps writable mapping %s", readonly, writable)
 			}
 		}
 	}
@@ -47,7 +47,7 @@ func validateProjectionUpdate(workspace string, previous projectionOwnership, co
 		for _, writable := range previous.WritableRoots {
 			if pathWithin(readonly, writable) || pathWithin(writable, readonly) {
 				if _, err := root.Lstat(writable); err == nil {
-					return ErrContextConflict
+					return contextConflict("read-only mapping %s would replace writable files at %s", readonly, writable)
 				} else if !errors.Is(err, os.ErrNotExist) {
 					return err
 				}
@@ -69,7 +69,7 @@ func validateProjectionUpdate(workspace string, previous projectionOwnership, co
 			return err
 		}
 		if !owned {
-			return ErrContextConflict
+			return contextConflict("workspace file %s is not a file a retained View projected", relative)
 		}
 	}
 	return nil
@@ -225,7 +225,7 @@ func (s *ViewStore) publishProjection(workspace, staged string, previous project
 					return err
 				}
 				if !replace {
-					return ErrContextConflict
+					return contextConflict("workspace file %s is not a file a retained View projected", workspacePath)
 				}
 			} else if !errors.Is(err, os.ErrNotExist) {
 				return err
@@ -322,7 +322,7 @@ func (s *ViewStore) publishProjection(workspace, staged string, previous project
 			return err
 		}
 		if !owned {
-			return ErrContextConflict
+			return contextConflict("retired workspace file %s changed after it was projected", workspacePath)
 		}
 		if err := writableDirectories(root, filepath.Dir(relative)); err != nil {
 			return err
@@ -391,7 +391,7 @@ func pruneProjectionDirectories(root *os.Root, workspace string, previous, prote
 			return err
 		}
 		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-			return ErrContextConflict
+			return contextConflict("retired projection directory %s is not a plain directory", candidate)
 		}
 		// Darwin rmdir can silently remove dot-underscore metadata files.
 		// Only attempt removal after verifying the directory is empty.

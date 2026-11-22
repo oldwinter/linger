@@ -7,9 +7,11 @@ import { bytesToHex } from "@noble/hashes/utils.js";
 
 import { idempotencyHeader, teamHubData } from "@/features/teamhub/teamhub-api";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
+import { translate } from "@/i18n/language";
 
 import documentAssetHashWorkerUrl from "./document-asset-hash-worker.ts?worker&url";
 import { hashBlobIncrementally } from "./document-asset-hash";
+import { documentEditorMessages as m } from "./document-editor.messages";
 import {
   documentAssetHashTimeoutMs,
   type DocumentAssetHashRequest,
@@ -62,14 +64,14 @@ export async function uploadRoomDocumentAsset(
   blockId?: string,
 ): Promise<string> {
   if (file.size < 1 || file.size > maxRoomDocumentAssetBytes) {
-    throw new Error("Document Asset size is outside the supported range.");
+    throw new Error(translate(m.assetSizeUnsupported));
   }
   return roomDocumentAssetUploadGate.run(async () => {
     const hashed = await hashDocumentAsset(file);
     if (hashed.bytesRead !== file.size) {
       throw new DocumentAssetUploadError(
         "read",
-        "Document Asset changed while it was being read.",
+        translate(m.assetChangedWhileReading),
       );
     }
     const fileSha256 = hashed.sha256;

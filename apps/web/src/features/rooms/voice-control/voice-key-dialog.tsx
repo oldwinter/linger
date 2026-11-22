@@ -12,8 +12,17 @@ import type {
   TeamHubVoiceProvider,
   TeamHubVoiceProviderKeyStatus,
 } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import type { Translate } from "@/i18n/language";
+import type { Message } from "@/i18n/messages";
+import { RichMessage, useT } from "@/i18n/use-translation";
 
 import { publishVoiceMediaPolicy } from "./use-voice-media-policy";
+import { voiceKeyMessages as m } from "./voice-key.messages";
+
+// Where TeamHub keeps saved keys; a server without it can only read keys
+// from its environment.
+const STORAGE_VARIABLE = "TEAMHUB_SECRET_ENCRYPTION_KEY";
 
 const providerDetails: Record<
   TeamHubVoiceProvider,
@@ -21,32 +30,20 @@ const providerDetails: Record<
     environmentVariable: string;
     href: string;
     name: string;
-    purpose: string;
-    steps: string[];
+    purpose: Message<string>;
   }
 > = {
   soniox: {
     environmentVariable: "SONIOX_API_KEY",
     href: "https://console.soniox.com/",
     name: "Soniox",
-    purpose:
-      "Transcribes meetings, Pocket Notes dictation and Voice Mode dictation.",
-    steps: [
-      "Open the Soniox Console and sign in or create an account.",
-      "Create an API key.",
-      "Copy the key, paste it below, and select Save key.",
-    ],
+    purpose: m.sonioxPurpose,
   },
   xai: {
     environmentVariable: "XAI_API_KEY",
     href: "https://console.x.ai/",
     name: "xAI",
-    purpose: "Turns Voice Mode into a live conversation with Grok.",
-    steps: [
-      "Open the xAI Console and sign in or create an account.",
-      "Create an API key.",
-      "Copy the key, paste it below, and select Save key.",
-    ],
+    purpose: m.xaiPurpose,
   },
 };
 
@@ -67,23 +64,30 @@ function voiceReady(
     : policy.live_supported === true;
 }
 
-function describeSaveError(error: Error, provider: TeamHubVoiceProvider) {
+function describeSaveError(
+  error: Error,
+  provider: TeamHubVoiceProvider,
+  t: Translate,
+) {
   const { environmentVariable, name } = providerDetails[provider];
   switch (error instanceof TeamHubError ? error.code : undefined) {
     case "INVALID_REQUEST":
-      return "Enter a valid API key.";
+      return t(m.invalidKey);
     case "VOICE_KEY_REJECTED":
-      return `${name} rejected this key. Check it and try again.`;
+      return t(m.keyRejected, { provider: name });
     case "VOICE_KEY_FROM_ENVIRONMENT":
-      return `This server sets the ${name} key with ${environmentVariable}, so it cannot be changed here.`;
+      return t(m.keyFromEnvironment, {
+        provider: name,
+        variable: environmentVariable,
+      });
     case "VOICE_KEY_STORAGE_UNAVAILABLE":
-      return "This server cannot store keys. Whoever runs it must set TEAMHUB_SECRET_ENCRYPTION_KEY.";
+      return t(m.storageUnavailable, { storageVariable: STORAGE_VARIABLE });
     case "VOICE_PROVIDER_UNAVAILABLE":
-      return `Could not reach ${name} to check the key. Try again in a moment.`;
+      return t(m.providerUnreachable, { provider: name });
     case "VOICE_MEDIA_OFF":
-      return "Voice is turned off on this server.";
+      return t(m.voiceOff);
     default:
-      return "Could not save the key. Try again.";
+      return t(m.saveFailed);
   }
 }
 
@@ -109,6 +113,7 @@ export function VoiceKeyDialog({
   providers: readonly TeamHubVoiceProvider[];
   tenantId: string;
 }) {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const [provider, setProvider] = useState(providers[0] ?? "soniox");
   // Set when the key is saved but the fresh policy did not turn voice on.
@@ -136,20 +141,20 @@ export function VoiceKeyDialog({
     <ModalDialog
       closeOnBackdrop
       description={
-        providers.length > 1
-          ? "Voice needs a Soniox or xAI key. Keys are used by everyone on this server."
-          : details.purpose
+        providers.length > 1 ? t(m.chooseProvider) : t(details.purpose)
       }
       onClose={onClose}
       size="md"
-      title={providers.length > 1 ? "Turn on voice" : `${details.name} key`}
+      title={
+        providers.length > 1
+          ? t(m.turnOnVoice)
+          : t(m.title, { provider: details.name })
+      }
     >
       <div className="space-y-4 px-5 py-5 text-sm text-app-body">
         {turnOnFailed ? (
           <>
-            <p role="alert">
-              The key is saved, but voice could not be turned on. Try again.
-            </p>
+            <p role="alert">{t(m.savedButOff)}</p>
             <Button
               loading={retrying}
               onClick={() => {
@@ -158,14 +163,14 @@ export function VoiceKeyDialog({
               }}
               tone="primary"
             >
-              Try again
+              {t(commonMessages.tryAgain)}
             </Button>
           </>
         ) : (
           <>
             {providers.length > 1 ? (
               <div
-                aria-label="Voice provider"
+                aria-label={t(m.voiceProvider)}
                 className="flex gap-2"
                 role="group"
               >
@@ -182,16 +187,21 @@ export function VoiceKeyDialog({
               </div>
             ) : null}
             {providers.length > 1 ? (
-              <p className="text-muted-foreground">{details.purpose}</p>
+              <p className="text-muted-foreground">{t(details.purpose)}</p>
             ) : null}
             {status?.can_save === false ? (
               <p>
-                This server cannot save a {details.name} key here. Whoever runs
-                it must set{" "}
-                <code className="font-mono">{details.environmentVariable}</code>
-                , or set{" "}
-                <code className="font-mono">TEAMHUB_SECRET_ENCRYPTION_KEY</code>{" "}
-                so keys can be saved here.
+                <RichMessage
+                  message={m.cannotSaveHere}
+                  tags={{
+                    code: (text) => <code className="font-mono">{text}</code>,
+                  }}
+                  values={{
+                    provider: details.name,
+                    storageVariable: STORAGE_VARIABLE,
+                    variable: details.environmentVariable,
+                  }}
+                />
               </p>
             ) : (
               <>
@@ -199,19 +209,21 @@ export function VoiceKeyDialog({
                   href={details.href}
                   steps={
                     <ol className="list-decimal space-y-1.5 pl-5">
-                      {details.steps.map((step) => (
-                        <li key={step}>{step}</li>
-                      ))}
+                      <li>{t(m.stepOpen, { provider: details.name })}</li>
+                      <li>{t(m.stepCreate)}</li>
+                      <li>{t(m.stepPaste)}</li>
                     </ol>
                   }
                 />
                 <ProviderKeyForm
-                  describeError={(error) => describeSaveError(error, provider)}
-                  hint="Stored encrypted and never shown again."
+                  describeError={(error) =>
+                    describeSaveError(error, provider, t)
+                  }
+                  hint={t(m.keyHint)}
                   key={provider}
-                  label={`${details.name} API key`}
+                  label={t(m.apiKey, { provider: details.name })}
                   // TeamHub answers the save once the voice workers are up.
-                  pendingLabel="Turning on voice…"
+                  pendingLabel={t(m.turningOn)}
                   save={async (apiKey) => {
                     await teamHubData(
                       client.api.PUT("/v0/voice-provider-keys/{provider}", {

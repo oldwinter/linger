@@ -70,6 +70,8 @@ type Options struct {
 	// LocalModels runs owner-chosen localmodels library actions; nil
 	// refuses each with TOOL_NOT_INSTALLED.
 	LocalModels LocalModelLibrary
+	// ModelSource inspects, tests and switches the Computer's active model source.
+	ModelSource ModelSourceManager
 }
 
 // HerdrPanes types the owner's answer into a herdr agent pane that is still
@@ -88,6 +90,8 @@ type LocalSkillCatalog interface {
 
 type LocalToolBinder interface {
 	Bind(context.Context, provider.OperationSpec, mcpproxy.OperationIdentity, *mcpproxy.Set) error
+	// BindUI runs after Bind and publishes the script entry over its drivers.
+	BindUI(context.Context, provider.OperationSpec, mcpproxy.OperationIdentity, *mcpproxy.Set) error
 }
 
 // localToolPrewarmer is optional: a LocalToolBinder that can discover its tool
@@ -121,19 +125,25 @@ type Daemon struct {
 	connectionEpoch     uint64
 	// contentURL is the current connection's context_content_url, read by
 	// dispatch workers that bring a Context to its View.
-	contentURL  atomic.Pointer[string]
-	welcomeSeen bool
-	prewarmOnce sync.Once
-	welcomedAt  time.Time
-	daemonID    string
-	activeMu    sync.Mutex
-	admissionMu sync.Mutex
+	contentURL atomic.Pointer[string]
+	// byokEndpoint holds whether the current Agent Service declared
+	// serviceFeatureByokEndpoint in its welcome.
+	byokEndpoint atomic.Bool
+	welcomeSeen  bool
+	prewarmOnce  sync.Once
+	welcomedAt   time.Time
+	daemonID     string
+	activeMu     sync.Mutex
+	admissionMu  sync.Mutex
 	// authorityRevision counts, under admissionMu, the commands that can change
 	// what an accepted Operation may start with: Registration snapshots, Agent
 	// Runner commands and Context commands. A start whose revision is unchanged
 	// after its off-lock MCP preparation needs no second Resolve.
-	authorityRevision  uint64
-	activeOperations   map[string]*activeOperation
+	authorityRevision uint64
+	activeOperations  map[string]*activeOperation
+	// A yielded Operation whose native cleanup is unknown still occupies this
+	// Computer. Its Runtime refuses new work until the Daemon restarts.
+	uncleanOperations  []OperationIdentity
 	preparationMu      sync.Mutex
 	preparedOperations map[string]*preparedOperation
 	providerPrepareMu  sync.Mutex
@@ -145,6 +155,7 @@ type Daemon struct {
 	modelInvokeMu      sync.Mutex
 	modelInvokes       map[string]*modelInvoke
 	localModels        LocalModelLibrary
+	modelSource        ModelSourceManager
 	// localModelsMu orders runner.local_models sends with their revision.
 	localModelsMu       sync.Mutex
 	localModelsRevision uint64
@@ -170,19 +181,19 @@ type Daemon struct {
 	diagnosticsRevision uint64
 	connectionMu        sync.Mutex
 	diagnosticsStream   transport.Stream
-	operationStream     transport.Stream
+	// localModelsStream is the live connection when its Agent Service
+	// accepts runner.local_models; nil otherwise.
+	localModelsStream transport.Stream
+	operationStream   transport.Stream
 	// dispatcher is the live connection's command dispatcher. It is atomic so
 	// DrainIfIdle can read it under admissionMu without taking connectionMu.
 	dispatcher           atomic.Pointer[commandDispatcher]
 	contextDispatchLimit int
 	fatalMu              sync.Mutex
 	fatalErr             error
-	gatewayStateMu       sync.RWMutex
-	reconciled           bool
-	gatewayState         string
-	// gatewayConnectionError names the last Gateway connection failure this
-	// release can explain, under gatewayStateMu.
-	gatewayConnectionError string
+	gatewayStateMu sync.RWMutex
+	reconciled     bool
+	gatewayState   string
 	// welcomedEpochs are the connection epochs this process was welcomed
 	// with, under gatewayStateMu. A start sent on any other epoch was sent to
 	// an earlier Daemon process.
@@ -201,6 +212,10 @@ type activeOperation struct {
 	inputMu           sync.Mutex
 	finishing         bool
 	pendingInputs     map[string]*pendingOperationInput
+	// sessionMoved is set when the Run continued in a new native session
+	// after announcing its retained one; it then declines a scheduler
+	// yield, whose follow-up would resume the session that is gone.
+	sessionMoved atomic.Bool
 }
 
 func New(options Options) (*Daemon, error) {
@@ -241,6 +256,7 @@ func New(options Options) (*Daemon, error) {
 		modelInvoker:         options.ModelInvoker,
 		modelInvokes:         make(map[string]*modelInvoke),
 		localModels:          options.LocalModels,
+		modelSource:          options.ModelSource,
 		contextDispatchLimit: defaultContextDispatchLimit,
 		retryDelay:           defaultRetryDelay(options.RetryDelay),
 		stableConnection:     stableGatewayConnection,
@@ -274,6 +290,8 @@ func New(options Options) (*Daemon, error) {
 	}, nil
 }
 
+// Run loads or creates the Daemon Identity and keeps the Gateway stream
+// connected until ctx ends or a terminal configuration error stops redials.
 func (d *Daemon) Run(ctx context.Context) error {
 	defer func() {
 		_, _ = native.StopAllParkedResidents()
@@ -296,7 +314,6 @@ func (d *Daemon) Run(ctx context.Context) error {
 		}
 		err := d.runConnection(ctx, deviceIdentity)
 		d.setGatewayState("connecting")
-		d.setGatewayConnectionError(connectionErrorFor(err))
 		if fatalErr := d.fatalError(); fatalErr != nil {
 			return fatalErr
 		}
@@ -318,6 +335,12 @@ func (d *Daemon) Run(ctx context.Context) error {
 		var upgradeRequired *transport.UpgradeRequiredError
 		if errors.As(err, &upgradeRequired) {
 			d.setGatewayState("upgrade-required")
+			<-ctx.Done()
+			return ctx.Err()
+		}
+		var daemonIdentityInUse *transport.DaemonIdentityInUseError
+		if errors.As(err, &daemonIdentityInUse) {
+			d.setGatewayState("identity-conflict")
 			<-ctx.Done()
 			return ctx.Err()
 		}

@@ -8,7 +8,8 @@ import {
 } from "./realtime-test-support.js";
 
 describe("Document realtime session expiry", () => {
-  it.each([5_000, 30 * 24 * 60 * 60_000])(
+  // The short lifetime leaves the handshake time to finish before expiry.
+  it.each([2_000, 30 * 24 * 60 * 60_000])(
     "honors the connection token expiry without overflowing a %i ms lifetime",
     async (expiresInMs) => {
       const { bodies } = await memoryBodies();
@@ -28,7 +29,7 @@ describe("Document realtime session expiry", () => {
       });
 
       try {
-        if (expiresInMs > 5_000) {
+        if (expiresInMs > 2_000) {
           await new Promise((resolve) => setTimeout(resolve, 100));
           expect(onClose).not.toHaveBeenCalled();
           return;

@@ -7,10 +7,10 @@ import {
 } from "react";
 import { useLocation } from "react-router";
 
-import { extractRenderedDocumentHeadings } from "./document-headings";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
 
-const unavailableSectionMessage =
-  "This section is unavailable in the current document.";
+import { extractRenderedDocumentHeadings } from "./document-headings";
 
 export function scrollToDocumentAnchor(root: HTMLElement | null, hash: string) {
   if (!root || !hash.startsWith("#")) return false;
@@ -54,10 +54,9 @@ export function useDocumentAnchorLinks(
 ) {
   const { hash, key } = useLocation();
   const pendingObserver = useRef<MutationObserver | null>(null);
-  const [failure, setFailure] = useState<{
-    identity: string;
-    message: string;
-  } | null>(null);
+  const t = useT();
+  // The identity of the document whose section could not be found.
+  const [failure, setFailure] = useState<{ identity: string } | null>(null);
   useEffect(() => {
     const root = rootRef.current;
     if (!identity || !hash || !root) return;
@@ -74,7 +73,7 @@ export function useDocumentAnchorLinks(
           ? null
           : previous?.identity === identity
             ? previous
-            : { identity, message: unavailableSectionMessage },
+            : { identity },
       );
       if (found) observer.disconnect();
     };
@@ -106,14 +105,15 @@ export function useDocumentAnchorLinks(
     event.stopPropagation();
     pendingObserver.current?.disconnect();
     setFailure(
-      scrollToDocumentAnchor(rootRef.current, reference)
-        ? null
-        : { identity, message: unavailableSectionMessage },
+      scrollToDocumentAnchor(rootRef.current, reference) ? null : { identity },
     );
     return true;
   }
   return {
-    error: failure?.identity === identity ? failure?.message : undefined,
+    error:
+      failure && failure.identity === identity
+        ? t(commonMessages.sectionUnavailable)
+        : undefined,
     openAnchor,
   };
 }

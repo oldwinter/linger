@@ -29,7 +29,7 @@ func TestNormalizeMessageCreateRequest(t *testing.T) {
 		{name: "reconstruction mismatch", request: `{"raw_message":"one","segments":[{"type":"text","content":"two"}]}`, wantInvalid: true},
 		{name: "invalid skill token", request: `{"raw_message":"summarize","segments":[{"type":"skill","content":"summarize","target":"agent_reviewer","skill_id":"skill_summarize","manifest_version":"1.0.0"}]}`, wantInvalid: true},
 		{name: "client supplied file metadata", request: `{"raw_message":"report","segments":[{"type":"file","content":"report","document_id":"document_1","document_version_id":"version_1","filename":"spoof.pdf","media_type":"application/pdf"}]}`, wantInvalid: true},
-		{name: "Human meeting notes rejected", request: `{"raw_message":"Quick notes","segments":[{"type":"meeting_notes","content":"Quick notes","capture_id":"capture_1"}]}`, wantInvalid: true},
+		{name: "Human meeting notes rejected", request: `{"raw_message":"Meeting summary","segments":[{"type":"meeting_notes","content":"Meeting summary","capture_id":"capture_1"}]}`, wantInvalid: true},
 		{name: "invalid Document presentation", request: `{"raw_message":"report","segments":[{"type":"document","content":"report","document_id":"document_1","presentation":"banner"}]}`, wantInvalid: true},
 	}
 	for _, test := range tests {
@@ -126,8 +126,8 @@ func TestStoredArtifactTreeMessageCanBeReadAndForwarded(t *testing.T) {
 }
 
 func TestStoredMeetingNotesReadAndForwardAsText(t *testing.T) {
-	encoded := []byte(`[{"type":"document","content":"source.m4a","document_id":"document_1","presentation":"card"},{"type":"meeting_notes","content":"Quick notes","capture_id":"capture_1"}]`)
-	raw := "source.m4aQuick notes"
+	encoded := []byte(`[{"type":"document","content":"source.m4a","document_id":"document_1","presentation":"card"},{"type":"meeting_notes","content":"Meeting summary","capture_id":"capture_1"}]`)
+	raw := "source.m4aMeeting summary"
 	stored, err := storedMessageContent(raw, encoded)
 	if err != nil || len(stored.segments) != 2 {
 		t.Fatalf("stored=%+v err=%v", stored, err)

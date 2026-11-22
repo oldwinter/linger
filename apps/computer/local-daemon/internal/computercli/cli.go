@@ -747,6 +747,8 @@ func (c *cli) connectionFailure(state string) (string, bool) {
 	switch state {
 	case "authentication-failed":
 		return "Rejected by the server. Run " + c.command + " login to authorize again.", true
+	case "identity-conflict":
+		return "This computer's identity is already bound to another Computer registration. Run " + c.command + " doctor --prune to reset local state.", true
 	case "upgrade-required":
 		return "The server requires a newer Linger Computer. Rerun the installer.", true
 	}
@@ -775,7 +777,7 @@ func (c *cli) reportConnection(ctx context.Context, configPath string) (int, err
 	report := c.waitForConnection(ctx, configPath)
 	c.out(c.formatStatus(report))
 	switch state, _ := report.Daemon.string("gateway_state"); state {
-	case "authentication-failed":
+	case "authentication-failed", "identity-conflict":
 		return exitCodes[categoryCredential], nil
 	case "upgrade-required":
 		return exitCodes[categoryConfiguration], nil

@@ -18,6 +18,10 @@ import (
 // claudeFakeKey runs the named mode before TestMain.
 const claudeFakeKey = "CLAUDE_FAKE_MODE"
 
+// claudeFakeSlowOutput is how long a resident "slow" or "late" turn holds its
+// output; timing assertions compare against it rather than a wall-clock guess.
+const claudeFakeSlowOutput = 300 * time.Millisecond
+
 func init() {
 	if mode := os.Getenv(claudeFakeKey); mode != "" {
 		os.Exit(claudeFakeMain(mode))
@@ -228,6 +232,9 @@ func (f *claudeFake) signalled() int {
 	if policy == "report" {
 		f.emit(`{"type":"result","subtype":"error","is_error":true,"result":"interrupted by caller"}`)
 	}
+	if policy == "completed" {
+		f.emit(`{"type":"result","subtype":"success","terminal_reason":"completed","result":"done"}`)
+	}
 	return 0
 }
 
@@ -244,7 +251,7 @@ func (f *claudeFake) resident() int {
 		signal.Notify(terms, syscall.SIGTERM)
 		go func() {
 			<-terms
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(200 * time.Millisecond)
 			f.record("exits", fmt.Sprintf("%d %d", os.Getpid(), time.Now().UnixNano()))
 			os.Exit(0)
 		}()
@@ -305,7 +312,7 @@ func (f *claudeFake) resident() int {
 			f.emit(systemInit)
 		}
 		if strings.Contains(prompt, "late") || strings.Contains(prompt, "slow") {
-			time.Sleep(time.Second)
+			time.Sleep(claudeFakeSlowOutput)
 		}
 		if strings.Contains(prompt, "noecho") {
 			f.emit(map[string]any{"type": "result", "subtype": "error", "is_error": true, "terminal_reason": "completed",
@@ -377,7 +384,8 @@ func (f *claudeFake) resident() int {
 			}}})
 		}
 		if strings.Contains(prompt, "pause") {
-			time.Sleep(time.Second)
+			// Long enough for a test to act 300ms into the turn.
+			time.Sleep(600 * time.Millisecond)
 		}
 		reason := "completed"
 		if strings.Contains(prompt, "reason") {

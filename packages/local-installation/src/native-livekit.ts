@@ -1,11 +1,14 @@
 import { randomBytes } from "node:crypto";
-import { createSocket } from "node:dgram";
-import net from "node:net";
 import path from "node:path";
 import { parseEnv } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
 import { atomicPrivate, readPrivate } from "./instance.js";
-import { inspectNativeProcess, startNativeProcess } from "./native-process.js";
+import { freePort, portFree } from "./ports.js";
+import {
+  inspectNativeListeners,
+  inspectNativeProcess,
+  startNativeProcess,
+} from "./native-process.js";
 
 // The LiveKit server Native voice runs, as docker-compose.yml runs it for
 // Docker: the voice workers and the browser meet there. It listens on
@@ -51,56 +54,48 @@ export async function readLiveKitSettings(
   const text = await readPrivate(settingsFile(root));
   return text === undefined ? undefined : parseSettings(text);
 }
-async function freeTcpPort(reserved: Set<number>): Promise<number> {
-  for (;;) {
-    const port = await new Promise<number>((resolve, reject) => {
-      const server = net.createServer();
-      server.once("error", reject);
-      server.listen(0, "127.0.0.1", () => {
-        const { port } = server.address() as net.AddressInfo;
-        server.close((error) => (error ? reject(error) : resolve(port)));
-      });
-    });
-    if (!reserved.has(port)) {
-      reserved.add(port);
-      return port;
-    }
-  }
-}
-async function freeUdpPort(reserved: Set<number>): Promise<number> {
-  for (;;) {
-    const port = await new Promise<number>((resolve, reject) => {
-      const socket = createSocket("udp4");
-      socket.once("error", reject);
-      socket.bind(0, "127.0.0.1", () => {
-        const { port } = socket.address();
-        socket.close(() => resolve(port));
-      });
-    });
-    if (!reserved.has(port)) {
-      reserved.add(port);
-      return port;
-    }
-  }
-}
 /**
  * The instance's LiveKit ports and keys, made once and kept in the
  * owner-only livekit.env so services and LiveKit agree across restarts.
- * `reserved` holds the ports other instances and services use.
+ * `reserved` holds the ports other instances and services use. While
+ * LiveKit is stopped, a port another program took since moves to a free one,
+ * reported through `onMoved`.
  */
 export async function prepareLiveKitSettings(
   root: string,
   reserved: Set<number>,
+  onMoved?: (message: string) => void,
 ): Promise<LiveKitSettings> {
   const existing = await readLiveKitSettings(root);
-  if (existing) return existing;
-  const settings: LiveKitSettings = {
-    httpPort: await freeTcpPort(reserved),
-    rtcPort: await freeUdpPort(reserved),
-    // LiveKit signs access tokens with the secret; it needs 32+ characters.
-    apiKey: `API${randomBytes(6).toString("hex")}`,
-    apiSecret: randomBytes(32).toString("hex"),
-  };
+  let settings: LiveKitSettings;
+  if (!existing)
+    settings = {
+      httpPort: await freePort(reserved),
+      rtcPort: await freePort(reserved, { protocol: "udp" }),
+      // LiveKit signs access tokens with the secret; it needs 32+ characters.
+      apiKey: `API${randomBytes(6).toString("hex")}`,
+      apiSecret: randomBytes(32).toString("hex"),
+    };
+  else if ((await inspectNativeProcess(root, "livekit")).running)
+    return existing;
+  else {
+    settings = { ...existing };
+    for (const [name, protocol] of [
+      ["httpPort", "tcp"],
+      ["rtcPort", "udp"],
+    ] as const) {
+      if (await portFree(existing[name], protocol)) continue;
+      settings[name] = await freePort(reserved, { protocol });
+      onMoved?.(
+        `Port ${existing[name]} is in use by another program; Linger's livekit uses port ${settings[name]} instead.\n`,
+      );
+    }
+    if (
+      settings.httpPort === existing.httpPort &&
+      settings.rtcPort === existing.rtcPort
+    )
+      return existing;
+  }
   await atomicPrivate(
     settingsFile(root),
     [
@@ -149,7 +144,12 @@ export async function liveKitReady(
   signal?: AbortSignal,
 ): Promise<boolean> {
   try {
-    if (!(await inspectNativeProcess(root, "livekit")).running) return false;
+    const [state] = await inspectNativeListeners(root, [
+      { name: "livekit", port: settings.httpPort },
+    ]);
+    // Another process on the port would answer for a LiveKit that cannot
+    // listen there.
+    if (!state?.running || state.foreign !== undefined) return false;
     const response = await fetch(`http://127.0.0.1:${settings.httpPort}/`, {
       redirect: "error",
       signal: AbortSignal.any([

@@ -47,6 +47,25 @@ func (s *Service) EnqueueSteer(ctx context.Context, input EnqueueSteerInput) (En
 		if err != nil {
 			return EnqueueSteerResult{}, err
 		}
+		// A Run the follow-up was assigned to announced it was working on it.
+		// Moving the follow-up to a new Run may leave that Run replied again,
+		// and it may add no event before it stops, so announce it now.
+		assigned := map[string]bool{}
+		for _, row := range rows {
+			if !row.LocalRunID.Valid || assigned[row.LocalRunID.String] {
+				continue
+			}
+			assigned[row.LocalRunID.String] = true
+			log, err := openRunStatusLog(ctx, queries, row.LocalRunID.String)
+			if err != nil {
+				return EnqueueSteerResult{}, err
+			}
+			if log != nil && !log.stopped() {
+				if err := log.publish(ctx, queries); err != nil {
+					return EnqueueSteerResult{}, err
+				}
+			}
+		}
 		if _, err := queries.BumpAgentExecutionContextStateRevision(ctx, input.ContextKey); err != nil {
 			return EnqueueSteerResult{}, err
 		}
@@ -112,6 +131,18 @@ func (s *Service) AssignSteerRun(ctx context.Context, input AssignSteerRunInput)
 			}
 			if inserted == 1 {
 				ordinal++
+			}
+		}
+		// A follow-up newer than the Run's reply takes that reply back, but
+		// the Run may add no event before it replies again. Announcing the
+		// status now lets the Room show its Agent working on the follow-up.
+		log, err := openRunStatusLog(ctx, queries, input.RunID)
+		if err != nil {
+			return false, err
+		}
+		if log != nil && !log.stopped() {
+			if err := log.publish(ctx, queries); err != nil {
+				return false, err
 			}
 		}
 		if _, err := queries.BumpAgentExecutionContextStateRevision(ctx, input.ContextKey); err != nil {
@@ -229,14 +260,15 @@ func (s *Service) RedeliverUnconfirmedRunInputs(ctx context.Context, runID strin
 	})
 }
 
-func (s *Service) ContextHasQueuedRuns(ctx context.Context, contextKey string) (bool, error) {
+// NextRunInputOrigins reads scheduling metadata without claiming the next Run.
+func (s *Service) NextRunInputOrigins(ctx context.Context, contextKey string) ([]store.NextAgentRunInputOriginsRow, error) {
 	if s == nil || s.pool == nil {
-		return false, ErrInvalid
+		return nil, ErrInvalid
 	}
 	if _, err := DecodeContextKey(contextKey); err != nil {
-		return false, ErrInvalid
+		return nil, ErrInvalid
 	}
-	return store.New(s.pool).AgentRuntimeContextHasQueuedRun(ctx, contextKey)
+	return store.New(s.pool).NextAgentRunInputOrigins(ctx, contextKey)
 }
 
 func enqueueSteerRows(

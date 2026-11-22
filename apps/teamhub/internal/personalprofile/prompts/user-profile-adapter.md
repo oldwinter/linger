@@ -86,15 +86,20 @@ heading, so no text field may contain Markdown headings (a line starting with
     the start year and a leading dash marks the end year: `2009–2013` when
     both years are known, `2019` when only the start year is known, `–2013`
     when only the end year is known (such as a graduation year), and
-    `Present` for every ongoing role, whatever year it started. When the
-    sources only show that a role ended before a later role began, write
-    that later role's start year from the sources as the end, as in
-    `–2025`, even when the later role's own period reads `Present`. Never
-    leave a school or organization out of the timeline because its years are
-    unclear: use the end year of this rule when a later role's start year is
-    known, and mention the experience only in the overview when no year can
-    be supported at all. Do not prefix roles with "Former"; the period
-    shows it. Never guess a year. Required.
+    `Present` for every ongoing role, whatever year it started. Write every
+    year the sources support: a start year shown by an offer, a background
+    check, or a first day belongs in the period, so a finished job reads
+    `2020–2026`, not `–2026`. A later role's start year is an end year only
+    for the entry that later role directly follows, when the sources show
+    that transition, such as graduating and then joining, as in `–2025`
+    even when the later role's own period reads `Present`. A later year
+    that only proves an entry was over by then is an upper bound, not its
+    end year: write it as `≤2020`, and never copy one bound onto several
+    earlier entries as their end year. Never leave a school or organization
+    out of the timeline because its years are unclear, and mention the
+    experience only in the overview when no year can be supported at all.
+    Do not prefix roles with "Former"; the period shows it. Never guess a
+    year. Required.
   - `organization`: the school or organization. Required.
   - `place`: the city, or an empty string when the source does not state it
     for that entry; never carry a city over from another entry.

@@ -91,16 +91,22 @@ func TestActiveVoiceSessionConstraintIsAProductConflict(t *testing.T) {
 	}
 }
 
-func TestInitialMediaStartRejectsMissingAndPreRequestClock(t *testing.T) {
-	requested := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
-	for _, started := range []time.Time{{}, requested.Add(-time.Millisecond)} {
-		if _, err := initialMediaStart(requested, started); !errors.Is(err, ErrProviderUnavailable) {
-			t.Fatalf("untrusted media start accepted: start=%v err=%v", started, err)
-		}
+func TestInitialMediaStartNormalizesRecorderClock(t *testing.T) {
+	requested := time.Date(2026, 9, 10, 12, 0, 0, 500_000, time.UTC)
+	if _, err := initialMediaStart(requested, time.Time{}); !errors.Is(err, ErrProviderUnavailable) {
+		t.Fatalf("missing media start accepted: %v", err)
 	}
-	started := requested.Add(5 * time.Second)
-	if got, err := initialMediaStart(requested, started); err != nil || !got.Equal(started) {
-		t.Fatalf("actual media start changed: got=%v err=%v", got, err)
+	for _, offset := range []time.Duration{-5 * time.Second, -time.Millisecond, -500 * time.Microsecond, 0, 5 * time.Second} {
+		t.Run(offset.String(), func(t *testing.T) {
+			started := requested.Add(offset)
+			want := requested
+			if offset > 0 {
+				want = started
+			}
+			if got, err := initialMediaStart(requested, started); err != nil || !got.Equal(want) {
+				t.Fatalf("media start=%v want=%v err=%v", got, want, err)
+			}
+		})
 	}
 }
 

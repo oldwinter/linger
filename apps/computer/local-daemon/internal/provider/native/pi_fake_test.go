@@ -21,6 +21,9 @@ const (
 	piFakeArgvEnv   = "PI_FAKE_ARGV"
 	piFakeChildEnv  = "PI_FAKE_CHILD_PID"
 	piFakeLogEnv    = "PI_FAKE_COMMANDS"
+	// piFakeDialogEnv names the file the review mode appends each
+	// extension UI response to.
+	piFakeDialogEnv = "PI_FAKE_DIALOGS"
 )
 
 func init() {
@@ -96,6 +99,8 @@ func piFake(mode string, args []string) int {
 	}
 	if path := os.Getenv(piFakeArgvEnv); path != "" {
 		_ = os.WriteFile(path, []byte(strings.Join(args, "\n")), 0o600)
+		_ = os.WriteFile(path+".node_path", []byte(os.Getenv(piNodePathKey)), 0o600)
+		_ = os.WriteFile(path+".shell_text_hook", []byte(os.Getenv(piShellTextHookEnvKey)), 0o600)
 	}
 	reader := bufio.NewReader(os.Stdin)
 	for {
@@ -113,6 +118,12 @@ func piFake(mode string, args []string) int {
 		}
 		if json.Unmarshal(line, &command) != nil {
 			return 22
+		}
+		if command.Type == "extension_ui_response" {
+			if code := f.dialogAnswered(line); code >= 0 {
+				return code
+			}
+			continue
 		}
 		if path := os.Getenv(piFakeLogEnv); path != "" {
 			if log, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600); err == nil {
@@ -174,6 +185,11 @@ func (f *piFakeProcess) handle(id, kind, message string) int {
 		if !f.cleared {
 			return 24
 		}
+		if f.mode == "complete-on-abort" {
+			f.finish()
+			f.reply(id, kind, nil)
+			return -1
+		}
 		f.send(map[string]any{"type": "agent_settled", "aborted": true})
 		f.reply(id, kind, nil)
 	default:
@@ -184,7 +200,7 @@ func (f *piFakeProcess) handle(id, kind, message string) int {
 
 func (f *piFakeProcess) act() int {
 	switch f.mode {
-	case "steer", "steer-race", "steer-unconsumed":
+	case "steer", "steer-race", "steer-unconsumed", "complete-on-abort":
 	case "retry":
 		f.assistantEnd("", "error", "retryable")
 		f.send(map[string]any{"type": "agent_end"})
@@ -213,11 +229,36 @@ func (f *piFakeProcess) act() int {
 		}})
 		f.tool("call_ls", "bash", false)
 		f.finish()
+	case "review":
+		// Another extension's dialog first: the Daemon cancels it.
+		f.send(map[string]any{"type": "extension_ui_request", "id": "ui-other", "method": "confirm", "title": "Clear session?", "message": "x"})
+		f.send(map[string]any{"type": "extension_ui_request", "id": "ui-notify", "method": "notify", "message": "x"})
+		call, _ := json.Marshal(map[string]any{"toolName": "bash", "input": map[string]any{"command": "git push"}})
+		f.send(map[string]any{"type": "extension_ui_request", "id": "ui-review", "method": "input", "title": piReviewDialog, "placeholder": string(call)})
 	case "composite":
 		f.tool("call_shared|fc_first", "read", false)
 		f.tool("call_shared|fc_second", "read", false)
 		f.finish()
 	default:
+		f.finish()
+	}
+	return -1
+}
+
+// dialogAnswered records one extension UI response and finishes the turn
+// once the review is answered. It returns an exit code, or -1.
+func (f *piFakeProcess) dialogAnswered(line []byte) int {
+	if path := os.Getenv(piFakeDialogEnv); path != "" {
+		if log, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600); err == nil {
+			_, _ = log.Write(line)
+			_ = log.Close()
+		}
+	}
+	var answer struct{ ID string }
+	if json.Unmarshal(line, &answer) != nil {
+		return 22
+	}
+	if answer.ID == "ui-review" {
 		f.finish()
 	}
 	return -1

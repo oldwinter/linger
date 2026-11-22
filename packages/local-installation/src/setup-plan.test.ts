@@ -1,5 +1,6 @@
+import path from "node:path";
 import { expect, it, vi } from "vitest";
-import { inspectSetup, assertLocalModelsEligible } from "./setup-plan.js";
+import { inspectSetup } from "./setup-plan.js";
 
 const upstream = (available = true) => ({
   schema: "localmodels.setup-report/v1",
@@ -43,19 +44,20 @@ const runner = (value: object = upstream()) =>
   vi.fn(async () => ({ code: 0, stdout: JSON.stringify(value), stderr: "" }));
 it("delegates all hardware policy, runtime detection, estimates and recommendation upstream", async () => {
   const localmodels = runner();
+  const home = path.resolve("/owned");
   const report = await inspectSetup({
-    home: "/owned",
+    home,
     localmodels,
   });
   expect(localmodels).toHaveBeenCalledWith(
-    "/owned",
+    home,
     [
       "setup",
       "inspect",
       "--root",
-      "/owned/runtime/harness",
+      path.join(home, "runtime", "harness"),
       "--model-base-dir",
-      "/owned/runtime/localmodels/models",
+      path.join(home, "runtime", "localmodels", "models"),
       "--decision",
       "none",
       "--offline",
@@ -97,15 +99,11 @@ it("preserves upstream rejection and never substitutes downstream eligibility", 
   const localmodels = runner(upstream(false));
   const report = await inspectSetup({ localmodels });
   expect(report.localModels.state).toBe("unavailable");
-  expect(report.localModels.reasons).toEqual(["upstream_policy"]);
-  expect(report.localModels.reasonMessages).toEqual([
-    "Upstream rejected this host",
+  expect(report.localModels.reasons).toEqual([
+    { code: "upstream_policy", message: "Upstream rejected this host" },
   ]);
   expect(report.recommendation).toBe("pi");
   expect(report.localModels.estimate.downloadBytes).toBeNull();
-  await expect(assertLocalModelsEligible({ localmodels })).rejects.toThrow(
-    "upstream_policy: Upstream rejected this host",
-  );
 });
 it("recommends the next runtime while the local plan waits for free memory (tool without stack.state)", async () => {
   const freeMemory = (installed: boolean) => {
@@ -136,14 +134,16 @@ it("recommends the next runtime while the local plan waits for free memory (tool
     eligible: false,
     state: "blocked-now",
     basis: "capacity",
-    reasons: ["free-memory-required"],
+    reasons: [
+      {
+        code: "free-memory-required",
+        message: "Close other programs before installing.",
+      },
+    ],
     estimate: { model: "upstream-model" },
   });
   expect(report.localModels).not.toHaveProperty("memory");
   expect(report.recommendation).toBe("pi");
-  await expect(
-    assertLocalModelsEligible({ localmodels: runner(freeMemory(true)) }),
-  ).rejects.toThrow("free-memory-required");
   const bare = await inspectSetup({ localmodels: runner(freeMemory(false)) });
   expect(bare.recommendation).toBe("codex");
   // The reason code alone holds the plan too.
@@ -236,6 +236,104 @@ it("reads the tool's blocked-now state, memory and recommendation", async () => 
     hardwareCapable: false,
   });
 });
+it("passes on the memory counts each reason carries", async () => {
+  const value = upstream();
+  const report = await inspectSetup({
+    localmodels: runner({
+      ...value,
+      stack: {
+        ...value.stack,
+        available: false,
+        state: "blocked-now",
+        basis: "capacity",
+        reasons: [
+          {
+            code: "gpu-memory-required",
+            message: "Other programs are using GPU 1's memory.",
+            gpuIndex: 1,
+            freeBytes: 3,
+            requiredBytes: 8,
+          },
+          {
+            code: "free-memory-required",
+            message: "Other programs are using memory they need.",
+            freeBytes: 5,
+            requiredBytes: 13,
+          },
+          // A count outside the contract is left out, not shown.
+          { code: "free-memory-required", message: "", freeBytes: -1 },
+        ],
+      },
+      recommendation: "codex",
+    }),
+  });
+  expect(report.localModels.reasons).toEqual([
+    {
+      code: "gpu-memory-required",
+      message: "Other programs are using GPU 1's memory.",
+      gpuIndex: 1,
+      freeBytes: 3,
+      requiredBytes: 8,
+    },
+    {
+      code: "free-memory-required",
+      message: "Other programs are using memory they need.",
+      freeBytes: 5,
+      requiredBytes: 13,
+    },
+    { code: "free-memory-required", message: "" },
+  ]);
+});
+it("passes on validated CUDA driver versions and drops malformed values", async () => {
+  const value = upstream(false);
+  const report = await inspectSetup({
+    localmodels: runner({
+      ...value,
+      stack: {
+        ...value.stack,
+        available: false,
+        state: "blocked-now",
+        hardwareCapable: true,
+        reasons: [
+          {
+            code: "cuda-driver-update-required",
+            message: "Driver supports CUDA 12.1; requires CUDA >= 12.4.",
+            detectedCudaVersion: "12.1",
+            requiredCudaVersion: "12.4",
+            driverVersion: "535.98",
+          },
+          {
+            code: "cuda-driver-version-unknown",
+            message: "Could not detect driver CUDA version.",
+            detectedCudaVersion: "CUDA 12.1",
+            requiredCudaVersion: "12.4",
+            driverVersion: "[N/A]",
+          },
+        ],
+      },
+      recommendation: "codex",
+    }),
+  });
+  expect(report.localModels).toMatchObject({
+    eligible: false,
+    state: "blocked-now",
+    hardwareCapable: true,
+    reasons: [
+      {
+        code: "cuda-driver-update-required",
+        message: "Driver supports CUDA 12.1; requires CUDA >= 12.4.",
+        detectedCudaVersion: "12.1",
+        requiredCudaVersion: "12.4",
+        driverVersion: "535.98",
+      },
+      {
+        code: "cuda-driver-version-unknown",
+        message: "Could not detect driver CUDA version.",
+        requiredCudaVersion: "12.4",
+      },
+    ],
+  });
+});
 it("fails explicitly and redacts tool output when upstream is unavailable or malformed", async () => {
   for (const response of [
     { code: 1, stdout: "private token", stderr: "secret" },
@@ -303,4 +401,21 @@ it("inspects with GPU sharing unless sharing was explicitly declined", async () 
   expect(localmodels.mock.calls[1]?.[1]).toContain("--share-gpu");
   await inspectSetup({ localmodels });
   expect(localmodels.mock.calls[2]?.[1]).toContain("--share-gpu");
+});
+
+it("checks the installation target while keeping tool state in the existing home", async () => {
+  const home = path.resolve("cached-home");
+  const targetHome = path.resolve("candidate");
+  const localmodels = runner();
+  await inspectSetup({ home, targetHome, localmodels });
+  expect(localmodels).toHaveBeenCalledWith(
+    home,
+    expect.arrayContaining([
+      "--root",
+      path.join(targetHome, "runtime", "harness"),
+      "--model-base-dir",
+      path.join(targetHome, "runtime", "localmodels", "models"),
+    ]),
+    expect.anything(),
+  );
 });

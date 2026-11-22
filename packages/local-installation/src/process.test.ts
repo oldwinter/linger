@@ -1,4 +1,5 @@
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
+import { PassThrough } from "node:stream";
 import { runProcess } from "./process.js";
 it("executes argument arrays literally and preserves JSON output", async () => {
   const value = "$(touch /tmp/never-linger); a b";
@@ -10,6 +11,42 @@ it("executes argument arrays literally and preserves JSON output", async () => {
   expect(JSON.parse(result.stdout)).toEqual([value]);
   expect(result.code).toBe(0);
 });
+it.each(["stdout", "stderr"] as const)(
+  "preserves a UTF-8 character split between %s chunks",
+  async (stream) => {
+    const input = new PassThrough();
+    const output: string[] = [];
+    let continued = false;
+    const result = await runProcess(
+      process.execPath,
+      [
+        "-e",
+        `const stream = process[process.argv[1]];
+const bytes = Buffer.from(JSON.stringify({path: 'file-\\u2603.txt'}));
+const split = bytes.indexOf(0xe2) + 1;
+process.stdin.once('data', () => stream.write(bytes.subarray(split)));
+stream.write(bytes.subarray(0, split));`,
+        stream,
+      ],
+      {
+        inputStream: input,
+        timeoutMs: 2_000,
+        onOutput: (value) => {
+          output.push(value);
+          if (!continued) {
+            continued = true;
+            // The child sends the remaining bytes only after this chunk arrived.
+            input.end("continue");
+          }
+        },
+      },
+    );
+    expect(result.code).toBe(0);
+    expect(JSON.parse(result[stream])).toEqual({ path: "file-\u2603.txt" });
+    expect(output.join("")).toBe(result[stream]);
+    expect(result[stream === "stdout" ? "stderr" : "stdout"]).toBe("");
+  },
+);
 it("reports nonzero exit without exposing argv in errors", async () => {
   expect(
     (await runProcess(process.execPath, ["-e", "process.exit(7)"])).code,
@@ -147,4 +184,68 @@ it("streams archive bytes into a native child without buffering them in argv", a
   );
   expect(result.code).toBe(0);
   expect(result.stdout.trim()).toBe("12345");
+});
+it("stops a silent command after the idle timeout", async () => {
+  const startedAt = Date.now();
+  await expect(
+    runProcess(process.execPath, ["-e", "setTimeout(() => {}, 10_000)"], {
+      idleTimeoutMs: 300,
+    }),
+  ).rejects.toMatchObject({ code: "COMMAND_TIMEOUT" });
+  expect(Date.now() - startedAt).toBeLessThan(5_000);
+});
+it("restarts the idle timeout on every output chunk", async () => {
+  const chunks: string[] = [];
+  const result = await runProcess(
+    process.execPath,
+    [
+      "-e",
+      `let n = 0;
+const timer = setInterval(() => {
+  (n % 2 ? process.stderr : process.stdout).write("tick\\n");
+  if (++n === 8) { clearInterval(timer); }
+}, 100);`,
+    ],
+    { idleTimeoutMs: 400, onOutput: (chunk) => chunks.push(chunk) },
+  );
+  // 800 ms of steady output outlives a 400 ms idle timeout.
+  expect(result.code).toBe(0);
+  expect(chunks.join("")).toBe("tick\n".repeat(8));
+});
+it("times out after output stops, and the wall-clock timeout still applies", async () => {
+  await expect(
+    runProcess(
+      process.execPath,
+      ["-e", "process.stdout.write('x'); setTimeout(() => {}, 10_000)"],
+      { idleTimeoutMs: 300 },
+    ),
+  ).rejects.toMatchObject({ code: "COMMAND_TIMEOUT" });
+  await expect(
+    runProcess(
+      process.execPath,
+      ["-e", "setInterval(() => process.stdout.write('x'), 50)"],
+      { idleTimeoutMs: 1_000, timeoutMs: 400 },
+    ),
+  ).rejects.toMatchObject({ code: "COMMAND_TIMEOUT" });
+});
+it("lets an abort win over the idle timeout and clears its timer", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    const controller = new AbortController();
+    const running = runProcess(
+      process.execPath,
+      ["-e", "setTimeout(() => {}, 10_000)"],
+      { idleTimeoutMs: 60_000, signal: controller.signal },
+    );
+    // Observe the rejection before the timers run, so it is never unhandled.
+    const rejected = expect(running).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    controller.abort();
+    await vi.advanceTimersByTimeAsync(600);
+    await rejected;
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    vi.useRealTimers();
+  }
 });

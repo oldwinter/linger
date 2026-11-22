@@ -19,9 +19,10 @@ import (
 const (
 	// VoiceCaptureQuestionMaxRunes bounds a recording question.
 	VoiceCaptureQuestionMaxRunes = 1000
-	// VoiceCaptureQuestionTimeout bounds an answer. It runs on the recorder's
-	// Agent Runtime, which takes ten to fifteen seconds; the Web shows a
-	// thinking state meanwhile.
+	// VoiceCaptureQuestionTimeout bounds an answer once the recorder's Agent
+	// Runtime starts it, which takes ten to fifteen seconds; the Web shows a
+	// thinking state meanwhile. Waiting for a place goes before chat and is
+	// bounded by roomagent.ModelCallWait.
 	VoiceCaptureQuestionTimeout = 45 * time.Second
 )
 
@@ -94,11 +95,9 @@ func (s *Service) AskCaptureQuestion(ctx context.Context, accountID, captureID, 
 	for index, row := range rows {
 		segments[index] = voicecaptureqa.Segment{StartOffsetMS: row.StartOffsetMs, EndOffsetMS: row.EndOffsetMs, Text: row.Text, Speaker: row.SpeakerID.String}
 	}
-	answerCtx, cancel := context.WithTimeout(ctx, VoiceCaptureQuestionTimeout)
-	defer cancel()
 	// The recorder's Agent Runtime answers.
 	owner := roomagent.ModelCallOwner{TenantID: capture.TenantID, OwnerActorID: capture.CreatedByActorID}
-	answer, err := s.answerer.Answer(answerCtx, owner, question, segments)
+	answer, err := s.answerer.Answer(ctx, owner, question, segments)
 	if ctx.Err() != nil {
 		return httpapi.VoiceCaptureQuestion{}, ctx.Err()
 	}

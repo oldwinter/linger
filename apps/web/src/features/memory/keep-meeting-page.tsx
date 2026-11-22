@@ -1,8 +1,10 @@
 import { useMutation } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useId, useRef, useState } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router";
+import { useNavigate, useParams, useSearchParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
+import { LibrarySubpageShell } from "@/features/library/library-subpage-shell";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 
@@ -17,6 +19,7 @@ import {
 } from "./keep-meeting";
 import { useMeetings } from "./memory-queries";
 import { meetingPath } from "./meeting-routes";
+import { meetingsTabPath } from "./meetings-panel";
 
 export function KeepMeetingPage() {
   const { client } = useTeamHubRuntime();
@@ -66,17 +69,42 @@ export function KeepMeetingPage() {
 
   if (meetings.isPending) {
     return (
-      <main className="mx-auto w-full max-w-xl px-6 py-10">
-        <p role="status">Loading this meeting...</p>
-      </main>
+      <LibrarySubpageShell
+        backLabel="Back to meetings"
+        backTo={meetingsTabPath(tenantId, "week")}
+      >
+        <p
+          className="flex items-center gap-2 text-sm text-muted-foreground"
+          role="status"
+        >
+          <Spinner size={16} />
+          Loading this meeting...
+        </p>
+      </LibrarySubpageShell>
     );
   }
 
-  if (!meeting) {
+  if (meetings.isError || !meeting) {
     return (
-      <main className="mx-auto w-full max-w-xl px-6 py-10">
-        <p role="alert">This meeting could not be opened.</p>
-      </main>
+      <LibrarySubpageShell
+        backLabel="Back to meetings"
+        backTo={meetingsTabPath(tenantId, "week")}
+      >
+        <div className="flex flex-col items-start gap-4">
+          <p className="text-sm text-destructive" role="alert">
+            {meetings.isError
+              ? "Could not load this meeting."
+              : "This meeting could not be opened."}
+          </p>
+          <Button
+            onClick={() => void meetings.refetch()}
+            size="compact"
+            tone="secondary"
+          >
+            Retry
+          </Button>
+        </div>
+      </LibrarySubpageShell>
     );
   }
 
@@ -89,19 +117,23 @@ export function KeepMeetingPage() {
   }
 
   return (
-    <main className="mx-auto w-full max-w-xl px-6 py-10">
-      <p className="text-sm text-muted-foreground">{defaultTitle}</p>
-      <h1 className="mt-1 text-2xl text-foreground">Keep this meeting</h1>
+    <LibrarySubpageShell
+      backLabel="Back to the meeting"
+      backTo={meetingPath(tenantId, meeting.id)}
+      eyebrow={defaultTitle}
+      subtitle={
+        words
+          ? "These words become a page in your library. The meeting stays as it is, and you can keep writing the page."
+          : undefined
+      }
+      title="Keep this meeting"
+    >
       {words ? (
         <>
-          <p className="mt-3 text-sm leading-6 text-muted-foreground">
-            These words become a page in your library. The meeting stays as it
-            is, and you can keep writing the page.
-          </p>
-          <blockquote className="mt-6 border-l-2 border-border pl-4 text-sm leading-6 text-foreground">
+          <blockquote className="border-l-2 border-border pl-4 text-sm leading-6 text-foreground">
             {words.length > 280 ? `${words.slice(0, 280)}...` : words}
           </blockquote>
-          <form className="mt-6" onSubmit={submit}>
+          <form onSubmit={submit}>
             <label className="block" htmlFor={titleId}>
               <span className="mb-1.5 block text-sm font-medium">
                 Page name
@@ -131,19 +163,10 @@ export function KeepMeetingPage() {
           </form>
         </>
       ) : (
-        <p
-          className="mt-3 text-sm leading-6 text-muted-foreground"
-          role="status"
-        >
+        <p className="text-sm leading-6 text-muted-foreground" role="status">
           The summary is not written yet, so there is nothing to keep as a page.
         </p>
       )}
-      <Link
-        className="mt-8 inline-block text-sm text-muted-foreground underline"
-        to={meetingPath(tenantId, meeting.id)}
-      >
-        Back to the meeting
-      </Link>
-    </main>
+    </LibrarySubpageShell>
   );
 }

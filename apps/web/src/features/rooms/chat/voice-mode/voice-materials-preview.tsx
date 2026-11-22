@@ -6,13 +6,16 @@ import {
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { useOptionalVoiceMaterials } from "./voice-materials-context";
+import { useT } from "@/i18n/use-translation";
+import { voiceChatMessages as m } from "./voice-chat.messages";
 
 /** Compact chips for material waiting to go out with the next message. */
 export function VoiceMaterialsPreview() {
+  const t = useT();
   const context = useOptionalVoiceMaterials();
   if (!context || (!context.materials.length && !context.error)) return null;
   return (
-    <div aria-label="Selected voice materials" className="mb-1.5 px-1">
+    <div aria-label={t(m.selections)} className="mb-1.5 px-1">
       <div className="flex flex-wrap gap-1.5">
         {context.materials.map((material) => {
           const materialIcon = material.messageId ? Message01Icon : File01Icon;
@@ -27,7 +30,8 @@ export function VoiceMaterialsPreview() {
                 {material.quote || material.title}
               </span>
               <Button
-                aria-label={`Remove selection from ${material.title}`}
+                aria-label={t(m.removeSelection, { title: material.title })}
+                data-voice-risk="never"
                 onClick={() => context.remove(material.id)}
                 size="compactIcon"
                 tone="ghost"

@@ -28,7 +28,7 @@ export function useAgentMoveTarget(
   const [runtimeType, setRuntimeType] = useState<TeamHubLocalRuntimeType | "">(
     current?.runtime_type ?? "codex",
   );
-  const [model, setModel] = useState(registration.runtime.model);
+  const [requestedModel, setModel] = useState(registration.runtime.model);
   const [requestedReasoningEffort, setRequestedReasoningEffort] = useState<
     TeamHubAgentReasoningEffort | ""
   >(registration.runtime.reasoning_effort ?? "");
@@ -44,6 +44,13 @@ export function useAgentMoveTarget(
         );
   const runtime = computer?.runtimes.find((item) => item.type === runtimeType);
   const modelOptions = runtime?.status === "ready" ? runtime.models : [];
+  // A Runtime chosen before it was ready has no model yet; once the Computer
+  // reports it ready, it gets the model it would have had if chosen then.
+  const model =
+    requestedModel ||
+    (runtime?.status === "ready"
+      ? resolveModelOnRuntime(registration, runtime).model
+      : "");
   const selectedModel = modelOptions.find((item) => item.id === model);
   // The Runtime as the Computer last reported it; an offline Computer runs
   // the Agent once it connects.

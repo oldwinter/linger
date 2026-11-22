@@ -13,9 +13,11 @@ import type {
   TeamHubDocumentPlacementNode,
   TeamHubDocumentTreeSummary,
 } from "@/features/teamhub/teamhub-types";
+import { useT } from "@/i18n/use-translation";
 
 import { documentFileName } from "./document-display-name";
 import { documentAfterRemoval } from "./document-tree-order";
+import { libraryMessages as m } from "./library.messages";
 import {
   myDocumentTreeQueryKey,
   updateMyDocumentTreeCache,
@@ -41,6 +43,7 @@ export function useMyDocumentsDocumentActions({
   const { client } = useTeamHubRuntime();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const t = useT();
   const [trashingDocument, setTrashingDocument] =
     useState<TeamHubDocumentTreeSummary | null>(null);
   const [trashPending, setTrashPending] = useState(false);
@@ -84,7 +87,7 @@ export function useMyDocumentsDocumentActions({
       setError(
         duplicateError instanceof Error
           ? duplicateError.message
-          : "The document could not be duplicated.",
+          : t(m.documentNotDuplicated),
       );
     }
   }
@@ -104,7 +107,7 @@ export function useMyDocumentsDocumentActions({
       setError(
         exportError instanceof Error
           ? exportError.message
-          : "The document could not be exported.",
+          : t(m.documentNotExported),
       );
     }
   }
@@ -159,7 +162,7 @@ export function useMyDocumentsDocumentActions({
       setError(
         trashError instanceof Error
           ? trashError.message
-          : "The document could not be moved to trash.",
+          : t(m.documentNotTrashed),
       );
     } finally {
       setTrashPending(false);

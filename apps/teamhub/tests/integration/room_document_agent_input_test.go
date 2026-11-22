@@ -120,10 +120,7 @@ func TestStandaloneDocumentCommentMentionStartsRun(t *testing.T) {
 				t.Fatalf("saved standalone %s mention has no Run: %v", action, err)
 			}
 			queries := store.New(env.pool)
-			ready, err := queries.AgentRuntimeContextHasQueuedRun(t.Context(), contextKey)
-			if err != nil || ready {
-				t.Fatalf("pending anchor ready=%t err=%v", ready, err)
-			}
+			assertDocumentRunClaimable(t, queries, contextKey, false)
 			attachDocumentAgentThread(t, env, alice, doc.ID, thread.ID, suffix)
 			if scenario == "edit_existing_mention" {
 				// The contract invalidates queued input when its source comment changes.
@@ -140,10 +137,7 @@ func TestStandaloneDocumentCommentMentionStartsRun(t *testing.T) {
 				return
 			}
 			waitForDocumentCommentRunQueued(t, env, runID, "active")
-			ready, err = queries.AgentRuntimeContextHasQueuedRun(t.Context(), contextKey)
-			if err != nil || !ready {
-				t.Fatalf("attached standalone mention ready=%t err=%v", ready, err)
-			}
+			assertDocumentRunClaimable(t, queries, contextKey, true)
 			status, _, body = agentWorkItemRequest(t, env, http.MethodPost,
 				"/internal/agents/"+acmeOfficialAgentManagementID+"/mcp-context/actions/resolve", teamHubInternalToken, "",
 				map[string]any{"context": map[string]any{"kind": "document", "document_id": doc.ID}})
@@ -233,13 +227,7 @@ func TestHumanDocumentCommentAgentMentionCreatesOneDocumentContextAcrossRooms(t 
 	}
 
 	queries := store.New(env.pool)
-	dispatchable, err := queries.AgentRuntimeContextHasQueuedRun(t.Context(), contextKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if dispatchable {
-		t.Fatal("pending Comment anchor made its Local Run dispatchable")
-	}
+	assertDocumentRunClaimable(t, queries, contextKey, false)
 	if _, err := queries.ClaimAgentLocalRun(t.Context(), store.ClaimAgentLocalRunParams{
 		Epoch: "document-epoch", ClaimID: "blocked-document-claim-" + suffix, ClaimConfigurationRevision: 1,
 		RunID: localRunID, ContextKey: contextKey,
@@ -258,10 +246,7 @@ func TestHumanDocumentCommentAgentMentionCreatesOneDocumentContextAcrossRooms(t 
 
 	currentSeq, currentHash := attachDocumentAgentThread(t, env, alice, document.ID, thread.ID, suffix)
 	waitForDocumentCommentRunQueued(t, env, localRunID, "active")
-	dispatchable, err = queries.AgentRuntimeContextHasQueuedRun(t.Context(), contextKey)
-	if err != nil || !dispatchable {
-		t.Fatalf("attached Comment Local Run dispatchable=%t err=%v", dispatchable, err)
-	}
+	assertDocumentRunClaimable(t, queries, contextKey, true)
 
 	status, _, body = agentWorkItemRequest(t, env, http.MethodPost,
 		"/internal/agents/"+acmeOfficialAgentManagementID+"/mcp-context/actions/resolve",
@@ -505,13 +490,7 @@ func TestResolvedDocumentCommentMentionNeverDispatchesAgent(t *testing.T) {
 	waitForDocumentCommentRunFailed(t, env, runID)
 
 	contextKey := documentCommentRunContextKey(t, env, runID)
-	dispatchable, err := store.New(env.pool).AgentRuntimeContextHasQueuedRun(t.Context(), contextKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if dispatchable {
-		t.Fatal("resolved Comment Thread made its Document Local Run dispatchable")
-	}
+	assertDocumentRunClaimable(t, store.New(env.pool), contextKey, false)
 }
 
 func TestResolvedActiveDocumentCommentMentionFailsQueuedRun(t *testing.T) {
@@ -557,13 +536,7 @@ func TestResolvedActiveDocumentCommentMentionFailsQueuedRun(t *testing.T) {
 	waitForDocumentCommentRunFailed(t, env, runID)
 
 	contextKey := documentCommentRunContextKey(t, env, runID)
-	dispatchable, err := store.New(env.pool).AgentRuntimeContextHasQueuedRun(t.Context(), contextKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if dispatchable {
-		t.Fatal("resolved active Comment Thread kept its Document Local Run dispatchable")
-	}
+	assertDocumentRunClaimable(t, store.New(env.pool), contextKey, false)
 }
 
 func TestExpiredQueuedDocumentCommentRunFails(t *testing.T) {
@@ -788,10 +761,7 @@ func TestRoomDocumentCommentMentionDispatchesAgentWithoutGrant(t *testing.T) {
 	}
 	attachDocumentAgentThread(t, env, alice, document.ID, thread.ID, "mention-attach-"+suffix)
 	waitForDocumentCommentRunQueued(t, env, localRunID, "active")
-	dispatchable, err := store.New(env.pool).AgentRuntimeContextHasQueuedRun(t.Context(), contextKey)
-	if err != nil || !dispatchable {
-		t.Fatalf("mention Local Run dispatchable=%t err=%v", dispatchable, err)
-	}
+	assertDocumentRunClaimable(t, store.New(env.pool), contextKey, true)
 
 	var stateRevision int64
 	if err := env.pool.QueryRow(t.Context(), `SELECT state_revision FROM agent_execution_contexts WHERE context_key=$1`, contextKey).Scan(&stateRevision); err != nil {
@@ -1049,5 +1019,16 @@ func waitForDocumentCommentRunState(t *testing.T, env *testEnv, runID, wantRunSt
 				runStatus, residency, terminalError, wantRunStatus, wantResidency, err)
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func assertDocumentRunClaimable(t *testing.T, queries *store.Queries, contextKey string, want bool) {
+	t.Helper()
+	origins, err := queries.NextAgentRunInputOrigins(t.Context(), contextKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(origins) > 0; got != want {
+		t.Fatalf("Document Run in %s claimable=%t, want %t", contextKey, got, want)
 	}
 }

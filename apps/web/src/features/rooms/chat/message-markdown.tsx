@@ -1,4 +1,4 @@
-import { Copy01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
+import { Copy01Icon, File01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
 import {
   createContext,
   memo,
@@ -20,6 +20,8 @@ import remarkGfm from "remark-gfm";
 import "./message-markdown.css";
 
 import { Icon } from "@/components/ui/icon";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
 import { ActorAvatar } from "@/features/rooms/members/actor-avatar";
 
 import type {
@@ -30,6 +32,7 @@ import type {
 import { teamHubMentionTokenAliases } from "@/features/teamhub/teamhub-message-content";
 
 import { useAgentMentionStyle } from "./agent-mention-style";
+import { chatMessages } from "./chat.messages";
 import { followChatExternalLink } from "./chat-external-link";
 
 const mentionUrlPrefix = "linger-actor:";
@@ -136,6 +139,7 @@ const MemoizedMarkdownContent = memo(function MarkdownContent({
   MessageMarkdownProps,
   "documentTitles" | "onOpenActor" | "onOpenDocument" | "readOnlyReferences"
 >) {
+  const t = useT();
   const mentionContent = prepareMentionContent(body, segments, mentions);
   const markdownBody =
     authorKind === "agent"
@@ -170,7 +174,13 @@ const MemoizedMarkdownContent = memo(function MarkdownContent({
             // (U+FF1A) right before the closing ** that CJK text follows directly.
             remarkCjkFriendly,
             ...(authorKind === "agent" ? [remarkGfm] : []),
-            ...(authorKind === "agent" ? [unavailableCitationPlugin] : []),
+            ...(authorKind === "agent"
+              ? [
+                  unavailableCitationPlugin(
+                    t(chatMessages.sourceLinkUnavailable),
+                  ),
+                ]
+              : []),
             structuredMentionPlugin(mentionContent.tokens),
             ...(documentReferences.length
               ? [structuredDocumentPlugin(documentReferences)]
@@ -270,21 +280,28 @@ function MarkdownLink({
     onOpenDocument,
     readOnlyReferences,
   } = useContext(MarkdownActionsContext);
+  const t = useT();
 
   const document = href ? documentsByUrl.get(href) : undefined;
   if (document) {
-    if (readOnlyReferences)
-      return <span className="message-composer-reference">{children}</span>;
+    const title = documentTitles[document.document_id];
+    const Reference = readOnlyReferences ? "span" : "button";
     return (
-      <button
-        aria-label={`Open ${documentTitles[document.document_id] ?? document.content.slice(1)}`}
-        className="message-composer-reference"
+      <Reference
+        {...(!readOnlyReferences && {
+          "aria-label": t(chatMessages.openFile, {
+            name: title ?? document.content.slice(1),
+          }),
+          onClick: () => onOpenDocument?.(document),
+          type: "button" as const,
+        })}
+        className="inline-flex max-w-full items-center gap-1 rounded-md border border-current/25 px-1.5 text-left align-middle font-medium text-inherit [&:is(button)]:cursor-pointer [&:is(button):hover]:bg-current/10 focus-visible:outline-2 focus-visible:outline-offset-2"
         data-reference-kind="document"
-        onClick={() => onOpenDocument?.(document)}
-        type="button"
+        title={title ?? document.content}
       >
-        {children}
-      </button>
+        <Icon className="shrink-0" icon={File01Icon} size={14} />
+        <span className="min-w-0 truncate">{title ?? children}</span>
+      </Reference>
     );
   }
   const mentionedActor = href ? mentionsByUrl.get(href) : undefined;
@@ -418,8 +435,8 @@ interface MarkdownNode {
 
 // Source IDs have no URL mapping in historical messages. Preserve the raw
 // message and code examples; replace only rendered prose citations.
-function unavailableCitationPlugin() {
-  return (tree: MarkdownNode) => {
+function unavailableCitationPlugin(label: string) {
+  return () => (tree: MarkdownNode) => {
     const replace = (parent: MarkdownNode): void => {
       if (
         !parent.children ||
@@ -442,9 +459,7 @@ function unavailableCitationPlugin() {
                     hName: "span",
                     hProperties: { className: "text-app-muted" },
                   },
-                  children: [
-                    { type: "text", value: "Source link unavailable" },
-                  ],
+                  children: [{ type: "text", value: label }],
                 }
               : { type: "text", value: part },
           );
@@ -652,6 +667,10 @@ function escapeRegularExpression(value: string) {
 function MarkdownCodeBlock({ children }: { children: ReactNode }) {
   const preRef = useRef<HTMLPreElement>(null);
   const [copied, setCopied] = useState(false);
+  const t = useT();
+  const copyLabel = copied
+    ? t(commonMessages.copied)
+    : t(chatMessages.copyCode);
   useEffect(() => {
     if (!copied) return;
     const timer = setTimeout(() => setCopied(false), 1500);
@@ -661,14 +680,14 @@ function MarkdownCodeBlock({ children }: { children: ReactNode }) {
     <div className="message-code-block">
       <pre ref={preRef}>{children}</pre>
       <button
-        aria-label={copied ? "Copied" : "Copy code"}
+        aria-label={copyLabel}
         className="message-code-copy"
         onClick={() => {
           void navigator.clipboard
             ?.writeText(preRef.current?.textContent ?? "")
             .then(() => setCopied(true));
         }}
-        title={copied ? "Copied" : "Copy code"}
+        title={copyLabel}
         type="button"
       >
         <Icon icon={copied ? Tick02Icon : Copy01Icon} size={14} />

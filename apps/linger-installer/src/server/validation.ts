@@ -1,6 +1,12 @@
+import { validateByokConfiguration } from "@linger/local-installation/byok-source";
 import type { components } from "@linger/wire-contracts/linger-installer/types";
 type Input = components["schemas"]["InstallationInput"];
 type Model = components["schemas"]["ModelConfiguration"];
+type Byok = components["schemas"]["ByokConfiguration"];
+
+export function validateByok(value: unknown): Byok {
+  return validateByokConfiguration(value);
+}
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("Invalid input");
@@ -80,6 +86,7 @@ export function validateInput(value: unknown): Input {
     "computerName",
     "model",
     "runtimeModel",
+    "byok",
     "preparation",
   ]);
   instanceName(input.instance);
@@ -155,5 +162,17 @@ export function validateInput(value: unknown): Input {
     throw new Error("Invalid computer name");
   if (input.model !== undefined) validateModel(input.model);
   if (input.runtimeModel !== undefined) validateModel(input.runtimeModel);
+  if (input.byok !== undefined) {
+    if (input.setupChoice === "local-models")
+      throw new Error("BYOK cannot be combined with local-models setupChoice");
+    const byok = validateByok(input.byok);
+    input.byok =
+      byok.runtime === undefined &&
+      (input.setupChoice === "codex" ||
+        input.setupChoice === "claude" ||
+        input.setupChoice === "pi")
+        ? { ...byok, runtime: input.setupChoice }
+        : byok;
+  }
   return input as Input;
 }

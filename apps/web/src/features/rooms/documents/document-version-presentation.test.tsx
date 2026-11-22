@@ -1,19 +1,11 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import {
   createDocumentTestRuntime,
   seedRoomUpload,
 } from "@/test/document-scenarios";
 import { DocumentVersionPreview } from "./document-version-preview";
-
-vi.mock("@/features/rooms/files/artifact-content-renderer-loader", () => ({
-  ArtifactContentRendererLoader: ({
-    presentation,
-  }: {
-    presentation: string;
-  }) => <div data-testid="presentation">{presentation}</div>,
-}));
 
 describe("Document Version knowledge presentation", () => {
   it.each(["wiki_source", "wiki_page", "room"] as const)(
@@ -45,9 +37,12 @@ describe("Document Version knowledge presentation", () => {
           }}
         />,
       );
-      expect(await screen.findByTestId("presentation")).toHaveTextContent(
-        bindingKind === "wiki_page" ? "knowledge" : "default",
-      );
+      const title = await screen.findByText("Original");
+      expect(
+        title
+          .closest(".read-only-blocknote-document")!
+          .className.includes("read-only-blocknote-document--knowledge"),
+      ).toBe(bindingKind === "wiki_page");
     },
   );
 });

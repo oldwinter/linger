@@ -129,6 +129,28 @@ export function generationInvocationError(error: unknown): ActorAssetError {
       "retryable",
       { cause: error },
     );
+  if (error instanceof ModelCallError && error.kind === "runtime_unavailable") {
+    if (error.runtimeOutcome === "runtime_incompatible")
+      return new ActorAssetError(
+        "WIKI_RUNTIME_INCOMPATIBLE",
+        `The Wiki owner's Local Computer Runtime is incompatible${detail ? `: ${detail}` : ""}`,
+        "terminal",
+        { cause: error },
+      );
+    if (error.runtimeOutcome === "auth_required")
+      return new ActorAssetError(
+        "WIKI_RUNTIME_AUTH_REQUIRED",
+        `The Wiki owner's Local Computer Runtime requires sign-in${detail ? `: ${detail}` : ""}`,
+        "terminal",
+        { cause: error },
+      );
+    return new ActorAssetError(
+      "WIKI_RUNTIME_UNAVAILABLE",
+      `The Wiki owner's Local Computer Runtime is unavailable${detail ? `: ${detail}` : ""}`,
+      "retryable",
+      { cause: error },
+    );
+  }
   return new ActorAssetError(
     "WIKI_OPERATION_RETRYABLE",
     `Wiki Runtime run is temporarily unavailable${detail ? `: ${detail}` : ""}`,

@@ -1,11 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { IPC } from "../shared/api.js";
+import type { UpdateState } from "./updater.js";
 
 const handlers = vi.hoisted(
   () => new Map<string, (event: unknown, ...args: unknown[]) => unknown>(),
 );
+const focusApp = vi.hoisted(() => vi.fn());
 vi.mock("electron", () => ({
+  app: { focus: focusApp },
   ipcMain: {
     handle: (
       channel: string,
@@ -16,6 +19,8 @@ vi.mock("electron", () => ({
 }));
 
 const { DesktopIpcModule } = await import("./desktop-ipc.js");
+const { LanguageModule } = await import("./language.js");
+const { EventBus } = await import("./modules.js");
 const { stubModule, testHost } = await import("./test-support.js");
 
 const SERVER = "http://localhost:3000";
@@ -34,14 +39,32 @@ const fixture = async (
     servesWindow: vi.fn(localServer.servesWindow ?? (async () => true)),
     signInWithAccount: vi.fn(localServer.signInWithAccount ?? (async () => {})),
   };
+  let updateState: UpdateState = { kind: "idle" };
+  const updater = {
+    ...stubModule("Updater"),
+    state: () => updateState,
+    install: vi.fn(async () => {}),
+    check: vi.fn(async () => {}),
+  };
+  const send = vi.fn();
+  const windows = {
+    ...stubModule("WindowManager"),
+    webContents: () => ({ send }),
+    show: vi.fn(),
+  };
+  const bus = new EventBus();
+  const language = new LanguageModule({ systemLanguages: () => ["en-US"] });
   const host = testHost(
     [
+      stubModule("Config"),
+      language,
       stubModule("Enrollment"),
       stubModule("PowerGuard"),
       stubModule("ComputerDaemon"),
-      stubModule("WindowManager"),
+      windows as never,
       stubModule("WorkspaceGrants"),
       stubModule("Tray"),
+      updater as never,
       local as never,
       new DesktopIpcModule({
         defaultDisplayName: "Desk",
@@ -50,11 +73,26 @@ const fixture = async (
       }),
     ],
     { serverUrl: SERVER },
+    bus,
   );
   await host.start();
   const invoke = (channel: string, origin = SERVER, ...args: unknown[]) =>
     handlers.get(channel)!({ senderFrame: { origin } }, ...args);
-  return { host, local, invoke };
+  const setUpdate = (state: UpdateState) => {
+    updateState = state;
+    bus.emit("update.changed", state.kind);
+  };
+  return {
+    host,
+    bus,
+    language,
+    local,
+    updater,
+    send,
+    setUpdate,
+    invoke,
+    windows,
+  };
 };
 
 afterEach(() => handlers.clear());
@@ -163,35 +201,106 @@ describe("DesktopIpcModule unread badge", () => {
     expect(await f.invoke(IPC.notificationsBadge, SERVER, 3)).toBeUndefined();
     await f.host.stop("quit");
   });
+});
 
-  it("reports a persisted identity conflict in computerStatus before the daemon emits", async () => {
-    const host = testHost(
-      [
-        stubModule("Enrollment"),
-        { ...stubModule("PowerGuard"), active: () => false } as never,
-        {
-          ...stubModule("ComputerDaemon"),
-          connection: () => "disconnected",
-          state: () => "stopped",
-          running: () => 0,
-          connectionError: () => undefined,
-        } as never,
-        stubModule("WindowManager"),
-        stubModule("WorkspaceGrants"),
-        stubModule("Tray"),
-        stubModule("LocalServer"),
-        new DesktopIpcModule({ defaultDisplayName: "Desk" }),
-      ],
-      { serverUrl: SERVER, computerId: "cmp_1", identityConflict: true },
+describe("DesktopIpcModule voice window", () => {
+  it("shows the main window for the server's page only", async () => {
+    const f = await fixture();
+    await f.invoke(IPC.voiceWindowShowMain);
+    expect(f.windows.show).toHaveBeenCalledOnce();
+    // macOS raises a window only inside the active app.
+    expect(focusApp).toHaveBeenCalledTimes(
+      process.platform === "darwin" ? 1 : 0,
     );
-    await host.start();
-    const result = await handlers.get(IPC.computerStatus)!({
-      senderFrame: { origin: SERVER },
+    expect(() =>
+      f.invoke(IPC.voiceWindowShowMain, "https://evil.example.com"),
+    ).toThrow("Not allowed");
+    expect(f.windows.show).toHaveBeenCalledOnce();
+    await f.host.stop("quit");
+  });
+});
+
+describe("DesktopIpcModule updates", () => {
+  it("gives the page the update state without its release page URL", async () => {
+    const f = await fixture();
+    expect(await f.invoke(IPC.updateState)).toEqual({ kind: "idle" });
+    f.setUpdate({
+      kind: "available",
+      version: "0.2.0",
+      url: "https://github.com/example/linger/releases/tag/v0.2.0",
     });
-    expect(result).toMatchObject({
-      computerId: "cmp_1",
-      connectionError: "daemon_identity_conflict",
+    expect(await f.invoke(IPC.updateState)).toEqual({
+      kind: "available",
+      version: "0.2.0",
     });
-    await host.stop("quit");
+    expect(f.send).toHaveBeenLastCalledWith(IPC.updateStateEvent, {
+      kind: "available",
+      version: "0.2.0",
+    });
+    await f.host.stop("quit");
+  });
+
+  it("pushes each change the tray shows", async () => {
+    const f = await fixture();
+    f.setUpdate({ kind: "downloading", version: "0.2.0" });
+    f.setUpdate({ kind: "ready", version: "0.2.0" });
+    f.setUpdate({ kind: "failed", error: "Update package does not match" });
+    expect(f.send.mock.calls).toEqual([
+      [IPC.updateStateEvent, { kind: "downloading", version: "0.2.0" }],
+      [IPC.updateStateEvent, { kind: "ready", version: "0.2.0" }],
+      [
+        IPC.updateStateEvent,
+        { kind: "failed", error: "Update package does not match" },
+      ],
+    ]);
+    await f.host.stop("quit");
+    f.setUpdate({ kind: "idle" });
+    expect(f.send).toHaveBeenCalledTimes(3);
+  });
+
+  it("installs and checks through the updater the tray uses", async () => {
+    const f = await fixture();
+    await f.invoke(IPC.updateInstall);
+    await f.invoke(IPC.updateCheck);
+    expect(f.updater.install).toHaveBeenCalledOnce();
+    expect(f.updater.check).toHaveBeenCalledOnce();
+    await f.host.stop("quit");
+  });
+
+  it("rejects update calls from any other origin", async () => {
+    const f = await fixture();
+    for (const channel of [IPC.updateState, IPC.updateInstall, IPC.updateCheck])
+      expect(() => f.invoke(channel, "https://evil.example.com")).toThrow(
+        "Not allowed",
+      );
+    expect(f.updater.install).not.toHaveBeenCalled();
+    expect(f.updater.check).not.toHaveBeenCalled();
+    await f.host.stop("quit");
+  });
+});
+
+describe("DesktopIpcModule language", () => {
+  it("keeps the page's choice and tells the shell once it changes", async () => {
+    const f = await fixture();
+    const changed = vi.fn();
+    f.bus.on("language.changed", changed);
+    expect(f.language.current()).toBe("en");
+    await f.invoke(IPC.languageSet, SERVER, "zh-CN");
+    expect(f.language.current()).toBe("zh-CN");
+    expect(changed).toHaveBeenCalledExactlyOnceWith("zh-CN");
+    // The page reports its language on every load; the same one is no news.
+    await f.invoke(IPC.languageSet, SERVER, "zh-CN");
+    expect(changed).toHaveBeenCalledOnce();
+    await f.host.stop("quit");
+  });
+
+  it("accepts only the languages the shell speaks, from the server's page", async () => {
+    const f = await fixture();
+    expect(() => f.invoke(IPC.languageSet, SERVER, "fr")).toThrow();
+    expect(() =>
+      f.invoke(IPC.languageSet, "https://evil.example.com", "zh-CN"),
+    ).toThrow("Not allowed");
+    expect(f.language.current()).toBe("en");
+    await f.host.stop("quit");
   });
 });

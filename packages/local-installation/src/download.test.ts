@@ -195,6 +195,71 @@ it("preserves filesystem failures outside the transport boundary", async () => {
   expect(await readdir(root)).toEqual([]);
 });
 
+it.each([false, true])(
+  "cancels a blocked response body without waiting for the idle timeout (resumable: %s)",
+  async (resumable) => {
+    const root = await mkdtemp(path.join(tmpdir(), "linger-download-"));
+    roots.push(root);
+    const abort = new AbortController();
+    const reason = new Error("Installation cancelled.");
+    const bytes = Buffer.from("trusted bytes that have not all arrived");
+    const prefix = bytes.subarray(0, 7);
+    const output = path.join(root, "kit.tgz");
+    let calls = 0;
+    let cancelled = false;
+    let forceEnd: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await expect(
+        downloadVerified(
+          {
+            url: "https://primary.example/kit.tgz",
+            mirrors: ["https://mirror.example/kit.tgz"],
+            output,
+            digest: createHash("sha256").update(bytes).digest("hex"),
+            algorithm: "sha256",
+            maxBytes: 100,
+            signal: abort.signal,
+            resumable,
+          },
+          async () => {
+            calls++;
+            let pulls = 0;
+            return new Response(
+              new ReadableStream<Uint8Array>(
+                {
+                  start(controller) {
+                    // Bound the fixture even when cancellation is ignored.
+                    forceEnd = setTimeout(() => controller.close(), 1_000);
+                  },
+                  pull(controller) {
+                    if (pulls++ === 0) controller.enqueue(prefix);
+                    else {
+                      abort.abort(reason);
+                      return new Promise(() => {});
+                    }
+                  },
+                  cancel() {
+                    cancelled = true;
+                  },
+                },
+                { highWaterMark: 0 },
+              ),
+            );
+          },
+          { ...fast, idleTimeoutMs: 60_000 },
+        ),
+      ).rejects.toBe(reason);
+      expect(cancelled).toBe(true);
+      expect(calls).toBe(1);
+      await expect(access(output)).rejects.toThrow();
+      expect(await readdir(root)).toEqual(resumable ? ["kit.tgz.part"] : []);
+      if (resumable) expect(await readFile(`${output}.part`)).toEqual(prefix);
+    } finally {
+      clearTimeout(forceEnd);
+    }
+  },
+);
+
 it("resumes an interrupted transfer with a range request", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "linger-download-"));
   roots.push(root);
@@ -236,6 +301,46 @@ it("resumes an interrupted transfer with a range request", async () => {
   expect(ranges).toEqual([null, "bytes=9-"]);
   expect(await readFile(output)).toEqual(bytes);
 });
+
+it.each([false, true])(
+  "restarts with a full response when the server ignores Range (resumable=%s)",
+  async (resumable) => {
+    const root = await mkdtemp(path.join(tmpdir(), "linger-download-"));
+    roots.push(root);
+    const output = path.join(root, "kit.tgz");
+    const bytes = Buffer.from("complete verified archive");
+    const ranges: (string | null)[] = [];
+    await downloadVerified(
+      {
+        url: "https://example.com/kit.tgz",
+        output,
+        digest: createHash("sha256").update(bytes).digest("hex"),
+        algorithm: "sha256",
+        maxBytes: 100,
+        resumable,
+        signal: new AbortController().signal,
+      },
+      async (_url, init) => {
+        const range = new Headers(init?.headers).get("range");
+        ranges.push(range);
+        if (range) return new Response(bytes);
+        let pulls = 0;
+        return new Response(
+          new ReadableStream({
+            pull(controller) {
+              if (pulls++ === 0) controller.enqueue(Buffer.from("stale"));
+              else controller.error(new Error("interrupted"));
+            },
+          }),
+        );
+      },
+      fast,
+    );
+    expect(ranges).toEqual([null, "bytes=5-"]);
+    expect(await readFile(output)).toEqual(bytes);
+    expect(await readdir(root)).toEqual(["kit.tgz"]);
+  },
+);
 
 it("continues a stalled transfer on the mirror before retrying the first host", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "linger-download-"));
@@ -385,4 +490,318 @@ it("keeps a resumable partial file for the next call", async () => {
   );
   expect(await readFile(output)).toEqual(bytes);
   expect(await readdir(root)).toEqual(["bundle.tgz"]);
+});
+
+it("moves to a faster mirror when the first host is slow with substantial work left", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "linger-download-"));
+  roots.push(root);
+  const bytes = Buffer.alloc(64 * 1024, 0x7a);
+  const requests: string[] = [];
+  const output = path.join(root, "go.tgz");
+  const served = await downloadVerified(
+    {
+      url: "https://primary.example/go.tgz",
+      mirrors: ["https://mirror.example/go.tgz"],
+      output,
+      digest: createHash("sha256").update(bytes).digest("hex"),
+      algorithm: "sha256",
+      maxBytes: bytes.length,
+      signal: new AbortController().signal,
+    },
+    async (url, init) => {
+      const host = new URL(url as URL).host;
+      const range = new Headers(init?.headers).get("range");
+      requests.push(`${host} ${range}`);
+      const start = range ? Number(/^bytes=(\d+)-$/.exec(range)?.[1] ?? 0) : 0;
+      const slice = bytes.subarray(start);
+      const headers: Record<string, string> = {
+        "content-length": String(slice.length),
+        ...(start > 0
+          ? {
+              "content-range": `bytes ${start}-${bytes.length - 1}/${bytes.length}`,
+            }
+          : {}),
+      };
+      if (host === "primary.example") {
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            async start(controller) {
+              for (let offset = 0; offset < slice.length; offset += 2048) {
+                await new Promise((resolve) => setTimeout(resolve, 40));
+                try {
+                  controller.enqueue(slice.subarray(offset, offset + 2048));
+                } catch {
+                  return;
+                }
+              }
+              try {
+                controller.close();
+              } catch {
+                // Cancelled when switching to the mirror.
+              }
+            },
+          }),
+          { status: start > 0 ? 206 : 200, headers },
+        );
+      }
+      return new Response(slice, { status: start > 0 ? 206 : 200, headers });
+    },
+    {
+      attempts: 2,
+      retryDelayMs: 60_000,
+      idleTimeoutMs: 5_000,
+      slowCheckAfterMs: 100,
+      minBytesPerSecond: 200_000,
+      minRemainingMs: 300,
+    },
+  );
+  expect(served).toBe("https://mirror.example/go.tgz");
+  expect(requests).toHaveLength(2);
+  expect(requests[0]).toBe("primary.example null");
+  expect(requests[1]).toMatch(/^mirror\.example bytes=\d+-$/);
+  expect(await readFile(output)).toEqual(bytes);
+});
+
+it("keeps downloading from a slow primary when the remaining time is short", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "linger-download-"));
+  roots.push(root);
+  const bytes = Buffer.alloc(16 * 1024, 0x79);
+  const hosts: string[] = [];
+  const output = path.join(root, "small.tgz");
+  const served = await downloadVerified(
+    {
+      url: "https://primary.example/small.tgz",
+      mirrors: ["https://mirror.example/small.tgz"],
+      output,
+      digest: createHash("sha256").update(bytes).digest("hex"),
+      algorithm: "sha256",
+      maxBytes: bytes.length,
+      signal: new AbortController().signal,
+    },
+    async (url) => {
+      hosts.push(new URL(url as URL).host);
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          async start(controller) {
+            for (let offset = 0; offset < bytes.length; offset += 4096) {
+              await new Promise((resolve) => setTimeout(resolve, 35));
+              controller.enqueue(bytes.subarray(offset, offset + 4096));
+            }
+            controller.close();
+          },
+        }),
+        { headers: { "content-length": String(bytes.length) } },
+      );
+    },
+    {
+      attempts: 2,
+      retryDelayMs: 0,
+      idleTimeoutMs: 5_000,
+      slowCheckAfterMs: 80,
+      minBytesPerSecond: 500_000,
+      minRemainingMs: 5_000,
+    },
+  );
+  expect(served).toBe("https://primary.example/small.tgz");
+  expect(hosts).toEqual(["primary.example"]);
+  expect(await readFile(output)).toEqual(bytes);
+});
+
+it("finishes on the primary without error when every host is equally slow", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "linger-download-"));
+  roots.push(root);
+  const bytes = Buffer.alloc(40 * 1024, 0x78);
+  const hosts: string[] = [];
+  const output = path.join(root, "slow-both.tgz");
+  const served = await downloadVerified(
+    {
+      url: "https://primary.example/slow-both.tgz",
+      mirrors: ["https://mirror.example/slow-both.tgz"],
+      output,
+      digest: createHash("sha256").update(bytes).digest("hex"),
+      algorithm: "sha256",
+      maxBytes: bytes.length,
+      signal: new AbortController().signal,
+    },
+    async (url, init) => {
+      hosts.push(new URL(url as URL).host);
+      const range = new Headers(init?.headers).get("range");
+      const start = range ? Number(/^bytes=(\d+)-$/.exec(range)?.[1] ?? 0) : 0;
+      const slice = bytes.subarray(start);
+      const headers: Record<string, string> = {
+        "content-length": String(slice.length),
+        ...(start > 0
+          ? {
+              "content-range": `bytes ${start}-${bytes.length - 1}/${bytes.length}`,
+            }
+          : {}),
+      };
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          async start(controller) {
+            for (let offset = 0; offset < slice.length; offset += 2048) {
+              await new Promise((resolve) => setTimeout(resolve, 25));
+              try {
+                controller.enqueue(slice.subarray(offset, offset + 2048));
+              } catch {
+                return;
+              }
+            }
+            try {
+              controller.close();
+            } catch {
+              // Cancelled during round 0 comparison.
+            }
+          },
+        }),
+        { status: start > 0 ? 206 : 200, headers },
+      );
+    },
+    {
+      attempts: 2,
+      retryDelayMs: 60_000,
+      idleTimeoutMs: 5_000,
+      slowCheckAfterMs: 80,
+      minBytesPerSecond: 300_000,
+      minRemainingMs: 150,
+    },
+  );
+  expect(served).toBe("https://primary.example/slow-both.tgz");
+  expect(hosts).toEqual([
+    "primary.example",
+    "mirror.example",
+    "primary.example",
+  ]);
+  expect(await readFile(output)).toEqual(bytes);
+});
+
+it("moves past a hung primary at slowCheckAfterMs instead of waiting for idleTimeoutMs", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "linger-download-"));
+  roots.push(root);
+  const bytes = Buffer.from("served by mirror quickly");
+  const hosts: string[] = [];
+  const output = path.join(root, "kit.tgz");
+  const startedAt = Date.now();
+  const served = await downloadVerified(
+    {
+      url: "https://primary.example/kit.tgz",
+      mirrors: ["https://mirror.example/kit.tgz"],
+      output,
+      digest: createHash("sha256").update(bytes).digest("hex"),
+      algorithm: "sha256",
+      maxBytes: bytes.length,
+      signal: new AbortController().signal,
+    },
+    async (url, init) => {
+      const host = new URL(url as URL).host;
+      hosts.push(host);
+      if (host === "primary.example") {
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new DOMException("aborted", "AbortError")),
+          );
+        });
+      }
+      return new Response(bytes);
+    },
+    {
+      attempts: 2,
+      retryDelayMs: 0,
+      idleTimeoutMs: 5_000,
+      slowCheckAfterMs: 80,
+      minBytesPerSecond: 100_000,
+      minRemainingMs: 200,
+    },
+  );
+  expect(served).toBe("https://mirror.example/kit.tgz");
+  expect(hosts).toEqual(["primary.example", "mirror.example"]);
+  expect(Date.now() - startedAt).toBeLessThan(1_000);
+  expect(await readFile(output)).toEqual(bytes);
+});
+
+it("promotes the fastest mirror when the first host hangs and the last mirror is slower", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "linger-download-"));
+  roots.push(root);
+  const bytes = Buffer.alloc(64 * 1024, 0x77);
+  const hosts: string[] = [];
+  const output = path.join(root, "kit.tgz");
+  const throttled = (
+    slice: Uint8Array,
+    chunkBytes: number,
+    intervalMs: number,
+  ) =>
+    new ReadableStream<Uint8Array>({
+      async start(controller) {
+        for (let offset = 0; offset < slice.length; offset += chunkBytes) {
+          await new Promise((resolve) => setTimeout(resolve, intervalMs));
+          try {
+            controller.enqueue(slice.subarray(offset, offset + chunkBytes));
+          } catch {
+            return;
+          }
+        }
+        try {
+          controller.close();
+        } catch {
+          // Cancelled during round 0 comparison.
+        }
+      },
+    });
+  const served = await downloadVerified(
+    {
+      url: "https://hung.example/kit.tgz",
+      mirrors: [
+        "https://medium.example/kit.tgz",
+        "https://crawl.example/kit.tgz",
+      ],
+      output,
+      digest: createHash("sha256").update(bytes).digest("hex"),
+      algorithm: "sha256",
+      maxBytes: bytes.length,
+      signal: new AbortController().signal,
+    },
+    async (url, init) => {
+      const host = new URL(url as URL).host;
+      hosts.push(host);
+      if (host === "hung.example") {
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new DOMException("aborted", "AbortError")),
+          );
+        });
+      }
+      const range = new Headers(init?.headers).get("range");
+      const start = range ? Number(/^bytes=(\d+)-$/.exec(range)?.[1] ?? 0) : 0;
+      const slice = bytes.subarray(start);
+      const headers: Record<string, string> = {
+        "content-length": String(slice.length),
+        ...(start > 0
+          ? {
+              "content-range": `bytes ${start}-${bytes.length - 1}/${bytes.length}`,
+            }
+          : {}),
+      };
+      const chunkBytes = host === "medium.example" ? 4096 : 1024;
+      return new Response(throttled(slice, chunkBytes, 30), {
+        status: start > 0 ? 206 : 200,
+        headers,
+      });
+    },
+    {
+      attempts: 2,
+      retryDelayMs: 60_000,
+      idleTimeoutMs: 5_000,
+      slowCheckAfterMs: 90,
+      minBytesPerSecond: 300_000,
+      minRemainingMs: 200,
+    },
+  );
+  expect(served).toBe("https://medium.example/kit.tgz");
+  expect(hosts).toEqual([
+    "hung.example",
+    "medium.example",
+    "crawl.example",
+    "medium.example",
+  ]);
+  expect(await readFile(output)).toEqual(bytes);
 });

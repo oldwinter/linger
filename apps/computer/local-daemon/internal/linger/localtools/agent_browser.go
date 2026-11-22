@@ -33,7 +33,7 @@ type agentBrowser struct {
 	Args func(profile string) []string
 	// Settings are what a running instance's command line must carry for
 	// the tools to rely on it. The Computer restarts its own instance that
-	// lacks them; the user quits their everyday Chrome.
+	// lacks them; it works in the user's everyday Chrome without them.
 	Settings []string
 	// AddressRole and AddressLabel find the address bar; an empty label
 	// takes the first element with that role, which in the browser's
@@ -49,9 +49,9 @@ type agentBrowser struct {
 	// window of its own there, with the user's sign-ins.
 	Shared bool
 	// Everyday marks the user's everyday Chrome: the Computer opens each
-	// site in a window of its own there, by command line, and the running
-	// instance must carry Settings, so a covered window keeps working. The
-	// user quits one started without them; the Computer never does.
+	// site in a window of its own there, by command line. It starts Chrome
+	// with Settings, so a covered window keeps working; a Chrome the user
+	// started without them is used as it runs and never quit.
 	Everyday bool
 }
 
@@ -340,17 +340,19 @@ func sharedBrowserRunning(ctx context.Context, bundle string) (int, error) {
 	return lsappPID(ctx, bundle)
 }
 
-// everydayChromeQuit asks the user to quit their Chrome. Only the user
-// quits it: a quit loses text typed into a page and not yet sent, and no
-// tool call can prove the user agreed to that.
-const everydayChromeQuit = "COMPUTER_BROWSER_RESTART_REQUIRED: the user's Chrome runs without the setting that keeps the Computer's window working while other windows cover it, and Chrome takes it only when it starts; nothing was opened. Ask the user with a question card to quit Chrome from its menu (Google Chrome > Quit Google Chrome) and leave it closed, then end your turn. When they answer that Chrome is closed, call launch_app again: the Computer starts Chrome with that setting and brings back their windows and tabs. If they decline, end the task"
+// everydayChromeCovered is what the model learns about a window in a Chrome
+// the user started without Settings. Chrome freezes the page and its
+// accessibility tree while another window covers it completely, and takes
+// the setting only when it starts. A quit loses text typed into a page and
+// not yet sent, so the Computer neither quits Chrome nor asks the user to.
+const everydayChromeCovered = " This Chrome started without the setting that keeps a covered window working, so the window updates only while part of it shows on the user's screen. If the page stops changing, ask the user to leave part of this window uncovered; never ask them to quit or restart Chrome. Chrome gets the setting the next time the Computer starts it."
 
 // launchEverydayChrome opens url in a new window of the user's everyday
 // Chrome, the Computer's own window there, which the task then works in. The
 // window opens through Chrome's command line, as a link from another app
 // does, so no key reaches the user's other Chrome windows. A Chrome that is
 // not running starts with the setting the window needs; one running without
-// it is never quit by the Computer: the user quits it.
+// it is used as it runs.
 func (c *cuaSession) launchEverydayChrome(ctx context.Context, b agentBrowser, urls []string) (json.RawMessage, error) {
 	if len(urls) != 1 {
 		return nil, fmt.Errorf("launch_app opens one site at a time in the user's Chrome; call it once for each site: %w", errNotSent)
@@ -364,30 +366,16 @@ func (c *cuaSession) launchEverydayChrome(ctx context.Context, b agentBrowser, u
 	if err != nil {
 		return nil, err
 	}
-	if pid > 0 && !b.startedWith(command) {
-		if err := m.everydayChromeQuitAsked(true); err != nil {
-			return nil, err
-		}
-		return nil, fmt.Errorf("%s: %w", everydayChromeQuit, errNotSent)
-	}
-	restored := false
+	pausesWhenCovered := pid > 0 && !b.startedWith(command)
 	if pid == 0 {
-		// After the user quit Chrome for the Computer, it reopens their
-		// windows and tabs, as the question to quit promised. A second
-		// instance is started (-n) so a Chrome on another profile, such as
-		// a test browser, cannot take the command and drop the settings.
-		restored = m.quitAsked()
+		// A second instance is started (-n) so a Chrome on another
+		// profile, such as a test browser, cannot take the command and drop
+		// the settings.
 		args := append([]string{"-n", "-g", "-b", b.Bundle, "--args"}, b.Settings...)
-		if restored {
-			args = append(args, "--restore-last-session")
-		}
 		if output, err := agentChromeOpen(ctx, args); err != nil {
 			return nil, fmt.Errorf("launch_app: %s: %w", strings.TrimSpace(string(output)), err)
 		}
 		if pid, err = c.waitEverydayChrome(ctx); err != nil {
-			return nil, err
-		}
-		if err := m.everydayChromeQuitAsked(false); err != nil {
 			return nil, err
 		}
 	}
@@ -416,12 +404,12 @@ func (c *cuaSession) launchEverydayChrome(ctx context.Context, b agentBrowser, u
 	// first input's check one read of the strip.
 	c.holdAgentChromeWindow(pid, window.WindowID, tabs, window.Title)
 	note := "This is the Computer's own window in the user's everyday Chrome, with the user's sign-ins; work only in this window, never in the user's other Chrome windows. It works while other windows cover it, but only on the desktop (Space) the user is on. The user's Chrome takes no keys from the Computer, because a key could reach the window the user is typing in: fill a field with set_value, press the page's own buttons, such as its search button, and go back through the page's links. Close a tab with the Close button of its tab; closing the window's last tab closes the window. If a site asks to sign in, ask the user to sign in once in this window."
-	if restored {
-		note = "Started the user's Chrome again with their windows and tabs. " + note
+	if pausesWhenCovered {
+		note += everydayChromeCovered
 	}
 	text := fmt.Sprintf("Opened %s in a new window of the user's Chrome (pid %d), window %q [window_id: %v]. The window has %d tab(s).\n%s", urls[0], pid, window.Title, window.WindowID, tabs, note)
 	return json.Marshal(map[string]any{"content": []any{map[string]string{"type": "text", "text": text}},
-		"structuredContent": map[string]any{"browser": b.Name, "pid": pid, "windows": []map[string]any{{"window_id": window.WindowID, "title": window.Title, "on_screen": window.IsOnScreen}}, "tabs": tabs, "note": note}})
+		"structuredContent": map[string]any{"browser": b.Name, "pid": pid, "windows": []map[string]any{{"window_id": window.WindowID, "title": window.Title, "on_screen": window.IsOnScreen}}, "tabs": tabs, "note": note, "pauses_when_covered": pausesWhenCovered}})
 }
 
 // everydayChromeWindow finds the window the command line just opened: a
@@ -561,30 +549,6 @@ func (c *cuaSession) waitEverydayChrome(ctx context.Context) (int, error) {
 			return 0, err
 		}
 	}
-}
-
-// everydayChromeQuitAsked records, in the state directory so a Daemon
-// restart keeps it, whether the Computer asked the user to quit their Chrome
-// and has not started it again since.
-func (m *Manager) everydayChromeQuitAsked(asked bool) error {
-	path := filepath.Join(m.options.StateDirectory, "computer-tools", "everyday-chrome-quit")
-	if !asked {
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
-		return nil
-	}
-	if err := privatefs.EnsureDir(filepath.Dir(path)); err != nil {
-		return err
-	}
-	return os.WriteFile(path, nil, 0o600)
-}
-
-// quitAsked reports whether the Computer asked the user to quit their
-// Chrome; see everydayChromeQuitAsked.
-func (m *Manager) quitAsked() bool {
-	_, err := os.Stat(filepath.Join(m.options.StateDirectory, "computer-tools", "everyday-chrome-quit"))
-	return err == nil
 }
 
 // sharedWindow is the windows the Computer opened as its own in one of the

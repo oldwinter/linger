@@ -169,6 +169,9 @@ export class TestContextRuntimeState implements ContextRuntimeStatePort {
   getLocalRun(runId: string): LocalRun | null {
     return structuredClone(this.state.runs.get(runId) ?? null);
   }
+  hasLocalRunReplied(_runId: string, _signal?: AbortSignal): boolean {
+    return false;
+  }
   private requireRun(runId: string): LocalRun {
     const r = this.state.runs.get(runId);
     if (!r) throw new Error("Local Run is unavailable");

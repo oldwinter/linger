@@ -51,7 +51,15 @@ func DiscoverLive(ctx context.Context, options DiscoveryOptions, timeout time.Du
 
 func checkLive(ctx context.Context, diagnostic RuntimeDiagnostic, environment map[string]string, timeout time.Duration) LiveCheck {
 	started := time.Now()
-	stdout, stderr, err := runBoundedProbeExchange(ctx, diagnostic.ExecutablePath, liveCheckArgs[diagnostic.Type], environment, "", timeout, nil)
+	var stdout, stderr string
+	var err error
+	if diagnostic.Type == "antigravity" {
+		// agy's print mode signs in only with Google; ACP, which Runs use,
+		// also accepts a Gemini API key.
+		stdout, err = antigravityLiveReply(ctx, diagnostic.ExecutablePath, environment, timeout)
+	} else {
+		stdout, stderr, err = runBoundedProbeExchange(ctx, diagnostic.ExecutablePath, liveCheckArgs[diagnostic.Type], environment, "", timeout, nil)
+	}
 	check := LiveCheck{DurationMS: time.Since(started).Milliseconds(), Reply: truncateRunes(redact.Text(strings.TrimSpace(stdout)), 200)}
 	switch {
 	case err != nil && ctx.Err() == nil && time.Since(started) >= timeout:

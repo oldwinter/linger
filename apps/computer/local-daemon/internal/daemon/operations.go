@@ -27,11 +27,8 @@ func (d *Daemon) awaitOperation(ctx context.Context, command protocol.Command, s
 func (d *Daemon) finishOperation(ctx context.Context, command protocol.Command, spec provider.OperationSpec, result provider.Result) {
 	d.activeMu.Lock()
 	active := d.activeOperations[command.OperationID]
-	reason := ""
-	if active != nil {
-		reason = active.reason
-	}
 	d.activeMu.Unlock()
+	reason := ""
 	if active != nil {
 		active.inputMu.Lock()
 		active.finishing = true
@@ -58,6 +55,31 @@ func (d *Daemon) finishOperation(ctx context.Context, command protocol.Command, 
 			result.Status, result.Error = "failed", "Local MCP cleanup failed"
 			result.CleanupUnconfirmed = result.CleanupUnconfirmed || errors.Is(err, mcpproxy.ErrCleanupUnconfirmed)
 		}
+		d.activeMu.Lock()
+		reason = active.reason
+		d.activeMu.Unlock()
+	}
+	yieldRequested := reason == schedulerYield
+	if yieldRequested {
+		// A natural completion can race the scheduler's cancel. Only an
+		// interrupted turn with confirmed cleanup is safe to continue.
+		if result.Status != "completed" && !result.CleanupConfirmed {
+			result.CleanupUnconfirmed = true
+		}
+		if result.Status != "aborted" && result.Status != "cancelled" {
+			reason = ""
+		}
+	}
+	// Chat starts on this Runtime as soon as a yielded Task reports its
+	// terminal, so a yield whose native turn may still run must hold the
+	// Runtime. Any other stop only reports that its cleanup is unknown.
+	if result.CleanupUnconfirmed && yieldRequested {
+		result.Status = "failed"
+		d.admissionMu.Lock()
+		d.activeMu.Lock()
+		d.uncleanOperations = append(d.uncleanOperations, operationIdentity(command))
+		d.activeMu.Unlock()
+		d.admissionMu.Unlock()
 	}
 	terminalType := protocol.EventOperationCompleted
 	if reason != "" && !result.CleanupUnconfirmed {
@@ -125,6 +147,14 @@ func (d *Daemon) handleOperationCancel(command protocol.Command) error {
 		if payload.Reason == "" {
 			payload.Reason = "Operation cancelled"
 		}
+		if payload.Reason == schedulerYield && active.sessionMoved.Load() {
+			// The Run finishes instead; Agent Service accepts a natural
+			// terminal after it asked for a yield. Agent Service resends the
+			// same yield on every reconnect, so each one is declined; the
+			// user's Stop arrives as a cancel with its own reason.
+			slog.Info("runner.operation.yield_declined", "operation_id", command.OperationID, "reason", "session_moved")
+			return nil
+		}
 		active.reason = payload.Reason
 		active.cancel()
 	}
@@ -158,9 +188,25 @@ func (d *Daemon) finishAdmissionBusy(ctx context.Context, stream transport.Strea
 	return stream.Send(ctx, persisted)
 }
 
-// Operation failure codes for a start this Computer refused. The first two
-// tell the Agent Service the Computer cannot run the Agent right now, so the
-// Room can say so instead of a generic failure.
+const (
+	schedulerYield            = "scheduler_yield"
+	cleanupUnconfirmedCode    = "RUNTIME_CLEANUP_UNCONFIRMED"
+	cleanupUnconfirmedMessage = "Provider cancellation cleanup is unconfirmed"
+)
+
+// A Daemon cannot dispatch new work on a Runtime with a potentially live turn.
+func (d *Daemon) runtimeCleanupUnconfirmed(runtime string) bool {
+	d.activeMu.Lock()
+	defer d.activeMu.Unlock()
+	for _, identity := range d.uncleanOperations {
+		if identity.RuntimeType == runtime {
+			return true
+		}
+	}
+	return false
+}
+
+// Operation failure codes for a start this Computer refused.
 const (
 	operationCodeRunnerStopped     = "RUNNER_STOPPED"
 	operationCodeRuntimeNotEnabled = "RUNTIME_NOT_ENABLED"
@@ -251,7 +297,7 @@ func operationIdentity(command protocol.Command) OperationIdentity {
 
 func terminalPayload(spec provider.OperationSpec, result provider.Result) json.RawMessage {
 	if result.CleanupUnconfirmed {
-		return terminalWithUsage(map[string]any{"code": "RUNTIME_CLEANUP_UNCONFIRMED", "message": "Provider cancellation cleanup is unconfirmed", "retryable": false}, spec, result)
+		return terminalWithUsage(map[string]any{"code": cleanupUnconfirmedCode, "message": cleanupUnconfirmedMessage, "retryable": false}, spec, result)
 	}
 	if result.Status != "completed" {
 		failure := provider.ClassifyExecutionFailure(spec.Provider, spec.CodexVersion, result.Status, result.FailureCode, result.Diagnostics)
@@ -270,7 +316,7 @@ func terminalPayload(spec provider.OperationSpec, result provider.Result) json.R
 	}
 	var session map[string]any
 	switch spec.Provider {
-	case "codex":
+	case "codex", "antigravity":
 		session = map[string]any{"threadId": sessionID}
 	case "claude", "pi":
 		session = map[string]any{"provider": spec.Provider, "sessionId": sessionID, "lingerMaterialized": true}

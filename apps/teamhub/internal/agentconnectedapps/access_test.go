@@ -142,6 +142,64 @@ func TestExecuteRunsGitHubReadsAtOnce(t *testing.T) {
 	}
 }
 
+// Linear has no wrapped command, so Agents read it through the generic
+// execute; each listed read runs without a card.
+func TestExecuteRunsLinearReadsAtOnce(t *testing.T) {
+	for _, slug := range []string{
+		"LINEAR_LIST_LINEAR_PROJECTS", "LINEAR_LIST_LINEAR_ISSUES", "LINEAR_LIST_LINEAR_USERS",
+		"LINEAR_GET_LINEAR_ISSUE", "LINEAR_SEARCH_ISSUES", "LINEAR_LIST_LINEAR_TEAMS",
+	} {
+		provider, ran, err := executeForTest(t, slug, "linear", map[string]any{})
+		if err != nil || ran.Confirmation != nil || len(provider.executed) != 1 {
+			t.Fatalf("%s: result=%+v err=%v executed=%v", slug, ran, err, provider.executed)
+		}
+	}
+}
+
+func TestExecuteRunsAReadOnlyLinearGraphQLDocumentAtOnce(t *testing.T) {
+	for name, document := range map[string]string{
+		"introspection": `query { __type(name: "Team") { fields { name } } }`,
+		"shorthand":     `{ viewer { id name } }`,
+		"named with variables and a fragment": `
+			query Members($team: String!) { team(id: $team) { members { nodes { ...person } } } }
+			fragment person on User { id displayName active }`,
+		"mutation only inside a string": `query { searchIssues(term: "mutation { issueDelete }") { nodes { id } } }`,
+		"two queries":                   `query A { viewer { id } } query B { teams { nodes { id } } }`,
+	} {
+		provider, ran, err := executeForTest(t, linearGraphQLTool, "linear", map[string]any{"query_or_mutation": document, "variables": map[string]any{}})
+		if err != nil || ran.Confirmation != nil || len(provider.executed) != 1 {
+			t.Fatalf("%s: result=%+v err=%v executed=%v", name, ran, err, provider.executed)
+		}
+	}
+}
+
+func TestExecuteHoldsALinearGraphQLDocumentThatMayWrite(t *testing.T) {
+	for name, arguments := range map[string]map[string]any{
+		"mutation":           {"query_or_mutation": `mutation { commentCreate(input: {issueId: "WHI-1", body: "hi"}) { success } }`},
+		"query and mutation": {"query_or_mutation": `query A { viewer { id } } mutation B { issueArchive(id: "WHI-1") { success } }`},
+		"subscription":       {"query_or_mutation": `subscription { issueUpdated { id } }`},
+		"commented keyword":  {"query_or_mutation": "# query\nmutation { issueArchive(id: \"WHI-1\") { success } }"},
+		"unparseable":        {"query_or_mutation": `query { viewer { id }`},
+		"fragment only":      {"query_or_mutation": `fragment person on User { id }`},
+		"not a string":       {"query_or_mutation": map[string]any{"query": "{ viewer { id } }"}},
+		"missing document":   {"query": `{ viewer { id } }`},
+	} {
+		provider, held, err := executeForTest(t, linearGraphQLTool, "linear", arguments)
+		if err != nil || held.Confirmation == nil || len(provider.executed) != 0 {
+			t.Fatalf("%s: result=%+v err=%v executed=%v", name, held, err, provider.executed)
+		}
+	}
+}
+
+func TestExecuteHoldsLinearWritesForTheSponsorsCard(t *testing.T) {
+	for _, slug := range []string{"LINEAR_CREATE_LINEAR_ISSUE", "LINEAR_CREATE_LINEAR_COMMENT", "LINEAR_UPDATE_ISSUE"} {
+		provider, held, err := executeForTest(t, slug, "linear", map[string]any{"issue_id": "WHI-1", "body": "hi"})
+		if err != nil || held.Confirmation == nil || len(provider.executed) != 0 {
+			t.Fatalf("%s: result=%+v err=%v executed=%v", slug, held, err, provider.executed)
+		}
+	}
+}
+
 // cardTools are the final writes of the CLI's "confirm" commands. The
 // generic execute and the wrapped commands must both hold them.
 var cardTools = []string{
@@ -154,7 +212,7 @@ var cardTools = []string{
 
 func TestAccessListsKeepConfirmedWritesHeld(t *testing.T) {
 	for _, slug := range cardTools {
-		if accessOf(slug) != accessConfirm {
+		if accessOf(slug, nil) != accessConfirm {
 			t.Errorf("%s must wait for confirmation", slug)
 		}
 	}
@@ -164,8 +222,58 @@ func TestAccessListsKeepConfirmedWritesHeld(t *testing.T) {
 		}
 	}
 	for _, slug := range []string{"GMAIL_GET_DRAFT", "OUTLOOK_GET_MESSAGE", "OUTLOOK_LIST_OUTLOOK_ATTACHMENTS"} {
-		if accessOf(slug) != accessRead {
+		if accessOf(slug, nil) != accessRead {
 			t.Errorf("%s reads a draft for its card and must run at once", slug)
+		}
+	}
+}
+
+func TestAccessRunsDiscordReadsAndHoldsDiscordSends(t *testing.T) {
+	for _, slug := range []string{"DISCORDBOT_GET_CONNECTED_GUILD", "DISCORDBOT_LIST_MESSAGES", "DISCORDBOT_LIST_PINNED_MESSAGES"} {
+		if accessOf(slug, nil) != accessRead {
+			t.Errorf("%s only reads the connected guild and must run at once", slug)
+		}
+	}
+	if accessOf("DISCORDBOT_CREATE_MESSAGE", nil) != accessConfirm {
+		t.Error("DISCORDBOT_CREATE_MESSAGE posts to Discord and must wait for confirmation")
+	}
+}
+
+func TestExecuteRunsOutlookCalendarReadsAndDirectWritesAtOnce(t *testing.T) {
+	readSlugs := []string{
+		"OUTLOOK_LIST_CALENDARS",
+		"OUTLOOK_GET_MAILBOX_SETTINGS",
+		"OUTLOOK_GET_CALENDAR_VIEW",
+		"OUTLOOK_LIST_EVENTS",
+		"OUTLOOK_GET_EVENT",
+		"OUTLOOK_GET_CALENDAR_EVENT",
+		"OUTLOOK_GET_CALENDAR_SCHEDULE",
+	}
+	for _, slug := range readSlugs {
+		if accessOf(slug, nil) != accessRead {
+			t.Errorf("%s must be classified as accessRead", slug)
+		}
+		provider, ran, err := executeForTest(t, slug, "outlook", map[string]any{})
+		if err != nil || ran.Confirmation != nil || len(provider.executed) != 1 {
+			t.Fatalf("%s: result=%+v err=%v executed=%v", slug, ran, err, provider.executed)
+		}
+	}
+	writeSlugs := []string{
+		"OUTLOOK_CALENDAR_CREATE_EVENT",
+		"OUTLOOK_UPDATE_CALENDAR_EVENT",
+		"OUTLOOK_UPDATE_CALENDAR_EVENT_IN_CALENDAR",
+		"OUTLOOK_CANCEL_EVENT",
+		"OUTLOOK_CANCEL_CALENDAR_EVENT",
+		"OUTLOOK_DELETE_CALENDAR_EVENT",
+		"OUTLOOK_DELETE_CALENDAR_EVENT_FROM_SPECIFIC_CALENDAR",
+	}
+	for _, slug := range writeSlugs {
+		if accessOf(slug, nil) != accessWrite {
+			t.Errorf("%s must be classified as accessWrite", slug)
+		}
+		provider, ran, err := executeForTest(t, slug, "outlook", map[string]any{})
+		if err != nil || ran.Confirmation != nil || len(provider.executed) != 1 {
+			t.Fatalf("%s: result=%+v err=%v executed=%v", slug, ran, err, provider.executed)
 		}
 	}
 }

@@ -31,6 +31,14 @@ import {
 import type { SearchRoomScope } from "@/features/search/room-search-scope";
 
 import { RoomChat } from "./chat/room-chat";
+import {
+  roomDocumentsQueryOptions,
+  roomMembersQueryOptions,
+  roomMessagesInfiniteQueryOptions,
+  roomQueryOptions,
+  teamHubIdentityQueryOptions,
+  tenantActorsQueryOptions,
+} from "./room-queries";
 import { RoomSurface } from "./room-surface";
 import {
   openPanelTab,
@@ -408,7 +416,7 @@ describe("RoomSurface command availability", () => {
     await renderRoomSurface();
 
     fireEvent.click(
-      await screen.findByRole("button", { name: /settings from avatar$/ }),
+      await screen.findByRole("button", { name: /^Open .* details$/ }),
     );
     fireEvent.click(
       await screen.findByRole("button", { name: "Edit Room details" }),
@@ -453,7 +461,7 @@ describe("RoomSurface command availability", () => {
       within(header).queryByRole("button", { name: "Room settings" }),
     ).not.toBeInTheDocument();
     const settings = within(header).getByRole("button", {
-      name: "Open all settings from avatar",
+      name: "Open all details",
     });
     expect(
       within(header).queryByRole("link", { name: "Hand off" }),
@@ -533,7 +541,7 @@ describe("RoomSurface command availability", () => {
     );
   });
 
-  it("omits inactive run commands and room participation from a direct chat menu", async () => {
+  it("omits inactive run commands, group-only actions, and room participation from a direct chat menu", async () => {
     await renderRoomSurface("room-dm-codex");
     fireEvent.click(
       await screen.findByRole("button", { name: "More actions for Codex" }),
@@ -542,10 +550,39 @@ describe("RoomSurface command availability", () => {
     expect(
       screen.queryByRole("menuitem", { name: "Steer this run" }),
     ).toBeNull();
+    expect(
+      screen.queryByRole("menuitem", { name: "How work moves" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("menuitem", { name: "Who can manage" }),
+    ).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Routines" })).toBeNull();
     expect(screen.queryByRole("menuitem", { name: "Step out" })).toBeNull();
     expect(screen.getByRole("menuitem", { name: "Hand off" })).toBeVisible();
     expect(
       screen.getByRole("menuitem", { name: "Copy Room link" }),
+    ).toBeVisible();
+  });
+
+  it("opens Group Room Routines from the overflow menu", async () => {
+    const runtime = surfaceRuntime();
+    runtime.server.on("GET", "/v0/rooms/{roomId}/routines", () => ({
+      items: [],
+      page: { has_more: false },
+    }));
+    await renderRoomSurface("room-all", "", runtime);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "More actions for all" }),
+    );
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Routines" }));
+    const sidebar = await screen.findByRole("complementary", {
+      name: "Panel sidebar",
+    });
+    expect(
+      await within(sidebar).findByRole("tab", { name: "Routines" }),
+    ).toBeVisible();
+    expect(
+      await within(sidebar).findByText("No routines in this room yet."),
     ).toBeVisible();
   });
 
@@ -580,7 +617,7 @@ describe("RoomSurface command availability", () => {
     await renderRoomSurface("room-gtm-launch");
 
     fireEvent.click(
-      await screen.findByRole("button", { name: /settings from avatar$/ }),
+      await screen.findByRole("button", { name: /^Open .* details$/ }),
     );
     await screen.findByTestId("panel-room-settings");
     expect(
@@ -700,7 +737,7 @@ describe("RoomSurface command availability", () => {
   it("opens Agent editing from the Direct Room header avatar", async () => {
     await renderRoomSurface("room-dm-codex");
     const avatar = await screen.findByRole("button", {
-      name: "Open Codex settings from avatar",
+      name: "Open Codex details",
     });
     expect(
       within(avatar).getByRole("img", { name: "Codex avatar" }),
@@ -719,10 +756,36 @@ describe("RoomSurface command availability", () => {
     ).toBeVisible();
     // A second click on the header chip folds the panel away again.
     expect(avatar).toHaveAttribute("aria-expanded", "true");
+    expect(avatar).toHaveAccessibleName("Close Codex details");
     fireEvent.click(avatar);
     await waitFor(() =>
       expect(avatar).toHaveAttribute("aria-expanded", "false"),
     );
+    expect(avatar).toHaveAccessibleName("Open Codex details");
+  });
+
+  it("switches to Room details when clicking the header chip while another sidebar tab is active", async () => {
+    await renderRoomSurface();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Show sidebar" }),
+    );
+    const sidebar = await screen.findByRole("complementary", {
+      name: "Panel sidebar",
+    });
+    fireEvent.click(
+      await within(sidebar).findByRole("button", { name: /Documents/ }),
+    );
+    await within(sidebar).findByRole("tab", { name: "Files" });
+
+    const chip = screen.getByRole("button", { name: "Open all details" });
+    expect(chip).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(chip);
+
+    expect(
+      await within(sidebar).findByTestId("panel-room-settings"),
+    ).toBeVisible();
+    expect(chip).toHaveAttribute("aria-expanded", "true");
+    expect(chip).toHaveAccessibleName("Close all details");
   });
 
   it("defaults the Agent DM sidebar to Agent info and offers it beside Documents", async () => {
@@ -1289,7 +1352,7 @@ describe("RoomSurface command availability", () => {
     await renderRoomSurface("room-all", "", runtime);
 
     fireEvent.click(
-      await screen.findByRole("button", { name: /settings from avatar$/ }),
+      await screen.findByRole("button", { name: /^Open .* details$/ }),
     );
     // The header is ready before the Actors needed by the members section.
     expect(
@@ -1445,12 +1508,36 @@ async function renderRoomSurface(
     { initialEntries: [`/t/tenant-northstar/rooms/${roomId}/chat${search}`] },
   );
 
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  // Loading what RoomSurface suspends on before rendering skips React's
+  // Suspense reveal throttle, which otherwise costs every test a fixed delay.
+  // A failed load stays in the cache so RoomSurface surfaces it as before.
+  const tenantId = "tenant-northstar";
+  await Promise.all([
+    queryClient.ensureQueryData(
+      roomQueryOptions(runtime.client, tenantId, roomId),
+    ),
+    queryClient.ensureQueryData(
+      roomMembersQueryOptions(runtime.client, tenantId, roomId),
+    ),
+    queryClient.ensureInfiniteQueryData(
+      roomMessagesInfiniteQueryOptions(runtime.client, tenantId, roomId),
+    ),
+    queryClient.ensureQueryData(teamHubIdentityQueryOptions(runtime.client)),
+  ]).catch(() => undefined);
+  // The panel sidebar also suspends on these. They are not awaited so a test
+  // that holds one back still sees the sidebar's loading state.
+  void queryClient.prefetchQuery(
+    tenantActorsQueryOptions(runtime.client, tenantId),
+  );
+  void queryClient.prefetchQuery(
+    roomDocumentsQueryOptions(runtime.client, tenantId, roomId),
+  );
+
   render(
-    <QueryClientProvider
-      client={
-        new QueryClient({ defaultOptions: { queries: { retry: false } } })
-      }
-    >
+    <QueryClientProvider client={queryClient}>
       <TeamHubRuntimeProvider runtime={runtime}>
         <RouterProvider router={router} />
       </TeamHubRuntimeProvider>

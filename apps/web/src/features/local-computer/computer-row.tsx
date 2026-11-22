@@ -66,7 +66,7 @@ export function ProgressChip({
     </>
   );
   return (
-    <Hint focusable placement="bottom" text={hint}>
+    <Hint focusable={!onClick} placement="bottom" text={hint}>
       {onClick ? (
         <button className={className} onClick={onClick} type="button">
           {content}
@@ -159,7 +159,7 @@ export function ComputerRow({
     </div>
   );
   return hint ? (
-    <Hint className="flex" text={hint}>
+    <Hint display="flex" text={hint}>
       {row}
     </Hint>
   ) : (

@@ -10,10 +10,12 @@ import {
   MINIMUM_CURRENT_COMPUTER_VERSION,
 } from "../../../src/agent/runner-gateway/local-computer-management.js";
 import {
+  RunnerDaemonIdentityInUseError,
   RunnerGateway,
   RunnerUpgradeRequiredError,
   type RunnerGatewayConnection,
 } from "../../../src/agent/runner-gateway/runner-gateway.js";
+import { createTeamHubLocalComputerRegistry } from "../../../src/agent/runner-gateway/local-computer-registry.js";
 import {
   createTestRunnerGateway,
   testRegistrationId,
@@ -243,6 +245,65 @@ describe("RunnerGateway", () => {
       }),
     );
     connection.disconnect();
+  });
+
+  it("registers a Runtime that first appears in a diagnostics update", async () => {
+    const gateway = createTestRunnerGateway({ heartbeatIntervalMs: 60_000 });
+    const peer = new RecordingPeer();
+    const connection = await gateway.acceptConnection(
+      authenticatedPrincipal(),
+      {
+        ...hello(),
+        runtime_registrations: [
+          {
+            tenant_id: "tenant-acme",
+            owner_actor_id: "actor-alice",
+            provider_type: "codex",
+            status: "online",
+            revision: 1,
+            capabilities: ["turn"],
+            runtime_diagnostics: { status: "ready" },
+          },
+        ],
+      },
+      peer,
+    );
+    try {
+      // The Computer left Antigravity out until agy was installed.
+      await connection.receive({
+        type: "runner.runtime_diagnostics",
+        protocol_version: "2",
+        runner_id: "runner-local",
+        sent_at: "2026-07-29T00:00:15.000Z",
+        revision: 2,
+        runtime_diagnostics: runtimeDiagnostics({
+          ready: ["codex", "antigravity"],
+        }),
+      });
+      const registrations = peer.registrationSnapshots.at(-1)!.registrations;
+      expect(
+        registrations.find(
+          ({ registration_id }) =>
+            registration_id === testRegistrationId("antigravity"),
+        ),
+      ).toMatchObject({
+        observation: {
+          tenant_id: "tenant-acme",
+          owner_actor_id: "actor-alice",
+          provider_type: "antigravity",
+          status: "online",
+          revision: 2,
+          capabilities: ["turn"],
+        },
+      });
+      expect(
+        registrations.filter(
+          ({ observation }) => observation.provider_type === "codex",
+        ),
+      ).toHaveLength(1);
+    } finally {
+      connection.disconnect();
+    }
   });
 
   it("proves the Daemon Identity and names Runtime Registrations on every hello", async () => {
@@ -888,5 +949,47 @@ describe("RunnerGateway local Computer reconnect wait", () => {
     expect(await settled(waiting)).toBe(false);
     await acceptReadyConnection(gateway, new RecordingPeer());
     await waiting;
+  });
+
+  it("maps DAEMON_IDENTITY_IN_USE from TeamHub connect to RunnerDaemonIdentityInUseError", async () => {
+    const connectLocalComputer = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new TeamHubRuntimeStateError(
+          409,
+          "Daemon Identity is already bound to another Local Computer",
+          "DAEMON_IDENTITY_IN_USE",
+          false,
+        ),
+      )
+      .mockRejectedValueOnce(
+        new TeamHubRuntimeStateError(
+          409,
+          "Agent Runtime State conflicts with the request",
+          "AGENT_RUNTIME_CONFLICT",
+          false,
+        ),
+      );
+    const registry = createTeamHubLocalComputerRegistry({
+      getLocalComputer: vi.fn(),
+      connectLocalComputer,
+      touchLocalComputer: vi.fn(),
+      removeLocalComputer: vi.fn(),
+      reportHerdrEvent: vi.fn(),
+      recordLocalModels: vi.fn(),
+    });
+    const connection = {
+      computerId: "computer-local",
+      owner: { tenantId: "tenant-acme", ownerActorId: "actor-alice" },
+      credentialGeneration: 0,
+      hello: hello(),
+      status: "offline" as const,
+    };
+    await expect(registry.connect(connection)).rejects.toBeInstanceOf(
+      RunnerDaemonIdentityInUseError,
+    );
+    await expect(registry.connect(connection)).rejects.toMatchObject({
+      code: "AGENT_RUNTIME_CONFLICT",
+    });
   });
 });

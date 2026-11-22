@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
+import { LibrarySubpageShell } from "@/features/library/library-subpage-shell";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 import { tenantRoomsQueryOptions } from "@/features/rooms/room-queries";
 import { createTeamHubIdempotencyKey } from "@/features/teamhub/teamhub-client";
@@ -90,111 +91,100 @@ export function CarryDecisionPage() {
   }
 
   return (
-    <main className="min-h-0 flex-1 overflow-y-auto bg-app-surface px-5 py-7">
-      <div className="mx-auto flex w-full max-w-xl flex-col gap-6">
-        <header>
-          <h1 className="text-xl text-foreground">Carry a decision</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            {`Send one decision from ${meetingLabel} into a room. The meeting stays as it is.`}
-          </p>
-        </header>
-        {loading ? (
-          <p className="text-sm text-muted-foreground" role="status">
-            Loading the meeting.
-          </p>
-        ) : missing ? (
-          <p className="text-sm text-muted-foreground" role="status">
-            This meeting could not be opened.
-          </p>
-        ) : sentRoom ? (
-          <p className="text-sm text-foreground" role="status">
-            {`Sent to ${carryRoomTitle(sentRoom)}. That room now has the decision.`}
-          </p>
-        ) : decisions.length === 0 ? (
-          <p className="text-sm text-muted-foreground" role="status">
-            This meeting has no decision to carry.
-          </p>
-        ) : destinations.length === 0 ? (
-          <p className="text-sm text-muted-foreground" role="status">
-            There is no room to receive it.
-          </p>
-        ) : (
-          <form
-            className="flex flex-col gap-6"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void send();
-            }}
-          >
-            <fieldset className="flex flex-col gap-2">
-              <legend className="text-sm text-foreground">
-                Which decision
-              </legend>
-              {decisions.map((item) => (
-                <label
-                  className="flex items-start gap-3 rounded-2xl border border-border px-4 py-3 text-sm text-foreground"
-                  key={item.id}
-                >
-                  <input
-                    checked={item.id === decision?.id}
-                    className="mt-1"
-                    name="decision"
-                    onChange={() => setDecisionId(item.id)}
-                    type="radio"
-                    value={item.id}
-                  />
-                  <span>{item.text}</span>
-                </label>
-              ))}
-            </fieldset>
-            <fieldset className="flex flex-col gap-2">
-              <legend className="text-sm text-foreground">Which room</legend>
-              {destinations.map((item) => (
-                <label
-                  className="flex items-start gap-3 rounded-2xl border border-border px-4 py-3 text-sm text-foreground"
-                  key={item.id}
-                >
-                  <input
-                    checked={item.id === room?.id}
-                    className="mt-1"
-                    name="room"
-                    onChange={() => setRoomId(item.id)}
-                    type="radio"
-                    value={item.id}
-                  />
-                  <span>{carryRoomTitle(item)}</span>
-                </label>
-              ))}
-            </fieldset>
-            {error ? (
-              <p className="text-sm text-destructive" role="alert">
-                The room did not receive it.
-              </p>
-            ) : null}
-            <Button disabled={pending} type="submit">
-              {pending ? "Sending" : "Send it there"}
-            </Button>
-          </form>
-        )}
-        {sentRoom ? (
-          <Link
-            className="text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            to={`/t/${encodeURIComponent(tenantId)}/rooms/${encodeURIComponent(sentRoom.id)}/chat`}
-          >
-            {`Open ${carryRoomTitle(sentRoom)}`}
-          </Link>
-        ) : null}
-        <Link
-          className="text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          to={
-            entry
-              ? meetingPath(tenantId, entry.id)
-              : `/t/${encodeURIComponent(tenantId)}/library?tab=meetings`
-          }
+    <LibrarySubpageShell
+      backLabel="Back to the meeting"
+      backTo={
+        entry
+          ? meetingPath(tenantId, entry.id)
+          : `/t/${encodeURIComponent(tenantId)}/library?tab=meetings`
+      }
+      subtitle={`Send one decision from ${meetingLabel} into a room. The meeting stays as it is.`}
+      title="Carry a decision"
+    >
+      {loading ? (
+        <p className="text-sm text-muted-foreground" role="status">
+          Loading the meeting.
+        </p>
+      ) : missing ? (
+        <p className="text-sm text-muted-foreground" role="status">
+          This meeting could not be opened.
+        </p>
+      ) : sentRoom ? (
+        <p className="text-sm text-foreground" role="status">
+          {`Sent to ${carryRoomTitle(sentRoom)}. That room now has the decision.`}
+        </p>
+      ) : decisions.length === 0 ? (
+        <p className="text-sm text-muted-foreground" role="status">
+          This meeting has no decision to carry.
+        </p>
+      ) : destinations.length === 0 ? (
+        <p className="text-sm text-muted-foreground" role="status">
+          There is no room to receive it.
+        </p>
+      ) : (
+        <form
+          className="flex flex-col gap-6"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void send();
+          }}
         >
-          Back to the meeting
+          <fieldset className="flex flex-col gap-2">
+            <legend className="text-sm text-foreground">Which decision</legend>
+            {decisions.map((item) => (
+              <label
+                className="flex items-start gap-3 rounded-2xl border border-border px-4 py-3 text-sm text-foreground"
+                key={item.id}
+              >
+                <input
+                  checked={item.id === decision?.id}
+                  className="mt-1"
+                  name="decision"
+                  onChange={() => setDecisionId(item.id)}
+                  type="radio"
+                  value={item.id}
+                />
+                <span>{item.text}</span>
+              </label>
+            ))}
+          </fieldset>
+          <fieldset className="flex flex-col gap-2">
+            <legend className="text-sm text-foreground">Which room</legend>
+            {destinations.map((item) => (
+              <label
+                className="flex items-start gap-3 rounded-2xl border border-border px-4 py-3 text-sm text-foreground"
+                key={item.id}
+              >
+                <input
+                  checked={item.id === room?.id}
+                  className="mt-1"
+                  name="room"
+                  onChange={() => setRoomId(item.id)}
+                  type="radio"
+                  value={item.id}
+                />
+                <span>{carryRoomTitle(item)}</span>
+              </label>
+            ))}
+          </fieldset>
+          {error ? (
+            <p className="text-sm text-destructive" role="alert">
+              The room did not receive it.
+            </p>
+          ) : null}
+          <Button disabled={pending} type="submit">
+            {pending ? "Sending" : "Send it there"}
+          </Button>
+        </form>
+      )}
+      {sentRoom ? (
+        <Link
+          className="w-fit text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          to={`/t/${encodeURIComponent(tenantId)}/rooms/${encodeURIComponent(sentRoom.id)}/chat`}
+        >
+          {`Open ${carryRoomTitle(sentRoom)}`}
         </Link>
-      </div>
-    </main>
+      ) : null}
+    </LibrarySubpageShell>
   );
 }

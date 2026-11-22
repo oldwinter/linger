@@ -1,3 +1,7 @@
+import { createHash } from "node:crypto";
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import type {
@@ -8,9 +12,12 @@ import type {
 import { createLocalContextRuntimeBackend } from "../../../src/agent/executor/local-backend.js";
 import type { ContextRuntimeBackendRequest } from "../../../src/agent/executor/activation.js";
 import { encodeExecutionContextRef } from "../../../src/agent/executor/context-ref.js";
-import type {
-  ContextViewContent,
-  ContextViewSnapshotInput,
+import { createMemoryProjection } from "../../../src/agent/agent-features/agent-memory/projection.js";
+import {
+  createContextViewContent,
+  type ContextViewContent,
+  type ContextViewManifest,
+  type ContextViewSnapshotInput,
 } from "../../../src/agent/runner-gateway/context-view-content.js";
 import type { LocalRuntimeModelDefinition } from "../../../src/agent/runner-gateway/local-computer-management.js";
 import type {
@@ -377,6 +384,115 @@ describe("Local Context Runtime backend", () => {
 
     await activation.deactivate();
     expect(views.events.slice(-2)).toEqual(["release:c", "release:b"]);
+  });
+
+  it("starts the next Run with its activation memory after the shared generations disappear", async () => {
+    const agentRoot = await mkdtemp(
+      path.join(os.tmpdir(), "activation-memory-"),
+    );
+    const request = requestFixture();
+    let published = "A";
+    const projection = createMemoryProjection({
+      read: async () => ({
+        revision: 1,
+        summary: `index ${published}`,
+        memory: `decision ${published}`,
+        sessions: {},
+        cursors: {},
+      }),
+      commit: vi.fn(),
+    });
+    const prepare = () =>
+      projection.prepare(request.ref.agentId, request.signal);
+    const views = createContextViewContent({
+      publicOrigin: "https://agent.example",
+      signingKey: "k".repeat(32),
+      isCurrentConnection: (id, epoch) => id === "computer-1" && epoch === 1,
+    });
+    const { backend, targets } = backendFixture(views);
+    const url = views.contentUrl("computer-1", 1);
+    const get = (kind: string, id: string) =>
+      views.handle(
+        url.slice(url.lastIndexOf("/") + 1),
+        kind,
+        id,
+        new Request(`${url}/${kind}/${id}`),
+      );
+    const memoryFile = async (digest: string, relativePath: string) => {
+      const response = await get("views", digest);
+      expect(response.status).toBe(200);
+      const manifest = (await response.json()) as ContextViewManifest;
+      const mapping = manifest.mappings.find(
+        (m) => m.target_path === "agent-memory",
+      );
+      expect(mapping?.access).toBe("read_only");
+      return mapping!.files.find((f) => f.relative_path === relativePath)!;
+    };
+    try {
+      const first = await prepare();
+      const planA = { ...request.viewPlan, mappings: [first.mapping!] };
+      const active = await backend.activate({ ...request, viewPlan: planA });
+      try {
+        await runOnce(active, "run-before-change");
+        const digestA = targets.at(-1)!.contextViewRef.view_digest;
+        expect(first.summary).toBe("index A");
+        const fileA = await memoryFile(digestA, "MEMORY.md");
+
+        published = "B";
+        await prepare();
+        published = "C";
+        const latest = await prepare();
+        // Force the observed missing-directory failure independently of mtime.
+        await rm(path.join(agentRoot, "agent-memory", "generations"), {
+          recursive: true,
+          force: true,
+        });
+
+        await active.synchronize(planA);
+        await runOnce(active, "run-after-change");
+        expect(targets.at(-1)?.contextViewRef.view_digest).toBe(digestA);
+        const delayed = await get("files", fileA.sha256);
+        expect(delayed.status).toBe(200);
+        const original = await delayed.text();
+        expect(original).toBe("decision A");
+        expect(createHash("sha256").update(original).digest("hex")).toBe(
+          fileA.sha256,
+        );
+        const summaryA = await memoryFile(digestA, "summary.md");
+        expect(await (await get("files", summaryA.sha256)).text()).toBe(
+          first.summary,
+        );
+
+        const reactivated = await backend.activate({
+          ...request,
+          viewPlan: { ...request.viewPlan, mappings: [latest.mapping!] },
+        });
+        try {
+          await runOnce(reactivated, "run-after-reactivation");
+          const digestC = targets.at(-1)!.contextViewRef.view_digest;
+          expect(digestC).not.toBe(digestA);
+          const fileC = await memoryFile(digestC, "MEMORY.md");
+          expect(await (await get("files", fileC.sha256)).text()).toBe(
+            "decision C",
+          );
+          const summaryC = await memoryFile(digestC, "summary.md");
+          expect(latest.summary).toBe("index C");
+          expect(await (await get("files", summaryC.sha256)).text()).toBe(
+            latest.summary,
+          );
+          await active.deactivate();
+          expect((await get("views", digestA)).status).toBe(404);
+          expect((await get("files", fileA.sha256)).status).toBe(404);
+          expect((await get("views", digestC)).status).toBe(200);
+        } finally {
+          await reactivated.deactivate();
+        }
+      } finally {
+        await active.deactivate();
+      }
+    } finally {
+      await rm(agentRoot, { recursive: true, force: true });
+    }
   });
 
   it("releases the activation snapshot when the Runner is not ready", async () => {

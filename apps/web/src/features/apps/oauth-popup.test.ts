@@ -4,7 +4,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { openOAuthPopup, openOAuthUrl } from "./oauth-popup";
 
 describe("OAuth popup", () => {
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
 
   it("opens the Connect Link directly in a named 560x720 popup", () => {
     const popup = { closed: false, focus: vi.fn() } as unknown as Window;
@@ -24,5 +27,11 @@ describe("OAuth popup", () => {
     vi.spyOn(window, "open").mockReturnValue(null);
 
     expect(openOAuthUrl("https://connect.example.test/oauth")).toBe(false);
+  });
+
+  it("accepts Electron's handoff to the system browser", () => {
+    vi.stubGlobal("lingerDesktop", { connectorOAuth: {} });
+    vi.spyOn(window, "open").mockReturnValue(null);
+    expect(openOAuthUrl("https://connect.example.test/oauth")).toBe(true);
   });
 });

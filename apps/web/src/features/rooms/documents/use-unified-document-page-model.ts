@@ -48,22 +48,44 @@ export function useUnifiedDocumentPageModel(sidebar?: {
   // A sent mail canvas is final: editing it no longer changes what went out.
   const [sentCanvasDocumentId, setSentCanvasDocumentId] = useState<string>();
   const canvasSent = sentCanvasDocumentId === documentId;
+  const [canvasIdentity, setCanvasIdentity] = useState<{
+    documentId: string;
+    target?: string;
+  }>();
+  const canvasTarget =
+    canvasIdentity?.documentId === documentId
+      ? canvasIdentity.target
+      : undefined;
+  const onCanvasTargetChange = useCallback(
+    (target?: string) => setCanvasIdentity({ documentId, target }),
+    [documentId],
+  );
   const onCanvasSentChange = useCallback(
     (sent: boolean) => setSentCanvasDocumentId(sent ? documentId : undefined),
     [documentId],
   );
   const isEditing =
-    !isWikiPage && !canvasSent && (panels.editingOverride ?? true);
+    !isWikiPage &&
+    !canvasSent &&
+    (route.autoFocusTitle || (panels.editingOverride ?? true));
+  const consumeAutoFocusTitle = useCallback(() => {
+    if (route.autoFocusTitle && !isWikiPage && !canvasSent) {
+      panels.setIsEditing(true);
+    }
+    route.consumeAutoFocusTitle();
+  }, [canvasSent, isWikiPage, panels, route]);
 
   return {
     sidebar: Boolean(sidebar),
     actor: data.actor,
     autoFocusTitle: route.autoFocusTitle,
+    canRetryLoad: data.canRetryLoad,
     canvasSent,
+    canvasTarget,
     client,
     commentsOpen: panels.commentsOpen,
     commentsPortalTarget: panels.commentsPortalTarget,
-    consumeAutoFocusTitle: route.consumeAutoFocusTitle,
+    consumeAutoFocusTitle,
     currentVersion: data.currentVersion,
     document,
     documentActionError: actions.documentActionError,
@@ -78,11 +100,13 @@ export function useUnifiedDocumentPageModel(sidebar?: {
     headings: panels.headings,
     historyOpen: panels.historyOpen,
     onCanvasSentChange,
+    onCanvasTargetChange,
     isEditing: isEditing && !session?.readOnly,
     isSharedDocument: data.isSharedDocument,
     queryClient,
     roomId: data.roomId,
     resyncSession: data.resyncSession,
+    retryLoad: data.retryLoad,
     session,
     shareOpen: panels.shareOpen,
     sharedTree: data.sharedTree,
@@ -214,12 +238,14 @@ function useUnifiedDocumentData({
     staleTime: 60_000,
   });
   const {
+    canRetryLoad,
     closeSession,
     currentIdentity,
     currentVersion,
     document,
     error,
     resyncSession,
+    retryLoad,
     session,
   } = useRoomDocumentSession({
     client,
@@ -250,12 +276,14 @@ function useUnifiedDocumentData({
   )?.context_id;
   return {
     actor,
+    canRetryLoad,
     closeSession,
     currentVersion,
     document,
     error,
     isSharedDocument,
     resyncSession,
+    retryLoad,
     roomId,
     session,
     sharedTree,

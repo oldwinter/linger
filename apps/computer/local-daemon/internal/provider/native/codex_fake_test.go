@@ -17,6 +17,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/pelletier/go-toml/v2"
 )
 
 // The test binary doubles as a fake Codex app-server when this variable is
@@ -183,6 +185,7 @@ func (s *codexFakeServer) handle(line []byte) (int, bool) {
 		s.result(request.ID, map[string]any{"thread": map[string]any{"id": s.thread}})
 	case "thread/resume":
 		switch {
+		case s.keyringBlocks():
 		case s.modes["reject_resume"]:
 			s.reject(request.ID, -32600, "no rollout found for thread id "+request.Params["threadId"].(string))
 		case s.modes["other_thread"]:
@@ -212,6 +215,11 @@ func (s *codexFakeServer) handle(line []byte) (int, bool) {
 	case "turn/steer":
 		return s.steer(request.ID, request.Params)
 	case "turn/interrupt":
+		if s.modes["complete_on_interrupt"] {
+			s.reject(request.ID, -32600, "no active turn to interrupt")
+			s.send(map[string]any{"method": "turn/completed", "params": map[string]any{"threadId": s.thread, "turn": map[string]any{"id": s.current, "status": "completed"}}})
+			return 0, false
+		}
 		s.result(request.ID, map[string]any{})
 		s.send(map[string]any{"method": "turn/completed", "params": map[string]any{"threadId": s.thread, "turn": map[string]any{"id": s.current, "status": "interrupted"}}})
 	case "thread/backgroundTerminals/list":
@@ -243,6 +251,31 @@ func (s *codexFakeServer) handle(line []byte) (int, bool) {
 	return 0, false
 }
 
+// keyringBlocks models Codex on a Linux session bus whose Secret Service
+// never answers (mode secret_service_unresponsive): unless config.toml
+// selects the file credential store, Codex looks up the MCP OAuth
+// credentials of every URL server in the keyring and blocks the turn and
+// thread/resume on it.
+func (s *codexFakeServer) keyringBlocks() bool {
+	if !s.modes["secret_service_unresponsive"] {
+		return false
+	}
+	data, _ := os.ReadFile(filepath.Join(os.Getenv("CODEX_HOME"), "config.toml"))
+	var config struct {
+		Store   string                    `toml:"mcp_oauth_credentials_store"`
+		Servers map[string]map[string]any `toml:"mcp_servers"`
+	}
+	if toml.Unmarshal(data, &config) != nil || config.Store == "file" {
+		return false
+	}
+	for _, server := range config.Servers {
+		if _, ok := server["url"]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *codexFakeServer) turn(id json.RawMessage, compact bool) (int, bool) {
 	s.count++
 	script := codexFakeTurn{Status: "completed"}
@@ -260,6 +293,9 @@ func (s *codexFakeServer) turn(id json.RawMessage, compact bool) (int, bool) {
 	}
 	s.result(id, ack)
 	s.send(map[string]any{"method": "turn/started", "params": map[string]any{"threadId": s.thread, "turn": map[string]any{"id": s.current, "status": "inProgress"}}})
+	if s.keyringBlocks() {
+		return 0, false
+	}
 	for _, item := range script.Items {
 		encoded, _ := json.Marshal(item)
 		encoded = bytes.ReplaceAll(encoded, []byte("$THREAD"), []byte(s.thread))

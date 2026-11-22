@@ -8,6 +8,7 @@ import * as inboxSource from "./inbox-source/feature.js";
 import * as notificationContext from "./notification-context/feature.js";
 import * as proactive from "./proactive/feature.js";
 import * as replyRhythm from "./reply-rhythm/feature.js";
+import * as roomReplyGuard from "./room-reply-guard/feature.js";
 import * as runStatus from "./run-status/feature.js";
 import * as taskInput from "./task-input/feature.js";
 import * as taskProgress from "./task-progress/feature.js";
@@ -31,6 +32,7 @@ export const AGENT_FEATURE_MODULES = {
   "notification-context": notificationContext,
   proactive: proactive,
   "reply-rhythm": replyRhythm,
+  "room-reply-guard": roomReplyGuard,
   "run-status": runStatus,
   "task-input": taskInput,
   "task-progress": taskProgress,

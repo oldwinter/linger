@@ -71,32 +71,20 @@ func (s *Service) RequestMemoryWikiRefresh(
 			return MemoryWikiRefreshResult{}, err
 		}
 	}
-	for attempt := 1; attempt <= memoryWikiTransactionAttempts; attempt++ {
-		result, err = s.requestMemoryWikiRefreshOnce(ctx, input, refreshInput)
-		if err == nil || !isRetryableDocumentTransactionError(err) || attempt == memoryWikiTransactionAttempts {
-			return result, err
-		}
-		if waitErr := waitMemoryWikiTransactionRetry(ctx, attempt); waitErr != nil {
-			return result, waitErr
-		}
-	}
+	err = s.admitWikiRefresh(ctx, input.TenantID, accountID, func(tx pgx.Tx) error {
+		var admitErr error
+		result, admitErr = s.requestMemoryWikiRefreshInTransaction(ctx, tx, input, refreshInput)
+		return admitErr
+	})
 	return result, err
 }
 
-func (s *Service) requestMemoryWikiRefreshOnce(
+func (s *Service) requestMemoryWikiRefreshInTransaction(
 	ctx context.Context,
+	tx pgx.Tx,
 	input RequestMemoryWikiRefreshInput,
 	refreshInput RequestWikiRefreshInput,
 ) (MemoryWikiRefreshResult, error) {
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
-	if err != nil {
-		return MemoryWikiRefreshResult{}, err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`,
-		"memory-wiki-source-set|"+input.TenantID+"|"+input.OwnerActorID); err != nil {
-		return MemoryWikiRefreshResult{}, err
-	}
 	wikiID, err := ensureMemoryWikiRoot(ctx, tx, input.TenantID, input.OwnerActorID)
 	if err != nil {
 		return MemoryWikiRefreshResult{}, err
@@ -129,9 +117,6 @@ func (s *Service) requestMemoryWikiRefreshOnce(
 	requestHash := sha256.Sum256([]byte(input.TenantID))
 	refresh, err := s.requestWikiRefreshInTransaction(ctx, tx, refreshInput, requestHash)
 	if err != nil {
-		return MemoryWikiRefreshResult{}, err
-	}
-	if err := tx.Commit(ctx); err != nil {
 		return MemoryWikiRefreshResult{}, err
 	}
 	return MemoryWikiRefreshResult{WikiID: wikiID, Refresh: refresh}, nil

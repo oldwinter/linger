@@ -130,6 +130,32 @@ it("shows the words of the one page that points back", async () => {
   );
 });
 
+it("strips raw Markdown headings, emphasis, frontmatter, and wikilinks from the pointed-back excerpt", async () => {
+  const runtime = createTestTeamHubRuntime();
+  serveWikiDocuments(runtime).mockResolvedValue({
+    items: [
+      pageDocument("project-alpha", "projects/alpha.md"),
+      pageDocument("person-maya", "people/maya.md"),
+    ],
+    page: { has_more: false },
+  });
+  const maya = graphNode("people/maya", "Maya", ["projects/alpha"]);
+  maya.body =
+    "---\ntype: Person\n---\n\n# Maya\n\n**Maya** leads [[projects/alpha|Alpha]] and [[Roadmap]].";
+  const alpha = graphNode("projects/alpha", "Alpha", ["people/maya"]);
+  serveGraph(runtime, [alpha, maya]);
+  renderPanel(runtime, "projects/alpha");
+
+  const back = await screen.findByRole("region", {
+    name: "The page that points back",
+  });
+  expect(back).toHaveTextContent("Maya leads Alpha and Roadmap.");
+  expect(back.textContent).not.toContain("**");
+  expect(back.textContent).not.toContain("[[");
+  expect(back.textContent).not.toContain("# ");
+  expect(back.textContent).not.toContain("type: Person");
+});
+
 it("hides the section when the graph is empty", async () => {
   const runtime = createTestTeamHubRuntime();
   serveWikiDocuments(runtime).mockResolvedValue({

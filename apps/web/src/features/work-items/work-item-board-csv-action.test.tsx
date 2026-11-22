@@ -1,7 +1,9 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { WorkItemBoardCsvAction } from "./work-item-board-csv-action";
+import { WorkItemBoardExportMenu } from "./work-item-board-export-menu";
+import { createWorkItemDashboardFilters } from "./work-item-dashboard-filters";
+import { DEFAULT_WORK_ITEM_DASHBOARD_SORT } from "./work-item-sort";
 
 const download = vi.hoisted(() => ({ triggerArtifactDownload: vi.fn() }));
 
@@ -25,12 +27,34 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+const defaultFilters = createWorkItemDashboardFilters(new URLSearchParams());
+
+function renderExportMenu({
+  csv,
+  csvDisabled = false,
+}: {
+  csv: string;
+  csvDisabled?: boolean;
+}) {
+  render(
+    <WorkItemBoardExportMenu
+      csv={csv}
+      csvDisabled={csvDisabled}
+      filters={defaultFilters}
+      markdown="# Work Items\n"
+      sort={DEFAULT_WORK_ITEM_DASHBOARD_SORT}
+      tenantId="tenant-northstar"
+    />,
+  );
+}
+
 describe("Work Item board CSV action", () => {
   it("saves the CSV under the board and day's name", async () => {
     const csv = "Title,Status\nFix login failure,Todo\n";
-    render(<WorkItemBoardCsvAction csv={csv} disabled={false} />);
+    renderExportMenu({ csv });
 
-    fireEvent.click(screen.getByRole("button", { name: "Export CSV" }));
+    fireEvent.click(screen.getByRole("button", { name: "Export & share" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Export CSV" }));
 
     expect(download.triggerArtifactDownload).toHaveBeenCalledOnce();
     const [blob, filename] = download.triggerArtifactDownload.mock.calls[0] as [
@@ -42,31 +66,33 @@ describe("Work Item board CSV action", () => {
     expect(await blob.text()).toBe(csv);
   });
 
-  it("says a refused save failed and can try again", () => {
+  it("says a refused save failed with role alert and can try again", () => {
     download.triggerArtifactDownload.mockImplementationOnce(() => {
       throw new Error("Blob URLs are blocked.");
     });
     download.triggerArtifactDownload.mockImplementationOnce(() => undefined);
-    render(<WorkItemBoardCsvAction csv={"Title\n"} disabled={false} />);
-    const button = screen.getByRole("button", { name: "Export CSV" });
+    renderExportMenu({ csv: "Title\n" });
 
-    fireEvent.click(button);
+    fireEvent.click(screen.getByRole("button", { name: "Export & share" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Export CSV" }));
 
-    expect(screen.getByRole("status")).toHaveTextContent("Download failed");
+    expect(screen.getByRole("alert")).toHaveTextContent("Download failed");
 
-    fireEvent.click(button);
+    fireEvent.click(screen.getByRole("button", { name: "Export & share" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Export CSV" }));
 
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(download.triggerArtifactDownload).toHaveBeenCalledTimes(2);
   });
 
   it("offers no export for an empty board", () => {
-    render(<WorkItemBoardCsvAction csv={"Title\n"} disabled />);
+    renderExportMenu({ csv: "Title\n", csvDisabled: true });
 
-    const button = screen.getByRole("button", { name: "Export CSV" });
+    fireEvent.click(screen.getByRole("button", { name: "Export & share" }));
+    const item = screen.getByRole("menuitem", { name: "Export CSV" });
 
-    expect(button).toBeDisabled();
-    fireEvent.click(button);
+    expect(item).toBeDisabled();
+    fireEvent.click(item);
     expect(download.triggerArtifactDownload).not.toHaveBeenCalled();
   });
 });

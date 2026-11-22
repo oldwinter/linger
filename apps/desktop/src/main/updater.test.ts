@@ -329,7 +329,7 @@ describe("UpdaterModule with the Windows setup program", () => {
     expect(calls).toEqual([
       {
         file: path.join(downloads, SETUP),
-        args: ["/S", "/relaunch"],
+        args: ["/update", "/relaunch"],
         options: { detached: true, stdio: "ignore" },
       },
     ]);
@@ -407,52 +407,6 @@ describe("UpdaterModule for a download", () => {
   });
 });
 
-describe("UpdaterModule with services on this computer", () => {
-  it("offers the services update the app brings and still checks for a newer app", async () => {
-    const feed = release("0.16.7");
-    let available = false;
-    let updates = 0;
-    const { updater, host, announced } = await setup(feed, {
-      services: {
-        sourceUpdateAvailable: () => available,
-        updateSource: async () => {
-          updates += 1;
-          available = false;
-        },
-      },
-    });
-    available = true;
-    host.ctx.bus.emit("local-server.changed");
-    const services = { kind: "ready", version: "0.16.7", services: true };
-    expect(updater.state()).toEqual(services);
-    expect(announced).toEqual([services]);
-
-    await updater.check();
-    expect(feed.requested).toHaveLength(2);
-    expect(updater.state()).toEqual(services);
-    expect(announced).toHaveLength(1);
-
-    await updater.install();
-    expect(updates).toBe(1);
-    expect(updater.state()).toEqual({ kind: "idle" });
-    await host.stop("quit");
-  });
-
-  it("replaces the services update with a newer app, which brings its own", async () => {
-    const feed = release("0.17.0");
-    const { updater, host } = await setup(feed, {
-      services: {
-        sourceUpdateAvailable: () => true,
-        updateSource: async () => {},
-      },
-    });
-    expect(updater.state()).toMatchObject({ services: true });
-    await updater.check();
-    expect(updater.state()).toEqual({ kind: "ready", version: "0.17.0" });
-    await host.stop("quit");
-  });
-});
-
 describe("updateInstallFor", () => {
   it("swaps the macOS bundle, runs the Windows setup and links elsewhere", () => {
     const none = () => false;
@@ -462,7 +416,10 @@ describe("updateInstallFor", () => {
         "/Applications/Linger.app/Contents/MacOS/Linger",
         none,
       ),
-    ).toEqual({ kind: "app-bundle", appBundle: "/Applications/Linger.app" });
+    ).toEqual({
+      kind: "app-bundle",
+      appBundle: path.resolve("/Applications/Linger.app"),
+    });
     const installed = "C:\\Users\\a\\AppData\\Local\\Programs\\Linger";
     expect(
       updateInstallFor(
@@ -484,7 +441,7 @@ describe("updateInstallFor", () => {
 describe("appBundleOf", () => {
   it("finds the app bundle around the executable", () => {
     expect(appBundleOf("/Applications/Linger.app/Contents/MacOS/Linger")).toBe(
-      "/Applications/Linger.app",
+      path.resolve("/Applications/Linger.app"),
     );
     expect(appBundleOf("/usr/lib/electron/electron")).toBeUndefined();
   });

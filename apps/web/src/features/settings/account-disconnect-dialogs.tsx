@@ -2,9 +2,14 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { Button } from "@/components/ui/button";
 import { ModalDialog } from "@/components/ui/modal-dialog";
+import { accountIdentityText } from "@/features/apps/connection-state";
 import { externalConnectionsQueryKey } from "@/features/apps/connected-apps-queries";
 import { type TeamHubClient } from "@/features/teamhub/teamhub-client";
 import type { TeamHubExternalConnection } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
+
+import { accountSettingsMessages } from "./account-settings.messages";
 
 export function DisconnectAccountDialog({
   client,
@@ -15,6 +20,7 @@ export function DisconnectAccountDialog({
   connection: TeamHubExternalConnection;
   onClose: () => void;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const disconnect = useMutation({
     mutationFn: () =>
@@ -29,21 +35,29 @@ export function DisconnectAccountDialog({
     },
   });
 
+  function requestClose() {
+    if (!disconnect.isPending) onClose();
+  }
+
   return (
     <ModalDialog
-      description={
-        <>
-          {connection.identity_label ?? connection.provider}. Agent access and
-          source cleanup stay on Apps.
-        </>
-      }
-      onClose={onClose}
+      closeOnBackdrop={!disconnect.isPending}
+      description={t(accountSettingsMessages.disconnectDescription, {
+        account:
+          accountIdentityText(connection.provider, connection.identity_label) ??
+          connection.provider,
+      })}
+      onClose={requestClose}
       size="sm"
-      title="Disconnect account?"
+      title={t(accountSettingsMessages.disconnectTitle)}
       footer={
         <>
-          <Button onClick={onClose} size="compact">
-            Cancel
+          <Button
+            disabled={disconnect.isPending}
+            onClick={requestClose}
+            size="compact"
+          >
+            {t(commonMessages.cancel)}
           </Button>
           <Button
             loading={disconnect.isPending}
@@ -51,7 +65,7 @@ export function DisconnectAccountDialog({
             size="compact"
             tone="danger"
           >
-            Disconnect
+            {t(accountSettingsMessages.disconnect)}
           </Button>
         </>
       }

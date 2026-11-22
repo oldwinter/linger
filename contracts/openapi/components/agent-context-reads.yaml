@@ -33,10 +33,24 @@ schemas:
         items: { $ref: "#/schemas/AgentContextMember" }
   AgentTeamMdResponse:
     type: object
+    description: >-
+      The Room's current team.md. A readable Room where none has been
+      published yet, the normal state of a new Room, answers published false
+      and revision 0 without raw_markdown or updated_at.
     additionalProperties: false
-    required: [room_id, raw_markdown, revision, updated_at]
+    required: [room_id, published, revision]
     properties:
       room_id: { $ref: "./common.yaml#/components/schemas/Id" }
-      raw_markdown: { type: string }
-      revision: { type: integer, format: int64, minimum: 1 }
-      updated_at: { type: string, format: date-time }
+      published: { type: boolean }
+      raw_markdown:
+        type: string
+        description: Present exactly when published is true.
+      revision:
+        type: integer
+        format: int64
+        minimum: 0
+        description: 0 until the first publish, then 1 and up.
+      updated_at:
+        type: string
+        format: date-time
+        description: Present exactly when published is true.

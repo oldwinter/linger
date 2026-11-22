@@ -23,6 +23,7 @@ const loadable = [
   "get_personal_profile",
   "get_room_members",
   "get_team_md",
+  "hand_off_to_room",
   "list_available_agents",
   "list_connected_apps",
   "list_routines",

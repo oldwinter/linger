@@ -94,9 +94,8 @@ export type MemoryModelChainRunner = <T>(
 ) => Promise<T>;
 
 /**
- * Runs a Memory flow as one ModelCall chain: it is queued once and holds its
- * place, and a call that fails past the kind's attempts throws for the flow
- * to split or give up.
+ * Runs Memory's ordered steps on one endpoint. Each attempt queues separately;
+ * the flow can split or give up after a call exhausts its attempts.
  */
 export function runMemoryModelChain<T>(
   spec: ModelChainSpec,

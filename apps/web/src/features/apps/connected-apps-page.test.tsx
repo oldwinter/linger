@@ -6,7 +6,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
@@ -179,10 +179,21 @@ describe("Connected apps", () => {
 
     expect(await screen.findByRole("button", { name: "Gmail" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "Connectors" })).toBeVisible();
-    expect(screen.queryByRole("searchbox")).toBeNull();
+    const searchInput = screen.getByRole("searchbox", {
+      name: "Search connectors",
+    });
+    expect(searchInput).toBeVisible();
+    expect(searchInput).toHaveAttribute("placeholder", "Search connectors...");
+    expect(searchInput).toHaveClass("placeholder:text-app-placeholder");
     expect(
       screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent),
-    ).toEqual(["Mail & Calendar", "Meetings", "Productivity", "Messaging"]);
+    ).toEqual([
+      "Mail & Calendar",
+      "Meetings",
+      "Productivity",
+      "Messaging",
+      "Web search",
+    ]);
     const sectionApps = (name: string) =>
       within(screen.getByRole("region", { name }))
         .getAllByRole("article")
@@ -327,7 +338,48 @@ describe("Connected apps", () => {
     expect(screen.queryByRole("button", { name: "Facebook" })).toBeNull();
   });
 
-  it("counts only active authorizations as connected", async () => {
+  it("shows an Outlook identity as the sign-in name", async () => {
+    const runtime = await testRuntime();
+    const catalog = await runtime.client.listExternalApps();
+    const gmailApp = catalog.apps.find((app) => app.key === "gmail")!;
+    vi.spyOn(runtime.client, "listExternalApps").mockResolvedValue({
+      ...catalog,
+      apps: [
+        ...catalog.apps,
+        { ...gmailApp, key: "outlook", display_name: "Outlook" },
+      ],
+    });
+    const existing = (await runtime.client.listExternalConnections())
+      .connections[0]!;
+    vi.spyOn(runtime.client, "listExternalConnections").mockResolvedValue({
+      connections: [
+        existing,
+        {
+          ...existing,
+          id: "outlook-1",
+          identity_label: "me@example.net",
+          provider: "outlook",
+        },
+      ],
+    });
+
+    renderPage(runtime, "/apps?app=outlook");
+    const outlook = await screen.findByRole("dialog", { name: "Outlook" });
+    expect(
+      await within(outlook).findByText("Signed in as me@example.net"),
+    ).toBeVisible();
+  });
+
+  it("shows a Gmail identity as the address itself", async () => {
+    const runtime = await testRuntime();
+
+    renderPage(runtime, "/apps?app=gmail");
+    const gmail = await screen.findByRole("dialog", { name: "Gmail" });
+    expect(await within(gmail).findByText("jenny@linger.test")).toBeVisible();
+    expect(within(gmail).queryByText(/Signed in as/)).toBeNull();
+  });
+
+  it("counts active accounts and those that need reconnecting", async () => {
     const runtime = await testRuntime();
     const existing = (await runtime.client.listExternalConnections())
       .connections[0]!;
@@ -352,11 +404,13 @@ describe("Connected apps", () => {
     renderPage(runtime, "/apps?app=gmail");
 
     const gmail = await screen.findByRole("button", { name: "Gmail" });
-    expect(within(gmail).getByText("Connected")).toBeVisible();
-    expect(screen.queryByText(/need attention/)).not.toBeInTheDocument();
+    expect(
+      within(gmail).getByText("Connected, 2 need reconnecting"),
+    ).toBeVisible();
     const dialog = screen.getByRole("dialog", { name: "Gmail" });
-    expect(within(dialog).queryByText("expired@linger.test")).toBeNull();
-    expect(within(dialog).queryByText("failed@linger.test")).toBeNull();
+    expect(within(dialog).getByText("expired@linger.test")).toBeVisible();
+    expect(within(dialog).getByText("failed@linger.test")).toBeVisible();
+    expect(within(dialog).getAllByText("Needs reconnecting")).toHaveLength(2);
   });
 
   it("hides in-flight pending accounts from the manage dialog", async () => {
@@ -527,17 +581,26 @@ describe("Connected apps", () => {
     ).toBeVisible();
   });
 
-  it("hides a pending Discord account that never finished connecting", async () => {
+  it("shows an unconfirmed Discord connection and checks it again", async () => {
     const runtime = await testRuntime();
     const template = (await runtime.client.listExternalConnections())
       .connections[0]!;
-    const pending = {
+    const unconfirmed = {
       ...template,
       id: "pending-discord",
       identity_label: "Discord server",
       provider: "discord" as const,
+      revision: 4,
       status: "pending" as const,
       status_error_code: "discord_guild_required",
+    };
+    const duplicate = {
+      ...template,
+      id: "duplicate-discord",
+      identity_label: "Duplicate server",
+      provider: "discord" as const,
+      status: "pending" as const,
+      status_error_code: "duplicate_remote_principal",
     };
     const catalog = await runtime.client.listExternalApps();
     vi.spyOn(runtime.client, "listExternalApps").mockResolvedValue({
@@ -550,26 +613,72 @@ describe("Connected apps", () => {
       ),
     });
     vi.spyOn(runtime.client, "listExternalConnections").mockResolvedValue({
-      connections: [pending],
+      connections: [unconfirmed, duplicate],
     });
-    vi.spyOn(runtime.client, "getExternalConnection").mockResolvedValue(
-      pending,
-    );
-    renderPage(runtime, "/apps?app=discord");
-    const dialog = await screen.findByRole("dialog", { name: "Discord" });
+    const check = vi
+      .spyOn(runtime.client, "createExternalConnectionStatusCheck")
+      .mockResolvedValue({
+        ...unconfirmed,
+        status_check_requested_at: "2026-11-19T00:00:00.000Z",
+      });
+    renderPage(runtime);
+
+    const card = await screen.findByRole("button", { name: "Discord" });
     expect(
-      within(dialog).queryByText("Discord server"),
-    ).not.toBeInTheDocument();
+      await within(card).findByText("Couldn't confirm connection"),
+    ).toBeVisible();
+    expect(within(card).queryByText("Connected")).toBeNull();
     expect(
-      screen.queryByText(/Discord could not verify the authorized Server/),
-    ).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Discord Server ID")).toBeNull();
-    expect(
-      within(dialog).getByRole("button", { name: "Connect Discord" }),
+      screen.getByRole("button", { name: "Connect Discord" }),
     ).toBeEnabled();
+
+    fireEvent.click(card);
+    const dialog = await screen.findByRole("dialog", { name: "Discord" });
+    expect(within(dialog).getByText("Discord server")).toBeVisible();
+    expect(within(dialog).queryByText("Duplicate server")).toBeNull();
+    expect(
+      within(dialog).getByText(
+        "Discord is authorized, but the Server couldn't be confirmed. Check again, or disconnect and reconnect.",
+      ),
+    ).toBeVisible();
+    expect(
+      within(dialog).getByRole("button", { name: "Disconnect Discord server" }),
+    ).toBeVisible();
+    fireEvent.click(
+      within(dialog).getByRole("button", {
+        name: "Check again Discord server",
+      }),
+    );
+    await waitFor(() =>
+      expect(check).toHaveBeenCalledWith("pending-discord", 4),
+    );
   });
 
-  it("hides a Gmail account that failed authorization", async () => {
+  it("asks to check again when another provider check is unconfirmed", async () => {
+    const runtime = await testRuntime();
+    const existing = (await runtime.client.listExternalConnections())
+      .connections[0]!;
+    vi.spyOn(runtime.client, "listExternalConnections").mockResolvedValue({
+      connections: [
+        {
+          ...existing,
+          status: "pending",
+          status_error_code: "provider_identity_unavailable",
+        },
+      ],
+    });
+
+    renderPage(runtime, "/apps?app=gmail");
+
+    const dialog = await screen.findByRole("dialog", { name: "Gmail" });
+    expect(
+      within(dialog).getByText(
+        "The connection couldn't be confirmed yet. Check again.",
+      ),
+    ).toBeVisible();
+  });
+
+  it("lists a Gmail account that failed authorization for reconnecting", async () => {
     const runtime = await testRuntime();
     const existing = (await runtime.client.listExternalConnections())
       .connections[0]!;
@@ -587,53 +696,124 @@ describe("Connected apps", () => {
 
     const dialog = await screen.findByRole("dialog", { name: "Gmail" });
     expect(
-      screen.queryByText(
+      await within(dialog).findByText(
         "This app did not grant enough permission. Reconnect and approve all requested access.",
       ),
-    ).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Reconnect" })).toBeNull();
+    ).toBeVisible();
+    expect(within(dialog).getByText("Needs reconnecting")).toBeVisible();
+    expect(
+      within(dialog).getByRole("button", {
+        name: "Reconnect jenny@linger.test",
+      }),
+    ).toBeEnabled();
+    expect(
+      within(dialog).getByRole("button", {
+        name: "Disconnect jenny@linger.test",
+      }),
+    ).toBeEnabled();
     expect(
       within(dialog).getByRole("button", { name: "Connect Gmail" }),
     ).toBeEnabled();
   });
 
-  it("hides an expired Gmail account instead of continuing reauthorization", async () => {
+  it("reconnects an expired Gmail account beside an active one only when asked", async () => {
     const runtime = await testRuntime();
     const existing = (await runtime.client.listExternalConnections())
       .connections[0]!;
+    const expired = {
+      ...existing,
+      id: "gmail-expired",
+      identity_label: "old@linger.test",
+      status: "expired" as const,
+    };
     vi.spyOn(runtime.client, "listExternalConnections").mockResolvedValue({
-      connections: [
-        {
-          ...existing,
-          reauthorizing: true,
-          reauthorization_connect_expires_at: "2026-08-06T08:10:00.000Z",
-          reauthorization_connect_url:
-            "https://connect.example.test/gmail/reauthorize",
-          status: "expired",
-        },
-      ],
+      connections: [existing, expired],
     });
-    const createReauthorization = vi.spyOn(
+    const createReauthorization = vi
+      .spyOn(runtime.client, "createExternalConnectionReauthorization")
+      .mockResolvedValue({
+        ...expired,
+        reauthorizing: true,
+        reauthorization_connect_expires_at: "2999-01-01T00:00:00Z",
+        reauthorization_connect_url:
+          "https://connect.example.test/gmail/reauthorize",
+      });
+    const open = vi
+      .spyOn(window, "open")
+      .mockReturnValue({ opener: null } as unknown as Window);
+
+    renderPage(runtime, "/apps?app=gmail");
+
+    expect(
+      await screen.findByText("Connected, 1 needs reconnecting"),
+    ).toBeVisible();
+    const dialog = await screen.findByRole("dialog", { name: "Gmail" });
+    expect(createReauthorization).not.toHaveBeenCalled();
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Reconnect old@linger.test" }),
+    );
+    await waitFor(() =>
+      expect(createReauthorization).toHaveBeenCalledWith(
+        "gmail-expired",
+        expired.revision,
+      ),
+    );
+    await waitFor(() =>
+      expect(open).toHaveBeenCalledWith(
+        "https://connect.example.test/gmail/reauthorize",
+        expect.any(String),
+        expect.any(String),
+      ),
+    );
+  });
+
+  it("clears a failed Add account error once Reconnect succeeds", async () => {
+    const runtime = await testRuntime();
+    const existing = (await runtime.client.listExternalConnections())
+      .connections[0]!;
+    const expired = {
+      ...existing,
+      id: "gmail-expired",
+      identity_label: "old@linger.test",
+      status: "expired" as const,
+    };
+    vi.spyOn(runtime.client, "listExternalConnections").mockResolvedValue({
+      connections: [existing, expired],
+    });
+    vi.spyOn(runtime.client, "createExternalConnection").mockRejectedValue(
+      new Error("Add account failed for the test."),
+    );
+    vi.spyOn(
       runtime.client,
       "createExternalConnectionReauthorization",
-    );
-    const replace = vi.fn();
+    ).mockResolvedValue({
+      ...expired,
+      reauthorizing: true,
+      reauthorization_connect_expires_at: "2999-01-01T00:00:00Z",
+      reauthorization_connect_url:
+        "https://connect.example.test/gmail/reauthorize",
+    });
     vi.spyOn(window, "open").mockReturnValue({
-      close: vi.fn(),
-      location: { replace },
-      opener: window,
+      opener: null,
     } as unknown as Window);
 
     renderPage(runtime, "/apps?app=gmail");
 
     const dialog = await screen.findByRole("dialog", { name: "Gmail" });
-    expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Add another Gmail account" }),
+    );
     expect(
-      within(dialog).getByRole("button", { name: "Connect Gmail" }),
-    ).toBeEnabled();
-    expect(window.open).not.toHaveBeenCalled();
-    expect(createReauthorization).not.toHaveBeenCalled();
-    expect(replace).not.toHaveBeenCalled();
+      await within(dialog).findByText("Add account failed for the test."),
+    ).toBeVisible();
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Reconnect old@linger.test" }),
+    );
+    await waitFor(() =>
+      expect(
+        within(dialog).queryByText("Add account failed for the test."),
+      ).toBeNull(),
+    );
   });
 
   it("hides a duplicate remote account that failed to connect", async () => {
@@ -661,6 +841,47 @@ describe("Connected apps", () => {
     expect(
       within(dialog).getByRole("button", { name: "Connect Gmail" }),
     ).toBeEnabled();
+  });
+
+  it("resumes an open pending account from Add account instead of creating one", async () => {
+    const open = vi
+      .spyOn(window, "open")
+      .mockReturnValue({ opener: null } as unknown as Window);
+    const runtime = await testRuntime();
+    const existing = (await runtime.client.listExternalConnections())
+      .connections[0]!;
+    const pending = {
+      ...existing,
+      id: "external-connection-pending",
+      identity_label: "",
+      status: "pending" as const,
+      connect_url: "https://connect.example.test/open",
+      connect_expires_at: "2999-01-01T00:00:00Z",
+    };
+    vi.spyOn(runtime.client, "listExternalConnections").mockResolvedValue({
+      connections: [existing, pending],
+    });
+    vi.spyOn(runtime.client, "getExternalConnection").mockResolvedValue(
+      pending,
+    );
+    const create = vi.spyOn(runtime.client, "createExternalConnection");
+
+    renderPage(runtime, "/apps?app=gmail");
+
+    const dialog = await screen.findByRole("dialog", { name: "Gmail" });
+    fireEvent.click(
+      within(dialog).getByRole("button", {
+        name: "Add another Gmail account",
+      }),
+    );
+    await waitFor(() =>
+      expect(open).toHaveBeenCalledWith(
+        "https://connect.example.test/open",
+        expect.any(String),
+        expect.any(String),
+      ),
+    );
+    expect(create).not.toHaveBeenCalled();
   });
 
   it("confirms what disconnecting stops before disconnecting an account", async () => {
@@ -708,7 +929,300 @@ describe("Connected apps", () => {
     );
     expect(disconnect.mock.calls[0]?.[1]).toEqual({ expected_revision: 1 });
   });
+
+  it("keeps an expired-only connector visible under Connected only with Needs reconnecting and Reconnect", async () => {
+    const runtime = await testRuntime();
+    const existing = (await runtime.client.listExternalConnections())
+      .connections[0]!;
+    const expired = {
+      ...existing,
+      id: "gmail-expired-only",
+      identity_label: "expired@linger.test",
+      status: "expired" as const,
+    };
+    vi.spyOn(runtime.client, "listExternalConnections").mockResolvedValue({
+      connections: [expired],
+    });
+    const createReauthorization = vi
+      .spyOn(runtime.client, "createExternalConnectionReauthorization")
+      .mockResolvedValue({
+        ...expired,
+        reauthorizing: true,
+        reauthorization_connect_expires_at: "2999-01-01T00:00:00Z",
+        reauthorization_connect_url:
+          "https://connect.example.test/gmail/reauthorize",
+      });
+    vi.spyOn(window, "open").mockReturnValue({
+      opener: null,
+    } as unknown as Window);
+
+    renderPage(runtime);
+
+    const gmailCard = await screen.findByRole("button", { name: "Gmail" });
+    expect(within(gmailCard).getByText("Needs reconnecting")).toBeVisible();
+    expect(gmailCard.querySelector(".bg-app-warning")).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Reconnect Gmail" }),
+    ).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Connect Gmail" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Connected only" }));
+    expect(
+      within(screen.getByRole("region", { name: "Application connections" }))
+        .getAllByRole("article")
+        .map((card) => within(card).getAllByRole("button")[0]!.ariaLabel),
+    ).toEqual(["Gmail"]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Reconnect Gmail" }));
+    await waitFor(() =>
+      expect(createReauthorization).toHaveBeenCalledWith(
+        "gmail-expired-only",
+        expired.revision,
+      ),
+    );
+  });
+
+  it("keeps Manage reachable via ActionMenu when an app has two or more active accounts", async () => {
+    const runtime = await testRuntime();
+    const existing = (await runtime.client.listExternalConnections())
+      .connections[0]!;
+    vi.spyOn(runtime.client, "listExternalConnections").mockResolvedValue({
+      connections: [
+        existing,
+        {
+          ...existing,
+          id: "gmail-second",
+          identity_label: "work@linger.test",
+          status: "active" as const,
+        },
+      ],
+    });
+
+    renderPage(runtime);
+
+    const actions = await screen.findByRole("button", {
+      name: "Actions for Gmail",
+    });
+    fireEvent.click(actions);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Manage" }));
+    expect(await screen.findByRole("dialog", { name: "Gmail" })).toBeVisible();
+  });
+
+  it("blocks closing the disconnect dialog while the request is in flight", async () => {
+    const runtime = await testRuntime();
+    const existing = (await runtime.client.listExternalConnections())
+      .connections[0]!;
+    const disconnecting = {
+      ...existing,
+      revision: existing.revision + 1,
+      status: "disconnecting" as const,
+    };
+    let resolveDisconnect!: (value: typeof disconnecting) => void;
+    vi.spyOn(runtime.client, "disconnectExternalConnection").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveDisconnect = resolve;
+        }),
+    );
+    vi.spyOn(runtime.client, "getExternalConnection").mockResolvedValue(
+      disconnecting,
+    );
+
+    renderPage(runtime, "/apps?app=gmail");
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Disconnect jenny@linger.test",
+      }),
+    );
+    const dialog = screen.getByRole("dialog", {
+      name: "Disconnect account?",
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Disconnect" }));
+
+    await waitFor(() =>
+      expect(
+        within(dialog).getByRole("button", { name: "Cancel" }),
+      ).toBeDisabled(),
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    fireEvent(dialog, new Event("cancel", { bubbles: true, cancelable: true }));
+    expect(
+      screen.getByRole("dialog", { name: "Disconnect account?" }),
+    ).toBeVisible();
+
+    resolveDisconnect(disconnecting);
+    await waitFor(() =>
+      expect(
+        within(dialog).queryByRole("button", { name: "Disconnect" }),
+      ).toBeNull(),
+    );
+  });
+
+  it("filters connectors by name and description with inline Clear and Escape clear", async () => {
+    const runtime = await testRuntime();
+    renderPage(runtime);
+
+    const search = await screen.findByRole("searchbox", {
+      name: "Search connectors",
+    });
+
+    // Matches by connector name across all categories.
+    fireEvent.change(search, { target: { value: "notion" } });
+    expect(
+      within(screen.getByRole("region", { name: "Application connections" }))
+        .getAllByRole("article")
+        .map((card) => within(card).getAllByRole("button")[0]!.ariaLabel),
+    ).toEqual(["Notion"]);
+
+    // Inline Clear button resets the search.
+    fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+    expect(search).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Gmail" })).toBeVisible();
+
+    // Matches by description/summary and clears on Escape.
+    fireEvent.change(search, { target: { value: "repositories" } });
+    expect(
+      within(screen.getByRole("region", { name: "Application connections" }))
+        .getAllByRole("article")
+        .map((card) => within(card).getAllByRole("button")[0]!.ariaLabel),
+    ).toEqual(["GitHub"]);
+
+    fireEvent.keyDown(search, { key: "Escape" });
+    expect(search).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Slack" })).toBeVisible();
+  });
+
+  it("persists category tab and connected filter in URL search params alongside app", async () => {
+    const runtime = await testRuntime();
+    renderPage(runtime, "/apps?tab=mail-calendar&connected=1");
+
+    const categories = await screen.findByRole("tablist", {
+      name: "Connector categories",
+    });
+    expect(
+      within(categories).getByRole("tab", { name: "Mail & Calendar" }),
+    ).toHaveAttribute("aria-selected", "true");
+    expect(
+      screen.getByRole("button", { name: "Connected only" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(
+      within(screen.getByRole("region", { name: "Application connections" }))
+        .getAllByRole("article")
+        .map((card) => within(card).getAllByRole("button")[0]!.ariaLabel),
+    ).toEqual(["Gmail"]);
+    expect(
+      document.querySelector('[data-scroll-cue="tabs"]'),
+    ).toBeInTheDocument();
+
+    // Opening an app keeps tab and connected in the URL.
+    fireEvent.click(screen.getByRole("button", { name: "Gmail" }));
+    expect(await screen.findByRole("dialog", { name: "Gmail" })).toBeVisible();
+    const params = new URLSearchParams(
+      screen.getByTestId("location").textContent ?? "",
+    );
+    expect(params.get("tab")).toBe("mail-calendar");
+    expect(params.get("connected")).toBe("1");
+    expect(params.get("app")).toBe("gmail");
+
+    // Switching tab and toggling Connected only updates the URL cleanly.
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    fireEvent.click(within(categories).getByRole("tab", { name: "Messaging" }));
+    fireEvent.click(screen.getByRole("button", { name: "Connected only" }));
+    const updatedParams = new URLSearchParams(
+      screen.getByTestId("location").textContent ?? "",
+    );
+    expect(updatedParams.get("tab")).toBe("messaging");
+    expect(updatedParams.get("connected")).toBeNull();
+    expect(updatedParams.get("app")).toBeNull();
+  });
+
+  it("shows context-aware empty states for search and connected filters with Show all connectors reset", async () => {
+    const runtime = await testRuntime();
+    renderPage(runtime);
+
+    const search = await screen.findByRole("searchbox", {
+      name: "Search connectors",
+    });
+
+    // Search no-match empty state.
+    fireEvent.change(search, { target: { value: "nonexistent-tool" } });
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "No connectors match “nonexistent-tool”.",
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show all connectors" }),
+    );
+    expect(search).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Gmail" })).toBeVisible();
+
+    // Category + Connected only empty state.
+    const categories = screen.getByRole("tablist", {
+      name: "Connector categories",
+    });
+    fireEvent.click(within(categories).getByRole("tab", { name: "Messaging" }));
+    fireEvent.click(screen.getByRole("button", { name: "Connected only" }));
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "No connected apps in Messaging yet.",
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show all connectors" }),
+    );
+    expect(
+      within(categories).getByRole("tab", { name: "All" }),
+    ).toHaveAttribute("aria-selected", "true");
+    expect(
+      screen.getByRole("button", { name: "Connected only" }),
+    ).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: "Gmail" })).toBeVisible();
+  });
+
+  it("loads connector logos eagerly with a fallback placeholder while loading and on error", async () => {
+    const runtime = await testRuntime();
+    const catalog = await runtime.client.listExternalApps();
+    vi.spyOn(runtime.client, "listExternalApps").mockResolvedValue({
+      ...catalog,
+      apps: catalog.apps.map((app) =>
+        app.key === "gmail"
+          ? { ...app, logo_url: "https://cdn.example.test/gmail.svg" }
+          : app.key === "slack"
+            ? { ...app, logo_url: "https://cdn.example.test/broken.svg" }
+            : app,
+      ),
+    });
+
+    renderPage(runtime);
+
+    const gmailCard = await screen.findByRole("button", { name: "Gmail" });
+    const gmailImg = gmailCard.querySelector("img");
+    expect(gmailImg).not.toBeNull();
+    expect(gmailImg).not.toHaveAttribute("loading", "lazy");
+    expect(
+      gmailCard.querySelector('[data-logo-fallback="loading"]'),
+    ).not.toBeNull();
+
+    fireEvent.load(gmailImg!);
+    expect(
+      gmailCard.querySelector('[data-logo-fallback="loading"]'),
+    ).toBeNull();
+    expect(gmailImg).toHaveClass("opacity-100");
+
+    const slackCard = screen.getByRole("button", { name: "Slack" });
+    const slackImg = slackCard.querySelector("img");
+    expect(slackImg).not.toBeNull();
+    fireEvent.error(slackImg!);
+    expect(slackCard.querySelector("img")).toBeNull();
+    expect(
+      within(slackCard).getByRole("img", { name: "Slack icon" }),
+    ).toBeVisible();
+  });
 });
+
+function LocationProbe() {
+  const location = useLocation();
+  return <span data-testid="location">{location.search}</span>;
+}
 
 /** The curated catalog TeamHub lists without a Composio key. */
 async function unconfiguredCatalog(
@@ -744,6 +1258,7 @@ function renderPage(
       <QueryClientProvider client={queryClient}>
         <TeamHubRuntimeProvider runtime={runtime}>
           <ConnectedAppsPage />
+          <LocationProbe />
         </TeamHubRuntimeProvider>
       </QueryClientProvider>
     </MemoryRouter>,

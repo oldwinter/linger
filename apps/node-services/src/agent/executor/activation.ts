@@ -72,6 +72,8 @@ export interface ContextRuntimeBackendRequest<TRuntimeSettings> {
    * a Run declares no review and the Runtime's own rules decide alone.
    */
   readonly permissionReview?: true;
+  /** Runs invoke Runtime stop hooks before finishing a turn. */
+  readonly stopHook?: true;
   /**
    * The developer instructions are the compact version, so the Runtime's own
    * instruction wrapper uses its compact version too.
@@ -209,6 +211,8 @@ export interface ContextRuntimeActivationRequest<TRuntimeSettings> {
   readonly agentType?: AgentType;
   /** Runs review Runtime permission prompts through TeamHub's judge. */
   readonly permissionReview?: true;
+  /** Runs invoke Runtime stop hooks before finishing a turn. */
+  readonly stopHook?: true;
   /**
    * Renders `agent.developerInstructions` with the facts this activation reads
    * from the Agent's effective resources.
@@ -430,19 +434,23 @@ async function activateContextRuntime<TRuntimeSettings>(
         runtimeSessionStartsFresh(request.previousSession),
     });
     void featurePreparationPromise.catch(() => undefined);
-    const { executionResources, connectedApps, connectedAppKeys } =
-      await resolveActivationInputs({
-        options,
-        request,
-        acquired,
-        signal,
-        earlyWorkSignal,
-        logger,
-        enterStage,
-        runtimeInstanceKey,
-        ordinaryMeta,
-        contextResolutionRequired,
-      });
+    const {
+      executionResources,
+      connectedApps,
+      connectedAppKeys,
+      connectableAppKeys,
+    } = await resolveActivationInputs({
+      options,
+      request,
+      acquired,
+      signal,
+      earlyWorkSignal,
+      logger,
+      enterStage,
+      runtimeInstanceKey,
+      ordinaryMeta,
+      contextResolutionRequired,
+    });
     signal.throwIfAborted();
     const featurePreparation = await featurePreparationPromise;
     enterStage("prepare_runtime_view");
@@ -454,6 +462,7 @@ async function activateContextRuntime<TRuntimeSettings>(
         featurePreparation.developerInstructions,
         connectedApps,
         connectedAppKeys,
+        connectableAppKeys,
         compactInstructions,
       ),
       executionResources,
@@ -565,12 +574,14 @@ async function resolveActivationInputs<TRuntimeSettings>({
   readonly executionResources: ExecutionResources | undefined;
   readonly connectedApps: boolean | undefined;
   readonly connectedAppKeys: readonly string[];
+  readonly connectableAppKeys: readonly string[];
 }> {
   const agentResourcesResolver = options.agentResourcesResolver;
   const mcpContextResolver = options.mcpContextResolver;
   // Read with the Agent's effective resources; renders the instructions.
   let connectedApps: boolean | undefined;
   let connectedAppKeys: readonly string[] = [];
+  let connectableAppKeys: readonly string[] = [];
   const readAgentResources = async (resolveSignal: AbortSignal) => {
     const resourcesResolveStartedAt = performance.now();
     const current = await agentResourcesResolver!.resolve({
@@ -582,6 +593,7 @@ async function resolveActivationInputs<TRuntimeSettings>({
     });
     connectedApps = current.connectedApps;
     connectedAppKeys = current.connectedAppKeys;
+    connectableAppKeys = current.connectableAppKeys;
     return current;
   };
   let executionResources: ExecutionResources | undefined;
@@ -631,7 +643,12 @@ async function resolveActivationInputs<TRuntimeSettings>({
   if (pendingExecutionResources) {
     executionResources = await pendingExecutionResources;
   }
-  return { executionResources, connectedApps, connectedAppKeys };
+  return {
+    executionResources,
+    connectedApps,
+    connectedAppKeys,
+    connectableAppKeys,
+  };
 }
 
 const currentExecutionResources = (
@@ -665,6 +682,7 @@ const instructedAgent = <TRuntimeSettings>(
   featureInstructions: readonly string[],
   connectedApps: boolean | undefined,
   connectedAppKeys: readonly string[],
+  connectableAppKeys: readonly string[],
   compactInstructions: boolean,
 ): AgentDefinition => {
   const instructed =
@@ -673,6 +691,7 @@ const instructedAgent = <TRuntimeSettings>(
       ? request.renderDeveloperInstructions({
           connectedApps: connectedApps ?? true,
           connectedAppKeys,
+          connectableAppKeys,
           compactInstructions,
         })
       : request.agent.developerInstructions;
@@ -701,6 +720,7 @@ const activationBackendRequest = <TRuntimeSettings>(
   runtimeInstanceKey: activation.runtimeInstanceKey,
   ...(request.executionEpoch ? { executionEpoch: request.executionEpoch } : {}),
   ...(request.permissionReview ? { permissionReview: true as const } : {}),
+  ...(request.stopHook ? { stopHook: true as const } : {}),
   ...(activation.compactInstructions
     ? { compactInstructions: true as const }
     : {}),
@@ -1276,7 +1296,7 @@ class SynchronizedContextProvider implements AgentProvider {
   readonly #runGuards = new WeakMap<AgentRun, InterruptibleRun>();
   #steerTail: Promise<void> = Promise.resolve();
 
-  readonly acquireRunCapacity?: (signal: AbortSignal) => Promise<() => void>;
+  readonly acquireRunCapacity?: AgentProvider["acquireRunCapacity"];
 
   constructor(
     provider: AgentProvider,

@@ -4,6 +4,7 @@ import { type ChangeEvent, useEffect, useRef, useState } from "react";
 
 import { ColorPalette } from "@/components/ui/color-palette";
 import { ModalDialog } from "@/components/ui/modal-dialog";
+import { useT } from "@/i18n/use-translation";
 
 import {
   AGENT_FIGURE_NAMES,
@@ -13,6 +14,7 @@ import {
   type AgentAvatarKey,
 } from "./agent-avatar";
 import { AgentAvatarPortrait } from "./agent-avatar-portrait";
+import { agentInfoMessages } from "./agent-info.messages";
 
 /** Uploaded images are cropped square and scaled to this edge before saving. */
 const AVATAR_IMAGE_EDGE = 256;
@@ -43,9 +45,10 @@ export function AgentAvatarEditor({
   onImageChange?: (image: string) => void;
   value: AgentAvatarKey;
 }) {
+  const t = useT();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [galleryOpen, setGalleryOpen] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadFailed, setUploadFailed] = useState(false);
   const appearance = agentAvatarAppearance(value);
   const showsImage = appearance.kind === "image" && Boolean(image);
 
@@ -64,13 +67,13 @@ export function AgentAvatarEditor({
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file || !onImageChange) return;
-    setUploadError(null);
+    setUploadFailed(false);
     try {
       onImageChange(await readAvatarImage(file));
       onChange(imageKey(appearance.color));
       setGalleryOpen(false);
     } catch {
-      setUploadError("This image could not be used. Try a JPEG, PNG, or WebP.");
+      setUploadFailed(true);
     }
   }
 
@@ -78,12 +81,12 @@ export function AgentAvatarEditor({
     <div aria-disabled={disabled} className="flex flex-col items-center">
       <button
         aria-haspopup="dialog"
-        aria-label="Choose avatar"
+        aria-label={t(agentInfoMessages.chooseAvatar)}
         className={`agent-avatar-upload group relative ${compact ? "size-24" : "size-40"} shrink-0 rounded-[20%] outline-none focus-visible:ring-2 focus-visible:ring-app-focus focus-visible:ring-offset-2 disabled:cursor-default`}
         data-testid="agent-avatar-hero"
         disabled={disabled}
         onClick={() => setGalleryOpen(true)}
-        title="Choose avatar"
+        title={t(agentInfoMessages.chooseAvatar)}
         type="button"
       >
         <AgentAvatarPortrait
@@ -98,7 +101,7 @@ export function AgentAvatarEditor({
       {onImageChange ? (
         <input
           accept="image/jpeg,image/png,image/webp"
-          aria-label="Avatar image file"
+          aria-label={t(agentInfoMessages.avatarImageFile)}
           className="sr-only"
           disabled={disabled}
           onChange={(event) => void chooseImage(event)}
@@ -107,9 +110,9 @@ export function AgentAvatarEditor({
           type="file"
         />
       ) : null}
-      {uploadError ? (
+      {uploadFailed ? (
         <p className="mt-2 text-xs text-app-danger" role="alert">
-          {uploadError}
+          {t(agentInfoMessages.avatarUnusable)}
         </p>
       ) : null}
       {galleryOpen ? (
@@ -117,10 +120,10 @@ export function AgentAvatarEditor({
           closeOnBackdrop
           onClose={() => setGalleryOpen(false)}
           size="sm"
-          title="Choose avatar"
+          title={t(agentInfoMessages.chooseAvatar)}
         >
           <div
-            aria-label="Avatars"
+            aria-label={t(agentInfoMessages.avatars)}
             className="grid grid-cols-6 gap-2 px-5 py-4"
             role="radiogroup"
           >
@@ -132,7 +135,9 @@ export function AgentAvatarEditor({
               return (
                 <button
                   aria-checked={selected}
-                  aria-label={`Avatar ${index + 1}`}
+                  aria-label={t(agentInfoMessages.avatarOption, {
+                    number: index + 1,
+                  })}
                   className={`agent-avatar-option aspect-square rounded-[20%] outline-none focus-visible:ring-2 focus-visible:ring-app-focus ${selected ? "ring-2 ring-app-ink ring-offset-2 ring-offset-app-surface" : ""}`}
                   key={figure}
                   onClick={() => {
@@ -149,10 +154,10 @@ export function AgentAvatarEditor({
             })}
             {onImageChange ? (
               <button
-                aria-label="Upload image"
+                aria-label={t(agentInfoMessages.uploadImage)}
                 className="flex aspect-square items-center justify-center rounded-[20%] border border-dashed border-border-hover text-muted-foreground outline-none transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-app-focus"
                 onClick={() => fileInputRef.current?.click()}
-                title="Upload image"
+                title={t(agentInfoMessages.uploadImage)}
                 type="button"
               >
                 <Icon icon={PlusSignIcon} size={20} />
@@ -163,7 +168,7 @@ export function AgentAvatarEditor({
       ) : null}
       <div className="mt-4 flex w-full justify-center">
         <ColorPalette
-          aria-label="Avatar background color"
+          aria-label={t(agentInfoMessages.avatarBackgroundColor)}
           disabled={disabled}
           onChange={(color) =>
             onChange(

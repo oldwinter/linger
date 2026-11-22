@@ -36,13 +36,19 @@ func (s *Set) WaitReady(ctx context.Context) error {
 		return nil
 	}
 	listed := s.proxies
-	if len(listed)+len(s.local) == 0 {
+	var local []LocalBinding
+	for _, binding := range s.local {
+		if !s.hidden[binding.URL] {
+			local = append(local, binding)
+		}
+	}
+	if len(listed)+len(local) == 0 {
 		return nil
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	results := make(chan error, len(listed)+len(s.local))
-	for _, binding := range s.local {
+	results := make(chan error, len(listed)+len(local))
+	for _, binding := range local {
 		go func() { results <- binding.WaitReady(ctx) }()
 	}
 	for _, item := range listed {
@@ -59,7 +65,7 @@ func (s *Set) WaitReady(ctx context.Context) error {
 			}
 		}()
 	}
-	for range len(listed) + len(s.local) {
+	for range len(listed) + len(local) {
 		if err := <-results; err != nil {
 			return err
 		}

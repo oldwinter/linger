@@ -1,3 +1,4 @@
+import type { ModelLease } from "../../model-tasks.js";
 import type {
   DaemonToAgentEnvelope,
   OperationPrepare,
@@ -6,13 +7,15 @@ import type {
 } from "@linger/wire-contracts/runner-gateway/types";
 import { isRecord } from "@linger/service-kit";
 import { isDeepStrictEqual } from "node:util";
-import { RUN_PRIORITY } from "../../model-tasks.js";
+import { admissionLimit, runPriorities, softLimit } from "../../model-tasks.js";
 import { logAgentEvent } from "../observability/agent-log.js";
 import {
+  FIRST_STOP_HOOK_COMPUTER_VERSION,
+  isComputerVersionAtLeast,
   LocalComputerOfflineError,
   resolveOperationModel,
 } from "./local-computer-management.js";
-import type { ModelEndpoint, ModelLease } from "./model-queue.js";
+import type { ModelEndpoint } from "./model-queue.js";
 import { isServingConnection } from "./runner-connections.js";
 import type {
   CapacitySignal,
@@ -104,7 +107,9 @@ export class RunnerOperations {
     }
   >();
 
-  readonly #capacityWaiters = new Set<RunnerCapacityTarget>();
+  readonly #capacityWaiters = new Set<
+    RunnerCapacityTarget & { rank?: number; queuedAt: number }
+  >();
 
   #capacitySignal = capacitySignal();
 
@@ -127,7 +132,13 @@ export class RunnerOperations {
     target: RunnerCapacityTarget,
     signal: AbortSignal,
   ): Promise<RunnerCapacityPermit> {
-    const waiter = { ...target };
+    const source = target.priority ?? runPriorities.chat;
+    const waiter = {
+      ...target,
+      queuedAt:
+        typeof source === "number" ? performance.now() : source.queuedAt,
+      rank: typeof source === "number" ? source : undefined,
+    };
     this.#capacityWaiters.add(waiter);
     try {
       for (;;) {
@@ -165,29 +176,49 @@ export class RunnerOperations {
               candidate.tenantId === other.tenantId &&
               candidate.executionContextKey === other.executionContextKey,
           );
-        const busy = isBusy(target);
-        // FIFO among runnable waiters; a busy Context never blocks an unrelated one.
-        const earlierConflict = [...this.#capacityWaiters]
-          .slice(0, [...this.#capacityWaiters].indexOf(waiter))
-          .some(
-            (other) => other.runnerId === target.runnerId && !isBusy(other),
-          );
+        const hard = connection.hello.capacity;
+        const soft = hard === undefined ? Infinity : softLimit(hard);
+        const peers = [...this.#capacityWaiters].filter(
+          (other) => other.runnerId === target.runnerId && !isBusy(other),
+        );
         if (
-          !busy &&
-          !earlierConflict &&
-          (connection.hello.capacity === undefined ||
-            active.length + reservations.length < connection.hello.capacity)
+          hard !== undefined &&
+          waiter.rank === undefined &&
+          typeof source !== "number" &&
+          (occupied.length >= soft || peers.length > 1)
+        ) {
+          waiter.rank = await source.resolve();
+          this.wakeCapacityWaiters();
+          continue;
+        }
+        const rank = waiter.rank ?? runPriorities.chat;
+        // An unresolved contender may be interactive. Its lookup wakes every waiter.
+        const first = peers.sort(
+          (a, b) =>
+            (a.rank ?? runPriorities.chat) - (b.rank ?? runPriorities.chat) ||
+            a.queuedAt - b.queuedAt,
+        )[0];
+        if (
+          first === waiter &&
+          (hard === undefined || occupied.length < admissionLimit(hard, rank))
         ) {
           const id = this.context.createId();
           this.#capacityReservations.set(id, { target, connection });
           return {
             id,
+            reservedForChat: occupied.length >= soft && hard !== 1,
             release: () => {
               if (this.#capacityReservations.delete(id))
                 this.wakeCapacityWaiters();
             },
           };
         }
+        if (
+          first === waiter &&
+          waiter.rank !== undefined &&
+          rank <= runPriorities.chat
+        )
+          yieldLowerRun(active, rank);
         await waitForCapacityChange(changed, signal);
       }
     } finally {
@@ -201,12 +232,17 @@ export class RunnerOperations {
     target: RunnerOperationTarget,
   ): Promise<RunnerOperation> {
     // Readiness is checked once, after any capacity wait.
-    const permit =
-      target.capacityPermit ??
-      (await this.acquireOperationCapacity(
-        target,
-        new AbortController().signal,
-      ));
+    const priority = runPriorities[target.runKind ?? "chat"];
+    let permit = target.capacityPermit;
+    // The durable claim may select a different Run than the scheduling hint.
+    if (permit?.reservedForChat && priority > runPriorities.chat) {
+      permit.release();
+      permit = undefined;
+    }
+    permit ??= await this.acquireOperationCapacity(
+      { ...target, priority },
+      target.signal ?? new AbortController().signal,
+    );
     try {
       // The whole Run is one unit of its endpoint's model queue. It waits
       // holding its capacity, and readiness is checked after both waits.
@@ -216,13 +252,15 @@ export class RunnerOperations {
           runtimeType: target.request.runtime.type,
         },
         {
-          priority: RUN_PRIORITY,
+          priority,
           kind: target.runKind ?? "chat",
           key: target.request.run_context.execution_run_ref,
         },
         target.signal ?? new AbortController().signal,
       );
       try {
+        if (target.beforeYieldResume) await target.beforeYieldResume();
+        target.signal?.throwIfAborted();
         const reservation = this.#capacityReservations.get(permit.id);
         if (
           !reservation ||
@@ -248,18 +286,26 @@ export class RunnerOperations {
     }
   }
 
-  /** Whether this Run Operation holds its model place on endpoint, which an
-   * approval of its actions borrows. */
-  holdsModelPlace(
-    operationId: string | undefined,
-    endpoint: ModelEndpoint,
-  ): boolean {
-    if (!operationId || !this.#leases.has(operationId)) return false;
+  /** Interactive work waiting on the endpoint swaps out a lower Run there. */
+  yieldFor(endpoint: ModelEndpoint, priority: number): void {
+    yieldLowerRun(
+      this.activeOperations(endpoint.computerId).filter(
+        (operation) => operation.start.runtime_type === endpoint.runtimeType,
+      ),
+      priority,
+    );
+  }
+
+  /** Pins the reviewed Operation's place until its approval has settled. */
+  borrowModelPlace(operationId: string | undefined, endpoint: ModelEndpoint) {
+    if (!operationId) return undefined;
     const operation = this.#operations.get(operationId);
-    return (
+    if (
       operation?.start.runner_id === endpoint.computerId &&
       operation.start.runtime_type === endpoint.runtimeType
-    );
+    )
+      return this.#leases.get(operationId)?.borrow();
+    return undefined;
   }
 
   /**
@@ -301,8 +347,12 @@ export class RunnerOperations {
       throw new RunnerGatewayError(
         "Operation reservation was released before admission",
       );
+    const targetForDaemon = filterOperationTargetForDaemon(
+      resolvedTarget,
+      connection.hello.daemon_version,
+    );
     const operation = new RunnerOperationState({
-      target: resolvedTarget,
+      target: targetForDaemon,
       connectionEpoch: connection.connectionEpoch,
       runnerRevision: desiredRunner.runnerRevision,
       createId: this.context.createId,
@@ -460,12 +510,16 @@ export class RunnerOperations {
         ),
       );
       for (const operation of this.retainedOperations(connection.runnerId)) {
+        const wasTerminal = operation.terminal;
         for (const command of operation.reconnectCommands({
           connectionEpoch: connection.connectionEpoch,
           retainedByDaemon: retainedByDaemon.has(operation.start.operation_id),
         })) {
           await this.owners.connections().send(connection, command);
         }
+        // An unaccepted start past its re-send bound ends here instead.
+        if (!wasTerminal && operation.terminal)
+          this.#retireOperation(operation);
       }
       for (const orphan of connection.reportedActiveOperations) {
         if (
@@ -626,6 +680,7 @@ export class RunnerOperations {
         );
       return;
     }
+    const wasResumable = operation.resumable;
     const acknowledgement = await operation.receive(envelope);
     if (
       envelope.type === "operation.event" &&
@@ -641,6 +696,14 @@ export class RunnerOperations {
       !operation.terminal
     )
       this.#recordRunOperation(operation);
+    if (
+      !operation.terminal &&
+      operation.resumable &&
+      (!wasResumable || envelope.type === "operation.input_result")
+    ) {
+      this.owners.queue().recheckInteractiveWait(operationEndpoint(operation));
+      this.wakeCapacityWaiters();
+    }
     if (operation.terminal) this.#retireOperation(operation);
     if (acknowledgement)
       await this.owners.connections().send(connection, acknowledgement);
@@ -765,5 +828,41 @@ function operationEndpoint(operation: RunnerOperationState): ModelEndpoint {
   return {
     computerId: operation.start.runner_id,
     runtimeType: operation.start.runtime_type,
+  };
+}
+
+/**
+ * Asks the lowest-priority Run below priority that can yield to do so. One
+ * yield at a time: the place it frees goes to the waiter that asked.
+ */
+function yieldLowerRun(
+  operations: readonly RunnerOperationState[],
+  priority: number,
+): void {
+  if (operations.some((operation) => operation.yielding)) return;
+  const lower = operations
+    .filter((operation) => operation.priority > priority)
+    .sort((a, b) => b.priority - a.priority);
+  for (const operation of lower) if (operation.requestYield()) return;
+}
+
+function filterOperationTargetForDaemon(
+  target: RunnerOperationTarget,
+  daemonVersion: string,
+): RunnerOperationTarget {
+  if (
+    isComputerVersionAtLeast(daemonVersion, FIRST_STOP_HOOK_COMPUTER_VERSION) ||
+    target.request.run_context.stop_hook === undefined
+  ) {
+    return target;
+  }
+  const filteredRunContext = { ...target.request.run_context };
+  delete filteredRunContext.stop_hook;
+  return {
+    ...target,
+    request: {
+      ...target.request,
+      run_context: filteredRunContext,
+    },
   };
 }

@@ -33,9 +33,17 @@ func (a *App) identity(ctx context.Context, session store.GetActiveSessionRow) (
 		models = append(models, collaboration.ActorModel(actor))
 	}
 	return httpapi.CurrentIdentity{
-		Account: accountModel(session.AccountID, session.Email, session.AccountCreatedAt),
-		Actors:  models,
+		Account:            accountModel(session.AccountID, session.Email, session.AccountCreatedAt),
+		Actors:             models,
+		ServerCapabilities: &serverCapabilities,
 	}, nil
+}
+
+// serverCapabilities lists the request fields this TeamHub accepts that an
+// earlier release rejected, so a client newer than its server sends one only
+// when it is listed here.
+var serverCapabilities = []httpapi.CurrentIdentityServerCapabilities{
+	httpapi.LocalComputerEnrollmentDaemonId,
 }
 
 func (a *App) sessionModel(ctx context.Context, session store.GetActiveSessionRow) (httpapi.Session, error) {

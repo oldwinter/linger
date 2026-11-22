@@ -71,7 +71,7 @@ func TestHerdrPaneStatesAreDedupedAndGatedLikeAppEvents(t *testing.T) {
 }
 
 func TestBlockedHerdrWakeTellsAnotherMeToAskTheHuman(t *testing.T) {
-	text := eventText("[Proactive event: decide yourself]", HerdrEvent("tenant", "owner", blockedReport(5)))
+	text := eventText("[Proactive event: decide yourself]", HerdrEvent("tenant", "owner", blockedReport(5)), "")
 	if !strings.Contains(text, "source: herdr; kind: agent_blocked; state: 5") ||
 		!strings.Contains(text, "teamhub computer herdr ask --pane w1:p1 --state 5 ") || !strings.Contains(text, "never type into the pane") || !strings.Contains(text, "herdr_ask_gated") ||
 		strings.Index(text, "</event>") > strings.Index(text, "teamhub computer herdr ask") {
@@ -79,7 +79,7 @@ func TestBlockedHerdrWakeTellsAnotherMeToAskTheHuman(t *testing.T) {
 	}
 	finished := blockedReport(6)
 	finished.Kind = HerdrAgentFinished
-	if text := eventText("[Proactive event: decide yourself]", HerdrEvent("tenant", "owner", finished)); strings.Contains(text, "herdr ask") {
+	if text := eventText("[Proactive event: decide yourself]", HerdrEvent("tenant", "owner", finished), ""); strings.Contains(text, "herdr ask") {
 		t.Fatalf("a finished agent has nothing to answer: %q", text)
 	}
 }

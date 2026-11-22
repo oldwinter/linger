@@ -1,4 +1,6 @@
+import { translate } from "@/i18n/language";
 import type { VoiceDocumentSelection } from "../room-drafts";
+import { composerMessages } from "./composer.messages";
 import type {
   MessageComposerProps,
   MessageComposition,
@@ -8,6 +10,7 @@ import type { ComposerAttachments } from "./use-composer-attachments";
 import {
   type ComposerDraft,
   messageLengthError,
+  unavailableMentionsError,
   TEAMHUB_MESSAGE_MAX_LENGTH,
 } from "./use-composer-draft";
 import type { ComposerPicker } from "./use-composer-picker";
@@ -66,7 +69,7 @@ export function useComposerSend({
     }
 
     if (resolvingDocumentLinksRef.current > 0) {
-      setMessageError("Document link is still loading.");
+      setMessageError(translate(composerMessages.documentLinkLoading));
       return;
     }
 
@@ -87,9 +90,14 @@ export function useComposerSend({
       mentions,
       pendingAvailability,
       skillReferences,
+      unavailableMentions,
     } = resolveReferences(normalized);
     if (pendingAvailability) {
-      setMessageError("Message references are still loading. Try again.");
+      setMessageError(translate(composerMessages.referencesLoadingRetry));
+      return;
+    }
+    if (unavailableMentions.length) {
+      setMessageError(unavailableMentionsError(unavailableMentions, "remove"));
       return;
     }
 
@@ -152,7 +160,9 @@ export function useComposerSend({
       selectedSkillsRef.current = skillReferences;
       updateBody(normalized, committedDocumentContexts);
       setMessageError(
-        error instanceof Error ? error.message : "Message could not be sent",
+        error instanceof Error
+          ? error.message
+          : translate(composerMessages.messageNotSent),
       );
     } finally {
       setSubmitting(false);
@@ -171,7 +181,7 @@ export function useComposerSend({
     if (!ids.length) return;
     if (!voiceModeTarget || !resolveDocumentLink)
       throw new Error(
-        "Document references are unavailable in this conversation.",
+        translate(composerMessages.documentReferencesUnavailable),
       );
     await Promise.all(
       ids.map((documentId) =>

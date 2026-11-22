@@ -100,27 +100,33 @@ func waitForModelInvoked(t *testing.T, stream *fakeStream, invokeID string) map[
 }
 
 func TestModelInvokeRunsTheCallAndReportsItsResult(t *testing.T) {
-	invoker := newFakeModelInvoker()
-	d, stream := modelInvokeFixture(t, invoker)
-	if err := d.handleModelInvoke(context.Background(), stream, modelInvokeCommand("invoke-1", map[string]any{"session_key": "permission-review:abc"})); err != nil {
-		t.Fatal(err)
-	}
-	request := <-invoker.started
-	if request.RuntimeType != "codex" || request.Mode != "structured" || request.ReasoningEffort != "low" ||
-		request.Instructions != "Answer." || request.Input != "Question" || string(request.OutputSchema) != `{"type":"object"}` ||
-		request.Timeout != 30*time.Second || request.SessionKey != "permission-review:abc" {
-		t.Fatalf("request = %+v", request)
-	}
-	close(invoker.release)
-	payload := waitForModelInvoked(t, stream, "invoke-1")
-	if payload["outcome"] != "completed" || payload["text"] != `{"answer":"ok"}` || payload["model"] != "fixture-model" ||
-		payload["runtime_version"] != "0.166.0" || payload["command_id"] != "command-invoke-1" || payload["runner_id"] != "computer-1" ||
-		payload["reason"] != nil {
-		t.Fatalf("payload = %v", payload)
-	}
-	usage, _ := payload["usage"].(map[string]any)
-	if usage["input_tokens"] != float64(10) || usage["cached_input_tokens"] != float64(2) || usage["output_tokens"] != float64(3) {
-		t.Fatalf("usage = %v", usage)
+	for _, runtime := range []string{"codex", "pi"} {
+		t.Run(runtime, func(t *testing.T) {
+			invoker := newFakeModelInvoker()
+			d, stream := modelInvokeFixture(t, invoker)
+			command := modelInvokeCommand("invoke-1", map[string]any{"session_key": "permission-review:abc"})
+			command.RuntimeType = runtime
+			if err := d.handleModelInvoke(context.Background(), stream, command); err != nil {
+				t.Fatal(err)
+			}
+			request := <-invoker.started
+			if request.RuntimeType != runtime || request.Mode != "structured" || request.ReasoningEffort != "low" ||
+				request.Instructions != "Answer." || request.Input != "Question" || string(request.OutputSchema) != `{"type":"object"}` ||
+				request.Timeout != 30*time.Second || request.SessionKey != "permission-review:abc" {
+				t.Fatalf("request = %+v", request)
+			}
+			close(invoker.release)
+			payload := waitForModelInvoked(t, stream, "invoke-1")
+			if payload["outcome"] != "completed" || payload["text"] != `{"answer":"ok"}` || payload["model"] != "fixture-model" ||
+				payload["runtime_version"] != "0.166.0" || payload["command_id"] != "command-invoke-1" || payload["runner_id"] != "computer-1" ||
+				payload["reason"] != nil {
+				t.Fatalf("payload = %v", payload)
+			}
+			usage, _ := payload["usage"].(map[string]any)
+			if usage["input_tokens"] != float64(10) || usage["cached_input_tokens"] != float64(2) || usage["output_tokens"] != float64(3) {
+				t.Fatalf("usage = %v", usage)
+			}
+		})
 	}
 }
 
@@ -175,6 +181,37 @@ func TestModelInvokeIsCanceledByDisconnectAndDrain(t *testing.T) {
 				t.Fatalf("in-flight calls = %v", d.modelInvokes)
 			}
 		})
+	}
+}
+
+func TestModelInvokeCancelStopsOnlyThatCall(t *testing.T) {
+	invoker := newFakeModelInvoker()
+	d, stream := modelInvokeFixture(t, invoker)
+	for _, id := range []string{"invoke-keep", "invoke-yield"} {
+		if err := d.handleModelInvoke(context.Background(), stream, modelInvokeCommand(id, nil)); err != nil {
+			t.Fatal(err)
+		}
+		<-invoker.started
+	}
+	cancel := func(id string) protocol.Command {
+		return protocol.Command{
+			Type: protocol.CommandModelInvokeCancel, CommandID: "cancel-" + id, RunnerID: "computer-1", ConnectionEpoch: 1,
+			Payload: mustJSON(map[string]any{"invoke_id": id, "reason": "scheduler_yield"}),
+		}
+	}
+	if err := d.cancelModelInvoke(cancel("invoke-yield")); err != nil {
+		t.Fatal(err)
+	}
+	if payload := waitForModelInvoked(t, stream, "invoke-yield"); payload["outcome"] != "canceled" {
+		t.Fatalf("payload = %v", payload)
+	}
+	// A cancel that arrives after its call was answered does nothing.
+	if err := d.cancelModelInvoke(cancel("invoke-yield")); err != nil {
+		t.Fatal(err)
+	}
+	close(invoker.release)
+	if payload := waitForModelInvoked(t, stream, "invoke-keep"); payload["outcome"] != "completed" {
+		t.Fatalf("payload = %v", payload)
 	}
 }
 

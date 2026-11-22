@@ -1,4 +1,5 @@
 import { prepareFoundationServices } from "./foundation-services.js";
+import { portFree } from "./ports.js";
 import { prepareModelGateway, stopModelGateway } from "./model-gateway.js";
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
@@ -7,12 +8,12 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import {
   prepareSourceConfiguration,
+  saveSourceBinding,
   validateSourceRepository,
   type EnvironmentReport,
   type SourceInstallOptions,
 } from "./source-checkout.js";
 import {
-  atomicPrivate,
   loadInstance,
   privateDirectory,
   readLocalIdentityKey,
@@ -26,28 +27,43 @@ import {
 import { readLiveKitSettings, startNativeLiveKit } from "./native-livekit.js";
 import { checkNativeRuntime } from "./native-runtime.js";
 import { checkTeamhubBinaries } from "./teamhub-binaries.js";
+import { sourceRegion } from "@linger/service-kit";
 import { npmRegistryEnvironment } from "./npm-registry.js";
+import { recordRegionFallback, resolveRegion } from "./region.js";
 import { prepareNativeDatabase } from "./native-database.js";
 import {
+  inspectNativeListeners,
   inspectNativeProcess,
   nativeConfigurationChanged,
+  reclaimNativeOrphans,
   startNativeProcess,
   stopNativeProcess,
   type NativeService,
 } from "./native-process.js";
-import { ensureLocalAccount, validateLocalCredentials } from "./account.js";
+import {
+  ensureLocalAccount,
+  localAccountProvisioned,
+  validateLocalCredentials,
+} from "./account.js";
 import {
   configureManagedCodex,
   managedRuntimeEnvironment,
 } from "./managed-codex.js";
 import { prepareRuntime, runtimeVersionFailure } from "./managed-runtimes.js";
 import {
+  applyNativeSource,
+  prepareByokNativeRuntime,
+  prepareByokRuntime,
+  readByokEnvironment,
+  type ByokGatewayFailure,
+} from "./byok-source.js";
+import {
   readSetupChoice,
   writeGpuSharing,
   validateSetupChoice,
   writeSetupChoice,
 } from "./setup-selection.js";
-import { prepareLocalModels } from "./local-models.js";
+import { prepareLocalModels, restoreByokSource } from "./local-models.js";
 import { prepareSourceComputer } from "./source-computer.js";
 import { connectComputer, stopComputer } from "./computer.js";
 import { prepareLocalEnrollment } from "./local-enrollment.js";
@@ -66,6 +82,8 @@ export const nativeServices = [
   "livekit",
   "postgres",
 ] as const;
+/** Marks a native service whose stop failed without a more specific code. */
+export const NATIVE_SERVICE_STOP_FAILED = "NATIVE_SERVICE_STOP_FAILED";
 function requireNative(instance: Instance) {
   if (instance.mode !== "source-native" || !instance.source)
     throw new Error("This operation requires a native source instance.");
@@ -84,37 +102,12 @@ export async function prepareNativeConfiguration(
     home?: string;
     port?: number;
     computerName?: string;
+    externalComputer?: boolean;
     rebindSource?: boolean;
   } = {},
 ) {
   const repo = await validateSourceRepository(repository);
   const name = options.name ?? (await nativeSourceInstanceName(repo));
-  const bound = (instance?: Instance) =>
-    instance?.mode === "source-native" &&
-    instance.source &&
-    instance.releaseDir !== repo;
-  const existing = options.rebindSource
-    ? await loadInstance({ name, home: options.home })
-    : undefined;
-  if (existing && bound(existing))
-    // Instance data lives under its root; services restart on the new
-    // checkout because their recorded configuration no longer matches.
-    await withInstanceLock(existing, async () => {
-      const instance = await loadInstance({ name, home: options.home });
-      if (!instance || !bound(instance)) return;
-      const previous = instance.releaseDir;
-      instance.releaseDir = repo;
-      instance.source!.repo = repo;
-      if (instance.computerExecutable.startsWith(previous + path.sep))
-        instance.computerExecutable = path.join(
-          repo,
-          path.relative(previous, instance.computerExecutable),
-        );
-      await atomicPrivate(
-        path.join(instance.root, "instance.json"),
-        JSON.stringify(instance, null, 2) + "\n",
-      );
-    });
   return prepareSourceConfiguration(repo, { ...options, name });
 }
 export async function checkNativeSourceEnvironment(options: {
@@ -181,22 +174,31 @@ export async function checkNativeSourceEnvironment(options: {
     }
   }
 }
-export async function probeNativeSourceServices(
-  instance: Instance,
-  signal?: AbortSignal,
-) {
-  const source = requireNative(instance);
-  const endpoints = [
+const probeEndpoints = (source: NonNullable<Instance["source"]>) =>
+  [
     ["web", "web", source.ports.web, "/healthz"],
     ["teamhub", "teamhub", source.ports.teamhub, "/healthz"],
     ["node-services", "node-services", source.ports.nodeServices, "/readyz"],
     ["document-runtime", "node-services", source.ports.document, "/readyz"],
   ] as const;
+export async function probeNativeSourceServices(
+  instance: Instance,
+  signal?: AbortSignal,
+) {
+  const endpoints = probeEndpoints(requireNative(instance));
+  const states = await inspectNativeListeners(
+    instance.root,
+    endpoints.map(([, name, port]) => ({ name, port })),
+  ).catch(() => endpoints.map(() => ({ running: false, foreign: undefined })));
   return Promise.all(
-    endpoints.map(async ([service, processName, port, endpoint]) => {
+    endpoints.map(async ([service, , port, endpoint], index) => {
+      const { running, foreign } = states[index]!;
+      // Another process on the port would answer the health check for a
+      // service that cannot listen there.
+      if (foreign !== undefined)
+        return { service, ready: false, foreign, port };
       try {
-        if (!(await inspectNativeProcess(instance.root, processName)).running)
-          return { service, ready: false };
+        if (!running) return { service, ready: false };
         const response = await fetch(`http://127.0.0.1:${port}${endpoint}`, {
           redirect: "error",
           signal: AbortSignal.any([
@@ -290,18 +292,42 @@ async function waitHealthy(
 ) {
   const deadline = Date.now() + 20 * 60_000;
   let last = 0;
+  const occupied = new Map<string, number>();
   for (;;) {
     signal.throwIfAborted();
-    const checks = await probeNativeSourceServices(instance, signal);
-    if (checks.every((check) => check.ready)) return checks;
+    const probed = await probeNativeSourceServices(instance, signal);
+    if (probed.every((check) => check.ready))
+      return probed.map(({ service, ready }) => ({ service, ready }));
+    // A port another process holds never frees up by waiting; the service
+    // that should listen there exits or retries until the deadline.
+    for (const check of probed) {
+      if (!("foreign" in check)) {
+        occupied.delete(check.service);
+        continue;
+      }
+      const since = occupied.get(check.service) ?? Date.now();
+      occupied.set(check.service, since);
+      if (Date.now() - since >= 15_000)
+        throw new Error(
+          `Native ${check.service} cannot listen on port ${check.port}: another program (PID ${check.foreign}) is using it. End that program, then try again.`,
+        );
+    }
+    const checks = probed;
     // A failed build exits the service, so its log explains the stop.
     const failure = await startupFailure(instance, ends);
     if (failure) throw new Error(failure);
     for (const name of watchedServices)
-      if (!(await inspectNativeProcess(instance.root, name)).running)
+      if (!(await inspectNativeProcess(instance.root, name)).running) {
+        // With the service gone, whatever holds its port is another program.
+        for (const [, owner, port] of probeEndpoints(instance.source!))
+          if (owner === name && !(await portFree(port)))
+            throw new Error(
+              `Native ${name} cannot listen on port ${port}: another program is using it. Quit that program, then try again.`,
+            );
         throw new Error(
           `Native ${name} stopped during startup. Inspect ${path.join(instance.root, "native/logs", `${name}.log`)}.`,
         );
+      }
     if (Date.now() >= deadline) {
       const waiting = checks
         .filter((row) => !row.ready)
@@ -369,9 +395,6 @@ export async function installNativeSource(
   const timings = timer.finish();
   options.onEvent({
     kind: "log",
-    stage:
-      (outcome.details as { stage?: InstallStage } | undefined)?.stage ??
-      "preflight",
     message: `Native install timings (s): ${Object.entries(timings)
       .map(([stage, seconds]) => `${stage} ${seconds}`)
       .join(", ")}\n`,
@@ -415,8 +438,14 @@ async function runNativeSource(
   try {
     options.signal.throwIfAborted();
     validateLocalCredentials(options);
+    if (options.byok?.apiKey) secrets.push(options.byok.apiKey);
     if (options.setupChoice) validateSetupChoice(options.setupChoice);
-    const choice = options.setupChoice ?? (await readSetupChoice(options));
+    const choice = options.byok
+      ? (options.byok.runtime ??
+        (options.setupChoice && options.setupChoice !== "local-models"
+          ? options.setupChoice
+          : "claude"))
+      : (options.setupChoice ?? (await readSetupChoice(options)));
     if (!choice)
       return {
         code: 4,
@@ -446,6 +475,14 @@ async function runNativeSource(
     const current = instance;
     return await withInstanceLock(current, async () => {
       const home = path.resolve(current.root, "../..");
+      // A restart reads the choice from setup-choice.json, which a source
+      // switched since on the Models page does not update, so a saved BYOK
+      // source keeps its own runtime and gateway.
+      const saved =
+        !options.byok && !options.setupChoice
+          ? await readByokEnvironment(home)
+          : undefined;
+      const restoredByok = saved?.mode === "byok" ? saved : undefined;
       await writeSetupChoice(current, choice);
       if (options.shareGpu !== undefined)
         await writeGpuSharing(current, options.shareGpu);
@@ -460,33 +497,110 @@ async function runNativeSource(
       const started: NativeService[] = [];
       let runtimeOutcome: InstallOutcome | undefined;
       let runtimeError: unknown;
+      let runtimeAborted = false;
+      let runtimePending = true;
+      let byokGateway: ByokGatewayFailure | undefined;
       const runtime = (async () => {
         try {
-          runtimeOutcome =
-            choice === "local-models"
-              ? await prepareLocalModels(current, {
-                  shareGpu: options.shareGpu,
+          if (restoredByok) {
+            runtimeOutcome = await prepareByokNativeRuntime(
+              restoredByok.runtime,
+              {
+                home,
+                signal,
+                onEvent: emit,
+                ...(options.resume
+                  ? { reuseInstalled: true }
+                  : {
+                      env: await managedRuntimeEnvironment(home, current.root),
+                    }),
+                onDescriptor: (descriptor) =>
+                  options.onRuntimeDescriptors?.([descriptor]),
+              },
+            );
+            // A gateway that does not come back leaves the services usable,
+            // so the outcome only reports it.
+            if (!runtimeOutcome)
+              byokGateway = await restoreByokSource(home, {
+                signal,
+                onEvent: emit,
+              });
+          } else if (options.byok) {
+            const byokRuntime =
+              choice === "local-models"
+                ? (options.byok.runtime ?? "claude")
+                : choice;
+            runtimeOutcome = await prepareByokRuntime(
+              { ...options.byok, runtime: byokRuntime },
+              {
+                home,
+                signal,
+                onEvent: emit,
+                env: await managedRuntimeEnvironment(home, current.root),
+              },
+            );
+          } else if (choice === "local-models") {
+            runtimeOutcome = await prepareLocalModels(current, {
+              shareGpu: options.shareGpu,
+              signal,
+              onEvent: emit,
+              localModelsApproval: options.localModelsApproval,
+              localModelsReplan: options.localModelsReplan,
+            });
+            // A person who chose local models just now makes them the
+            // source, replacing one an earlier setup left. A restart reads
+            // the choice from setup-choice.json and passes no approval, so a
+            // source the person switched since on the Models page stays.
+            if (
+              !runtimeOutcome &&
+              (options.setupChoice === "local-models" ||
+                options.localModelsApproval)
+            )
+              runtimeOutcome = await applyNativeSource(home, "local", "pi", {
+                signal,
+                onEvent: emit,
+              });
+          } else {
+            runtimeOutcome = await prepareRuntime(choice, {
+              home,
+              signal,
+              onEvent: emit,
+              ...(options.resume
+                ? { reuseInstalled: true }
+                : { env: await managedRuntimeEnvironment(home, current.root) }),
+              onDescriptor: (descriptor) =>
+                options.onRuntimeDescriptors?.([descriptor]),
+            });
+            if (
+              choice !== "pi" &&
+              (runtimeOutcome.code === 0 ||
+                (runtimeOutcome.details as { code?: string } | undefined)
+                  ?.code === "RUNTIME_AUTH_REQUIRED")
+            )
+              runtimeOutcome =
+                (await applyNativeSource(home, "subscription", choice, {
                   signal,
                   onEvent: emit,
-                  localModelsApproval: options.localModelsApproval,
-                  localModelsReplan: options.localModelsReplan,
-                })
-              : await prepareRuntime(choice, {
-                  home,
-                  signal,
-                  onEvent: emit,
-                  env: await managedRuntimeEnvironment(home, current.root),
-                });
+                })) ?? runtimeOutcome;
+          }
           if (
             runtimeOutcome &&
             runtimeOutcome.code !== 0 &&
             (runtimeOutcome.details as { code?: string } | undefined)?.code !==
-              "RUNTIME_AUTH_REQUIRED"
-          )
+              "RUNTIME_AUTH_REQUIRED" &&
+            !controller.signal.aborted
+          ) {
+            runtimeAborted = true;
             controller.abort();
+          }
         } catch (error) {
           runtimeError = error;
-          controller.abort();
+          if (!controller.signal.aborted) {
+            runtimeAborted = true;
+            controller.abort();
+          }
+        } finally {
+          runtimePending = false;
         }
       })();
       try {
@@ -496,24 +610,44 @@ async function runNativeSource(
         const timed = async <T>(
           what: string,
           run: () => Promise<T>,
-          detail: (value: T) => string = () => "",
+          timedOptions: {
+            detail?: (value: T) => string;
+            stage?: InstallStage;
+          } = {},
         ): Promise<T> => {
           const startedAt = Date.now();
           const value = await run();
+          const detail = timedOptions.detail?.(value) ?? "";
           emit({
             kind: "log",
-            stage,
-            message: `${what} took ${((Date.now() - startedAt) / 1000).toFixed(1)}s${detail(value)}.\n`,
+            stage: timedOptions.stage ?? stage,
+            message: `${what} took ${((Date.now() - startedAt) / 1000).toFixed(1)}s${detail}.\n`,
           });
           return value;
         };
-        // The desktop puts the TeamHub binaries it ships into the checkout;
-        // with them TeamHub needs no Go.
-        const binaries = await timed(
-          "Checking the bundled TeamHub binaries",
-          () => checkTeamhubBinaries(current.source!.repo),
-          (state) => ` (${state})`,
-        );
+        // The desktop puts the TeamHub binaries it ships into the checkout,
+        // and unpacks the services it built into the checkout.
+        let checked = "";
+        const [binaries, bundled] = await Promise.all([
+          timed(
+            "Checking the bundled TeamHub binaries",
+            () => checkTeamhubBinaries(current.source!.repo),
+            { detail: (state) => ` (${state})` },
+          ),
+          options.externalComputer
+            ? timed(
+                "Checking the bundled Native services",
+                () =>
+                  checkNativeRuntime(current.source!.repo, {
+                    signal,
+                    checked: (how, files) => {
+                      checked = `, ${files} files by ${how === "sizes" ? "size" : "sha256"}`;
+                    },
+                  }),
+                { detail: (state) => ` (${state}${checked})` },
+              )
+            : Promise.resolve(false as const),
+        ]);
         signal.throwIfAborted();
         if (binaries !== "absent")
           emit({
@@ -524,22 +658,6 @@ async function runNativeSource(
                 ? "Using the bundled TeamHub binaries; Go is not needed.\n"
                 : "The bundled TeamHub binaries do not verify; compiling TeamHub instead.\n",
           });
-        // The desktop also unpacks the services it built into the checkout;
-        // with them (and the Computer it ships) nothing installs packages.
-        let checked = "";
-        const bundled =
-          options.externalComputer &&
-          (await timed(
-            "Checking the bundled Native services",
-            () =>
-              checkNativeRuntime(current.source!.repo, {
-                signal,
-                checked: (how, files) => {
-                  checked = `, ${files} files by ${how === "sizes" ? "size" : "sha256"}`;
-                },
-              }),
-            (state) => ` (${state}${checked})`,
-          ));
         if (bundled && bundled !== "absent")
           emit({
             kind: "log",
@@ -550,6 +668,13 @@ async function runNativeSource(
                 : "The bundled Native services do not verify; installing the checkout's packages instead.\n",
           });
         const offline = bundled === "verified";
+        // Voice needs LiveKit and ffmpeg; the desktop ships them for each
+        // computer. They run whether or not a voice key is set, so a key
+        // saved later in the app works without a reinstall. A computer
+        // without them, or a failed preparation, keeps voice off and the
+        // install going; TeamHub then reports voice as unavailable. Both
+        // operations lock the shared native-tools directory, so they run
+        // sequentially here.
         const tools = await timed(
           "Preparing the private toolchains and PostgreSQL",
           () =>
@@ -562,13 +687,12 @@ async function runNativeSource(
               packages: !offline,
             }),
         );
-        // Voice needs LiveKit and ffmpeg; the desktop ships them for each
-        // computer. They run whether or not a voice key is set, so a key
-        // saved later in the app works without a reinstall. A computer
-        // without them, or a failed preparation, keeps voice off and the
-        // install going; TeamHub then reports voice as unavailable.
         const voice = await timed("Preparing the voice tools", () =>
-          prepareNativeVoiceTools({ home, signal, onEvent: emit }),
+          prepareNativeVoiceTools({
+            home,
+            signal,
+            onEvent: emit,
+          }),
         ).catch((error: unknown) => {
           if (signal.aborted) throw error;
           emit({
@@ -585,9 +709,14 @@ async function runNativeSource(
             message:
               "Voice stays off: this installation has no voice tools for this computer.\n",
           });
+        // node-services downloads its voice model packages from the region's
+        // registry first, and nothing it starts probes again.
+        const region = await resolveRegion(home, { signal });
+        emit({ kind: "log", stage, message: `Download region: ${region}.\n` });
         const env: NodeJS.ProcessEnv = {
           ...tools.env,
           ...configured.env,
+          SIMPLEX_REGION: region,
           ...(voice
             ? {
                 // TeamHub and the voice workers run ffmpeg and ffprobe from PATH.
@@ -625,17 +754,33 @@ async function runNativeSource(
         );
         const command = async (
           operation: string,
-          extraEnv: NodeJS.ProcessEnv = {},
-          input?: string,
-          sink: { write(chunk: string): void } = output,
-          retried = false,
+          commandOptions: {
+            extraEnv?: NodeJS.ProcessEnv;
+            input?: string;
+            sink?: { write(chunk: string): void };
+            stage?: InstallStage;
+            retried?: boolean;
+          } = {},
         ): Promise<void> => {
+          const {
+            extraEnv = {},
+            input,
+            sink,
+            retried = false,
+            stage: commandStage = stage,
+          } = commandOptions;
           const startedAt = Date.now();
+          const ownedSink = sink
+            ? undefined
+            : lineRedactor((message) =>
+                emit({ kind: "log", stage: commandStage, message }),
+              );
+          const activeSink = sink ?? ownedSink!;
           const heartbeat = setInterval(
             () =>
               emit({
                 kind: "log",
-                stage,
+                stage: commandStage,
                 message: `Native ${operation} is running (${Math.floor((Date.now() - startedAt) / 1000)}s elapsed).\n`,
               }),
             10_000,
@@ -658,13 +803,14 @@ async function runNativeSource(
                 input,
                 capture: false,
                 onOutput: (chunk) => {
-                  sink.write(chunk);
+                  activeSink.write(chunk);
                   tail = (tail + chunk).slice(-64_000);
                 },
               },
             ));
           } finally {
             clearInterval(heartbeat);
+            ownedSink?.flush();
           }
           if (code === 0) return;
           // Prebuilt binaries cover every native module, but when one has to
@@ -673,7 +819,7 @@ async function runNativeSource(
             const installing = "Installing Apple developer tools…";
             emit({
               kind: "stage",
-              stage,
+              stage: commandStage,
               state: "running",
               message: installing,
             });
@@ -682,16 +828,16 @@ async function runNativeSource(
               onWaiting: (seconds) =>
                 emit({
                   kind: "log",
-                  stage,
+                  stage: commandStage,
                   message: `${installing} Choose Install in the window macOS opened (${seconds}s elapsed).\n`,
                 }),
             });
             emit({
               kind: "log",
-              stage,
+              stage: commandStage,
               message: `Apple developer tools are installed. Running native ${operation} again.\n`,
             });
-            return command(operation, extraEnv, input, sink, true);
+            return command(operation, { ...commandOptions, retried: true });
           }
           throw new Error(`Native source ${operation} failed (exit ${code}).`);
         };
@@ -719,13 +865,13 @@ async function runNativeSource(
         const install = async (operation: string) => {
           for (const [index, registry] of registries.entries()) {
             try {
-              await command(
-                operation,
-                npmRegistryEnvironment(registry),
-                undefined,
-                packages,
-              );
+              await command(operation, {
+                extraEnv: npmRegistryEnvironment(registry),
+                sink: packages,
+              });
               registries = registries.slice(index);
+              if (index > 0)
+                await recordRegionFallback(home, sourceRegion(registry));
               return;
             } catch (error) {
               signal.throwIfAborted();
@@ -764,120 +910,318 @@ async function runNativeSource(
           "services",
           "Starting private PostgreSQL and applying migrations…",
         );
+        await reclaimEarlierProcesses(current, home, emit);
+        const storedBefore = await loadInstance({ name: current.name, home });
+        const switchingCheckout = Boolean(
+          storedBefore?.source &&
+          storedBefore.releaseDir !== current.releaseDir,
+        );
+        const hadProvisionedAccount = await localAccountProvisioned(
+          current.root,
+        );
+        const anyServiceRunning = (
+          await Promise.all(
+            (["teamhub", "node-services", "web"] as const).map((name) =>
+              inspectNativeProcess(current.root, name),
+            ),
+          )
+        ).some((state) => state.running);
         const postgresWasRunning = (
           await inspectNativeProcess(current.root, "postgres")
         ).running;
         // Mark before startup so a failed init/readiness step can stop a process
         // it managed to create without touching a previously running cluster.
         if (!postgresWasRunning) started.push("postgres");
-        const { legacyBackup } = await prepareNativeDatabase({
-          instance: current,
-          postgresBin: tools.postgresBin,
-          env,
-          signal,
-          onOutput: (chunk) => output.write(chunk),
-        });
+        const { legacyBackup } = await timed(
+          "Preparing private PostgreSQL",
+          () =>
+            prepareNativeDatabase({
+              instance: current,
+              postgresBin: tools.postgresBin,
+              postgresConfigurationExecutable:
+                tools.postgresConfigurationExecutable,
+              env,
+              signal,
+              onOutput: (chunk) => output.write(chunk),
+            }),
+        );
         if (legacyBackup)
           emit({
             kind: "log",
             stage,
             message: `The data from the earlier Simplex app can't be upgraded to Linger, so Linger starts with a fresh workspace. The earlier data was moved, not deleted, to ${legacyBackup}.\n`,
           });
-        await command("migrate");
-        await runtime;
-        signal.throwIfAborted();
-        await prepareFoundationServices(current, choice, {
-          home,
-          signal,
-          onEvent: emit,
-          shareGpu: options.shareGpu,
-        });
-        // Binds the local stack's gateway for local models; with a runtime's own
-        // sign-in, retires one an earlier release started.
-        await prepareModelGateway(current, choice, {
-          home,
-          signal,
-          onEvent: emit,
-        });
-        step("services", "Starting native collaboration services…");
-        const ends = await logEnds(current);
-        const liveKit = voice && (await readLiveKitSettings(current.root));
-        if (voice && liveKit) {
-          if (!(await inspectNativeProcess(current.root, "livekit")).running)
-            started.push("livekit");
-          await startNativeLiveKit({
-            root: current.root,
-            executable: voice.livekit,
-            settings: liveKit,
-            signal,
+        // Emits the services stage and captures the log ends that
+        // waitHealthy reads, before any service starts.
+        const beginServices = () => {
+          emit({
+            kind: "stage",
+            stage: "services",
+            state: "running",
+            message: "Starting native collaboration services…",
           });
-        } else if (
-          (await inspectNativeProcess(current.root, "livekit")).running
-        )
-          await stopNativeProcess(current.root, "livekit");
-        const serviceOptions = (name: "teamhub" | "node-services" | "web") => ({
-          root: current.root,
-          name,
-          executable: process.execPath,
-          args: [
-            path.join(current.source!.repo, "scripts/source-native.mjs"),
+          return logEnds(current);
+        };
+        // Bind LiveKit's saved port before the model controller asks the OS
+        // for its own port; an unbound port can be assigned to either service.
+        const bindLiveKit = async () => {
+          const liveKit = voice && (await readLiveKitSettings(current.root));
+          if (voice && liveKit) {
+            if (!(await inspectNativeProcess(current.root, "livekit")).running)
+              started.push("livekit");
+            await startNativeLiveKit({
+              root: current.root,
+              executable: voice.livekit,
+              settings: liveKit,
+              signal,
+            });
+          } else if (
+            (await inspectNativeProcess(current.root, "livekit")).running
+          )
+            await stopNativeProcess(current.root, "livekit");
+        };
+        const startAndAwaitServices = async (
+          ends: Awaited<ReturnType<typeof logEnds>>,
+        ) => {
+          const serviceOptions = (
+            name: "teamhub" | "node-services" | "web",
+          ) => ({
+            root: current.root,
             name,
-          ],
-          cwd: current.source!.repo,
-          env:
-            name === "teamhub"
-              ? { ...env, TEAMHUB_LOCAL_IDENTITY_KEY: identityKey }
-              : env,
-          signal,
-          redactions: secrets,
-          // A changed user.env, port, credential or voice tool restarts it.
-          settings: name === "teamhub" ? teamhubSettings : settings,
-          restartOnConfigurationChange: true,
-        });
-        // Stop the Agent Service only when TeamHub is about to restart for a
-        // changed configuration, so its graceful shutdown can requeue
-        // in-flight Runs while TeamHub is still up. When TeamHub is not
-        // running or not changing, node-services is left alone so it can
-        // reconnect. It was running before this run, so it is never recorded
-        // as started: if a later step fails, its replacement stays up beside
-        // the new TeamHub; if TeamHub's own restart fails, node-services
-        // stays stopped until the next resume.
-        const preStopped =
-          (await nativeConfigurationChanged(serviceOptions("teamhub"))) &&
-          (await inspectNativeProcess(current.root, "node-services")).running;
-        if (preStopped) await stopNativeProcess(current.root, "node-services");
-        for (const name of ["teamhub", "node-services", "web"] as const) {
-          const running = (await inspectNativeProcess(current.root, name))
-            .running;
-          if (!running && !(preStopped && name === "node-services"))
-            started.push(name);
-          await startNativeProcess(serviceOptions(name));
+            executable: process.execPath,
+            args: [
+              path.join(current.source!.repo, "scripts/source-native.mjs"),
+              name,
+            ],
+            cwd: current.source!.repo,
+            env:
+              name === "teamhub"
+                ? { ...env, TEAMHUB_LOCAL_IDENTITY_KEY: identityKey }
+                : env,
+            signal,
+            redactions: secrets,
+            // A changed user.env, port, credential or voice tool restarts it.
+            settings: name === "teamhub" ? teamhubSettings : settings,
+            restartOnConfigurationChange: true,
+          });
+          // Stop the Agent Service only when TeamHub is about to restart for a
+          // changed configuration, so its graceful shutdown can requeue
+          // in-flight Runs while TeamHub is still up. When TeamHub is not
+          // running or not changing, node-services is left alone so it can
+          // reconnect. It was running before this run, so it is never recorded
+          // as started: if a later step fails, its replacement stays up beside
+          // the new TeamHub; if TeamHub's own restart fails, node-services
+          // stays stopped until the next resume.
+          const preStopped =
+            (await nativeConfigurationChanged(serviceOptions("teamhub"))) &&
+            (await inspectNativeProcess(current.root, "node-services")).running;
+          if (preStopped)
+            await stopNativeProcess(current.root, "node-services");
+          const serviceNames = ["teamhub", "node-services", "web"] as const;
+          if (preStopped) {
+            for (const name of serviceNames) {
+              const running = (await inspectNativeProcess(current.root, name))
+                .running;
+              if (!running && name !== "node-services") started.push(name);
+              await startNativeProcess(serviceOptions(name));
+            }
+          } else {
+            const states = await Promise.all(
+              serviceNames.map((name) =>
+                inspectNativeProcess(current.root, name),
+              ),
+            );
+            for (const [index, name] of serviceNames.entries()) {
+              if (!states[index]!.running) started.push(name);
+            }
+            // Settle every start before rollback so a supervisor still being
+            // spawned is recorded and can be stopped.
+            const results = await Promise.allSettled(
+              serviceNames.map((name) =>
+                startNativeProcess(serviceOptions(name)),
+              ),
+            );
+            const failed = results.find(
+              (result) => result.status === "rejected",
+            );
+            if (failed) throw failed.reason;
+          }
+          return timed(
+            "Waiting for native collaboration services",
+            () => waitHealthy(current, signal, emit, ends),
+            { stage: "services" },
+          );
+        };
+        const provisionAccount = () =>
+          ensureLocalAccount(current, signal, {
+            email: options.email,
+            password: options.password,
+            provisionOwner: async (email, password) => {
+              secrets.push(password);
+              await command("owner", {
+                extraEnv: { OWNER_EMAIL: email },
+                input: `${password}\n`,
+                stage: "account",
+              });
+            },
+          });
+        const overlapWithRuntime =
+          !switchingCheckout &&
+          !anyServiceRunning &&
+          (Boolean(options.resume) ||
+            (Boolean(options.setupChoice || options.byok) &&
+              (!hadProvisionedAccount || Boolean(legacyBackup))));
+        // Without `stageForLogs`, timings log under the current stage.
+        // `beforeFoundation` runs once the runtime is ready, before the
+        // foundation services.
+        const prepareRuntimeSide = async (
+          stageForLogs?: InstallStage,
+          beforeFoundation?: () => Promise<unknown>,
+        ) => {
+          await timed("Waiting for runtime preparation", () => runtime, {
+            stage: stageForLogs,
+          });
+          signal.throwIfAborted();
+          await beforeFoundation?.();
+          await timed(
+            "Preparing foundation services",
+            () =>
+              prepareFoundationServices(current, choice, {
+                home,
+                signal,
+                onEvent: emit,
+                shareGpu: options.shareGpu,
+              }),
+            { stage: stageForLogs },
+          );
+          // Binds the local stack's gateway for local models; with a runtime's own
+          // sign-in, retires one an earlier release started.
+          await prepareModelGateway(
+            current,
+            // A restored BYOK source keeps its gateway whatever the saved
+            // choice: a local-models choice would require the local stack.
+            restoredByok
+              ? { runtime: restoredByok.runtime, modelSource: "byok" }
+              : options.byok && choice !== "local-models"
+                ? { runtime: choice, modelSource: "byok" }
+                : choice,
+            {
+              home,
+              signal,
+              onEvent: emit,
+            },
+          );
+        };
+        const migrate = (stageForLogs?: InstallStage) =>
+          timed(
+            "Running database migrations",
+            () => command("migrate", { stage: stageForLogs }),
+            { stage: stageForLogs },
+          );
+        const servicesSucceeded = async () => {
+          await saveSourceBinding(current);
+          emit({
+            kind: "stage",
+            stage: "services",
+            state: "succeeded",
+            message: "Native source services are ready.",
+          });
+        };
+        const accountSucceeded = () =>
+          emit({
+            kind: "stage",
+            stage: "account",
+            state: "succeeded",
+            message: "Local account is ready.",
+          });
+        let checks: { service: string; ready: boolean }[];
+        if (overlapWithRuntime) {
+          // LiveKit binds before the fork so the runtime branch's foundation
+          // services can never take its port.
+          const ends = await beginServices();
+          await bindLiveKit();
+          // Each second counts once, toward the critical path: services and
+          // account while branch2 runs, then runtime only for the wait beyond.
+          timer.enter("services");
+          let firstFailure: { error: unknown; stage: InstallStage } | undefined;
+          const failBranch = (
+            error: unknown,
+            failedStage: InstallStage,
+          ): never => {
+            firstFailure ??= { error, stage: failedStage };
+            controller.abort();
+            throw error;
+          };
+          const branch1 = (async () => {
+            try {
+              await prepareRuntimeSide("runtime");
+            } catch (error) {
+              return failBranch(error, "runtime");
+            }
+          })();
+          const branch2 = (async () => {
+            let branchStage: InstallStage = "services";
+            try {
+              await migrate(branchStage);
+              const probed = await startAndAwaitServices(ends);
+              branchStage = "account";
+              timer.enter("account");
+              emit({
+                kind: "stage",
+                stage: branchStage,
+                state: "running",
+                message: "Preparing local account and workspace…",
+              });
+              await provisionAccount();
+              return probed;
+            } catch (error) {
+              return failBranch(error, branchStage);
+            }
+          })();
+          let branch1Pending = true;
+          const settled1 = Promise.allSettled([branch1]).then(([result]) => {
+            branch1Pending = false;
+            return result;
+          });
+          const [result2] = await Promise.allSettled([branch2]);
+          if (branch1Pending) timer.enter("runtime");
+          const result1 = await settled1;
+          if (result1.status === "rejected" || result2.status === "rejected") {
+            stage = runtimeAborted
+              ? "runtime"
+              : (firstFailure?.stage ??
+                (result1.status === "rejected" ? "runtime" : "services"));
+            throw firstFailure
+              ? firstFailure.error
+              : result1.status === "rejected"
+                ? result1.reason
+                : (result2 as PromiseRejectedResult).reason;
+          }
+          checks = result2.value;
+          await servicesSucceeded();
+          stage = "account";
+          accountSucceeded();
+        } else {
+          // The runtime is ready before the checkout's migrations run: when it is
+          // not, services still running from an earlier checkout keep the
+          // schema they know.
+          let ends: Awaited<ReturnType<typeof logEnds>> | undefined;
+          // Count only the runtime wait beyond the parallel work.
+          if (runtimePending) timer.enter("runtime");
+          await prepareRuntimeSide(undefined, async () => {
+            timer.enter("services");
+            await migrate();
+            ends = await beginServices();
+            await bindLiveKit();
+          });
+          checks = await startAndAwaitServices(ends!);
+          await servicesSucceeded();
+          step("account", "Preparing local account and workspace…");
+          await provisionAccount();
+          accountSucceeded();
+          await runtime;
+          signal.throwIfAborted();
         }
-        const checks = await waitHealthy(current, signal, emit, ends);
-        emit({
-          kind: "stage",
-          stage: "services",
-          state: "succeeded",
-          message: "Native source services are ready.",
-        });
-        step("account", "Preparing local account and workspace…");
-        await ensureLocalAccount(current, signal, {
-          email: options.email,
-          password: options.password,
-          provisionOwner: async (email, password) => {
-            secrets.push(password);
-            await command("owner", { OWNER_EMAIL: email }, `${password}\n`);
-          },
-        });
-        emit({
-          kind: "stage",
-          stage,
-          state: "succeeded",
-          message: "Local account is ready.",
-        });
-
-        await runtime;
-        signal.throwIfAborted();
         if (options.externalComputer) {
           const authPending =
             (runtimeOutcome?.details as { code?: string } | undefined)?.code ===
@@ -912,6 +1256,7 @@ async function runNativeSource(
                 activeOperations: 0,
               },
               businessVerification: "not_run",
+              ...(byokGateway ? { byokGateway } : {}),
             },
           };
         }
@@ -953,6 +1298,7 @@ async function runNativeSource(
               services: checks,
               computer,
               businessVerification: "not_run",
+              ...(byokGateway ? { byokGateway } : {}),
               ...(authPending && typeof runtimeOutcome?.details === "object"
                 ? runtimeOutcome.details
                 : {}),
@@ -989,9 +1335,8 @@ async function runNativeSource(
         }
       } catch (error) {
         // The side that failed first is the cause; the other one only
-        // stopped because of it. Only the Runtime aborts the controller
-        // before this point.
-        const runtimeFailedFirst = controller.signal.aborted;
+        // stopped because of it.
+        const runtimeFailedFirst = runtimeAborted;
         controller.abort();
         await runtime;
         for (const name of started.reverse()) {
@@ -1007,6 +1352,7 @@ async function runNativeSource(
         }
         options.signal.throwIfAborted();
         if (runtimeFailedFirst) {
+          stage = "runtime";
           // eslint-disable-next-line @typescript-eslint/only-throw-error -- rethrows the first failure unchanged
           if (runtimeError) throw runtimeError;
           if (
@@ -1014,8 +1360,24 @@ async function runNativeSource(
             runtimeOutcome.code !== 0 &&
             (runtimeOutcome.details as { code?: string } | undefined)?.code !==
               "RUNTIME_AUTH_REQUIRED"
-          )
-            return runtimeOutcome;
+          ) {
+            const message = safe(runtimeOutcome.message);
+            if (
+              runtimeOutcome.state === "failed" ||
+              runtimeOutcome.state === "prerequisite_unavailable"
+            )
+              emit({ kind: "stage", stage, state: "failed", message });
+            return {
+              ...runtimeOutcome,
+              message,
+              details: {
+                ...(typeof runtimeOutcome.details === "object"
+                  ? runtimeOutcome.details
+                  : {}),
+                stage,
+              },
+            };
+          }
         }
         throw error;
       } finally {
@@ -1060,6 +1422,33 @@ async function runNativeSource(
     output.flush();
   }
 }
+/**
+ * Ends the processes of this instance an earlier run lost track of (an
+ * earlier release's stop left them, their supervisor died, or a failed
+ * attempt kept no record of them), so they neither hold the ports and data
+ * files nor answer health checks for the new services.
+ */
+async function reclaimEarlierProcesses(
+  instance: Instance,
+  home: string,
+  onEvent?: (event: InstallerEvent) => void,
+) {
+  const source = requireNative(instance);
+  const liveKit = await readLiveKitSettings(instance.root);
+  const ended = await reclaimNativeOrphans(instance.root, {
+    ports: [
+      ...Object.values(source.ports),
+      ...(liveKit ? [liveKit.httpPort] : []),
+    ],
+    paths: [home, instance.root, source.repo],
+  });
+  if (ended.length)
+    onEvent?.({
+      kind: "log",
+      stage: "services",
+      message: `Ended ${ended.length} Linger processes an earlier run left behind (PIDs ${ended.join(", ")}).\n`,
+    });
+}
 export async function stopNativeSource(
   instance: Instance,
   signal?: AbortSignal,
@@ -1070,8 +1459,23 @@ export async function stopNativeSource(
     await stopComputer(instance, { signal });
     for (const name of nativeServices) {
       signal?.throwIfAborted();
-      await stopNativeProcess(instance.root, name);
+      try {
+        await stopNativeProcess(instance.root, name);
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException | null)?.code;
+        throw Object.assign(
+          new Error(
+            error instanceof Error ? error.message : `Could not stop ${name}.`,
+            { cause: error },
+          ),
+          { code: code ?? NATIVE_SERVICE_STOP_FAILED, nativeService: name },
+        );
+      }
     }
+    await reclaimEarlierProcesses(
+      instance,
+      path.resolve(instance.root, "../.."),
+    );
     await stopModelGateway(instance, signal);
   });
 }

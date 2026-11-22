@@ -17,7 +17,15 @@ import { ActorAvatar } from "@/features/rooms/members/actor-avatar";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
 import type { TeamHubDocumentCommentThread } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import { formatLocale, translate } from "@/i18n/language";
+import { useT, useTranslation } from "@/i18n/use-translation";
 
+import {
+  useDocumentCommentDraft,
+  useDocumentCommentsClose,
+} from "./document-comment-draft-guard";
+import { documentCommentsMessages as m } from "./document-comments.messages";
 import { roomDocumentCommentThreadsQueryOptions } from "./room-document-comments";
 
 export function DocumentCommentsPanel({
@@ -45,7 +53,9 @@ export function DocumentCommentsPanel({
   selectionQuote?: string | null;
   tenantId: string;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
+  const requestClose = useDocumentCommentsClose();
   const threadOptions = roomDocumentCommentThreadsQueryOptions(
     client,
     tenantId,
@@ -137,16 +147,17 @@ export function DocumentCommentsPanel({
 
   return createPortal(
     <aside
-      aria-label="All Document comments"
+      aria-label={t(m.allComments)}
       className="flex h-full min-h-0 flex-col bg-app-surface"
     >
       <div className="flex shrink-0 items-center justify-between px-3 pb-2 pt-5">
-        <h3 className="text-sm font-semibold text-app-ink">Comments</h3>
+        <h3 className="text-sm font-semibold text-app-ink">{t(m.comments)}</h3>
         <Button
-          aria-label="Close comments"
-          onClick={onClose}
+          aria-label={t(m.closeComments)}
+          data-voice-close
+          onClick={() => requestClose(onClose)}
           size="compactIcon"
-          title="Close comments"
+          title={t(m.closeComments)}
           tone="ghost"
         >
           <Icon icon={Cancel01Icon} size={14} />
@@ -155,13 +166,11 @@ export function DocumentCommentsPanel({
       <div className="workspace-scrollbar min-h-0 flex-1 overflow-y-auto">
         {threads.isPending ? (
           <p className="px-4 py-8 text-center text-sm text-app-muted">
-            Loading comments...
+            {t(m.loadingComments)}
           </p>
         ) : threads.isError ? (
           <div className="px-4 py-8 text-center" role="alert">
-            <p className="text-sm text-app-danger">
-              Comments could not be loaded.
-            </p>
+            <p className="text-sm text-app-danger">{t(m.loadFailed)}</p>
             <Button
               className="mt-3"
               onClick={() => void threads.refetch()}
@@ -169,12 +178,12 @@ export function DocumentCommentsPanel({
               tone="secondary"
             >
               <Icon icon={RotateLeft01Icon} size={14} />
-              Retry
+              {t(commonMessages.retry)}
             </Button>
           </div>
         ) : items.length === 0 ? (
           <p className="px-4 py-8 text-center text-sm text-app-muted">
-            No comments
+            {t(m.noComments)}
           </p>
         ) : (
           <div className="space-y-3 p-3">
@@ -190,10 +199,10 @@ export function DocumentCommentsPanel({
       </div>
       {documentVersionId && threads.isSuccess ? (
         <DocumentCommentComposer
-          actionLabel="Add comment"
-          ariaLabel="New Document comment"
+          actionLabel={t(m.addComment)}
+          ariaLabel={t(m.newComment)}
           onSubmit={createThread}
-          placeholder="Add comment..."
+          placeholder={t(m.addCommentPlaceholder)}
           selectionQuote={selectionQuote}
         />
       ) : null}
@@ -209,6 +218,7 @@ function DocumentCommentComposer({
   onSubmit,
   placeholder,
   selectionQuote,
+  voiceRisk,
 }: {
   actionLabel: string;
   ariaLabel: string;
@@ -216,27 +226,34 @@ function DocumentCommentComposer({
   onSubmit: (body: string) => Promise<void>;
   placeholder: string;
   selectionQuote?: string | null;
+  voiceRisk?: "confirm" | "never";
 }) {
+  const t = useT();
   const [body, setBody] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const pendingRef = useRef(false);
   const isComposing = useRef(false);
   const inputId = useId();
+  const draft = useDocumentCommentDraft("");
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     const content = body.trim();
-    if (!content || pending) return;
+    if (!content || pendingRef.current) return;
+    pendingRef.current = true;
     setPending(true);
     setError(null);
+    draft.onSubmittingChange(true);
     try {
       await onSubmit(content);
       setBody("");
+      draft.onDraftStateChange({ body: "" });
     } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "Comment could not be added.",
-      );
+      setError(cause instanceof Error ? cause.message : translate(m.addFailed));
     } finally {
+      pendingRef.current = false;
+      draft.onSubmittingChange(false);
       setPending(false);
     }
   }
@@ -262,10 +279,14 @@ function DocumentCommentComposer({
       <div className="flex min-w-0 items-center gap-1 overflow-hidden rounded-full bg-app-canvas p-1">
         <textarea
           aria-label={ariaLabel}
-          className="document-comment-input workspace-scrollbar block min-h-8 min-w-0 max-h-20 flex-1 resize-none border-0 bg-transparent px-2 text-sm text-app-ink outline-none placeholder:text-app-muted"
+          className="document-comment-input workspace-scrollbar block min-h-8 min-w-0 max-h-20 flex-1 resize-none border-0 bg-transparent px-2 text-sm text-app-ink outline-none placeholder:text-app-placeholder"
           disabled={pending}
           id={inputId}
-          onChange={(event) => setBody(event.target.value)}
+          onChange={(event) => {
+            const next = event.target.value;
+            setBody(next);
+            draft.onDraftStateChange({ body: next });
+          }}
           onCompositionStart={() => {
             isComposing.current = true;
           }}
@@ -291,13 +312,14 @@ function DocumentCommentComposer({
         <Button
           aria-label={actionLabel}
           className="document-comment-send !rounded-full"
+          data-voice-risk={voiceRisk}
           disabled={!body.trim() || pending}
           size="compactIcon"
           tone="primary"
           type="submit"
         >
           <Icon icon={ArrowUp02Icon} size={14} />
-          <span className="sr-only">{pending ? "Adding..." : actionLabel}</span>
+          <span className="sr-only">{pending ? t(m.adding) : actionLabel}</span>
         </Button>
       </div>
       {error ? (
@@ -316,6 +338,7 @@ function DocumentCommentThread({
   onReply: (body: string) => Promise<void>;
   thread: TeamHubDocumentCommentThread;
 }) {
+  const { language, t } = useTranslation();
   const [replying, setReplying] = useState(false);
   const firstComment = thread.comments[0];
   const firstBody =
@@ -326,7 +349,7 @@ function DocumentCommentThread({
     : null;
   return (
     <article
-      aria-label={`Comment by ${thread.created_by.display_name}`}
+      aria-label={t(m.commentBy, { name: thread.created_by.display_name })}
       className="rounded-xl border border-app-border bg-card p-2"
     >
       {reference ? (
@@ -352,14 +375,15 @@ function DocumentCommentThread({
                 className="block text-xs leading-4 text-app-subtle"
                 dateTime={comment.created_at}
               >
-                {formatDateTime(comment.created_at, {
-                  day: "numeric",
-                  month: "short",
-                })}
+                {formatDateTime(
+                  comment.created_at,
+                  { day: "numeric", month: "short" },
+                  formatLocale(language),
+                )}
               </time>
               <div className="mt-2 min-w-0 text-sm leading-5 text-app-body">
                 {comment.deleted_at ? (
-                  "Comment deleted"
+                  t(m.commentDeleted)
                 ) : (
                   <MessageMarkdown
                     authorKind={comment.author.kind}
@@ -381,24 +405,25 @@ function DocumentCommentThread({
         <div className="mt-2">
           {replying ? (
             <DocumentCommentComposer
-              actionLabel="Send reply"
-              ariaLabel="Reply to Document comment"
+              actionLabel={t(m.sendReply)}
+              ariaLabel={t(m.replyToComment)}
               embedded
               onSubmit={async (body) => {
                 await onReply(body);
                 setReplying(false);
               }}
-              placeholder="Add comment..."
+              placeholder={t(m.addCommentPlaceholder)}
+              voiceRisk="never"
             />
           ) : (
             <Button
-              aria-label="Reply"
+              aria-label={t(m.reply)}
               onClick={() => setReplying(true)}
               size="compact"
               tone="ghost"
             >
               <Icon icon={ArrowTurnBackwardIcon} size={14} />
-              Reply
+              {t(m.reply)}
             </Button>
           )}
         </div>

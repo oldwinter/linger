@@ -12,6 +12,9 @@ import { cadenceLabel } from "../task-sidebar/routine-cadence";
 
 import { useOptionalTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import { externalAppsQueryOptions } from "@/features/apps/connected-apps-queries";
+import { useT } from "@/i18n/use-translation";
+
+import { agentTemplateMessages as m } from "./agent-templates.messages";
 
 /** One named thing a template carries, with the detail that makes it concrete. */
 export interface TemplateContentItem {
@@ -38,6 +41,7 @@ export function useTemplateContentGroups(template: {
   skill_bindings: readonly { name: string; skill_id: string }[];
 }): TemplateContentGroups {
   const client = useOptionalTeamHubRuntime()?.client;
+  const t = useT();
   const connectorKeys = template.connector_bindings ?? [];
   const apps = useQuery({
     ...externalAppsQueryOptions(client!),
@@ -48,7 +52,7 @@ export function useTemplateContentGroups(template: {
   );
   return {
     connectors: connectorKeys.map((key) => ({
-      detail: "Needs your authorization",
+      detail: t(m.needsAuthorization),
       key,
       name: appsByKey.get(key)?.display_name ?? key,
     })),
@@ -81,12 +85,13 @@ export function TemplateContents({
     enabled: boolean;
   }[];
 }) {
+  const t = useT();
   const sections = [
     {
       icon: BookOpen01Icon,
       items: groups.skills,
-      label: "Skills",
-      title: "Playbooks it can run",
+      label: t(m.skills),
+      title: t(m.skillsTitle),
     },
     {
       icon: AlarmClockIcon,
@@ -94,18 +99,21 @@ export function TemplateContents({
         key: routine.key ?? routine.id ?? routine.name,
         name: routine.name,
         instruction: routine.instruction,
-        detail: `${routine.enabled ? "Enabled" : "Paused"} · ${cadenceLabel(routine.cadence)} · ${routine.cadence.timezone}`,
+        detail: t(routine.enabled ? m.routineEnabled : m.routinePaused, {
+          cadence: cadenceLabel(routine.cadence, t),
+          timezone: routine.cadence.timezone,
+        }),
       })),
-      label: "Routines",
-      title: "Jobs that run on their own",
-      note: "All routines are added automatically to the new Agent’s direct chat. Their enabled or paused state is preserved.",
+      label: t(m.routines),
+      title: t(m.routinesTitle),
+      note: t(m.routinesNote),
     },
     {
       icon: Plug01Icon,
       items: groups.connectors,
-      label: "Connectors",
+      label: t(m.connectors),
       note: connectorNote,
-      title: "Accounts it expects",
+      title: t(m.connectorsTitle),
     },
   ].filter((section) => section.items.length > 0);
 
@@ -114,8 +122,11 @@ export function TemplateContents({
   return (
     <div className="space-y-3">
       {instructions ? (
-        <section aria-label="Instructions">
-          <SectionHeading label="Instructions" title="How it works" />
+        <section aria-label={t(m.instructions)}>
+          <SectionHeading
+            label={t(m.instructions)}
+            title={t(m.instructionsTitle)}
+          />
           <p className="mt-1.5 max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-muted/40 p-3 text-sm leading-5 text-app-body [overflow-wrap:anywhere]">
             {instructions}
           </p>

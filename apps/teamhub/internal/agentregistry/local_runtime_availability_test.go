@@ -110,3 +110,32 @@ func TestPersistedLocalRuntimeObservationSeparatesConnectionFromDiagnostics(t *t
 		}
 	})
 }
+
+func TestAvailabilityCarriesReasonBesideEnglishLabel(t *testing.T) {
+	online := listedTenantAgentAvailability(store.ListTenantAgentsForAccountRow{ActiveTaskCount: 1})
+	for _, tc := range []struct {
+		name   string
+		status roomagent.LocalAgentRuntimeStatus
+		want   httpapi.TenantAgentAvailabilityReason
+		label  string
+	}{
+		{"ready", roomagent.LocalAgentRuntimeStatus{ComputerStatus: "online", Status: "ready", ConnectionStatus: "connected"}, httpapi.TenantAgentAvailabilityReasonOnline, "Online"},
+		{"unknown", roomagent.LocalAgentRuntimeStatus{Status: "unknown", ConnectionStatus: "unknown"}, httpapi.TenantAgentAvailabilityReasonStatusUnavailable, "Status unavailable"},
+		{"reconnecting", roomagent.LocalAgentRuntimeStatus{Status: "ready", ConnectionStatus: "reconnecting"}, httpapi.TenantAgentAvailabilityReasonReconnecting, "Reconnecting"},
+		{"sign-in", roomagent.LocalAgentRuntimeStatus{ComputerStatus: "online", Status: "authentication_required", ConnectionStatus: "connected"}, httpapi.TenantAgentAvailabilityReasonAuthenticationRequired, "Offline"},
+		{"computer offline", roomagent.LocalAgentRuntimeStatus{ComputerStatus: "offline", Status: "error", ConnectionStatus: "connected", ErrorCode: "LOCAL_COMPUTER_OFFLINE"}, httpapi.TenantAgentAvailabilityReasonWaitingForComputer, "Offline"},
+		{"not installed", roomagent.LocalAgentRuntimeStatus{ComputerStatus: "online", Status: "not_installed", ConnectionStatus: "connected"}, httpapi.TenantAgentAvailabilityReasonRuntimeNotInstalled, "Needs attention"},
+		{"incompatible", roomagent.LocalAgentRuntimeStatus{ComputerStatus: "online", Status: "incompatible", ConnectionStatus: "connected"}, httpapi.TenantAgentAvailabilityReasonRuntimeIncompatible, "Needs attention"},
+		{"error", roomagent.LocalAgentRuntimeStatus{ComputerStatus: "online", Status: "error", ConnectionStatus: "connected", Message: "Probe failed"}, httpapi.TenantAgentAvailabilityReasonRuntimeError, "Needs attention"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			projected := availabilityWithLocalRuntimeStatus(online, tc.status)
+			if projected.Reason == nil || *projected.Reason != tc.want || projected.Label != tc.label {
+				t.Fatalf("availability = %+v, reason = %v", projected, projected.Reason)
+			}
+			if !projected.Reason.Valid() {
+				t.Fatalf("reason %q is not in the contract enum", *projected.Reason)
+			}
+		})
+	}
+}

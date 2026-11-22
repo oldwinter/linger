@@ -18,7 +18,10 @@ type AgentToolConnection struct {
 	IdentityLabel        string
 	ToolkitSlug          string
 	UpstreamConnectionID string
-	Revision             int64
+	// RemoteTeamID is the workspace the connection was verified in, such as
+	// a Discord bot's server; empty when the app has none.
+	RemoteTeamID string
+	Revision     int64
 }
 
 func (s *Service) ListGrantedAgentToolConnectionsInTx(
@@ -32,7 +35,7 @@ func (s *Service) ListGrantedAgentToolConnectionsInTx(
 	rows, err := tx.Query(ctx, `
 		SELECT connection.account_id,connection.id,connection.provider,
 		       coalesce(connection.identity_label,''),coalesce(connection.toolkit_slug,''),
-		       connection.upstream_connection_id,connection.revision
+		       connection.upstream_connection_id,coalesce(connection.remote_team_id,''),connection.revision
 		FROM external_connection_agent_grants delegation
 		JOIN external_connections connection ON connection.id=delegation.connection_id
 		JOIN agent_registrations registration
@@ -63,7 +66,7 @@ func (s *Service) ListGrantedAgentToolConnectionsInTx(
 		var connection AgentToolConnection
 		if err := rows.Scan(
 			&connection.AccountID, &connection.ID, &connection.AppKey, &connection.IdentityLabel,
-			&connection.ToolkitSlug, &connection.UpstreamConnectionID, &connection.Revision,
+			&connection.ToolkitSlug, &connection.UpstreamConnectionID, &connection.RemoteTeamID, &connection.Revision,
 		); err != nil {
 			return nil, err
 		}
@@ -102,12 +105,12 @@ func (s *Service) LockGrantedAgentToolConnectionInTx(
 	var status string
 	if err := tx.QueryRow(ctx, `
 		SELECT account_id,id,provider,coalesce(identity_label,''),coalesce(toolkit_slug,''),
-		       upstream_connection_id,revision,status
+		       upstream_connection_id,coalesce(remote_team_id,''),revision,status
 		FROM external_connections
 		WHERE id=$1
 		FOR SHARE`, connectionID).Scan(
 		&connection.AccountID, &connection.ID, &connection.AppKey, &connection.IdentityLabel,
-		&connection.ToolkitSlug, &connection.UpstreamConnectionID, &connection.Revision, &status,
+		&connection.ToolkitSlug, &connection.UpstreamConnectionID, &connection.RemoteTeamID, &connection.Revision, &status,
 	); errors.Is(err, pgx.ErrNoRows) {
 		return AgentToolConnection{}, ErrNotFound
 	} else if err != nil {

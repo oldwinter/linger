@@ -246,4 +246,100 @@ describe("MessageForwardDialog", () => {
       expect(onClose).toHaveBeenCalledOnce();
     },
   );
+
+  it("filters live as the user types, keeps human labels on filtered chips, preserves selections across tabs, and excludes the current room", async () => {
+    const { runtime, onClose } = renderForwardDialog();
+    const forward = vi.fn<TestRouteHandler>(() => ({ items: [] }));
+    runtime.server.on("POST", forwardPath, forward);
+
+    const forwardButton = screen.getByRole("button", { name: "Forward" });
+    expect(forwardButton).toHaveClass("bg-primary");
+
+    const search = screen.getByRole("textbox", {
+      name: "Search forward targets",
+    });
+    await screen.findByRole("button", { name: /^Codex/u });
+
+    // Live filtering updates immediately on change without Enter or submit.
+    fireEvent.change(search, { target: { value: "Cod" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Codex/u }));
+
+    // Filtering out the selected target still keeps its readable label on the chip.
+    fireEvent.change(search, { target: { value: "no-such-target" } });
+    expect(screen.getByText("No matching agents.")).toBeVisible();
+    const selectedChips = screen.getByLabelText("Selected forward targets");
+    expect(selectedChips).toHaveTextContent("Codex");
+    expect(selectedChips).not.toHaveTextContent("actor-codex");
+
+    // Switching tabs preserves the Agent selection and excludes the current room.
+    fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+    fireEvent.click(screen.getByRole("button", { name: "Rooms" }));
+    await screen.findByRole("button", { name: /^gtm-launch\s*Select$/u });
+    expect(
+      screen.queryByRole("button", {
+        name: /^all\s*(Select|Selected|Forwarded)$/i,
+      }),
+    ).toBeNull();
+    expect(screen.getByLabelText("Selected forward targets")).toHaveTextContent(
+      "Codex",
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /^gtm-launch\s*Select$/u }),
+    );
+    fireEvent.click(forwardButton);
+
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+    const requests = await sentTargets(runtime);
+    expect(requests.map(({ body }) => body)).toEqual([
+      { target: { id: "actor-codex", kind: "agent" } },
+      { target: { id: "room-gtm-launch", kind: "room" } },
+    ]);
+  });
+
+  it("shows explicit loading and error states with retry for target lists", async () => {
+    const runtime = createTestTeamHubRuntime();
+    const message = runtime.seed.messagesByRoom.get("room-all")![0]!;
+    let failActors = true;
+    const pending = pendingResponse();
+    runtime.server.on("GET", "/v0/tenants/{tenantId}/actors", () => {
+      if (failActors) {
+        return pending.promise;
+      }
+      return Response.json({
+        items: runtime.seed.actors,
+        page: { has_more: false },
+      });
+    });
+
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <MessageForwardDialog
+          client={runtime.client}
+          message={message}
+          onClose={vi.fn()}
+          tenantId={message.tenant_id}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent("Loading agents...");
+
+    await act(async () => {
+      pending.resolve(teamHubErrorResponse(503, "SERVICE_UNAVAILABLE"));
+    });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Agents could not be loaded.",
+    );
+    failActors = false;
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(
+      await screen.findByRole("button", { name: /^Codex/u }),
+    ).toBeVisible();
+  });
 });

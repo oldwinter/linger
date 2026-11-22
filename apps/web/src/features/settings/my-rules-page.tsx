@@ -78,6 +78,8 @@ export function MyRulesPage() {
     }
   }
 
+  const pendingCommand = command.isPending ? command.variables : undefined;
+
   return (
     <div className="mx-auto flex w-full max-w-(--app-settings-width) flex-col gap-8 pb-4">
       <SettingsPageHeading
@@ -87,9 +89,12 @@ export function MyRulesPage() {
       {identity.data ? (
         <section
           aria-labelledby="my-rules-quiet"
-          className="flex flex-col gap-3"
+          className="flex flex-col gap-3 rounded-2xl border border-border bg-background p-6"
         >
-          <h2 className="text-sm text-foreground" id="my-rules-quiet">
+          <h2
+            className="text-sm font-medium text-foreground"
+            id="my-rules-quiet"
+          >
             Reminders on this computer
           </h2>
           <QuietRemindersControl
@@ -99,11 +104,16 @@ export function MyRulesPage() {
         </section>
       ) : null}
       {rules.isPending ? (
-        <div aria-busy="true" aria-label="Loading rules" role="status">
+        <div
+          aria-busy="true"
+          aria-label="Loading rules"
+          className="rounded-2xl border border-border bg-background p-6"
+          role="status"
+        >
           <Skeleton className="h-40 w-full" />
         </div>
       ) : rules.isError ? (
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-border bg-background p-6">
           <p className="text-sm text-destructive" role="alert">
             Rules could not be loaded.
           </p>
@@ -119,16 +129,13 @@ export function MyRulesPage() {
         <RuleBook
           book={rules.data}
           busy={command.isPending}
+          commandError={command.isError}
           onCommand={executeCommand}
+          pendingCommand={pendingCommand}
           reviewPath={`/t/${encodeURIComponent(tenantId)}/settings/my-rules/review`}
           tenantId={tenantId}
         />
       )}
-      {command.isError ? (
-        <p className="text-sm text-destructive" role="alert">
-          The change was not saved. Try again.
-        </p>
-      ) : null}
     </div>
   );
 }
@@ -136,13 +143,17 @@ export function MyRulesPage() {
 function RuleBook({
   book,
   busy,
+  commandError,
   onCommand,
+  pendingCommand,
   reviewPath,
   tenantId,
 }: {
   book: TeamHubProactiveRuleBook;
   busy: boolean;
+  commandError: boolean;
   onCommand: (input: MyRulesCommand) => Promise<boolean>;
+  pendingCommand?: MyRulesCommand;
   reviewPath: string;
   tenantId: string;
 }) {
@@ -150,9 +161,15 @@ function RuleBook({
   const shadowCount = shadowRuleIds(book).length;
   return (
     <>
-      <section aria-labelledby="my-rules-rules" className="flex flex-col gap-3">
+      <section
+        aria-labelledby="my-rules-rules"
+        className="flex flex-col gap-3 rounded-2xl border border-border bg-background p-6"
+      >
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-sm text-foreground" id="my-rules-rules">
+          <h2
+            className="text-sm font-medium text-foreground"
+            id="my-rules-rules"
+          >
             Rules
           </h2>
           {shadowCount > 0 ? (
@@ -164,13 +181,18 @@ function RuleBook({
             </Link>
           ) : null}
         </div>
+        {commandError ? (
+          <p className="text-sm text-destructive" role="alert">
+            The change was not saved. Try again.
+          </p>
+        ) : null}
         {book.rules.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             No rules yet. When you tell Another Me how you want a kind of thing
             handled, it learns a rule that night.
           </p>
         ) : (
-          <ul className="flex flex-col divide-y divide-border rounded-2xl border border-border bg-background">
+          <ul className="flex flex-col divide-y divide-border">
             {book.rules.map((rule) => (
               <RuleRow
                 armed={armedRuleId === rule.id}
@@ -189,6 +211,11 @@ function RuleBook({
                     current === rule.id ? null : current,
                   )
                 }
+                pendingAction={
+                  pendingCommand?.ruleId === rule.id
+                    ? pendingCommand.kind
+                    : undefined
+                }
                 rule={rule}
                 tenantId={tenantId}
               />
@@ -196,12 +223,18 @@ function RuleBook({
           </ul>
         )}
       </section>
-      <section aria-labelledby="my-rules-clues" className="flex flex-col gap-3">
+      <section
+        aria-labelledby="my-rules-clues"
+        className="flex flex-col gap-3 rounded-2xl border border-border bg-background p-6"
+      >
         <div>
-          <h2 className="text-sm text-foreground" id="my-rules-clues">
+          <h2
+            className="text-sm font-medium text-foreground"
+            id="my-rules-clues"
+          >
             Clues
           </h2>
-          <p className="text-sm text-muted-foreground">
+          <p className="mt-1 text-sm text-muted-foreground">
             Hints from single replies. A clue never decides; once the same kind
             shows up again, it becomes a rule.
           </p>
@@ -209,10 +242,10 @@ function RuleBook({
         {book.clues.length === 0 ? (
           <p className="text-sm text-muted-foreground">No clues right now.</p>
         ) : (
-          <ul className="flex flex-col divide-y divide-border rounded-2xl border border-border bg-background">
+          <ul className="flex flex-col divide-y divide-border">
             {book.clues.map((clue) => (
               <li
-                className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 text-sm"
+                className="flex flex-wrap items-center gap-x-3 gap-y-1 py-3 first:pt-1 last:pb-0 text-sm"
                 key={`${clue.matter}\u0000${clue.kind}`}
               >
                 <span className="text-foreground">{clue.matter}</span>
@@ -239,6 +272,7 @@ function RuleRow({
   onArm,
   onCommand,
   onDisarm,
+  pendingAction,
   rule,
   tenantId,
 }: {
@@ -249,6 +283,7 @@ function RuleRow({
   onArm: () => void;
   onCommand: (input: MyRulesCommand) => Promise<boolean>;
   onDisarm: () => void;
+  pendingAction?: MyRulesCommand["kind"];
   rule: TeamHubProactiveRule;
   tenantId: string;
 }) {
@@ -277,7 +312,10 @@ function RuleRow({
   };
 
   return (
-    <li aria-label={rule.text} className="flex flex-col gap-2 px-4 py-3">
+    <li
+      aria-label={rule.text}
+      className="flex flex-col gap-2 py-3 first:pt-1 last:pb-0"
+    >
       {draft === null ? (
         <div className="flex flex-wrap items-center gap-2">
           <span className="min-w-0 flex-1 text-sm break-words text-foreground">
@@ -302,19 +340,23 @@ function RuleRow({
             {shadow ? (
               <Button
                 disabled={busy}
+                loading={pendingAction === "promote"}
                 onClick={() =>
                   void onCommand({ kind: "promote", ruleId: rule.id })
                 }
                 size="compact"
                 tone="subtle"
               >
-                <Icon icon={ArrowUp02Icon} size={14} />
+                {pendingAction === "promote" ? null : (
+                  <Icon icon={ArrowUp02Icon} size={14} />
+                )}
                 Promote
               </Button>
             ) : null}
             <Button
               aria-label={rule.pinned ? "Unpin rule" : "Pin rule"}
               disabled={busy}
+              loading={pendingAction === "pin"}
               onClick={() =>
                 void onCommand({
                   kind: "pin",
@@ -390,6 +432,7 @@ function RuleRow({
             </Button>
             <Button
               disabled={busy || !draft.trim()}
+              loading={pendingAction === "edit"}
               tone="primary"
               type="submit"
             >
@@ -408,13 +451,19 @@ function RuleRow({
           <Button
             aria-label="Confirm delete rule"
             disabled={busy}
+            loading={pendingAction === "delete"}
             onClick={confirmDelete}
             size="compact"
             tone="danger"
           >
             Confirm
           </Button>
-          <Button onClick={onDisarm} size="compact" tone="ghost">
+          <Button
+            disabled={busy}
+            onClick={onDisarm}
+            size="compact"
+            tone="ghost"
+          >
             Cancel
           </Button>
         </div>

@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { keyboardShortcutGroups } from "./keyboard-shortcuts";
 import { ShortcutsSettingsPage } from "./shortcuts-settings-page";
@@ -36,7 +36,15 @@ describe("Shortcuts settings page", () => {
     const searchbox = screen.getByRole("searchbox", {
       name: "Filter shortcuts",
     });
-    fireEvent.change(searchbox, { target: { value: "meeting" } });
+    const searchIcon = searchbox.closest("label")?.querySelector("svg");
+    expect(searchIcon).toHaveAttribute("width", "16");
+    expect(searchIcon).toHaveAttribute("height", "16");
+    fireEvent.change(searchbox, { target: { value: "recording" } });
+    const clearIcon = screen
+      .getByRole("button", { name: "Clear shortcuts filter" })
+      .querySelector("svg");
+    expect(clearIcon).toHaveAttribute("width", "14");
+    expect(clearIcon).toHaveAttribute("height", "14");
     expect(
       screen.getByRole("heading", { level: 2, name: "Meeting audio player" }),
     ).toBeVisible();
@@ -77,5 +85,51 @@ describe("Shortcuts settings page", () => {
     expect(
       within(stage).getByText("Works while the search dialog has focus."),
     ).toBeVisible();
+  });
+
+  it("captures and stops rehearsed shortcuts before page handlers or scrolling run", () => {
+    render(<ShortcutsSettingsPage />);
+    const stage = screen.getByRole("region", { name: "Shortcut you pressed" });
+    const bubbleListener = vi.fn();
+    document.body.addEventListener("keydown", bubbleListener);
+    try {
+      const cmdK = new KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        key: "k",
+        metaKey: true,
+      });
+      fireEvent(document.body, cmdK);
+      expect(cmdK.defaultPrevented).toBe(true);
+      expect(bubbleListener).not.toHaveBeenCalled();
+      expect(within(stage).getByText("Open search")).toBeVisible();
+
+      const cmdJ = new KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        key: "j",
+        metaKey: true,
+      });
+      fireEvent(document.body, cmdJ);
+      expect(cmdJ.defaultPrevented).toBe(true);
+      expect(bubbleListener).not.toHaveBeenCalled();
+      expect(
+        within(stage).getByText("Jump to a room, meeting, or library place"),
+      ).toBeVisible();
+
+      const space = new KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        key: " ",
+      });
+      fireEvent(document.body, space);
+      expect(space.defaultPrevented).toBe(true);
+      expect(bubbleListener).not.toHaveBeenCalled();
+      expect(
+        within(stage).getByText("Play or pause the Meeting recording"),
+      ).toBeVisible();
+    } finally {
+      document.body.removeEventListener("keydown", bubbleListener);
+    }
   });
 });

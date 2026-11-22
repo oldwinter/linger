@@ -1,6 +1,9 @@
 import { type ComponentProps, useEffect, useMemo, useState } from "react";
 
 import { isRunWorking } from "@/features/teamhub/run-status";
+import { useT, useTranslation } from "@/i18n/use-translation";
+
+import { chatMessages } from "./chat.messages";
 
 import { EarlierConversationBar } from "./earlier-conversation-bar";
 import {
@@ -31,6 +34,7 @@ export function RoomChatTimelineSection({
   data,
   state,
 }: RoomChatTimelineSectionProps) {
+  const translation = useTranslation();
   const {
     actorItems,
     linkedInTimeline,
@@ -107,7 +111,7 @@ export function RoomChatTimelineSection({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <EarlierConversationBar
-        beganAt={beganAt ? formatMessageTime(beganAt) : undefined}
+        beganAt={beganAt ? formatMessageTime(beganAt, translation) : undefined}
         canGoEarlier={earlierEnd !== undefined}
         onEarlier={() => {
           if (earlierEnd) setAsOf(earlierEnd);
@@ -188,6 +192,20 @@ export function RoomChatTimelineSection({
             ? undefined
             : interactions.stageQuoteReply
         }
+        onRestoreToDraft={async (clientId) => {
+          const pending = conversation.pendingMessages.find(
+            (item) => item.clientId === clientId,
+          );
+          if (!pending || !interactions.composerRef.current) return;
+          interactions.composerRef.current.restoreDraft({
+            body: pending.body,
+            mentions: pending.mentions,
+          });
+          if (pending.contextMessages.length) {
+            interactions.holdReply(pending.contextMessages[0]!);
+          }
+          await delivery.cancelMessage(clientId);
+        }}
         onRetry={delivery.retryMessage}
         pendingMessages={conversation.pendingMessages}
         presentations={actions.resolvedPresentations}
@@ -242,6 +260,7 @@ function RoomTimelineViewport({
   viewportRef,
   ...timelineProps
 }: RoomTimelineViewportProps) {
+  const t = useT();
   const agreed = useMemo(() => {
     const memberIds = timelineProps.memberActorIds;
     const actorKinds = timelineProps.actorKinds;
@@ -257,7 +276,7 @@ function RoomTimelineViewport({
     <div className="relative flex min-h-0 flex-1 flex-col">
       {agreed ? <RoomAgreedLine message={agreed} /> : null}
       <div
-        aria-label="Room timeline"
+        aria-label={t(chatMessages.roomTimeline)}
         data-voice-scroll="main"
         className={`room-timeline workspace-scrollbar flex flex-1 flex-col overflow-y-scroll [overflow-anchor:none] ${
           initialScrollReady ? "" : "invisible"

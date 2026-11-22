@@ -1,9 +1,10 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { describe, expect, it } from "vitest";
 
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
+import { teamHubErrorResponse } from "@/test/teamhub-test-server";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
 
 import { WorkMovesPage } from "./work-moves-page";
@@ -57,6 +58,60 @@ describe("WorkMovesPage", () => {
 
   it("says when the room has no collaboration plan", async () => {
     renderPage("room-quiet");
+    expect(
+      await screen.findByText(
+        "No collaboration plan yet. When an agent publishes one, the path shows up here.",
+      ),
+    ).toBeVisible();
+  });
+
+  it("uses a semantic section with Back to room at the top and offers Retry on load error", async () => {
+    const runtime = createTestTeamHubRuntime();
+    let fail = true;
+    runtime.server.on("GET", "/v0/rooms/{roomId}/team-md", () => {
+      if (fail) {
+        fail = false;
+        return teamHubErrorResponse(503, "TEAM_MD_UNAVAILABLE");
+      }
+      return teamHubErrorResponse(404, "NOT_FOUND");
+    });
+    const router = createMemoryRouter(
+      [
+        {
+          element: <WorkMovesPage />,
+          path: "/t/:tenantId/rooms/:roomId/how-work-moves",
+        },
+      ],
+      {
+        initialEntries: ["/t/tenant-northstar/rooms/room-quiet/how-work-moves"],
+      },
+    );
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <TeamHubRuntimeProvider runtime={runtime}>
+          <RouterProvider router={router} />
+        </TeamHubRuntimeProvider>
+      </QueryClientProvider>,
+    );
+
+    const heading = await screen.findByRole("heading", {
+      level: 2,
+      name: "How work moves",
+    });
+    expect(screen.queryByRole("main")).toBeNull();
+    const back = screen.getByRole("link", { name: "Back to room" });
+    expect(
+      back.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "How work moves could not be loaded.",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(
       await screen.findByText(
         "No collaboration plan yet. When an agent publishes one, the path shows up here.",

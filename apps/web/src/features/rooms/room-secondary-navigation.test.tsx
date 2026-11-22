@@ -37,6 +37,7 @@ import {
 } from "./another-me-quiet";
 import * as avatarImages from "./members/actor-avatar-image";
 import { writeRoomComposerDraft, type RoomComposerDraft } from "./room-drafts";
+import { writeCatchUpWalk } from "./catch-up";
 import { clearRoomUnreadFilter } from "./room-unread-filter";
 import { RoomSecondaryNavigation } from "./room-secondary-navigation";
 import { tenantRoomsQueryKey } from "./room-queries";
@@ -91,6 +92,12 @@ describe("RoomSecondaryNavigation attention", () => {
 
     const recap = screen.getByRole("region", { name: "While you were away" });
     expect(recap).toHaveTextContent("3 new messages in 1 room, 1 mention");
+    // Catch up lives inside the recap card while it is open instead of stacking
+    // a second standalone banner above it.
+    expect(screen.getAllByRole("link", { name: /^Catch up/ })).toHaveLength(1);
+    expect(
+      within(recap).getByRole("link", { name: "Catch up, 2 chats" }),
+    ).toHaveAttribute("href", "/t/tenant-a/rooms/catch-up");
     const messages = screen
       .getByRole("heading", { name: "Messages" })
       .closest("section")!;
@@ -98,6 +105,52 @@ describe("RoomSecondaryNavigation attention", () => {
       recap.compareDocumentPosition(messages) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+
+    fireEvent.click(
+      within(recap).getByRole("button", { name: "Dismiss recap" }),
+    );
+    expect(
+      screen.queryByRole("region", { name: "While you were away" }),
+    ).not.toBeInTheDocument();
+    // Dismissing the recap leaves the standalone Catch up link available.
+    expect(
+      screen.getByRole("link", { name: "Catch up, 2 chats" }),
+    ).toHaveAttribute("href", "/t/tenant-a/rooms/catch-up");
+  });
+
+  it("compacts Jump anywhere, Who is awake, and Surprise me into one shortcut row", () => {
+    render(
+      <MemoryRouter initialEntries={["/t/tenant-a/rooms/room-active/chat"]}>
+        <Routes>
+          <Route
+            element={
+              <RoomSecondaryNavigation
+                onCloseMobile={() => undefined}
+                onCreateRoom={() => undefined}
+                rooms={[room("room-active", 0, 0)]}
+                tenant={{
+                  created_at: "2026-07-24T09:00:00Z",
+                  id: "tenant-a",
+                  name: "Northstar",
+                }}
+              />
+            }
+            path="/t/:tenantId/rooms/:roomId/chat"
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    const shortcuts = screen.getByRole("group", { name: "Room shortcuts" });
+    expect(
+      within(shortcuts).getByRole("link", { name: "Jump anywhere" }),
+    ).toHaveAttribute("href", "/t/tenant-a/jump");
+    expect(
+      within(shortcuts).getByRole("link", { name: "Who is awake" }),
+    ).toHaveAttribute("href", "/t/tenant-a/awake");
+    expect(
+      within(shortcuts).getByRole("link", { name: "Surprise me" }),
+    ).toHaveAttribute("href", "/t/tenant-a/surprise");
   });
 
   it("shows newly created Agents and Rooms first after updates and reloads", () => {
@@ -301,6 +354,60 @@ describe("RoomSecondaryNavigation attention", () => {
       "href",
       "/t/tenant-a/rooms/catch-up",
     );
+  });
+
+  it("keeps Resume catch up visible when all unread badges cleared during an unfinished walk", () => {
+    window.sessionStorage.clear();
+    writeCatchUpWalk("account-jenny", "tenant-a", {
+      index: 0,
+      rooms: [
+        {
+          id: "room-active",
+          name: "Active",
+          preview: "Done",
+          unreadMentions: 0,
+          unreadMessages: 1,
+        },
+      ],
+    });
+    try {
+      render(
+        <TeamHubRuntimeProvider runtime={liveRuntime()}>
+          <MemoryRouter initialEntries={["/t/tenant-a/rooms/room-active/chat"]}>
+            <Routes>
+              <Route
+                element={
+                  <RoomSecondaryNavigation
+                    accountId="account-jenny"
+                    onCloseMobile={() => undefined}
+                    onCreateRoom={() => undefined}
+                    rooms={[room("room-active", 0, 0)]}
+                    tenant={{
+                      created_at: "2026-07-24T09:00:00Z",
+                      id: "tenant-a",
+                      name: "Northstar",
+                    }}
+                  />
+                }
+                path="/t/:tenantId/rooms/:roomId/chat"
+              />
+            </Routes>
+          </MemoryRouter>
+        </TeamHubRuntimeProvider>,
+      );
+
+      const resume = screen.getByRole("link", {
+        name: "Resume catch up, 1 chat left",
+      });
+      expect(resume).toHaveAttribute("href", "/t/tenant-a/rooms/catch-up");
+      expect(resume).toHaveTextContent("Resume catch up");
+      expect(screen.getByRole("button", { name: "All" })).toHaveClass(
+        "bg-primary",
+        "text-primary-foreground",
+      );
+    } finally {
+      window.sessionStorage.clear();
+    }
   });
 
   it("keeps a Mention visible when the Room has no unread Messages", () => {
@@ -621,6 +728,12 @@ describe("Room navigation working indicator", () => {
         { name: "Agent working" },
       ),
     ).not.toBeInTheDocument();
+    // Idle rows reserve no empty status slot or wrapper.
+    expect(
+      screen
+        .getByRole("link", { name: "room-idle" })
+        .querySelector(".row-reveal-hide"),
+    ).toBeNull();
     expect(screen.getByLabelText("1 unread mention")).toBeVisible();
     rerender(renderNavigation([direct.id]));
     expect(
@@ -629,6 +742,10 @@ describe("Room navigation working indicator", () => {
         { name: "Agent working" },
       ),
     ).not.toBeInTheDocument();
+    // An idle unread row keeps its unread pill without reserving a 16px status slot.
+    expect(
+      screen.getByRole("link", { name: group.name }).querySelector(".size-4"),
+    ).toBeNull();
     expect(screen.getByRole("img", { name: "Agent working" })).toBeVisible();
     rerender(renderNavigation([]));
     expect(
@@ -824,11 +941,11 @@ describe("Room navigation working indicator", () => {
 
 describe("Another Me card", () => {
   it.each([
-    ["FFFFFF", "#1a1a16", "0.82"],
-    ["8DA488", "#1a1a16", "1"],
-    ["010101", "#fff", "0.82"],
-    ["777777", "#1a1a16", "1"],
-    ["6E3CED", "#fff", "1"],
+    ["FFFFFF", "var(--app-ink)", "0.82"],
+    ["8DA488", "var(--app-ink)", "1"],
+    ["010101", "var(--app-surface)", "0.82"],
+    ["777777", "var(--app-ink)", "1"],
+    ["6E3CED", "var(--app-surface)", "1"],
   ])("keeps text readable on avatar background %s", (color, text, opacity) => {
     const record = vi
       .spyOn(avatarImages, "useAgentAvatarRecord")
@@ -852,7 +969,7 @@ describe("Another Me card", () => {
         </MemoryRouter>,
       );
       const card = screen.getByRole("link", {
-        name: "Another Me Chat",
+        name: "Codex chat",
       }).parentElement!;
       expect(card.style.getPropertyValue("--am-brand")).toBe(`#${color}`);
       expect(card.style.getPropertyValue("--am-text")).toBe(text);
@@ -897,7 +1014,8 @@ describe("Another Me card", () => {
         />
       </MemoryRouter>
     );
-    const card = () => screen.getByRole("link", { name: "Another Me Chat" });
+    const card = () =>
+      screen.getByRole("link", { name: "Jenny's Delegate chat" });
 
     const { rerender } = render(renderCard({ running: [anotherMe.id] }));
     expect(card().parentElement).not.toHaveAttribute("data-active");
@@ -993,7 +1111,8 @@ describe("Another Me before its Computer connects", () => {
 
   it("shows no Another Me until it exists", () => {
     renderWithAnotherMe({});
-    expect(screen.queryByRole("link", { name: "Another Me Chat" })).toBeNull();
+    expect(document.querySelector(".another-me-card")).toBeNull();
+    expect(screen.queryByRole("link", { name: /chat$/i })).toBeNull();
     expect(screen.queryByRole("status")).toBeNull();
   });
 
@@ -1003,7 +1122,7 @@ describe("Another Me before its Computer connects", () => {
       { agent_actor_id: anotherMe.direct_peer!.id, room_id: anotherMe.id },
       [anotherMe],
     );
-    expect(screen.getByRole("link", { name: "Another Me Chat" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "Codex chat" })).toBeVisible();
   });
 
   it("shows a quiet hold on the Another Me card and in the toolbar", () => {
@@ -1016,9 +1135,9 @@ describe("Another Me before its Computer connects", () => {
       [anotherMe],
       "account-jenny",
     );
-    expect(
-      screen.getByRole("link", { name: "Another Me Chat" }),
-    ).toHaveTextContent(label);
+    expect(screen.getByRole("link", { name: "Codex chat" })).toHaveTextContent(
+      label,
+    );
     expect(screen.getByRole("button", { name: label })).toBeVisible();
     localStorage.clear();
   });

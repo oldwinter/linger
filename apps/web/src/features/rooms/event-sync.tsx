@@ -146,6 +146,8 @@ async function applyInvalidation(
           // Room rows carry their Direct peer's name, so a renamed Actor
           // renames its Chat row too.
           tenantRoomsQueryKey(tenantId),
+          // Local models views list which Agents use each model.
+          tenantLocalModelsQueryKey(tenantId),
           ...findQueryKeys(
             queryClient,
             (queryKey) =>

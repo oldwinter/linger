@@ -1,26 +1,15 @@
 import { isRecord } from "@linger/service-kit";
-import type { RunKind } from "../../model-tasks.js";
+import { runPriorities, type RunKind } from "../../model-tasks.js";
 import type { ExecutionContextRef } from "./context-ref.js";
+import type { RuntimeStateSchemas } from "./teamhub-runtime-state-client.js";
 import type { Message } from "./types.js";
 
 /** The fields of one queued Inbox Message that say what it is. */
 interface QueuedMessageOrigin {
-  readonly authorType?: "agent" | "user";
+  readonly authorType?: string;
   readonly messageKind?: string;
-  readonly firedRoutine?: true;
+  readonly firedRoutine?: boolean;
 }
-
-/** Most likely waited on first. */
-const byWaiting: readonly RunKind[] = [
-  "chat",
-  "document",
-  "agent_message",
-  "task_callback",
-  "task",
-  "follow_up",
-  "routine",
-  "proactive",
-];
 
 function messageRunKind(origin: QueuedMessageOrigin): RunKind {
   if (origin.messageKind === "agent_runtime")
@@ -46,20 +35,36 @@ function inputRunKinds(message: Message): readonly RunKind[] {
     : ["chat"];
 }
 
-/**
- * What queued a Run, for its log; every Run has the same model queue
- * priority. A Run that merges inputs of several kinds takes the one someone
- * is most likely waiting on.
- */
+/** Classifies the compact TeamHub projection with the same policy used after claim. */
+export function queuedMetaRunKind(
+  origins: readonly RuntimeStateSchemas["AgentRunInputOrigin"][],
+): RunKind {
+  return highestKind(
+    origins.map((origin) => {
+      if (!origin.notification) return "follow_up";
+      if (origin.task_inbox) return "task_callback";
+      return messageRunKind({
+        authorType: origin.author_type,
+        messageKind: origin.message_kind,
+        firedRoutine: origin.fired_routine,
+      });
+    }),
+  );
+}
+
+function highestKind(kinds: readonly RunKind[]): RunKind {
+  return kinds.length
+    ? kinds.reduce((best, kind) =>
+        runPriorities[kind] < runPriorities[best] ? kind : best,
+      )
+    : "follow_up";
+}
+
 export function runKind(
   ref: ExecutionContextRef | undefined,
   messages: readonly Message[],
 ): RunKind {
   if (ref?.kind === "document") return "document";
   if (ref?.kind === "alter_ego") return "task";
-  return messages
-    .flatMap(inputRunKinds)
-    .reduce((best, kind) =>
-      byWaiting.indexOf(kind) < byWaiting.indexOf(best) ? kind : best,
-    );
+  return highestKind(messages.flatMap(inputRunKinds));
 }

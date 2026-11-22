@@ -6,6 +6,9 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import type { TeamHubActorRef } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import { formatLocale, translate } from "@/i18n/language";
+import { useT, useTranslation } from "@/i18n/use-translation";
 import { MessageMarkdown } from "../chat/message-markdown";
 import { ActorAvatar } from "../members/actor-avatar";
 
@@ -15,6 +18,7 @@ import {
 } from "./room-document-comment-body";
 import type { TeamHubDocumentThreadStore } from "./room-document-comments";
 import { DocumentMentionMessageComposer } from "./room-document-comment-composer";
+import { documentCommentsMessages as m } from "./document-comments.messages";
 
 export function RoomDocumentCommentRow({
   actors,
@@ -29,11 +33,12 @@ export function RoomDocumentCommentRow({
   threadId: string;
   threadStore: TeamHubDocumentThreadStore;
 }) {
+  const { language, t } = useTranslation();
   const [editing, setEditing] = useState(false);
   const author = (comment.metadata as { author?: TeamHubActorRef } | undefined)
     ?.author;
   const actor = author ?? actors.get(comment.userId);
-  const authorName = actor?.display_name || "Unknown author";
+  const authorName = actor?.display_name || t(m.unknownAuthor);
   const composition = comment.body
     ? commentCompositionFromBody(comment.body, [
         ...actors.values(),
@@ -62,16 +67,17 @@ export function RoomDocumentCommentRow({
         <div className="room-document-comment-meta">
           <strong title={authorName}>{authorName}</strong>
           <time dateTime={comment.createdAt.toISOString()}>
-            {formatDateTime(comment.createdAt, {
-              day: "numeric",
-              month: "short",
-            })}
+            {formatDateTime(
+              comment.createdAt,
+              { day: "numeric", month: "short" },
+              formatLocale(language),
+            )}
           </time>
         </div>
         {editing && composition ? (
           <div className="room-document-comment-edit">
             <DocumentMentionMessageComposer
-              ariaLabel={`Edit comment by ${authorName}`}
+              ariaLabel={t(m.editCommentBy, { name: authorName })}
               // eslint-disable-next-line jsx-a11y/no-autofocus -- the field is focused on purpose because the user just opened this dialog or inline editor
               autoFocus
               initialMentions={composition.mentions}
@@ -79,8 +85,8 @@ export function RoomDocumentCommentRow({
               mentionOptions={mentionOptions}
               onCancel={() => setEditing(false)}
               onSubmit={(next) => save(commentBodyFromComposition(next))}
-              placeholder="Edit comment"
-              submitLabel="Confirm"
+              placeholder={t(m.editComment)}
+              submitLabel={t(m.confirm)}
             />
           </div>
         ) : (
@@ -116,6 +122,7 @@ function CommentActions({
   threadId: string;
   threadStore: TeamHubDocumentThreadStore;
 }) {
+  const t = useT();
   const [error, setError] = useState<string>();
 
   async function remove() {
@@ -124,7 +131,7 @@ function CommentActions({
       await threadStore.deleteComment({ commentId: comment.id, threadId });
     } catch (cause) {
       setError(
-        cause instanceof Error ? cause.message : "Comment action failed",
+        cause instanceof Error ? cause.message : translate(m.actionFailed),
       );
     }
   }
@@ -134,13 +141,13 @@ function CommentActions({
       <div className="room-document-comment-actions">
         {threadStore.auth.canUpdateComment(comment) ? (
           <Button
-            aria-label="Edit comment"
+            aria-label={t(m.editComment)}
             onClick={(event) => {
               event.stopPropagation();
               onEdit();
             }}
             size="compactIcon"
-            title="Edit"
+            title={t(commonMessages.edit)}
             tone="ghost"
           >
             <Icon icon={PencilEdit01Icon} size={14} />
@@ -148,10 +155,11 @@ function CommentActions({
         ) : null}
         {threadStore.auth.canDeleteComment(comment) ? (
           <Button
-            aria-label="Delete comment"
+            aria-label={t(m.deleteComment)}
+            data-voice-risk="never"
             onClick={() => void remove()}
             size="compactIcon"
-            title="Delete"
+            title={t(commonMessages.delete)}
             tone="ghost"
           >
             <Icon icon={Delete02Icon} size={14} />

@@ -2,11 +2,15 @@ import type { TeamHubLocalRuntimeType } from "@/features/teamhub/teamhub-types";
 
 import type { ComputerPlatform } from "./computer-platform";
 
-/** The command that signs in to each AI app; Pi signs in with /login inside it. */
+/**
+ * The command that signs in to each AI app; Pi signs in with /login inside it,
+ * and Antigravity opens its Google sign-in on its first start.
+ */
 export const loginCommands = {
   codex: "codex login",
   claude: "claude auth login",
   pi: "pi",
+  antigravity: "agy",
 } satisfies Record<TeamHubLocalRuntimeType, string>;
 
 // Local Computer finds these installs in its default search folders
@@ -19,6 +23,10 @@ export function installCommand(
     return platform === "win32"
       ? "irm https://claude.ai/install.ps1 | iex"
       : "curl -fsSL https://claude.ai/install.sh | bash";
+  if (runtimeType === "antigravity")
+    return platform === "win32"
+      ? "irm https://antigravity.google/cli/install.ps1 | iex"
+      : "curl -fsSL https://antigravity.google/cli/install.sh | bash";
   return runtimeType === "codex"
     ? "npm install -g @openai/codex"
     : "npm install -g @earendil-works/pi-coding-agent";

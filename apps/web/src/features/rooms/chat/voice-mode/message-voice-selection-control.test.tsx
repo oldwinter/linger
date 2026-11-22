@@ -1,6 +1,13 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { useState } from "react";
+import { fireEvent, render as renderUi, screen } from "@testing-library/react";
+import { useState, type ReactElement, type ReactNode } from "react";
+
+import { defineGlobalProperty } from "@/test/global-properties";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import {
+  VoiceMaterialsContext,
+  type VoiceMaterials,
+} from "./voice-materials-context";
 
 import { MessageVoiceSelectionControl } from "./message-voice-selection-control";
 
@@ -11,30 +18,47 @@ const context = vi.hoisted(() => ({
   addSelection: vi.fn(),
 }));
 
-vi.mock("./voice-materials-context", () => ({
-  useOptionalVoiceMaterials: () => (context.enabled ? context : undefined),
-}));
+// Read on every render, so a test configures the context before rendering.
+function VoiceMaterialsFromTest({ children }: { children: ReactNode }) {
+  return (
+    <VoiceMaterialsContext
+      value={
+        context.enabled ? (context as unknown as VoiceMaterials) : undefined
+      }
+    >
+      {children}
+    </VoiceMaterialsContext>
+  );
+}
+
+function render(ui: ReactElement) {
+  return renderUi(ui, { wrapper: VoiceMaterialsFromTest });
+}
 
 beforeEach(() => {
   // jsdom has no layout; place every selection at a fixed rectangle.
-  Element.prototype.getBoundingClientRect = () =>
-    ({
-      top: 0,
-      bottom: 800,
-      left: 0,
-      right: 1200,
-      width: 1200,
-      height: 800,
-    }) as DOMRect;
-  Range.prototype.getBoundingClientRect = () =>
-    ({
-      top: 100,
-      bottom: 120,
-      left: 40,
-      right: 200,
-      width: 160,
-      height: 20,
-    }) as DOMRect;
+  defineGlobalProperty(Element.prototype, "getBoundingClientRect", {
+    value: () =>
+      ({
+        top: 0,
+        bottom: 800,
+        left: 0,
+        right: 1200,
+        width: 1200,
+        height: 800,
+      }) as DOMRect,
+  });
+  defineGlobalProperty(Range.prototype, "getBoundingClientRect", {
+    value: () =>
+      ({
+        top: 100,
+        bottom: 120,
+        left: 40,
+        right: 200,
+        width: 160,
+        height: 20,
+      }) as DOMRect,
+  });
   context.enabled = true;
   context.voiceModeEntered = true;
   context.error = undefined;

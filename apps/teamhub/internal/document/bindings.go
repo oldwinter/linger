@@ -318,7 +318,7 @@ func compactUniqueStrings(values []string) []string {
 }
 
 func (s *Service) BindToWorkItem(ctx context.Context, input BindDocumentToWorkItemInput) (BindDocumentResult, error) {
-	return s.bindToContext(ctx, bindingCommandInput{
+	return s.bindToContext(ctx, s.pool, bindingCommandInput{
 		accountID: input.AccountID, documentID: input.DocumentID, contextID: input.WorkItemID,
 		idempotencyKey: input.IdempotencyKey, kind: "task", operation: "document.bind.task",
 	})
@@ -327,7 +327,15 @@ func (s *Service) BindToWorkItem(ctx context.Context, input BindDocumentToWorkIt
 // BindToPersonalWiki adds a Document to the caller's Wiki sources; binding a
 // bound source changes nothing.
 func (s *Service) BindToPersonalWiki(ctx context.Context, input BindDocumentToPersonalWikiInput) (BindDocumentResult, error) {
-	return s.bindToContext(ctx, bindingCommandInput{
+	return s.bindToPersonalWiki(ctx, s.pool, input)
+}
+
+func (s *Service) bindToPersonalWiki(
+	ctx context.Context,
+	starter transactionStarter,
+	input BindDocumentToPersonalWikiInput,
+) (BindDocumentResult, error) {
+	return s.bindToContext(ctx, starter, bindingCommandInput{
 		accountID: input.AccountID, documentID: input.DocumentID, tenantID: input.TenantID,
 		kind: "wiki_source", operation: "document.bind.wiki",
 	})
@@ -339,7 +347,13 @@ type bindingCommandInput struct {
 	accountID, documentID, contextID, tenantID, idempotencyKey, kind, operation string
 }
 
-func (s *Service) bindToContext(ctx context.Context, input bindingCommandInput) (BindDocumentResult, error) {
+// transactionStarter opens a binding's transaction: the pool, or a session
+// that already holds a lock the binding must run under.
+type transactionStarter interface {
+	BeginTx(context.Context, pgx.TxOptions) (pgx.Tx, error)
+}
+
+func (s *Service) bindToContext(ctx context.Context, starter transactionStarter, input bindingCommandInput) (BindDocumentResult, error) {
 	if input.accountID == "" || input.documentID == "" ||
 		len(input.idempotencyKey) > 128 || input.operation == "" ||
 		(input.kind != "task" && input.kind != "wiki_source") ||
@@ -348,7 +362,7 @@ func (s *Service) bindToContext(ctx context.Context, input bindingCommandInput) 
 		return BindDocumentResult{}, ErrInvalidInput
 	}
 	requestHash := bindingRequestHash(input)
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	tx, err := starter.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return BindDocumentResult{}, err
 	}

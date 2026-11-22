@@ -1,7 +1,8 @@
 import { operationHeaders, teamHubData } from "./http-client.js";
-import path from "node:path";
 import type {
+  CommandArguments,
   CommandDefinition,
+  CommandInputReader,
   NormalizedCommandInput,
 } from "./command-definition.js";
 import { reportInFinalReply } from "./command-definition.js";
@@ -25,6 +26,20 @@ const bodyOptions = {
     description: "Read the UTF-8 body from a regular file or - for stdin.",
   },
 };
+/**
+ * The text of an edit that replaces a run of text in place. A file or heredoc
+ * ends its last line with a line break that is not part of that text, and
+ * would make a str_replace invalid or split the replaced line.
+ */
+async function inlineReplacement(
+  args: CommandArguments,
+  reader: CommandInputReader,
+): Promise<string | undefined> {
+  const text = await markdownBodySource(args, reader);
+  return option(args, "--file") === undefined
+    ? text
+    : text?.replace(/\r?\n$/u, "");
+}
 const idPattern = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/u;
 const inputError = (message: string) => new CliError("invalid_input", message);
 function resource(value: unknown, kind: string): string {
@@ -400,7 +415,7 @@ export const documentCommandDefinitions: readonly CommandDefinition[] = [
       return {
         input: {
           name,
-          target_path: path.resolve(reader.cwd, filename),
+          target_path: reader.localPath(filename),
           ...(format === undefined ? {} : { format }),
           ...(option(args, "--raw") === undefined ? {} : { raw: true }),
         },
@@ -516,7 +531,10 @@ export const documentCommandDefinitions: readonly CommandDefinition[] = [
         if (value !== undefined) input[key] = value;
       }
       if (allowed.includes("--content"))
-        input.content = await markdownBodySource(args, reader);
+        input.content =
+          action === "str_replace"
+            ? await inlineReplacement(args, reader)
+            : await markdownBodySource(args, reader);
       const { editDocumentInputSchema } =
         await import("./domains/collaboration/tools/document-tools.js");
       return target(
@@ -596,7 +614,7 @@ export const documentCommandDefinitions: readonly CommandDefinition[] = [
       )
         throw inputError("Provide a tracked local working-copy path.");
       return target(
-        { document_id, file_path: path.resolve(reader.cwd, filename) },
+        { document_id, file_path: reader.localPath(filename) },
         "document",
         "document_id",
       );
@@ -743,7 +761,7 @@ export const documentCommandDefinitions: readonly CommandDefinition[] = [
       assertPositionals(args, 1);
       const input = {
         thread_id: args.positionals[0],
-        replace_str: await markdownBodySource(args, reader),
+        replace_str: await inlineReplacement(args, reader),
       };
       const { replaceDocumentCommentTextInputSchema } =
         await import("./domains/collaboration/tools/document-comment-tools.js");

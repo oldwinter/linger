@@ -4,11 +4,11 @@ import { useQuery } from "@tanstack/react-query";
 import {
   BookOpen01Icon,
   LeftToRightListBulletIcon,
-  Loading03Icon,
   RefreshIcon,
   SidebarLeftIcon,
 } from "@hugeicons/core-free-icons";
 import { Icon } from "@/components/ui/icon";
+import { Spinner } from "@/components/ui/spinner";
 import {
   useLayoutEffect,
   useRef,
@@ -17,6 +17,7 @@ import {
   type SyntheticEvent,
 } from "react";
 import {
+  Link,
   useLocation,
   useNavigate,
   useParams,
@@ -44,7 +45,8 @@ import {
 import { DocumentTableOfContents } from "@/components/document-table-of-contents";
 import { useDocumentAnchorLinks } from "@/components/document-anchor-links";
 import { resolveMemoryDocumentLink } from "./memory-document-links";
-import { Button } from "@/components/ui/button";
+import { Button, buttonClassName } from "@/components/ui/button";
+import { documentPageMessages } from "@/features/rooms/documents/document-page.messages";
 import {
   WORKSPACE_TREE_ID,
   useWorkspaceTree,
@@ -52,10 +54,14 @@ import {
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { useT } from "@/i18n/use-translation";
+
+import { meetingsMessages as m } from "./meetings.messages";
 
 /** One read-only meeting, named by the `entry` query of `/library/meetings`. */
 export function MeetingPage() {
   const { client } = useTeamHubRuntime();
+  const t = useT();
   const tenantId = requireRoomRouteParam(useParams().tenantId, "Tenant");
   const navigate = useNavigate();
   const location = useLocation();
@@ -97,18 +103,20 @@ export function MeetingPage() {
           <Button
             aria-controls={WORKSPACE_TREE_ID}
             aria-expanded={workspaceTree.open}
-            aria-label="Open Owned by Me"
+            aria-label={t(documentPageMessages.openLibraryPages)}
             className="sm:hidden"
             onClick={() => workspaceTree.setOpen(true)}
             size="icon"
-            title="Owned by Me"
+            title={t(documentPageMessages.libraryPages)}
             tone="ghost"
           >
             <Icon icon={SidebarLeftIcon} size={16} />
           </Button>
           <div className="flex items-center gap-2">
             <Icon icon={BookOpen01Icon} className="text-app-muted" size={16} />
-            <h1 className="text-[15px] font-semibold text-app-ink">Meetings</h1>
+            <h1 className="text-[15px] font-semibold text-app-ink">
+              {t(m.pageTitle)}
+            </h1>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -116,11 +124,11 @@ export function MeetingPage() {
             <Button
               aria-controls="meeting-table-of-contents"
               aria-expanded={tocOpen}
-              aria-label="Table of contents"
+              aria-label={t(m.tableOfContents)}
               aria-pressed={tocOpen}
               onClick={() => setTocOpen((value) => !value)}
               size="icon"
-              title="Table of contents"
+              title={t(m.tableOfContents)}
               tone="ghost"
             >
               <Icon icon={LeftToRightListBulletIcon} size={16} />
@@ -131,7 +139,7 @@ export function MeetingPage() {
 
       <div className="relative flex min-h-0 flex-1">
         <section
-          aria-label="Meeting content"
+          aria-label={t(m.content)}
           className="workspace-scrollbar min-h-0 min-w-0 flex-1 overflow-y-auto"
           data-meeting-scroll
           ref={contentRef}
@@ -145,22 +153,47 @@ export function MeetingPage() {
               {anchorLinks.error}
             </p>
           ) : null}
-          {listed && selected.isPending ? (
+          {meetings.isPending || (listed && selected.isPending) ? (
             <div
               aria-busy="true"
               className="flex min-h-[420px] items-center justify-center gap-2 text-sm text-app-muted"
+              role="status"
             >
-              <Icon icon={Loading03Icon} className="animate-spin" size={16} />
-              Loading meeting...
+              <Spinner size={16} />
+              {t(m.loadingMeeting)}
             </div>
-          ) : listed && selected.error ? (
+          ) : meetings.isError ? (
             <div
-              aria-label={selected.error.message || "Meeting is unavailable."}
+              aria-label={
+                meetings.error instanceof Error && meetings.error.message
+                  ? meetings.error.message
+                  : "Meetings are unavailable."
+              }
               className="mx-auto max-w-3xl px-6 py-10"
               role="alert"
             >
               <p className="text-sm text-app-danger">
-                {selected.error.message || "Meeting is unavailable."}
+                {meetings.error instanceof Error && meetings.error.message
+                  ? meetings.error.message
+                  : "Meetings are unavailable."}
+              </p>
+              <Button
+                className="mt-3"
+                onClick={() => void meetings.refetch()}
+                size="compact"
+                tone="secondary"
+              >
+                <Icon icon={RefreshIcon} size={14} /> Retry
+              </Button>
+            </div>
+          ) : listed && selected.error ? (
+            <div
+              aria-label={selected.error.message || t(m.unavailable)}
+              className="mx-auto max-w-3xl px-6 py-10"
+              role="alert"
+            >
+              <p className="text-sm text-app-danger">
+                {selected.error.message || t(m.unavailable)}
               </p>
               <Button
                 className="mt-3"
@@ -168,7 +201,7 @@ export function MeetingPage() {
                 size="compact"
                 tone="secondary"
               >
-                <Icon icon={RefreshIcon} size={14} /> Retry meeting
+                <Icon icon={RefreshIcon} size={14} /> {t(m.retryMeeting)}
               </Button>
             </div>
           ) : listed && selected.data?.meeting ? (
@@ -217,7 +250,25 @@ export function MeetingPage() {
               resolveLink={resolveMemoryDocumentLink}
               tenantId={tenantId}
             />
-          ) : null}
+          ) : (
+            <div className="mx-auto flex max-w-md flex-col items-start gap-3 px-6 py-12">
+              <h2 className="text-base font-medium text-app-ink">
+                Meeting not found
+              </h2>
+              <p className="text-sm text-app-muted">
+                This meeting may have been deleted or is no longer available.
+              </p>
+              <Link
+                className={buttonClassName({
+                  size: "compact",
+                  tone: "secondary",
+                })}
+                to={meetingsTabPath(tenantId, "week")}
+              >
+                Back to Meetings
+              </Link>
+            </div>
+          )}
         </section>
         {tocOpen && readable ? (
           <MeetingTableOfContents

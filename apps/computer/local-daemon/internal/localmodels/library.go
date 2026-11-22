@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -23,9 +24,12 @@ import (
 
 // Defaults for Options left zero.
 const (
-	defaultProgressInterval = 2 * time.Second
-	defaultStatusTimeout    = 2 * time.Minute
-	defaultActionTimeout    = 15 * time.Minute
+	defaultProgressInterval      = 2 * time.Second
+	defaultStatusTimeout         = 2 * time.Minute
+	defaultActionTimeout         = 15 * time.Minute
+	defaultEnsurePiTimeout       = 24 * time.Minute
+	defaultEnsurePiRetryInterval = 30 * time.Second
+	maxEnsurePiRetryInterval     = 5 * time.Minute
 	// maxRereadInterval bounds the backoff of status reads after failures.
 	maxRereadInterval = time.Minute
 	tailPollInterval  = 100 * time.Millisecond
@@ -40,6 +44,11 @@ type Options struct {
 	Environment map[string]string
 	// JobDirectory holds the output file of each running download or load.
 	JobDirectory string
+	// HarnessDirectory holds the on-demand Pi runtime provisioned when a
+	// local model is loaded on a Computer without Pi.
+	HarnessDirectory string
+	// NodePath is an optional local Node executable passed via --node to harness plan.
+	NodePath string
 	// Publish receives every new snapshot, in order. It is called only from
 	// Act and Refresh and the jobs they start.
 	Publish func(wire.LocalModelsSnapshot)
@@ -47,9 +56,11 @@ type Options struct {
 	// changes the model list Pi reports.
 	RuntimeChanged func()
 	// ProgressInterval bounds how often job progress is published.
-	ProgressInterval time.Duration
-	StatusTimeout    time.Duration
-	ActionTimeout    time.Duration
+	ProgressInterval      time.Duration
+	StatusTimeout         time.Duration
+	ActionTimeout         time.Duration
+	EnsurePiTimeout       time.Duration
+	EnsurePiRetryInterval time.Duration
 }
 
 // Library runs the localmodels tool for one Computer.
@@ -71,29 +82,45 @@ type Options struct {
 // reads the job records localmodels keeps on disk, and polls it while a job
 // it did not start is running.
 type Library struct {
-	tool             *Tool
-	environment      map[string]string
-	jobDirectory     string
-	publish          func(wire.LocalModelsSnapshot)
-	runtimeChanged   func()
-	progressInterval time.Duration
-	statusTimeout    time.Duration
-	actionTimeout    time.Duration
-	now              func() time.Time
-	ctx              context.Context
-	stop             context.CancelFunc
+	tool                  *Tool
+	environment           map[string]string
+	jobDirectory          string
+	harnessDirectory      string
+	nodePath              string
+	publish               func(wire.LocalModelsSnapshot)
+	runtimeChanged        func()
+	progressInterval      time.Duration
+	statusTimeout         time.Duration
+	actionTimeout         time.Duration
+	ensurePiTimeout       time.Duration
+	ensurePiRetryInterval time.Duration
+	now                   func() time.Time
+	ctx                   context.Context
+	stop                  context.CancelFunc
 
 	// refreshMu serializes status reads so an older read never replaces a
 	// newer one.
 	refreshMu sync.Mutex
 	// publishMu orders updates of current with their Publish calls.
 	publishMu sync.Mutex
-	mu        sync.Mutex
-	current   *wire.LocalModelsSnapshot
+	// wg counts the goroutines Close waits for. Every Add happens under mu
+	// after checking closed, so none races with Close's Wait.
+	wg      sync.WaitGroup
+	mu      sync.Mutex
+	closed  bool
+	current *wire.LocalModelsSnapshot
 	// loaded identifies the loaded models of the last status read; nil
 	// before the first one.
-	loaded        *string
-	jobs          map[string]*job
+	loaded       *string
+	piExecutable string
+	piEnsuring   bool
+	piFailures   int
+	piRetryAt    time.Time
+	jobs         map[string]*job
+	// causes holds, by model, the cause the last job's error line gave. The
+	// tool's status keeps only the code, so each read puts the cause back on
+	// a row that still fails with that code.
+	causes        map[string]*wire.LocalModelError
 	lastProgress  time.Time
 	progressTimer *time.Timer
 	// progressTimerID tells a timer callback that already fired whether it
@@ -111,9 +138,11 @@ func New(options Options) *Library {
 	ctx, stop := context.WithCancel(context.Background())
 	library := &Library{
 		tool: options.Tool, environment: options.Environment, jobDirectory: options.JobDirectory,
+		harnessDirectory: options.HarnessDirectory, nodePath: options.NodePath,
 		publish: options.Publish, runtimeChanged: options.RuntimeChanged,
 		progressInterval: options.ProgressInterval, statusTimeout: options.StatusTimeout, actionTimeout: options.ActionTimeout,
-		now: time.Now, ctx: ctx, stop: stop, jobs: make(map[string]*job),
+		ensurePiTimeout: options.EnsurePiTimeout, ensurePiRetryInterval: options.EnsurePiRetryInterval,
+		now: time.Now, ctx: ctx, stop: stop, jobs: make(map[string]*job), causes: make(map[string]*wire.LocalModelError),
 	}
 	if library.progressInterval <= 0 {
 		library.progressInterval = defaultProgressInterval
@@ -123,6 +152,12 @@ func New(options Options) *Library {
 	}
 	if library.actionTimeout <= 0 {
 		library.actionTimeout = defaultActionTimeout
+	}
+	if library.ensurePiTimeout <= 0 {
+		library.ensurePiTimeout = defaultEnsurePiTimeout
+	}
+	if library.ensurePiRetryInterval <= 0 {
+		library.ensurePiRetryInterval = defaultEnsurePiRetryInterval
 	}
 	if library.publish == nil {
 		library.publish = func(wire.LocalModelsSnapshot) {}
@@ -137,29 +172,117 @@ func New(options Options) *Library {
 	return library
 }
 
-// Close stops reading job output and polling. Running jobs continue.
+// Close stops supervision and polling, and returns only after the Library's
+// goroutines have returned, so nothing it started writes into the job
+// directory afterwards. Running jobs (the tool's download and load
+// processes) continue.
 func (l *Library) Close() {
 	l.stop()
 	l.mu.Lock()
+	l.closed = true
 	if l.progressTimer != nil {
 		l.progressTimer.Stop()
 	}
 	l.mu.Unlock()
+	l.wg.Wait()
+}
+
+// track reserves n goroutines for Close to wait for, or reports false once
+// the Library is closed.
+func (l *Library) track(n int) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.closed {
+		return false
+	}
+	l.wg.Add(n)
+	return true
+}
+
+// closedRefusal answers an action that arrives after Close.
+var closedRefusal = wire.LocalModelActionRefusal{Code: CodeToolFailed, Detail: "local model supervision has stopped"}
+
+// PiExecutable returns the managed Pi executable provisioned for local
+// models, or an empty string when none has been resolved.
+func (l *Library) PiExecutable() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.piExecutable
+}
+
+// PiProvisionFailed reports whether automatic Pi setup has failed and not yet
+// recovered, so Runtime diagnostics can surface an error instead of leaving Pi
+// in not_installed indefinitely.
+func (l *Library) PiProvisionFailed() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.piExecutable == "" && !l.piEnsuring && l.piFailures > 0
+}
+
+func (l *Library) scheduleEnsurePi() {
+	if l.harnessDirectory == "" || l.tool == nil || !l.tool.installed() {
+		return
+	}
+	l.mu.Lock()
+	now := l.now()
+	if l.closed || l.ctx.Err() != nil || l.piExecutable != "" || l.piEnsuring || (!l.piRetryAt.IsZero() && now.Before(l.piRetryAt)) {
+		l.mu.Unlock()
+		return
+	}
+	l.piEnsuring = true
+	l.wg.Add(1)
+	l.mu.Unlock()
+
+	go func() {
+		defer l.wg.Done()
+		ctx, cancel := context.WithTimeout(l.ctx, l.ensurePiTimeout)
+		executable, err := l.tool.EnsurePi(ctx, l.environment, l.harnessDirectory, l.nodePath)
+		cancel()
+
+		l.mu.Lock()
+		l.piEnsuring = false
+		if l.closed || l.ctx.Err() != nil {
+			l.mu.Unlock()
+			return
+		}
+		if err == nil && executable != "" {
+			l.piExecutable = executable
+			l.piFailures = 0
+			l.piRetryAt = time.Time{}
+			l.mu.Unlock()
+			slog.Info("local_models.pi_ready", "executable", executable)
+			l.runtimeChanged()
+			return
+		}
+		l.piFailures++
+		firstFailure := l.piFailures == 1
+		backoff := min(l.ensurePiRetryInterval<<min(l.piFailures-1, 4), maxEnsurePiRetryInterval)
+		l.piRetryAt = l.now().Add(backoff)
+		l.mu.Unlock()
+		if err != nil {
+			slog.Warn("local_models.pi_install_failed", "error", err, "retry_in", backoff)
+		}
+		if firstFailure {
+			l.runtimeChanged()
+		}
+	}()
 }
 
 // Refresh reads the library now, publishes the snapshot and returns it.
 func (l *Library) Refresh(ctx context.Context) wire.LocalModelsSnapshot {
 	l.refreshMu.Lock()
-	defer l.refreshMu.Unlock()
 	snapshot := l.read(ctx)
 	if ctx.Err() != nil {
 		// A read cut short by its caller says nothing about the library.
+		l.refreshMu.Unlock()
 		return snapshot
 	}
 	changed := false
+	hasLoaded := false
 	l.mu.Lock()
 	if snapshot.Available {
 		key := loadedKey(snapshot)
+		hasLoaded = key != ""
 		changed = l.loaded != nil && *l.loaded != key
 		l.loaded = &key
 	}
@@ -171,6 +294,10 @@ func (l *Library) Refresh(ctx context.Context) wire.LocalModelsSnapshot {
 		l.runtimeChanged()
 	}
 	l.reconcile(snapshot)
+	l.refreshMu.Unlock()
+	if hasLoaded {
+		l.scheduleEnsurePi()
+	}
 	return cloneSnapshot(snapshot)
 }
 
@@ -190,7 +317,23 @@ func (l *Library) read(ctx context.Context) wire.LocalModelsSnapshot {
 		slog.Warn("local_models.status_invalid", "error", err)
 		return unavailable(CodeToolFailed, "localmodels reported a library status outside its contract", l.now())
 	}
+	l.restoreCauses(&snapshot)
 	return snapshot
+}
+
+// restoreCauses puts each kept cause back on its failed row, and forgets one
+// whose row no longer fails with the code it came with.
+func (l *Library) restoreCauses(snapshot *wire.LocalModelsSnapshot) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for id, cause := range l.causes {
+		index := slices.IndexFunc(snapshot.Models, func(model wire.LocalModel) bool { return model.ID == id })
+		if index < 0 || snapshot.Models[index].Error == nil || snapshot.Models[index].Error.Code != cause.Code {
+			delete(l.causes, id)
+			continue
+		}
+		snapshot.Models[index].Error.Cause, snapshot.Models[index].Error.Path = cause.Cause, cause.Path
+	}
 }
 
 // loadedKey names the loaded models; a change means Pi's model list changed.
@@ -254,42 +397,10 @@ func (l *Library) Act(ctx context.Context, action Action, deadline time.Time) (r
 // start or restart a long-lived server (the local model gateway) that
 // inherits its output and process group, and that server must survive.
 func (l *Library) runOnce(ctx context.Context, action Action) ([]byte, int, error) {
-	stdout, err := l.jobOutput()
-	if err != nil {
-		return nil, -1, err
-	}
-	defer func() { _ = os.Remove(stdout.Name()) }()
-	stderr, err := l.jobOutput()
-	if err != nil {
-		_ = stdout.Close()
-		return nil, -1, err
-	}
-	defer func() { _ = os.Remove(stderr.Name()) }()
-	cmd := l.tool.command(l.environment, action)
-	cmd.Stdout, cmd.Stderr = stdout, stderr
-	process.Prepare(cmd)
-	err = cmd.Start()
-	_ = stdout.Close()
-	_ = stderr.Close()
-	if err != nil {
-		return nil, -1, err
-	}
-	exited := make(chan error, 1)
-	go func() { exited <- cmd.Wait() }()
-	select {
-	case <-exited:
-	case <-ctx.Done():
-		_ = cmd.Process.Kill()
-		<-exited
-		return nil, -1, context.Cause(ctx)
-	}
-	exitCode := cmd.ProcessState.ExitCode()
-	output, err := readBounded(stdout.Name(), maxEventLine)
-	if exitCode != 0 {
+	output, stderrBytes, exitCode, err := l.tool.runBuffered(ctx, l.environment, l.jobDirectory, "job", maxEventLine, l.tool.arguments(action), nil)
+	if exitCode != 0 && len(stderrBytes) > 0 {
 		// Local diagnostics only: tool prose can name local paths.
-		if diagnostic, readErr := readBounded(stderr.Name(), 4096); readErr == nil && len(diagnostic) > 0 {
-			slog.Debug("local_models.tool_stderr", "action", action.Name, "stderr", string(diagnostic))
-		}
+		slog.Debug("local_models.tool_stderr", "action", action.Name, "stderr", string(stderrBytes))
 	}
 	return output, exitCode, err
 }
@@ -305,8 +416,13 @@ func readBounded(path string, limit int64) ([]byte, error) {
 
 // runAction answers unload, remove and cancel once the tool finishes.
 func (l *Library) runAction(ctx context.Context, action Action, deadline time.Time) (*wire.LocalModelActionRefusal, bool) {
+	if !l.track(1) {
+		refusal := closedRefusal
+		return &refusal, true
+	}
 	answer := newPendingAnswer()
 	go func() {
+		defer l.wg.Done()
 		runCtx, cancel := context.WithTimeout(l.ctx, l.actionTimeout)
 		defer cancel()
 		stdout, exitCode, err := l.runOnce(runCtx, action)
@@ -382,8 +498,15 @@ func (p *pendingAnswer) await(ctx context.Context, deadline time.Time) (*wire.Lo
 
 // startJob starts a download or load and answers from its first event.
 func (l *Library) startJob(ctx context.Context, action Action, deadline time.Time) (*wire.LocalModelActionRefusal, bool) {
+	// tail and superviseJob are reserved before the job starts, so no job
+	// starts unsupervised after Close.
+	if !l.track(2) {
+		refusal := closedRefusal
+		return &refusal, true
+	}
 	output, err := l.jobOutput()
 	if err != nil {
+		l.wg.Add(-2)
 		slog.Warn("local_models.job_output_failed", "error", err)
 		return &wire.LocalModelActionRefusal{Code: CodeToolFailed, Detail: "the Computer could not start localmodels"}, true
 	}
@@ -393,6 +516,7 @@ func (l *Library) startJob(ctx context.Context, action Action, deadline time.Tim
 	// this Daemon.
 	process.Prepare(cmd)
 	if err := cmd.Start(); err != nil {
+		l.wg.Add(-2)
 		_ = output.Close()
 		_ = os.Remove(output.Name())
 		slog.Warn("local_models.job_start_failed", "action", action.Name, "error", err)
@@ -407,9 +531,15 @@ func (l *Library) startJob(ctx context.Context, action Action, deadline time.Tim
 	}()
 	events := make(chan libraryEvent, 64)
 	ended := make(chan int, 1)
-	go func() { ended <- l.tail(output.Name(), exited, events) }()
+	go func() {
+		defer l.wg.Done()
+		ended <- l.tail(output.Name(), exited, events)
+	}()
 	answer := newPendingAnswer()
-	go l.superviseJob(action, events, ended, answer)
+	go func() {
+		defer l.wg.Done()
+		l.superviseJob(action, events, ended, answer)
+	}()
 	return answer.await(ctx, deadline)
 }
 
@@ -431,7 +561,13 @@ func (l *Library) tail(path string, exited <-chan int, events chan<- libraryEven
 	defer func() { _ = os.Remove(path) }()
 	file, err := os.Open(path)
 	if err != nil {
-		return <-exited
+		// The job outlives Close, so do not wait for it past then.
+		select {
+		case code := <-exited:
+			return code
+		case <-l.ctx.Done():
+			return -1
+		}
 	}
 	defer file.Close()
 	reader := bufio.NewReader(file)
@@ -482,6 +618,7 @@ func (l *Library) superviseJob(action Action, events <-chan libraryEvent, ended 
 			if accepted {
 				l.mu.Lock()
 				l.jobs[action.Model] = &job{action: action}
+				delete(l.causes, action.Model)
 				l.mu.Unlock()
 			}
 		}
@@ -532,6 +669,11 @@ func (l *Library) superviseJob(action Action, events <-chan libraryEvent, ended 
 	}
 	l.mu.Lock()
 	delete(l.jobs, action.Model)
+	if final != nil && final.Event == "error" {
+		if cause := final.cause(); cause != nil {
+			l.causes[action.Model] = cause
+		}
+	}
 	l.mu.Unlock()
 	l.Refresh(l.ctx)
 	if action.Name == ActionLoad {
@@ -675,11 +817,13 @@ func cloneSnapshot(snapshot wire.LocalModelsSnapshot) wire.LocalModelsSnapshot {
 func (l *Library) reconcile(snapshot wire.LocalModelsSnapshot) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.polling || !l.needsRereadLocked(snapshot) {
+	if l.closed || l.polling || !l.needsRereadLocked(snapshot) {
 		return
 	}
 	l.polling = true
+	l.wg.Add(1)
 	go func() {
+		defer l.wg.Done()
 		delay := l.progressInterval
 		for {
 			select {

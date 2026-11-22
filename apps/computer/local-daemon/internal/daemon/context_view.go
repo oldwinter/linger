@@ -58,8 +58,12 @@ func (d *Daemon) ensureContextView(ctx context.Context, command protocol.Command
 		ContentURL:        contentURL,
 		FetchSkillPackage: d.skillPackageFetcher(command.TenantID, command.AgentID),
 	})
-	slog.Info("runner.context_view.ensured", "command_id", command.CommandID, "agent_id", command.AgentID,
-		"view_digest", ref.ViewDigest, "duration_ms", time.Since(startedAt).Milliseconds(), "ok", err == nil)
+	attributes := []any{"command_id", command.CommandID, "agent_id", command.AgentID,
+		"view_digest", ref.ViewDigest, "duration_ms", time.Since(startedAt).Milliseconds(), "ok", err == nil}
+	if err != nil {
+		attributes = append(attributes, "error", err.Error())
+	}
+	slog.Info("runner.context_view.ensured", attributes...)
 	return err
 }
 

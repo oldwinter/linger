@@ -1,5 +1,10 @@
 const DAY = /^(\d{4})-(\d{2})-(\d{2})$/u;
 
+export function dayReviewPath(tenantId: string, date?: string) {
+  const base = `/t/${encodeURIComponent(tenantId)}/library/day`;
+  return date ? `${base}?date=${encodeURIComponent(date)}` : base;
+}
+
 /** A real calendar day, rejected when the month or day does not exist. */
 export function isCalendarDay(
   value: string | null | undefined,

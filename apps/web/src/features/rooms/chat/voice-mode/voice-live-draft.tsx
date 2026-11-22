@@ -1,5 +1,7 @@
 import type { TeamHubActorRef } from "@/features/teamhub/teamhub-types";
 import { ActorAvatar } from "../../members/actor-avatar";
+import { useT } from "@/i18n/use-translation";
+import { voiceChatMessages as m } from "./voice-chat.messages";
 
 export interface VoiceLiveDraft {
   actor: TeamHubActorRef;
@@ -15,10 +17,11 @@ export function VoiceLiveDraftRow({
   draft: VoiceLiveDraft;
   startsGroup?: boolean;
 }) {
+  const t = useT();
   if (!draft.text && !draft.error) return null;
   return (
     <article
-      aria-label="Live voice draft"
+      aria-label={t(m.liveDraft)}
       className="room-message-card message-row"
       data-author-kind="human"
       data-current-actor="true"

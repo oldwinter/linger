@@ -1,5 +1,9 @@
 /** Keyword helpers shared by the global search dialog: one case-insensitive substring, no ranking. */
 
+import { formatLocale, type Translate, translate } from "@/i18n/language";
+
+import { searchMessages as m } from "./global-search.messages";
+
 export function normalizeSearchQuery(raw: string) {
   return raw.trim().toLocaleLowerCase();
 }
@@ -35,19 +39,26 @@ export function snippetAround(
 }
 
 /** Compact relative age for result rows: 5m, 3h, 2d, then a short date. */
-export function relativeTimeLabel(iso: string, now = Date.now()) {
+export function relativeTimeLabel(
+  iso: string,
+  t: Translate = translate,
+  now = Date.now(),
+) {
   const time = Date.parse(iso);
   if (!Number.isFinite(time)) return "";
   const elapsed = Math.max(0, now - time);
   const minute = 60_000;
-  if (elapsed < minute) return "now";
-  if (elapsed < 60 * minute) return `${Math.round(elapsed / minute)}m`;
-  if (elapsed < 24 * 60 * minute)
-    return `${Math.round(elapsed / (60 * minute))}h`;
-  if (elapsed < 7 * 24 * 60 * minute) {
-    return `${Math.round(elapsed / (24 * 60 * minute))}d`;
+  if (elapsed < minute) return t(m.ageNow);
+  if (elapsed < 60 * minute) {
+    return t(m.ageMinutes, { value: Math.round(elapsed / minute) });
   }
-  return new Date(time).toLocaleDateString("en-US", {
+  if (elapsed < 24 * 60 * minute) {
+    return t(m.ageHours, { value: Math.round(elapsed / (60 * minute)) });
+  }
+  if (elapsed < 7 * 24 * 60 * minute) {
+    return t(m.ageDays, { value: Math.round(elapsed / (24 * 60 * minute)) });
+  }
+  return new Date(time).toLocaleDateString(formatLocale(), {
     day: "numeric",
     month: "short",
     year: "numeric",

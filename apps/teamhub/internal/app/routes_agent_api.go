@@ -48,6 +48,7 @@ func (a *App) agentAPIRoutes() []contractRoute {
 		route(http.MethodPost, "/api/agent/v1/personal-profile/builds", nil, a.startAgentPersonalProfileBuild),
 		route(http.MethodPost, "/api/agent/v1/personal-profile/revisions", nil, a.writeAgentPersonalProfile),
 		route(http.MethodPost, "/api/agent/v1/presentation-sequences", nil, a.sendAgentPresentationSequence),
+		route(http.MethodPost, "/api/agent/v1/room-handoffs", nil, a.handOffAgentRoomWork),
 		route(http.MethodPost, "/api/agent/v1/room-members/add", nil, a.addAgentRoomMember),
 		route(http.MethodPost, "/api/agent/v1/room-members/query", nil, a.getAgentRoomMembers),
 		route(http.MethodPost, "/api/agent/v1/routines", nil, a.createAgentRoutine),
@@ -72,6 +73,10 @@ func (a *App) agentAPIRoutes() []contractRoute {
 		route(http.MethodPost, "/api/agent/v1/proactive/shadow-divergences", nil, a.recordProactiveShadowDivergence),
 		route(http.MethodPost, "/api/agent/v1/proactive/acts", nil, a.actUnderProactiveMandate),
 		route(http.MethodPost, "/api/agent/v1/user-questions", nil, a.askAgentUser),
+		route(http.MethodPost, "/api/agent/v1/web/backends/query", nil, a.listAgentWebBackends),
+		route(http.MethodPost, "/api/agent/v1/web/connect", nil, a.connectAgentWebBackend),
+		route(http.MethodPost, "/api/agent/v1/web/open", nil, a.openAgentWebPage),
+		route(http.MethodPost, "/api/agent/v1/web/search", nil, a.searchAgentWeb),
 	}
 }
 

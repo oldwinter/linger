@@ -1,4 +1,11 @@
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -119,6 +126,45 @@ it("stops waiting when aborted", async () => {
       },
     }),
   ).rejects.toThrow(/aborted/i);
+});
+
+it("does not move a file when already aborted", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "linger-rename-"));
+  roots.push(root);
+  const from = path.join(root, "kit.partial");
+  const to = path.join(root, "kit");
+  await writeFile(from, "verified bytes");
+  const reason = new Error("Installation cancelled.");
+
+  await expect(
+    renameRetrying(from, to, { signal: AbortSignal.abort(reason) }),
+  ).rejects.toBe(reason);
+  expect(await readdir(root)).toEqual(["kit.partial"]);
+});
+
+it("does not publish a file after cancellation during a Windows retry wait", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "linger-rename-"));
+  roots.push(root);
+  const from = path.join(root, "kit.partial");
+  const to = path.join(root, "kit");
+  await writeFile(from, "verified bytes");
+  const controller = new AbortController();
+  const reason = new Error("Installation cancelled.");
+  let attempts = 0;
+
+  await expect(
+    renameRetrying(from, to, {
+      platform: "win32",
+      signal: controller.signal,
+      rename: async (source, destination) => {
+        if (++attempts === 1) throw locked();
+        await rename(source, destination);
+      },
+      sleep: async () => controller.abort(reason),
+    }),
+  ).rejects.toBe(reason);
+  expect(attempts).toBe(1);
+  expect(await readdir(root)).toEqual(["kit.partial"]);
 });
 
 it("renames a real folder under a non-ASCII path", async () => {

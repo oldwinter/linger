@@ -5,20 +5,25 @@ import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { ModalDialog } from "@/components/ui/modal-dialog";
-import { classifyTeamHubCommandFailure } from "@/features/teamhub/teamhub-command-outcome";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
+import { TeamHubError } from "@/features/teamhub/teamhub-client";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type {
   TeamHubRoom,
   TeamHubRoomUpdateInput,
 } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
 import { writeClipboardText } from "@/lib/clipboard";
 
+import { roomDialogMessages } from "./room-dialogs.messages";
 import {
   requireRoomScope,
   roomQueryKey,
   tenantRoomsQueryKey,
 } from "./room-queries";
+import { roomSettingsMessages as m } from "./room-settings.messages";
+import { roomSurfaceMessages } from "./room-surface.messages";
 
 export function RoomSettingsDialog({
   embedded = false,
@@ -34,6 +39,7 @@ export function RoomSettingsDialog({
   tenantId: string;
 }) {
   const { client } = useTeamHubRuntime();
+  const t = useT();
   const queryClient = useQueryClient();
   const formId = useId();
   const nameInputRef = useRef<HTMLInputElement>(null);
@@ -59,11 +65,9 @@ export function RoomSettingsDialog({
     },
   });
   const failure = updateRoom.error
-    ? classifyTeamHubCommandFailure(
-        updateRoom.error,
-        "these Room changes were committed",
-        "Check the Room settings before you retry.",
-      )
+    ? updateRoom.error instanceof TeamHubError
+      ? updateRoom.error.message
+      : t(m.saveUnconfirmed)
     : null;
   const savedName = room.name;
   const savedDescription = room.description ?? "";
@@ -97,9 +101,9 @@ export function RoomSettingsDialog({
     <>
       <div className="rounded-xl border border-border p-4">
         <label className="block">
-          <span className="mb-1.5 block text-sm font-medium">Name</span>
+          <span className="mb-1.5 block text-sm font-medium">{t(m.name)}</span>
           <input
-            aria-label="Room name"
+            aria-label={t(roomDialogMessages.roomName)}
             className="ui-field-control w-full"
             disabled={updateRoom.isPending}
             maxLength={120}
@@ -111,18 +115,18 @@ export function RoomSettingsDialog({
 
         <label className="mt-4 block">
           <span className="mb-1.5 flex items-baseline justify-between gap-2 text-sm font-medium">
-            Description
+            {t(m.description)}
             <span className="font-normal tabular-nums text-muted-foreground">
               {description.length}/2000
             </span>
           </span>
           <textarea
-            aria-label="Room description"
+            aria-label={t(m.roomDescription)}
             className="ui-field-control min-h-24 w-full resize-none"
             disabled={updateRoom.isPending}
             maxLength={2000}
             onChange={(event) => setDescription(event.target.value)}
-            placeholder="What is this Room for?"
+            placeholder={t(m.descriptionPlaceholder)}
             value={description}
           />
         </label>
@@ -132,7 +136,7 @@ export function RoomSettingsDialog({
 
       {failure ? (
         <p className="mt-3 text-sm text-app-danger" role="alert">
-          {failure.message}
+          {failure}
         </p>
       ) : null}
     </>
@@ -141,7 +145,7 @@ export function RoomSettingsDialog({
   const actions = (
     <>
       <Button disabled={updateRoom.isPending} onClick={handleClose}>
-        Cancel
+        {t(commonMessages.cancel)}
       </Button>
       <Button
         disabled={!name.trim() || !dirty}
@@ -150,17 +154,17 @@ export function RoomSettingsDialog({
         tone="primary"
         type="submit"
       >
-        Save changes
+        {t(m.saveChanges)}
       </Button>
     </>
   );
 
   if (embedded) {
     return (
-      <section aria-label="Room settings">
+      <section aria-label={t(roomSurfaceMessages.roomSettings)}>
         <form className="p-5" id={formId} onSubmit={handleSubmit}>
           <p className="mb-5 text-sm text-app-muted">
-            Update the name and description shown to Room members.
+            {t(m.detailsDescription)}
           </p>
           {fields}
           <div className="mt-6 flex items-center justify-end gap-2">
@@ -173,10 +177,10 @@ export function RoomSettingsDialog({
 
   return (
     <ModalDialog
-      description="Update the name and description shown to Room members."
+      description={t(m.detailsDescription)}
       onClose={handleClose}
       size="md"
-      title="Room settings"
+      title={t(roomSurfaceMessages.roomSettings)}
       footer={actions}
     >
       <div className="px-5 py-4">
@@ -186,19 +190,22 @@ export function RoomSettingsDialog({
         <section className="mt-5 border-t border-app-border pt-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h3 className="text-sm text-app-ink">Delete Room</h3>
+              <h3 className="text-sm text-app-ink">
+                {t(roomDialogMessages.deleteRoom)}
+              </h3>
               <p className="mt-0.5 text-sm leading-5 text-app-muted">
-                Deleting this Room revokes access for every member.
+                {t(m.deleteDescription)}
               </p>
             </div>
             <Button
+              data-voice-risk="never"
               disabled={updateRoom.isPending}
               onClick={onDelete}
               size="compact"
               tone="danger"
             >
               <Icon icon={Delete02Icon} size={16} />
-              Delete Room
+              {t(roomDialogMessages.deleteRoom)}
             </Button>
           </div>
         </section>

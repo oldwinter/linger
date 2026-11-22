@@ -1,5 +1,7 @@
 import DOMPurify from "dompurify";
 
+import { translate } from "@/i18n/language";
+import { mermaidPreviewMessages as m } from "./mermaid-preview.messages";
 import {
   mermaidPreviewLoadTimeoutMs,
   mermaidPreviewMaxSourceLength,
@@ -22,7 +24,7 @@ export async function renderMermaidSvg(
   } = {},
 ) {
   if (source.length > mermaidPreviewMaxSourceLength) {
-    throw new Error("Mermaid source is too large to preview safely.");
+    throw new Error(translate(m.sourceTooLarge));
   }
   if (options.signal?.aborted) throw abortError();
 
@@ -54,7 +56,7 @@ export async function renderMermaidSvg(
   return new Promise<string>((resolve, reject) => {
     let settled = false;
     let timeout = window.setTimeout(
-      () => finish(new Error("Mermaid preview runtime did not load in time.")),
+      () => finish(new Error(translate(m.runtimeDidNotLoad))),
       options.loadTimeoutMs ?? mermaidPreviewLoadTimeoutMs,
     );
 
@@ -75,7 +77,7 @@ export async function renderMermaidSvg(
         reject(
           sanitizeError instanceof Error
             ? sanitizeError
-            : new Error("Mermaid preview output could not be sanitized."),
+            : new Error(translate(m.outputNotSanitized)),
         );
       }
     };
@@ -90,10 +92,7 @@ export async function renderMermaidSvg(
       if (event.data.kind === "linger.mermaid.ready") {
         window.clearTimeout(timeout);
         timeout = window.setTimeout(
-          () =>
-            finish(
-              new Error("Mermaid preview exceeded the execution time limit."),
-            ),
+          () => finish(new Error(translate(m.timedOut))),
           options.renderTimeoutMs ?? mermaidPreviewRenderTimeoutMs,
         );
         frame.contentWindow?.postMessage(request, "*");
@@ -105,9 +104,7 @@ export async function renderMermaidSvg(
         return;
       }
       if (event.data.svg.length > mermaidPreviewMaxSvgLength) {
-        finish(
-          new Error("Mermaid preview output is too large to display safely."),
-        );
+        finish(new Error(translate(m.outputTooLarge)));
         return;
       }
       finish(undefined, event.data.svg);

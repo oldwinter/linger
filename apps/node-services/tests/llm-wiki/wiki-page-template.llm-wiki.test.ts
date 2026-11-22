@@ -17,6 +17,7 @@ import {
   wikiPageFromStrictPayload,
   wikiPageSchema,
 } from "../../src/llm-wiki/wiki-page-template.js";
+import { entityParts } from "../../src/llm-wiki/wiki-entity-registry.js";
 
 const references = new Map([
   ["raw:S1", "teamhub://rooms/room_one/messages/message_1"],
@@ -550,6 +551,192 @@ describe("registry-owned Wiki page JSON schemas", () => {
   });
 });
 
+describe("structured entity authoring", () => {
+  const metadata = { reason: "Reorganize supported facts.", removed_refs: [] };
+
+  it("requires a cited contact intro and lets existing pages keep the structured sections", () => {
+    const { definition, path, payload } = fixture("contact");
+    const before = renderWikiPage(path, payload, references);
+    const sections = {
+      ...payload.sections,
+      "Basic Info": {
+        ...metadata,
+        intro: "Alpha coordinates the pilot. [[source:raw:S2]]",
+        details: [
+          "Role: pilot lead. [[source:raw:S2]]",
+          "Aliases: Al. [[source:raw:S2]]",
+        ],
+      },
+      "Relationship Context": {
+        ...metadata,
+        text: "Alpha coordinates recurring pilot reviews. [[source:raw:S2]]",
+      },
+      "Collaboration Style": {
+        ...metadata,
+        text: "Alpha sends results; the Human confirms the next review. [[source:raw:S2]]",
+      },
+    };
+    const authored = { ...payload, sections, relations: [] };
+    const strict = new Ajv();
+    expect(strict.validate(strictWikiPageSchema(definition), authored)).toBe(
+      true,
+    );
+    const after = renderWikiPage(
+      path,
+      wikiPageFromStrictPayload(definition, authored),
+      references,
+      before,
+    );
+    expect(after).toContain(
+      "## Basic Info\n\nAlpha coordinates the pilot. [R1]\n\n- Role: pilot lead. [R1]\n- Aliases: Al. [R1]",
+    );
+    expect(after).toContain(
+      "Alpha sends results; the Human confirms the next review.",
+    );
+    for (const heading of [
+      "Basic Info",
+      "Relationship Context",
+      "Collaboration Style",
+    ]) {
+      const kept = {
+        ...authored,
+        sections: { ...sections, [heading]: { keep: true } },
+      };
+      expect(strict.validate(strictWikiPageSchema(definition), kept)).toBe(
+        true,
+      );
+      expect(
+        strict.validate(
+          strictWikiPageSchema(definition, { existing: false }),
+          kept,
+        ),
+      ).toBe(false);
+      expect(
+        (
+          wikiPageFromStrictPayload(definition, kept).sections as Record<
+            string,
+            unknown
+          >
+        )[heading],
+      ).toEqual({ keep: true });
+    }
+    expect(() =>
+      wikiPageFromStrictPayload(definition, {
+        ...authored,
+        sections: {
+          ...sections,
+          "Basic Info": {
+            ...sections["Basic Info"],
+            intro: "Alpha coordinates the pilot.",
+          },
+        },
+      }),
+    ).toThrow(/intro needs a source citation/);
+  });
+
+  it("renders direction entries into discoverable headings and validates their structure and evidence", () => {
+    const { definition, path, payload } = fixture("project");
+    const before = renderWikiPage(path, payload, references);
+    const directions = [
+      {
+        goal: "Improve the product.",
+        owner: null,
+        outcome: null,
+        last_updated: null,
+        name: "Product",
+        current_state: "The pilot is underway. [[source:raw:S1]]",
+        source_refs: ["raw:S1"],
+      },
+      {
+        goal: null,
+        owner: "Alpha",
+        outcome: null,
+        last_updated: "2026-10-01",
+        name: "Commercial operations",
+        current_state:
+          "An operating account is being opened. [[source:raw:S2]]",
+        source_refs: ["raw:S2"],
+      },
+    ];
+    const authored = (entries: unknown) => ({
+      ...payload,
+      relations: [],
+      sections: {
+        ...payload.sections,
+        "Project Directions": { ...metadata, directions: entries },
+      },
+    });
+    const render = (entries: unknown) =>
+      renderWikiPage(
+        path,
+        wikiPageFromStrictPayload(definition, authored(entries)),
+        references,
+        before,
+      );
+    expect(
+      new Ajv().validate(
+        strictWikiPageSchema(definition),
+        authored(directions),
+      ),
+    ).toBe(true);
+    const after = render(directions);
+    expect(entityParts(after, "Project Directions")).toEqual([
+      "Product",
+      "Commercial operations",
+    ]);
+    expect(after).toContain("Owner: Alpha");
+    expect(after).toContain("Last updated: 2026-10-01");
+    expect(entityParts(render([]), "Project Directions")).toEqual([]);
+    expect(
+      render([
+        {
+          ...directions[0],
+          current_state:
+            "The pilot is underway. [[source:raw:S1]]\nReviews are weekly.\n- First review\n- Second review",
+        },
+      ]),
+    ).toContain(
+      "The pilot is underway. [R2]\n\nReviews are weekly.\n\n- First review\n- Second review",
+    );
+    expect(() =>
+      render([directions[0], { ...directions[1], name: " product " }]),
+    ).toThrow(/unique/);
+    expect(() => render([{ ...directions[0], source_refs: [] }])).toThrow(
+      /source_refs/,
+    );
+    expect(() =>
+      render([{ ...directions[0], source_refs: ["raw:S99"] }]),
+    ).toThrow(WikiPageAuthoringError);
+    expect(() =>
+      render([
+        {
+          ...directions[0],
+          current_state: "##### Direction: Hidden\n\nAnother area.",
+        },
+      ]),
+    ).toThrow(/must not contain headings/);
+    const kept = {
+      ...payload,
+      relations: [],
+      sections: { ...payload.sections, "Project Directions": { keep: true } },
+    };
+    expect(
+      (
+        wikiPageFromStrictPayload(definition, kept).sections as Record<
+          string,
+          unknown
+        >
+      )["Project Directions"],
+    ).toEqual({ keep: true });
+    expect(
+      new Ajv().validate(
+        strictWikiPageSchema(definition, { existing: false }),
+        kept,
+      ),
+    ).toBe(false);
+  });
+});
+
 describe("entity section update rules", () => {
   const path = "projects/alpha.md";
   const created = new Date("2026-10-01T00:00:00Z");
@@ -572,12 +759,12 @@ describe("entity section update rules", () => {
     "Open Items": [],
     "Closed Items": [],
   };
-  const first = (closed: unknown[] = []) =>
+  const first = (closed: unknown[] = [], summaryRef = "raw:S1") =>
     renderWikiPage(
       path,
       page({
         "Project Summary": {
-          text: "Goal one. [[source:raw:S1]]",
+          text: `Goal one. [[source:${summaryRef}]]`,
           reason: "The kickoff set the goal.",
         },
         "Project Directions": {
@@ -851,21 +1038,32 @@ describe("entity section update rules", () => {
     expect(changeLog(after)).toBe("- 2026-10-01 Created.\n");
   });
 
-  it("requires a reason and every earlier citation to rewrite a summary", () => {
-    const before = first();
+  it("requires a reason and keeps summary citations in the text the write authors", () => {
+    const before = first([], "raw:S2");
     const rewrite = (summary: unknown) =>
       update(before, { "Project Summary": summary });
     expect(() => rewrite({ text: "Goal two. [[source:raw:S1]]" })).toThrow(
       /must have required property 'reason'/,
     );
     expect(() =>
-      rewrite({ text: "Goal two. [[source:raw:S2]]", reason: "new goal" }),
-    ).toThrow(/Project Summary no longer has the citation markers raw:S1/);
+      rewrite({ text: "Goal two. [[source:raw:S1]]", reason: "new goal" }),
+    ).toThrow(
+      /Project Summary lost citation markers raw:S2 from the text this write authored/,
+    );
+    expect(
+      update(before, {
+        "Project Summary": {
+          text: "Goal two. [[source:raw:S1]]",
+          reason: "Move the old goal into an action.",
+        },
+        "Open Items": [{ text: "Follow up on goal one. [[source:raw:S2]]" }],
+      }),
+    ).toContain("Follow up on goal one.");
     expect(
       rewrite({
-        text: "Goal two. [[source:raw:S2]]",
+        text: "Goal two. [[source:raw:S1]]",
         reason: "the goal moved to launch",
-        removed_refs: ["raw:S1"],
+        removed_refs: ["raw:S2"],
       }),
     ).toContain(
       "- 2026-10-17 Rewrote Project Summary: the goal moved to launch",
@@ -873,6 +1071,29 @@ describe("entity section update rules", () => {
     expect(() =>
       renderWikiPage("projects/beta.md", page(kept), references),
     ).toThrow(/Project Summary has no previous text to keep/);
+  });
+
+  it("does not let an unchanged entry or another section's removal excuse a dropped citation", () => {
+    const before = first(
+      [{ text: "Kickoff held [[source:raw:S2]]" }],
+      "raw:S2",
+    );
+    const summary = { text: "Goal two. [[source:raw:S1]]", reason: "new goal" };
+    expect(() => update(before, { "Project Summary": summary })).toThrow(
+      /Project Summary lost citation markers raw:S2 from the text this write authored/,
+    );
+    expect(() =>
+      update(before, {
+        "Project Summary": summary,
+        "Project Directions": {
+          text: "##### Direction: Core\n\nBuild it. [[source:raw:S1]]",
+          reason: "The plan changed.",
+          removed_refs: ["raw:S2"],
+        },
+      }),
+    ).toThrow(
+      /Project Summary lost citation markers raw:S2 from the text this write authored/,
+    );
   });
 
   // One retry can fix a rewrite only when it learns every issue at once and
@@ -889,21 +1110,25 @@ describe("entity section update rules", () => {
           text: "Build it now. [[source:S1]]",
           reason: "The plan sped up.",
         },
+        "Open Items": [1, 2, 3].map((id) => ({
+          id: `i${id}`,
+          retracted: "Cancelled.",
+        })),
       });
     } catch (error) {
       message = (error as Error).message;
     }
     expect(message).toContain(
-      'Project Summary no longer has the citation markers raw:S1. The previous text cited them in:\n    "Goal one. [[source:raw:S1]]"',
+      'Project Summary lost citation markers raw:S1 from the text this write authored. The previous text cited them in:\n    "Goal one. [[source:raw:S1]]"',
     );
     expect(message).toContain(
       "Project Directions has the malformed citation [[source:S1]]; write it as [[source:raw:S1]].",
     );
     expect(message).toContain(
-      "Project Directions no longer has the citation markers raw:S1",
+      "Project Directions lost citation markers raw:S1 from the text this write authored",
     );
     expect(message).toContain(
-      'or list the ref in "removed_refs" and say why in "reason"',
+      'or list the ref in this section\'s "removed_refs" and say why in "reason"',
     );
   });
 

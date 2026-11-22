@@ -3,11 +3,14 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/linger/transport"
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/localmodels"
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/protocol"
 	wire "github.com/simplexai-labs/linger/contracts-go/runnergateway"
@@ -46,6 +49,7 @@ func TestLocalModelsCommandAnswersAcceptedOrRefused(t *testing.T) {
 		}
 		payload, _ := json.Marshal(request)
 		stream := &browserEventStream{}
+		d.localModelsStream = stream
 		command := protocol.Command{Type: protocol.CommandCapabilityLocalModels, ProtocolVersion: "2", CommandID: "command-1", RunnerID: "computer", ConnectionEpoch: 7, Payload: payload}
 		if err := d.handleLocalModelsCommand(t.Context(), stream, command); err != nil {
 			t.Fatal(err)
@@ -115,6 +119,7 @@ func TestLocalModelsCommandTheToolDidNotDecideInTimeGetsNoAnswer(t *testing.T) {
 		"expires_at": time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano),
 	})
 	stream := &browserEventStream{}
+	d.localModelsStream = stream
 	if err := d.handleLocalModelsCommand(t.Context(), stream, protocol.Command{Type: protocol.CommandCapabilityLocalModels, Payload: payload}); err != nil {
 		t.Fatal(err)
 	}
@@ -132,6 +137,7 @@ func TestExpiredLocalModelsCommandIsNotStarted(t *testing.T) {
 		"expires_at": time.Now().Add(-time.Second).UTC().Format(time.RFC3339Nano),
 	})
 	stream := &browserEventStream{}
+	d.localModelsStream = stream
 	if err := d.handleLocalModelsCommand(t.Context(), stream, protocol.Command{Type: protocol.CommandCapabilityLocalModels, Payload: payload}); err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +150,7 @@ func TestExpiredLocalModelsCommandIsNotStarted(t *testing.T) {
 // real library.
 func TestConnectedComputerWithoutTheToolReportsToolNotInstalled(t *testing.T) {
 	stream := &browserEventStream{}
-	d := &Daemon{computerID: "computer", protocolVersion: protocol.Version, diagnosticsStream: stream}
+	d := &Daemon{computerID: "computer", protocolVersion: protocol.Version, diagnosticsStream: stream, localModelsStream: stream}
 	library := localmodels.New(localmodels.Options{JobDirectory: filepath.Join(t.TempDir(), "jobs"), Publish: d.PublishLocalModels})
 	defer library.Close()
 	d.localModels = library
@@ -165,9 +171,127 @@ func TestConnectedComputerWithoutTheToolReportsToolNotInstalled(t *testing.T) {
 		}
 	}
 
-	d.diagnosticsStream = nil
+	d.diagnosticsStream, d.localModelsStream = nil, nil
 	library.Refresh(t.Context())
 	if len(stream.events) != 2 {
 		t.Fatal("a snapshot was sent without a connection")
+	}
+}
+
+// publishingLocalModels publishes one snapshot per Refresh, like the real
+// library, and counts the reads.
+type publishingLocalModels struct {
+	fakeLocalModels
+	publish   func(wire.LocalModelsSnapshot)
+	refreshes chan struct{}
+}
+
+func (f *publishingLocalModels) Refresh(context.Context) wire.LocalModelsSnapshot {
+	snapshot := wire.LocalModelsSnapshot{Available: true}
+	f.publish(snapshot)
+	f.refreshes <- struct{}{}
+	return snapshot
+}
+
+// A newer Computer connected to an Agent Service that predates local models
+// (a desktop upgrade leaves the old service running) must not send
+// runner.local_models: that service closes the connection on the frame.
+// Only a welcome whose service_features names local_models opens the family.
+func TestLocalModelsFramesFollowTheWelcomeServiceFeatures(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		features []string
+		want     bool
+	}{
+		{name: "older service", features: nil, want: false},
+		{name: "current service", features: []string{"local_models"}, want: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			device, err := transport.GenerateIdentity()
+			if err != nil {
+				t.Fatal(err)
+			}
+			release := make(chan struct{})
+			stream := &fakeStream{
+				commands: []protocol.Command{
+					{Type: protocol.CommandRunnerWelcome, ConnectionEpoch: 1, ServiceFeatures: test.features},
+					{Type: protocol.CommandRunnerReconciled, RunnerID: "computer-1", ConnectionEpoch: 1},
+				},
+				wait: release,
+			}
+			library := &publishingLocalModels{refreshes: make(chan struct{}, 4)}
+			d, err := newTestDaemon(t, Options{
+				ComputerID: "computer-1", ControlPlane: fakeControlPlane{stream: stream}, IdentityStore: fakeStore{value: device},
+				OperationResolver: fakeOperationResolver{}, LocalModels: library,
+				Owners: []ComputerOwner{{TenantID: "tenant", OwnerActorID: "owner"}},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			library.publish = d.PublishLocalModels
+			done := make(chan error, 1)
+			go func() { done <- d.runConnection(t.Context(), device) }()
+			// Commands apply in order, so the receipt marks the welcome applied.
+			deadline := time.Now().Add(5 * time.Second)
+			for !d.Reconciled() && time.Now().Before(deadline) {
+				time.Sleep(time.Millisecond)
+			}
+			if !d.Reconciled() {
+				t.Fatal("the connection was not welcomed")
+			}
+			if test.want {
+				select {
+				case <-library.refreshes:
+				case <-time.After(5 * time.Second):
+					t.Fatal("the welcomed connection did not read the library")
+				}
+			}
+			// A library change while connected publishes through the same gate.
+			d.PublishLocalModels(wire.LocalModelsSnapshot{Available: true})
+
+			payload, _ := json.Marshal(map[string]any{
+				"type": "execute", "kind": "local_models", "protocol_version": "2", "command_id": "command-1",
+				"runner_id": "computer-1", "tenant_id": "tenant", "owner_actor_id": "owner", "connection_epoch": 1,
+				"expires_at": time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano), "action": "refresh",
+			})
+			if err := d.handleLocalModelsCommand(t.Context(), stream, protocol.Command{
+				Type: protocol.CommandCapabilityLocalModels, ProtocolVersion: "2", CommandID: "command-1",
+				RunnerID: "computer-1", ConnectionEpoch: 1, Payload: payload,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			close(release)
+			if err := <-done; !errors.Is(err, io.EOF) {
+				t.Fatalf("connection ended with %v", err)
+			}
+
+			var snapshots int
+			var outcome protocol.Event
+			for _, event := range stream.snapshotEvents() {
+				switch event.Type {
+				case protocol.EventLocalModels:
+					snapshots++
+				case protocol.EventCapabilityLocalModelsAccepted, protocol.EventCapabilityLocalModelsRefused:
+					outcome = event
+				}
+			}
+			if test.want {
+				if snapshots != 2 || outcome.Type != protocol.EventCapabilityLocalModelsAccepted {
+					t.Fatalf("snapshots = %d, outcome = %s", snapshots, outcome.Type)
+				}
+				return
+			}
+			select {
+			case <-library.refreshes:
+				t.Fatal("the library was read for a service that does not accept snapshots")
+			default:
+			}
+			if snapshots != 0 || outcome.Type != protocol.EventCapabilityLocalModelsRefused {
+				t.Fatalf("snapshots = %d, outcome = %s", snapshots, outcome.Type)
+			}
+			if actions := library.actions; len(actions) != 0 {
+				t.Fatalf("the library ran %+v", actions)
+			}
+		})
 	}
 }

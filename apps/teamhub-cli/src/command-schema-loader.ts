@@ -107,6 +107,9 @@ export async function loadAgentCommandSchema(
         .runRoutineSchema;
     case "search_app_tools":
       return (await import("./domains/apps/tools.js")).searchAppToolsSchema;
+    case "hand_off_to_room":
+      return (await import("./domains/collaboration/tools/room-handoff.js"))
+        .roomHandoffSchema;
     case "send_direct_message":
       return (
         await import("./domains/collaboration/tools/send-direct-message.js")

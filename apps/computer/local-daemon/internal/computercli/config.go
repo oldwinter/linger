@@ -152,7 +152,7 @@ func readEnabledRuntimes(value any) ([]string, error) {
 		types = append(types, text)
 	}
 	if !ok || !validRuntimeSelection(types) {
-		return nil, errors.New("enabled_runtimes must be a nonempty unique subset of codex, claude, pi")
+		return nil, errors.New("enabled_runtimes must be a nonempty unique subset of codex, claude, pi, antigravity")
 	}
 	return types, nil
 }

@@ -9,9 +9,14 @@ import { lazy, Suspense, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Icon, type IconSvgElement } from "@/components/ui/icon";
+import { translate } from "@/i18n/language";
+import type { Message } from "@/i18n/messages";
+import { useT } from "@/i18n/use-translation";
 
+import { decisionCardHeading } from "./card-prompts";
 import { CardActions, CardError, CardRow } from "./approval-card-parts";
 import { CardBox, CardDone, type ReceiptTone } from "./card-shell";
+import { cardsMessages } from "./cards.messages";
 import type { DecisionMessageCard } from "./decision-card";
 import type { RoomCardDecision } from "./room-message-card-contract";
 
@@ -20,8 +25,6 @@ const BrowserConnectionDialog = lazy(() =>
     (module) => ({ default: module.BrowserConnectionDialog }),
   ),
 );
-
-const label = "Browser connection requested";
 
 /**
  * Asks the owner of an Agent's Local Computer to connect their everyday
@@ -42,6 +45,7 @@ export function BrowserConnectionDecision({
   onDecision: (decision: RoomCardDecision) => Promise<void> | void;
   tenantId: string;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -62,7 +66,7 @@ export function BrowserConnectionDecision({
       setError(
         cause instanceof Error
           ? cause.message
-          : "The card could not be updated.",
+          : translate(cardsMessages.cardUpdateFailed),
       );
     } finally {
       setBusy(false);
@@ -72,13 +76,20 @@ export function BrowserConnectionDecision({
   const result = card.status === "pending" ? null : browserResult(card);
   return (
     <>
-      <CardBox heading={card.title} label={label}>
+      <CardBox
+        heading={decisionCardHeading(card, t)}
+        label={t(cardsMessages.labelBrowserConnection)}
+      >
         <CardRow
           icon={<Icon icon={Globe02Icon} size={16} />}
-          title="Everyday Chrome"
+          title={t(cardsMessages.everydayChrome)}
         />
         {result ? (
-          <CardDone icon={result.icon} text={result.text} tone={result.tone} />
+          <CardDone
+            icon={result.icon}
+            text={t(result.text)}
+            tone={result.tone}
+          />
         ) : owner ? (
           <CardActions>
             <Button
@@ -87,7 +98,7 @@ export function BrowserConnectionDecision({
               size="large"
               tone="primary"
             >
-              Connect
+              {t(cardsMessages.connect)}
             </Button>
             <Button
               disabled={busy}
@@ -95,7 +106,7 @@ export function BrowserConnectionDecision({
               size="large"
               tone="subtle"
             >
-              Not now
+              {t(cardsMessages.notNow)}
             </Button>
           </CardActions>
         ) : null}
@@ -106,7 +117,9 @@ export function BrowserConnectionDecision({
           <BrowserConnectionDialog
             computerId={card.browser_connection?.computer_id ?? ""}
             onClose={() => setOpen(false)}
-            reason={`${agentName} continues once you connect.`}
+            reason={t(cardsMessages.continuesOnceConnected, {
+              agent: agentName,
+            })}
             tenantId={tenantId}
           />
         </Suspense>
@@ -118,20 +131,24 @@ export function BrowserConnectionDecision({
 /** How a settled browser connection ended, in a few words. */
 function browserResult(card: DecisionMessageCard): {
   icon: IconSvgElement;
-  text: string;
+  text: Message<string>;
   tone: ReceiptTone;
 } {
   if (card.answer?.decision === "connected")
-    return { icon: Tick02Icon, text: "Connected", tone: "success" };
+    return { icon: Tick02Icon, text: cardsMessages.connected, tone: "success" };
   switch (card.status) {
     case "denied":
-      return { icon: Cancel01Icon, text: "Not connected", tone: "muted" };
+      return {
+        icon: Cancel01Icon,
+        text: cardsMessages.notConnected,
+        tone: "muted",
+      };
     case "expired":
-      return { icon: Clock01Icon, text: "Expired", tone: "muted" };
+      return { icon: Clock01Icon, text: cardsMessages.expired, tone: "muted" };
     default:
       return {
         icon: AlertCircleIcon,
-        text: "Failed: the connection did not complete",
+        text: cardsMessages.browserConnectionFailed,
         tone: "danger",
       };
   }

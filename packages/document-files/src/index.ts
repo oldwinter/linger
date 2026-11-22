@@ -59,6 +59,22 @@ interface ImageNode {
   alt?: string | null;
   title?: string | null;
 }
+interface MarkdownNode {
+  type: string;
+  children?: MarkdownNode[];
+  identifier?: string;
+  url?: string;
+  title?: string | null;
+}
+function* markdownNodes(tree: Tree): Generator<MarkdownNode> {
+  const pending: MarkdownNode[] = [tree];
+  while (pending.length) {
+    const node = pending.pop()!;
+    yield node;
+    const children = node.children ?? [];
+    for (let i = children.length - 1; i >= 0; i--) pending.push(children[i]!);
+  }
+}
 function parse(snapshot: DocumentFileSnapshot) {
   if (snapshot.content.length > MAX_BYTES) throw invalid();
   return processor.parse(
@@ -68,18 +84,14 @@ function parse(snapshot: DocumentFileSnapshot) {
 // Resolve reference-style images before changing URLs. Preserve ordinary links and code.
 function images(tree: Tree): ImageNode[] {
   const definitions = new Map<string, { url: string; title?: string | null }>();
-  for (const node of tree.children)
-    if (node.type === "definition")
-      definitions.set(node.identifier.toUpperCase(), node);
+  for (const node of markdownNodes(tree)) {
+    if (node.type !== "definition") continue;
+    const key = node.identifier!.toUpperCase();
+    if (!definitions.has(key))
+      definitions.set(key, { url: node.url!, title: node.title });
+  }
   const result: ImageNode[] = [];
-  const stack: unknown[] = [tree];
-  while (stack.length) {
-    const node = stack.pop() as {
-      type: string;
-      children?: unknown[];
-      identifier?: string;
-      url?: string;
-    };
+  for (const node of markdownNodes(tree)) {
     if (node.type === "imageReference") {
       const definition = definitions.get(node.identifier!.toUpperCase());
       if (definition)
@@ -91,9 +103,23 @@ function images(tree: Tree): ImageNode[] {
     }
     if (node.type === "image") result.push(node as ImageNode);
     if (result.length > 4096) throw invalid();
-    if (node.children) for (const child of node.children) stack.push(child);
   }
   return result;
+}
+function removeImageDefinitions(tree: Tree): void {
+  const linked = new Set<string>();
+  for (const node of markdownNodes(tree))
+    if (node.type === "linkReference")
+      linked.add(node.identifier!.toUpperCase());
+  for (const node of markdownNodes(tree)) {
+    if (!node.children) continue;
+    node.children = node.children.filter(
+      (child) =>
+        child.type !== "definition" ||
+        !/^data:/iu.test(child.url!) ||
+        linked.has(child.identifier!.toUpperCase()),
+    );
+  }
 }
 function imageType(bytes: Uint8Array): string {
   const b = Buffer.from(bytes);
@@ -140,10 +166,8 @@ export function prepareDocumentSource(snapshot: DocumentFileSnapshot) {
     node.url = `document-image:${hash(bytes)}?source=${encodeURIComponent(source)}&sha256=${sourceHash}`;
     imageCount++;
   }
-  // Definitions are no longer needed for converted images. Do not return large payloads to the model.
-  tree.children = tree.children.filter(
-    (node) => node.type !== "definition" || !/^data:/iu.test(node.url),
-  );
+  // Drop payloads used only by converted images, but preserve ordinary links.
+  removeImageDefinitions(tree);
   const markdown = processor.stringify(tree);
   const textBytes = Buffer.byteLength(markdown);
   if (textBytes > MAX_TEXT_BYTES)
@@ -174,9 +198,7 @@ export function extractDocumentImages(snapshot: DocumentFileSnapshot) {
     node.url = filename;
   }
   if (!files.size) return { content: snapshot.content, files };
-  tree.children = tree.children.filter(
-    (node) => node.type !== "definition" || !/^data:/iu.test(node.url),
-  );
+  removeImageDefinitions(tree);
   const content = Buffer.from(processor.stringify(tree));
   if (content.length > MAX_TEXT_BYTES)
     throw new DocumentImageError(

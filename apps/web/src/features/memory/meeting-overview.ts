@@ -36,6 +36,9 @@ export type MeetingSummaryBlock =
   | { kind: "topics"; topics: MeetingTopic[] }
   | { kind: "outcomes"; title: string; outcomes: MeetingOutcome[] };
 
+/** The title the reader gives Action Items; it shows it in the language on screen. */
+export const TODO_LIST_TITLE = "To-do list";
+
 export function parseMeetingSummary(markdown: string): MeetingSummaryBlock[] {
   const blocks: MeetingSummaryBlock[] = [];
   const pushMarkdown = (text: string) => {
@@ -77,7 +80,7 @@ export function parseMeetingSummary(markdown: string): MeetingSummaryBlock[] {
       // Action Items reads as the meeting's to-do list and, like Pattern,
       // always shows, saying None observed when empty.
       if (name === SESSION_SECTIONS.actionItems)
-        blocks.push({ kind: "outcomes", title: "To-do list", outcomes });
+        blocks.push({ kind: "outcomes", title: TODO_LIST_TITLE, outcomes });
       else if (outcomes.length)
         blocks.push({ kind: "outcomes", title: section.title, outcomes });
       continue;

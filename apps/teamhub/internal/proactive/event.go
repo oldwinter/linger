@@ -159,6 +159,16 @@ func (s *Service) HandleEvent(ctx context.Context, event Event) (Outcome, error)
 	if s.judge == nil {
 		return Outcome{}, ErrNoJudge
 	}
+	// The account label lets the Agent tell the Human which mailbox; the
+	// connection ID alone still selects it when the label is gone.
+	var accountLabel string
+	if event.Grant != nil {
+		var err error
+		accountLabel, err = queries.GetExternalConnectionIdentityLabel(ctx, event.Grant.ConnectionID)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return Outcome{}, err
+		}
+	}
 	seen, err := queries.HasProactiveSignalForSource(ctx, store.HasProactiveSignalForSourceParams{
 		TenantID: owner.TenantID, OwnerActorID: owner.ActorID, Source: candidate.Source, SourceKey: candidate.SourceKey,
 	})
@@ -206,7 +216,7 @@ func (s *Service) HandleEvent(ctx context.Context, event Event) (Outcome, error)
 			instructions += "\n" + reminder.Prompt(reminder.EventTrackOnly, nil)
 		}
 	}
-	err = s.wake(ctx, owner, candidate, eventText(instructions+"\n"+reminder.Prompt(reminder.Arranging, nil), event), outcome.Skipped == "", event)
+	err = s.wake(ctx, owner, candidate, eventText(instructions+"\n"+reminder.Prompt(reminder.Arranging, nil), event, accountLabel), outcome.Skipped == "", event)
 	if revoked(err) {
 		outcome.Skipped = "authorization_revoked"
 		return outcome, nil
@@ -277,7 +287,9 @@ func (s *Service) wake(ctx context.Context, owner Owner, candidate Candidate, bo
 }
 
 // eventText fences the event and marks it as outside data, never instructions.
-func eventText(label string, event Event) string {
+// A granted event names its account so the Agent can select it with
+// --account; accountLabel is empty when the connection has none.
+func eventText(label string, event Event, accountLabel string) string {
 	facts := []string{"source: " + event.Source, "kind: " + event.Kind}
 	if event.State != "" {
 		facts = append(facts, "state: "+event.State)
@@ -288,6 +300,18 @@ func eventText(label string, event Event) string {
 	// A mandate act names the event by its source and ID.
 	if event.ExternalID != "" {
 		facts = append(facts, "external_id: "+event.ExternalID)
+	}
+	if event.Grant != nil {
+		if accountLabel != "" {
+			facts = append(facts, "account: "+accountLabel)
+			// An Outlook label is the Microsoft account's sign-in name, which can
+			// belong to another mail provider; the account value itself stays
+			// exact so it can be passed to --account.
+			if event.Source == reminder.ListenerOutlook || event.Source == reminder.ListenerOutlookCalendar {
+				facts = append(facts, "account note: Microsoft sign-in name, the mailbox address may differ")
+			}
+		}
+		facts = append(facts, "connection: "+event.Grant.ConnectionID)
 	}
 	text := label + "\n" + strings.Join(facts, "; ") + "\n<event>\n" + strings.TrimSpace(event.Summary) +
 		"\n</event>\n" + reminder.Prompt(reminder.EventData, nil)

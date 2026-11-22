@@ -111,21 +111,6 @@ func (q *Queries) AgentRuntimeContextHasPendingWork(ctx context.Context, context
 	return column_1, err
 }
 
-const agentRuntimeContextHasQueuedRun = `-- name: AgentRuntimeContextHasQueuedRun :one
-SELECT EXISTS(
-    SELECT 1 FROM agent_local_runs run
-    WHERE run.context_key=$1::text AND run.status='queued'
-      AND agent_document_run_claimable(run.run_id,run.context_key)
-)::boolean
-`
-
-func (q *Queries) AgentRuntimeContextHasQueuedRun(ctx context.Context, contextKey string) (bool, error) {
-	row := q.db.QueryRow(ctx, agentRuntimeContextHasQueuedRun, contextKey)
-	var column_1 bool
-	err := row.Scan(&column_1)
-	return column_1, err
-}
-
 const agentRuntimeDatabaseNow = `-- name: AgentRuntimeDatabaseNow :one
 SELECT clock_timestamp()::timestamptz
 `
@@ -744,6 +729,106 @@ func (q *Queries) GetAgentLocalRunContextKey(ctx context.Context, runID string) 
 	var context_key string
 	err := row.Scan(&context_key)
 	return context_key, err
+}
+
+const getAgentLocalRunReplyDelivered = `-- name: GetAgentLocalRunReplyDelivered :one
+WITH target_run AS (
+    SELECT run.run_id, run.started_at, run.finished_at,
+           context.tenant_id, context.agent_actor_id, context.room_id
+    FROM agent_local_runs run
+    JOIN agent_execution_contexts context ON context.context_key=run.context_key
+    WHERE run.context_key=$1::text
+      AND run.run_id=$2::text
+),
+room_scope AS (
+    SELECT target_run.room_id AS id
+    FROM target_run
+    WHERE target_run.room_id IS NOT NULL
+    UNION ALL
+    SELECT thread.id
+    FROM target_run
+    JOIN rooms thread
+      ON thread.parent_room_id=target_run.room_id
+     AND thread.deleted_at IS NULL
+    WHERE target_run.room_id IS NOT NULL
+)
+SELECT (
+    EXISTS (
+        SELECT 1
+        FROM messages message
+        WHERE message.local_run_id=target_run.run_id
+          AND message.message_kind='conversation'
+    )
+    OR EXISTS (
+        SELECT 1
+        FROM agent_presentation_sequences sequence
+        WHERE sequence.local_run_id=target_run.run_id
+    )
+    OR (
+        target_run.started_at IS NOT NULL
+        AND target_run.room_id IS NOT NULL
+        AND EXISTS (
+            SELECT 1
+            FROM messages message
+            WHERE message.tenant_id=target_run.tenant_id
+              AND message.author_actor_id=target_run.agent_actor_id
+              AND message.message_kind='conversation'
+              AND message.local_run_id IS NULL
+              AND message.created_at>=target_run.started_at
+              AND (target_run.finished_at IS NULL OR message.created_at<=target_run.finished_at)
+              AND message.room_id IN (SELECT id FROM room_scope)
+        )
+    )
+    OR (
+        target_run.started_at IS NOT NULL
+        AND target_run.room_id IS NOT NULL
+        AND EXISTS (
+            SELECT 1
+            FROM agent_presentation_sequences sequence
+            WHERE sequence.tenant_id=target_run.tenant_id
+              AND sequence.agent_actor_id=target_run.agent_actor_id
+              AND sequence.local_run_id IS NULL
+              AND sequence.created_at>=target_run.started_at
+              AND (target_run.finished_at IS NULL OR sequence.created_at<=target_run.finished_at)
+              AND sequence.room_id IN (SELECT id FROM room_scope)
+        )
+    )
+    OR (
+        target_run.started_at IS NOT NULL
+        AND target_run.room_id IS NOT NULL
+        AND EXISTS (
+            SELECT 1
+            FROM message_reactions reaction
+            WHERE reaction.tenant_id=target_run.tenant_id
+              AND reaction.actor_id=target_run.agent_actor_id
+              AND reaction.created_at>=target_run.started_at
+              AND (target_run.finished_at IS NULL OR reaction.created_at<=target_run.finished_at)
+              AND reaction.room_id IN (SELECT id FROM room_scope)
+        )
+    )
+)::boolean AS replied
+FROM target_run
+`
+
+type GetAgentLocalRunReplyDeliveredParams struct {
+	ContextKey string `json:"context_key"`
+	RunID      string `json:"run_id"`
+}
+
+// Checks whether TeamHub persisted a visible reply from the Run: a
+// conversation Message or decision card attributed to the Run, a queued
+// presentation sequence attributed to the Run, or an unattributed conversation
+// Message, presentation sequence, or emoji Reaction written by the Agent in
+// the Room or its Threads during the Run. Excluding rows attributed to another
+// Run prevents delayed bubbles from an earlier sequence from satisfying this
+// Run. The unattributed sequence and reaction branches have no (room_id,
+// created_at) index; this query runs only on the suspected-missing-reply path
+// and exits early on the indexed local_run_id checks for attributed replies.
+func (q *Queries) GetAgentLocalRunReplyDelivered(ctx context.Context, arg GetAgentLocalRunReplyDeliveredParams) (bool, error) {
+	row := q.db.QueryRow(ctx, getAgentLocalRunReplyDelivered, arg.ContextKey, arg.RunID)
+	var replied bool
+	err := row.Scan(&replied)
+	return replied, err
 }
 
 const getAgentRunStatus = `-- name: GetAgentRunStatus :one
@@ -3304,6 +3389,43 @@ func (q *Queries) LockAgentRuntimeLocalComputer(ctx context.Context, computerID 
 	return i, err
 }
 
+const lockAgentRuntimeLocalComputerByDaemonID = `-- name: LockAgentRuntimeLocalComputerByDaemonID :one
+SELECT computer_id, display_name, status, credential_generation, capacity, active_operations, runtime_inventory, workspace_grants, runtime_diagnostics, last_seen_at, removed_at, created_at, updated_at, daemon_id, daemon_public_key, daemon_identity_version, platform, daemon_version, recommended_version, owner_tenant_id, owner_actor_id
+FROM local_computers
+WHERE daemon_id=$1::text
+  AND status<>'removed'
+FOR UPDATE
+`
+
+func (q *Queries) LockAgentRuntimeLocalComputerByDaemonID(ctx context.Context, daemonID string) (LocalComputer, error) {
+	row := q.db.QueryRow(ctx, lockAgentRuntimeLocalComputerByDaemonID, daemonID)
+	var i LocalComputer
+	err := row.Scan(
+		&i.ComputerID,
+		&i.DisplayName,
+		&i.Status,
+		&i.CredentialGeneration,
+		&i.Capacity,
+		&i.ActiveOperations,
+		&i.RuntimeInventory,
+		&i.WorkspaceGrants,
+		&i.RuntimeDiagnostics,
+		&i.LastSeenAt,
+		&i.RemovedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DaemonID,
+		&i.DaemonPublicKey,
+		&i.DaemonIdentityVersion,
+		&i.Platform,
+		&i.DaemonVersion,
+		&i.RecommendedVersion,
+		&i.OwnerTenantID,
+		&i.OwnerActorID,
+	)
+	return i, err
+}
+
 const lockAgentRuntimeLocalComputerEnrollment = `-- name: LockAgentRuntimeLocalComputerEnrollment :one
 SELECT enrollment_id, tenant_id, owner_actor_id, requested_computer_id, renews_existing_computer, display_name, redirect_uri, code_challenge, authorization_code_hash, expires_at, exchanged_at, exchanged_generation, created_at
 FROM local_computer_enrollments
@@ -3555,6 +3677,59 @@ func (q *Queries) NextAgentLocalRunSteerOrdinal(ctx context.Context, runID strin
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const nextAgentRunInputOrigins = `-- name: NextAgentRunInputOrigins :many
+WITH next_run AS (
+    SELECT run.run_id FROM agent_local_runs run
+    WHERE run.context_key=$1::text AND run.status='queued'
+      AND agent_document_run_claimable(run.run_id,run.context_key)
+    ORDER BY run.created_at, run.run_id LIMIT 1
+)
+SELECT DISTINCT (input.payload ? 'acceptedNotification')::boolean AS notification,
+       coalesce(input.payload->'acceptedNotification'->>'inboxId' LIKE 'taskmeta:%', false)::boolean AS task_inbox,
+       coalesce(msg.value->>'authorType', '')::text AS author_type,
+       coalesce(msg.value->>'messageKind', '')::text AS message_kind,
+       coalesce(msg.value->>'firedRoutine' = 'true', false)::boolean AS fired_routine
+FROM next_run
+JOIN agent_local_run_inputs relation ON relation.run_id=next_run.run_id AND relation.relation='initial'
+JOIN agent_runtime_inputs input ON input.context_key=relation.context_key AND input.input_id=relation.input_id
+LEFT JOIN LATERAL jsonb_array_elements(input.payload->'acceptedNotification'->'messages') AS msg(value) ON true
+`
+
+type NextAgentRunInputOriginsRow struct {
+	Notification bool   `json:"notification"`
+	TaskInbox    bool   `json:"task_inbox"`
+	AuthorType   string `json:"author_type"`
+	MessageKind  string `json:"message_kind"`
+	FiredRoutine bool   `json:"fired_routine"`
+}
+
+// Match claim order without locking the Run or returning message bodies.
+func (q *Queries) NextAgentRunInputOrigins(ctx context.Context, contextKey string) ([]NextAgentRunInputOriginsRow, error) {
+	rows, err := q.db.Query(ctx, nextAgentRunInputOrigins, contextKey)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []NextAgentRunInputOriginsRow{}
+	for rows.Next() {
+		var i NextAgentRunInputOriginsRow
+		if err := rows.Scan(
+			&i.Notification,
+			&i.TaskInbox,
+			&i.AuthorType,
+			&i.MessageKind,
+			&i.FiredRoutine,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const observeAgentRuntimeLocalComputer = `-- name: ObserveAgentRuntimeLocalComputer :one

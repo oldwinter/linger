@@ -2,6 +2,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createHttpTeamHubClient } from "@/features/teamhub/teamhub-client";
+import { commonMessages } from "@/i18n/common.messages";
+import { resetLanguageForTest, setLanguage, translate } from "@/i18n/language";
 import {
   TeamHubTestServer,
   teamHubErrorResponse,
@@ -18,7 +20,14 @@ import {
 } from "./voice-live-page-tools";
 
 const page = vi.hoisted(() => ({
-  elements: [] as Array<{ id: string; name: string }>,
+  elements: [] as Array<{
+    id: string;
+    name: string;
+    /** The control's `data-voice-risk` marker. */
+    risk?: string;
+  }>,
+  /** The element on screen behind each element id, made once per id. */
+  onScreen: new Map<string, HTMLElement>(),
   rooms: [] as Array<{ id: string; name: string }>,
   sections: [] as Array<{ id: string; name: string }>,
   results: [] as Array<{ id: string; name: string }>,
@@ -63,11 +72,23 @@ const act = vi.hoisted(() => (name: string) => (...args: unknown[]) => {
   page.ran.push([name, ...args]);
   return page.works;
 });
-vi.mock("../voice-ui-bridge", () => ({
+vi.mock("../voice-ui-bridge", async (importOriginal) => ({
+  voiceRiskyTarget: (
+    await importOriginal<typeof import("../voice-ui-bridge")>()
+  ).voiceRiskyTarget,
   chatComposerName: "Chat composer",
   // Each element id stands for one element on screen.
-  offeredVoiceElement: (id: string) =>
-    page.elements.some((element) => element.id === id) ? { id } : undefined,
+  offeredVoiceElement: (id: string) => {
+    const offered = page.elements.find((element) => element.id === id);
+    if (!offered) return undefined;
+    let element = page.onScreen.get(id);
+    if (!element) {
+      element = document.createElement("button");
+      if (offered.risk) element.dataset.voiceRisk = offered.risk;
+      page.onScreen.set(id, element);
+    }
+    return element;
+  },
   voiceClick: (id: string) => {
     if (!act("click")(id)) return undefined;
     const toggled = page.toggles.get(id);
@@ -492,14 +513,57 @@ describe("model page tools", () => {
     );
   });
 
+  it("asks before marked clicks in either language, whatever their names say", async () => {
+    for (const language of ["en", "zh-CN"] as const) {
+      await setLanguage(language);
+      const retry = translate(commonMessages.tryAgain);
+      page.ran = [];
+      page.onScreen.clear();
+      page.elements = [
+        { ...element("el-1", retry), risk: "never" },
+        { ...element("el-2", "Copy"), risk: "confirm" },
+        element("el-3", retry),
+      ];
+      const lines = readPageTargets(context).split("\n");
+      const listed = (ref: string) =>
+        lines.find((line) => line.startsWith(`${ref} `)) ?? "";
+      expect(listed("e1"), language).toContain(retry);
+      expect(listed("e1"), language).toMatch(/\(needs confirmation\)$/);
+      expect(listed("e2"), language).toMatch(
+        /^e2 Copy.*\(needs confirmation\)$/,
+      );
+      expect(listed("e3"), language).not.toMatch(/needs confirmation/);
+      for (const target of ["e1", "e2"]) {
+        await expect(
+          runPageAction({ action: "click", target }, context),
+        ).resolves.toMatchObject({ status: "needs_confirmation" });
+        await expect(
+          runPageAction(
+            { action: "click", target, confirmed: "True" },
+            context,
+          ),
+        ).resolves.toMatchObject({ status: "done" });
+      }
+      await expect(
+        runPageAction({ action: "click", target: "e3" }, context),
+      ).resolves.toMatchObject({ status: "done" });
+      expect(page.ran, language).toEqual([
+        ["click", "el-1"],
+        ["click", "el-2"],
+        ["click", "el-3"],
+      ]);
+    }
+    resetLanguageForTest();
+  });
+
   it("asks before risky clicks and runs them once confirmed", async () => {
-    expect(riskyTarget("Delete message")).toBe(true);
-    expect(riskyTarget("Leave room")).toBe(true);
-    expect(riskyTarget("Pocket Note")).toBe(false);
+    expect(riskyTarget(undefined, "Delete message")).toBe(true);
+    expect(riskyTarget(undefined, "Leave room")).toBe(true);
+    expect(riskyTarget(undefined, "Pocket Note")).toBe(false);
     // Approval decisions wait for the Human's yes too.
     for (const name of ["Approve", "Approve and run", "Deny"])
-      expect(riskyTarget(name)).toBe(true);
-    expect(riskyTarget("Exit Voice Mode")).toBe(false);
+      expect(riskyTarget(undefined, name)).toBe(true);
+    expect(riskyTarget(undefined, "Exit Voice Mode")).toBe(false);
     await expect(
       runPageAction({ action: "click", target: "Delete message" }, context),
     ).resolves.toMatchObject({ status: "needs_confirmation" });

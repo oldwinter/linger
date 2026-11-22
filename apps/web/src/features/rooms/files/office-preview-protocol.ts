@@ -10,6 +10,21 @@ export type OfficePreviewErrorCode =
   | "timeout"
   | "unsupported-file";
 
+/**
+ * The preview limit an Office file went over. The preflight worker has no
+ * language, so the adapter words it.
+ */
+export type OfficePreviewLimit =
+  | { kind: "cells"; max: number }
+  | { kind: "compression" }
+  | { kind: "entries" }
+  | { kind: "entrySize" }
+  | { kind: "expandedSize" }
+  | { kind: "fileSize"; mebibytes: number }
+  | { kind: "sheetSize"; sheet: string }
+  | { kind: "sheets"; max: number }
+  | { kind: "slides"; max: number };
+
 export interface OfficePreviewRenderMessage {
   buffer: ArrayBuffer;
   filename: string;
@@ -69,8 +84,10 @@ export type OfficePreviewPreflightResponse =
     }
   | {
       code: OfficePreviewErrorCode;
+      /** The failure in English, for developers. */
       detail?: string;
       kind: "failed";
+      limit?: OfficePreviewLimit;
       requestId: string;
     };
 

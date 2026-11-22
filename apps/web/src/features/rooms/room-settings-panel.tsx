@@ -1,6 +1,7 @@
 import { RoomHistoryShareDialog } from "./sharing/room-history-share-dialog";
 import { useQuery } from "@tanstack/react-query";
 import {
+  Clock01Icon,
   Delete02Icon,
   Link01Icon,
   Logout01Icon,
@@ -11,6 +12,11 @@ import { Suspense, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ModalDialog } from "@/components/ui/modal-dialog";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
+import { roomDialogMessages } from "./room-dialogs.messages";
+import { roomSettingsMessages as m } from "./room-settings.messages";
+import { sidePanelMessages } from "./task-sidebar/side-panel.messages";
 import {
   roomQueryOptions,
   roomMembersQueryOptions,
@@ -28,28 +34,43 @@ import type {
 
 export function RoomSettingsPanel({
   onOpenProfile,
+  onOpenRoutines,
   roomId,
   tenantId,
 }: {
   onOpenProfile?: (actorId: string) => void;
+  onOpenRoutines?: () => void;
   roomId: string;
   tenantId: string;
 }) {
   const { client } = useTeamHubRuntime();
+  const t = useT();
   const room = useQuery(roomQueryOptions(client, tenantId, roomId));
   const members = useQuery(roomMembersQueryOptions(client, tenantId, roomId));
   const identity = useQuery(teamHubIdentityQueryOptions(client));
   if (room.isPending || members.isPending || identity.isPending)
     return (
       <p role="status" className="p-5 text-sm text-app-muted">
-        Loading Room settings...
+        {t(m.loading)}
       </p>
     );
   if (!room.data || !members.data || !identity.data)
     return (
-      <p role="alert" className="p-5 text-sm text-app-danger">
-        Room settings could not be loaded.
-      </p>
+      <div className="flex items-center justify-between gap-3 p-5" role="alert">
+        <p className="text-sm text-app-danger">{t(m.loadFailed)}</p>
+        <Button
+          onClick={() => {
+            if (room.isError) void room.refetch();
+            if (members.isError) void members.refetch();
+            if (identity.isError) void identity.refetch();
+          }}
+          size="compact"
+          tone="secondary"
+          type="button"
+        >
+          {t(commonMessages.retry)}
+        </Button>
+      </div>
     );
   const actorId = identity.data.actors.find(
     (actor) => actor.tenant_id === tenantId,
@@ -61,6 +82,7 @@ export function RoomSettingsPanel({
     <RoomSettingsContent
       members={members.data.items.map((member) => member.actor)}
       onOpenProfile={onOpenProfile}
+      onOpenRoutines={onOpenRoutines}
       owner={owner}
       room={room.data}
     />
@@ -69,11 +91,13 @@ export function RoomSettingsPanel({
 function RoomSettingsContent({
   members,
   onOpenProfile,
+  onOpenRoutines,
   room,
   owner,
 }: {
   members: TeamHubActorRef[];
   onOpenProfile?: (actorId: string) => void;
+  onOpenRoutines?: () => void;
   room: TeamHubRoom;
   owner: boolean;
 }) {
@@ -82,6 +106,7 @@ function RoomSettingsContent({
   const [deleting, setDeleting] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const leave = useRoomParticipation(room);
+  const t = useT();
   const groupRoom = room.kind === "room";
   return (
     <div
@@ -106,10 +131,10 @@ function RoomSettingsContent({
             </h2>
             {owner ? (
               <button
-                aria-label="Edit Room details"
+                aria-label={t(m.editDetails)}
                 className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                 onClick={() => setEditing(true)}
-                title="Edit Room details"
+                title={t(m.editDetails)}
                 type="button"
               >
                 <Icon icon={PencilEdit01Icon} size={14} />
@@ -123,7 +148,7 @@ function RoomSettingsContent({
           ) : null}
           {groupRoom ? (
             <p className="mt-1.5 text-xs tabular-nums text-app-muted">
-              {members.length} {members.length === 1 ? "member" : "members"}
+              {t(sidePanelMessages.memberCount, { count: members.length })}
             </p>
           ) : null}
         </header>
@@ -131,12 +156,12 @@ function RoomSettingsContent({
       {groupRoom ? (
         <>
           <h3 className="px-5 pt-2 text-xs font-medium text-app-muted">
-            Members
+            {t(m.members)}
           </h3>
           <Suspense
             fallback={
               <p role="status" className="p-5 text-sm text-app-muted">
-                Loading members...
+                {t(m.loadingMembers)}
               </p>
             }
           >
@@ -148,16 +173,23 @@ function RoomSettingsContent({
             />
           </Suspense>
           <div className="mx-5 mt-2 space-y-2 border-t border-app-border pb-5 pt-4">
+            {onOpenRoutines ? (
+              <Button className="w-full" onClick={onOpenRoutines}>
+                <Icon icon={Clock01Icon} size={16} />
+                Routines
+              </Button>
+            ) : null}
             {owner ? (
               <Button className="w-full" onClick={() => setSharing(true)}>
                 <Icon icon={Link01Icon} size={16} />
-                Share conversation
+                {t(m.shareConversation)}
               </Button>
             ) : null}
             {room.participation === "left" ? (
               <RoomRejoinBanner room={room} />
             ) : (
               <Button
+                data-voice-risk="never"
                 className="w-full"
                 onClick={() => {
                   leave.reset();
@@ -165,17 +197,18 @@ function RoomSettingsContent({
                 }}
               >
                 <Icon icon={Logout01Icon} size={16} />
-                Leave Room
+                {t(m.leaveRoom)}
               </Button>
             )}
             {owner ? (
               <Button
+                data-voice-risk="never"
                 className="w-full"
                 onClick={() => setDeleting(true)}
                 tone="danger"
               >
                 <Icon icon={Delete02Icon} size={16} />
-                Delete Room
+                {t(roomDialogMessages.deleteRoom)}
               </Button>
             ) : null}
           </div>
@@ -197,28 +230,29 @@ function RoomSettingsContent({
       ) : null}
       {leaving ? (
         <ModalDialog
-          description="You will stop receiving messages from this room and cannot send messages until you rejoin. Your role, existing access and message history stay the same. You can rejoin at any time."
+          description={t(m.leaveDescription)}
           onClose={() => {
             if (!leave.isPending) setLeaving(false);
           }}
           size="sm"
-          title="Leave Room"
+          title={t(m.leaveRoom)}
           footer={
             <>
               <Button
                 disabled={leave.isPending}
                 onClick={() => setLeaving(false)}
               >
-                Cancel
+                {t(commonMessages.cancel)}
               </Button>
               <Button
+                data-voice-risk="never"
                 tone="danger"
                 loading={leave.isPending}
                 onClick={() =>
                   leave.mutate("left", { onSuccess: () => setLeaving(false) })
                 }
               >
-                Leave
+                {t(m.leave)}
               </Button>
             </>
           }

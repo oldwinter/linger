@@ -1,5 +1,8 @@
 import { dateTimeFormat } from "@/lib/date-format";
 import { useState } from "react";
+import { formatLocale } from "@/i18n/language";
+import type { Message } from "@/i18n/messages";
+import { useTranslation } from "@/i18n/use-translation";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import {
   Activity01Icon,
@@ -26,15 +29,22 @@ import { RuntimeActivityPath } from "../../runtime-status/runtime-activity-path-
 import { useTaskActivityEvents } from "../../runtime-status/use-task-activity-events";
 import { RunningDots } from "../running-dots";
 import { PanelLoading } from "../panel-loading";
+import { runtimeStatusMessages } from "../../runtime-status/runtime-status.messages";
+import { sidePanelMessages } from "../side-panel.messages";
+import { activityPanelMessages as m } from "./activity-panel.messages";
 
-const stageLabels: Record<TeamHubTaskExecution["status"], string> = {
-  running: "Running",
-  waiting_for_approval: "Waiting for approval",
-  idle: "Idle",
-  failed: "Failed",
-  canceled: "Stopped",
+const stageLabels: Record<TeamHubTaskExecution["status"], Message<string>> = {
+  running: runtimeStatusMessages.taskStatusRunning,
+  waiting_for_approval: m.stageWaitingForApproval,
+  idle: m.stageIdle,
+  failed: runtimeStatusMessages.taskStatusFailed,
+  canceled: runtimeStatusMessages.taskStatusStopped,
 };
 const tabs = ["Activity", "Details"] as const;
+const tabLabels: Record<(typeof tabs)[number], Message<string>> = {
+  Activity: m.tabActivity,
+  Details: m.tabDetails,
+};
 
 export function TaskActivitiesPanelTab({
   hidden,
@@ -45,6 +55,8 @@ export function TaskActivitiesPanelTab({
   taskId: string;
   tenantId: string;
 }) {
+  const { language, t } = useTranslation();
+  const locale = formatLocale(language);
   const [tab, setTab] = useState<(typeof tabs)[number]>("Activity");
   const data = useTaskActivities({ tenantId, taskId, enabled: !hidden });
   const { client } = useTeamHubRuntime();
@@ -62,7 +74,7 @@ export function TaskActivitiesPanelTab({
   const item = data.item.data;
   const stopped = taskExecutionStopped(execution);
   const status = execution
-    ? stageLabels[execution.status]
+    ? t(stageLabels[execution.status])
     : (item?.state.replaceAll("_", " ") ?? "");
   const refresh = () => {
     void data.item.refetch();
@@ -76,15 +88,19 @@ export function TaskActivitiesPanelTab({
       hidden={hidden || undefined}
       inert={hidden || undefined}
       data-testid="task-activities-panel"
-      aria-label="Task activities"
+      aria-label={t(m.taskActivities)}
     >
       <header className="shrink-0 border-b border-app-border px-4 pb-3 pt-4">
         <div className="flex items-center gap-2 text-xs text-app-muted">
           <Icon icon={Activity01Icon} size={14} />
-          <span>Task {item ? `#${item.number}` : ""}</span>
+          <span>
+            {item
+              ? t(m.taskNumber, { number: String(item.number) })
+              : t(m.task)}
+          </span>
           <button
             type="button"
-            aria-label="Refresh task"
+            aria-label={t(m.refreshTask)}
             onClick={refresh}
             className="ml-auto rounded-lg p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           >
@@ -92,7 +108,7 @@ export function TaskActivitiesPanelTab({
           </button>
         </div>
         <h2 className="mt-2 break-words text-sm font-semibold text-app-ink">
-          {item?.title ?? "Task activity"}
+          {item?.title ?? t(m.taskActivity)}
         </h2>
         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
           <span className="rounded-full bg-muted px-2 py-0.5 capitalize text-muted-foreground">
@@ -100,18 +116,22 @@ export function TaskActivitiesPanelTab({
           </span>
           {execution?.current_attempt ? (
             <span className="text-app-muted">
-              Attempt {execution.current_attempt.attempt_number}
+              {t(m.attempt, {
+                number: String(execution.current_attempt.attempt_number),
+              })}
             </span>
           ) : null}
         </div>
         {execution ? (
           <p className="mt-2 text-2xs text-app-muted">
-            Updated {formatTime(execution.execution_updated_at)}
+            {t(m.updated, {
+              time: formatTime(execution.execution_updated_at, locale),
+            })}
           </p>
         ) : null}
       </header>
       <nav
-        aria-label="Task sections"
+        aria-label={t(m.taskSections)}
         className="flex shrink-0 gap-1 border-b border-border px-3 py-2"
       >
         {tabs.map((value) => (
@@ -122,40 +142,37 @@ export function TaskActivitiesPanelTab({
             onClick={() => setTab(value)}
             className={`rounded-full px-3 py-1 text-sm font-medium transition-colors duration-150 ${tab === value ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
           >
-            {value}
+            {t(tabLabels[value])}
           </button>
         ))}
       </nav>
       <div className="workspace-scrollbar min-h-0 flex-1 overflow-y-auto">
         {data.item.error ? (
-          <State>Task could not be loaded.</State>
+          <State>{t(m.taskLoadFailed)}</State>
         ) : data.item.isPending ? (
-          <State busy>Loading task…</State>
+          <State busy>{t(m.loadingTask)}</State>
         ) : (
           <>
             {data.execution.error ? (
-              <State>Execution status could not be loaded.</State>
+              <State>{t(m.executionLoadFailed)}</State>
             ) : null}
             {tab === "Activity" ? (
               <>
                 {data.activities.error ? (
                   <State>
                     {isTaskActivityNotFound(data.activities.error)
-                      ? "You do not have access to this task’s work room activity."
-                      : "Activity could not be loaded. Try refreshing."}
+                      ? t(m.noActivityAccess)
+                      : t(m.activityLoadFailedRefresh)}
                   </State>
                 ) : data.activities.isPending ? (
-                  <State busy>Loading activity…</State>
+                  <State busy>{t(m.loadingActivityEllipsis)}</State>
                 ) : (
                   <>
                     {data.roomId && !data.connected ? (
-                      <State>Reconnecting to live activity…</State>
+                      <State>{t(m.reconnecting)}</State>
                     ) : null}
                     {!data.runStatuses.length ? (
-                      <State>
-                        No published activity yet. Earlier runs may not have an
-                        activity history.
-                      </State>
+                      <State>{t(m.noPublishedActivity)}</State>
                     ) : null}
                     {data.roomId
                       ? data.runStatuses.map((runStatus) => (
@@ -181,7 +198,7 @@ export function TaskActivitiesPanelTab({
                           disabled={data.activities.isFetchingNextPage}
                           onClick={() => void data.activities.fetchNextPage()}
                         >
-                          Load earlier activity
+                          {t(sidePanelMessages.loadEarlierActivity)}
                         </Button>
                       </div>
                     ) : null}
@@ -190,15 +207,15 @@ export function TaskActivitiesPanelTab({
                 {data.roomId ? (
                   <div className="border-t border-app-border px-4 py-4">
                     <h3 className="mb-3 text-xs font-medium text-app-body">
-                      Task messages
+                      {t(m.taskMessages)}
                     </h3>
                     {messages.error ? (
                       <p className="text-xs text-app-muted">
-                        Messages could not be loaded.
+                        {t(m.messagesLoadFailed)}
                       </p>
                     ) : !publicMessages.length ? (
                       <p className="text-xs text-app-muted">
-                        No task messages yet.
+                        {t(m.noTaskMessages)}
                       </p>
                     ) : (
                       [...publicMessages].reverse().map((message) => (
@@ -206,7 +223,7 @@ export function TaskActivitiesPanelTab({
                           <div className="mb-1 flex gap-2 text-2xs text-app-muted">
                             <span>{message.author.display_name}</span>
                             <time dateTime={message.created_at}>
-                              {formatTime(message.created_at)}
+                              {formatTime(message.created_at, locale)}
                             </time>
                           </div>
                           <MessageMarkdown
@@ -223,7 +240,7 @@ export function TaskActivitiesPanelTab({
                         disabled={messages.isFetchingNextPage}
                         onClick={() => void messages.fetchNextPage()}
                       >
-                        Load earlier messages
+                        {t(m.loadEarlierMessages)}
                       </Button>
                     ) : null}
                   </div>
@@ -234,29 +251,29 @@ export function TaskActivitiesPanelTab({
               <div className="space-y-5 p-4 text-xs text-app-body">
                 <dl className="space-y-3">
                   <Field
-                    label="Assignees"
+                    label={t(m.assignees)}
                     value={
                       item.assignees
                         .map((assignment) => assignment.actor.display_name)
-                        .join(", ") || "Unassigned"
+                        .join(", ") || t(m.unassigned)
                     }
                   />
-                  <Field label="Priority" value={item.priority} />
+                  <Field label={t(m.priority)} value={item.priority} />
                   <Field
-                    label="Execution"
+                    label={t(m.execution)}
                     value={
                       execution
-                        ? stageLabels[execution.status]
-                        : "Execution is not enabled"
+                        ? t(stageLabels[execution.status])
+                        : t(m.executionNotEnabled)
                     }
                   />
                   {execution?.reason_code ? (
-                    <Field label="Reason" value={execution.reason_code} />
+                    <Field label={t(m.reason)} value={execution.reason_code} />
                   ) : null}
                 </dl>
                 {item.description ? (
                   <div>
-                    <h3 className="mb-2 font-medium">Description</h3>
+                    <h3 className="mb-2 font-medium">{t(m.description)}</h3>
                     <MessageMarkdown
                       body={item.description}
                       authorKind="human"
@@ -289,6 +306,7 @@ function TaskActivityGroup({
   paused: boolean;
   messages: TeamHubMessage[];
 }) {
+  const { language, t } = useTranslation();
   const active = runStatus.status === "active" && !stopped;
   const paused = runStatus.status === "active" && taskPaused;
   const [opened, setOpened] = useState<boolean>();
@@ -330,19 +348,23 @@ function TaskActivityGroup({
             {runStatus.agent.display_name}
           </span>
           <span className="text-2xs text-app-muted">
-            {formatTime(runStatus.created_at)} ·{" "}
-            {active
-              ? "Working"
-              : paused
-                ? "Paused"
-                : interrupted
-                  ? "Interrupted"
-                  : "Ended"}
+            {t(m.runStarted, {
+              time: formatTime(runStatus.created_at, formatLocale(language)),
+              state: t(
+                active
+                  ? m.runWorking
+                  : paused
+                    ? m.runPaused
+                    : interrupted
+                      ? m.runInterrupted
+                      : m.runEnded,
+              ),
+            })}
           </span>
         </span>
         {active ? (
           <span
-            aria-label="Agent working"
+            aria-label={t(m.agentWorking)}
             className="flex h-3.5 items-center text-app-info"
             role="img"
           >
@@ -358,9 +380,9 @@ function TaskActivityGroup({
       </button>
       {expanded ? (
         events.error ? (
-          <State>Activity could not be loaded.</State>
+          <State>{t(m.activityLoadFailed)}</State>
         ) : !events.data ? (
-          <State busy>Loading activity…</State>
+          <State busy>{t(m.loadingActivityEllipsis)}</State>
         ) : (
           <RuntimeActivityPath
             records={events.data.items}
@@ -395,11 +417,14 @@ function Field({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
-function formatTime(value: string) {
-  return dateTimeFormat({
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
+function formatTime(value: string, locale: string) {
+  return dateTimeFormat(
+    {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    },
+    locale,
+  ).format(new Date(value));
 }

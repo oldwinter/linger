@@ -18,12 +18,10 @@ runtime and the bundled PostgreSQL need glibc 2.35 or newer (Ubuntu 22.04,
 Debian 12); on an older system the desktop installs Native from the network.
 """
 import argparse
-import hashlib
 import json
 import os
 import shutil
 import sys
-import tarfile
 import tempfile
 import urllib.request
 import zipfile
@@ -31,6 +29,7 @@ import zipfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 DESKTOP = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, os.path.dirname(HERE))
+from archive import sha256, tar_gz  # noqa: E402
 import computer_tools  # noqa: E402
 from native_bundle import check_runtime, check_teamhub  # noqa: E402
 
@@ -84,20 +83,6 @@ def stage_app(version, electron_version, root, cache):
     os.rename(os.path.join(root, "electron"), os.path.join(root, "linger"))
 
 
-def owned_by_root(info):
-    info.uid = info.gid = 0
-    info.uname = info.gname = "root"
-    return info
-
-
-def sha256(path):
-    digest = hashlib.sha256()
-    with open(path, "rb") as source:
-        for chunk in iter(lambda: source.read(1 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", default=os.path.join(DESKTOP, "out"))
@@ -119,10 +104,9 @@ def main():
         root = os.path.join(workdir, name)
         stage_app(version, electron_version, root, args.cache)
         output = os.path.join(args.out, f"{name}.tar.gz")
-        with tarfile.open(output, "w:gz") as archive:
-            archive.add(root, arcname=name, filter=owned_by_root)
+        tar_gz(workdir, name, output, root_owner=True)
         computer_tools.check_archive(output, f"{name}/resources/", TARGET)
-        print(f"{output} {os.path.getsize(output)} sha256={sha256(output)}")
+        print(f"{output} {os.path.getsize(output)} sha256={sha256(output)}", flush=True)
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 

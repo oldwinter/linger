@@ -1,6 +1,8 @@
 import { inferDocumentMediaType } from "@linger/document-files/media-type";
+import { translate } from "@/i18n/language";
 import { type TeamHubAuthenticationReason } from "./teamhub-authentication";
 import { readTeamHubError } from "./teamhub-error";
+import { fileTransferMessages } from "./teamhub-file-transfer.messages";
 
 interface TeamHubUploadResponse {
   body: string;
@@ -63,7 +65,9 @@ export async function uploadTeamHubFile<T>({
   // network uplink is too slow for the file. The proxy body is not TeamHub JSON.
   if (uploadTimeoutStatuses.has(response.status)) {
     throw new Error(
-      `The upload timed out before it reached TeamHub (HTTP ${response.status}). The network upload speed is too slow for this file. Retry, or use a smaller file.`,
+      translate(fileTransferMessages.uploadProxyTimedOut, {
+        status: response.status,
+      }),
     );
   }
   if (response.status < 200 || response.status >= 300) {
@@ -139,7 +143,7 @@ function sendTeamHubMultipartUpload({
       resolveOnce({ body: request.responseText, status: request.status });
     };
     request.onerror = () => {
-      rejectOnce(new Error("TeamHub upload could not reach the server."));
+      rejectOnce(new Error(translate(fileTransferMessages.uploadUnreachable)));
     };
     request.onabort = () => {
       rejectOnce(
@@ -147,7 +151,7 @@ function sendTeamHubMultipartUpload({
       );
     };
     request.ontimeout = () => {
-      rejectOnce(new Error("TeamHub upload timed out."));
+      rejectOnce(new Error(translate(fileTransferMessages.uploadTimedOut)));
     };
 
     if (signal?.aborted) {
@@ -164,7 +168,7 @@ function sendTeamHubMultipartUpload({
       rejectOnce(
         error instanceof Error
           ? error
-          : new Error("TeamHub upload could not be started."),
+          : new Error(translate(fileTransferMessages.uploadNotStarted)),
       );
     }
   });

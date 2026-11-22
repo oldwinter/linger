@@ -75,7 +75,7 @@ export function WorkItemCommentComposer({
         Add a comment
       </label>
       <textarea
-        className="block min-h-16 w-full resize-y rounded-lg border border-app-border bg-app-surface px-2.5 py-2 text-sm text-app-ink outline-none placeholder:text-app-muted focus-visible:border-app-border-strong focus-visible:ring-2 focus-visible:ring-app-focus"
+        className="block min-h-16 w-full resize-y rounded-lg border border-app-border bg-app-surface px-2.5 py-2 text-sm text-app-ink outline-none placeholder:text-app-placeholder focus-visible:border-app-border-strong focus-visible:ring-2 focus-visible:ring-app-focus"
         disabled={createComment.isPending}
         id={inputId}
         onChange={(event) => setBody(event.target.value)}

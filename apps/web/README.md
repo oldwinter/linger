@@ -57,3 +57,7 @@ and dismissal. The footer reports partial results beside the retry action.
 Search uses Tab to choose a narrower result category when one is available.
 Otherwise Tab and Shift+Tab move focus normally. Backspace in an empty query
 removes the displayed Room or Thread scope.
+
+Inline Document mentions in Room messages show a file icon and the current
+Document title when available, falling back to the original mention text.
+They open the referenced Document without adding a separate file card.

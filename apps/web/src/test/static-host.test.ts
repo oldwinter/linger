@@ -1,6 +1,6 @@
 import { createServer, type Server } from "node:http";
 import { connect } from "node:net";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { brotliCompressSync, gzipSync } from "node:zlib";
@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createServiceProxy,
   createStaticHost,
+  listenOnHosts,
   serviceProxyRoutes,
 } from "../../static-host.mjs";
 
@@ -173,6 +174,24 @@ describe("Web static host routing", () => {
   });
 });
 
+describe("Web static host listening", () => {
+  it("listens on every listed address and fails when one is taken", async () => {
+    const servers = await listenOnHosts(
+      () => createServer((_, response) => response.end("ok")),
+      0,
+      "127.0.0.1",
+    );
+    const { port } = servers[0]!.address() as { port: number };
+    // ::1 is skipped on a computer without IPv6.
+    const both = await listenOnHosts(() => createServer(), 0, "127.0.0.1, ::1");
+    expect(both.length).toBeGreaterThanOrEqual(1);
+    await expect(
+      listenOnHosts(() => createServer(), port, "127.0.0.1"),
+    ).rejects.toMatchObject({ code: "EADDRINUSE" });
+    for (const listening of [...servers, ...both]) listening.close();
+  });
+});
+
 describe("Web static host cache policy", () => {
   it("serves fingerprinted Vite assets with immutable caching", async () => {
     const response = await fetch(`${baseUrl}/assets/app-abc123.js`, {
@@ -186,13 +205,80 @@ describe("Web static host cache policy", () => {
     expect(response.headers.get("access-control-allow-origin")).toBe("*");
   });
 
-  it("keeps the SPA document revalidatable", async () => {
-    const response = await fetch(`${baseUrl}/login`, {
-      headers: { accept: "text/html", connection: "close" },
-    });
+  it("never lets the HTTP cache replay the SPA document", async () => {
+    for (const requestPath of ["/login", "/", "/index.html"]) {
+      const response = await fetch(`${baseUrl}${requestPath}`, {
+        headers: { accept: "text/html", connection: "close" },
+      });
 
-    expect(response.status).toBe(200);
-    expect(response.headers.get("cache-control")).toBe("no-cache");
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+    }
+  });
+
+  it("forbids caching a missing asset so a rollout miss does not stick", async () => {
+    for (const [requestPath, accept] of [
+      ["/assets/index-old111.js", "*/*"],
+      ["/assets/index-old111.js", "text/html"],
+      ["/unknown.png", "*/*"],
+      ["/agents", "application/json"],
+    ] as const) {
+      const response = await fetch(`${baseUrl}${requestPath}`, {
+        headers: { accept, connection: "close" },
+      });
+
+      expect(response.status).toBe(404);
+      expect(response.headers.get("cache-control")).toBe("private, no-store");
+    }
+  });
+
+  it("answers a revalidation with the current page after an update", async () => {
+    // Two releases' pages of one size, both unpacked at the epoch.
+    const page = (version: string) =>
+      `<!doctype html><script src="/assets/index-${version}.js"></script>`;
+    const release = async (version: string) => {
+      const root = await mkdtemp(join(tmpdir(), "linger-static-release-"));
+      await writeFile(join(root, "index.html"), page(version));
+      await utimes(join(root, "index.html"), 0, 0);
+      return root;
+    };
+    const serve = async (root: string) => {
+      const host = serveHost(createStaticHost({ root }));
+      await new Promise<void>((resolve) =>
+        host.listen(0, "127.0.0.1", resolve),
+      );
+      const address = host.address() as { port: number };
+      return { host, url: `http://127.0.0.1:${address.port}/` };
+    };
+    const older = await release("old111");
+    const newer = await release("new222");
+    try {
+      const first = await serve(older);
+      const cached = await fetch(first.url, {
+        headers: { accept: "text/html", connection: "close" },
+      });
+      await expect(cached.text()).resolves.toBe(page("old111"));
+      first.host.close();
+      const second = await serve(newer);
+      // What the browser revalidates with: the older response's validators,
+      // or sirv's size-mtime ETag that both pages would share.
+      const response = await fetch(second.url, {
+        headers: {
+          accept: "text/html",
+          connection: "close",
+          "if-none-match":
+            cached.headers.get("etag") ?? `W/"${page("old111").length}-0"`,
+          "if-modified-since": new Date(0).toUTCString(),
+        },
+      });
+      second.host.close();
+      expect(response.status).toBe(200);
+      expect(response.headers.get("etag")).toBeNull();
+      await expect(response.text()).resolves.toBe(page("new222"));
+    } finally {
+      await rm(older, { force: true, recursive: true });
+      await rm(newer, { force: true, recursive: true });
+    }
   });
 
   it("keeps non-fingerprinted public assets revalidatable", async () => {
@@ -275,7 +361,7 @@ describe("Web static host content negotiation", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("content-encoding")).toBe("br");
     expect(response.headers.get("content-type")).toContain("text/html");
-    expect(response.headers.get("cache-control")).toBe("no-cache");
+    expect(response.headers.get("cache-control")).toBe("no-store");
     await expect(response.text()).resolves.toBe(indexDocument);
   });
 

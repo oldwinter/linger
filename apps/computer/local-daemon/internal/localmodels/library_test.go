@@ -626,3 +626,47 @@ func TestRefreshMapsRichModelCardMetadataAndKeepsItAcrossProgress(t *testing.T) 
 		t.Fatalf("progress dropped model card fields: %+v", after)
 	}
 }
+
+// localmodels names why a load could not register with its gateway only on
+// the job's error line; the snapshot's failed row carries it until another
+// job for that model ends.
+func TestAFailedLoadKeepsTheGatewayCauseOnItsRow(t *testing.T) {
+	fake := newFakeTool(t)
+	fake.write("status.json", status(model(testModel, "idle")))
+	failed := model(testModel, "failed")
+	failed["error"] = map[string]any{"code": "GATEWAY_REGISTRATION_FAILED", "detail": "gateway-home is not private"}
+	encodedFailed, _ := json.Marshal(status(failed))
+	const home = `C:\Users\ana\AppData\Local\localmodels\tools\gateway-home`
+	causeLine := errorLine(testModel, "GATEWAY_REGISTRATION_FAILED", `,"cause":"GATEWAY_HOME_NOT_PRIVATE","path":"C:\\Users\\ana\\AppData\\Local\\localmodels\\tools\\gateway-home"`)
+	fake.script("load", fakeScript{
+		Lines: []fakeLine{{Line: progressLine(testModel, "load", 0, 2)}, {Line: causeLine, DelayMS: 20}},
+		Exit:  1, StatusAfter: encodedFailed,
+	})
+	record := &recorder{}
+	library := newLibrary(t, fake, record, 10*time.Millisecond)
+	library.Refresh(context.Background())
+
+	if refusal, _ := library.Act(context.Background(), Action{Name: ActionLoad, Model: testModel}, soon()); refusal != nil {
+		t.Fatalf("load refused: %+v", refusal)
+	}
+	waitFor(t, "the failed row with its cause", func() bool {
+		model := modelState(record.last(), testModel)
+		return model.State == "failed" && model.Error != nil && model.Error.Cause == "GATEWAY_HOME_NOT_PRIVATE" && model.Error.Path == home
+	})
+	if again := modelState(library.Refresh(context.Background()), testModel); again.Error == nil || again.Error.Cause != "GATEWAY_HOME_NOT_PRIVATE" {
+		t.Fatalf("a later read dropped the cause: %+v", again.Error)
+	}
+
+	// A retry that fails for another reason carries no stale cause.
+	fake.script("load", fakeScript{
+		Lines: []fakeLine{{Line: progressLine(testModel, "load", 0, 2)}, {Line: errorLine(testModel, "GATEWAY_REGISTRATION_FAILED", ""), DelayMS: 20}},
+		Exit:  1, StatusAfter: encodedFailed,
+	})
+	if refusal, _ := library.Act(context.Background(), Action{Name: ActionLoad, Model: testModel}, soon()); refusal != nil {
+		t.Fatalf("retry refused: %+v", refusal)
+	}
+	waitFor(t, "the cause to clear", func() bool {
+		model := modelState(library.Refresh(context.Background()), testModel)
+		return model.Error != nil && model.Error.Cause == "" && model.Error.Path == ""
+	})
+}

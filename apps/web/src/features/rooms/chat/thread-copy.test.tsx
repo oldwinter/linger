@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { defineGlobalProperty } from "@/test/global-properties";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { TeamHubMessage } from "@/features/teamhub/teamhub-types";
@@ -64,7 +65,7 @@ describe("ThreadCopyAction", () => {
 
   it("says the copy failed instead of claiming success", async () => {
     stubClipboard(() => Promise.reject(new Error("Clipboard is denied")));
-    Object.defineProperty(document, "execCommand", {
+    defineGlobalProperty(document, "execCommand", {
       configurable: true,
       value: vi.fn(() => false),
     });
@@ -121,7 +122,7 @@ describe("ThreadLinkCopyAction", () => {
 
   it("says the copy failed instead of claiming success", async () => {
     stubClipboard(() => Promise.reject(new Error("Clipboard is denied")));
-    Object.defineProperty(document, "execCommand", {
+    defineGlobalProperty(document, "execCommand", {
       configurable: true,
       value: vi.fn(() => false),
     });

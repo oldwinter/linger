@@ -45,7 +45,7 @@ esac
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Diagnostics) != 3 || result.Diagnostics[0].Status != "ready" || result.Installations["codex"].ExecutablePath != canonical {
+	if len(result.Diagnostics) != 4 || result.Diagnostics[0].Status != "ready" || result.Installations["codex"].ExecutablePath != canonical {
 		t.Fatalf("result=%+v", result)
 	}
 }
@@ -216,6 +216,17 @@ func TestDiscoverUsesCodexRuntimeEnvironmentForModelCatalog(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(ambient, "catalog.json"), []byte(`{"data":[{"id":"grok-4.7"}],"nextCursor":null}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// Every mode runs one shared executable: macOS scans each new executable
+	// on its first launch.
+	codex := filepath.Join(t.TempDir(), "codex")
+	script := `#!/bin/sh
+[ "$HOME" = "$EXPECTED_HOME" ] && [ "$CODEX_HOME" != "$AMBIENT_CODEX_HOME" ] || exit 2
+if [ "$1" = "--version" ]; then echo 'codex-cli 0.144.1'; exit 0; fi
+[ "$CODEX_HOME" != "$EXPECTED_CODEX_HOME" ] || exit 2
+` + fakeCodexModelCatalog
+	if err := os.WriteFile(codex, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	for _, mode := range []string{"CODEX_HOME", "HOME", "tilde"} {
 		t.Run(mode, func(t *testing.T) {
 			root := t.TempDir()
@@ -239,15 +250,6 @@ func TestDiscoverUsesCodexRuntimeEnvironmentForModelCatalog(t *testing.T) {
 			}
 			catalogPath := filepath.Join(home, "catalog.json")
 			if err := os.WriteFile(catalogPath, []byte(`{"data":[{"id":"deepseek-v4.1-flash","supportedReasoningEfforts":[{"reasoningEffort":"max"}],"defaultReasoningEffort":"max"}],"nextCursor":null}`), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			codex := filepath.Join(root, "codex")
-			script := `#!/bin/sh
-[ "$HOME" = "$EXPECTED_HOME" ] && [ "$CODEX_HOME" != "$AMBIENT_CODEX_HOME" ] || exit 2
-if [ "$1" = "--version" ]; then echo 'codex-cli 0.144.1'; exit 0; fi
-[ "$CODEX_HOME" != "$EXPECTED_CODEX_HOME" ] || exit 2
-` + fakeCodexModelCatalog
-			if err := os.WriteFile(codex, []byte(script), 0o700); err != nil {
 				t.Fatal(err)
 			}
 			options := DiscoveryOptions{ConfiguredPaths: map[string]string{"codex": codex}, Environment: environment, Timeout: 10 * time.Second}
@@ -445,5 +447,20 @@ exit 0
 	}
 	if _, err := os.Stat(promptMarker); err != nil {
 		t.Fatal("Claude stream protocol probe did not run")
+	}
+}
+
+func TestGatewayDiagnosticsLeaveOutAnAntigravityThatIsNotInstalled(t *testing.T) {
+	codex := RuntimeDiagnostic{Type: "codex", Status: "ready"}
+	missing := RuntimeDiagnostic{Type: "antigravity", Status: "not_installed"}
+	signedOut := RuntimeDiagnostic{Type: "antigravity", Status: "authentication_required"}
+	if got := GatewayDiagnostics([]RuntimeDiagnostic{codex, missing}); len(got) != 1 || got[0].Type != "codex" {
+		t.Fatalf("missing Antigravity was sent: %+v", got)
+	}
+	if got := GatewayDiagnostics([]RuntimeDiagnostic{codex, signedOut}); len(got) != 2 {
+		t.Fatalf("installed Antigravity was dropped: %+v", got)
+	}
+	if got := GatewayDiagnostics([]RuntimeDiagnostic{missing}); len(got) != 1 {
+		t.Fatalf("the only diagnostic was dropped: %+v", got)
 	}
 }

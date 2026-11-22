@@ -213,13 +213,13 @@ export function WorkItemAssigneePicker({
         >
           {showSearch ? (
             <input
-              aria-label="Search Actors"
-              className="min-h-9 w-full shrink-0 rounded-md bg-transparent px-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+              aria-label="Search people and agents"
+              className="min-h-9 w-full shrink-0 rounded-md bg-transparent px-2 text-sm outline-none placeholder:text-app-placeholder focus-visible:ring-2 focus-visible:ring-ring"
               onChange={(event) => setSearch(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Enter") event.preventDefault();
               }}
-              placeholder="Search Actors..."
+              placeholder="Search people and agents..."
               ref={searchRef}
               role="searchbox"
               value={search}
@@ -228,28 +228,30 @@ export function WorkItemAssigneePicker({
           <div className="workspace-scrollbar min-h-0 overflow-y-auto">
             {actors.isPending ? (
               <p className="p-2 text-xs text-muted-foreground" role="status">
-                Loading Actors…
+                Loading people and agents…
               </p>
             ) : null}
             {actors.isError ? (
               <p className="p-2 text-xs text-app-danger" role="alert">
-                Actors could not be loaded.
+                People and agents could not be loaded.
               </p>
             ) : null}
             {actors.isSuccess && !matches.length ? (
               <p className="p-2 text-xs text-muted-foreground">
-                {needle ? "No Actors match." : "No Actors available."}
+                {needle
+                  ? "No people or agents match."
+                  : "No one available to assign."}
               </p>
             ) : null}
             {groups.map(({ actors: groupActors, kind }) => {
               if (!groupActors.length) return null;
               return (
                 <section
-                  aria-label={kind === "human" ? "Humans" : "Agents"}
+                  aria-label={kind === "human" ? "People" : "Agents"}
                   key={kind}
                 >
                   <h4 className="px-2 pb-1 pt-2 text-xs text-muted-foreground">
-                    {kind === "human" ? "Humans" : "Agents"}
+                    {kind === "human" ? "People" : "Agents"}
                   </h4>
                   {groupActors.map((actor) => (
                     <button

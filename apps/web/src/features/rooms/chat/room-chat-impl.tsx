@@ -1,10 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect, useRef } from "react";
 
 import { FileDropTarget } from "@/components/ui/file-drop-target";
 import { WorkItemCreateDialog } from "@/features/work-items/work-item-create-dialog";
 import { messageWorkItemDraft } from "@/features/work-items/work-item-create-draft";
+import { useT } from "@/i18n/use-translation";
 
+import { composerMessages } from "./composer.messages";
 import { MessageForwardDialog } from "./message-forward-dialog";
 import { RoomReadStateSync } from "./room-read-state-sync";
 import { AnotherMeIntro } from "./another-me-intro";
@@ -24,6 +26,7 @@ const TaskConversationDialog = lazy(async () => {
 });
 
 export function RoomChatImpl() {
+  const t = useT();
   // The sub-hooks run in this order so their effects keep the order the Room
   // chat relies on: data reads, then conversation state, then actions.
   const data = useRoomChatData();
@@ -47,6 +50,12 @@ export function RoomChatImpl() {
     anotherMe.data?.room_id === roomId && human
       ? { actorId: human.id, name: human.display_name }
       : undefined;
+  const markedRoomIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (markedRoomIdRef.current === roomId) return;
+    markedRoomIdRef.current = roomId;
+    performance.mark("room.chat_ready");
+  }, [roomId]);
   return (
     <AnotherMeMirrorProvider value={mirror}>
       <div className="room-chat-layout flex min-h-0 flex-1">
@@ -77,9 +86,9 @@ export function RoomChatImpl() {
           onFiles={(files) => {
             interactions.composerRef.current?.addFiles(files);
           }}
-          subtitle="Up to 5 files"
+          subtitle={t(composerMessages.dropFilesLimit)}
           testId="room-chat-file-drop-target"
-          title="Release to add to the current message"
+          title={t(composerMessages.dropFilesTitle)}
         >
           <RoomChatTimelineSection
             actions={actions}

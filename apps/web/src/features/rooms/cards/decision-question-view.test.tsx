@@ -1,8 +1,10 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+import { getTranslation } from "@/i18n/language";
+
 import type { DecisionMessageCard } from "./decision-card";
-import { settledCardNotice } from "./card-notice";
+import { cardNoticeLines, settledCardNotice } from "./card-notice";
 import { QuestionDecision } from "./decision-question-view";
 
 const assignee = {
@@ -67,6 +69,20 @@ function questionsCard(
     status: "answered",
     version: 2,
   };
+}
+
+/** The system lines a settled card becomes, as the reader sees them. */
+function noticeLines(
+  card: Parameters<typeof settledCardNotice>[0],
+  viewerId: string,
+) {
+  const notice = settledCardNotice(card, viewerId);
+  return (
+    notice &&
+    cardNoticeLines(notice, getTranslation()).map((line) =>
+      line.parts.map((part) => part.text).join(""),
+    )
+  );
 }
 
 describe("QuestionDecision", () => {
@@ -173,16 +189,16 @@ describe("QuestionDecision", () => {
     const card = questionsCard("answered");
     const { container } = renderCard(card);
     expect(container).toBeEmptyDOMElement();
-    expect(settledCardNotice(card, assignee.id)).toMatchObject({
-      text: "You answered “What would you rather do this weekend?” with “Go for a walk”",
-      more: ["You answered “Which day?” with “Saturday”"],
-    });
+    expect(noticeLines(card, assignee.id)).toEqual([
+      "You answered “What would you rather do this weekend?” with “Go for a walk”",
+      "You answered “Which day?” with “Saturday”",
+    ]);
   });
 
   it("names someone else who answered, and keeps a note and their own words", () => {
     const card = questionsCard("answered");
     expect(
-      settledCardNotice(
+      noticeLines(
         {
           ...card,
           answer: {
@@ -193,22 +209,65 @@ describe("QuestionDecision", () => {
         },
         "someone-else",
       ),
-    ).toMatchObject({
-      text: "mallory answered “What would you rather do this weekend?” with “Go hiking”",
-      more: [
-        "mallory answered “Which day?” with “Sunday”",
-        "mallory added “Back by six.”",
-      ],
-    });
+    ).toEqual([
+      "mallory answered “What would you rather do this weekend?” with “Go hiking”",
+      "mallory answered “Which day?” with “Sunday”",
+      "mallory added “Back by six.”",
+    ]);
   });
 
   it("says an expired question went unanswered", () => {
-    expect(settledCardNotice(questionsCard("expired"), assignee.id)?.text).toBe(
+    expect(noticeLines(questionsCard("expired"), assignee.id)).toEqual([
       "No one answered “Please answer a few easy questions.” in time",
-    );
+    ]);
   });
 
   it("keeps a waiting question a card", () => {
     expect(settledCardNotice(questionsCard("pending"), assignee.id)).toBeNull();
+  });
+
+  it("prevents rapid double-submit on radio options, submits Other… on Enter, and marks errors as alerts", async () => {
+    const onDecision = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Save failed."))
+      .mockResolvedValueOnce(undefined);
+    const singleQuestionCard: DecisionMessageCard = {
+      ...questionsCard("pending"),
+      question: {
+        questions: [
+          {
+            id: "choice",
+            input: "radio",
+            options: [
+              { id: "a", label: "Option A" },
+              { id: "b", label: "Option B" },
+            ],
+            prompt: "Pick one",
+          },
+        ],
+      },
+    };
+    renderCard(singleQuestionCard, onDecision);
+    fireEvent.click(screen.getByRole("button", { name: "Option A" }));
+    fireEvent.click(screen.getByRole("button", { name: "Option B" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Save failed.");
+    expect(onDecision).toHaveBeenCalledTimes(1);
+    expect(onDecision).toHaveBeenCalledWith(
+      expect.objectContaining({ answers: { choice: "b" } }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Other…" }));
+    const input = screen.getByRole("textbox", {
+      name: "Your own answer to Pick one",
+    });
+    fireEvent.change(input, { target: { value: "Custom choice" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await vi.waitFor(() => expect(onDecision).toHaveBeenCalledTimes(2));
+    expect(onDecision).toHaveBeenLastCalledWith(
+      expect.objectContaining({ answers: { choice: "Custom choice" } }),
+    );
   });
 });

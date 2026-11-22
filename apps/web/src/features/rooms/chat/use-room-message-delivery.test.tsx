@@ -21,6 +21,10 @@ import type {
   TeamHubMessagePage,
 } from "@/features/teamhub/teamhub-types";
 
+import { setLanguage } from "@/i18n/language";
+import zhCN from "@/i18n/locales/zh-CN.json";
+
+import { composerMessages } from "./composer.messages";
 import {
   roomMessageSender,
   type RoomMessageSender,
@@ -561,6 +565,157 @@ describe("Room Message delivery identity", () => {
     }
   });
 
+  it("words a failed send in the language on screen after a switch and a reload", async () => {
+    const outbox = createMemoryRoomMessageOutbox();
+    const scope = testOutboxScope("room-1");
+    const createMessage = vi
+      .fn<RoomMessageSender["createMessage"]>()
+      .mockRejectedValue(new TypeError("Failed to fetch"));
+    const queryClient = new QueryClient();
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const renderDelivery = () =>
+      renderHook(
+        () =>
+          useRoomMessageDelivery({
+            composition: sender(createMessage),
+            messagesQueryKey: ["messages"],
+            outbox,
+            outboxScope: scope,
+            roomId: scope.roomId,
+          }),
+        { wrapper },
+      );
+    const english = composerMessages.deliveryUnconfirmed.source;
+    const chinese = zhCN.composer.deliveryUnconfirmed;
+    const first = renderDelivery();
+
+    act(() => {
+      void first.result.current.sendMessage({
+        body: "Fails in English",
+        files: [],
+        mentions: [],
+      });
+    });
+    await waitFor(() =>
+      expect(first.result.current.outgoing[0]).toMatchObject({
+        error: english,
+        status: "unknown",
+      }),
+    );
+    // The Outbox keeps the reason, not the sentence.
+    await waitFor(async () =>
+      expect((await outbox.list(scope))[0]).toMatchObject({
+        failure: { reason: "delivery_unconfirmed" },
+        status: "unknown",
+      }),
+    );
+    expect((await outbox.list(scope))[0]?.error).toBeUndefined();
+
+    await act(() => setLanguage("zh-CN"));
+    expect(first.result.current.outgoing[0]?.error).toBe(chinese);
+
+    first.unmount();
+    const reloaded = renderDelivery();
+    await waitFor(() =>
+      expect(reloaded.result.current.outgoing[0]).toMatchObject({
+        body: "Fails in English",
+        error: chinese,
+        status: "unknown",
+      }),
+    );
+
+    await act(() => setLanguage("en"));
+    expect(reloaded.result.current.outgoing[0]?.error).toBe(english);
+  });
+
+  it("words an interrupted send and a storage failure in the language on screen", async () => {
+    const stored = createMemoryRoomMessageOutbox();
+    const scope = testOutboxScope("room-1");
+    await stored.put(persistedIntent(scope, "local-1", "Was still sending"));
+    const outbox = {
+      ...stored,
+      put: vi
+        .fn<(intent: PersistedRoomMessageIntent) => Promise<void>>()
+        .mockRejectedValue(new Error("IndexedDB transaction aborted.")),
+    } satisfies typeof stored;
+    const queryClient = new QueryClient();
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(
+      () =>
+        useRoomMessageDelivery({
+          composition: liveComposition(messageClient().client),
+          messagesQueryKey: ["messages"],
+          outbox,
+          outboxScope: scope,
+          roomId: scope.roomId,
+        }),
+      { wrapper },
+    );
+    await waitFor(() =>
+      expect(result.current.outgoing[0]?.error).toBe(
+        composerMessages.deliveryInterrupted.source,
+      ),
+    );
+    await waitFor(() =>
+      expect(result.current.outboxError).toContain(
+        "IndexedDB transaction aborted.",
+      ),
+    );
+    const englishOutboxError = result.current.outboxError;
+
+    await act(() => setLanguage("zh-CN"));
+    expect(result.current.outgoing[0]?.error).toBe(
+      zhCN.composer.deliveryInterrupted,
+    );
+    // The browser's own words stay; the sentence around them changes.
+    expect(result.current.outboxError).toContain(
+      "IndexedDB transaction aborted.",
+    );
+    expect(result.current.outboxError).not.toBe(englishOutboxError);
+    await act(() => setLanguage("en"));
+  });
+
+  it("keeps the sentence an older client stored with a failed send", async () => {
+    const outbox = createMemoryRoomMessageOutbox();
+    const scope = testOutboxScope("room-1");
+    await outbox.put({
+      ...persistedIntent(scope, "local-1", "Stored before reasons"),
+      error: "A sentence stored by an older client.",
+      status: "unknown",
+    });
+    const queryClient = new QueryClient();
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(
+      () =>
+        useRoomMessageDelivery({
+          composition: liveComposition(messageClient().client),
+          messagesQueryKey: ["messages"],
+          outbox,
+          outboxScope: scope,
+          roomId: scope.roomId,
+        }),
+      { wrapper },
+    );
+    await waitFor(() =>
+      expect(result.current.outgoing[0]?.error).toBe(
+        "A sentence stored by an older client.",
+      ),
+    );
+
+    await act(() => setLanguage("zh-CN"));
+    expect(result.current.outgoing[0]).toMatchObject({
+      error: "A sentence stored by an older client.",
+      status: "unknown",
+    });
+    await act(() => setLanguage("en"));
+  });
+
   it("restores a failed Message after remount and retries the original idempotent intent", async () => {
     const outbox = createMemoryRoomMessageOutbox();
     const createMessage = vi
@@ -732,7 +887,9 @@ describe("Room Message delivery identity", () => {
     );
 
     expect(delivery.result.current.outgoing[0]).toMatchObject({
-      error: expect.stringContaining("may already have reached TeamHub"),
+      error: composerMessages.deliveryMayHaveReached.source,
+      failure: { reason: "delivery_may_have_reached" },
+      heldByPerson: true,
       status: "unknown",
     });
     await expect(outbox.list(scope)).resolves.toMatchObject([

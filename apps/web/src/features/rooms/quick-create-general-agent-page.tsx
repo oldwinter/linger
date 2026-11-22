@@ -9,7 +9,9 @@ import type {
   TeamHubLocalRuntimeType,
 } from "@/features/teamhub/teamhub-types";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { useT } from "@/i18n/use-translation";
 
+import { createAgentMessages } from "./create-agent.messages";
 import {
   GENERAL_AGENT_DEFAULT_NAME,
   GENERAL_AGENT_INSTRUCTIONS,
@@ -48,6 +50,7 @@ interface AcceptedAgent {
 
 export function QuickCreateGeneralAgent(props: QuickCreateGeneralAgentProps) {
   const { client } = useTeamHubRuntime();
+  const t = useT();
   const identity = useQuery({
     ...teamHubIdentityQueryOptions(client),
     retry: false,
@@ -57,7 +60,7 @@ export function QuickCreateGeneralAgent(props: QuickCreateGeneralAgentProps) {
     return (
       <main className="flex flex-col items-center px-4 py-3 text-center">
         <p className="text-sm text-app-muted" role="alert">
-          Your account could not be confirmed. Try again.
+          {t(createAgentMessages.accountUnconfirmed)}
         </p>
         <Button
           className="mt-5"
@@ -65,7 +68,7 @@ export function QuickCreateGeneralAgent(props: QuickCreateGeneralAgentProps) {
           onClick={() => void identity.refetch()}
           tone="primary"
         >
-          Retry
+          {t(createAgentMessages.retry)}
         </Button>
       </main>
     );
@@ -89,6 +92,7 @@ function QuickCreateGeneralAgentFlow({
   accountId,
 }: QuickCreateGeneralAgentProps & { keyScope: string; accountId: string }) {
   const { client } = useTeamHubRuntime();
+  const t = useT();
   const startedTenant = useRef<string | null>(null);
   const running = useRef(false);
   const mounted = useRef(true);
@@ -132,9 +136,8 @@ function QuickCreateGeneralAgentFlow({
       setAccepted(acceptedAgent);
     } catch (cause) {
       if (!mounted.current) return;
-      const message =
-        cause instanceof Error ? cause.message : "Agent creation failed.";
-      setError(message);
+      // An empty message stands for the general one, in the language on screen.
+      setError(cause instanceof Error ? cause.message : "");
     } finally {
       running.current = false;
     }
@@ -160,16 +163,16 @@ function QuickCreateGeneralAgentFlow({
 
   return (
     <main className="flex h-full min-h-0 flex-1 flex-col items-center justify-center bg-app-surface px-4 py-3 text-center text-app-ink">
-      {error ? (
+      {error !== null ? (
         <>
           <h1 className="text-base font-semibold">
-            Agent could not be created
+            {t(createAgentMessages.notCreatedTitle)}
           </h1>
           <p className="mt-2 max-w-sm text-sm text-app-muted" role="alert">
-            {error}
+            {error || t(createAgentMessages.creationFailed)}
           </p>
           <Button className="mt-5" onClick={() => void create()} tone="primary">
-            Retry
+            {t(createAgentMessages.retry)}
           </Button>
         </>
       ) : (
@@ -193,6 +196,7 @@ function AcceptedAgentChat({
   onCreated?: () => void;
 }) {
   const { client } = useTeamHubRuntime();
+  const t = useT();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const openingStarted = useRef(false);
@@ -267,7 +271,7 @@ function AcceptedAgentChat({
 
   const statusError =
     registration.isSuccess && registration.isFetchedAfterMount && !agentListed
-      ? "This Agent is no longer available."
+      ? t(createAgentMessages.agentUnavailable)
       : null;
   const error = registration.error ?? chat.error;
   const errorMessage = error instanceof Error ? error.message : statusError;
@@ -276,9 +280,11 @@ function AcceptedAgentChat({
       {errorMessage ? (
         <>
           <h1 className="text-base font-semibold">
-            {chat.isError
-              ? "Chat could not be opened"
-              : "Agent setup needs attention"}
+            {t(
+              chat.isError
+                ? createAgentMessages.chatNotOpened
+                : createAgentMessages.setupNeedsAttention,
+            )}
           </h1>
           <p className="mt-2 max-w-sm text-sm text-app-muted" role="alert">
             {errorMessage}
@@ -292,7 +298,7 @@ function AcceptedAgentChat({
             }}
             tone="primary"
           >
-            Retry
+            {t(createAgentMessages.retry)}
           </Button>
         </>
       ) : (

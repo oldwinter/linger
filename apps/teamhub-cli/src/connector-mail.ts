@@ -841,7 +841,9 @@ async function listMail(
         filter: input.unreadOnly
           ? "receivedDateTime ge 0001-01-01T00:00:00Z and isRead eq false"
           : undefined,
-        orderby: input.query ? [] : ["receivedDateTime desc"],
+        // OUTLOOK_QUERY_EMAILS types orderby as one string; search results
+        // from OUTLOOK_LIST_MESSAGES cannot be reordered.
+        orderby: input.query ? [] : "receivedDateTime desc",
         search: input.query,
         page_token: state.token,
       }),

@@ -26,6 +26,7 @@ import {
   type DiagnosticsPrompts,
   type PreparedDiagnostics,
 } from "./diagnostics-upload.js";
+import { translator } from "../i18n/language.js";
 import { tempDirectory } from "./test-support.js";
 
 describe("isUploadUrl", () => {
@@ -540,6 +541,7 @@ describe("consentText", () => {
         files: ["a", "b", "c"],
         bytes: 3 * 1024 * 1024,
       },
+      translator("en"),
       2,
     );
     expect(text.message).toBe("Send diagnostics to diagnostics.example.com?");

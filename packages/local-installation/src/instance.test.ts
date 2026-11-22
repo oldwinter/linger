@@ -1,9 +1,11 @@
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import net from "node:net";
 import { parseEnv } from "node:util";
 import { afterEach, expect, it } from "vitest";
+import { prepareLiveKitSettings } from "./native-livekit.js";
+import { expectPrivate } from "./test-support/private.js";
 import {
   type Instance,
   initializeInstance,
@@ -34,10 +36,8 @@ it("persists stable private settings and credentials across repeated initializat
     secrets,
   );
   expect(first.origin).toBe(`http://localhost:${first.port}`);
-  expect(
-    (await stat(path.join(first.root, "instance.json"))).mode & 0o777,
-  ).toBe(0o600);
-  expect((await stat(first.root)).mode & 0o777).toBe(0o700);
+  await expectPrivate(path.join(first.root, "instance.json"));
+  await expectPrivate(first.root, "directory");
 });
 // Without the encryption key TeamHub cannot save a Composio key from the Apps
 // page.
@@ -69,7 +69,7 @@ it("adds a missing TEAMHUB_SECRET_ENCRYPTION_KEY once and keeps every other cred
   expect(upgraded.startsWith(older)).toBe(true);
   const key = parseEnv(upgraded)[name];
   expect(Buffer.from(key!, "base64")).toHaveLength(32);
-  expect((await stat(file)).mode & 0o777).toBe(0o600);
+  await expectPrivate(file);
   await initializeInstance({ name: "older", home: root });
   expect(await readFile(file, "utf8")).toBe(upgraded);
 });
@@ -84,7 +84,7 @@ it("gives every instance its own private identity key outside services.env", asy
   expect(Buffer.from(first!, "base64")).toHaveLength(32);
   expect(await readLocalIdentityKey(two.root)).not.toBe(first);
   const file = path.join(one.root, "local-identity.key");
-  expect((await stat(file)).mode & 0o777).toBe(0o600);
+  await expectPrivate(file);
   expect(
     await readFile(path.join(one.root, "services.env"), "utf8"),
   ).not.toContain("TEAMHUB_LOCAL_IDENTITY_KEY");
@@ -153,7 +153,7 @@ it("keeps gateway keys in a separate private file and validates provider URLs", 
   expect(await readFile(instance.model!.keyFile, "utf8")).toBe(
     "super-private-key",
   );
-  expect((await stat(instance.model!.keyFile)).mode & 0o777).toBe(0o600);
+  await expectPrivate(instance.model!.keyFile);
   await expect(
     writeModelConfig(instance, {
       baseUrl: "https://user:secret@models.test",
@@ -177,6 +177,24 @@ it("does not assign another stopped instance explicit port", async () => {
     initializeInstance({ name: "second", home: root, port: first.port }),
   ).rejects.toThrow(/port/i);
 });
+it.each(["httpPort", "rtcPort"] as const)(
+  "keeps a stopped instance's LiveKit %s reserved when creating another instance",
+  async (key) => {
+    const root = await home();
+    const first = await initializeInstance({ name: "first", home: root });
+    const settings = await prepareLiveKitSettings(
+      first.root,
+      new Set([first.port]),
+    );
+    const settingsFile = path.join(first.root, "livekit.env");
+    const saved = await readFile(settingsFile, "utf8");
+    await expect(
+      initializeInstance({ name: "second", home: root, port: settings[key] }),
+    ).rejects.toThrow("Port is reserved by another instance");
+    expect(await loadInstance({ name: "second", home: root })).toBeUndefined();
+    expect(await readFile(settingsFile, "utf8")).toBe(saved);
+  },
+);
 it("isolates the Compose project when two homes use the same instance name", async () => {
   const firstHome = await mkdtemp(path.join(tmpdir(), "linger-first-"));
   const secondHome = await mkdtemp(path.join(tmpdir(), "linger-second-"));

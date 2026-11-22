@@ -320,7 +320,7 @@ func (s *Service) collectGenerationDocuments(ctx context.Context, claimed claime
 			}
 			continue
 		}
-		allowed, wait, err := s.connectionAdmission(ctx, claimed, source, result.Documents)
+		allowed, wait, err := s.connectionAdmission(ctx, claimed, source, result)
 		if err != nil || wait {
 			return collectedDocuments{}, wait, false, err
 		}

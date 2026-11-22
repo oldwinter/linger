@@ -1,4 +1,9 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+
+import { translate } from "@/i18n/language";
+import { useT } from "@/i18n/use-translation";
+
+import { documentPageMessages as m } from "./document-page.messages";
 
 export function EditableDocumentTitle({
   autoFocus = false,
@@ -17,6 +22,7 @@ export function EditableDocumentTitle({
   onCommit?: () => void;
   onRename: (name: string) => Promise<void>;
 }) {
+  const t = useT();
   const [editing, setEditing] = useState(autoFocus);
   const [draft, setDraft] = useState<string>();
   const [committedName, setCommittedName] = useState<{
@@ -25,8 +31,19 @@ export function EditableDocumentTitle({
   }>();
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
+  const [cancelledAutoFocus, setCancelledAutoFocus] = useState(false);
   const savingRef = useRef(false);
+  const cancellingRef = useRef(false);
+  const commitFrameRef = useRef<number | undefined>(undefined);
   const shouldSelectOnFocusRef = useRef(autoFocus);
+  useEffect(
+    () => () => {
+      if (commitFrameRef.current !== undefined) {
+        cancelAnimationFrame(commitFrameRef.current);
+      }
+    },
+    [],
+  );
   const visibleName = committedName?.base === name ? committedName.next : name;
   const focusInput = useCallback(
     (element: HTMLInputElement | null) => {
@@ -44,8 +61,22 @@ export function EditableDocumentTitle({
     },
     [autoFocus, onAutoFocusConsumed, visibleName],
   );
+  const cancelEdit = useCallback(() => {
+    cancellingRef.current = true;
+    shouldSelectOnFocusRef.current = false;
+    setDraft(visibleName);
+    setError(undefined);
+    setEditing(false);
+    if (autoFocus) {
+      if (onAutoFocusConsumed) {
+        onAutoFocusConsumed();
+      } else {
+        setCancelledAutoFocus(true);
+      }
+    }
+  }, [autoFocus, onAutoFocusConsumed, visibleName]);
   const commit = useCallback(async () => {
-    if (savingRef.current) return false;
+    if (savingRef.current || cancellingRef.current) return false;
     const next = (draft ?? visibleName).trim();
     if (!next || next === visibleName) {
       setEditing(false);
@@ -65,7 +96,7 @@ export function EditableDocumentTitle({
       setError(
         renameError instanceof Error
           ? renameError.message
-          : "The title could not be updated.",
+          : translate(m.titleUpdateFailed),
       );
       return false;
     } finally {
@@ -75,9 +106,15 @@ export function EditableDocumentTitle({
   }, [draft, name, onRename, visibleName]);
   const commitAndContinue = useCallback(async () => {
     if (!(await commit())) return;
-    requestAnimationFrame(() => onCommit?.());
+    if (commitFrameRef.current !== undefined) {
+      cancelAnimationFrame(commitFrameRef.current);
+    }
+    commitFrameRef.current = requestAnimationFrame(() => {
+      commitFrameRef.current = undefined;
+      onCommit?.();
+    });
   }, [commit, onCommit]);
-  if (!isEditing || !(editing || autoFocus)) {
+  if (!isEditing || !(editing || (autoFocus && !cancelledAutoFocus))) {
     return (
       <div>
         <div
@@ -91,10 +128,12 @@ export function EditableDocumentTitle({
             <button
               className="block min-w-0 max-w-full text-left text-app-ink"
               onClick={() => {
+                cancellingRef.current = false;
                 setDraft(visibleName);
+                setError(undefined);
                 setEditing(true);
               }}
-              title="Rename document"
+              title={t(m.renameDocument)}
               type="button"
             >
               {display === "page" ? (
@@ -137,7 +176,7 @@ export function EditableDocumentTitle({
       }}
     >
       <input
-        aria-label="Document title"
+        aria-label={t(m.documentTitle)}
         className={
           display === "page"
             ? "room-document-page-title block h-auto w-full min-w-0 border-0 bg-transparent px-0 py-0 font-normal text-app-ink outline-none shadow-none focus:border-0 focus:outline-none focus:ring-0"
@@ -145,10 +184,21 @@ export function EditableDocumentTitle({
         }
         disabled={saving}
         maxLength={255}
-        onBlur={() => void commit()}
+        onBlur={() => {
+          if (cancellingRef.current) {
+            cancellingRef.current = false;
+            return;
+          }
+          void commit();
+        }}
         onChange={(event) => setDraft(event.target.value)}
         onKeyDown={(event) => {
           if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+          if (event.key === "Escape") {
+            event.preventDefault();
+            cancelEdit();
+            return;
+          }
           if (event.key !== "Enter") return;
           event.preventDefault();
           void commitAndContinue();

@@ -91,7 +91,7 @@ describe("messageBodyBlocks", () => {
   it("sets a recording's quick notes apart from the text around them", () => {
     const notes = {
       capture_id: "capture_launch",
-      content: "Quick notes",
+      content: "Meeting summary",
       type: "meeting_notes" as const,
     };
     expect(

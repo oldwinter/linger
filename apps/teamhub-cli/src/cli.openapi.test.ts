@@ -199,6 +199,13 @@ async function respond(request: Request): Promise<Response> {
       room_created: true,
       duplicate_request: false,
     });
+  if (endpoint.endsWith("/room-handoffs"))
+    return Response.json({
+      accepted: true,
+      inbox_id: "room:room_two",
+      handoff_id: "message_handoff",
+      duplicate_request: false,
+    });
   if (endpoint.endsWith("/emoji-reactions"))
     return Response.json({
       accepted: true,
@@ -234,6 +241,7 @@ async function respond(request: Request): Promise<Response> {
   if (endpoint.endsWith("/team-md/query"))
     return Response.json({
       room_id: "room_one",
+      published: true,
       raw_markdown: "# Protocol",
       revision: 2,
       updated_at: "2026-10-12T00:00:00Z",
@@ -529,6 +537,54 @@ async function respond(request: Request): Promise<Response> {
       history_entry_id: "history_one",
       sha256: digest(new Uint8Array(await request.arrayBuffer())),
       replayed: false,
+    });
+  if (endpoint.endsWith("/web/search"))
+    return Response.json({
+      results: [
+        {
+          title: "Rust 2026",
+          url: "https://blog.rust-lang.org/2026",
+          snippet: "The edition ships.",
+        },
+      ],
+    });
+  if (endpoint.endsWith("/web/open"))
+    return Response.json({
+      url: "https://example.com/page",
+      title: "Page",
+      markdown: "# Page",
+      truncated: false,
+    });
+  if (endpoint.endsWith("/web/backends/query"))
+    return Response.json({
+      default_search: "you",
+      default_open: "direct",
+      can_save_keys: true,
+      backends: [
+        {
+          id: "you",
+          name: "You.com",
+          description: "Web search API for AI agents and LLMs.",
+          tier: "free",
+          tier_text: "Free without a key: limited, lower quality.",
+          commands: ["search", "open"],
+          filters: ["recency"],
+          max_limit: 20,
+          max_sites: 0,
+          keyless: true,
+          official_key_check: true,
+          status: "ready",
+          key_state: "none",
+          quota: { from: "unavailable", reason: "not_reported" },
+        },
+      ],
+    });
+  if (endpoint.endsWith("/web/connect"))
+    return Response.json({
+      status: "connection_requested",
+      room_id: "room_one",
+      message_id: "message_card",
+      interaction_id: "interaction_one",
     });
   throw new Error(`Missing response fixture: ${request.method} ${endpoint}`);
 }

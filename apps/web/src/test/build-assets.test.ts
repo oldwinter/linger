@@ -104,6 +104,31 @@ describe("Web production build assets", () => {
       }),
     ).rejects.toThrow(/React development bundle/i);
   });
+
+  it("enforces the budget and React check without writing precompressed twins when precompress is false", async () => {
+    const fixture = await createBuildFixture();
+
+    const result = await prepareProductionAssets({
+      budget: {
+        brotliBytes: 10_000,
+        gzipBytes: 10_000,
+        minifiedBytes: 10_000,
+      },
+      precompress: false,
+      root: fixture.root,
+    });
+
+    expect(result.compressedAssetCount).toBe(0);
+    expect(result.initialJavaScript.brotliBytes).toBeLessThan(
+      result.initialJavaScript.minifiedBytes,
+    );
+    await expect(
+      readFile(join(fixture.root, "assets", "entry.js.br")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(
+      readFile(join(fixture.root, "assets", "dynamic.js.gz")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
 });
 
 async function createBuildFixture({

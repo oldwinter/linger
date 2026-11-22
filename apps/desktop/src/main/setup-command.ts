@@ -1,3 +1,7 @@
+import {
+  BYOK_URL_PATH_PATTERN,
+  MAX_BYOK_URL_PATH,
+} from "@linger/service-kit/byok-endpoint";
 import { z } from "zod";
 
 import type { SetupCommand } from "../shared/setup.js";
@@ -9,6 +13,32 @@ const providerKey = z
   .trim()
   .regex(/^[A-Za-z0-9._~+/=:-]{0,512}$/, "Invalid key");
 
+// Empty, or whole segments each led by one slash, so a path or endpoint can
+// only extend the base URL's path.
+const byokUrlPath = z
+  .string()
+  .max(MAX_BYOK_URL_PATH)
+  .regex(BYOK_URL_PATH_PATTERN, "Invalid path");
+
+const byokEndpointFields = {
+  baseUrl: z.string().trim().min(1).max(2048),
+  path: byokUrlPath,
+  endpoint: byokUrlPath,
+  protocol: z.enum(["openai-chat", "openai-responses", "anthropic"]),
+  apiKey: z.string().max(4096).optional(),
+};
+
+const byokConfig = z
+  .object({
+    ...byokEndpointFields,
+    modelId: z
+      .string()
+      .trim()
+      .regex(/^[-a-zA-Z0-9_./:@]{1,256}$/, "Invalid model ID"),
+    runtime: z.enum(["claude", "codex", "pi"]),
+  })
+  .strict();
+
 const setupCommand = z.discriminatedUnion("op", [
   z
     .object({ op: z.literal("server.set"), serverUrl: z.string().max(2048) })
@@ -19,12 +49,25 @@ const setupCommand = z.discriminatedUnion("op", [
       runtime: z
         .enum(["recommended", "codex", "claude", "pi", "local"])
         .optional(),
+      byok: byokConfig.optional(),
       keys: z
         .object({
           composio: providerKey.optional(),
         })
         .strict()
         .optional(),
+    })
+    .strict(),
+  z
+    .object({
+      op: z.literal("local.byok.check"),
+      byok: byokConfig,
+    })
+    .strict(),
+  z
+    .object({
+      op: z.literal("local.byok.models"),
+      byok: z.object(byokEndpointFields).strict(),
     })
     .strict(),
   z.object({ op: z.literal("local.recheck") }).strict(),
@@ -34,14 +77,27 @@ const setupCommand = z.discriminatedUnion("op", [
     .object({
       op: z.literal("local.signin.start"),
       code: z.string().trim().min(1).max(4096).optional(),
+      device: z.literal(true).optional(),
     })
     .strict(),
   z.object({ op: z.literal("local.signin.open") }).strict(),
+  z
+    .object({
+      op: z.literal("local.signin.copy"),
+      what: z.enum(["url", "code"]),
+    })
+    .strict(),
   z.object({ op: z.literal("local.signin.cancel") }).strict(),
   z
     .object({
       op: z.literal("local.signin.switch"),
       runtime: z.enum(["codex", "claude", "pi"]),
+    })
+    .strict(),
+  z
+    .object({
+      op: z.literal("local.signin.byok"),
+      byok: byokConfig,
     })
     .strict(),
   z.object({ op: z.literal("local.account.show"), on: z.boolean() }).strict(),

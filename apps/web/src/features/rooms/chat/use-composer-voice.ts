@@ -2,12 +2,15 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import type { TeamHubVoiceLiveTurnMarker } from "@/features/teamhub/teamhub-types";
 import type { TeamHubMessage } from "@/features/teamhub/teamhub-types";
+import { translate } from "@/i18n/language";
+import { composerMessages } from "./composer.messages";
 import type { MessageComposition } from "./message-composer";
 import { formatMentionToken } from "./message-mentions";
 import {
   type ComposerDraft,
   type ComposerReferences,
   messageLengthError,
+  unavailableMentionsError,
   TEAMHUB_MESSAGE_MAX_LENGTH,
 } from "./use-composer-draft";
 import type { ComposerSend } from "./use-composer-send";
@@ -131,11 +134,14 @@ export function useComposerVoiceTurn({
     };
     let snapshot: MessageComposition | undefined;
     return async (voiceLiveTurn?: TeamHubVoiceLiveTurnMarker) => {
-      if (references.pendingAvailability)
-        throw new Error(
-          "Message references are still loading. Exit to review the draft.",
-        );
       try {
+        // Inside the try so a rejected turn releases its claimed materials.
+        if (references.pendingAvailability)
+          throw new Error(translate(composerMessages.referencesLoadingReview));
+        if (references.unavailableMentions.length)
+          throw new Error(
+            unavailableMentionsError(references.unavailableMentions, "review"),
+          );
         snapshot ??= withVoiceMaterials(
           {
             ...value,

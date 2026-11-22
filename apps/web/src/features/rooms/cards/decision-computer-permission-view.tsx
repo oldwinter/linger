@@ -23,9 +23,14 @@ import {
 import { localComputersQueryOptions } from "@/features/local-computer/local-computer-queries";
 import { TeamHubError } from "@/features/teamhub/teamhub-error";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { translate } from "@/i18n/language";
+import type { Message } from "@/i18n/messages";
+import { useT } from "@/i18n/use-translation";
 
+import { decisionCardHeading } from "./card-prompts";
 import { CardActions, CardError } from "./approval-card-parts";
 import { CardBox, CardDone, type ReceiptTone } from "./card-shell";
+import { cardsMessages } from "./cards.messages";
 import type { DecisionMessageCard } from "./decision-card";
 import type { RoomCardDecision } from "./room-message-card-contract";
 
@@ -36,28 +41,28 @@ type Entry =
 type CardState = "waiting" | "relaunch" | "granted" | "declined" | "expired";
 type FinishedState = Extract<CardState, "granted" | "declined" | "expired">;
 
-const label = "System permission requested";
-const subjectLabels: Record<Subject, string> = {
+// "Linger" is the product's name; the other subject is described.
+const subjectLabels: Record<Subject, Message<string> | string> = {
   linger: "Linger",
-  computer_use: "Computer use (CuaDriver)",
+  computer_use: cardsMessages.subjectComputerUse,
 };
-const permissionLabels: Record<PermissionId, string> = {
-  accessibility: "Accessibility",
-  screen_recording: "Screen Recording",
+const permissionLabels: Record<PermissionId, Message<string>> = {
+  accessibility: cardsMessages.permissionAccessibility,
+  screen_recording: cardsMessages.permissionScreenRecording,
 };
-const stateLabels: Record<Entry["state"], string> = {
-  denied: "Not allowed",
-  granted: "Granted",
-  not_determined: "Not requested yet",
-  unknown: "Unknown",
+const stateLabels: Record<Entry["state"], Message<string>> = {
+  denied: cardsMessages.notAllowed,
+  granted: cardsMessages.granted,
+  not_determined: cardsMessages.stateNotRequested,
+  unknown: cardsMessages.stateUnknown,
 };
 const finishedCopy: Record<
   FinishedState,
-  { icon: IconSvgElement; text: string; tone: ReceiptTone }
+  { icon: IconSvgElement; text: Message<string>; tone: ReceiptTone }
 > = {
-  declined: { icon: Cancel01Icon, text: "Declined", tone: "muted" },
-  expired: { icon: Clock01Icon, text: "Expired", tone: "muted" },
-  granted: { icon: Tick02Icon, text: "Granted", tone: "success" },
+  declined: { icon: Cancel01Icon, text: cardsMessages.declined, tone: "muted" },
+  expired: { icon: Clock01Icon, text: cardsMessages.expired, tone: "muted" },
+  granted: { icon: Tick02Icon, text: cardsMessages.granted, tone: "success" },
 };
 
 function cardState(
@@ -81,21 +86,21 @@ function cardState(
 function nextAction(
   subject: Subject,
   entry: Entry,
-): { action: ComputerPermissionAction; label: string } | undefined {
+): { action: ComputerPermissionAction; label: Message<string> } | undefined {
   if (entry.state === "granted") return undefined;
   if (entry.relaunch_required && subject === "linger")
     return {
       action: { action: "relaunch", subject },
-      label: "Relaunch Linger",
+      label: cardsMessages.relaunchLinger,
     };
   if (entry.prompt === "available" && entry.state === "not_determined")
     return {
       action: { action: "prompt", subject, permission: entry.id },
-      label: "Request",
+      label: cardsMessages.request,
     };
   return {
     action: { action: "open_settings", subject, permission: entry.id },
-    label: "Open Settings",
+    label: cardsMessages.openSettings,
   };
 }
 
@@ -141,6 +146,7 @@ export function ComputerPermissionDecision({
   const computerId = view?.computer_id ?? "";
   const subject: Subject = view?.subject ?? "linger";
   const requested = view?.permissions ?? [];
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const queryClient = useQueryClient();
   const desktop = useDesktopComputer();
@@ -162,9 +168,9 @@ export function ComputerPermissionDecision({
     ...localComputersQueryOptions(client, tenantId),
     enabled: interactive && !local,
   });
-  const computerName =
-    inventory.data?.items.find((item) => item.computer_id === computerId)
-      ?.display_name ?? "that Mac";
+  const computerName = inventory.data?.items.find(
+    (item) => item.computer_id === computerId,
+  )?.display_name;
   const act = useMutation({
     mutationFn: async (action: ComputerPermissionAction) => {
       const ipc = local ? desktopPermissions() : undefined;
@@ -176,7 +182,9 @@ export function ComputerPermissionDecision({
     },
     onError: (cause) =>
       setError(
-        cause instanceof Error ? cause.message : "The step did not run.",
+        cause instanceof Error
+          ? cause.message
+          : translate(cardsMessages.stepDidNotRun),
       ),
     onMutate: () => setError(""),
     onSuccess: (next) => {
@@ -192,7 +200,7 @@ export function ComputerPermissionDecision({
     status.error && !offline
       ? status.error instanceof Error
         ? status.error.message
-        : "The Mac's permissions could not be read."
+        : t(cardsMessages.permissionsUnreadable)
       : "";
 
   const liveEntries = interactive
@@ -222,7 +230,7 @@ export function ComputerPermissionDecision({
       setError(
         cause instanceof Error
           ? cause.message
-          : "The card could not be updated.",
+          : translate(cardsMessages.cardUpdateFailed),
       );
     } finally {
       setBusy(false);
@@ -233,10 +241,16 @@ export function ComputerPermissionDecision({
     state === "granted" || state === "declined" || state === "expired"
       ? finishedCopy[state]
       : null;
+  const subjectName = subjectLabels[subject];
+  const subjectLabel =
+    typeof subjectName === "string" ? subjectName : t(subjectName);
 
   return (
     <>
-      <CardBox heading={card.title} label={label}>
+      <CardBox
+        heading={decisionCardHeading(card, t)}
+        label={t(cardsMessages.labelSystemPermission)}
+      >
         <ul className="flex flex-col">
           {rows.map(({ id, entry }) => {
             const step =
@@ -249,20 +263,22 @@ export function ComputerPermissionDecision({
               >
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm text-app-ink">
-                    {subjectLabels[subject]} · {permissionLabels[id]}
+                    {subjectLabel} · {t(permissionLabels[id])}
                   </p>
                   {entry && !granted ? (
                     <p className="truncate text-xs text-app-muted">
-                      {entry.relaunch_required
-                        ? "Relaunch Linger to apply"
-                        : stateLabels[entry.state]}
+                      {t(
+                        entry.relaunch_required
+                          ? cardsMessages.relaunchToApply
+                          : stateLabels[entry.state],
+                      )}
                     </p>
                   ) : null}
                 </div>
                 {granted ? (
                   <span className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-app-success">
                     <Icon icon={Tick02Icon} size={14} />
-                    Granted
+                    {t(cardsMessages.granted)}
                   </span>
                 ) : step ? (
                   <Button
@@ -271,7 +287,7 @@ export function ComputerPermissionDecision({
                     size="large"
                     tone="subtle"
                   >
-                    {step.label}
+                    {t(step.label)}
                   </Button>
                 ) : null}
               </li>
@@ -281,19 +297,21 @@ export function ComputerPermissionDecision({
         {finished ? (
           <CardDone
             icon={finished.icon}
-            text={finished.text}
+            text={t(finished.text)}
             tone={finished.tone}
           />
         ) : (
           <>
             {interactive && offline ? (
               <p className="pb-1 text-xs text-app-muted">
-                Open Linger on that Mac to grant these permissions.
+                {t(cardsMessages.openLingerOnThatMac)}
               </p>
             ) : null}
             {interactive && status.data && !local ? (
               <p className="pb-1 [overflow-wrap:anywhere] text-xs text-app-muted">
-                Opens on {computerName}
+                {computerName
+                  ? t(cardsMessages.opensOn, { name: computerName })
+                  : t(cardsMessages.opensOnThatMac)}
               </p>
             ) : null}
             {owner && pending ? (
@@ -304,7 +322,7 @@ export function ComputerPermissionDecision({
                   size="large"
                   tone="subtle"
                 >
-                  Don't allow
+                  {t(cardsMessages.dontAllow)}
                 </Button>
               </CardActions>
             ) : null}

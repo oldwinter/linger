@@ -2,7 +2,11 @@ package localtools
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -20,7 +24,7 @@ func readCall(arguments map[string]any) map[string]any {
 }
 
 func TestSnapshotRowsCarriesTokensOverTheComputersOwnReads(t *testing.T) {
-	s := newSnapshotRows()
+	s := newSnapshotRows(new(atomic.Uint64))
 	agentTree := "- [0] AXWindow \"Shop\"\n  - [4] AXLink \"Kettle\" [actions=[press]]\n  - [5] AXButton \"Add to cart\" [actions=[press]]"
 	s.observe(readCall(nil), readResult(t, map[string]any{"snapshot_id": "s00000001", "pid": 7, "window_id": 9, "tree_markdown": agentTree}))
 	// The Computer's tab check reads the whole window: the link is unchanged,
@@ -128,7 +132,7 @@ func TestSnapshotRowsCarriesAScriptsTokensIntoTheNextScript(t *testing.T) {
 		t.Fatalf("structured value = %s", reply.Structured.Value)
 	}
 
-	s := newSnapshotRows()
+	s := newSnapshotRows(new(atomic.Uint64))
 	s.observe(map[string]any{"name": "run_script"}, unwrapped)
 	s.sent("run_script")
 	for _, read := range reads {
@@ -161,11 +165,78 @@ func mustJSON(t *testing.T, value any) []byte {
 // A row that lists no press, such as a page's static text, is told apart
 // from a link that lists one; a token the Computer does not remember is not.
 func TestSnapshotRowsTellsTextFromAPressableRow(t *testing.T) {
-	rows := newSnapshotRows()
+	rows := newSnapshotRows(new(atomic.Uint64))
 	rows.record(windowRead{Snapshot: "s00000001", PID: 42, Window: 9, Tree: "- [2] AXWebArea \"Shop\"\n  - [3] AXStaticText = \"Sort by time\"\n  - [4] AXLink \"Kettle\" [actions=[press]]\n  - [5] AXGroup [actions=[show_menu]]"})
 	for token, want := range map[string]bool{"s00000001:3": true, "s00000001:5": true, "s00000001:4": false, "s00000001:9": false, "s00000002:3": false, "bad": false} {
 		if got := rows.unpressable(token); got != want {
 			t.Fatalf("unpressable(%s)=%v, want %v", token, got, want)
 		}
+	}
+}
+
+func TestSingleWindowInputRejectsKnownStaleTokens(t *testing.T) {
+	s := newSnapshotRows(new(atomic.Uint64))
+	s.record(windowRead{Snapshot: "s00000001", PID: 2, Window: 3})
+	args := map[string]any{"element_token": "s00000001:1", "pid": 2, "window_id": 4}
+	if !s.staleWindowToken(args) {
+		t.Fatal("another window accepted the token")
+	}
+	args["window_id"] = 3
+	if s.staleWindowToken(args) {
+		t.Fatal("current window token refused")
+	}
+	s.sent("click")
+	if !s.staleWindowToken(args) {
+		t.Fatal("token survived intervening input")
+	}
+}
+
+func TestWindowTokenOnSharedDesktopAfterRowEviction(t *testing.T) {
+	var desktop atomic.Uint64
+	first, second := newSnapshotRows(&desktop), newSnapshotRows(&desktop)
+	first.record(windowRead{Snapshot: "s00000001", PID: 2, Window: 3})
+	args := map[string]any{"element_token": "s00000001:1", "pid": 2, "window_id": 3}
+	if !second.staleWindowToken(args) {
+		t.Fatal("another connection accepted a snapshot it never observed")
+	}
+	for i := 0; i < snapshotRowsKept; i++ {
+		first.record(windowRead{Snapshot: fmt.Sprintf("s%08x", i+2), PID: 2, Window: float64(i + 4)})
+	}
+	second.sent("get_window_state")
+	if first.staleWindowToken(args) {
+		t.Fatal("reads of other windows expired the current token")
+	}
+	args["window_id"] = 4
+	if !first.staleWindowToken(args) {
+		t.Fatal("evicted token was accepted for another window")
+	}
+	args["window_id"] = 3
+	second.sent("press_key")
+	if !first.staleWindowToken(args) {
+		t.Fatal("evicted token survived input on the shared desktop")
+	}
+	args["element_token"] = "s00000002:1"
+	args["window_id"] = 4
+	if !first.staleWindowToken(args) {
+		t.Fatal("retained token survived input on the shared desktop")
+	}
+	first.record(windowRead{Snapshot: "s11111111", PID: 2, Window: 4})
+	args["element_token"] = "s11111111:1"
+	if first.staleWindowToken(args) {
+		t.Fatal("new read did not restore input to its window")
+	}
+}
+
+func TestWindowBatchChecksEveryTokenBeforeSending(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("macOS window tokens")
+	}
+	c := &cuaSession{snapshots: newSnapshotRows(new(atomic.Uint64))}
+	c.snapshots.record(windowRead{Snapshot: "s00000001", PID: 2, Window: 3})
+	_, err := c.runActions(t.Context(), json.RawMessage(`{"actions":[
+		{"tool":"click","pid":2,"window_id":3,"element_token":"s00000001:1"},
+		{"tool":"click","pid":2,"window_id":4,"element_token":"s00000001:1"}]}`))
+	if !errors.Is(err, errNotSent) || !strings.Contains(err.Error(), "step 2") {
+		t.Fatalf("expected refusal before the first step, got %v", err)
 	}
 }

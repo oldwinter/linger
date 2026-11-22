@@ -15,16 +15,30 @@ export interface DataPreviewRequest {
   sourceSizeBytes: number;
 }
 
+/**
+ * Which limit cut a preview short. The worker has no language, so the
+ * adapter words it.
+ */
+export type DataPreviewTruncation = "bytes" | "cells" | "columns" | "rows";
+
+/** Why the worker could not parse the data, for the adapter to word. */
+export type DataPreviewFailure =
+  | { code: "parse"; detail: string; row: number }
+  | { code: "cellTooLarge" }
+  | { code: "firstRecordTooLarge" };
+
 export type DataPreviewResponse =
   | {
       kind: "parsed";
       requestId: string;
       rows: string[][];
       truncated: boolean;
-      truncationReason?: string;
+      truncation?: DataPreviewTruncation;
     }
   | {
       kind: "failed";
+      failure: DataPreviewFailure;
+      /** The failure in English, for developers. */
       message: string;
       requestId: string;
     };

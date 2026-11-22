@@ -32,7 +32,8 @@ var codexInvokeProfileKeys = []string{"model", "model_provider"}
 
 // CodexInvokeHome describes a minimal CODEX_HOME prepared for one model call.
 type CodexInvokeHome struct {
-	// Model is the configured default model, empty when the CLI picks one.
+	// Model is the model config.toml selects, through the active profile or
+	// at the top level; empty when it selects none.
 	Model string
 	// AuthenticationMissing reports that the provider needs the user's OpenAI
 	// sign-in and the source home has no auth.json.
@@ -83,16 +84,29 @@ func PrepareCodexInvokeHome(home, sourceHome, codexVersion string, modelsCache C
 		return CodexInvokeHome{}, err
 	}
 	seedCodexModelsCache(root, home, sourceHome, codexVersion, modelsCache, nil)
-	result := CodexInvokeHome{}
-	if model, ok := kept["model"].(string); ok {
-		result.Model = model
-	}
+	result := CodexInvokeHome{Model: configuredCodexModel(kept)}
 	if codexAuthRequired(kept, nil) {
 		if _, err := root.Lstat("auth.json"); errors.Is(err, os.ErrNotExist) {
 			result.AuthenticationMissing = true
 		}
 	}
 	return result, nil
+}
+
+// configuredCodexModel is the model settings select: the active profile's
+// model wins over the top-level one, as in Codex itself.
+func configuredCodexModel(settings map[string]any) string {
+	if name, ok := settings["profile"].(string); ok {
+		if profiles, ok := settings["profiles"].(map[string]any); ok {
+			if profile, ok := profiles[name].(map[string]any); ok {
+				if model, ok := profile["model"].(string); ok && model != "" {
+					return model
+				}
+			}
+		}
+	}
+	model, _ := settings["model"].(string)
+	return model
 }
 
 func pickKeys(source map[string]any, keys []string) map[string]any {

@@ -89,40 +89,46 @@ export function DesktopNotificationsSettings({
       <p className="mt-3 text-sm text-muted-foreground">
         {statusCopy[permission]}
       </p>
-      {pausedUntil ? (
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <p className="text-sm text-foreground" role="status">
-            Paused until{" "}
-            <time dateTime={pausedUntil}>
-              {pauseEndFormat.format(new Date(pausedUntil))}
-            </time>
-            .
-          </p>
-          <Button
-            onClick={() => clearDesktopNotificationPause(accountId)}
-            size="compact"
-            tone="secondary"
-          >
-            Resume now
-          </Button>
-        </div>
-      ) : (
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <span className="text-sm text-muted-foreground">
-            Pause notifications:
-          </span>
-          <Button onClick={() => pause("hour")} size="compact" tone="secondary">
-            Pause for 1 hour
-          </Button>
-          <Button
-            onClick={() => pause("morning")}
-            size="compact"
-            tone="secondary"
-          >
-            Pause until tomorrow morning
-          </Button>
-        </div>
-      )}
+      {permission === "granted" ? (
+        pausedUntil ? (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <p className="text-sm text-foreground" role="status">
+              Paused until{" "}
+              <time dateTime={pausedUntil}>
+                {pauseEndFormat.format(new Date(pausedUntil))}
+              </time>
+              .
+            </p>
+            <Button
+              onClick={() => clearDesktopNotificationPause(accountId)}
+              size="compact"
+              tone="secondary"
+            >
+              Resume now
+            </Button>
+          </div>
+        ) : (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <span className="text-sm text-muted-foreground">
+              Pause notifications:
+            </span>
+            <Button
+              onClick={() => pause("hour")}
+              size="compact"
+              tone="secondary"
+            >
+              Pause for 1 hour
+            </Button>
+            <Button
+              onClick={() => pause("morning")}
+              size="compact"
+              tone="secondary"
+            >
+              Pause until tomorrow morning
+            </Button>
+          </div>
+        )
+      ) : null}
       <p className="mt-2 text-xs text-muted-foreground">
         Unread mentions in Rooms you are not looking at appear while this window
         is in the background, unless that Room’s mentions are snoozed. A pause

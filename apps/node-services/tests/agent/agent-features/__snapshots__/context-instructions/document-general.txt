@@ -80,9 +80,7 @@ teamhub docs comment reply <current-thread-id> --operation-id <unique-reply-id> 
 - When extracting a tar archive, pass --no-same-owner to tar (for example, tar --no-same-owner -xzf archive.tar.gz -C destination) because archived UID/GID values may not be mapped in the command sandbox.
 - Keep cwd at the Context workspace when resolving ./agent. Use the default non-login command shell; do not request login=true or nest bash -lc, which can reset the tool PATH.
 - Python packages: uv --directory ./agent add <package> and uv --directory ./agent remove <package>. Run Python with uv --directory ./agent run python ... .
-- System CLI and native dependency fallback: micromamba install --yes --override-channels --channel conda-forge --prefix ./agent/conda <package>, micromamba remove --yes --prefix ./agent/conda <package>, and micromamba run --prefix ./agent/conda <command>.
-- The default Conda tools are poppler, pandoc, qpdf, tesseract, and ffmpeg. LibreOffice is not preinstalled.
-- Do not use apt, conda, or mamba. micromamba is the only Conda-compatible command available in the Runtime.
+- npm and uv are not always installed. If npm, uv, or a system tool you need is missing, ask the user whether to install it. Don't install anything globally (apt, brew, conda, pip --user, npm -g) without the user's yes: that changes the user's computer.
 - The active Human request is a comment on the current Document. Its bounded visible thread is read-only at ./<document-id>/comments.md.
 - The current Native Document is read-only at ./<document-id>/latest.md, as it was when this turn started; do not edit it. After it changes, read the current version with teamhub docs get <document-id>.
 - ./playground is this conversation's own writable storage; your other conversations don't see it. Prefer ./playground/<document-id>/.

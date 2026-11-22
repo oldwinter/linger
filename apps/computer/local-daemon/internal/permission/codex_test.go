@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestPatchAllowedOnlyForOrdinaryWorkspaceFiles(t *testing.T) {
@@ -173,13 +174,86 @@ func TestRunHookDeniesWhenTheDaemonCannotAnswer(t *testing.T) {
 }
 
 func TestHooksConfigRunsTheDaemonInHookMode(t *testing.T) {
-	endpoint := &CodexEndpoint{url: "http://127.0.0.1:1/permission-request/secret"}
-	config := endpoint.HooksConfig("/Applications/Linger Computer/bin/daemon's")
+	endpoint := &CodexEndpoint{
+		url:     "http://127.0.0.1:1/permission-request/secret",
+		stopURL: "http://127.0.0.1:1/stop/secret",
+	}
+	config := endpoint.HooksConfigFor("/Applications/Linger Computer/bin/daemon's", true, false)
 	handler := config["PermissionRequest"].([]any)[0].(map[string]any)["hooks"].([]any)[0].(map[string]any)
 	if handler["type"] != "command" || handler["timeout"] != 90 ||
 		handler["command"] != `'/Applications/Linger Computer/bin/daemon'\''s' permission-hook 'http://127.0.0.1:1/permission-request/secret'` ||
 		handler["commandWindows"] != `& '/Applications/Linger Computer/bin/daemon''s' permission-hook 'http://127.0.0.1:1/permission-request/secret'` {
 		t.Fatalf("handler = %#v", handler)
+	}
+	if _, hasStop := config["Stop"]; hasStop {
+		t.Fatalf("HooksConfigFor(true, false) unexpectedly included Stop: %#v", config)
+	}
+
+	stopOnly := endpoint.HooksConfigFor("/Applications/Linger Computer/bin/daemon's", false, true)
+	if _, hasPerm := stopOnly["PermissionRequest"]; hasPerm {
+		t.Fatalf("stopOnly unexpectedly included PermissionRequest: %#v", stopOnly)
+	}
+	stopHandler := stopOnly["Stop"].([]any)[0].(map[string]any)["hooks"].([]any)[0].(map[string]any)
+	if stopHandler["type"] != "command" || stopHandler["timeout"] != int(CodexStopHookTimeout/time.Second) ||
+		stopHandler["command"] != `'/Applications/Linger Computer/bin/daemon'\''s' stop-hook 'http://127.0.0.1:1/stop/secret'` ||
+		stopHandler["commandWindows"] != `& '/Applications/Linger Computer/bin/daemon''s' stop-hook 'http://127.0.0.1:1/stop/secret'` {
+		t.Fatalf("stopHandler = %#v", stopHandler)
+	}
+}
+
+func TestCodexEndpointStopHookRoutingAndFailOpen(t *testing.T) {
+	endpoint, err := newEndpoint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var seen CodexStopHookEvent
+	unregister := endpoint.RegisterStop("thread-1", func(_ context.Context, event CodexStopHookEvent) CodexStopDecision {
+		seen = event
+		if event.StopHookActive {
+			return CodexStopDecision{}
+		}
+		return CodexStopDecision{Block: true, Reason: "Send your Room reply."}
+	})
+	defer unregister()
+
+	run := func(input string) (int, string) {
+		var stdout, stderr bytes.Buffer
+		code := CodexRunStopHook(strings.NewReader(input), &stdout, &stderr, endpoint.stopURL)
+		return code, strings.TrimSpace(stdout.String())
+	}
+
+	code, stdout := run(`{"session_id":"thread-1","turn_id":"turn-1","stop_hook_active":false}`)
+	if code != 0 || !strings.Contains(stdout, `"decision":"block"`) || !strings.Contains(stdout, `"Send your Room reply."`) || seen.TurnID != "turn-1" {
+		t.Fatalf("block stop: code=%d stdout=%s seen=%+v", code, stdout, seen)
+	}
+
+	code, stdout = run(`{"session_id":"thread-1","turn_id":"turn-1","stop_hook_active":true}`)
+	if code != 0 || stdout != "{}" {
+		t.Fatalf("active stop: code=%d stdout=%s", code, stdout)
+	}
+
+	code, stdout = run(`{"session_id":"unknown-thread"}`)
+	if code != 0 || stdout != "{}" {
+		t.Fatalf("unknown thread stop: code=%d stdout=%s", code, stdout)
+	}
+
+	// Every failure fails open (exit 0, {}) instead of trapping Codex.
+	var out, errBuf bytes.Buffer
+	if code := CodexRunStopHook(strings.NewReader(`{}`), &out, &errBuf, "https://example.com/stop"); code != 0 || strings.TrimSpace(out.String()) != "{}" {
+		t.Fatalf("remote endpoint fail-open: code=%d out=%q", code, out.String())
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "boom", http.StatusInternalServerError)
+	}))
+	out.Reset()
+	if code := CodexRunStopHook(strings.NewReader(`{}`), &out, &errBuf, server.URL); code != 0 || strings.TrimSpace(out.String()) != "{}" {
+		t.Fatalf("server 500 fail-open: code=%d out=%q", code, out.String())
+	}
+	addr := server.Listener.Addr().String()
+	server.Close()
+	out.Reset()
+	if code := CodexRunStopHook(strings.NewReader(`{}`), &out, &errBuf, "http://"+addr+"/stop"); code != 0 || strings.TrimSpace(out.String()) != "{}" {
+		t.Fatalf("unreachable daemon fail-open: code=%d out=%q", code, out.String())
 	}
 }
 

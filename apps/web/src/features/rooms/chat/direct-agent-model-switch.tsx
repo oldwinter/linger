@@ -1,28 +1,22 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useState } from "react";
+import { tenantLocalModelsQueryKey } from "@/features/local-models/local-models-queries";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { type TeamHubClient } from "@/features/teamhub/teamhub-client";
-import type {
-  TeamHubAgentReasoningEffort,
-  TeamHubTenantAgent,
-} from "@/features/teamhub/teamhub-types";
+import type { TeamHubTenantAgent } from "@/features/teamhub/teamhub-types";
+import { useT } from "@/i18n/use-translation";
 import type { AgentRuntimeUpdateInput } from "../members/edit-agent-runtime-dialog";
 const EditAgentRuntimeDialog = lazy(async () => ({
   default: (await import("../members/edit-agent-runtime-dialog"))
     .EditAgentRuntimeDialog,
 }));
+import {
+  reasoningEffortMessages,
+  useResolvedAgentModelLabel,
+} from "../members/use-agent-model-selection";
 import { tenantAgentsQueryKey } from "../room-queries";
+import { composerMessages } from "./composer.messages";
 import "./direct-agent-model-switch.css";
-
-const EFFORT_LABEL: Record<TeamHubAgentReasoningEffort, string> = {
-  none: "None",
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-  xhigh: "Extra high",
-  max: "Maximum",
-  ultra: "Ultra",
-};
 
 interface Props {
   client: TeamHubClient;
@@ -40,20 +34,15 @@ export function DirectAgentModelSwitch(props: Props) {
 }
 
 function RuntimeSettingsEntry({ client, registration, tenantId, busy }: Props) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
-  const computers = useQuery({
-    queryFn: () => client.listTenantLocalComputers(tenantId),
-    queryKey: ["teamhub", "local-computers", tenantId],
-    retry: false,
-  });
-  const placement = registration.runtime.placement;
-  const models = computers.data?.items
-    .find((item) => item.computer_id === placement?.computer_id)
-    ?.runtimes.find((item) => item.type === placement?.runtime_type)?.models;
-  const model = models?.find((item) => item.id === registration.runtime.model);
   const effort = registration.runtime.reasoning_effort;
-  const summary = `${model?.label ?? registration.runtime.model}${effort ? ` ${EFFORT_LABEL[effort]}` : ""}`;
+  const label = useResolvedAgentModelLabel(
+    client,
+    tenantId,
+    registration.runtime,
+  );
   const update = useMutation({
     mutationFn: (input: AgentRuntimeUpdateInput) =>
       teamHubData(
@@ -81,16 +70,27 @@ function RuntimeSettingsEntry({ client, registration, tenantId, busy }: Props) {
               }
             : current,
       );
-      void queryClient.invalidateQueries({
-        queryKey: tenantAgentsQueryKey(tenantId),
-      });
+      void Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: tenantAgentsQueryKey(tenantId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: tenantLocalModelsQueryKey(tenantId),
+        }),
+      ]);
       setOpen(false);
     },
   });
+  const ariaLabel = `Switch model (current: ${label})`;
+  const title = effort
+    ? `Switch model (current: ${label}, ${t(reasoningEffortMessages[effort])})`
+    : ariaLabel;
   return (
     <div className="agent-model-switch">
       <button
+        aria-label={ariaLabel}
         className="agent-model-switch-trigger"
+        title={title}
         type="button"
         aria-haspopup="dialog"
         aria-expanded={open}
@@ -99,13 +99,22 @@ function RuntimeSettingsEntry({ client, registration, tenantId, busy }: Props) {
           setOpen(true);
         }}
       >
-        <span className="agent-model-switch-trigger-label">{summary}</span>
+        <span className="agent-model-switch-trigger-label">{label}</span>
+        {/* A long model label shortens with an ellipsis; the effort stays. */}
+        {effort ? (
+          <>
+            {" "}
+            <span className="agent-model-switch-trigger-effort">
+              {t(reasoningEffortMessages[effort])}
+            </span>
+          </>
+        ) : null}
       </button>
       {open ? (
         <Suspense
           fallback={
             <span role="status" className="text-xs text-app-muted">
-              Loading settings…
+              {t(composerMessages.loadingSettings)}
             </span>
           }
         >

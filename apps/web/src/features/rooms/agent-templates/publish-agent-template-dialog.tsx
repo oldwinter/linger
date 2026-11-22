@@ -6,6 +6,8 @@ import { ModalDialog } from "@/components/ui/modal-dialog";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubTenantAgent } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
 
 import { collectTeamHubCursorPages } from "@/features/teamhub/teamhub-cursor-pages";
 import { tenantRoomsQueryOptions } from "../room-queries";
@@ -18,6 +20,7 @@ import {
   useTemplateContentGroups,
 } from "./agent-template-contents";
 import { agentTemplatesQueryKey } from "./agent-template-queries";
+import { agentTemplateMessages as m } from "./agent-templates.messages";
 import { useAgentConnectorKeys } from "./use-agent-connector-keys";
 
 /**
@@ -34,6 +37,7 @@ export function PublishAgentTemplateDialog({
   tenantId: string;
 }) {
   const { client } = useTeamHubRuntime();
+  const t = useT();
   const queryClient = useQueryClient();
   const formId = useId();
   const routines = useQuery({
@@ -114,14 +118,14 @@ export function PublishAgentTemplateDialog({
 
   return (
     <ModalDialog
-      description="Everyone in this deployment will be able to create Agents from it."
+      description={t(m.publishDescription)}
       onClose={onClose}
       size="md"
-      title="Publish as template"
+      title={t(m.publishTitle)}
       footer={
         <>
           <Button onClick={onClose} type="button">
-            Cancel
+            {t(commonMessages.cancel)}
           </Button>
           <Button
             disabled={
@@ -132,7 +136,7 @@ export function PublishAgentTemplateDialog({
             tone="primary"
             type="submit"
           >
-            Publish
+            {t(m.publish)}
           </Button>
         </>
       }
@@ -141,10 +145,10 @@ export function PublishAgentTemplateDialog({
         <fieldset className="space-y-4" disabled={publish.isPending}>
           <label className="block">
             <span className="mb-1.5 block text-sm font-medium">
-              Template name
+              {t(m.templateName)}
             </span>
             <input
-              aria-label="Template name"
+              aria-label={t(m.templateName)}
               className="ui-field-control w-full"
               maxLength={120}
               onChange={(event) => setName(event.target.value)}
@@ -152,14 +156,14 @@ export function PublishAgentTemplateDialog({
             />
           </label>
           <div>
-            <p className="mb-2 text-sm font-medium">Shared with others</p>
+            <p className="mb-2 text-sm font-medium">{t(m.sharedWithOthers)}</p>
             {connectors.isPending || routines.isPending ? (
               <p className="text-sm text-app-muted" role="status">
-                Checking this Agent&apos;s Routines and Connectors...
+                {t(m.checkingAgent)}
               </p>
             ) : (
               <TemplateContents
-                connectorNote="Only Connector names are shared. Your connected accounts and credentials stay private, and whoever uses this template authorizes their own."
+                connectorNote={t(m.publishConnectorNote)}
                 groups={groups}
                 instructions={registration.instructions}
                 routines={routines.data}
@@ -167,15 +171,14 @@ export function PublishAgentTemplateDialog({
             )}
           </div>
           <p className="rounded-xl border border-border bg-muted/40 p-3 text-sm leading-5 text-app-muted">
-            Runtime, model, and Local Computer stay private to this Agent. You
-            can remove the template later.
+            {t(m.staysPrivate)}
           </p>
         </fieldset>
         {routines.error ? (
           <p className="mt-3 text-sm text-app-danger" role="alert">
-            Routines could not be loaded.{" "}
+            {t(m.routinesLoadFailed)}{" "}
             <Button onClick={() => void routines.refetch()} type="button">
-              Retry
+              {t(commonMessages.retry)}
             </Button>
           </p>
         ) : null}

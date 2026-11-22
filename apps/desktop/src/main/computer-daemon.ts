@@ -15,11 +15,7 @@ import {
   localmodelsToolFromEnvironment,
 } from "@linger/local-installation/localmodels-computer";
 
-import {
-  DAEMON_IDENTITY_CONFLICT,
-  type ComputerConnectionError,
-  type RuntimeState,
-} from "../shared/api.js";
+import type { RuntimeState } from "../shared/api.js";
 import type {
   ComputerCredential,
   CredentialStore,
@@ -112,19 +108,14 @@ export const connectionState = (gatewayState: string): string => {
       return "online";
     case "authentication-failed":
       return "auth_failed";
+    case "identity-conflict":
+      return "identity_conflict";
     case "upgrade-required":
       return "upgrade_required";
     default:
       return "connecting";
   }
 };
-
-// The status line's optional connection_error, which the Gateway sets when it
-// refuses this computer's Daemon Identity as another Computer's.
-export const connectionError = (
-  value: unknown,
-): ComputerConnectionError | undefined =>
-  value === DAEMON_IDENTITY_CONFLICT ? DAEMON_IDENTITY_CONFLICT : undefined;
 
 const RUNTIME_PATHS = {
   codex: "LINGER_CODEX_PATH",
@@ -211,7 +202,6 @@ export class ComputerDaemonModule implements Module {
   #child: DaemonChild | undefined;
   #state: RuntimeState = "stopped";
   #connection = "disconnected";
-  #connectionError: ComputerConnectionError | undefined;
   #running = 0;
   #failures = 0;
   #startedAt = 0;
@@ -244,12 +234,6 @@ export class ComputerDaemonModule implements Module {
     return this.#connection;
   }
 
-  // Why the Gateway refused this computer besides the connection state, while
-  // the daemon reports one.
-  connectionError(): ComputerConnectionError | undefined {
-    return this.#connectionError;
-  }
-
   // Why the daemon keeps exiting before it reports a status, once it failed
   // FAILED_AFTER_EXITS times in a row.
   failure(): string | undefined {
@@ -258,8 +242,6 @@ export class ComputerDaemonModule implements Module {
 
   async start(ctx: ModuleContext): Promise<void> {
     this.#ctx = ctx;
-    if (ctx.config.get().identityConflict)
-      this.#connectionError = DAEMON_IDENTITY_CONFLICT;
     this.#unsubscribe.push(
       // A different (or no) computer identity applies at once.
       ctx.bus.on("computer.changed", () => this.#requestRestart(false)),
@@ -349,7 +331,6 @@ export class ComputerDaemonModule implements Module {
     const ctx = this.#ctx!;
     if (this.#stopping || this.#child || !this.#env) return;
     const config = ctx.config.get();
-    if (!config.identityConflict) this.#setConnectionError(undefined);
     if (!config.computerId || !config.tenantId) {
       this.#setConnection("disconnected");
       this.#setState("stopped");
@@ -367,7 +348,6 @@ export class ComputerDaemonModule implements Module {
     const configFile = this.#writeConfig(config, credential, env);
     this.#setState("starting");
     this.#setConnection("connecting");
-    if (!config.identityConflict) this.#setConnectionError(undefined);
     this.#startedAt = Date.now();
     const child = this.#options.spawn(configFile, {
       ...env,
@@ -384,7 +364,6 @@ export class ComputerDaemonModule implements Module {
         op?: unknown;
         permission?: unknown;
         gateway_state?: unknown;
-        connection_error?: unknown;
         active_operations?: unknown;
       };
       try {
@@ -405,22 +384,8 @@ export class ComputerDaemonModule implements Module {
       this.#startFailures = 0;
       this.#setFailure(undefined);
       this.#setState("ready");
-      const reportedError = connectionError(status.connection_error);
-      const gateway =
-        typeof status.gateway_state === "string"
-          ? connectionState(status.gateway_state)
-          : undefined;
-      if (reportedError === DAEMON_IDENTITY_CONFLICT) {
-        if (!ctx.config.get().identityConflict)
-          ctx.config.update({ identityConflict: true });
-        this.#setConnectionError(DAEMON_IDENTITY_CONFLICT);
-      } else if (gateway === "online") {
-        // Only a successful connection proves the Gateway accepted this identity.
-        if (ctx.config.get().identityConflict)
-          ctx.config.update({ identityConflict: undefined });
-        this.#setConnectionError(undefined);
-      }
-      if (gateway !== undefined) this.#setConnection(gateway);
+      if (typeof status.gateway_state === "string")
+        this.#setConnection(connectionState(status.gateway_state));
       if (typeof status.active_operations === "number")
         this.#setRunning(status.active_operations);
     });
@@ -509,8 +474,6 @@ export class ComputerDaemonModule implements Module {
     this.#child = undefined;
     this.#setRunning(0);
     this.#setConnection("disconnected");
-    if (!this.#ctx?.config.get().identityConflict)
-      this.#setConnectionError(undefined);
     await new Promise<void>((resolve) => {
       const timer = setTimeout(() => {
         this.#ctx?.log.warn("computer_daemon.kill");
@@ -573,15 +536,6 @@ export class ComputerDaemonModule implements Module {
     this.#ctx?.bus.emit("computer.connection", connection);
   }
 
-  #setConnectionError(error: ComputerConnectionError | undefined): void {
-    if (this.#connectionError === error) return;
-    this.#connectionError = error;
-    this.#ctx?.bus.emit(
-      "computer.identity_conflict",
-      error === DAEMON_IDENTITY_CONFLICT,
-    );
-  }
-
   #setState(state: RuntimeState): void {
     if (this.#state === state) return;
     this.#state = state;
@@ -591,6 +545,12 @@ export class ComputerDaemonModule implements Module {
 
 // Starts the daemon executable with only the given environment. Its stderr
 // (the daemon log) and any stdout that is not a status line go to logFile.
+// A record of the daemon's log: Go's log package prefix, then the level.
+const LOG_RECORD =
+  /^\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)? (?:DEBUG|INFO|WARN|ERROR)\b/;
+// The first line of a Go runtime crash.
+const GO_CRASH = /^(?:panic|fatal error): /;
+
 export const spawnDaemon =
   (executable: string, logFile: string): SpawnDaemon =>
   (configFile, env) => {
@@ -622,9 +582,15 @@ export const spawnDaemon =
       });
     };
     child.stderr.pipe(log, { end: false });
+    // The daemon prints why it stopped as its last line outside its log;
+    // its log records (a timestamp, then the level) may come from any time
+    // before. A Go runtime crash leads with its panic line, then a trace.
+    let crashed = false;
     createInterface({ input: child.stderr }).on("line", (line) => {
       const text = line.trim();
-      if (text) reason = text.slice(0, 500);
+      if (!text || crashed || LOG_RECORD.test(text)) return;
+      crashed = GO_CRASH.test(text);
+      reason = text.slice(0, 500);
     });
     createInterface({ input: child.stdout }).on("line", (line) => {
       if (line.startsWith("{")) for (const listener of lines) listener(line);

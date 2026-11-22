@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  cleanup,
   fireEvent,
   render,
   screen,
@@ -7,7 +8,7 @@ import {
   within,
 } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
@@ -16,6 +17,14 @@ import { RoomNavigation } from "./room-navigation";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 
 describe("Room navigation", () => {
+  // The Room list is a lazy chunk and most tests query it synchronously, so
+  // load it once before any test regardless of the order they run in.
+  beforeAll(async () => {
+    renderNavigation(await navigationFixture(), new QueryClient());
+    await screen.findByRole("navigation", { name: "Room navigation" });
+    cleanup();
+  });
+
   it("opens the mobile navigation in one dialog with one close action", async () => {
     const matchMedia = window.matchMedia.bind(window);
     const viewport = vi
@@ -93,7 +102,7 @@ describe("Room navigation", () => {
     expect(read).toHaveBeenCalledTimes(1);
   });
 
-  it("opens global search above Another Me and gives its old rail position to Wiki", async () => {
+  it("opens global search from both the primary rail and Room navigation", async () => {
     const fixture = await navigationFixture();
     const onOpenSearch = vi.fn();
     renderNavigation(
@@ -109,17 +118,33 @@ describe("Room navigation", () => {
     const navigation = screen.getByRole("navigation", {
       name: "Room navigation",
     });
+    const railSearch = within(primary).getByRole("button", { name: "Search" });
+    expect(railSearch).toHaveAttribute("aria-keyshortcuts", "Control+k Meta+k");
+    expect(railSearch).toHaveAttribute(
+      "title",
+      expect.stringMatching(/Search \((⌘K|Ctrl K)\)/),
+    );
+    expect(
+      railSearch.querySelector(".primary-navigation-label"),
+    ).toHaveTextContent("Search");
+    expect(railSearch.querySelector("kbd")).toBeNull();
+    expect(railSearch.querySelector("svg.room-rail-glyph")).not.toBeNull();
+    fireEvent.click(railSearch);
+    expect(onOpenSearch).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Expand sidebar" }));
+    expect(railSearch.querySelector("kbd")).toHaveTextContent(/⌘K|Ctrl K/);
+    fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+    expect(railSearch.querySelector("kbd")).toBeNull();
+
     const search = within(navigation).getByRole("button", { name: "Search" });
     expect(search).toHaveAttribute("aria-keyshortcuts", "Control+k Meta+k");
     expect(search).toHaveAttribute(
       "title",
       expect.stringMatching(/Search \((⌘K|Ctrl K)\)/),
     );
-    expect(
-      within(primary).queryByRole("button", { name: "Search" }),
-    ).toBeNull();
     fireEvent.click(search);
-    expect(onOpenSearch).toHaveBeenCalledTimes(1);
+    expect(onOpenSearch).toHaveBeenCalledTimes(2);
     expect(
       within(primary)
         .getAllByRole("link")
@@ -128,6 +153,26 @@ describe("Room navigation", () => {
     expect(
       within(navigation).getByRole("button", { name: "Pocket Notes" }),
     ).toBeVisible();
+  });
+
+  it("keeps the Search trigger in the primary rail on non-Room routes and shows its shortcut when expanded", async () => {
+    const fixture = await navigationFixture();
+    const onOpenSearch = vi.fn();
+    renderNavigation(
+      fixture,
+      new QueryClient(),
+      `/t/${fixture.tenant.id}/apps`,
+      undefined,
+      onOpenSearch,
+    );
+    const primary = screen.getByRole("navigation", {
+      name: "Primary navigation",
+    });
+    const railSearch = within(primary).getByRole("button", { name: "Search" });
+    expect(railSearch).toBeVisible();
+    expect(railSearch.querySelector("kbd")).toHaveTextContent(/⌘K|Ctrl K/);
+    fireEvent.click(railSearch);
+    expect(onOpenSearch).toHaveBeenCalledTimes(1);
   });
 
   it("toggles the primary sidebar without changing the current Room", async () => {
@@ -275,9 +320,10 @@ describe("Room navigation", () => {
     const agentsSection = screen
       .getByRole("heading", { name: "Messages" })
       .closest("section")!;
-    const card = screen.getByRole("link", { name: "Another Me Chat" });
+    const anotherMeLabel = `${anotherMeRoom.direct_peer!.display_name} chat`;
+    const card = screen.getByRole("link", { name: anotherMeLabel });
     expect(
-      within(agentsSection).queryByRole("link", { name: "Another Me Chat" }),
+      within(agentsSection).queryByRole("link", { name: anotherMeLabel }),
     ).toBeNull();
     expect(
       card.compareDocumentPosition(agentsSection) &
@@ -436,6 +482,62 @@ describe("Room navigation", () => {
     ).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Library" })).toBeVisible();
   });
+
+  it("expands the primary rail with visible labels in the mobile drawer on non-Room routes", async () => {
+    const matchMedia = window.matchMedia.bind(window);
+    const viewport = vi
+      .spyOn(window, "matchMedia")
+      .mockImplementation((query) => ({
+        ...matchMedia(query),
+        matches: query === "(width < 48rem)",
+      }));
+    try {
+      const fixture = await navigationFixture();
+      renderNavigation(
+        fixture,
+        new QueryClient(),
+        `/t/${fixture.tenant.id}/apps`,
+      );
+      const sidebar = screen.getByRole("complementary", {
+        name: "Collaboration sidebar",
+      });
+      expect(sidebar).toHaveAttribute("data-expanded", "true");
+      expect(sidebar).toHaveClass("w-[220px]");
+      expect(
+        screen.queryByRole("button", { name: /sidebar$/i }),
+      ).not.toBeInTheDocument();
+      expect(screen.getByText("jenny's space")).toBeVisible();
+    } finally {
+      viewport.mockRestore();
+    }
+  });
+
+  it.each([
+    ["/work-items/wi-1", "Dashboard"],
+    ["/wiki-preview", "Wiki"],
+    ["/library/remembered", "Wiki"],
+    ["/library/introduction", "Wiki"],
+    ["/library/life", "Wiki"],
+  ])(
+    "marks %s active under %s in the primary rail",
+    async (suffix, activeLabel) => {
+      const fixture = await navigationFixture();
+      renderNavigation(
+        fixture,
+        new QueryClient(),
+        `/t/${fixture.tenant.id}${suffix}`,
+      );
+      expect(screen.getByRole("link", { name: activeLabel })).toHaveAttribute(
+        "aria-current",
+        "page",
+      );
+      if (activeLabel === "Wiki") {
+        expect(
+          screen.getByRole("link", { name: "Library" }),
+        ).not.toHaveAttribute("aria-current");
+      }
+    },
+  );
 });
 
 async function navigationFixture() {
@@ -495,6 +597,8 @@ function renderNavigation(
               path="/t/:tenantId/rooms/:roomId/:view"
             />
             <Route element={navigation} path="/t/:tenantId/library/*" />
+            <Route element={navigation} path="/t/:tenantId/wiki-preview" />
+            <Route element={navigation} path="/t/:tenantId/work-items/*" />
             <Route element={navigation} path="/t/:tenantId/apps" />
             <Route element={navigation} path="/t/:tenantId/computers" />
             <Route element={navigation} path="/t/:tenantId/settings/*" />

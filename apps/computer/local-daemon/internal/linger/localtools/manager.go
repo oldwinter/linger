@@ -42,13 +42,14 @@ type Options struct {
 
 type Manager struct {
 	// liveSlot admits one Live browser call at a time; see lockLive.
-	liveSlot     chan struct{}
-	liveSessions map[string]*liveBrowserSession
-	options      Options
-	env          []string
-	journal      *actionJournal
-	mu           sync.Mutex
-	cuaLaunch    sync.Mutex
+	liveSlot           chan struct{}
+	liveSessions       map[string]*liveBrowserSession
+	options            Options
+	env                []string
+	journal            *actionJournal
+	mu                 sync.Mutex
+	cuaLaunch          sync.Mutex
+	cuaInputGeneration atomic.Uint64
 	// cuaGrant is the running `cua-driver permissions grant`, at most one.
 	cuaGrantMu sync.Mutex
 	cuaGrant   *exec.Cmd
@@ -121,6 +122,11 @@ func New(options Options) (*Manager, error) {
 		}
 		if err := m.openBrowserJournals(); err != nil {
 			return nil, err
+		}
+		// The Computer no longer asks the user to quit their Chrome, so the
+		// record of that question is gone too.
+		if err := os.Remove(filepath.Join(options.StateDirectory, "computer-tools", "everyday-chrome-quit")); err != nil && !errors.Is(err, os.ErrNotExist) {
+			slog.Warn("agent_browser.retire_quit_record_failed", "error", err)
 		}
 		// Quitting a Chrome still on the old profile may take seconds, so
 		// it does not hold up the start.
@@ -288,7 +294,7 @@ func (m *Manager) Bind(ctx context.Context, spec provider.OperationSpec, identit
 	}{
 		{"computer", computerTools, computerCall, op.computerEvidence, nil}, {"browser", browserTools, browserCall, op.browserEvidence, op.browserAllowed},
 	} {
-		server, err := openToolServer(opCtx, identity, binding.tools, op.wrap(binding.call))
+		server, err := openToolServer(opCtx, identity, binding.tools, op.wrap(binding.call), mcpproxy.LocalToolTimeout)
 		if err != nil {
 			return errors.Join(err, op.close())
 		}
@@ -681,6 +687,7 @@ func (m *Manager) startPlaywright(ctx context.Context, launch playwrightLaunch) 
 	if err := privatefs.EnsureDir(launch.output); err != nil {
 		return nil, err
 	}
+	launch.config["codegen"] = "none"
 	launch.config["outputDir"] = launch.output
 	data, _ := json.Marshal(launch.config)
 	if err := privatefs.WriteFile(launch.configPath, data, false); err != nil {
@@ -717,9 +724,12 @@ func describeBrowserMode(tools []tool, userChrome, chromeRequired, connectable b
 }
 
 // siteSkillNote leaves the choice of tools on a site to a Skill written for
-// it: sites that block automated browsers are used through the computer
-// tools, and this browser leaves automation traces in their pages.
-const siteSkillNote = " When a Skill covers the site, follow its choice of tools, even when it asks for the computer tools instead of these. A social network, a marketplace or another site that watches for automated browsers is used through the computer tools, in the Computer's own window of the user's everyday browser, never through these browser tools: they drive the page in a way such sites detect."
+// it. Public pages are read with these faster tools from a profile without
+// the user's sign-ins, so a site that flags them flags no account of the
+// user's; the user's account on a site that blocks automated browsers is
+// used through the computer tools, since this browser leaves automation
+// traces in their pages.
+const siteSkillNote = " When a Skill covers the site, follow its choice of tools, even when it asks for the computer tools instead of these. Pages any visitor can read without signing in, such as listings, search results or public threads, are read with these browser tools on any site, including social networks and marketplaces, while they use the dedicated Agent Chrome profile. The user's signed-in account on a site that watches for automated browsers, and every write for the user there, go through the computer tools, in the Computer's own window of the user's everyday browser, never through these browser tools: they drive the page in a way such sites detect. If a site answers these tools with a captcha, a block page or a sign-in wall, switch to the computer tools for it."
 
 func filterBrowserTools(catalog []tool) []tool {
 	var result []tool

@@ -56,9 +56,16 @@ describe("PanelTabStrip", () => {
     expect(selectedTab).toHaveAttribute("data-active", "true");
     expect(selectedTab.parentElement).toHaveClass(
       "h-7",
+      "min-w-[96px]",
+      "max-w-[200px]",
+      "flex-1",
       "rounded-full",
       "bg-card",
     );
+    expect(selectedTab.parentElement).not.toHaveClass("w-[128px]", "flex-none");
+    expect(
+      screen.getByRole("button", { name: "Close Alpha task" }),
+    ).toHaveClass("[@media(hover:none)]:opacity-100");
     expect(selectedTab.parentElement).not.toHaveClass(
       "shadow-[var(--app-nav-selected-shadow)]",
     );

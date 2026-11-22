@@ -12,6 +12,7 @@ export type LocalModelPool = Schemas["LocalModelPool"];
 export type LocalModelHost = Schemas["LocalModelHost"];
 export type LocalModelActionRequest = Schemas["LocalModelActionRequest"];
 export type LocalModelAction = LocalModelActionRequest["action"];
+export type LocalModelsRefreshAccepted = Schemas["LocalModelsRefreshAccepted"];
 
 const localModelsPath =
   "/v0/tenants/{tenantId}/local-computers/{computerId}/local-models";
@@ -47,6 +48,27 @@ export function localModelsQueryOptions(
     queryKey: localModelsQueryKey(tenantId, computerId),
     retry: false,
   });
+}
+
+/** Identifies pending memory/model refreshes for one Computer. */
+export function localModelsRefreshMutationKey(
+  tenantId: string,
+  computerId: string,
+) {
+  return ["teamhub", tenantId, "local-models-refresh", computerId] as const;
+}
+
+/** Asks the Computer to recheck free memory and report a fresh snapshot. */
+export function refreshLocalComputerModels(
+  client: TeamHubClient,
+  tenantId: string,
+  computerId: string,
+) {
+  return teamHubData(
+    client.api.POST(localModelsPath, {
+      params: { path: { computerId, tenantId } },
+    }),
+  );
 }
 
 /** Identifies pending actions of one Computer, so each row can show its own. */

@@ -5,15 +5,22 @@ import type {
 } from "./runner-local-models.js";
 import type {
   BrowserConnectionStatus,
+  ByokConfigInput,
+  ByokModelList,
+  ByokTestResult,
   ComputerPermissionStatus,
+  ModelSourceStatus,
 } from "@linger/wire-contracts/runner-gateway/types";
 
-export type LocalRuntimeType = "claude" | "codex" | "pi";
+export type LocalRuntimeType = "claude" | "codex" | "pi" | "antigravity";
 
 export const isSupportedLocalRuntimeType = (
   value: unknown,
 ): value is LocalRuntimeType =>
-  value === "codex" || value === "claude" || value === "pi";
+  value === "codex" ||
+  value === "claude" ||
+  value === "pi" ||
+  value === "antigravity";
 // A Computer below this release is refused with `upgrade_required` and the
 // user reruns the installer.
 export const MINIMUM_COMPUTER_VERSION = "0.22.0";
@@ -25,6 +32,26 @@ export const MINIMUM_CURRENT_COMPUTER_VERSION = "0.44.0";
 // below the current release updates itself from the welcome's
 // `target_release`; an older protocol 2 build is refused.
 export const FIRST_PROTOCOL_2_COMPUTER_VERSION = "0.43.0";
+// The first release that decodes runner.welcome's `service_features`. An
+// older Computer rejects the unknown key and would never reach its
+// `target_release`, so it is welcomed without the field.
+export const FIRST_SERVICE_FEATURES_COMPUTER_VERSION = "0.52.0";
+// The first release that decodes a cancel for one model_invoke. An older
+// Computer closes the connection on it, so its calls are never swapped out.
+export const FIRST_MODEL_INVOKE_CANCEL_COMPUTER_VERSION = "0.53.0";
+// The first release that runs `model_source` commands. An older Computer
+// closes the connection on a command kind it cannot decode.
+export const FIRST_MODEL_SOURCE_COMPUTER_VERSION = "0.54.0";
+// Older Daemons do not decode Pi as a model_invoke Runtime.
+export const FIRST_PI_MODEL_INVOKE_COMPUTER_VERSION = "0.55.0";
+// The first release that decodes a BYOK path, endpoint and protocol and
+// reports them back. An older Computer closes the connection on a byok input
+// that carries them, so it gets no BYOK command and no `byok_endpoint`.
+export const FIRST_BYOK_ENDPOINT_COMPUTER_VERSION = "0.56.0";
+// The first release that decodes `stop_hook` on `provider.prepare`,
+// `operation.prepare`, and `operation.start`. An older Computer rejects the
+// unknown field and closes the connection, so the field is omitted for it.
+export const FIRST_STOP_HOOK_COMPUTER_VERSION = "0.57.0";
 
 const COMPUTER_RELEASE_VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 
@@ -94,6 +121,13 @@ export const DEFAULT_LOCAL_RUNTIME_MODELS: LocalRuntimeModelCatalog = {
   codex: [
     { id: "codex-default", label: "Codex default", allowedReasoningEffort: [] },
   ],
+  antigravity: [
+    {
+      id: "antigravity-default",
+      label: "Antigravity default",
+      allowedReasoningEffort: [],
+    },
+  ],
 };
 
 export interface LocalPlacementRequirement {
@@ -134,6 +168,12 @@ export interface LocalComputerManagement {
   actOnLocalModels?(
     command: LocalModelActionCommand,
   ): Promise<LocalModelActionAck>;
+
+  modelSource?(command: LocalModelSourceCommand): Promise<{
+    readonly status?: ModelSourceStatus;
+    readonly testResult?: ByokTestResult;
+    readonly modelList?: ByokModelList;
+  }>;
 
   /** Returns the placed model as the connected Computer reports it. */
   requireLocalPlacement(
@@ -344,6 +384,30 @@ export class LocalComputerPermissionError extends Error {
   }
 }
 
+export interface LocalModelSourceCommand {
+  readonly tenantId: string;
+  readonly ownerActorId: string;
+  readonly computerId: string;
+  readonly action: "status" | "test" | "models" | "apply";
+  readonly mode?: "local" | "subscription" | "byok";
+  readonly runtime?: LocalRuntimeType;
+  readonly localModelId?: string;
+  readonly byok?: ByokConfigInput;
+  readonly signal?: AbortSignal;
+}
+
+/** The Computer rejected a model-source command or did not answer. */
+export class LocalModelSourceError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly retryable: boolean,
+  ) {
+    super(message);
+    this.name = "LocalModelSourceError";
+  }
+}
+
 export class LocalComputerHasAgentsError extends Error {
   readonly code = "local_computer_has_agents";
 
@@ -437,7 +501,7 @@ export const runtimeModelCatalogForComputer = (
     LocalRuntimeType,
     readonly LocalRuntimeModelDefinition[]
   >;
-  for (const runtimeType of ["claude", "codex", "pi"] as const) {
+  for (const runtimeType of ["claude", "codex", "pi", "antigravity"] as const) {
     const diagnostic = hello.runtime_diagnostics.find(
       ({ type }) => type === runtimeType,
     );
@@ -481,7 +545,7 @@ export const validateRuntimeModelCatalog = (
     LocalRuntimeType,
     readonly LocalRuntimeModelDefinition[]
   >;
-  for (const runtimeType of ["claude", "codex", "pi"] as const) {
+  for (const runtimeType of ["claude", "codex", "pi", "antigravity"] as const) {
     const models = catalog[runtimeType];
     const ids = new Set<string>();
     if (!Array.isArray(models) || models.length > 100) {

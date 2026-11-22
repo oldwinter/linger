@@ -23,6 +23,14 @@ type MailWikiSource struct {
 	Content                                     []byte
 }
 
+// MailWikiSourceKey names a message's Wiki source by its mailbox, the
+// Connection's remote principal key ("gmail:<address>" or "outlook:<user id>"),
+// not by the Connection, so reconnecting the same mailbox updates the sources
+// an earlier Connection wrote. The provider is the key's second segment.
+func MailWikiSourceKey(mailbox, remoteID string) string {
+	return "mail:" + mailbox + ":" + remoteID
+}
+
 // MailImported names a mailbox snapshot that just completed.
 type MailImported struct {
 	TenantID, OwnerActorID, ConnectionID string
@@ -224,9 +232,9 @@ func (s *Service) runMailImportPage(ctx context.Context, args MailImportArgs) er
 	job := &importRun{ConnectionID: args.ConnectionID, ConnectionRevision: args.Revision, ProviderCallBudget: mailImportBudget, CreatedAt: time.Now().UTC(), mail: true}
 	var progress mailImportProgress
 	var active bool
-	err := s.pool.QueryRow(ctx, `SELECT account_id,mail_import_tenant_id,provider,upstream_connection_id,mail_import_cursor,mail_import_read,status='active' AND revision=$2
+	err := s.pool.QueryRow(ctx, `SELECT account_id,mail_import_tenant_id,provider,upstream_connection_id,coalesce(remote_principal_key,''),mail_import_cursor,mail_import_read,status='active' AND revision=$2
 		FROM external_connections WHERE id=$1 AND mail_import_revision=$2 AND mail_import_status='running'`, args.ConnectionID, args.Revision).Scan(
-		&job.AccountID, &job.TenantID, &job.Provider, &job.UpstreamConnectionID, &progress.cursor, &progress.read, &active)
+		&job.AccountID, &job.TenantID, &job.Provider, &job.UpstreamConnectionID, &job.mailbox, &progress.cursor, &progress.read, &active)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
@@ -235,6 +243,11 @@ func (s *Service) runMailImportPage(ctx context.Context, args MailImportArgs) er
 	}
 	if !active {
 		return s.abandonMailImport(ctx, args.ConnectionID, args.Revision)
+	}
+	// An active mail Connection always has its mailbox identity; without one
+	// its messages could not be keyed apart from another mailbox's.
+	if job.mailbox == "" {
+		return s.failImport(ctx, job, "invalid_request")
 	}
 	if job.OwnerActorID, err = s.ownerActorID(ctx, job.AccountID, job.TenantID); errors.Is(err, ErrNotFound) {
 		return s.failImport(ctx, job, "owner_not_found")
@@ -394,7 +407,7 @@ func (s *Service) publishMailPage(ctx context.Context, job *importRun, documents
 			}
 			if err := s.writeMailWikiSource(ctx, MailWikiSource{
 				TenantID: job.TenantID, OwnerActorID: job.OwnerActorID,
-				SourceKey: "mail:" + job.ConnectionID + ":" + document.RemoteID,
+				SourceKey: MailWikiSourceKey(job.mailbox, document.RemoteID),
 				Filename:  mailWikiFilename(document.Filename), Content: document.Markdown,
 			}); err != nil {
 				return err
@@ -426,15 +439,15 @@ func (s *Service) ReadMailImport(ctx context.Context, accountID, tenantID, conne
 	if err := s.EnsureMailImport(ctx, accountID, tenantID, connectionID); err != nil {
 		return TransientImportResult{}, err
 	}
-	var status, code string
-	err := s.pool.QueryRow(ctx, `SELECT CASE WHEN mail_import_revision=revision THEN coalesce(mail_import_status,'running') ELSE 'running' END,coalesce(mail_import_error_code,'') FROM external_connections WHERE id=$1 AND account_id=$2`, connectionID, accountID).Scan(&status, &code)
+	var status, code, mailbox string
+	err := s.pool.QueryRow(ctx, `SELECT CASE WHEN mail_import_revision=revision THEN coalesce(mail_import_status,'running') ELSE 'running' END,coalesce(mail_import_error_code,''),coalesce(remote_principal_key,'') FROM external_connections WHERE id=$1 AND account_id=$2`, connectionID, accountID).Scan(&status, &code, &mailbox)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return TransientImportResult{}, ErrNotFound
 	}
 	if err != nil {
 		return TransientImportResult{}, err
 	}
-	result := TransientImportResult{Status: status, LastErrorCode: code}
+	result := TransientImportResult{Status: status, LastErrorCode: code, Mailbox: mailbox}
 	if status != "completed" {
 		return result, nil
 	}

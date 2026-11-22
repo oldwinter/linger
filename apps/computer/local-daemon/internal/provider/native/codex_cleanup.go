@@ -126,10 +126,12 @@ func (p *codexProcess) cleanupTurn() error {
 	}
 	thread, turn := snapshot.threadID, snapshot.turnID
 	if !snapshot.completed {
-		if _, _, err := p.transport.call(ctx, "turn/interrupt", map[string]any{"threadId": thread, "turnId": turn}, 0, nil); err != nil {
-			return fmt.Errorf("interrupt Codex turn: %w", err)
-		}
+		// The turn can finish between the snapshot and Codex handling the interrupt.
+		_, _, interruptErr := p.transport.call(ctx, "turn/interrupt", map[string]any{"threadId": thread, "turnId": turn}, 0, nil)
 		if _, err := p.waitTracker(ctx, func(t codexTurnTracker) bool { return t.completed }); err != nil {
+			if interruptErr != nil {
+				return fmt.Errorf("interrupt Codex turn: %w", interruptErr)
+			}
 			return fmt.Errorf("interrupted turn did not settle: %w", err)
 		}
 	}

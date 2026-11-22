@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
+import { LibrarySubpageShell } from "@/features/library/library-subpage-shell";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 import {
   pocketNotesQueryKey,
@@ -13,7 +14,13 @@ import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubPocketNotePage } from "@/features/teamhub/teamhub-types";
 
-import { isCalendarDay, reviewDay, shiftDay } from "./day-review";
+import {
+  dayReviewPath,
+  isCalendarDay,
+  reviewDay,
+  shiftDay,
+} from "./day-review";
+import { dayShapePath } from "./day-shape";
 import { useMeetings } from "./memory-queries";
 import { meetingPath } from "./meeting-routes";
 import { formatMeetingWhen, meetingsByDate } from "./meetings-calendar";
@@ -102,98 +109,100 @@ export function DayReviewPage() {
   const library = `/t/${encodeURIComponent(tenantId)}/library`;
 
   return (
-    <main className="workspace-content-viewport workspace-scrollbar min-w-0 flex-1 overflow-y-auto bg-app-surface">
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-6 py-8">
-        <header className="flex flex-col gap-3">
+    <LibrarySubpageShell
+      backLabel="Back to Library"
+      backTo={library}
+      headerActions={
+        day ? (
           <Link
-            className="text-sm text-muted-foreground hover:text-foreground"
-            to={library}
+            className="text-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            to={dayShapePath(tenantId, day)}
           >
-            Library
+            {day === today ? "Shape of today" : "Shape of this day"}
           </Link>
-          <h1 className="text-2xl text-foreground">
-            {day ? heading(day) : "This day"}
-          </h1>
-          {day && today ? (
-            <DayStepper day={day} today={today} tenantId={tenantId} />
-          ) : null}
-        </header>
+        ) : null
+      }
+      headerExtra={
+        day && today ? (
+          <DayStepper day={day} today={today} tenantId={tenantId} />
+        ) : null
+      }
+      title={day ? heading(day) : "This day"}
+    >
+      <section aria-label="Pocket" className="flex flex-col gap-3">
+        <h2 className="text-sm font-medium text-foreground">Pocket</h2>
+        {pocket.isPending ? (
+          <p className="text-sm text-muted-foreground">Loading Pocket…</p>
+        ) : pocket.isError ? (
+          <p className="text-sm text-destructive" role="alert">
+            Pocket could not be loaded.
+          </p>
+        ) : day && today && day === today ? (
+          <TodayPocket
+            initial={pocket.data.text}
+            pocketKey={pocketKey}
+            tenantId={tenantId}
+          />
+        ) : (
+          <p className="whitespace-pre-wrap text-sm text-foreground">
+            {pocket.data?.text || "Nothing was kept in Pocket."}
+          </p>
+        )}
+      </section>
 
-        <section aria-label="Pocket" className="flex flex-col gap-3">
-          <h2 className="text-sm font-medium text-foreground">Pocket</h2>
-          {pocket.isPending ? (
-            <p className="text-sm text-muted-foreground">Loading Pocket…</p>
-          ) : pocket.isError ? (
-            <p className="text-sm text-destructive" role="alert">
-              Pocket could not be loaded.
-            </p>
-          ) : day && today && day === today ? (
-            <TodayPocket
-              initial={pocket.data.text}
-              pocketKey={pocketKey}
-              tenantId={tenantId}
-            />
-          ) : (
-            <p className="whitespace-pre-wrap text-sm text-foreground">
-              {pocket.data?.text || "Nothing was kept in Pocket."}
-            </p>
-          )}
-        </section>
+      <section aria-label="Meetings" className="flex flex-col gap-3">
+        <h2 className="text-sm font-medium text-foreground">Meetings</h2>
+        {meetings.isPending ? (
+          <p className="text-sm text-muted-foreground">Loading meetings…</p>
+        ) : meetings.isError ? (
+          <p className="text-sm text-destructive" role="alert">
+            Meetings could not be loaded.
+          </p>
+        ) : onDay.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No meetings.</p>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {onDay.map((meeting) => (
+              <li key={meeting.id}>
+                <Link
+                  className="text-sm text-foreground underline-offset-2 hover:underline"
+                  to={meetingPath(tenantId, meeting.id)}
+                >
+                  Meeting {formatMeetingWhen(meeting.date, meeting.time)}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
-        <section aria-label="Meetings" className="flex flex-col gap-3">
-          <h2 className="text-sm font-medium text-foreground">Meetings</h2>
-          {meetings.isPending ? (
-            <p className="text-sm text-muted-foreground">Loading meetings…</p>
-          ) : meetings.isError ? (
-            <p className="text-sm text-destructive" role="alert">
-              Meetings could not be loaded.
+      <section aria-label="Daily report" className="flex flex-col gap-3">
+        <h2 className="text-sm font-medium text-foreground">Daily report</h2>
+        {reports.isPending ? (
+          <p className="text-sm text-muted-foreground">Loading the report…</p>
+        ) : reports.isError ? (
+          <p className="text-sm text-destructive" role="alert">
+            The report could not be loaded.
+          </p>
+        ) : report ? (
+          <>
+            <p className="text-sm text-foreground">
+              {report.summary || "Another Me wrote this day."}
             </p>
-          ) : onDay.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No meetings.</p>
-          ) : (
-            <ul className="flex flex-col gap-2">
-              {onDay.map((meeting) => (
-                <li key={meeting.id}>
-                  <Link
-                    className="text-sm text-foreground underline-offset-2 hover:underline"
-                    to={meetingPath(tenantId, meeting.id)}
-                  >
-                    Meeting {formatMeetingWhen(meeting.date, meeting.time)}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <section aria-label="Daily report" className="flex flex-col gap-3">
-          <h2 className="text-sm font-medium text-foreground">Daily report</h2>
-          {reports.isPending ? (
-            <p className="text-sm text-muted-foreground">Loading the report…</p>
-          ) : reports.isError ? (
-            <p className="text-sm text-destructive" role="alert">
-              The report could not be loaded.
-            </p>
-          ) : report ? (
-            <>
-              <p className="text-sm text-foreground">
-                {report.summary || "Another Me wrote this day."}
-              </p>
-              <Link
-                className="text-sm text-muted-foreground hover:text-foreground"
-                to={`${library}/wiki/graph?day=${encodeURIComponent(day!)}`}
-              >
-                Open on the timeline
-              </Link>
-            </>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              Another Me has not written this day.
-            </p>
-          )}
-        </section>
-      </div>
-    </main>
+            <Link
+              className="text-sm text-muted-foreground hover:text-foreground"
+              to={`${library}/wiki/graph?day=${encodeURIComponent(day!)}`}
+            >
+              Open on the timeline
+            </Link>
+          </>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Another Me has not written this day.
+          </p>
+        )}
+      </section>
+    </LibrarySubpageShell>
   );
 }
 
@@ -206,8 +215,7 @@ function DayStepper({
   tenantId: string;
   today: string;
 }) {
-  const base = `/t/${encodeURIComponent(tenantId)}/library/day`;
-  const previous = `${base}?date=${shiftDay(day, -1)}`;
+  const previous = dayReviewPath(tenantId, shiftDay(day, -1));
   const atToday = day >= today;
   return (
     <nav aria-label="Days" className="flex items-center gap-3 text-sm">
@@ -219,7 +227,7 @@ function DayStepper({
       ) : (
         <Link
           className="text-foreground hover:underline"
-          to={`${base}?date=${shiftDay(day, 1)}`}
+          to={dayReviewPath(tenantId, shiftDay(day, 1))}
         >
           Next day
         </Link>

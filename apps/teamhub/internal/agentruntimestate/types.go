@@ -22,6 +22,10 @@ var (
 // holds the Daemon Identity a Computer connected with.
 var ErrDaemonIdentityInUse = fmt.Errorf("Daemon Identity is held by another Local Computer: %w", ErrConflict)
 
+// ErrComputerDaemonMismatch means the requested Local Computer is already bound
+// to a different Daemon Identity than the one presented.
+var ErrComputerDaemonMismatch = fmt.Errorf("Local Computer is bound to another Daemon Identity: %w", ErrConflict)
+
 // ErrRemoved means the Local Computer was removed and cannot be renewed.
 var ErrRemoved = errors.New("Local Computer was removed")
 

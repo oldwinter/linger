@@ -119,6 +119,7 @@ export function NavigationDrawer({
         <button
           aria-label={closeLabel}
           className="absolute top-2 right-2 flex size-11 items-center justify-center rounded-full bg-card text-app-ink outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          data-voice-close=""
           onClick={onClose}
           type="button"
         >

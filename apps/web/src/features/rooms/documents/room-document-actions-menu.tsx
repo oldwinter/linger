@@ -10,6 +10,11 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { Icon } from "@/components/ui/icon";
 import { ActionMenu } from "@/components/ui/action-menu";
+import { libraryMessages } from "@/features/library/library.messages";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
+
+import { documentPageMessages as m } from "./document-page.messages";
 
 export interface RoomDocumentMenuActions {
   busy?: boolean;
@@ -30,7 +35,7 @@ export interface RoomDocumentMenuActions {
 export function DocumentActionsMenu({
   actions,
   contextOnly = false,
-  label = "More Document actions",
+  label,
   buttonClassName = "flex size-8 shrink-0 items-center justify-center rounded-sm text-app-muted hover:bg-app-hover hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus",
 }: {
   actions: RoomDocumentMenuActions;
@@ -38,6 +43,7 @@ export function DocumentActionsMenu({
   label?: string;
   buttonClassName?: string;
 }) {
+  const t = useT();
   const canExport = actions.canExport ?? actions.canUseVersion;
   const canDuplicate = actions.canDuplicate ?? actions.canUseVersion;
   const canDelete = actions.canDelete ?? true;
@@ -51,7 +57,7 @@ export function DocumentActionsMenu({
               {
                 disabled: actions.busy,
                 icon: <Icon icon={Copy01Icon} size={14} />,
-                label: "Copy link",
+                label: t(libraryMessages.copyLink),
                 onSelect: actions.onCopyLink,
               },
               ...(actions.onRename
@@ -59,7 +65,7 @@ export function DocumentActionsMenu({
                     {
                       disabled: actions.busy || !actions.canRename,
                       icon: <Icon icon={PencilEdit01Icon} size={14} />,
-                      label: "Rename",
+                      label: t(libraryMessages.rename),
                       onSelect: actions.onRename,
                     },
                   ]
@@ -67,13 +73,13 @@ export function DocumentActionsMenu({
               {
                 disabled: actions.busy || !canExport,
                 icon: <Icon icon={Download04Icon} size={14} />,
-                label: "Download",
+                label: t(libraryMessages.download),
                 onSelect: actions.onExport,
               },
               {
                 disabled: actions.busy || !canDuplicate,
                 icon: <Icon icon={Copy01Icon} size={14} />,
-                label: "Duplicate",
+                label: t(libraryMessages.duplicate),
                 onSelect: actions.onDuplicate,
               },
             ]
@@ -83,7 +89,7 @@ export function DocumentActionsMenu({
               {
                 disabled: actions.busy,
                 icon: <Icon icon={Clock04Icon} size={14} />,
-                label: "Page history",
+                label: t(m.pageHistory),
                 onSelect: actions.onShowHistory,
               },
             ]
@@ -93,7 +99,7 @@ export function DocumentActionsMenu({
               {
                 disabled: actions.busy || !canDuplicate,
                 icon: <Icon icon={FolderTransferIcon} size={14} />,
-                label: "Copy to My Documents",
+                label: t(libraryMessages.copyToMyDocuments),
                 onSelect: actions.onCopyToMyDocuments,
               },
             ]
@@ -104,14 +110,15 @@ export function DocumentActionsMenu({
                 danger: true,
                 disabled: actions.busy || !canDelete,
                 icon: <Icon icon={Delete02Icon} size={14} />,
-                label: "Delete",
+                label: t(commonMessages.delete),
                 onSelect: actions.onDelete,
                 separatorBefore: true,
+                voiceRisk: "never" as const,
               },
             ]
           : []),
       ]}
-      label={label}
+      label={label ?? t(m.moreActions)}
       trigger={
         actions.busy ? (
           <Spinner size={16} />

@@ -40,6 +40,9 @@ func (d *Daemon) openOperationMCP(ctx context.Context, spec provider.OperationSp
 		if err := d.localTools.Bind(ctx, spec, identity, proxies); err != nil {
 			return nil, errors.Join(err, proxies.Close())
 		}
+		if err := d.localTools.BindUI(ctx, spec, identity, proxies); err != nil {
+			return nil, errors.Join(err, proxies.Close())
+		}
 	}
 	return proxies, nil
 }
@@ -57,7 +60,15 @@ func (d *Daemon) startAcceptedOperation(ctx context.Context, command protocol.Co
 	if prepared != nil {
 		spec.PrepareNativeResume = prepared.resumeMeasurement()
 	}
-	var compactWaitMs, providerJoinMs, startMs int64
+	var gatewayMs, compactWaitMs, providerJoinMs, startMs int64
+	var failureCode string
+	if err == nil {
+		// Off the admission lock: a gateway that must be mounted again
+		// probes the endpoint first.
+		gatewayStartedAt := time.Now()
+		failureCode, err = d.ensureModelGateway(ctx, spec.Provider)
+		gatewayMs = time.Since(gatewayStartedAt).Milliseconds()
+	}
 	joinProvider := func() {
 		joinStartedAt := time.Now()
 		d.joinProviderPrepare(ctx, command)
@@ -65,7 +76,7 @@ func (d *Daemon) startAcceptedOperation(ctx context.Context, command protocol.Co
 	}
 	logTiming := func(outcome string) {
 		slog.Info("runner.operation.start_timing", "operation_id", command.OperationID, "kind", command.OperationKind,
-			"prepared", prepared != nil, "mcp_proxies_ms", mcpProxiesMs, "compact_wait_ms", compactWaitMs,
+			"prepared", prepared != nil, "mcp_proxies_ms", mcpProxiesMs, "model_gateway_ms", gatewayMs, "compact_wait_ms", compactWaitMs,
 			"provider_join_ms", providerJoinMs, "start_ms", startMs, "outcome", outcome)
 	}
 	if err == nil {
@@ -109,11 +120,15 @@ func (d *Daemon) startAcceptedOperation(ctx context.Context, command protocol.Co
 		if err == nil {
 			err = ctx.Err()
 		}
+		if err == nil && d.runtimeCleanupUnconfirmed(command.RuntimeType) {
+			err = errors.New(cleanupUnconfirmedMessage)
+		}
 		if err == nil {
 			spec.MCPConfig = proxies.Config()
 			spec.TrustedLocalMCPTools = proxies.LocalToolNames()
 			spec.LocalEvidence = proxies.LocalEvidence
 			spec.LocalAllowed = proxies.LocalAllowed
+			spec.RegisterToolReviewer = proxies.RegisterToolReviewer
 			startedAt := time.Now()
 			execution, err = d.executor.Start(ctx, spec, emit)
 			startMs = time.Since(startedAt).Milliseconds()
@@ -134,7 +149,7 @@ func (d *Daemon) startAcceptedOperation(ctx context.Context, command protocol.Co
 	logTiming("failed")
 	err = errors.Join(err, proxies.Close())
 	d.finishOperation(ctx, command, spec, provider.Result{
-		Status: "failed", Error: err.Error(),
+		Status: "failed", Error: err.Error(), FailureCode: failureCode,
 		CleanupUnconfirmed: errors.Is(err, provider.ErrPreparationCleanupUnconfirmed) || errors.Is(err, mcpproxy.ErrCleanupUnconfirmed),
 	})
 }
@@ -165,6 +180,10 @@ func (d *Daemon) operationOccupancy(identity OperationIdentity) (count int, cont
 	defer d.activeMu.Unlock()
 	d.preparationMu.Lock()
 	defer d.preparationMu.Unlock()
+	for _, pending := range d.uncleanOperations {
+		count++
+		contextBusy = contextBusy || operationContextKey(pending) == operationContextKey(identity)
+	}
 	for _, active := range d.activeOperations {
 		if !active.terminalCommitted {
 			count++

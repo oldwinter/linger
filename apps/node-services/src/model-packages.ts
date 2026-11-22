@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { gunzipSync } from "node:zlib";
+import { orderByRegion, type Region } from "@linger/service-kit";
 
 import { mirrorHome, packageRoot } from "./paths.js";
 
@@ -20,7 +21,10 @@ export interface ModelPackage {
   version: string;
   /** The lockfile's Subresource Integrity of the tarball (sha512). */
   integrity: string;
-  /** Registry URLs of the same tarball, tried in order. */
+  /**
+   * Registry URLs of the same tarball, tried in order after those in the
+   * download region.
+   */
   tarballs: string[];
 }
 
@@ -112,7 +116,7 @@ const failed = new Map<string, { at: number; error: unknown }>();
 export async function installModelPackages(
   names: string[],
   environment: NodeJS.ProcessEnv = process.env,
-  options: { fetch?: typeof fetch; timeoutMs?: number } = {},
+  options: { fetch?: typeof fetch; timeoutMs?: number; region?: Region } = {},
 ): Promise<void> {
   for (const name of names) {
     if (modelPackagesInstalled([name], environment)) continue;
@@ -176,7 +180,7 @@ async function install(
   name: string,
   item: ModelPackage,
   environment: NodeJS.ProcessEnv,
-  options: { fetch?: typeof fetch; timeoutMs?: number },
+  options: { fetch?: typeof fetch; timeoutMs?: number; region?: Region },
 ): Promise<void> {
   const root = modelPackagesRoot(environment);
   const directory = path.join(root, name);
@@ -214,13 +218,13 @@ async function install(
 async function download(
   name: string,
   item: ModelPackage,
-  options: { fetch?: typeof fetch; timeoutMs?: number },
+  options: { fetch?: typeof fetch; timeoutMs?: number; region?: Region },
 ): Promise<Buffer> {
   const [algorithm, expected] = item.integrity.split(/-(.*)/s);
   if (algorithm !== "sha512" || !expected)
     throw new Error(`Model package ${name} has no sha512 integrity`);
   const errors: string[] = [];
-  for (const url of item.tarballs) {
+  for (const url of orderByRegion(options.region ?? "global", item.tarballs)) {
     try {
       const response = await (options.fetch ?? fetch)(url, {
         signal: AbortSignal.timeout(options.timeoutMs ?? 10 * 60_000),

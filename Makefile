@@ -1,6 +1,6 @@
 .PHONY: contracts-generate contracts-verify computer-release-local source-archive source-dependencies
 .PHONY: check-teamhub-cli check-installer check-desktop
-.PHONY: check check-heavy-lane check-web check-web-static check-web-tests
+.PHONY: check check-planned check-heavy-lane check-web check-web-static check-web-tests
 .PHONY: check-computer check-computer-go check-computer-release check-node-services check-voice-runtime
 .PHONY: check-teamhub check-teamhub-tooling check-teamhub-integration
 .PHONY: check-teamhub-integration-process check-teamhub-integration-migrations
@@ -41,29 +41,45 @@ SCRIPT_FAST_SPAWN_TESTS = $(if $(SCRIPT_FAST_PARALLEL_TESTS),$(shell grep -l chi
 SCRIPT_FAST_PURE_TESTS = $(filter-out $(SCRIPT_FAST_SPAWN_TESTS),$(SCRIPT_FAST_PARALLEL_TESTS))
 
 # Every fast check. Integration, build, container, E2E and the heavy script
-# tests stay separate targets. The light checks run CHECK_JOBS at a time beside
-# one lane that runs the heavy test suites one after another: their timed tests
-# fail when they share the CPU. BASE reaches the built-in Skill immutability
-# check inside check-teamhub.
+# tests stay separate targets. `make check` runs only the checks that
+# scripts/check-plan.mjs selects for the changes since merge-base(BASE, HEAD),
+# including uncommitted and untracked files; ALL=1 runs every check. CI's
+# changes job reads the same plan. The light checks run CHECK_JOBS at a time
+# beside one lane that runs the heavy test suites one after another: their
+# timed tests fail when they share the CPU. BASE reaches the built-in Skill
+# immutability check inside check-teamhub.
 FAST_CHECKS := check-repository check-docs check-contracts check-packages \
 	check-voice-runtime check-teamhub-cli check-installer check-desktop \
 	check-teamhub check-teamhub-tooling check-scripts-fast
 HEAVY_CHECKS := check-web check-node-services check-computer
 CHECK_JOBS ?= 4
+# The planned targets; `make check` sets them for its sub-make.
+CHECK_TARGETS ?= $(FAST_CHECKS) $(HEAVY_CHECKS)
+CHECK_PLAN = node scripts/check-plan.mjs $(if $(ALL),--all,--base '$(BASE)')
 # GNU Make 3.81 (macOS) has no --output-sync.
 OUTPUT_SYNC := $(if $(filter 3.%,$(MAKE_VERSION)),,--output-sync=target)
 
 check:
-	@test -n "$(strip $(BASE))" || { echo "Usage: make check BASE=<target-ref>" >&2; exit 2; }
-	$(MAKE) -j$(CHECK_JOBS) $(OUTPUT_SYNC) $(FAST_CHECKS) check-heavy-lane
+	@test -n "$(strip $(BASE))" || { echo "Usage: make check BASE=<target-ref> [ALL=1]" >&2; exit 2; }
+	@$(CHECK_PLAN)
+	@targets="$$($(CHECK_PLAN) --format make)" && test -n "$$targets" || { echo "check-plan selected no checks" >&2; exit 1; }; \
+		$(MAKE) -j$(CHECK_JOBS) $(OUTPUT_SYNC) CHECK_TARGETS="$$targets" check-planned
+
+check-planned: $(filter $(CHECK_TARGETS),$(FAST_CHECKS)) check-heavy-lane
 
 check-heavy-lane:
-	$(MAKE) -j1 $(HEAVY_CHECKS)
+	$(if $(filter $(CHECK_TARGETS),$(HEAVY_CHECKS)),$(MAKE) -j1 $(filter $(CHECK_TARGETS),$(HEAVY_CHECKS)))
 
+# With a BASE, formats and lints only the changed files unless ALL=1 or the
+# plan selects every check; without one, the whole repository.
 check-repository:
-	pnpm format:check
-	pnpm lint
 	pnpm env:inventory:check
+	@if [ -z "$(strip $(BASE))" ] || [ "$$($(CHECK_PLAN) --format scope)" = all ]; then \
+		echo "pnpm format:check && pnpm lint"; pnpm format:check && pnpm lint; \
+	else \
+		echo "scripts/ci/check-changed-files.sh (changes since $(BASE))"; \
+		bash scripts/ci/check-changed-files.sh "$$(git merge-base '$(BASE)^{commit}' HEAD)" --worktree; \
+	fi
 
 # React Doctor compares against BASE. Without one it scans the whole repository,
 # which exceeds its lint budget on CI runners and fails. A push that creates a
@@ -82,7 +98,7 @@ check-web:
 		"$(WEB_TESTS)" \
 		"$(WEB_DOCTOR)"
 
-# CI runs these as separate jobs (tests in shards, e.g. SHARD=2/3);
+# CI runs these as separate jobs (tests in shards, e.g. SHARD=2/2);
 # check-web stays the local entry point.
 check-web-static:
 	pnpm exec concurrently --success all --names types,lint,doctor \
@@ -110,10 +126,11 @@ check-teamhub-cli:
 	pnpm --filter @linger/teamhub-cli test
 	pnpm --filter @linger/teamhub-cli build
 
+# check-packages covers @linger/local-installation.
 check-installer:
-	pnpm --filter @linger/local-installation --filter @linger/linger-installer typecheck
-	pnpm --filter @linger/local-installation --filter @linger/linger-installer lint
-	pnpm --workspace-concurrency=1 --filter @linger/local-installation --filter @linger/linger-installer test
+	pnpm --filter @linger/linger-installer typecheck
+	pnpm --filter @linger/linger-installer lint
+	pnpm --filter @linger/linger-installer test
 
 check-desktop:
 	pnpm --filter @linger/desktop typecheck
@@ -128,7 +145,7 @@ check-computer-go:
 	cd apps/computer/local-daemon && go test ./... -run '^$$'
 	cd apps/computer/local-daemon && $(COMPUTER_TEST_RUNNER) go test ./internal/platform/...
 	cd apps/computer/local-daemon && $(COMPUTER_TEST_RUNNER) go test ./cmd/linger-computer-daemon ./cmd/linger-computer-launcher ./internal/computercli ./internal/computerconfig ./internal/daemon ./internal/linger/context ./internal/linger/assignment ./internal/linger/control ./internal/linger/herdr ./internal/linger/registration ./internal/linger/localskills ./internal/linger/mcpproxy ./internal/linger/transport ./internal/linger/runtimehistory ./internal/linger/localtools ./internal/process ./internal/workspace ./internal/provider ./internal/provider/redact ./internal/permission ./internal/localmodels
-	cd apps/computer/local-daemon && $(COMPUTER_TEST_RUNNER) go test ./internal/provider/native
+	cd apps/computer/local-daemon && $(COMPUTER_TEST_RUNNER) go test ./internal/provider/native ./internal/uiruntime
 
 check-computer-release:
 	pnpm vitest run --no-file-parallelism $(SCRIPT_COMPUTER_RELEASE_TEST)

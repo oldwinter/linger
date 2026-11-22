@@ -31,6 +31,15 @@ headings, lists or line structure. Return an empty array when a section has no
 supported content; never write placeholder text. Cite a selected source inside
 item text as `[[source:<source_ref>]]`. Never compose source paths or URLs.
 
+## Language
+
+Write `title`, `description` and every item in the main language the represented
+Human writes or speaks in today's `sessionFiles`, including their Pocket Note.
+When the Human's own words give no clear language, use the main language of
+today's conversations. The language of this prompt, of yesterday's Daily and of
+other participants does not decide it. Keep JSON keys, `source_ref` values,
+citations, names, identifiers and quoted words exactly as given.
+
 ## Work and status
 
 Group Daily Work by meaningful topic, not message order. Include substantive work

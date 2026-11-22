@@ -49,7 +49,7 @@ func TestWikiDispatchWaitsForOfflineComputerWithoutSpendingAttempts(t *testing.T
 		})
 	}
 	_, _, code, err := validateWikiCandidateGenerationResult("refresh", WikiCandidateGenerationResult{}, offline)
-	if code != "candidate_unavailable" || !errors.Is(err, ErrWikiCandidateComputerOffline) || isWikiCandidateTerminal(err) {
+	if code != "computer_offline" || !errors.Is(err, ErrWikiCandidateComputerOffline) || isWikiCandidateTerminal(err) {
 		t.Fatalf("code=%s error=%v", code, err)
 	}
 }
@@ -71,6 +71,9 @@ func TestWikiCandidateGenerationResultPreservesFailureCodeAndRetrySemantics(t *t
 	}{
 		{name: "valid", result: valid},
 		{name: "terminal", result: valid, err: fmt.Errorf("wrapped: %w", ErrWikiCandidateTerminal), wantCode: "candidate_unavailable", wantCause: ErrWikiCandidateTerminal, wantTerminal: true},
+		{name: "runtime incompatible", result: valid, err: fmt.Errorf("wrapped: %w", ErrWikiCandidateRuntimeIncompatible), wantCode: "runtime_incompatible", wantCause: ErrWikiCandidateRuntimeIncompatible, wantTerminal: true},
+		{name: "runtime auth required", result: valid, err: fmt.Errorf("wrapped: %w", ErrWikiCandidateRuntimeAuthRequired), wantCode: "runtime_auth_required", wantCause: ErrWikiCandidateRuntimeAuthRequired, wantTerminal: true},
+		{name: "runtime unavailable", result: valid, err: fmt.Errorf("wrapped: %w", ErrWikiCandidateRuntimeUnavailable), wantCode: "runtime_unavailable", wantCause: ErrWikiCandidateRuntimeUnavailable},
 		{name: "invalid frozen input", result: valid, err: fmt.Errorf("wrapped: %w", ErrWikiCandidateInvalidRequest), wantCode: "candidate_invalid", wantCause: ErrWikiCandidateInvalidRequest, wantTerminal: true},
 		{name: "transport", result: valid, err: transportErr, wantCode: "candidate_unavailable", wantCause: transportErr, wantRuntime: true},
 		{name: "source read", result: valid, err: fmt.Errorf("wrapped: %w", &wikiSourceReadError{code: "object_unavailable", err: sourceErr}), wantCode: "object_unavailable", wantCause: sourceErr},
@@ -176,6 +179,24 @@ func TestWikiDuplicateCandidateConflictIsRetryable(t *testing.T) {
 // and it looks only at jobs running longer than the client's rescue horizon.
 // The dispatch timeout must exceed that horizon so a long generation is not
 // rescued while it is still running.
+func TestPersonalWikiFailureReasonExposesOnlyActionableCodes(t *testing.T) {
+	for code, want := range map[string]string{
+		"computer_offline":       "computer_offline",
+		"runtime_incompatible":   "runtime_incompatible",
+		"runtime_auth_required":  "runtime_auth_required",
+		"runtime_unavailable":    "runtime_unavailable",
+		"candidate_unavailable":  "",
+		"candidate_invalid":      "",
+		"object_unavailable":     "",
+		"settlement_unavailable": "",
+		"":                       "",
+	} {
+		if got := personalWikiFailureReason(code); got != want {
+			t.Fatalf("personalWikiFailureReason(%q) = %q, want %q", code, got, want)
+		}
+	}
+}
+
 func TestWikiRefreshDispatchTimeoutExceedsRescueHorizon(t *testing.T) {
 	horizon := jobs.RescueStuckJobsAfter
 	worker := &wikiRefreshDispatchWorker{dispatcher: &WikiRefreshDispatcher{options: WikiRefreshDispatchOptions{

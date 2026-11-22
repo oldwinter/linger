@@ -25,8 +25,11 @@ import {
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { type TeamHubClient } from "@/features/teamhub/teamhub-client";
 import type { TeamHubPersonalInsight } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
 
 import { AccountProfileHero } from "./account-profile-hero";
+import { accountSettingsMessages } from "./account-settings.messages";
 
 export function AccountProfileSettings({
   client,
@@ -35,6 +38,7 @@ export function AccountProfileSettings({
   client: TeamHubClient;
   tenantId: string;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const accountQuery = useQuery(accountProfileQueryOptions(client, tenantId));
   const generationsQuery = useQuery(
@@ -45,6 +49,7 @@ export function AccountProfileSettings({
   );
   const [bio, setBio] = useState("");
   const [organization, setOrganization] = useState("");
+  const [armedInsightId, setArmedInsightId] = useState<string | null>(null);
   const dirtyRef = useRef(false);
   const updateAccount = useMutation({
     mutationFn: () =>
@@ -71,6 +76,9 @@ export function AccountProfileSettings({
   const deleteInsight = useMutation({
     mutationFn: (insightId: string) =>
       client.deletePersonalInsight(tenantId, insightId),
+    onSettled: () => {
+      setArmedInsightId(null);
+    },
     onSuccess: async () => {
       await queryClient.invalidateQueries({
         queryKey: personalInsightsQueryKey(tenantId),
@@ -128,11 +136,13 @@ export function AccountProfileSettings({
     return (
       <div
         aria-busy="true"
-        aria-label="Loading Account profile"
+        aria-label={t(accountSettingsMessages.loadingAccountProfile)}
         className="rounded-2xl border border-border p-6"
         role="status"
       >
-        <span className="sr-only">Loading Account profile...</span>
+        <span className="sr-only">
+          {t(accountSettingsMessages.loadingAccountProfileStatus)}
+        </span>
         <Skeleton className="h-4 w-32" />
         <Skeleton className="mt-5 h-40 w-full" />
       </div>
@@ -182,35 +192,48 @@ export function AccountProfileSettings({
       />
 
       <PersonalInsightsPanel
+        armedId={armedInsightId}
         deletingId={
           deleteInsight.isPending ? deleteInsight.variables : undefined
         }
         error={insightsQuery.error?.message ?? deleteInsight.error?.message}
         items={insightsQuery.data?.items ?? []}
         pending={insightsQuery.isPending}
+        onArm={(insightId) => setArmedInsightId(insightId)}
         onDelete={(insightId) => deleteInsight.mutate(insightId)}
+        onDisarm={() => setArmedInsightId(null)}
       />
     </>
   );
 }
 
 function PersonalInsightsPanel({
+  armedId,
   deletingId,
   error,
   items,
+  onArm,
   onDelete,
+  onDisarm,
   pending,
 }: {
+  armedId: string | null;
   deletingId?: string;
   error?: string;
   items: TeamHubPersonalInsight[];
+  onArm: (insightId: string) => void;
   onDelete: (insightId: string) => void;
+  onDisarm: () => void;
   pending: boolean;
 }) {
+  const t = useT();
+  const deleting = Boolean(deletingId);
   return (
     <section className="rounded-2xl border border-border bg-background p-6">
       <div className="flex min-h-7 items-center justify-between gap-3">
-        <h2 className="text-sm font-medium text-foreground">Insights</h2>
+        <h2 className="text-sm font-medium text-foreground">
+          {t(accountSettingsMessages.insights)}
+        </h2>
       </div>
       {error ? (
         <p className="mt-3 text-sm text-app-danger" role="alert">
@@ -220,10 +243,13 @@ function PersonalInsightsPanel({
       {pending && items.length === 0 ? (
         <div className="mt-4 flex min-h-16 items-center gap-2 text-sm text-muted-foreground">
           <Icon icon={Loading03Icon} className="animate-spin" size={16} />
-          Loading insights...
+          {t(accountSettingsMessages.loadingInsights)}
         </div>
       ) : items.length === 0 ? (
-        <p className="mt-4 text-sm text-muted-foreground">No insights yet.</p>
+        <div className="mt-4 space-y-1 text-sm text-muted-foreground">
+          <p>{t(accountSettingsMessages.noInsights)}</p>
+          <p>Insights appear as Another Me learns how you work.</p>
+        </div>
       ) : (
         <div className="mt-3 divide-y divide-border">
           {items.map((item) => (
@@ -237,24 +263,49 @@ function PersonalInsightsPanel({
                 </p>
                 <p className="mt-1 text-sm text-foreground">{item.statement}</p>
               </div>
-              <Button
-                aria-label={`Delete ${item.dimension} insight`}
-                disabled={deletingId === item.id}
-                onClick={() => onDelete(item.id)}
-                size="compactIcon"
-                title="Delete insight"
-                tone="ghost"
-              >
-                {deletingId === item.id ? (
-                  <Icon
-                    icon={Loading03Icon}
-                    className="animate-spin"
-                    size={16}
-                  />
-                ) : (
-                  <Icon icon={Delete02Icon} size={16} />
-                )}
-              </Button>
+              {armedId === item.id ? (
+                <div
+                  aria-label={`Confirm removing ${item.dimension} insight`}
+                  className="flex shrink-0 flex-wrap items-center gap-2"
+                  role="group"
+                >
+                  <span className="text-xs font-medium text-foreground">
+                    Remove?
+                  </span>
+                  <Button
+                    data-voice-risk="never"
+                    disabled={deleting}
+                    loading={deletingId === item.id}
+                    onClick={() => onDelete(item.id)}
+                    size="compact"
+                    tone="danger"
+                  >
+                    Confirm
+                  </Button>
+                  <Button
+                    disabled={deleting}
+                    onClick={onDisarm}
+                    size="compact"
+                    tone="ghost"
+                  >
+                    {t(commonMessages.cancel)}
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  aria-label={t(accountSettingsMessages.deleteNamedInsight, {
+                    dimension: item.dimension,
+                  })}
+                  data-voice-risk="never"
+                  disabled={deleting}
+                  onClick={() => onArm(item.id)}
+                  size="compactIcon"
+                  title={t(accountSettingsMessages.deleteInsight)}
+                  tone="ghost"
+                >
+                  <Icon icon={Delete02Icon} size={14} />
+                </Button>
+              )}
             </div>
           ))}
         </div>
@@ -284,6 +335,7 @@ function AccountIdentityPanel({
   savePending: boolean;
   saveSuccess: boolean;
 }) {
+  const t = useT();
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (hasChanges && !savePending) {
@@ -296,35 +348,35 @@ function AccountIdentityPanel({
       <form onSubmit={handleSubmit}>
         <label className="block">
           <span className="mb-1.5 block text-sm font-medium text-foreground">
-            Bio
+            {t(accountSettingsMessages.bio)}
           </span>
           <textarea
-            aria-label="Bio"
+            aria-label={t(accountSettingsMessages.bio)}
             className="ui-field-control min-h-[88px] w-full resize-y disabled:cursor-not-allowed disabled:bg-app-surface-soft disabled:text-muted-foreground"
             disabled={savePending}
             maxLength={500}
             onChange={(event) => onBioChange(event.target.value)}
-            placeholder="A short description of how you work."
+            placeholder={t(accountSettingsMessages.bioPlaceholder)}
             value={bio}
           />
         </label>
         <label className="mt-4 block">
           <span className="mb-1.5 block text-sm font-medium text-foreground">
-            Organization
+            {t(accountSettingsMessages.organization)}
           </span>
           <input
-            aria-label="Organization"
+            aria-label={t(accountSettingsMessages.organization)}
             className="ui-field-control w-full disabled:cursor-not-allowed disabled:bg-app-surface-soft disabled:text-muted-foreground"
             disabled={savePending}
             maxLength={120}
             onChange={(event) => onOrganizationChange(event.target.value)}
-            placeholder="Your company or organization"
+            placeholder={t(accountSettingsMessages.organizationPlaceholder)}
             value={organization}
           />
         </label>
         <p className="mt-2 text-xs text-muted-foreground">
-          Hand-edited fields stay yours. Later generations fill only the fields
-          you have not changed.
+          Your edits are always kept. Automatic profile updates only fill in
+          fields you haven&apos;t edited.
         </p>
 
         {saveError ? (
@@ -338,18 +390,20 @@ function AccountIdentityPanel({
             role="status"
           >
             <Icon icon={Tick02Icon} size={16} />
-            Account saved
+            {t(accountSettingsMessages.accountSaved)}
           </p>
         ) : null}
 
         {hasChanges || savePending ? (
           <Button
             className="mt-5"
-            disabled={savePending}
+            loading={savePending}
             type="submit"
             tone="primary"
           >
-            {savePending ? "Saving..." : "Save"}
+            {savePending
+              ? t(accountSettingsMessages.saving)
+              : t(commonMessages.save)}
           </Button>
         ) : null}
       </form>

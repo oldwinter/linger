@@ -3,39 +3,54 @@ import {
   Idea01Icon,
   Key01Icon,
   KeyboardIcon,
+  LanguageSkillIcon,
   LaptopIcon,
   UserIcon,
 } from "@hugeicons/core-free-icons";
 import { Icon } from "@/components/ui/icon";
-import { Suspense, type ReactNode } from "react";
+import { Suspense, useEffect, useRef, type ReactNode } from "react";
 import { NavLink, Outlet, useLocation } from "react-router";
 
 import { Skeleton } from "@/components/ui/skeleton";
+import { useT } from "@/i18n/use-translation";
+
+import { settingsMessages } from "./settings.messages";
 
 /** Settings is a page in the Space shell: its own sections beside the rail. */
 export function SettingsLayout() {
   const { pathname } = useLocation();
+  const t = useT();
+  const sections = useRef<HTMLElement>(null);
+  // In a narrow window the sections scroll sideways; the open one stays in view.
+  useEffect(() => {
+    sections.current
+      ?.querySelector('[aria-current="page"]')
+      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [pathname]);
   return (
     <div className="flex min-h-0 flex-1 flex-col md:flex-row">
       <aside
-        aria-label="Settings navigation"
+        aria-label={t(settingsMessages.navigation)}
         className="flex shrink-0 flex-col border-b border-border px-3 py-4 md:w-[228px] md:border-r md:border-b-0"
       >
         <div className="flex items-center pt-0.5 pb-3.5">
-          <h1 className="text-lg">Settings</h1>
+          <p className="text-lg font-medium text-foreground">
+            {t(settingsMessages.title)}
+          </p>
         </div>
         <nav
-          aria-label="Settings sections"
+          aria-label={t(settingsMessages.sections)}
           className="workspace-scrollbar flex min-h-0 flex-1 gap-0.5 overflow-x-auto md:flex-col md:overflow-x-visible md:overflow-y-auto"
+          ref={sections}
         >
           <SettingsLink
             icon={<Icon icon={UserIcon} size={14} />}
-            label="Profile"
+            label={t(settingsMessages.profile)}
             to="account"
           />
           <SettingsLink
             icon={<Icon icon={Key01Icon} size={14} />}
-            label="Security"
+            label={t(settingsMessages.security)}
             to="security"
           />
           <SettingsLink
@@ -50,17 +65,22 @@ export function SettingsLayout() {
           />
           <SettingsLink
             icon={<Icon icon={LaptopIcon} size={14} />}
-            label="Computers"
+            label={t(settingsMessages.computers)}
             to="computers"
           />
           <SettingsLink
             icon={<Icon icon={AiChipIcon} size={14} />}
-            label="Local models"
-            to="local-models"
+            label={t(settingsMessages.models)}
+            to="models"
+          />
+          <SettingsLink
+            icon={<Icon icon={LanguageSkillIcon} size={14} />}
+            label={t(settingsMessages.language)}
+            to="language"
           />
         </nav>
       </aside>
-      <div className="workspace-content-viewport workspace-scrollbar flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto px-6 py-6 [scrollbar-gutter:stable] md:px-8">
+      <main className="workspace-content-viewport workspace-scrollbar flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto px-6 py-6 [scrollbar-gutter:stable] md:px-8">
         <Suspense
           fallback={
             <SettingsSectionLoading
@@ -70,13 +90,18 @@ export function SettingsLayout() {
         >
           <Outlet />
         </Suspense>
-      </div>
+      </main>
     </div>
   );
 }
 
 function SettingsSectionLoading({ computers }: { computers: boolean }) {
-  const label = computers ? "Loading Computers" : "Loading content";
+  const t = useT();
+  const label = t(
+    computers
+      ? settingsMessages.loadingComputers
+      : settingsMessages.loadingContent,
+  );
   return (
     <div
       aria-busy="true"
@@ -109,7 +134,6 @@ function SettingsLink({
             : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
         }`
       }
-      replace
       to={to}
     >
       {icon}

@@ -15,9 +15,10 @@ import (
 // defaultLocalRuntimeModels stands in for a Runtime diagnostic that reported
 // no model catalog of its own; the Runtime then uses its host default model.
 var defaultLocalRuntimeModels = map[string]httpapi.AgentModel{
-	"claude": {Id: "claude-default", Label: "Claude default"},
-	"codex":  {Id: "codex-default", Label: "Codex default"},
-	"pi":     {Id: "pi-default", Label: "Pi default"},
+	"claude":      {Id: "claude-default", Label: "Claude default"},
+	"codex":       {Id: "codex-default", Label: "Codex default"},
+	"pi":          {Id: "pi-default", Label: "Pi default"},
+	"antigravity": {Id: "antigravity-default", Label: "Antigravity default"},
 }
 
 type storedRuntimeDiagnostic struct {

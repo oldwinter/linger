@@ -6,6 +6,7 @@ import {
   useSuspenseQuery,
 } from "@tanstack/react-query";
 import {
+  Clock01Icon,
   Delete02Icon,
   FileAddIcon,
   Login01Icon,
@@ -53,6 +54,7 @@ import type {
 } from "@/features/search/room-search-scope";
 import { useRoomSearchShortcut } from "@/features/search/search-shortcut";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { useT } from "@/i18n/use-translation";
 import type { TeamHubMessagePresentation } from "@/features/teamhub/teamhub-runtime";
 import type { RoomRealtimeStatus } from "@/features/teamhub/event-transport";
 import type {
@@ -110,6 +112,7 @@ import { RoomPresentationBoundary } from "./room-presentation-boundary";
 import { GENERAL_AGENT_DEFAULT_NAME } from "./general-agent-defaults";
 import { MobileNavigationButton } from "./mobile-navigation";
 import { roomAddDocumentPath } from "./room-add-document";
+import { roomSurfaceMessages } from "./room-surface.messages";
 import { RoomWatchLink } from "./room-watch-link";
 import { workMovesPath } from "./work-moves";
 import { whoManagesPath } from "./who-manages";
@@ -159,6 +162,8 @@ function RoomPanelSidebar(
 const ActorProfilePanel = lazy(async () => ({
   default: (await import("./members/actor-profile")).ActorProfilePanel,
 }));
+
+export { LazyRoomChat, preloadRoomChat } from "./room-chat-loader";
 
 const EMPTY_ACTORS: TeamHubActor[] = [];
 const EMPTY_TENANT_AGENTS: TeamHubTenantAgent[] = [];
@@ -233,7 +238,7 @@ function useSyncAgentInfoPanelTitle({
     openPanelTab({
       kind: "agentInfo",
       actorId: agentProfileActor.id,
-      title: `Agent · ${agentProfileActor.display_name}`,
+      title: agentProfileActor.display_name,
     });
   }, [agentProfileActor, openPanelTab]);
   const agentInfoActorId = useRef<string | undefined>(undefined);
@@ -243,7 +248,7 @@ function useSyncAgentInfoPanelTitle({
       directAgent?.actor ??
       (directPeer?.kind === "agent" ? directPeer : undefined);
     if (!agent) return;
-    const title = `Agent · ${agent.display_name}`;
+    const title = agent.display_name;
     if (
       agentInfoActorId.current === agent.id &&
       agentInfoTitle.current === title
@@ -295,6 +300,7 @@ function RoomSurfaceContent({
 }: RoomSurfaceContentProps) {
   const { client } = useTeamHubRuntime();
   const shell = useOutletContext<RoomShellOutletContext | undefined>();
+  const t = useT();
   const [searchParams, setSearchParams] = useSearchParams();
   const isChatView = Boolean(useMatch("/t/:tenantId/rooms/:roomId/chat"));
   const { data: room } = useSuspenseQuery(
@@ -397,6 +403,9 @@ function RoomSurfaceContent({
     }),
     [identity.account.id, roomId, tenantId],
   );
+  const [reportedActiveTabId, setReportedActiveTabId] = useState<string | null>(
+    null,
+  );
   const {
     closePanel,
     focusMessageId,
@@ -415,6 +424,11 @@ function RoomSurfaceContent({
     searchParams,
     setSearchParams,
   });
+  const activePanelTabId = useMemo(() => {
+    void panelTabRevision;
+    void reportedActiveTabId;
+    return readPanelTabState(scope).activeTabId;
+  }, [panelTabRevision, reportedActiveTabId, scope]);
   const detailOpen =
     Boolean(legacyProfileActor) || panelVisible || sidebarMounted;
   // Narrow layouts hide the chat behind the panel; follow the requested state so
@@ -474,7 +488,7 @@ function RoomSurfaceContent({
       openPanelTabFromRoom({
         kind: "agentInfo",
         actorId: actor.id,
-        title: `Agent · ${actor.display_name}`,
+        title: actor.display_name,
       });
       return;
     }
@@ -509,7 +523,9 @@ function RoomSurfaceContent({
         >
           <div className="flex h-full min-h-0 w-full min-w-0">
             <section
-              aria-label={`Room ${roomTitle}`}
+              aria-label={t(roomSurfaceMessages.roomRegion, {
+                name: roomTitle,
+              })}
               className="app-room-surface relative flex min-h-0 min-w-0 flex-1 flex-col border-r border-border/60 bg-app-surface focus:outline-none"
               ref={roomSurfaceRef}
               tabIndex={-1}
@@ -529,12 +545,22 @@ function RoomSurfaceContent({
                 onJumpToPinnedMessage={openPinnedMessage}
                 onOpenAgent={openProfile}
                 onOpenDelete={() => setDeleteOpen(true)}
+                onOpenRoutines={() =>
+                  openPanelTabFromRoom({
+                    kind: "routines",
+                    title: PANEL_COLLECTION_TAB_TITLES.routines,
+                  })
+                }
                 onOpenSettings={() =>
-                  openPanelTab({ kind: "roomSettings", title: "Room settings" })
+                  openPanelTab({
+                    kind: "roomSettings",
+                    title: PANEL_COLLECTION_TAB_TITLES.roomSettings,
+                  })
                 }
                 onTogglePanel={togglePanel}
                 onStatusChange={setRealtimeStatus}
                 canDeleteDeletedAgentRoom={canDeleteDeletedAgentRoom}
+                activePanelTabId={activePanelTabId}
                 panelOpen={panelOpen}
                 room={presentationRoom}
                 roomId={roomId}
@@ -580,6 +606,7 @@ function RoomSurfaceContent({
                   focusMessageId={focusMessageId}
                   messagePresentations={messagePresentations}
                   onActiveMessageChange={onActiveMessageChange}
+                  onActiveTabChange={setReportedActiveTabId}
                   onCollapse={closePanel}
                   onExitAnimationEnd={onPanelExitAnimationEnd}
                   onOpenProfile={openProfile}
@@ -588,7 +615,7 @@ function RoomSurfaceContent({
                       ? () =>
                           openPanelTab({
                             kind: "roomSettings",
-                            title: "Room settings",
+                            title: PANEL_COLLECTION_TAB_TITLES.roomSettings,
                           })
                       : undefined
                   }
@@ -735,13 +762,15 @@ function RoomPanelSidebarFallback({
   onClose: () => void;
   onReveal: () => void;
 }) {
+  const t = useT();
   useLayoutEffect(onReveal, [onReveal]);
   return (
     <aside
       aria-busy="true"
-      aria-label="Loading panel sidebar"
+      aria-label={t(roomSurfaceMessages.loadingPanelSidebar)}
       className="panel-sidebar relative h-full min-h-0 shrink-0 bg-app-sidebar px-1 pb-1"
       data-open="true"
+      data-voice-area="sidebar"
       style={
         {
           "--panel-sidebar-width": `${readPanelSidebarWidth(accountId)}px`,
@@ -750,9 +779,12 @@ function RoomPanelSidebarFallback({
     >
       <div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden">
         <div className="flex h-11 shrink-0 items-center gap-2 px-1">
-          <span className="text-xs text-app-muted">Sidebar</span>
+          <span className="text-xs text-app-muted">
+            {t(roomSurfaceMessages.sidebar)}
+          </span>
           <Button
-            aria-label="Hide sidebar"
+            data-voice-close
+            aria-label={t(roomSurfaceMessages.hideSidebar)}
             className="ml-auto !rounded-lg border-0 text-app-muted"
             onClick={onClose}
             size="compactIcon"
@@ -765,7 +797,7 @@ function RoomPanelSidebarFallback({
           className="flex min-h-0 flex-1 items-center justify-center rounded-xl bg-card/60 text-sm text-app-muted"
           role="status"
         >
-          Loading sidebar...
+          {t(roomSurfaceMessages.loadingSidebar)}
         </div>
       </div>
     </aside>
@@ -773,6 +805,7 @@ function RoomPanelSidebarFallback({
 }
 
 function RoomHeader({
+  activePanelTabId,
   canDeleteDeletedAgentRoom,
   currentActorId,
   directAgent,
@@ -787,6 +820,7 @@ function RoomHeader({
   onJumpToPinnedMessage,
   onOpenAgent,
   onOpenDelete,
+  onOpenRoutines,
   onOpenSearch,
   onOpenSettings,
   onTogglePanel,
@@ -796,6 +830,7 @@ function RoomHeader({
   roomId,
   tenantId,
 }: {
+  activePanelTabId: string | null;
   canDeleteDeletedAgentRoom: boolean;
   currentActorId?: string;
   directAgent?: TeamHubTenantAgent;
@@ -810,6 +845,7 @@ function RoomHeader({
   onJumpToPinnedMessage: (messageId: string) => void;
   onOpenAgent: (actorId: string) => void;
   onOpenDelete: () => void;
+  onOpenRoutines: () => void;
   onOpenSearch?: (room: SearchRoomScope) => void;
   onOpenSettings: () => void;
   onTogglePanel: () => void;
@@ -822,6 +858,7 @@ function RoomHeader({
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const { runningRoomIds } = useRoomActivity(tenantId, true);
+  const t = useT();
   const isDirectRoom = room.kind === "direct";
   const headerPeer =
     room.direct_peer?.kind === "agent" ? room.direct_peer : undefined;
@@ -855,16 +892,20 @@ function RoomHeader({
       label: "Add a document",
       path: roomAddDocumentPath(tenantId, roomId),
     },
-    {
-      icon: WorkflowSquare01Icon,
-      label: "How work moves",
-      path: workMovesPath(tenantId, roomId),
-    },
-    {
-      icon: UserGroupIcon,
-      label: "Who can manage",
-      path: whoManagesPath(tenantId, roomId),
-    },
+    ...(room.kind === "room"
+      ? [
+          {
+            icon: WorkflowSquare01Icon,
+            label: "How work moves",
+            path: workMovesPath(tenantId, roomId),
+          },
+          {
+            icon: UserGroupIcon,
+            label: "Who can manage",
+            path: whoManagesPath(tenantId, roomId),
+          },
+        ]
+      : []),
     ...(runningRoomIds.includes(roomId)
       ? [
           {
@@ -886,6 +927,11 @@ function RoomHeader({
     ...(room.kind === "room"
       ? [
           {
+            icon: Clock01Icon,
+            label: "Routines",
+            onSelect: onOpenRoutines,
+          },
+          {
             icon: room.participation === "left" ? Login01Icon : Logout01Icon,
             label: room.participation === "left" ? "Come back" : "Step out",
             path: stepOutPath(tenantId, roomId),
@@ -893,12 +939,20 @@ function RoomHeader({
         ]
       : []),
   ]
-    .filter((action) => action.path !== pathname)
-    .map(({ icon, label, path }) => ({
-      icon: <Icon icon={icon} size={14} />,
-      label,
-      onSelect: () => void navigate(path),
+    .filter((action) => !("path" in action) || action.path !== pathname)
+    .map((action) => ({
+      icon: <Icon icon={action.icon} size={14} />,
+      label: action.label,
+      onSelect:
+        "onSelect" in action
+          ? action.onSelect
+          : () => void navigate(action.path),
     }));
+
+  const detailsTabId = headerPeer
+    ? panelTabKey("agentInfo", { actorId: headerPeer.id })
+    : panelTabKey("roomSettings", {});
+  const detailsOpen = panelOpen && activePanelTabId === detailsTabId;
 
   return (
     <header
@@ -910,18 +964,19 @@ function RoomHeader({
       </div>
       <div className="flex min-w-0 items-center gap-2">
         {/* Avatar + name chip; the avatar button covers the whole chip and
-            toggles the Agent or Room page in the side panel. */}
+            opens the Agent or Room page in the side panel, collapsing only
+            when that page is already active. */}
         <div
           className="relative flex h-8 min-w-0 max-w-full items-center gap-2 rounded-full bg-card pl-1 pr-3 shadow-outline transition-colors duration-150 hover:bg-accent"
           title={headerName}
         >
           <button
             type="button"
-            aria-expanded={panelOpen}
-            aria-label={`Open ${headerName} settings from avatar`}
+            aria-expanded={detailsOpen}
+            aria-label={`${detailsOpen ? "Close" : "Open"} ${headerName} details`}
             className="flex shrink-0 items-center justify-center rounded-full after:absolute after:inset-0 after:rounded-full after:content-[''] focus-visible:outline-none focus-visible:after:outline-2 focus-visible:after:outline-app-focus"
             onClick={() => {
-              if (panelOpen) onTogglePanel();
+              if (detailsOpen) onTogglePanel();
               else if (headerPeer) onOpenAgent(headerPeer.id);
               else onOpenSettings();
             }}
@@ -957,14 +1012,14 @@ function RoomHeader({
         </div>
         {isDirectRoom && room.direct_peer_active === false ? (
           <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-2xs font-medium text-muted-foreground">
-            Deleted
+            {t(roomSurfaceMessages.roomDeleted)}
           </span>
         ) : null}
       </div>
       <div
         className={cn(
           "flex shrink-0 items-center justify-end",
-          compact ? "gap-3" : "gap-1",
+          compact ? "gap-1" : "gap-3",
         )}
       >
         <RoomWatchLink roomId={roomId} tenantId={tenantId} />
@@ -1007,11 +1062,12 @@ function RoomHeader({
         />
         {!compact && canDeleteDeletedAgentRoom ? (
           <Button
-            aria-label="Delete Room"
+            data-voice-risk="never"
+            aria-label={t(roomSurfaceMessages.deleteRoom)}
             className="!rounded-lg border-0 text-app-muted"
             onClick={onOpenDelete}
             size="compactIcon"
-            title="Delete Room"
+            title={t(roomSurfaceMessages.deleteRoom)}
             tone="ghost"
           >
             <Icon icon={Delete02Icon} size={16} />
@@ -1035,8 +1091,9 @@ function RoomHeader({
                   {
                     danger: true,
                     icon: <Icon icon={Delete02Icon} size={14} />,
-                    label: "Delete Room",
+                    label: t(roomSurfaceMessages.deleteRoom),
                     onSelect: onOpenDelete,
+                    voiceRisk: "never" as const,
                   },
                 ]
               : []),
@@ -1053,12 +1110,12 @@ function RoomHeader({
           />
         ) : (
           <Button
-            aria-label="Show sidebar"
+            aria-label={t(roomSurfaceMessages.showSidebar)}
             aria-pressed={false}
             className="!rounded-lg border-0 text-app-muted"
             onClick={onTogglePanel}
             size="compactIcon"
-            title="Show sidebar"
+            title={t(roomSurfaceMessages.showSidebar)}
             tone="ghost"
           >
             <Icon className="shrink-0" icon={SidebarRightIcon} size={16} />

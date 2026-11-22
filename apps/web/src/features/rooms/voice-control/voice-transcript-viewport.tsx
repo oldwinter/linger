@@ -2,6 +2,8 @@ import { ArrowDown02Icon } from "@hugeicons/core-free-icons";
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Icon } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
+import { useT } from "@/i18n/use-translation";
+import { recordingMessages as m } from "./recording.messages";
 
 /** Layout/scroll anchoring must not be mistaken for a request to read history. */
 export function VoiceTranscriptViewport({
@@ -11,6 +13,7 @@ export function VoiceTranscriptViewport({
   children: ReactNode;
   revealLatestKey?: string;
 }) {
+  const t = useT();
   const viewportRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const followingRef = useRef(true);
@@ -106,7 +109,7 @@ export function VoiceTranscriptViewport({
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
       <div
-        aria-label="Transcript scroll area"
+        aria-label={t(m.transcriptScrollArea)}
         className="workspace-scrollbar min-h-0 flex-1 overflow-y-auto"
         ref={viewportRef}
         // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- keyboard-focusable scroll region so keyboard users can scroll it
@@ -127,7 +130,7 @@ export function VoiceTranscriptViewport({
             }}
           >
             <Icon icon={ArrowDown02Icon} size={14} />
-            Follow latest transcript
+            {t(m.followLatest)}
           </Button>
         </div>
       ) : null}

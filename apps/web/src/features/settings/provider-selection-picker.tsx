@@ -5,6 +5,10 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
 import type { TeamHubPersonalProfileSourceSelection } from "@/features/teamhub/teamhub-types";
+import type { Message } from "@/i18n/messages";
+import { useT } from "@/i18n/use-translation";
+
+import { accountSettingsMessages } from "./account-settings.messages";
 
 export const sourceCheckClassName =
   "size-4 shrink-0 cursor-pointer rounded-[4px] border-app-border-strong accent-[var(--app-action)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus disabled:cursor-not-allowed disabled:opacity-45";
@@ -24,20 +28,20 @@ const PICKER_MAXIMUM: Record<SelectionPickerProvider, number> = {
   slack: 5,
 };
 
-const PICKER_TITLE: Record<SelectionPickerProvider, string> = {
-  discord: "Discord channels",
-  github: "GitHub repositories",
-  google_calendar: "Google calendars",
-  notion: "Notion pages and databases",
-  slack: "Slack channels",
+const PICKER_TITLE: Record<SelectionPickerProvider, Message<string>> = {
+  discord: accountSettingsMessages.pickerDiscord,
+  github: accountSettingsMessages.pickerGitHub,
+  google_calendar: accountSettingsMessages.pickerGoogleCalendar,
+  notion: accountSettingsMessages.pickerNotion,
+  slack: accountSettingsMessages.pickerSlack,
 };
 
-const PICKER_LOAD_MORE: Record<SelectionPickerProvider, string> = {
-  discord: "channels",
-  github: "repositories",
-  google_calendar: "calendars",
-  notion: "pages",
-  slack: "channels",
+const PICKER_LOAD_MORE: Record<SelectionPickerProvider, Message<string>> = {
+  discord: accountSettingsMessages.loadMoreChannels,
+  github: accountSettingsMessages.loadMoreRepositories,
+  google_calendar: accountSettingsMessages.loadMoreCalendars,
+  notion: accountSettingsMessages.loadMorePages,
+  slack: accountSettingsMessages.loadMoreChannels,
 };
 
 export function ProviderSelectionPicker({
@@ -53,6 +57,7 @@ export function ProviderSelectionPicker({
   provider: SelectionPickerProvider;
   selections: TeamHubPersonalProfileSourceSelection[];
 }) {
+  const t = useT();
   const slackQuery = useInfiniteQuery({
     enabled: provider === "slack",
     queryKey: ["teamhub", "profile-source-selections", "slack", connectionId],
@@ -199,20 +204,23 @@ export function ProviderSelectionPicker({
     <div>
       <div className="flex items-center justify-between gap-3">
         <h3 className="text-sm font-semibold text-app-ink">
-          {PICKER_TITLE[provider]}
+          {t(PICKER_TITLE[provider])}
         </h3>
         <span className="text-xs text-app-muted">
-          {selections.length}/{maximum} selected
+          {t(accountSettingsMessages.selectedOfMaximum, {
+            selected: selections.length,
+            maximum,
+          })}
         </span>
       </div>
       {provider === "github" ? (
         <p className="mt-1 text-xs leading-5 text-app-muted">
-          Your public profile is always included.
+          {t(accountSettingsMessages.publicProfileIncluded)}
         </p>
       ) : null}
       {provider === "notion" && !queryPending && options.length === 0 ? (
         <p className="mt-1 text-xs leading-5 text-app-muted">
-          Share pages or databases with the Notion integration first.
+          {t(accountSettingsMessages.notionShareFirst)}
         </p>
       ) : null}
       <div className="workspace-scrollbar mt-2 grid max-h-64 gap-0.5 overflow-y-auto rounded-md border border-app-border p-1">
@@ -251,7 +259,9 @@ export function ProviderSelectionPicker({
                 {option.name}
               </span>
               {option.is_private ? (
-                <span className="ml-auto text-xs text-app-muted">Private</span>
+                <span className="ml-auto text-xs text-app-muted">
+                  {t(accountSettingsMessages.private)}
+                </span>
               ) : null}
             </label>
           );
@@ -282,7 +292,7 @@ export function ProviderSelectionPicker({
           ) : (
             <Icon icon={RefreshIcon} size={14} />
           )}
-          Load more {PICKER_LOAD_MORE[provider]}
+          {t(PICKER_LOAD_MORE[provider])}
         </Button>
       ) : null}
     </div>

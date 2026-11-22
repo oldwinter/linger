@@ -31,6 +31,7 @@ export const webInitialJavaScriptBudget = {
 
 export async function prepareProductionAssets({
   budget = webInitialJavaScriptBudget,
+  precompress = true,
   root,
 }) {
   const outputRoot = resolve(root);
@@ -39,7 +40,12 @@ export async function prepareProductionAssets({
   );
   const initialFiles = resolveInitialJavaScriptFiles(manifest);
   const productionJavaScriptFiles = resolveProductionJavaScriptFiles(manifest);
-  const compressedAssets = await precompressStaticAssets(outputRoot);
+  const filesToCompress = precompress
+    ? await listCompressibleFiles(outputRoot)
+    : initialFiles.map((file) => join(outputRoot, file));
+  const compressedAssets = await compressAssets(outputRoot, filesToCompress, {
+    write: precompress,
+  });
   const initialJavaScript = await measureInitialJavaScript(
     outputRoot,
     initialFiles,
@@ -50,7 +56,7 @@ export async function prepareProductionAssets({
   assertWithinBudget(initialJavaScript, budget);
 
   return {
-    compressedAssetCount: compressedAssets.size,
+    compressedAssetCount: precompress ? compressedAssets.size : 0,
     initialJavaScript: {
       brotliBytes: initialJavaScript.brotliBytes,
       files: initialFiles,
@@ -102,8 +108,7 @@ function resolveInitialJavaScriptFiles(manifest) {
   return files;
 }
 
-async function precompressStaticAssets(root) {
-  const sourceFiles = await listCompressibleFiles(root);
+async function compressAssets(root, sourceFiles, { write }) {
   const compressedAssets = new Map();
 
   await Promise.all(
@@ -123,14 +128,16 @@ async function precompressStaticAssets(root) {
         gzipBytes: Math.min(source.length, gzipped.length),
       };
 
-      await Promise.all([
-        brotli.length < source.length
-          ? writeFile(`${absolutePath}.br`, brotli)
-          : undefined,
-        gzipped.length < source.length
-          ? writeFile(`${absolutePath}.gz`, gzipped)
-          : undefined,
-      ]);
+      if (write) {
+        await Promise.all([
+          brotli.length < source.length
+            ? writeFile(`${absolutePath}.br`, brotli)
+            : undefined,
+          gzipped.length < source.length
+            ? writeFile(`${absolutePath}.gz`, gzipped)
+            : undefined,
+        ]);
+      }
       compressedAssets.set(relativePath, variants);
     }),
   );
@@ -249,7 +256,10 @@ function printReport(result) {
 }
 
 if (isMainModule()) {
-  prepareProductionAssets({ root: process.argv[2] ?? "dist" })
+  const args = process.argv.slice(2);
+  const precompress = !args.includes("--skip-precompress");
+  const root = args.find((arg) => !arg.startsWith("--")) ?? "dist";
+  prepareProductionAssets({ precompress, root })
     .then(printReport)
     .catch((error) => {
       process.stderr.write(

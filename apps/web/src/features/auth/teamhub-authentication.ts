@@ -12,7 +12,9 @@ import { announceTeamHubAuthenticated } from "@/features/teamhub/teamhub-authent
 import { TeamHubError } from "@/features/teamhub/teamhub-client";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubSession } from "@/features/teamhub/teamhub-types";
+import { translate } from "@/i18n/language";
 
+import { authMessages as m } from "./auth.messages";
 import { authenticationOperation } from "./authentication-operation";
 import type { DesktopLocalAccount } from "./desktop-local-account";
 import { takeInterruptedPage } from "./interrupted-page";
@@ -22,24 +24,43 @@ export interface AuthenticationResult {
   session: TeamHubSession;
 }
 
+export type AuthenticationSubmittingMethod = "credentials" | "desktop" | null;
+
+export interface AuthenticationFieldErrors {
+  email?: string;
+  password?: string;
+}
+
 interface AuthenticationState {
   email: string;
   error: string | null;
+  fieldErrors: AuthenticationFieldErrors;
   isSubmitting: boolean;
   password: string;
+  submittingMethod: AuthenticationSubmittingMethod;
 }
 
 type AuthenticationAction =
   | { field: "email" | "password"; type: "change-field"; value: string }
+  | {
+      error: string;
+      fieldErrors: AuthenticationFieldErrors;
+      type: "validation-error";
+    }
   | { error: string; type: "operation-error" }
   | { type: "submit-finished" }
-  | { type: "submit-start" };
+  | {
+      method: Exclude<AuthenticationSubmittingMethod, null>;
+      type: "submit-start";
+    };
 
 const initialAuthenticationState: AuthenticationState = {
   email: "",
   error: null,
+  fieldErrors: {},
   isSubmitting: false,
   password: "",
+  submittingMethod: null,
 };
 
 function authenticationReducer(
@@ -47,14 +68,34 @@ function authenticationReducer(
   action: AuthenticationAction,
 ): AuthenticationState {
   switch (action.type) {
-    case "change-field":
-      return { ...state, [action.field]: action.value };
+    case "change-field": {
+      const fieldErrors = { ...state.fieldErrors };
+      delete fieldErrors[action.field];
+      return {
+        ...state,
+        [action.field]: action.value,
+        error: null,
+        fieldErrors,
+      };
+    }
+    case "validation-error":
+      return {
+        ...state,
+        error: action.error,
+        fieldErrors: action.fieldErrors,
+      };
     case "operation-error":
-      return { ...state, error: action.error };
+      return { ...state, error: action.error, fieldErrors: {} };
     case "submit-start":
-      return { ...state, error: null, isSubmitting: true };
+      return {
+        ...state,
+        error: null,
+        fieldErrors: {},
+        isSubmitting: true,
+        submittingMethod: action.method,
+      };
     case "submit-finished":
-      return { ...state, isSubmitting: false };
+      return { ...state, isSubmitting: false, submittingMethod: null };
   }
 }
 
@@ -88,8 +129,7 @@ export function useTeamHubAuthentication(input: {
       if (error instanceof TeamHubError && error.status === 401) {
         throw new TeamHubError({
           code: "SESSION_NOT_ESTABLISHED",
-          message:
-            "Linger could not establish a browser session. Use the secure workspace address or contact your workspace administrator.",
+          message: translate(m.sessionNotEstablished),
           status: 401,
         });
       }
@@ -122,13 +162,15 @@ export function useTeamHubAuthentication(input: {
     if (activeSubmit.current) return;
     const email = state.email.trim().toLowerCase();
     if (!email) {
+      const message = translate(m.invalidEmail);
       dispatch({
-        error: "Enter a valid email address.",
-        type: "operation-error",
+        error: message,
+        fieldErrors: { email: message },
+        type: "validation-error",
       });
       return;
     }
-    await runAttempt(async (signal) => {
+    await runAttempt("credentials", async (signal) => {
       await authenticationOperation(signal, (signal) =>
         teamHubData(
           client.api.POST("/v0/auth/login", {
@@ -144,10 +186,10 @@ export function useTeamHubAuthentication(input: {
   // The desktop app signs this window in with the account of the Linger on
   // this computer and sets the Session cookie; the page only confirms it.
   async function signInWithDesktopAccount(account: DesktopLocalAccount) {
-    await runAttempt(async (signal) => {
+    await runAttempt("desktop", async (signal) => {
       const result = await authenticationOperation(signal, () =>
         account.signIn().catch(() => ({
-          message: DESKTOP_ACCOUNT_UNAVAILABLE,
+          message: translate(m.desktopAccountUnavailable),
           ok: false as const,
         })),
       );
@@ -157,11 +199,14 @@ export function useTeamHubAuthentication(input: {
     });
   }
 
-  async function runAttempt(signIn: (signal: AbortSignal) => Promise<boolean>) {
+  async function runAttempt(
+    method: Exclude<AuthenticationSubmittingMethod, null>,
+    signIn: (signal: AbortSignal) => Promise<boolean>,
+  ) {
     if (activeSubmit.current) return;
     const attempt = new AbortController();
     activeSubmit.current = attempt;
-    dispatch({ type: "submit-start" });
+    dispatch({ method, type: "submit-start" });
     try {
       const signedIn = await signIn(attempt.signal);
       attempt.signal.throwIfAborted();
@@ -189,10 +234,7 @@ export function useTeamHubAuthentication(input: {
   };
 }
 
-const DESKTOP_ACCOUNT_UNAVAILABLE =
-  "This computer's account could not be used. Log in with your email and password.";
-
 function readAuthenticationError(error: unknown) {
   if (error instanceof TeamHubError) return error.message;
-  return "TeamHub could not be reached. Try again.";
+  return translate(m.teamHubUnreachable);
 }

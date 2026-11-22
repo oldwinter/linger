@@ -75,8 +75,8 @@ export interface ContextViewSnapshotInput {
  * Serves Context View content to the Computer that runs the Context. A View is
  * named by the SHA-256 of its manifest bytes; the Computer fetches the manifest
  * and only the files it lacks, and verifies every file it writes. Files are
- * read from their source when requested, so a source that changed since the
- * snapshot is refused and the next snapshot names the new content.
+ * read from their source when requested, so a directory source that changed
+ * since the snapshot is refused. Inline memory stays with the published View.
  */
 export interface ContextViewContent {
   snapshot(input: ContextViewSnapshotInput): Promise<ContextViewSnapshot>;
@@ -90,10 +90,17 @@ export interface ContextViewContent {
   ): Promise<Response>;
 }
 
-interface PublishedFile {
+interface DirectoryPublishedFile {
   readonly sourcePath: string;
   readonly sizeBytes: number;
 }
+
+interface InlinePublishedFile {
+  readonly text: string;
+  readonly sizeBytes: number;
+}
+
+type PublishedFile = DirectoryPublishedFile | InlinePublishedFile;
 
 interface PublishedView {
   readonly manifest: Uint8Array;
@@ -214,21 +221,36 @@ export function createContextViewContent(options: {
             : [],
         );
         const mappingFiles: ContextViewFile[] = [];
-        for await (const source of walkDirectory({
-          root: await realDirectory(mapping.sourcePath),
-          relativeRoot: "",
-          skip: nested,
-          fileLinkRoots: mapping.fileLinkRootPaths
-            ? await Promise.all(
-                mapping.fileLinkRootPaths.map((root) => realpath(root)),
-              )
-            : undefined,
-          signal: input.signal,
-        })) {
-          const digest = await digestFile(
-            source.sourcePath,
-            source.relativePath,
-          );
+        const sources = mapping.inlineFiles
+          ? Object.entries(mapping.inlineFiles)
+              .filter(([relativePath]) => !isNestedTarget(relativePath, nested))
+              .map(([relativePath, text]) => ({ relativePath, text }))
+          : walkDirectory({
+              root: await realDirectory(mapping.sourcePath),
+              relativeRoot: "",
+              skip: nested,
+              fileLinkRoots: mapping.fileLinkRootPaths
+                ? await Promise.all(
+                    mapping.fileLinkRootPaths.map((root) => realpath(root)),
+                  )
+                : undefined,
+              signal: input.signal,
+            });
+        for await (const source of sources) {
+          input.signal.throwIfAborted();
+          const inline = "text" in source;
+          const digest = inline
+            ? {
+                sha256: sha256Hex(source.text),
+                size: Buffer.byteLength(source.text),
+                executable: false,
+              }
+            : await digestFile(source.sourcePath, source.relativePath);
+          const sizeBytes = Number(digest.size);
+          if (sizeBytes > MAX_FILE_BYTES)
+            throw new Error(
+              `Context View file is invalid: ${source.relativePath}`,
+            );
           const joined = path.posix.join(targetPath, source.relativePath);
           const existing = claimed.get(joined);
           if (existing !== undefined) {
@@ -238,23 +260,28 @@ export function createContextViewContent(options: {
           }
           claimed.set(joined, digest.sha256);
           budget.fileCount += 1;
-          budget.totalBytes += Number(digest.size);
+          budget.totalBytes += sizeBytes;
           if (
             budget.fileCount > MAX_FILE_COUNT ||
             budget.totalBytes > MAX_TOTAL_BYTES
           )
             throw new Error("Context View exceeds its file limits");
-          files.set(digest.sha256, {
-            sourcePath: source.sourcePath,
-            sizeBytes: Number(digest.size),
-          });
+          const existingFile = files.get(digest.sha256);
+          if (inline || !existingFile || !("text" in existingFile)) {
+            files.set(
+              digest.sha256,
+              inline
+                ? { text: source.text, sizeBytes }
+                : { sourcePath: source.sourcePath, sizeBytes },
+            );
+          }
           mappingFiles.push({
             relative_path: source.relativePath,
             media_type:
               mediaTypeForExtension(
                 path.posix.extname(source.relativePath).slice(1),
               ) ?? "application/octet-stream",
-            size_bytes: Number(digest.size),
+            size_bytes: sizeBytes,
             sha256: digest.sha256,
             ...(digest.executable ? { executable: true } : {}),
           });
@@ -333,13 +360,20 @@ export function createContextViewContent(options: {
       if (kind !== "files") return notFound();
       let file: PublishedFile | undefined;
       for (const view of views?.values() ?? []) {
-        file = view.files.get(id);
-        if (file) break;
+        const candidate = view.files.get(id);
+        if (candidate && "text" in candidate) {
+          file = candidate;
+          break;
+        }
+        file ??= candidate;
       }
       if (!file) return notFound();
       let bytes: Buffer;
       try {
-        bytes = (await readStable(file.sourcePath, id)).bytes;
+        bytes =
+          "text" in file
+            ? Buffer.from(file.text)
+            : (await readStable(file.sourcePath, id)).bytes;
       } catch {
         return changed();
       }
@@ -361,6 +395,16 @@ interface SourceFile {
   readonly sourcePath: string;
 }
 
+function isNestedTarget(
+  relativePath: string,
+  targets: readonly string[],
+): boolean {
+  return targets.some(
+    (target) =>
+      relativePath === target || relativePath.startsWith(`${target}/`),
+  );
+}
+
 async function* walkDirectory(options: {
   readonly root: string;
   readonly relativeRoot: string;
@@ -378,13 +422,7 @@ async function* walkDirectory(options: {
     const relativePath = options.relativeRoot
       ? `${options.relativeRoot}/${entry.name}`
       : entry.name;
-    if (
-      options.skip.some(
-        (prefix) =>
-          relativePath === prefix || relativePath.startsWith(`${prefix}/`),
-      )
-    )
-      continue;
+    if (isNestedTarget(relativePath, options.skip)) continue;
     const absolutePath = path.join(directory, entry.name);
     let sourcePath = absolutePath;
     let metadata = await lstat(absolutePath);

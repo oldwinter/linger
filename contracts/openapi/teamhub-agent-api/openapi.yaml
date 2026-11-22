@@ -606,6 +606,46 @@ paths:
           $ref: "../components/agent-api-errors.yaml#/components/responses/ServiceUnavailable"
         default:
           $ref: "../components/agent-api-errors.yaml#/components/responses/InternalError"
+  /api/agent/v1/room-handoffs:
+    post:
+      tags: [Agent Business API]
+      operationId: handOffAgentRoomWork
+      summary: Hand a Human's request from the direct chat to the calling AnotherMe in another Room
+      description: >-
+        Authorizes an AnotherMe Meta Context in its direct chat with its Human, in a Run
+        that the Human's own message there started. TeamHub posts one hidden handoff
+        message in the target Room, where the Human and the AnotherMe must both be
+        members, and it wakes the AnotherMe's Context in that Room to carry out the
+        instruction. The caller never writes in the target Room itself. The invocation_id
+        makes a replay return the original handoff.
+      security:
+        - agentBearer: []
+      x-deadline-ms: 5000
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "../components/agent-collaboration.yaml#/components/schemas/AgentRoomHandoffRequest"
+      responses:
+        "200":
+          description: The handoff is in the target Room and wakes the AnotherMe there.
+          content:
+            application/json:
+              schema:
+                $ref: "../components/agent-collaboration.yaml#/components/schemas/AgentRoomHandoffResponse"
+        "400":
+          $ref: "../components/agent-api-errors.yaml#/components/responses/BadRequest"
+        "401":
+          $ref: "../components/agent-api-errors.yaml#/components/responses/Unauthenticated"
+        "403":
+          $ref: "../components/agent-api-errors.yaml#/components/responses/Forbidden"
+        "409":
+          $ref: "../components/agent-api-errors.yaml#/components/responses/Conflict"
+        "503":
+          $ref: "../components/agent-api-errors.yaml#/components/responses/ServiceUnavailable"
+        default:
+          $ref: "../components/agent-api-errors.yaml#/components/responses/InternalError"
   /api/agent/v1/routines:
     post:
       tags: [Agent Business API]
@@ -1165,6 +1205,14 @@ paths:
           $ref: "../components/agent-api-errors.yaml#/components/responses/ServiceUnavailable"
         default:
           $ref: "../components/agent-api-errors.yaml#/components/responses/InternalError"
+  /api/agent/v1/web/search:
+    $ref: "../paths/agent-web-search.yaml#/search"
+  /api/agent/v1/web/open:
+    $ref: "../paths/agent-web-search.yaml#/open"
+  /api/agent/v1/web/backends/query:
+    $ref: "../paths/agent-web-search.yaml#/backends"
+  /api/agent/v1/web/connect:
+    $ref: "../paths/agent-web-search.yaml#/connect"
   /api/agent/v1/computer/browser-connection:
     $ref: "../paths/agent-browser-connection.yaml#/request"
   /api/agent/v1/computer/permissions/status:

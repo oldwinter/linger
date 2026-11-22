@@ -20,6 +20,10 @@ func TestConnectionDecisionsDraftTheirOwnCards(t *testing.T) {
 		draft.lifetime != connectionAuthorizationTTL || draft.view.(connectionView).AppKey != "notion" {
 		t.Fatalf("connection_auth draft=%+v err=%v", draft, err)
 	}
+	draft, err = DecisionCommand{ConnectionAuth: &ConnectionAuthDecision{Prompt: "Connect", AppKey: "gmail", Account: " work@example.com "}}.draft()
+	if err != nil || draft.view.(connectionView).Account != "work@example.com" {
+		t.Fatalf("connection_auth draft with an account=%+v err=%v", draft, err)
+	}
 	draft, err = DecisionCommand{ProviderKey: &ProviderKeyDecision{Prompt: " Add a key ", AppKey: " higgsfield "}}.draft()
 	if err != nil || draft.kind != DecisionKindProviderKey || draft.text != "Add a key" || !draft.connection ||
 		draft.lifetime != 0 || draft.view.(connectionView).AppKey != "higgsfield" {
@@ -52,10 +56,11 @@ func TestConnectionDecisionsDraftTheirOwnCards(t *testing.T) {
 		"long reason":        {ComputerPermission: &ComputerPermissionDecision{ComputerID: "c", Subject: "linger", Permissions: []string{"accessibility"}, Reason: strings.Repeat("x", 201)}},
 		"permission + chrome": {ComputerPermission: &ComputerPermissionDecision{ComputerID: "c", Subject: "linger", Permissions: []string{"accessibility"}},
 			BrowserConnection: &BrowserConnectionDecision{Prompt: "b", ComputerID: "c"}},
-		"no prompt":         {ConnectionAuth: &ConnectionAuthDecision{AppKey: "notion"}},
-		"bad computer":      {BrowserConnection: &BrowserConnectionDecision{Prompt: "Connect", ComputerID: "../computer"}},
-		"connection twice":  {ConnectionAuth: &ConnectionAuthDecision{Prompt: "a", AppKey: "notion"}, BrowserConnection: &BrowserConnectionDecision{Prompt: "b", ComputerID: "c"}},
-		"too long a prompt": {ConnectionAuth: &ConnectionAuthDecision{Prompt: strings.Repeat("x", 2001), AppKey: "notion"}},
+		"no prompt":           {ConnectionAuth: &ConnectionAuthDecision{AppKey: "notion"}},
+		"bad computer":        {BrowserConnection: &BrowserConnectionDecision{Prompt: "Connect", ComputerID: "../computer"}},
+		"connection twice":    {ConnectionAuth: &ConnectionAuthDecision{Prompt: "a", AppKey: "notion"}, BrowserConnection: &BrowserConnectionDecision{Prompt: "b", ComputerID: "c"}},
+		"too long an account": {ConnectionAuth: &ConnectionAuthDecision{Prompt: "a", AppKey: "notion", Account: strings.Repeat("x", 241)}},
+		"too long a prompt":   {ConnectionAuth: &ConnectionAuthDecision{Prompt: strings.Repeat("x", 2001), AppKey: "notion"}},
 	} {
 		if _, err := command.draft(); !errors.Is(err, ErrInvalid) {
 			t.Fatalf("%s: err=%v, want ErrInvalid", name, err)

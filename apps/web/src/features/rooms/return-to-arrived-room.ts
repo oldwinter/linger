@@ -19,6 +19,7 @@ export function roomToOpenOnReturn({
   before,
   dialogOpen,
   hiddenForMs,
+  ignoredRoomIds,
   writing,
 }: {
   activeRoomId?: string;
@@ -26,6 +27,7 @@ export function roomToOpenOnReturn({
   before: readonly RoomReturnFact[];
   dialogOpen: boolean;
   hiddenForMs: number;
+  ignoredRoomIds?: ReadonlySet<string>;
   writing: boolean;
 }): string | undefined {
   if (hiddenForMs < AWAY_BEFORE_RETURN_MS) return undefined;
@@ -35,6 +37,7 @@ export function roomToOpenOnReturn({
   const arrived: string[] = [];
   for (const room of after) {
     if (room.kind === "thread") continue;
+    if (ignoredRoomIds?.has(room.id)) continue;
     const previous = prior.get(room.id);
     if (previous === undefined) {
       if (room.seq > 0) arrived.push(room.id);

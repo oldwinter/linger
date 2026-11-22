@@ -42,9 +42,9 @@ func cadenceFromRecord(record store.RoomReminder) Cadence {
 		minute := int(record.Minute.Int32)
 		cadence.Minute = &minute
 	}
-	if record.IntervalHours.Valid {
-		hours := int(record.IntervalHours.Int32)
-		cadence.IntervalHours = &hours
+	if record.IntervalMinutes.Valid {
+		minutes := int(record.IntervalMinutes.Int32)
+		cadence.IntervalMinutes = &minutes
 	}
 	if record.RunAt.Valid {
 		runAt := record.RunAt.Time.UTC()
@@ -85,8 +85,8 @@ func routineTimezone(cadence Cadence) string {
 	return cadence.Timezone
 }
 
-// listenerOf names the app of a listener Routine's trigger. The installer
-// gives every listener one spec.
+// listenerOf names the app of a listener Routine's trigger. Multi-spec
+// listeners such as Outlook keep their connection provider on the first spec.
 func listenerOf(trigger []byte) *Listener {
 	var specs []ListenerSpec
 	if json.Unmarshal(trigger, &specs) != nil || len(specs) == 0 {

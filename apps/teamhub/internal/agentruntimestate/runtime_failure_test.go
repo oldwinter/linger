@@ -13,6 +13,7 @@ func TestTerminalRuntimeFailure(t *testing.T) {
 		{"legacy", `{"type":"failed","error":"private error"}`, true},
 		{"unknown execution outcome", `{"type":"failed","failure":{"code":"execution_outcome_unknown","runtime_type":"claude"}}`, true},
 		{"reply never reached the Room", `{"type":"failed","error":"Agent reply was not delivered to the Room","failure":{"code":"reply_undelivered","runtime_type":"pi"}}`, true},
+		{"no reply sent to a waiting Human", `{"type":"failed","error":"Agent ended its turn without sending a reply to the Room","failure":{"code":"reply_not_sent","runtime_type":"pi"}}`, true},
 		{"model refused for the account", `{"type":"failed","failure":{"code":"model_unavailable","runtime_type":"codex","runtime_version":"0.153.4"}}`, true},
 		{"Computer does not offer the model", `{"type":"failed","error":"Local Computer model is unavailable","failure":{"code":"model_not_offered","runtime_type":"codex"}}`, true},
 		{"canceled cannot claim unknown failure", `{"type":"canceled","failure":{"code":"execution_outcome_unknown","runtime_type":"codex"}}`, false},

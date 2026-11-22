@@ -4,10 +4,12 @@ import {
   ArrowRight01Icon,
   CheckmarkCircle02Icon,
   Clock01Icon,
+  Delete02Icon,
   PlusSignIcon,
 } from "@hugeicons/core-free-icons";
 import { useEffect, useRef, useState } from "react";
 
+import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import {
   SettingsGroup,
@@ -22,6 +24,8 @@ import type {
   TeamHubRoutine,
   TeamHubScheduledRoutine,
 } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
 
 import { connectedAppDisplayName } from "../cards/connected-app-names";
 
@@ -35,6 +39,7 @@ import {
   dayHeading,
   formatTimeOfDay,
   formatWhen,
+  isEditableRoutine,
   isScheduled,
 } from "./routine-cadence";
 import { laterTodayRunAt } from "./later-today";
@@ -42,13 +47,15 @@ import {
   joinedRoutineInstruction,
   routinesInTheSameMinute,
 } from "./routine-same-minute";
-import { RoutineDialog } from "./routine-dialog";
+import { deleteRoomRoutine, RoutineDialog } from "./routine-dialog";
 import { PanelLoading } from "./panel-loading";
+import { routinesMessages as m } from "./routines.messages";
 
-/** One Agent's Routines in a Room, laid out by the day they next run. */
+/** Routines in a Room (optionally scoped to one Agent), laid out by next run. */
 export function RemindersPanel({
   agentActorId,
   hidden = false,
+  includeMessageOnly = false,
   mentionOptions,
   roomId,
   tenantId,
@@ -56,10 +63,13 @@ export function RemindersPanel({
   /** Lists routines this Agent created or is mentioned by; new ones mention it. */
   agentActorId?: string;
   hidden?: boolean;
+  /** In a 1:1 DM with an Agent, keep message-only routines visible too. */
+  includeMessageOnly?: boolean;
   mentionOptions: TeamHubActorRef[];
   roomId: string;
   tenantId: string;
 }) {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const queryClient = useQueryClient();
   const listQuery = useQuery(
@@ -71,16 +81,19 @@ export function RemindersPanel({
       !agentActorId ||
       (isScheduled(item) &&
         (item.created_by_actor_id === agentActorId ||
-          item.mention_actor_id === agentActorId)),
+          item.mention_actor_id === agentActorId ||
+          (includeMessageOnly && !item.mention_actor_id))),
   );
   const open =
     openId && openId !== "new"
-      ? routines.filter(isScheduled).find((item) => item.id === openId)
+      ? routines
+          .filter(isScheduled)
+          .find((item) => item.id === openId && isEditableRoutine(item))
       : undefined;
 
   return (
     <section
-      aria-label="Routines"
+      aria-label={t(m.routines)}
       className="workspace-scrollbar flex h-full min-h-0 flex-col overflow-y-auto [scrollbar-gutter:stable_both-edges]"
       data-testid="panel-routines"
       hidden={hidden || undefined}
@@ -91,6 +104,8 @@ export function RemindersPanel({
         client={client}
         failed={listQuery.isError}
         loading={listQuery.isPending}
+        mentionOptions={mentionOptions}
+        onRetry={() => void listQuery.refetch()}
         routines={routines}
         tenantId={tenantId}
         onCreate={() => setOpenId("new")}
@@ -138,8 +153,10 @@ function RoutineAgenda({
   client,
   failed,
   loading,
+  mentionOptions,
   onCreate,
   onOpen,
+  onRetry,
   routines,
   tenantId,
 }: {
@@ -147,13 +164,17 @@ function RoutineAgenda({
   client: TeamHubClient;
   failed: boolean;
   loading: boolean;
+  mentionOptions: TeamHubActorRef[];
   onCreate: () => void;
   onOpen: (id: string) => void;
+  onRetry: () => void;
   routines: TeamHubRoutine[];
   tenantId: string;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [showDone, setShowDone] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   // The Routine as the last pause or enable left it, offered for undo for a
   // few seconds.
   const [offer, setOffer] = useState<{
@@ -242,18 +263,29 @@ function RoutineAgenda({
     return () => window.clearTimeout(timer);
   }, [offer, undo.isPending]);
   if (loading) {
-    return <PanelLoading label="Loading routines" />;
+    return <PanelLoading label={t(m.loading)} />;
   }
   if (failed) {
     return (
-      <p className="px-4 py-6 text-sm text-destructive" role="alert">
-        Routines could not be loaded.
-      </p>
+      <div
+        className="flex items-center justify-between gap-3 px-4 py-6"
+        role="alert"
+      >
+        <p className="text-sm text-destructive">{t(m.loadFailed)}</p>
+        <Button onClick={onRetry} size="compact" tone="secondary" type="button">
+          {t(commonMessages.retry)}
+        </Button>
+      </div>
     );
   }
   const onToggled = (routine: TeamHubRoutine) => {
+    setActionError(null);
     undo.reset();
     setOffer({ routine, secondsLeft: UNDO_SECONDS });
+  };
+  const onDeleted = (routineId: string) => {
+    setActionError(null);
+    setOffer((current) => (current?.routine.id === routineId ? null : current));
   };
   const scheduled = routines.filter(isScheduled);
   const listeners = routines.filter((routine) => !isScheduled(routine));
@@ -272,31 +304,45 @@ function RoutineAgenda({
   );
   const done = scheduled.filter(isDone);
   const upcoming = [...reminders].sort((a, b) => runTime(a) - runTime(b));
-  const rowProps = { agentActorId, client, onToggled, tenantId };
+  const rowProps = {
+    agentActorId,
+    client,
+    mentionOptions,
+    onDeleteError: setActionError,
+    onDeleted,
+    onToggleError: setActionError,
+    onToggled,
+    tenantId,
+  };
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5 pb-6 font-(family-name:--app-room-font)">
+      {actionError ? (
+        <p className="px-1.5 text-sm text-destructive" role="alert">
+          {actionError}
+        </p>
+      ) : null}
       {scheduled.length === 0 && listeners.length === 0 ? (
-        <SettingsGroup ariaLabel="No routines">
+        <SettingsGroup ariaLabel={t(m.noRoutines)}>
           <SettingsRow icon={<Icon icon={Clock01Icon} size={16} />}>
             <span className="min-w-0 flex-1 py-1">
               <span className="block text-[14px] font-medium leading-[18px] text-foreground">
-                No routines in this room yet.
+                {t(m.emptyTitle)}
               </span>
               <span className="mt-0.5 block text-xs leading-[17px] text-muted-foreground">
-                Run something once at a set time, or daily, weekly, or every few
-                hours.
+                {t(m.emptyBody)}
               </span>
             </span>
           </SettingsRow>
         </SettingsGroup>
       ) : null}
       {listeners.length > 0 ? (
-        <SettingsGroup label="Watching">
-          <ul aria-label="App listeners">
+        <SettingsGroup label={t(m.watching)}>
+          <ul aria-label={t(m.appListeners)}>
             {listeners.map((routine) => (
               <ListenerRow
                 client={client}
                 key={routine.id}
+                onToggleError={setActionError}
                 routine={routine}
                 tenantId={tenantId}
                 onToggled={onToggled}
@@ -306,17 +352,25 @@ function RoutineAgenda({
         </SettingsGroup>
       ) : null}
       {upcoming.length > 0 ? (
-        <SettingsGroup label="Upcoming" meta={upcoming.length}>
+        <SettingsGroup label={t(m.upcoming)} meta={upcoming.length}>
           <ul>
             {upcoming.map((routine) => {
-              const { day, distance } = dayHeading(new Date(runTime(routine)));
+              const { day, distance } = dayHeading(
+                new Date(runTime(routine)),
+                new Date(),
+                t,
+              );
               const time = formatTimeOfDay(
                 new Date(runTime(routine)).toISOString(),
               );
               return (
                 <RoutineRow
                   {...rowProps}
-                  detail={[day, time, distance].filter(Boolean).join(" · ")}
+                  detail={
+                    distance
+                      ? t(m.upcomingDetailDistance, { day, time, distance })
+                      : t(m.upcomingDetail, { day, time })
+                  }
                   key={routine.id}
                   laterAt={
                     routine.cadence.kind === "once"
@@ -335,12 +389,12 @@ function RoutineAgenda({
         </SettingsGroup>
       ) : null}
       {recurring.length > 0 ? (
-        <SettingsGroup label="Recurring" meta={recurring.length}>
+        <SettingsGroup label={t(m.recurring)} meta={recurring.length}>
           <ul>
             {recurring.map((routine) => (
               <RoutineRow
                 {...rowProps}
-                detail={cadenceLabel(routine.cadence)}
+                detail={cadenceLabel(routine.cadence, t)}
                 key={routine.id}
                 routine={routine}
                 onOpen={() => onOpen(routine.id)}
@@ -350,7 +404,7 @@ function RoutineAgenda({
         </SettingsGroup>
       ) : null}
       {paused.length > 0 ? (
-        <SettingsGroup label="Paused" meta={paused.length}>
+        <SettingsGroup label={t(m.paused)} meta={paused.length}>
           <ul>
             {paused.map((routine) => (
               <RoutineRow
@@ -358,7 +412,7 @@ function RoutineAgenda({
                 detail={
                   routine.cadence.kind === "once"
                     ? formatWhen(routine.cadence.run_at ?? "")
-                    : cadenceLabel(routine.cadence)
+                    : cadenceLabel(routine.cadence, t)
                 }
                 key={routine.id}
                 routine={routine}
@@ -369,7 +423,7 @@ function RoutineAgenda({
         </SettingsGroup>
       ) : null}
       {done.length > 0 ? (
-        <section aria-label="Done">
+        <section aria-label={t(m.done)}>
           <div className="px-1.5">
             <button
               aria-expanded={showDone}
@@ -377,7 +431,7 @@ function RoutineAgenda({
               onClick={() => setShowDone((current) => !current)}
               type="button"
             >
-              Done
+              {t(m.done)}
               <span className="tabular-nums text-muted-foreground/80">
                 {done.length}
               </span>
@@ -388,7 +442,7 @@ function RoutineAgenda({
             </button>
           </div>
           {showDone ? (
-            <SettingsGroup ariaLabel="Done routines">
+            <SettingsGroup ariaLabel={t(m.doneRoutines)}>
               <ul>
                 {done.map((routine) => (
                   <li key={routine.id}>
@@ -422,7 +476,7 @@ function RoutineAgenda({
         >
           <SettingsRow icon={<Icon icon={PlusSignIcon} size={16} />}>
             <span className="flex-1 text-[14px] font-medium text-foreground">
-              New routine
+              {t(m.newRoutine)}
             </span>
             <Icon
               className="text-muted-foreground/70"
@@ -452,6 +506,7 @@ const UNDO_SECONDS = 5;
 
 interface ToggleProps {
   client: TeamHubClient;
+  onToggleError: (message: string | null) => void;
   onToggled: (routine: TeamHubRoutine) => void;
   tenantId: string;
 }
@@ -460,6 +515,9 @@ function RoutineRow({
   agentActorId,
   detail,
   laterAt,
+  mentionOptions,
+  onDeleteError,
+  onDeleted,
   onOpen,
   routine,
   ...toggle
@@ -467,25 +525,59 @@ function RoutineRow({
   agentActorId?: string;
   detail: string;
   laterAt?: Date;
+  mentionOptions: TeamHubActorRef[];
+  onDeleteError: (message: string | null) => void;
+  onDeleted: (routineId: string) => void;
   onOpen: () => void;
   routine: TeamHubScheduledRoutine;
 }) {
+  const t = useT();
   const wakesOther = Boolean(
     routine.mention_actor_id && routine.mention_actor_id !== agentActorId,
   );
+  const mentionTarget = wakesOther
+    ? mentionOptions.find((actor) => actor.id === routine.mention_actor_id)
+    : undefined;
   const agents = useQuery({
     ...tenantAgentsQueryOptions(toggle.client, toggle.tenantId),
-    enabled: wakesOther,
+    enabled: wakesOther && !mentionTarget,
   });
-  const target = agents.data?.items.find(
-    (item) => item.actor.id === routine.mention_actor_id,
-  );
+  const targetName =
+    mentionTarget?.display_name ??
+    agents.data?.items.find(
+      (item) => item.actor.id === routine.mention_actor_id,
+    )?.actor.display_name;
   // The Agent whose Info this is goes without saying; say who else wakes.
-  const audience = !routine.mention_actor_id
-    ? "Message only"
-    : wakesOther
-      ? `Wakes ${target?.actor.display_name ?? "an Agent"}`
-      : undefined;
+  const description = !routine.mention_actor_id
+    ? t(m.detailMessageOnly, { detail })
+    : !wakesOther
+      ? detail
+      : targetName
+        ? t(m.detailWakes, { detail, name: targetName })
+        : t(m.detailWakesAgent, { detail });
+  if (!isEditableRoutine(routine)) {
+    return (
+      <li>
+        <SettingsRow icon={<Icon icon={Clock01Icon} size={16} />}>
+          <SettingsRowText
+            description={description}
+            muted={!routine.enabled}
+            title={routine.name}
+          />
+          <div className="flex shrink-0 items-center gap-2">
+            <RoutineDeleteButton
+              client={toggle.client}
+              onDeleted={() => onDeleted(routine.id)}
+              onError={onDeleteError}
+              routine={routine}
+              tenantId={toggle.tenantId}
+            />
+            <RoutineSwitch routine={routine} {...toggle} />
+          </div>
+        </SettingsRow>
+      </li>
+    );
+  }
   return (
     <li className="group transition-colors duration-150 hover:bg-muted/40">
       <SettingsRow icon={<Icon icon={Clock01Icon} size={16} />}>
@@ -495,7 +587,7 @@ function RoutineRow({
           type="button"
         >
           <SettingsRowText
-            description={[detail, audience].filter(Boolean).join(" · ")}
+            description={description}
             muted={!routine.enabled}
             title={routine.name}
           />
@@ -514,7 +606,7 @@ function LaterTodayButton({
   laterAt,
   routine,
   tenantId,
-}: Omit<ToggleProps, "onToggled"> & {
+}: Omit<ToggleProps, "onToggleError" | "onToggled"> & {
   laterAt: Date;
   routine: TeamHubScheduledRoutine;
 }) {
@@ -562,10 +654,92 @@ function LaterTodayButton({
   );
 }
 
+function RoutineDeleteButton({
+  client,
+  onDeleted,
+  onError,
+  routine,
+  tenantId,
+}: {
+  client: TeamHubClient;
+  onDeleted: () => void;
+  onError: (message: string | null) => void;
+  routine: TeamHubScheduledRoutine;
+  tenantId: string;
+}) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const [armed, setArmed] = useState(false);
+  const remove = useMutation({
+    mutationFn: () => deleteRoomRoutine(client, routine),
+    onMutate: () => onError(null),
+    onSuccess: async () => {
+      setArmed(false);
+      onDeleted();
+      await queryClient.invalidateQueries({
+        queryKey: roomRoutinesQueryKey(tenantId, routine.room_id),
+      });
+    },
+    onError: (cause) => {
+      setArmed(false);
+      onError(cause instanceof Error ? cause.message : t(m.deleteFailed));
+    },
+  });
+  if (armed) {
+    return (
+      <div
+        aria-label="Confirm routine deletion"
+        className="flex shrink-0 items-center gap-1.5"
+        role="group"
+      >
+        <span className="text-xs font-medium text-foreground">Delete?</span>
+        <Button
+          aria-label="Confirm delete routine"
+          data-voice-risk="never"
+          disabled={remove.isPending}
+          loading={remove.isPending}
+          onClick={() => remove.mutate()}
+          size="compact"
+          tone="danger"
+          type="button"
+        >
+          {remove.isPending ? "Deleting…" : "Confirm delete"}
+        </Button>
+        <Button
+          disabled={remove.isPending}
+          onClick={() => setArmed(false)}
+          size="compact"
+          tone="ghost"
+          type="button"
+        >
+          {t(commonMessages.cancel)}
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <button
+      data-voice-risk="never"
+      aria-label={t(m.deleteRoutine)}
+      className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+      disabled={remove.isPending}
+      onClick={() => {
+        onError(null);
+        setArmed(true);
+      }}
+      title={t(m.deleteRoutine)}
+      type="button"
+    >
+      <Icon icon={Delete02Icon} size={14} />
+    </button>
+  );
+}
+
 function ListenerRow({
   routine,
   ...toggle
 }: ToggleProps & { routine: TeamHubRoutine }) {
+  const t = useT();
   const app = connectedAppDisplayName(routine.listener?.app);
   return (
     <li>
@@ -579,7 +753,7 @@ function ListenerRow({
         <SettingsRowText
           description={routine.name}
           muted={!routine.enabled}
-          title={routine.enabled ? `Watching ${app}` : `Not watching ${app}`}
+          title={t(routine.enabled ? m.watchingApp : m.notWatchingApp, { app })}
         />
         <RoutineSwitch routine={routine} {...toggle} />
       </SettingsRow>
@@ -589,10 +763,12 @@ function ListenerRow({
 
 function RoutineSwitch({
   client,
+  onToggleError,
   onToggled,
   routine,
   tenantId,
 }: ToggleProps & { routine: TeamHubRoutine }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const toggle = useMutation({
     mutationFn: (enabled: boolean) =>
@@ -605,17 +781,24 @@ function RoutineSwitch({
           },
         }),
       ),
+    onMutate: () => onToggleError(null),
     onSuccess: async (saved) => {
       onToggled(saved);
       await queryClient.invalidateQueries({
         queryKey: roomRoutinesQueryKey(tenantId, routine.room_id),
       });
     },
+    onError: (cause) =>
+      onToggleError(
+        cause instanceof Error && cause.message
+          ? cause.message
+          : "Could not update routine.",
+      ),
   });
   return (
     <button
       aria-checked={routine.enabled}
-      aria-label={routine.enabled ? "Pause routine" : "Enable routine"}
+      aria-label={t(routine.enabled ? m.pauseRoutine : m.enableRoutine)}
       className={`relative h-4 w-7 shrink-0 rounded-full shadow-sm transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 ${routine.enabled ? "bg-primary" : "bg-input"}`}
       disabled={toggle.isPending}
       onClick={() => toggle.mutate(!routine.enabled)}
@@ -642,6 +825,7 @@ function UndoToast({
   routine: TeamHubRoutine;
   secondsLeft: number;
 }) {
+  const t = useT();
   return (
     <div
       className="town-toast-enter flex items-center gap-3 rounded-xl bg-popover px-4 py-2.5 text-sm text-foreground shadow-lg"
@@ -649,8 +833,10 @@ function UndoToast({
     >
       <span className="min-w-0 flex-1 truncate">
         {failed
-          ? "Could not undo."
-          : `${routine.enabled ? "Enabled" : "Paused"} “${routine.name}”`}
+          ? t(m.undoFailed)
+          : t(routine.enabled ? m.enabledRoutine : m.pausedRoutine, {
+              name: routine.name,
+            })}
       </span>
       {failed ? null : (
         <>
@@ -687,7 +873,7 @@ function UndoToast({
             onClick={onUndo}
             type="button"
           >
-            Undo
+            {t(m.undo)}
           </button>
         </>
       )}

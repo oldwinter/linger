@@ -12,6 +12,7 @@ import {
   teamHubErrorResponse,
   type TestRouteMethod,
 } from "@/test/teamhub-test-server";
+import { defineGlobalProperty } from "@/test/global-properties";
 import {
   useQuery,
   useQueryClient,
@@ -55,7 +56,7 @@ import {
   LibraryDocumentsPage,
 } from "./library-documents-page";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
-import { formatUpdatedAt } from "@/lib/date-format";
+import { formatDateTime, formatUpdatedAt } from "@/lib/date-format";
 
 const composingRenameKeys = [
   { key: "Enter", isComposing: true, keyCode: 13 },
@@ -70,7 +71,7 @@ describe("Library Documents", () => {
     renderPage(runtime);
 
     const heading = await screen.findByRole("heading", {
-      level: 2,
+      level: 1,
       name: "Library",
     });
     expect(screen.queryByRole("heading", { name: "My Files" })).toBeNull();
@@ -645,6 +646,23 @@ describe("Library Documents", () => {
     expect(within(files).getByText("No linked context")).toBeVisible();
   });
 
+  it("lists the Personal Wiki once beside the Rooms a Document is visible in", async () => {
+    const runtime = await signedInRuntime();
+    const linked = seedNativeDocument(runtime, "wiki-row");
+    linked.title = "Wiki plan";
+    linked.from = [
+      { binding_kind: "room", context_id: "room-all", label: "Planning" },
+      { binding_kind: "wiki_page", context_id: "wiki-1" },
+      { binding_kind: "wiki_source", context_id: "wiki-1", label: "Wiki" },
+    ];
+    renderPage(runtime);
+
+    const files = await screen.findByLabelText("My pages documents");
+    expect(
+      await within(files).findByText("Visible in Planning, Personal Wiki"),
+    ).toBeVisible();
+  });
+
   it("renders Workspace file rows with owner, time, download, and more actions", async () => {
     const runtime = await signedInRuntime();
     const seeded = seedNativeDocument(runtime, "workspace-file-row");
@@ -1198,6 +1216,116 @@ describe("Library Documents", () => {
     ).toHaveLength(0);
   });
 
+  it("commits a changed Folder rename on blur and cancels when unchanged or blank", async () => {
+    const runtime = await signedInRuntime();
+    const folder = seedFolder(runtime, "folder-rename-blur", { name: "Plans" });
+    const updated = { ...folder, name: "Roadmaps" };
+    respondToPlacementUpdate(runtime, () => {
+      documentSeeds(runtime).tree.items = [updated];
+      return updated;
+    });
+    renderTree(runtime);
+
+    await chooseNodeAction("Plans", "Rename");
+    const unchangedInput = screen.getByRole("textbox", {
+      name: "Rename folder",
+    });
+    fireEvent.blur(unchangedInput);
+    expect(
+      screen.queryByRole("textbox", { name: "Rename folder" }),
+    ).not.toBeInTheDocument();
+    expect(
+      runtime.server.requestsTo(
+        "PATCH",
+        "/v0/tenants/{tenantId}/me/document-placements/{placementId}",
+      ),
+    ).toHaveLength(0);
+
+    await chooseNodeAction("Plans", "Rename");
+    const blankInput = screen.getByRole("textbox", { name: "Rename folder" });
+    fireEvent.change(blankInput, { target: { value: "   " } });
+    fireEvent.blur(blankInput);
+    expect(
+      screen.queryByRole("textbox", { name: "Rename folder" }),
+    ).not.toBeInTheDocument();
+    expect(
+      runtime.server.requestsTo(
+        "PATCH",
+        "/v0/tenants/{tenantId}/me/document-placements/{placementId}",
+      ),
+    ).toHaveLength(0);
+
+    await chooseNodeAction("Plans", "Rename");
+    const changedInput = screen.getByRole("textbox", { name: "Rename folder" });
+    fireEvent.change(changedInput, { target: { value: "Roadmaps" } });
+    fireEvent.blur(changedInput);
+    expect(
+      await screen.findByRole("treeitem", { name: "Roadmaps" }),
+    ).toBeVisible();
+    expect(
+      runtime.server.requestsTo(
+        "PATCH",
+        "/v0/tenants/{tenantId}/me/document-placements/{placementId}",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("commits a changed shared Folder rename on blur and cancels when unchanged", async () => {
+    const runtime = await signedInRuntime();
+    let folder: Extract<TeamHubDocumentPlacementNode, { node_kind: "folder" }> =
+      {
+        created_at: "2026-08-26T10:00:00.000Z",
+        id: "shared-folder-blur",
+        name: "Shared Plans",
+        node_kind: "folder",
+        sort_key: "shared-folder-blur",
+        updated_at: "2026-08-26T10:00:00.000Z",
+      };
+    runtime.server.on(
+      "GET",
+      "/v0/tenants/{tenantId}/me/shared-document-tree",
+      () => ({ items: [folder] }),
+    );
+    runtime.server.on(
+      "PATCH",
+      "/v0/tenants/{tenantId}/me/shared-document-folders/{folderId}",
+      () => {
+        folder = { ...folder, name: "Shared Roadmaps" };
+        return folder;
+      },
+    );
+    renderTree(runtime);
+
+    await screen.findByRole("treeitem", { name: "Shared Plans" });
+    await chooseMenuAction("Actions for shared folder Shared Plans", "Rename");
+    fireEvent.blur(
+      screen.getByRole("textbox", { name: "Rename shared folder" }),
+    );
+    expect(
+      screen.queryByRole("textbox", { name: "Rename shared folder" }),
+    ).not.toBeInTheDocument();
+    expect(
+      runtime.server.requestsTo(
+        "PATCH",
+        "/v0/tenants/{tenantId}/me/shared-document-folders/{folderId}",
+      ),
+    ).toHaveLength(0);
+
+    await chooseMenuAction("Actions for shared folder Shared Plans", "Rename");
+    const input = screen.getByRole("textbox", { name: "Rename shared folder" });
+    fireEvent.change(input, { target: { value: "Shared Roadmaps" } });
+    fireEvent.blur(input);
+    expect(
+      await screen.findByRole("treeitem", { name: "Shared Roadmaps" }),
+    ).toBeVisible();
+    expect(
+      runtime.server.requestsTo(
+        "PATCH",
+        "/v0/tenants/{tenantId}/me/shared-document-folders/{folderId}",
+      ),
+    ).toHaveLength(1);
+  });
+
   it("keeps a blank Folder rename editable without sending a mutation", async () => {
     const runtime = await signedInRuntime();
     seedFolder(runtime, "folder-rename-blank", { name: "Plans" });
@@ -1242,21 +1370,35 @@ describe("Library Documents", () => {
     );
   });
 
-  it("deletes an empty personal Folder and removes it from the ARIA tree", async () => {
+  it("confirms before deleting an empty personal Folder and removes it from the ARIA tree", async () => {
     const runtime = await signedInRuntime();
     const folder = seedFolder(runtime, "folder-delete-create", {
       name: "Scratch",
     });
+    const deleteRequest = vi.fn(() => {
+      documentSeeds(runtime).tree.items = [];
+    });
     runtime.server.on(
       "DELETE",
       "/v0/tenants/{tenantId}/me/document-folders/{placementId}",
-      () => {
-        documentSeeds(runtime).tree.items = [];
-      },
+      deleteRequest,
     );
     renderTree(runtime);
 
     await chooseNodeAction("Scratch", "Delete");
+    const cancelDialog = screen.getByRole("dialog", { name: "Delete folder" });
+    expect(deleteRequest).not.toHaveBeenCalled();
+    fireEvent.click(
+      within(cancelDialog).getByRole("button", { name: "Cancel" }),
+    );
+    expect(deleteRequest).not.toHaveBeenCalled();
+    expect(screen.getByRole("treeitem", { name: "Scratch" })).toBeVisible();
+
+    await chooseNodeAction("Scratch", "Delete");
+    const confirmDialog = screen.getByRole("dialog", { name: "Delete folder" });
+    fireEvent.click(
+      within(confirmDialog).getByRole("button", { name: "Delete folder" }),
+    );
 
     await waitFor(() => {
       expect(
@@ -1286,6 +1428,10 @@ describe("Library Documents", () => {
     renderTree(runtime);
 
     await chooseNodeAction("Scratch", "Delete");
+    const confirmDialog = screen.getByRole("dialog", { name: "Delete folder" });
+    fireEvent.click(
+      within(confirmDialog).getByRole("button", { name: "Delete folder" }),
+    );
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Folder deletion is unavailable.",
@@ -1901,6 +2047,7 @@ describe("Library Documents", () => {
     await waitFor(() => expect(newFolder).toBeEnabled());
     fireEvent.click(newFolder);
     const name = await screen.findByRole("textbox", { name: "Folder name" });
+    expect(name).toHaveFocus();
     expect(name).toHaveValue("New Folder");
     fireEvent.change(name, { target: { value: "Design" } });
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
@@ -1913,9 +2060,17 @@ describe("Library Documents", () => {
         }),
       ),
     );
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Open folder Design" }),
-    );
+    const folderButton = await screen.findByRole("button", {
+      name: "Open folder Design",
+    });
+    const folderTime = folderButton
+      .closest(".workspace-file-row")
+      ?.querySelector("time");
+    expect(folderTime).not.toBeNull();
+    const updatedAt = folderTime!.getAttribute("dateTime")!;
+    expect(folderTime).toHaveTextContent(formatUpdatedAt(updatedAt));
+    expect(folderTime).toHaveAttribute("title", formatDateTime(updatedAt));
+    fireEvent.click(folderButton);
     expect(router.state.location.search).toBe("?folder=created-Design");
     expect(
       await screen.findByRole("navigation", { name: "Folder path" }),
@@ -2103,6 +2258,54 @@ describe("Library Documents", () => {
     expect(screen.queryByText("2 selected")).toBeNull();
   });
 
+  it("moves a selected document from inside a subfolder back to Owned by Me root", async () => {
+    const runtime = await signedInRuntime();
+    const folder = seedFolder(runtime, "bulk-move-subfolder", {
+      name: "Archive",
+    });
+    const note = seedNativeDocument(runtime, "bulk-move-subfolder-doc", {
+      parent_id: folder.id,
+    });
+    note.title = "Nested note";
+    renderPage(runtime);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Open folder Archive" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("checkbox", {
+        name: "Select Nested note.md",
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Move to folder" }));
+    const dialog = screen.getByRole("dialog", {
+      name: "Move 1 document to…",
+    });
+    const archiveRow = within(dialog)
+      .getByRole("button", { name: "Select Archive" })
+      .closest('[role="treeitem"]');
+    expect(archiveRow).toHaveAttribute("aria-current", "location");
+    expect(
+      within(dialog).getByRole("button", { name: "Move here" }),
+    ).toBeDisabled();
+
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Select Owned by Me" }),
+    );
+    const moveHere = within(dialog).getByRole("button", { name: "Move here" });
+    expect(moveHere).toBeEnabled();
+    fireEvent.click(moveHere);
+
+    await waitFor(() => {
+      const movedPlacement = documentSeeds(runtime).tree.items.find(
+        (item) => item.node_kind === "document" && item.document_id === note.id,
+      );
+      expect(movedPlacement).toBeDefined();
+      expect(movedPlacement?.parent_id).toBeUndefined();
+    });
+    expect(await screen.findByText("Moved 1 document.")).toBeVisible();
+  });
+
   it("keeps failed rows selected when a bulk trash partially fails", async () => {
     const runtime = await signedInRuntime();
     const alpha = seedNativeDocument(runtime, "bulk-trash-alpha");
@@ -2158,7 +2361,7 @@ describe("Library Documents", () => {
     const bravo = seedNativeDocument(runtime, "copy-links-bravo");
     bravo.title = "Bravo plan";
     const writeText = vi.fn(() => Promise.resolve());
-    Object.assign(navigator, { clipboard: { writeText } });
+    defineGlobalProperty(navigator, "clipboard", { value: { writeText } });
     renderPage(runtime);
 
     const files = await screen.findByLabelText("My pages documents");
@@ -2195,15 +2398,14 @@ describe("Library Documents", () => {
   it("reports a refused copy and keeps the selection for a retry", async () => {
     const runtime = await signedInRuntime();
     seedNativeDocument(runtime, "copy-failure-alpha");
-    Object.assign(navigator, {
-      clipboard: {
+    defineGlobalProperty(navigator, "clipboard", {
+      value: {
         writeText: vi.fn(() =>
           Promise.reject(new Error("Clipboard is denied")),
         ),
       },
     });
-    Object.defineProperty(document, "execCommand", {
-      configurable: true,
+    defineGlobalProperty(document, "execCommand", {
       value: vi.fn(() => false),
     });
     renderPage(runtime);
@@ -2645,7 +2847,7 @@ describe("Copy folder contents", () => {
     });
     buried.title = "Buried";
     const writeText = vi.fn(() => Promise.resolve());
-    Object.assign(navigator, { clipboard: { writeText } });
+    defineGlobalProperty(navigator, "clipboard", { value: { writeText } });
     renderPage(runtime);
 
     fireEvent.click(
@@ -2707,15 +2909,14 @@ describe("Copy folder contents", () => {
       parent_id: folder.id,
     });
     spec.title = "Spec";
-    Object.assign(navigator, {
-      clipboard: {
+    defineGlobalProperty(navigator, "clipboard", {
+      value: {
         writeText: vi.fn(() =>
           Promise.reject(new Error("Clipboard is denied")),
         ),
       },
     });
-    Object.defineProperty(document, "execCommand", {
-      configurable: true,
+    defineGlobalProperty(document, "execCommand", {
       value: vi.fn(() => false),
     });
     renderPage(runtime);

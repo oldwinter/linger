@@ -306,6 +306,44 @@ describe("Wiki directory", () => {
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
+  it("sorts an upper-bound year as an end year in the timeline", async () => {
+    const entry = (period: string, organization: string) => ({
+      period,
+      organization,
+      place: "",
+      role: "",
+      description: "",
+      details: [],
+    });
+    await setup(
+      "/t/tenant-northstar/library/wiki/profile",
+      profileDocument({
+        background: {
+          overview: "Avery leads research.",
+          points: [],
+          timeline: [
+            entry("2020", "Example Co"),
+            entry("\u22642020", "Example Lab"),
+            entry("\u20132018", "Example University"),
+          ],
+        },
+      }),
+    );
+    const content = await screen.findByRole("article", {
+      name: "Profile content",
+    });
+    const timeline = await within(content).findByRole("list", {
+      name: "Timeline",
+    });
+    const entries = [
+      ...timeline.querySelectorAll(".wiki-profile-timeline-entry"),
+    ].map((item) => item.textContent);
+    expect(entries).toEqual([
+      "\u20132018Example University",
+      "\u22642020Example Lab",
+      "2020Example Co",
+    ]);
+  });
   it("says the Profile is being written while an Agent builds it", async () => {
     await setup(
       "/t/tenant-northstar/library/wiki",
@@ -336,19 +374,44 @@ describe("Wiki directory", () => {
   it("filters a collection page by name", async () => {
     await setup("/t/tenant-northstar/library/wiki/projects");
     const search = await screen.findByRole("searchbox", {
-      name: "Search Projects",
+      name: "Search projects",
     });
     expect(await screen.findByRole("link", { name: /alpha/ })).toBeVisible();
+    expect(screen.getByText("2 projects")).toBeVisible();
     fireEvent.change(search, { target: { value: "BET" } });
+    expect(screen.getByText("1 of 2 projects")).toBeVisible();
     expect(screen.queryByRole("link", { name: /alpha/ })).toBeNull();
     expect(screen.getByRole("link", { name: /beta/ })).toBeVisible();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Clear Projects search" }),
+    );
+    expect(search).toHaveValue("");
+    expect(screen.getByText("2 projects")).toBeVisible();
     fireEvent.change(search, { target: { value: "gamma" } });
+    expect(screen.getByText("0 of 2 projects")).toBeVisible();
     expect(screen.getByText("No projects match “gamma”.")).toBeVisible();
+    fireEvent.keyDown(search, { key: "Escape" });
+    expect(search).toHaveValue("");
+  });
+  it("uses singular nouns for single-item collections", async () => {
+    const first = await setup(
+      "/t/tenant-northstar/library/wiki/projects",
+      undefined,
+      { alpha: "projects/alpha.md", beta: "topics/beta.md" },
+    );
+    expect(await screen.findByText("1 project")).toBeVisible();
+    first.unmount();
+
+    await setup("/t/tenant-northstar/library/wiki/clients", undefined, {
+      alpha: "clients/alpha.md",
+      beta: "topics/beta.md",
+    });
+    expect(await screen.findByText("1 company")).toBeVisible();
   });
   it("filters a collection page by body text", async () => {
     await setup("/t/tenant-northstar/library/wiki/projects");
     const search = await screen.findByRole("searchbox", {
-      name: "Search Projects",
+      name: "Search projects",
     });
     expect(await screen.findByRole("link", { name: /alpha/ })).toBeVisible();
     fireEvent.change(search, { target: { value: "NORTHWIND" } });
@@ -381,7 +444,7 @@ describe("Wiki directory", () => {
     const writeText = stubClipboard(() => Promise.resolve());
     await setup("/t/tenant-northstar/library/wiki/projects");
     const search = await screen.findByRole("searchbox", {
-      name: "Search Projects",
+      name: "Search projects",
     });
     fireEvent.change(search, { target: { value: "BET" } });
 
@@ -416,6 +479,25 @@ describe("Wiki directory", () => {
 
     expect(await screen.findByText("No generated projects yet.")).toBeVisible();
     expect(screen.getByRole("button", { name: "Copy list" })).toBeDisabled();
+  });
+  it("uses display labels for empty People and Companies collections", async () => {
+    const first = await setup(
+      "/t/tenant-northstar/library/wiki/contacts",
+      undefined,
+      { alpha: "topics/alpha.md", beta: "topics/beta.md" },
+    );
+    expect(await screen.findByText("No generated people yet.")).toBeVisible();
+    expect(screen.queryByText("No generated contacts yet.")).toBeNull();
+    first.unmount();
+
+    await setup("/t/tenant-northstar/library/wiki/clients", undefined, {
+      alpha: "topics/alpha.md",
+      beta: "topics/beta.md",
+    });
+    expect(
+      await screen.findByText("No generated companies yet."),
+    ).toBeVisible();
+    expect(screen.queryByText("No generated clients yet.")).toBeNull();
   });
   it("reports a refused clipboard write", async () => {
     stubClipboard(() => Promise.reject(new Error("Clipboard is denied")));
@@ -545,14 +627,14 @@ describe("Wiki directory", () => {
       screen.queryByRole("navigation", { name: "Topics files" }),
     ).toBeNull();
   });
-  it("persists Keep/Delete locally without deleting Documents", async () => {
+  it("persists Keep/Hide locally without deleting Documents and offers inline Undo", async () => {
     const { runtime, unmount, pages } = await setup(
       "/t/tenant-northstar/documents/alpha",
     );
     const keep = await screen.findByRole("button", { name: "Keep alpha" });
     await waitFor(() => expect(keep).toBeEnabled());
     fireEvent.click(keep);
-    fireEvent.click(screen.getByRole("button", { name: "Delete beta" }));
+    fireEvent.click(screen.getByRole("button", { name: "Hide beta" }));
     const files = screen.getByRole("navigation", { name: "Projects files" });
     expect(within(files).getByRole("link", { name: "alpha" })).toBeVisible();
     expect(within(files).queryByText("Kept")).toBeNull();
@@ -560,9 +642,12 @@ describe("Wiki directory", () => {
       within(files).queryByRole("button", { name: "Keep alpha" }),
     ).toBeNull();
     expect(
-      within(files).queryByRole("button", { name: "Delete alpha" }),
+      within(files).queryByRole("button", { name: "Hide alpha" }),
     ).toBeNull();
     expect(within(files).queryByRole("link", { name: "beta" })).toBeNull();
+    const status = within(files).getByRole("status");
+    expect(status).toHaveTextContent("Hidden beta");
+    expect(within(status).getByRole("button", { name: "Undo" })).toBeVisible();
     expect(
       runtime.server.requestsTo("DELETE", "/v0/documents/{documentId}"),
     ).toHaveLength(0);
@@ -580,13 +665,28 @@ describe("Wiki directory", () => {
       within(restored).queryByRole("button", { name: "Keep alpha" }),
     ).toBeNull();
     expect(
-      within(restored).queryByRole("button", { name: "Delete alpha" }),
+      within(restored).queryByRole("button", { name: "Hide alpha" }),
     ).toBeNull();
     expect(
       within(
         screen.getByRole("navigation", { name: "Projects files" }),
       ).queryByRole("link", { name: "beta" }),
     ).toBeNull();
+  });
+  it("restores a hidden Wiki page immediately when clicking Undo", async () => {
+    await setup("/t/tenant-northstar/documents/alpha");
+    const hideBeta = await screen.findByRole("button", { name: "Hide beta" });
+    await waitFor(() => expect(hideBeta).toBeEnabled());
+    fireEvent.click(hideBeta);
+
+    const files = screen.getByRole("navigation", { name: "Projects files" });
+    expect(within(files).queryByRole("link", { name: "beta" })).toBeNull();
+    const status = within(files).getByRole("status");
+    expect(status).toHaveTextContent("Hidden beta");
+
+    fireEvent.click(within(status).getByRole("button", { name: "Undo" }));
+    expect(within(files).getByRole("link", { name: "beta" })).toBeVisible();
+    expect(within(files).queryByRole("status")).toBeNull();
   });
   it("filters the open collection's files and highlights the match", async () => {
     const { runtime } = await setup("/t/tenant-northstar/documents/alpha");

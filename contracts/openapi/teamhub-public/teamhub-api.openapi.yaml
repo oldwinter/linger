@@ -770,6 +770,35 @@ paths:
           $ref: '../components/common.yaml#/components/responses/Unauthenticated'
         '404':
           $ref: '../components/common.yaml#/components/responses/NotFound'
+    post:
+      tags: [Local Computers]
+      operationId: refreshLocalComputerModels
+      summary: Ask an owned Local Computer to recheck memory and refresh its model library.
+      description: >-
+        Only the Computer owner may ask it to refresh. TeamHub forwards a refresh command to the
+        Computer, which answers at once; 202 means the Computer will re-probe free memory and
+        models and send a fresh snapshot.
+      responses:
+        '202':
+          description: The Computer started refreshing its model library.
+          content:
+            application/json:
+              schema:
+                $ref: '../components/local-models.yaml#/components/schemas/LocalModelsRefreshAccepted'
+        '401':
+          $ref: '../components/common.yaml#/components/responses/Unauthenticated'
+        '403':
+          $ref: '../components/local-models.yaml#/components/responses/LocalModelsRefused'
+        '404':
+          $ref: '../components/common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: '../components/local-models.yaml#/components/responses/LocalModelsRefused'
+        '502':
+          $ref: '../components/local-models.yaml#/components/responses/LocalModelsRefused'
+        '503':
+          $ref: '../components/local-models.yaml#/components/responses/LocalModelsRefused'
+        '504':
+          $ref: '../components/local-models.yaml#/components/responses/LocalModelsRefused'
   /v0/tenants/{tenantId}/local-computers/{computerId}/local-models/{modelId}/actions:
     parameters:
       - $ref: '#/components/parameters/TenantId'
@@ -812,6 +841,136 @@ paths:
           $ref: '../components/local-models.yaml#/components/responses/LocalModelsRefused'
         '504':
           $ref: '../components/local-models.yaml#/components/responses/LocalModelsRefused'
+  /v0/tenants/{tenantId}/local-computers/{computerId}/model-source:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+      - $ref: '#/components/parameters/ComputerId'
+    get:
+      tags: [Local Computers]
+      operationId: getLocalComputerModelSource
+      summary: Read the active model source and redacted BYOK configuration of one Local Computer.
+      responses:
+        '200':
+          description: Current model source view.
+          content:
+            application/json:
+              schema:
+                $ref: '../components/model-source.yaml#/components/schemas/ModelSourceView'
+        '401':
+          $ref: '../components/common.yaml#/components/responses/Unauthenticated'
+        '404':
+          $ref: '../components/common.yaml#/components/responses/NotFound'
+        '502':
+          $ref: '../components/model-source.yaml#/components/responses/ModelSourceRefused'
+        '503':
+          $ref: '../components/model-source.yaml#/components/responses/ModelSourceRefused'
+    post:
+      tags: [Local Computers]
+      operationId: switchLocalComputerModelSource
+      summary: Switch a Local Computer between local models, subscriptions, and BYOK on Bifrost.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../components/model-source.yaml#/components/schemas/ModelSourceSwitchRequest'
+      responses:
+        '200':
+          description: Switched model source view.
+          content:
+            application/json:
+              schema:
+                $ref: '../components/model-source.yaml#/components/schemas/ModelSourceView'
+        '400':
+          $ref: '../components/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../components/common.yaml#/components/responses/Unauthenticated'
+        '403':
+          $ref: '../components/model-source.yaml#/components/responses/ModelSourceRefused'
+        '404':
+          $ref: '../components/common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: '../components/model-source.yaml#/components/responses/ModelSourceRefused'
+        '502':
+          $ref: '../components/model-source.yaml#/components/responses/ModelSourceRefused'
+        '503':
+          $ref: '../components/model-source.yaml#/components/responses/ModelSourceRefused'
+        '504':
+          $ref: '../components/model-source.yaml#/components/responses/ModelSourceRefused'
+  /v0/tenants/{tenantId}/local-computers/{computerId}/model-source/models:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+      - $ref: '#/components/parameters/ComputerId'
+    post:
+      tags: [Local Computers]
+      operationId: listLocalComputerByokModels
+      summary: List the models a BYOK endpoint serves, asked from an owned Local Computer without saving anything.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../components/model-source.yaml#/components/schemas/ByokEndpointInput'
+      responses:
+        '200':
+          description: The endpoint's models.
+          content:
+            application/json:
+              schema:
+                $ref: '../components/model-source.yaml#/components/schemas/ByokModelList'
+        '400':
+          $ref: '../components/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../components/common.yaml#/components/responses/Unauthenticated'
+        '403':
+          $ref: '../components/model-source.yaml#/components/responses/ModelSourceRefused'
+        '404':
+          $ref: '../components/common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: '../components/model-source.yaml#/components/responses/ModelSourceRefused'
+        '502':
+          $ref: '../components/model-source.yaml#/components/responses/ModelSourceRefused'
+        '503':
+          $ref: '../components/model-source.yaml#/components/responses/ModelSourceRefused'
+        '504':
+          $ref: '../components/model-source.yaml#/components/responses/ModelSourceRefused'
+  /v0/tenants/{tenantId}/local-computers/{computerId}/model-source/test:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+      - $ref: '#/components/parameters/ComputerId'
+    post:
+      tags: [Local Computers]
+      operationId: testLocalComputerModelSource
+      summary: Verify a BYOK upstream endpoint from an owned Local Computer without saving credentials.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../components/model-source.yaml#/components/schemas/ByokTestRequest'
+      responses:
+        '200':
+          description: BYOK verification result.
+          content:
+            application/json:
+              schema:
+                $ref: '../components/model-source.yaml#/components/schemas/ByokTestResult'
+        '400':
+          $ref: '../components/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../components/common.yaml#/components/responses/Unauthenticated'
+        '403':
+          $ref: '../components/model-source.yaml#/components/responses/ModelSourceRefused'
+        '404':
+          $ref: '../components/common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: '../components/model-source.yaml#/components/responses/ModelSourceRefused'
+        '502':
+          $ref: '../components/model-source.yaml#/components/responses/ModelSourceRefused'
+        '503':
+          $ref: '../components/model-source.yaml#/components/responses/ModelSourceRefused'
+        '504':
+          $ref: '../components/model-source.yaml#/components/responses/ModelSourceRefused'
   /v0/tenants/{tenantId}/local-computers/{computerId}/permissions:
     parameters:
       - $ref: '#/components/parameters/TenantId'
@@ -899,6 +1058,8 @@ paths:
           $ref: '../components/common.yaml#/components/responses/Unauthenticated'
         '404':
           $ref: '../components/common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: '../components/common.yaml#/components/responses/Conflict'
         '410':
           $ref: '../components/common.yaml#/components/responses/Gone'
         '503':
@@ -3192,6 +3353,18 @@ paths:
           $ref: '../components/common.yaml#/components/responses/PayloadTooLarge'
         '503':
           $ref: '../components/common.yaml#/components/responses/ServiceUnavailable'
+  /v0/web-search/backends:
+    $ref: '../paths/teamhub-public-web-search.yaml#/backends'
+  /v0/web-search/backends/{backend}/key:
+    parameters:
+      - name: backend
+        in: path
+        required: true
+        schema:
+          $ref: '../components/web-search.yaml#/components/schemas/WebSearchKeyBackend'
+    $ref: '../paths/teamhub-public-web-search.yaml#/backendKey'
+  /v0/web-search/default:
+    $ref: '../paths/teamhub-public-web-search.yaml#/default'
   /v0/work-items/{workItemId}/documents/uploads:
     parameters:
       - $ref: '#/components/parameters/WorkItemId'
@@ -4050,6 +4223,79 @@ paths:
           $ref: '../components/common.yaml#/components/responses/NotFound'
         '409':
           $ref: '../components/common.yaml#/components/responses/Conflict'
+  /v0/documents/{documentId}/mail:
+    parameters:
+      - $ref: '#/components/parameters/DocumentId'
+    get:
+      tags: [Documents]
+      operationId: getMailCanvas
+      summary: Read the local email and its delivery status without contacting Gmail.
+      responses:
+        '200':
+          description: Local draft or delivery receipt.
+          content:
+            application/json:
+              schema:
+                $ref: '../components/mail-canvas.yaml#/components/schemas/MailCanvasState'
+        '401':
+          $ref: '../components/common.yaml#/components/responses/Unauthenticated'
+        '404':
+          $ref: '../components/common.yaml#/components/responses/NotFound'
+        '503':
+          $ref: '../components/common.yaml#/components/responses/ServiceUnavailable'
+    post:
+      tags: [Documents]
+      operationId: sendMailCanvas
+      summary: Upload and send the exact local email the Human reviewed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../components/mail-canvas.yaml#/components/schemas/SendMailCanvasRequest'
+      responses:
+        '202':
+          description: Delivery accepted. Editing alone never creates a Gmail draft.
+          content:
+            application/json:
+              schema:
+                $ref: '../components/mail-canvas.yaml#/components/schemas/MailCanvasState'
+        '400':
+          $ref: '../components/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../components/common.yaml#/components/responses/Unauthenticated'
+        '403':
+          $ref: '../components/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../components/common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: '../components/common.yaml#/components/responses/Conflict'
+        '503':
+          $ref: '../components/common.yaml#/components/responses/ServiceUnavailable'
+  /v0/documents/{documentId}/mail/decline:
+    parameters:
+      - $ref: '#/components/parameters/DocumentId'
+    post:
+      tags: [Documents]
+      operationId: declineMailCanvas
+      summary: Record that the Human chose not to send this email.
+      responses:
+        '200':
+          description: The email is marked as not sent; Send is no longer offered.
+          content:
+            application/json:
+              schema:
+                $ref: '../components/mail-canvas.yaml#/components/schemas/MailCanvasState'
+        '401':
+          $ref: '../components/common.yaml#/components/responses/Unauthenticated'
+        '403':
+          $ref: '../components/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../components/common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: '../components/common.yaml#/components/responses/Conflict'
+        '503':
+          $ref: '../components/common.yaml#/components/responses/ServiceUnavailable'
   /v0/documents/{documentId}/open:
     parameters:
       - $ref: '#/components/parameters/DocumentId'

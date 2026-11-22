@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { UrlPreviewPanel } from "./url-preview-panel";
 
@@ -97,5 +97,40 @@ describe("URL preview fallback", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+});
+
+describe("URL preview in the desktop app", () => {
+  afterEach(() => {
+    delete (window as { lingerDesktop?: unknown }).lingerDesktop;
+  });
+
+  it("replaces a frame the site refused with a link to open it in a new tab", () => {
+    let report: ((frameName: string, url: string) => void) | undefined;
+    (window as { lingerDesktop?: unknown }).lingerDesktop = {
+      preview: {
+        onFrameRefused: (
+          callback: (frameName: string, url: string) => void,
+        ) => {
+          report = callback;
+          return () => (report = undefined);
+        },
+      },
+    };
+    render(<UrlPreviewPanel url="https://linear.app/team/issue/A-1" />);
+    const frame = document.querySelector("iframe")!;
+    expect(frame.name).toMatch(/^linger-url-preview:/);
+
+    act(() => report!("linger-url-preview:another", "https://linear.app/"));
+    expect(document.querySelector("iframe")).not.toBeNull();
+
+    act(() => report!(frame.name, "https://linear.app/login"));
+    expect(document.querySelector("iframe")).toBeNull();
+    expect(screen.getByText("Open this site in a new tab")).toBeInTheDocument();
+    expect(
+      screen.getByText("linear.app does not allow being shown in the app."),
+    ).toBeInTheDocument();
+    const links = screen.getAllByRole("link", { name: "Open in new tab" });
+    expect(links.at(-1)).toHaveAttribute("href", "https://linear.app/login");
   });
 });

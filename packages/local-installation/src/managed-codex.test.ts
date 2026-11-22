@@ -1,6 +1,9 @@
+import path from "node:path";
 import type { runLocalmodels } from "./localmodels-tool.js";
 import { expect, it, vi } from "vitest";
 import { checkRuntimeModel, configureManagedCodex } from "./managed-codex.js";
+const home = path.resolve("/owned");
+const instance = path.join(home, "instances", "default");
 it("delegates Responses probing and Codex model profile construction upstream via stdin", async () => {
   const localmodels = vi.fn<typeof runLocalmodels>(async () => ({
     code: 0,
@@ -8,7 +11,7 @@ it("delegates Responses probing and Codex model profile construction upstream vi
     stderr: "",
   }));
   await configureManagedCodex(
-    "/owned/instances/default",
+    instance,
     {
       baseUrl: "https://gateway.example/v1",
       model: "owner-model",
@@ -18,12 +21,12 @@ it("delegates Responses probing and Codex model profile construction upstream vi
     { localmodels },
   );
   expect(localmodels).toHaveBeenCalledWith(
-    "/owned",
+    home,
     [
       "harness",
       "auth",
       "--root",
-      "/owned/runtime/harness",
+      path.join(home, "runtime", "harness"),
       "--runtime",
       "codex",
       "--config-stdin",
@@ -46,7 +49,7 @@ it("delegates Responses probing and Codex model profile construction upstream vi
 it("does not return upstream errors or credentials when configuration fails", async () => {
   await expect(
     configureManagedCodex(
-      "/owned/instances/default",
+      instance,
       {
         baseUrl: "https://gateway.example/v1",
         model: "owner-model",
@@ -77,7 +80,7 @@ it("delegates read-only model checks without saving a profile", async () => {
       apiKey: "private-key",
     },
     new AbortController().signal,
-    { home: "/owned", localmodels },
+    { home, localmodels },
   );
   expect(localmodels.mock.calls[0]![1]).toContain("--check");
 });

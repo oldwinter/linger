@@ -3,6 +3,11 @@
 // sponsor's confirmation.
 package agentconnectedapps
 
+import (
+	"github.com/vektah/gqlparser/v2/ast"
+	"github.com/vektah/gqlparser/v2/parser"
+)
+
 // toolAccess is how TeamHub admits one provider tool call. The
 // generic `teamhub apps execute` and the wrapped connector commands submit
 // their calls to the same Execute, which decides here; neither the CLI nor
@@ -22,24 +27,62 @@ const (
 	accessWrite
 )
 
-// accessOf classifies a provider tool by its exact slug.
-func accessOf(slug string) toolAccess {
+// linearGraphQLTool runs any GraphQL document against Linear, so its slug
+// alone cannot say whether a call reads or writes.
+const linearGraphQLTool = "LINEAR_RUN_QUERY_OR_MUTATION"
+
+// accessOf classifies a provider tool call by its exact slug, and a Linear
+// GraphQL call by the operations its document declares.
+func accessOf(slug string, arguments map[string]any) toolAccess {
 	switch {
 	case readTools[slug]:
 		return accessRead
 	case directWriteTools[slug]:
 		return accessWrite
+	case slug == linearGraphQLTool && onlyQueries(arguments["query_or_mutation"]):
+		return accessRead
 	default:
 		return accessConfirm
 	}
 }
 
+// onlyQueries reports whether document is a GraphQL document whose operations
+// are all queries. A document that does not parse, declares no operation, or
+// declares a mutation or subscription is held like any other write.
+func onlyQueries(document any) bool {
+	text, ok := document.(string)
+	if !ok {
+		return false
+	}
+	parsed, err := parser.ParseQuery(&ast.Source{Input: text})
+	if err != nil || len(parsed.Operations) == 0 {
+		return false
+	}
+	for _, operation := range parsed.Operations {
+		if operation.Operation != ast.Query {
+			return false
+		}
+	}
+	return true
+}
+
 // readTools are the provider reads the wrapped connector commands make,
 // including the draft reads TeamHub makes to build a send-draft card, plus the
+// Discord reads of the connected guild, its channels, threads, and messages
+// (which run at once only inside the connected guild; see discordReadInScope), the
 // Slack reads Agents make through the generic execute to find direct messages
-// and the people in them. A read the generic execute names outside this list
-// is held like a write.
+// and the people in them, and the Linear reads, which have no wrapped command.
+// A read the generic execute names outside this list is held like a write.
 var readTools = map[string]bool{
+	"DISCORDBOT_GET_CONNECTED_GUILD":                      true,
+	"DISCORDBOT_GET_GUILD":                                true,
+	"DISCORDBOT_LIST_GUILD_CHANNELS":                      true,
+	"DISCORDBOT_GET_CHANNEL":                              true,
+	"DISCORDBOT_GET_ACTIVE_GUILD_THREADS":                 true,
+	"DISCORDBOT_LIST_PUBLIC_ARCHIVED_THREADS":             true,
+	"DISCORDBOT_LIST_MESSAGES":                            true,
+	"DISCORDBOT_GET_MESSAGE":                              true,
+	"DISCORDBOT_LIST_PINNED_MESSAGES":                     true,
 	"FAL_AI_GET_MODELS":                                   true,
 	"FAL_AI_GET_PRICING":                                  true,
 	"FAL_AI_GET_QUEUE_REQUEST_RESULT":                     true,
@@ -74,11 +117,41 @@ var readTools = map[string]bool{
 	"GOOGLEDRIVE_GET_FILE_METADATA":                       true,
 	"HIGGSFIELD_MCP_JOB_STATUS":                           true,
 	"HIGGSFIELD_MCP_MODELS_EXPLORE":                       true,
+	"LINEAR_GET_ALL_LINEAR_TEAMS":                         true,
+	"LINEAR_GET_ATTACHMENT":                               true,
+	"LINEAR_GET_COMMENT":                                  true,
+	"LINEAR_GET_CURRENT_USER":                             true,
+	"LINEAR_GET_CYCLES_BY_TEAM_ID":                        true,
+	"LINEAR_GET_ISSUE_DEFAULTS":                           true,
+	"LINEAR_GET_LINEAR_ISSUE":                             true,
+	"LINEAR_GET_LINEAR_PROJECT":                           true,
+	"LINEAR_GET_PROJECT_UPDATE":                           true,
+	"LINEAR_LIST_COMMENTS":                                true,
+	"LINEAR_LIST_ISSUES_BY_TEAM_ID":                       true,
+	"LINEAR_LIST_ISSUE_DRAFTS":                            true,
+	"LINEAR_LIST_LINEAR_CYCLES":                           true,
+	"LINEAR_LIST_LINEAR_ISSUES":                           true,
+	"LINEAR_LIST_LINEAR_LABELS":                           true,
+	"LINEAR_LIST_LINEAR_PROJECTS":                         true,
+	"LINEAR_LIST_LINEAR_STATES":                           true,
+	"LINEAR_LIST_LINEAR_TEAMS":                            true,
+	"LINEAR_LIST_LINEAR_USERS":                            true,
+	"LINEAR_LIST_PROJECT_UPDATES":                         true,
+	"LINEAR_SEARCH_ISSUES":                                true,
+	"LINEAR_VALIDATE_CREDENTIAL":                          true,
+	"LINEAR_WHO_AM_I":                                     true,
 	"NOTION_GET_PAGE_MARKDOWN":                            true,
 	"NOTION_RETRIEVE_PAGE":                                true,
 	"NOTION_SEARCH_NOTION_PAGE":                           true,
 	"OUTLOOK_DOWNLOAD_OUTLOOK_ATTACHMENT":                 true,
+	"OUTLOOK_GET_CALENDAR_EVENT":                          true,
+	"OUTLOOK_GET_CALENDAR_SCHEDULE":                       true,
+	"OUTLOOK_GET_CALENDAR_VIEW":                           true,
+	"OUTLOOK_GET_EVENT":                                   true,
+	"OUTLOOK_GET_MAILBOX_SETTINGS":                        true,
 	"OUTLOOK_GET_MESSAGE":                                 true,
+	"OUTLOOK_LIST_CALENDARS":                              true,
+	"OUTLOOK_LIST_EVENTS":                                 true,
 	"OUTLOOK_LIST_MESSAGES":                               true,
 	"OUTLOOK_LIST_OUTLOOK_ATTACHMENTS":                    true,
 	"OUTLOOK_QUERY_EMAILS":                                true,
@@ -107,30 +180,37 @@ var readTools = map[string]bool{
 // permission reviewer ("judge" in the CLI's connectorWriteApproval), which
 // include paid media generation.
 var directWriteTools = map[string]bool{
-	"FAL_AI_SUBMIT_ASYNC_JOB":                  true,
-	"FAL_AI_UPLOAD_FILE":                       true,
-	"FIGMA_ADD_A_COMMENT_TO_A_FILE":            true,
-	"GMAIL_BATCH_MODIFY_MESSAGES":              true,
-	"GMAIL_CREATE_EMAIL_DRAFT":                 true,
-	"GMAIL_UPDATE_DRAFT":                       true,
-	"GOOGLECALENDAR_BATCH_EVENTS":              true,
-	"GOOGLECALENDAR_CREATE_EVENT":              true,
-	"GOOGLECALENDAR_DELETE_EVENT":              true,
-	"GOOGLECALENDAR_PATCH_EVENT":               true,
-	"GOOGLEDRIVE_CREATE_FOLDER":                true,
-	"GOOGLEDRIVE_RESUMABLE_UPLOAD":             true,
-	"HIGGSFIELD_MCP_GENERATE_IMAGE":            true,
-	"HIGGSFIELD_MCP_GENERATE_VIDEO":            true,
-	"HIGGSFIELD_MCP_MEDIA_CONFIRM":             true,
-	"HIGGSFIELD_MCP_MEDIA_UPLOAD":              true,
-	"OUTLOOK_ADD_MAIL_ATTACHMENT":              true,
-	"OUTLOOK_CREATE_ATTACHMENT_UPLOAD_SESSION": true,
-	"OUTLOOK_CREATE_DRAFT":                     true,
-	"OUTLOOK_CREATE_DRAFT_REPLY":               true,
-	"OUTLOOK_CREATE_REPLY_ALL_DRAFT":           true,
-	"OUTLOOK_MOVE_MESSAGE":                     true,
-	"OUTLOOK_UPDATE_EMAIL":                     true,
-	"SLACK_ADD_REACTION_TO_AN_ITEM":            true,
-	"SLACK_OPEN_DM":                            true,
-	"SLACK_REMOVE_REACTION_FROM_ITEM":          true,
+	"FAL_AI_SUBMIT_ASYNC_JOB":                              true,
+	"FAL_AI_UPLOAD_FILE":                                   true,
+	"FIGMA_ADD_A_COMMENT_TO_A_FILE":                        true,
+	"GMAIL_BATCH_MODIFY_MESSAGES":                          true,
+	"GMAIL_CREATE_EMAIL_DRAFT":                             true,
+	"GMAIL_UPDATE_DRAFT":                                   true,
+	"GOOGLECALENDAR_BATCH_EVENTS":                          true,
+	"GOOGLECALENDAR_CREATE_EVENT":                          true,
+	"GOOGLECALENDAR_DELETE_EVENT":                          true,
+	"GOOGLECALENDAR_PATCH_EVENT":                           true,
+	"GOOGLEDRIVE_CREATE_FOLDER":                            true,
+	"GOOGLEDRIVE_RESUMABLE_UPLOAD":                         true,
+	"HIGGSFIELD_MCP_GENERATE_IMAGE":                        true,
+	"HIGGSFIELD_MCP_GENERATE_VIDEO":                        true,
+	"HIGGSFIELD_MCP_MEDIA_CONFIRM":                         true,
+	"HIGGSFIELD_MCP_MEDIA_UPLOAD":                          true,
+	"OUTLOOK_ADD_MAIL_ATTACHMENT":                          true,
+	"OUTLOOK_CALENDAR_CREATE_EVENT":                        true,
+	"OUTLOOK_CANCEL_CALENDAR_EVENT":                        true,
+	"OUTLOOK_CANCEL_EVENT":                                 true,
+	"OUTLOOK_CREATE_ATTACHMENT_UPLOAD_SESSION":             true,
+	"OUTLOOK_CREATE_DRAFT":                                 true,
+	"OUTLOOK_CREATE_DRAFT_REPLY":                           true,
+	"OUTLOOK_CREATE_REPLY_ALL_DRAFT":                       true,
+	"OUTLOOK_DELETE_CALENDAR_EVENT":                        true,
+	"OUTLOOK_DELETE_CALENDAR_EVENT_FROM_SPECIFIC_CALENDAR": true,
+	"OUTLOOK_MOVE_MESSAGE":                                 true,
+	"OUTLOOK_UPDATE_CALENDAR_EVENT":                        true,
+	"OUTLOOK_UPDATE_CALENDAR_EVENT_IN_CALENDAR":            true,
+	"OUTLOOK_UPDATE_EMAIL":                                 true,
+	"SLACK_ADD_REACTION_TO_AN_ITEM":                        true,
+	"SLACK_OPEN_DM":                                        true,
+	"SLACK_REMOVE_REACTION_FROM_ITEM":                      true,
 }

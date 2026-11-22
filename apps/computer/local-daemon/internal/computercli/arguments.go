@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-var runtimeTypes = []string{"codex", "claude", "pi"}
+var runtimeTypes = []string{"codex", "claude", "pi", "antigravity"}
 
 // command is one parsed command line.
 type command struct {
@@ -257,7 +257,7 @@ func parseArguments(rawArgs []string, options parseOptions) (command, error) {
 	return command{}, unknown()
 }
 
-var runtimeAliases = map[string]string{"codex": "codex", "claude": "claude", "claude-code": "claude", "pi": "pi"}
+var runtimeAliases = map[string]string{"codex": "codex", "claude": "claude", "claude-code": "claude", "pi": "pi", "antigravity": "antigravity", "agy": "antigravity"}
 
 func parseLogin(args []string, configPath string, options parseOptions) (command, error) {
 	parsed := command{name: "login", configPath: configPath}

@@ -1,12 +1,16 @@
-import { useLayoutEffect, useRef } from "react";
+import { useId, useLayoutEffect, useRef } from "react";
 import { cn } from "@/lib/cn";
 
 import type {
   TeamHubMessage,
   TeamHubMessageReactionId,
 } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import { useTranslation } from "@/i18n/use-translation";
 
-import { useReactionCatalog } from "./reaction-catalog";
+import { chatMessages } from "../chat.messages";
+
+import { reactionName, useReactionCatalog } from "./reaction-catalog";
 import { animateTransform, animationsEnabled } from "./reaction-motion";
 
 /**
@@ -31,8 +35,10 @@ export function MessageReactionBar({
   message: TeamHubMessage;
   onToggle?: (reactionId: TeamHubMessageReactionId) => void;
 }) {
+  const { language, t } = useTranslation();
   const catalog = useReactionCatalog();
   const reactions = catalog ? (message.reactions ?? []) : [];
+  const tooltipBaseId = useId();
   const rowRef = useRef<HTMLDivElement>(null);
   // Reactions already shown; null until the first render with the catalog.
   const shownRef = useRef<Set<string> | null>(null);
@@ -92,7 +98,7 @@ export function MessageReactionBar({
       {reactions.length ? (
         <div
           ref={rowRef}
-          aria-label="Reactions"
+          aria-label={t(chatMessages.reactions)}
           className="flex flex-wrap justify-start gap-1"
           role="group"
         >
@@ -106,18 +112,28 @@ export function MessageReactionBar({
               .map((actorId) => {
                 const name =
                   actorId === currentActorId
-                    ? "You"
-                    : (actorDisplayNames[actorId] ?? "Former member");
+                    ? t(commonMessages.you)
+                    : (actorDisplayNames[actorId] ??
+                      t(chatMessages.formerMember));
                 return actorKinds[actorId] === "agent"
-                  ? `${name} (Agent)`
+                  ? t(chatMessages.agentReactor, { name })
                   : name;
               })
-              .join(", ");
+              .join(t(chatMessages.listSeparator));
             const count = reaction.actor_ids.length;
+            const tooltipId = `${tooltipBaseId}-${reaction.reaction_id}`;
             return (
-              <span className="relative inline-flex" key={reaction.reaction_id}>
+              <span
+                className="group/reaction relative inline-flex"
+                key={reaction.reaction_id}
+              >
                 <button
-                  aria-label={`${entry.name} ${count}: ${reactors}`}
+                  aria-describedby={tooltipId}
+                  aria-label={t(chatMessages.reactionSummary, {
+                    count,
+                    emoji: reactionName(entry, language),
+                    names: reactors,
+                  })}
                   aria-pressed={own}
                   className="message-reaction-chip flex h-6 items-center gap-1 rounded-full border border-app-border bg-app-surface px-2 text-xs leading-none text-app-ink tabular-nums focus-visible:outline-2 focus-visible:outline-app-focus disabled:cursor-default"
                   data-own-reaction={own || undefined}
@@ -127,6 +143,7 @@ export function MessageReactionBar({
                   onClick={(event) =>
                     toggle(reaction.reaction_id, event.currentTarget)
                   }
+                  title={`${reactionName(entry, language)}: ${reactors}`}
                   type="button"
                 >
                   <span aria-hidden="true" className="text-sm">
@@ -134,6 +151,13 @@ export function MessageReactionBar({
                   </span>
                   {count > 1 ? <span aria-hidden="true">{count}</span> : null}
                 </button>
+                <span
+                  className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1.5 w-max max-w-56 -translate-x-1/2 rounded-md bg-primary px-2 py-1 text-center text-xs leading-[18px] text-primary-foreground opacity-0 shadow-sm transition-opacity duration-150 group-hover/reaction:opacity-100 group-focus-within/reaction:opacity-100 motion-reduce:transition-none"
+                  id={tooltipId}
+                  role="tooltip"
+                >
+                  {reactors}
+                </span>
               </span>
             );
           })}
@@ -141,7 +165,7 @@ export function MessageReactionBar({
       ) : null}
       {error ? (
         <p className="text-xs text-app-danger" role="alert">
-          Reaction was not saved. Try again.
+          {t(chatMessages.reactionNotSaved)}
         </p>
       ) : null}
     </div>

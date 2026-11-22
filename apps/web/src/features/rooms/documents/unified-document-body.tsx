@@ -4,11 +4,13 @@ import {
   Download04Icon,
 } from "@hugeicons/core-free-icons";
 import type { QueryClient } from "@tanstack/react-query";
-import { useSyncExternalStore, type MutableRefObject } from "react";
+import { useEffect, useSyncExternalStore, type MutableRefObject } from "react";
+import { Link } from "react-router";
 import type * as Y from "yjs";
 
-import { Button } from "@/components/ui/button";
+import { Button, buttonClassName } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { documentLogicalTitle } from "@/features/library/document-display-name";
 import { WikiCarriedSentence } from "@/features/wiki/wiki-carried-voice";
@@ -20,8 +22,10 @@ import { teamHubData } from "@/features/teamhub/teamhub-api";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
 import type { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubDocument } from "@/features/teamhub/teamhub-types";
+import { useT } from "@/i18n/use-translation";
 import { documentQueryKey } from "../room-queries";
 
+import { documentPageMessages as m } from "./document-page.messages";
 import { DocumentVersionPreview } from "./document-version-preview";
 import { EditableDocumentTitle } from "./editable-document-title";
 import { RoomDocumentBlockNoteEditor } from "./room-document-blocknote-editor-loader";
@@ -30,6 +34,7 @@ import type {
   RoomDocumentHeading,
 } from "./room-document-blocknote-editor";
 import type { RoomDocumentCollaborationSession } from "./room-document-collaboration";
+import { hasUnsavedRoomDocumentChanges } from "./room-document-local-copies";
 import type { UnifiedDocumentPageModel } from "./use-unified-document-page-model";
 
 interface UnifiedDocumentBodyProps {
@@ -51,15 +56,19 @@ export function UnifiedDocumentBody({
   model,
   wikiLinks,
 }: UnifiedDocumentBodyProps) {
+  const t = useT();
   const {
     actor,
+    canRetryLoad,
     client,
     currentVersion,
     document,
     documentActionError,
     error,
     exportError,
+    retryLoad,
     session,
+    tenantId,
   } = model;
   return (
     <div
@@ -78,7 +87,7 @@ export function UnifiedDocumentBody({
       />
       {wikiLinks.pending ? (
         <p className="px-6 py-2 text-sm text-app-muted" role="status">
-          Opening Wiki page...
+          {t(m.openingWikiPage)}
         </p>
       ) : null}
       {wikiLinks.error ? (
@@ -87,11 +96,27 @@ export function UnifiedDocumentBody({
         </p>
       ) : null}
       {error ? (
-        <div className="flex h-full items-center justify-center px-6 text-center">
-          <p className="max-w-md text-sm text-app-danger" role="alert">
+        <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
+          <div className="max-w-md text-sm text-app-danger" role="alert">
             <Icon icon={Alert02Icon} size={20} className="mx-auto mb-3" />
             {error}
-          </p>
+          </div>
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            {canRetryLoad ? (
+              <Button onClick={retryLoad} size="compact" tone="secondary">
+                Retry
+              </Button>
+            ) : null}
+            <Link
+              className={buttonClassName({
+                size: "compact",
+                tone: "secondary",
+              })}
+              to={`/t/${tenantId}/library`}
+            >
+              Back to Library
+            </Link>
+          </div>
         </div>
       ) : document &&
         (document.format !== "blocknote" ||
@@ -151,6 +176,7 @@ function UnifiedDocumentEditorLayout({
   model,
   session,
 }: UnifiedDocumentEditorLayoutProps) {
+  const t = useT();
   const {
     autoFocusTitle,
     client,
@@ -160,6 +186,7 @@ function UnifiedDocumentEditorLayout({
     editorRef,
     isEditing,
     onCanvasSentChange,
+    onCanvasTargetChange,
     queryClient,
     roomId,
     resyncSession,
@@ -167,44 +194,34 @@ function UnifiedDocumentEditorLayout({
     setHeadings,
     tenantId,
   } = model;
+  const mailCanvas = model.canvasTarget === "gmail";
   return (
     <div
       className={`room-document-layout mx-auto min-h-full${knowledgeTitle !== undefined ? " room-document-layout--knowledge" : ""}`}
     >
       <div
-        className={`room-document-content-lane mx-auto ${knowledgeTitle !== undefined ? "mb-6 border-b border-app-border pb-5" : "mb-3"}`}
+        className={`room-document-content-lane mx-auto ${mailCanvas ? "" : knowledgeTitle !== undefined ? "mb-6 border-b border-app-border pb-5" : "mb-3"}`}
       >
-        <RoomDocumentConnectionStatus
-          onRetry={resyncSession}
-          session={session}
-        />
-        <UnifiedDocumentDraftTitle
-          // eslint-disable-next-line jsx-a11y/no-autofocus -- the field is focused on purpose because the user just opened this dialog or inline editor
-          autoFocus={autoFocusTitle}
-          client={client}
-          document={document}
-          editorRef={editorRef}
-          isEditing={isEditing}
-          onAutoFocusConsumed={consumeAutoFocusTitle}
-          queryClient={queryClient}
-          session={session}
-          tenantId={tenantId}
-        />
-      </div>
-      {knowledgeTitle === undefined ? (
-        <div className="room-document-content-lane mx-auto mb-8 flex min-h-8 flex-wrap items-center gap-2 text-sm text-app-muted">
-          <span>By {document.owner.display_name}</span>
-          <span aria-hidden="true">·</span>
-          <RoomDocumentSaveIndicator
-            alwaysVisible
+        {!mailCanvas ? (
+          <UnifiedDocumentDraftTitle
+            // eslint-disable-next-line jsx-a11y/no-autofocus -- the field is focused on purpose because the user just opened this dialog or inline editor
+            autoFocus={autoFocusTitle}
+            client={client}
+            document={document}
+            editorRef={editorRef}
             isEditing={isEditing}
+            onAutoFocusConsumed={consumeAutoFocusTitle}
+            queryClient={queryClient}
             session={session}
+            tenantId={tenantId}
           />
+        ) : null}
+      </div>
+      {knowledgeTitle === undefined && !mailCanvas ? (
+        <div className="room-document-content-lane mx-auto mb-8 flex min-h-8 flex-wrap items-center gap-2 text-sm text-app-muted">
+          <span>{t(m.byOwner, { name: document.owner.display_name })}</span>
         </div>
       ) : null}
-      <div className="room-document-content-lane mx-auto mb-4">
-        <RoomDocumentRecoveryButton name={document.title} session={session} />
-      </div>
       <ActiveRoomDocumentEditor
         canComment={!isWikiPage && document.capabilities.comment}
         client={client}
@@ -216,6 +233,7 @@ function UnifiedDocumentEditorLayout({
         isEditing={isEditing}
         knowledgeDocumentTitle={knowledgeTitle}
         onCanvasSentChange={onCanvasSentChange}
+        onCanvasTargetChange={onCanvasTargetChange}
         onCommentsOpenChange={setCommentsOpen}
         onHeadingsChange={setHeadings}
         onReadOnlySessionResync={resyncSession}
@@ -257,22 +275,19 @@ function DocumentStatusBanner({
 }
 
 function DocumentBodySkeleton() {
+  const t = useT();
   return (
     <div
-      aria-label="Opening document"
+      aria-label={t(m.openingDocument)}
       className="workspace-content mx-auto min-h-full w-full px-5 py-12"
       role="status"
     >
-      <span className="sr-only">Opening document...</span>
-      <div className="h-10 w-3/5 animate-pulse rounded-sm bg-muted motion-reduce:animate-none" />
-      <div className="mt-4 h-4 w-2/5 animate-pulse rounded-sm bg-muted motion-reduce:animate-none" />
+      <span className="sr-only">{t(m.openingDocumentStatus)}</span>
+      <Skeleton className="h-10 w-3/5" />
+      <Skeleton className="mt-4 h-4 w-2/5" />
       <div className="mt-12 space-y-3">
         {["100%", "94%", "86%", "98%", "72%"].map((width) => (
-          <div
-            className="h-4 animate-pulse rounded-sm bg-muted motion-reduce:animate-none"
-            key={width}
-            style={{ width }}
-          />
+          <Skeleton className="h-4" key={width} style={{ width }} />
         ))}
       </div>
     </div>
@@ -341,33 +356,80 @@ function focusDocumentBody(editor: RoomDocumentEditor | null) {
   editor.focus();
 }
 
-function RoomDocumentRecoveryButton({
+/**
+ * Non-scrolling session status banner pinned directly beneath the Document
+ * header so connection failures and protocol errors stay visible and
+ * recoverable from any scroll position.
+ */
+export function RoomDocumentSessionBanner({
   name,
+  onRetry,
   session,
 }: {
   name: string;
+  onRetry: () => void;
   session: RoomDocumentCollaborationSession;
 }) {
+  const t = useT();
   const save = useSyncExternalStore(
     session.subscribeSaveState,
     session.getSaveSnapshot,
     session.getSaveSnapshot,
   );
-  if (save.protocolError !== "durable_save_failed") {
+  if (save.status === "Connection failed") {
+    return (
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-app-border bg-app-sidebar px-4 py-2 text-sm text-app-danger">
+        <span aria-label={t(m.connectionStatus)} role="status">
+          {t(m.connectionFailed)}
+        </span>
+        <button
+          className="text-xs font-medium underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+          onClick={onRetry}
+          type="button"
+        >
+          {t(m.retryConnection)}
+        </button>
+      </div>
+    );
+  }
+  if (!save.protocolError) {
     return null;
   }
+  const message =
+    save.protocolError === "durable_save_failed"
+      ? "Recent edits could not be saved durably. Editing is paused to protect your work."
+      : save.protocolError === "durable_ack_conflict"
+        ? "This document diverged from the server state. Reload to continue editing."
+        : "The server returned an unexpected save acknowledgement. Reload to continue editing.";
   return (
-    <Button
-      aria-label="Download recovery copy"
-      onClick={() => {
-        void downloadRecoveryCopy(name, session.document);
-      }}
-      title="Download recovery copy"
-      tone="ghost"
+    <div
+      className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-app-border bg-app-sidebar px-4 py-2 text-sm text-app-danger"
+      role="alert"
     >
-      <Icon icon={Download04Icon} />
-      Recovery copy
-    </Button>
+      <span className="flex min-w-0 items-center gap-2">
+        <Icon icon={Alert02Icon} size={14} className="shrink-0" />
+        <span>{message}</span>
+      </span>
+      <div className="flex shrink-0 items-center gap-2">
+        {save.protocolError === "durable_save_failed" ? (
+          <Button
+            aria-label={t(m.downloadRecoveryCopy)}
+            onClick={() => {
+              void downloadRecoveryCopy(name, session.document);
+            }}
+            size="compact"
+            title={t(m.downloadRecoveryCopy)}
+            tone="secondary"
+          >
+            <Icon icon={Download04Icon} size={14} />
+            {t(m.recoveryCopy)}
+          </Button>
+        ) : null}
+        <Button onClick={onRetry} size="compact" tone="secondary">
+          Reload document
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -402,6 +464,7 @@ function ActiveRoomDocumentEditor({
   knowledgeDocumentTitle,
   editorRef,
   onCanvasSentChange,
+  onCanvasTargetChange,
   onHeadingsChange,
   onCommentsOpenChange,
   onReadOnlySessionResync,
@@ -419,6 +482,7 @@ function ActiveRoomDocumentEditor({
   knowledgeDocumentTitle?: string;
   editorRef: MutableRefObject<RoomDocumentEditor | null>;
   onCanvasSentChange: (sent: boolean) => void;
+  onCanvasTargetChange: (target?: string) => void;
   onHeadingsChange: (headings: RoomDocumentHeading[]) => void;
   onCommentsOpenChange: (open: boolean) => void;
   onReadOnlySessionResync: () => void;
@@ -431,6 +495,21 @@ function ActiveRoomDocumentEditor({
     session.getSaveSnapshot,
     session.getSaveSnapshot,
   );
+  const hasUnsavedChanges =
+    !session.readOnly &&
+    (save.status === "Local pending" ||
+      save.status === "Offline pending" ||
+      save.protocolError === "durable_save_failed" ||
+      (save.status === "Connection failed" && hasUnsavedRoomDocumentChanges()));
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [hasUnsavedChanges]);
   return (
     <RoomDocumentBlockNoteEditor
       canComment={canComment}
@@ -443,6 +522,7 @@ function ActiveRoomDocumentEditor({
       knowledgeDocumentTitle={knowledgeDocumentTitle}
       surfaceEditorRef={editorRef}
       onCanvasSentChange={onCanvasSentChange}
+      onCanvasTargetChange={onCanvasTargetChange}
       onHeadingsChange={onHeadingsChange}
       onCommentsOpenChange={onCommentsOpenChange}
       onReadOnlySessionResync={onReadOnlySessionResync}
@@ -453,32 +533,7 @@ function ActiveRoomDocumentEditor({
   );
 }
 
-function RoomDocumentConnectionStatus({
-  onRetry,
-  session,
-}: {
-  onRetry(): void;
-  session: RoomDocumentCollaborationSession;
-}) {
-  const save = useSyncExternalStore(
-    session.subscribeSaveState,
-    session.getSaveSnapshot,
-    session.getSaveSnapshot,
-  );
-  if (save.status !== "Connection failed") return null;
-  return (
-    <div className="mb-3 flex items-center gap-2 text-sm text-app-danger">
-      <span aria-label="Document connection status" role="status">
-        Connection failed
-      </span>
-      <button className="underline" onClick={onRetry} type="button">
-        Retry connection
-      </button>
-    </div>
-  );
-}
-
-function RoomDocumentSaveIndicator({
+export function RoomDocumentSaveIndicator({
   alwaysVisible = false,
   isEditing,
   session,
@@ -487,6 +542,7 @@ function RoomDocumentSaveIndicator({
   isEditing: boolean;
   session: RoomDocumentCollaborationSession;
 }) {
+  const t = useT();
   const save = useSyncExternalStore(
     session.subscribeSaveState,
     session.getSaveSnapshot,
@@ -504,8 +560,12 @@ function RoomDocumentSaveIndicator({
   if (save.status === "Connection failed") return saveStatusProbe;
   if (session.readOnly) {
     return (
-      <span aria-label="Document access mode" role="status">
-        Read only
+      <span
+        aria-label={t(m.accessMode)}
+        className="inline-flex h-5 items-center gap-1 whitespace-nowrap text-xs leading-4 text-app-muted"
+        role="status"
+      >
+        {t(m.readOnly)}
       </span>
     );
   }
@@ -522,8 +582,12 @@ function RoomDocumentSaveIndicator({
     return (
       <>
         {saveStatusProbe}
-        <span aria-label="Document save status" role="status">
-          Saved
+        <span
+          aria-label={t(m.saveStatus)}
+          className="inline-flex h-5 items-center gap-1 whitespace-nowrap text-xs leading-4 text-app-muted"
+          role="status"
+        >
+          {t(m.saved)}
         </span>
       </>
     );
@@ -532,39 +596,39 @@ function RoomDocumentSaveIndicator({
   const indicator = save.protocolError
     ? {
         icon: Alert02Icon,
-        label: "Save protocol error",
+        label: t(m.saveProtocolError),
         tone: "text-app-danger",
       }
     : save.status === "Offline pending"
       ? {
           icon: CloudOffIcon,
-          label: "Offline changes pending",
+          label: t(m.offlineChangesPending),
           tone: "text-app-warning",
         }
       : save.status === "Offline"
         ? {
             icon: CloudOffIcon,
-            label: "Offline",
+            label: t(m.offline),
             tone: "text-app-muted",
           }
         : save.status === "Connecting"
           ? {
               icon: null,
-              label: "Connecting...",
+              label: t(m.connecting),
               tone: "text-app-muted",
             }
           : {
               icon: null,
-              label: "Saving...",
+              label: t(m.saving),
               tone: "text-app-muted",
             };
 
   return (
     <>
       {saveStatusProbe}
-      <p
-        aria-label="Document save status"
-        className={`mt-0.5 flex items-center gap-1 text-[12px] leading-4 ${indicator.tone}`}
+      <span
+        aria-label={t(m.saveStatus)}
+        className={`inline-flex h-5 items-center gap-1 whitespace-nowrap text-xs leading-4 ${indicator.tone}`}
         role="status"
       >
         {indicator.icon ? (
@@ -573,7 +637,7 @@ function RoomDocumentSaveIndicator({
           <Spinner size={12} />
         )}
         {indicator.label}
-      </p>
+      </span>
     </>
   );
 }

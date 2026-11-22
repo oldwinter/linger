@@ -1,10 +1,15 @@
-import type { RunKind } from "../../model-tasks.js";
+import {
+  runPriorities,
+  type RunKind,
+  type CapacityPriority,
+} from "../../model-tasks.js";
 import { EventEmitter, once } from "node:events";
 import { isDeepStrictEqual } from "node:util";
 
 import { logAgentEvent } from "../observability/agent-log.js";
 import {
   RuntimeExecutionError,
+  ProviderRunYieldedError,
   runtimeSessionAwaitsFirstRun,
 } from "../executor/provider.js";
 import type { ProviderSteerAck } from "../executor/provider.js";
@@ -39,8 +44,9 @@ import {
 interface RunnerOperationTargetBase {
   /** The Agent Service epoch whose Run this Operation executes. */
   readonly executionEpoch?: string;
-  /** What queued the Run; only logged. Absent, chat. */
+  /** What queued the Run. Absent, chat. */
   readonly runKind?: RunKind;
+  readonly beforeYieldResume?: () => Promise<void>;
   /** Stops the Run waiting for its turn in the model queue. */
   readonly signal?: AbortSignal;
   readonly tenantId: string;
@@ -78,9 +84,10 @@ export interface RunnerOperation {
 export type RunnerCapacityTarget = Pick<
   RunnerOperationTarget,
   "runnerId" | "tenantId" | "agentId" | "executionContextKey"
->;
+> & { readonly priority?: CapacityPriority };
 
 export interface RunnerCapacityPermit {
+  readonly reservedForChat?: boolean;
   readonly id: string;
   release(): void;
 }
@@ -174,6 +181,17 @@ export class RunnerUpgradeRequiredError extends RunnerGatewayError {
   }
 }
 
+export class RunnerDaemonIdentityInUseError extends RunnerGatewayError {
+  readonly code = "daemon_identity_in_use";
+
+  constructor(
+    message = "Daemon Identity is already bound to another Local Computer",
+  ) {
+    super(message);
+    this.name = "RunnerDaemonIdentityInUseError";
+  }
+}
+
 export class RunnerOperationError extends RunnerGatewayError {
   constructor(
     readonly code: string,
@@ -198,6 +216,11 @@ export class RunnerOperationInputError extends RunnerGatewayError {
 
 type CommandSender = (command: AgentToDaemonEnvelope) => Promise<void>;
 const MAX_OPERATION_PREPARE_MCP_RELAYS = 64;
+// An unaccepted start re-sent this many times across reconnects without an
+// acceptance or terminal is ended instead of re-sent again: its outcome on the
+// Computer cannot be learned, and re-sending it forever keeps the Run running.
+const MAX_UNACCEPTED_START_RESENDS = 3;
+export const OPERATION_OUTCOME_UNKNOWN = "OPERATION_OUTCOME_UNKNOWN";
 
 export type OperationEnvelope = Extract<
   DaemonToAgentEnvelope,
@@ -241,6 +264,12 @@ export class RunnerOperationState {
   #accepted = false;
   #terminal = false;
   #cancelCommand?: OperationCancel;
+  readonly #delegatedTask: boolean;
+  readonly #priority: number;
+  #yieldSessionId?: string;
+  #yieldRequested = false;
+  #observedNativeWork = false;
+  readonly #interactions = new Set<string>();
   #prepareCommand?: OperationPrepare;
   #prepareResumeObserved = false;
   #currentContextViewRef: ContextViewRef;
@@ -248,6 +277,11 @@ export class RunnerOperationState {
   readonly #createdAt: number;
   #lastStartSentAt: number | undefined;
   #startSentCount = 0;
+  #unacceptedStartResends = 0;
+  // Every connection epoch the start was sent with. A Daemon may report an
+  // Operation it recorded on an earlier connection, before the start was
+  // rebased, under that connection's epoch.
+  readonly #sentEpochs = new Set<number>();
   #inputReceiptTimer: ReturnType<typeof setTimeout> | undefined;
   #inputReceipts: Deferred<void> | undefined;
   #turnId: string | undefined;
@@ -284,6 +318,8 @@ export class RunnerOperationState {
     };
   }) {
     this.#epoch = options.target.executionEpoch;
+    this.#delegatedTask = options.target.runKind === "task";
+    this.#priority = runPriorities[options.target.runKind ?? "chat"];
     this.#createId = options.createId;
     this.#send = options.send;
     this.#cancelTimeoutMs = options.cancelTimeoutMs;
@@ -328,6 +364,7 @@ export class RunnerOperationState {
     // Callers update Session checkpoints in place. Retain the original wire
     // command independently so reconnect never changes an admitted request.
     this.start = structuredClone({ ...start, ...operationIdentity(start) });
+    this.#sentEpochs.add(this.start.connection_epoch);
     this.#currentContextViewRef = this.start.context_view_ref;
   }
 
@@ -400,9 +437,12 @@ export class RunnerOperationState {
       runtime: request.runtime,
       session_options: request.session_options,
       session: request.session,
-      // The Daemon prepares the same MCP config the reviewed Run will use.
+      // The Daemon prepares the same hooks and MCP config the Run will use.
       ...(request.run_context.permission_review === true
         ? { permission_review: true as const }
+        : {}),
+      ...(request.run_context.stop_hook === true
+        ? { stop_hook: true as const }
         : {}),
       mcp_relays: request.run_resources.mcp_servers,
     });
@@ -502,13 +542,31 @@ export class RunnerOperationState {
     readonly retainedByDaemon: boolean;
   }): readonly AgentToDaemonEnvelope[] {
     if (this.#terminal) return [];
-    if (
-      options &&
-      !this.#accepted &&
-      !options.retainedByDaemon &&
-      this.start.connection_epoch !== options.connectionEpoch
-    ) {
-      this.#rebaseConnectionEpoch(options.connectionEpoch);
+    // A Daemon that reports the Operation active still holds it and replays
+    // its acceptance, so only a start it does not report counts as a re-send.
+    if (options && !this.#accepted && !options.retainedByDaemon) {
+      if (this.#unacceptedStartResends >= MAX_UNACCEPTED_START_RESENDS) {
+        logAgentEvent("error", "runner.operation.outcome_unknown", {
+          operationId: this.start.operation_id,
+          computerId: this.start.runner_id,
+          agentId: this.start.agent_id,
+          resendCount: this.#unacceptedStartResends,
+        });
+        this.#complete(() =>
+          this.#outcome.reject(
+            new RunnerOperationError(
+              OPERATION_OUTCOME_UNKNOWN,
+              "The Computer never confirmed the Operation start; its outcome is unknown",
+              false,
+            ),
+          ),
+        );
+        return [];
+      }
+      this.#unacceptedStartResends++;
+      if (this.start.connection_epoch !== options.connectionEpoch) {
+        this.#rebaseConnectionEpoch(options.connectionEpoch);
+      }
     }
     const commands: AgentToDaemonEnvelope[] = [
       this.start,
@@ -533,6 +591,7 @@ export class RunnerOperationState {
       );
     }
     this.start = start;
+    this.#sentEpochs.add(connectionEpoch);
     for (const [commandId, pending] of this.#pendingInputs) {
       const command = parseAgentToDaemonEnvelope({
         ...pending.command,
@@ -559,8 +618,59 @@ export class RunnerOperationState {
     }
   }
 
+  /** The queue priority of the Run's kind; smaller goes first. */
+  get priority(): number {
+    return this.#priority;
+  }
+
+  get resumable(): boolean {
+    // Codex and Antigravity announce their session before the first input
+    // is durably in its history; an Antigravity session with no prompt yet
+    // cannot be loaded at all. Any model output, thinking included, comes
+    // after the runtime recorded that input.
+    return (
+      Boolean(this.#yieldSessionId) &&
+      (!namesOwnSession(this.start.runtime_type) || this.#observedNativeWork)
+    );
+  }
+
+  /** A yield was asked and the Computer has not reported its terminal. */
+  get yielding(): boolean {
+    return this.#yieldRequested && !this.#terminal;
+  }
+
+  /** Only a native terminal can hand a running Run's place to another
+   * caller. Answers whether this call asked the Run to yield. */
+  requestYield(): boolean {
+    if (
+      !this.resumable ||
+      this.#terminal ||
+      this.#cancelCommand ||
+      this.#interactions.size ||
+      [...this.#pendingInputs.values()].some((input) => !input.settled)
+    )
+      return false;
+    this.#yieldRequested = true;
+    this.#cancelCommand = createCancel(
+      this.start,
+      this.#createId(),
+      "scheduler_yield",
+    );
+    // Reconciliation resends this exact command if the Computer disconnected.
+    void this.#send(this.#cancelCommand).catch(() => undefined);
+    return true;
+  }
+
   retainCancellation(reason: string): void {
     if (this.#terminal) {
+      return;
+    }
+    // Any other cancellation after a yield request stops the Run. The
+    // Computer may have declined the yield, so resending it would not stop
+    // the Run, and a yield terminal would resume it.
+    if (this.#yieldRequested && reason !== "scheduler_yield") {
+      this.#yieldRequested = false;
+      this.#cancelCommand = createCancel(this.start, this.#createId(), reason);
       return;
     }
     this.#cancelCommand ??= createCancel(this.start, this.#createId(), reason);
@@ -608,7 +718,15 @@ export class RunnerOperationState {
   assertIdentity(
     value: ActiveOperation | OperationEnvelope | OperationInputClosed,
   ): void {
-    assertOperationIdentity(this.start, value);
+    assertOperationIdentity(this.#identityAt(value.connection_epoch), value);
+  }
+
+  // The start's identity under an epoch it was sent with; any other epoch
+  // keeps the current one and so fails the identity check.
+  #identityAt(connectionEpoch: number): OperationStart {
+    return this.#sentEpochs.has(connectionEpoch)
+      ? { ...this.start, connection_epoch: connectionEpoch }
+      : this.start;
   }
 
   async receive(
@@ -626,7 +744,7 @@ export class RunnerOperationState {
 
   async receiveClosedInput(envelope: OperationInputClosed): Promise<void> {
     return this.#serialize(async () => {
-      assertOperationIdentity(this.start, envelope);
+      this.assertIdentity(envelope);
       const pending = this.#pendingInputs.get(envelope.command_id);
       // The Daemon answers each input once from its ledger, and it never
       // commits a terminal while it holds an unanswered input, so a receipt
@@ -665,7 +783,9 @@ export class RunnerOperationState {
     envelope: OperationEnvelope,
     apply = true,
   ): Promise<OperationAck> {
-    assertOperationIdentity(this.start, envelope);
+    this.assertIdentity(envelope);
+    const ack = (throughSequence: number) =>
+      this.#ack(throughSequence, envelope.connection_epoch);
     // A restarted Daemon keeps no Operation: it numbers the terminal it
     // reports for one it lost from 1. This Operation has seen no terminal, so
     // the frame is not a replay; it ends the Operation.
@@ -676,7 +796,7 @@ export class RunnerOperationState {
     // A Computer that reconnects replays every event it has not seen
     // acknowledged; the ones already applied only need the acknowledgement.
     if (envelope.seq <= this.#lastSequence && !restartedTerminal)
-      return this.#ack(this.#lastSequence);
+      return ack(this.#lastSequence);
     if (this.#terminal) {
       // A Gateway-local terminal (cancel timeout, abandoned placement) does
       // not stop the Daemon from finishing the Operation it was asked to
@@ -685,7 +805,7 @@ export class RunnerOperationState {
       // every reconnect.
       if (!this.#outcomeEnvelope && envelope.seq === this.#lastSequence + 1) {
         this.#lastSequence = envelope.seq;
-        return this.#ack(this.#lastSequence);
+        return ack(this.#lastSequence);
       }
       throw new RunnerGatewayProtocolError(
         "Runner emitted after terminal state",
@@ -738,7 +858,7 @@ export class RunnerOperationState {
     // After a restarted Daemon's terminal the sequence is that Daemon's, so
     // its replays of the terminal are acknowledged at the same sequence.
     this.#lastSequence = envelope.seq;
-    return this.#ack(this.#lastSequence);
+    return ack(this.#lastSequence);
   }
 
   #acceptEnvelope(envelope: OperationEnvelope): void {
@@ -780,8 +900,31 @@ export class RunnerOperationState {
       case "operation.accepted":
         break;
       case "operation.event":
-        if (envelope.event.type === "run.started")
+        if (envelope.event.type === "run.started") {
           this.#turnId = envelope.event.turn_id;
+          const threadId = envelope.event.session?.threadId;
+          if (
+            envelope.event.session?.canYield === true &&
+            typeof threadId === "string" &&
+            threadId.trim()
+          )
+            this.#yieldSessionId = threadId;
+        }
+        if (
+          envelope.event.type === "tool.called" ||
+          envelope.event.type === "tool.returned" ||
+          envelope.event.type === "model.responded" ||
+          envelope.event.type === "message.delta" ||
+          (envelope.event.type === "status.changed" &&
+            envelope.event.status === "thinking")
+        )
+          this.#observedNativeWork = true;
+        if (envelope.event.type === "human_interaction.requested") {
+          // A prompt in transit belongs to the retiring Operation and cannot be answered on its successor.
+          if (this.#yieldRequested) break;
+          if (typeof envelope.event.request.request_id === "string")
+            this.#interactions.add(envelope.event.request.request_id);
+        }
         await this.#events.push(envelope.event);
         break;
       case "operation.input_result":
@@ -840,15 +983,24 @@ export class RunnerOperationState {
           true,
         );
         break;
-      case "operation.cancelled":
-        this.#complete(
-          () =>
-            this.#outcome.reject(
-              new RunnerOperationError("cancelled", envelope.reason, false),
-            ),
-          true,
-        );
+      case "operation.cancelled": {
+        const id = this.#yieldSessionId;
+        const runtime = this.start.runtime_type;
+        const error =
+          this.#yieldRequested && id && envelope.reason === "scheduler_yield"
+            ? new ProviderRunYieldedError(
+                namesOwnSession(runtime)
+                  ? { threadId: id }
+                  : {
+                      provider: runtime,
+                      sessionId: id,
+                      lingerMaterialized: true,
+                    },
+              )
+            : new RunnerOperationError("cancelled", envelope.reason, false);
+        this.#complete(() => this.#outcome.reject(error), true);
         break;
+      }
       default:
         assertNever(envelope);
     }
@@ -856,7 +1008,7 @@ export class RunnerOperationState {
 
   async #input(options: RunnerOperationInput): Promise<ProviderSteerAck> {
     const pending = await this.#serialize(async () => {
-      if (!this.#accepted || this.#terminal) {
+      if (!this.#accepted || this.#terminal || this.#yieldRequested) {
         throw new RunnerOperationInputError(
           "No active Runtime run",
           "definitely_not_applied",
@@ -907,7 +1059,9 @@ export class RunnerOperationState {
         message,
       );
     } catch {
-      if (this.#terminal) return;
+      // A user stop may precede a chat waiter. Retain the Task's occupation
+      // until the Computer reports a terminal, including across reconnects.
+      if (this.#terminal || this.#delegatedTask) return;
       this.#complete(() =>
         this.#outcome.reject(
           new RunnerOperationError("cancelled", message, false),
@@ -933,7 +1087,10 @@ export class RunnerOperationState {
     }
     pending.settled = true;
     try {
-      pending.outcome.resolve(outcome());
+      const accepted = outcome();
+      const requestId = pending.command.input.runtime_response?.request_id;
+      if (typeof requestId === "string") this.#interactions.delete(requestId);
+      pending.outcome.resolve(accepted);
     } catch (error) {
       pending.outcome.reject(error);
     }
@@ -1008,8 +1165,14 @@ export class RunnerOperationState {
     settle();
   }
 
-  #ack(throughSequence: number): OperationAck {
-    return createOperationAck(this.start, this.#createId(), throughSequence);
+  // A frame recorded under an earlier epoch of the start is acknowledged
+  // under that epoch, the identity the Daemon's ledger holds it by.
+  #ack(throughSequence: number, connectionEpoch: number): OperationAck {
+    return createOperationAck(
+      this.#identityAt(connectionEpoch),
+      this.#createId(),
+      throughSequence,
+    );
   }
 }
 
@@ -1233,6 +1396,12 @@ const encodedBytes = (value: unknown): number => {
     );
   }
 };
+
+// Codex and Antigravity name their own sessions and keep them as a thread
+// id; Claude and Pi run a session id that Linger materialized.
+function namesOwnSession(runtime: string): boolean {
+  return runtime === "codex" || runtime === "antigravity";
+}
 
 const assertNever = (value: never): never => {
   throw new RunnerGatewayProtocolError(

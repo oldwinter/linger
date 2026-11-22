@@ -16,6 +16,7 @@ import type {
   TeamHubRunStatus,
   TeamHubRuntimePresentationEventRecord,
 } from "@/features/teamhub/teamhub-types";
+import { translate } from "@/i18n/language";
 
 import {
   AgentStreamingStatusDock,
@@ -738,10 +739,7 @@ describe("Room Message timeline cards", () => {
       onReply,
     });
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "More message actions" }),
-    );
-    fireEvent.click(screen.getByRole("menuitem", { name: "Reply to message" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reply to message" }));
 
     const authorButton = screen.getByRole("button", { name: "Codex" });
     fireEvent.click(authorButton);
@@ -752,32 +750,31 @@ describe("Room Message timeline cards", () => {
     expect(authorButton.firstElementChild?.tagName).toBe("svg");
     expect(
       screen.getAllByRole("tooltip").map((tooltip) => tooltip.textContent),
-    ).toEqual(["Copy message", "Copy as quote"]);
+    ).toEqual(["Reply to message", "Copy message"]);
     fireEvent.click(
       screen.getByRole("button", { name: "More message actions" }),
     );
-    expect(
-      screen.getByRole("menuitem", { name: "Reply to message" }),
-    ).toBeVisible();
     fireEvent.click(screen.getByRole("menuitem", { name: "Forward message" }));
     expect(onForwardMessage).toHaveBeenCalledWith(message);
   });
 
-  it("stages a quoted reply beside the structured reply option", () => {
+  it("stages a quoted reply alongside the inline structured reply action", () => {
     const message = ordinaryAgentMessage();
     const onReply = vi.fn();
     const onReplyWithQuote = vi.fn();
 
     renderTimeline(message, { onReply, onReplyWithQuote });
 
+    expect(
+      screen.getByRole("button", { name: "Reply to message" }),
+    ).toBeVisible();
     fireEvent.click(
       screen.getByRole("button", { name: "More message actions" }),
     );
     const labels = screen
       .getAllByRole("menuitem")
       .map((item) => item.textContent);
-    expect(labels.slice(labels.indexOf("Reply to message"))).toEqual([
-      "Reply to message",
+    expect(labels.slice(labels.indexOf("Reply with quote"))).toEqual([
       "Reply with quote",
       "Reply to thread",
     ]);
@@ -797,6 +794,9 @@ describe("Room Message timeline cards", () => {
   it("offers no quoted reply without a composer to stage it in", () => {
     renderTimeline(ordinaryAgentMessage(), { onReply: vi.fn() });
 
+    expect(
+      screen.getByRole("button", { name: "Reply to message" }),
+    ).toBeVisible();
     fireEvent.click(
       screen.getByRole("button", { name: "More message actions" }),
     );
@@ -804,9 +804,6 @@ describe("Room Message timeline cards", () => {
     expect(
       screen.queryByRole("menuitem", { name: "Reply with quote" }),
     ).toBeNull();
-    expect(
-      screen.getByRole("menuitem", { name: "Reply to message" }),
-    ).toBeVisible();
   });
 
   it.each(["timeline", "linked source"] as const)(
@@ -905,8 +902,10 @@ describe("Room Message timeline cards", () => {
       ...ordinaryAgentMessage(),
       created_at: "2026-11-14T09:12:00",
     });
-    const button = screen.getByRole("button", { name: "Copy as quote" });
-    fireEvent.click(button);
+    fireEvent.click(
+      screen.getByRole("button", { name: "More message actions" }),
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: "Copy as quote" }));
 
     await waitFor(() =>
       expect(writeText).toHaveBeenCalledWith(
@@ -916,9 +915,11 @@ describe("Room Message timeline cards", () => {
       ),
     );
     expect(writeText).toHaveBeenCalledTimes(1);
-    expect(
-      within(button.parentElement as HTMLElement).getByRole("tooltip"),
-    ).toHaveTextContent("Copied");
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole("status").map((status) => status.textContent),
+      ).toContain("Copied"),
+    );
   });
 
   it("says a quote copy failed instead of claiming it was copied", async () => {
@@ -929,15 +930,16 @@ describe("Room Message timeline cards", () => {
     });
     document.execCommand = vi.fn(() => false);
     renderTimeline(ordinaryAgentMessage());
-    const button = screen.getByRole("button", { name: "Copy as quote" });
-    fireEvent.click(button);
+    fireEvent.click(
+      screen.getByRole("button", { name: "More message actions" }),
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: "Copy as quote" }));
 
     await waitFor(() =>
       expect(
-        within(button.parentElement as HTMLElement).getByRole("tooltip"),
-      ).toHaveTextContent("Copy failed"),
+        screen.getAllByRole("status").map((status) => status.textContent),
+      ).toContain("Copy failed"),
     );
-    expect(screen.getByRole("button", { name: "Copy as quote" })).toBeVisible();
   });
 
   it("shows a parent reply record after Thread replies exist", () => {
@@ -1006,16 +1008,26 @@ describe("Room Message timeline cards", () => {
       { content: " today", type: "text" },
     ];
     const onOpenMessageFile = vi.fn();
-    renderTimeline(message, { onOpenMessageFile });
+    renderTimeline(message, {
+      onOpenMessageFile,
+      documentMetadata: {
+        "document-plan": {
+          title: "Launch plan.md",
+          format: "blocknote",
+          representation_format: "markdown",
+        },
+      },
+    });
 
     const reference = screen.getByRole("button", {
-      name: "Open Launch_plan",
+      name: "Open Launch plan.md",
     });
+    expect(reference).toHaveTextContent("Launch plan.md");
     expect(reference).toHaveAttribute("data-reference-kind", "document");
     expect(screen.queryByText("Review @Launch_plan today")).toBeNull();
     fireEvent.click(reference);
     expect(onOpenMessageFile).toHaveBeenCalledWith({
-      content: "Launch_plan",
+      content: "Launch plan.md",
       document_id: "document-plan",
       presentation: "inline",
       type: "document",
@@ -1520,9 +1532,10 @@ describe("Room Message timeline cards", () => {
           />
         </MemoryRouter>,
       );
-      expect(
-        screen.getByTestId("agent-streaming-status-dock"),
-      ).toHaveTextContent(text);
+      const dock = screen.getByTestId("agent-streaming-status-dock");
+      expect(dock).toHaveTextContent(text);
+      expect(dock).not.toHaveClass("absolute");
+      expect(dock.parentElement).not.toHaveClass("h-0");
     },
   );
 
@@ -2240,6 +2253,65 @@ describe("Room Message timeline cards", () => {
     expect(resend()).toBeInTheDocument();
   });
 
+  it("keeps an interrupted Run in the Dock as a stop, not a failure", () => {
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter>
+          <AgentStreamingStatusDock
+            runStatuses={[runStatus({ status: "aborted" })]}
+            runtimePresentationEventsByRunStatusId={{
+              "run-status-1": [
+                {
+                  ...runtimeTerminalStatusRecord("2", "failed"),
+                  event: {
+                    type: "status.changed",
+                    status: "stopped",
+                    outcome: "failed",
+                    failure: { code: "interrupted", runtime_type: "claude" },
+                  },
+                },
+              ],
+            }}
+          />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    expect(shownStatus()).toMatch(
+      /^Codex: Claude: The Run stopped before it finished because its Computer restarted/,
+    );
+    expect(shownStatus()).not.toMatch(/Run failed/);
+  });
+
+  it("tells an interrupted Run with an unconfirmed follow-up to resend it", () => {
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter>
+          <AgentStreamingStatusDock
+            runStatuses={[runStatus({ status: "aborted" })]}
+            runtimePresentationEventsByRunStatusId={{
+              "run-status-1": [
+                {
+                  ...runtimeTerminalStatusRecord("2", "failed"),
+                  event: {
+                    type: "status.changed",
+                    status: "stopped",
+                    outcome: "failed",
+                    failure: { code: "interrupted" },
+                    unconfirmed_input_ids: ["follow-up"],
+                  },
+                },
+              ],
+            }}
+          />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    expect(shownStatus()).toMatch(
+      /^Codex: The Run stopped before it finished .* Follow-up delivery unconfirmed\. Resend it if the Agent did not answer\.$/,
+    );
+    expect(shownStatus()).not.toMatch(/Run failed/);
+  });
+
   it("shows the latest failure below the composer and clears it after success", () => {
     const failed = runStatus({ id: "failed", status: "aborted" });
     const { rerender } = render(
@@ -2460,6 +2532,146 @@ describe("Room Message timeline cards", () => {
     expect(cancelRoomRun).toHaveBeenCalledTimes(1);
   });
 
+  it("exposes a polite status live region and an Activity button on the dock", () => {
+    const onViewActivity = vi.fn();
+    render(
+      <MemoryRouter>
+        <AgentStreamingStatusDock
+          onViewActivity={onViewActivity}
+          runStatuses={[
+            runStatus({ id: "run-status-live", run_id: "run-live" }),
+          ]}
+          runtimePresentationEventsByRunStatusId={{
+            "run-status-live": [
+              runtimeStatusRecord("1", "working"),
+              runtimeActivityStartedRecord("2", "search", "search", "Search"),
+            ],
+          }}
+        />
+      </MemoryRouter>,
+    );
+
+    const dock = screen.getByTestId("agent-streaming-status-dock");
+    const liveStatus = within(dock).getByRole("status");
+    expect(liveStatus).toHaveAttribute("aria-live", "polite");
+    expect(liveStatus).toHaveTextContent("Searching");
+
+    const activityButton = within(dock).getByRole("button", {
+      name: "Activity",
+    });
+    expect(activityButton).toBeVisible();
+    fireEvent.click(activityButton);
+    expect(onViewActivity).toHaveBeenCalledWith(
+      "run-status-live",
+      expect.objectContaining({ id: "agent-1" }),
+      "run-live",
+    );
+  });
+
+  it("shows an explicit multi-agent count badge, lets users select an agent, and pauses auto-rotation", async () => {
+    vi.useFakeTimers();
+    const onViewActivity = vi.fn();
+    const cancelRoomRun = vi.fn().mockResolvedValue({
+      run_id: "run-b",
+      status: "cancel_requested",
+      agent_actor_id: "agent-reviewer",
+      message_ids: [],
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <AgentStreamingStatusDock
+            cancelRoomRun={cancelRoomRun}
+            onViewActivity={onViewActivity}
+            runStatuses={[
+              runStatus({ id: "rs-a", run_id: "run-a" }),
+              runStatus({
+                id: "rs-b",
+                run_id: "run-b",
+                agent: {
+                  display_name: "Reviewer",
+                  id: "agent-reviewer",
+                  kind: "agent",
+                },
+              }),
+            ]}
+            runtimePresentationEventsByRunStatusId={{
+              "rs-a": [
+                runtimeStatusRecord("1", "working"),
+                runtimeActivityStartedRecord("2", "search", "search", "Search"),
+              ],
+              "rs-b": [
+                runtimeStatusRecord("1", "working"),
+                runtimeActivityStartedRecord(
+                  "2",
+                  "read",
+                  "read",
+                  "Read file",
+                  "segment-1",
+                  inputBlock({
+                    file_path: "src/app.tsx",
+                    status_steps: ["Reading app.tsx"],
+                  }),
+                ),
+              ],
+            }}
+            scopeKey={["teamhub", "tenant-1", "room-1"]}
+          />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    const selectorButton = screen.getByRole("button", {
+      name: "2 agents working",
+    });
+    expect(selectorButton).toBeVisible();
+    expect(shownStatus()).toBe("Codex: Searching");
+
+    // Opening the menu pauses auto-rotation even beyond the 2s turn window.
+    fireEvent.click(selectorButton);
+    await act(async () => {
+      vi.advanceTimersByTime(AGENT_STATUS_LINE_TIMING.turnMs * 2);
+    });
+    expect(shownStatus()).toBe("Codex: Searching");
+
+    // Selecting Reviewer immediately switches the dock and locks onto Reviewer.
+    fireEvent.click(
+      screen.getByRole("menuitem", { name: /Reviewer · Reading app\.tsx/ }),
+    );
+    expect(shownStatus()).toBe("Reviewer: Reading app.tsx");
+    expect(stopButton("Stop Reviewer's task")).toBeVisible();
+
+    // Auto-rotation remains paused while Reviewer is manually selected.
+    await act(async () => {
+      vi.advanceTimersByTime(AGENT_STATUS_LINE_TIMING.turnMs * 3);
+    });
+    expect(shownStatus()).toBe("Reviewer: Reading app.tsx");
+
+    // Clicking Activity opens the selected agent's live run.
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    expect(onViewActivity).toHaveBeenCalledWith(
+      "rs-b",
+      expect.objectContaining({ id: "agent-reviewer" }),
+      "run-b",
+    );
+
+    // Resuming auto-rotation allows rotation to continue across both agents.
+    fireEvent.click(screen.getByRole("button", { name: "2 agents working" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Auto-rotate all" }));
+    fireEvent.pointerLeave(screen.getByTestId("agent-streaming-status-dock"));
+    fireEvent.blur(screen.getByTestId("agent-streaming-status-dock"));
+    expect(shownStatus()).toBe("Codex: Searching");
+    await act(async () => {
+      vi.advanceTimersByTime(
+        AGENT_STATUS_LINE_TIMING.turnMs + AGENT_STATUS_LINE_TIMING.tickMs,
+      );
+    });
+    expect(shownStatus()).toBe("Reviewer: Reading app.tsx");
+  });
+
   it("marks a working Agent's avatar live and keeps its activity out of the timeline", () => {
     const message = ordinaryAgentMessage();
     renderTimeline(message, {
@@ -2548,13 +2760,26 @@ describe("Room Message timeline cards", () => {
     expect(screen.queryByText("Live activities")).toBeNull();
   });
 
-  it("keeps Copy text, Copy link, Forward, Reply, and Reply to thread in the More message menu", () => {
+  it("promotes Reply inline and keeps secondary copy, Forward, and Thread actions in the More message menu", () => {
     const message = ordinaryAgentMessage();
     renderTimeline(message, {
       onForwardMessage: vi.fn(),
       onOpenThread: vi.fn(),
       onReply: vi.fn(),
+      onToggleReaction: vi.fn(),
     });
+
+    const actions = messageRow(message).querySelector(".message-row-actions")!;
+    expect(
+      within(actions as HTMLElement)
+        .getAllByRole("button")
+        .map((button) => button.getAttribute("aria-label")),
+    ).toEqual([
+      "Add reaction",
+      "Reply to message",
+      "Copy message",
+      "More message actions",
+    ]);
 
     fireEvent.click(
       within(messageRow(message)).getByRole("button", {
@@ -2566,8 +2791,8 @@ describe("Room Message timeline cards", () => {
     ).toEqual([
       "Copy link",
       "Copy text",
+      "Copy as quote",
       "Forward message",
-      "Reply to message",
       "Reply to thread",
     ]);
   });
@@ -2835,10 +3060,7 @@ describe("Room Message timeline cards", () => {
     expect(
       screen.queryByRole("button", { name: "Reply to thread" }),
     ).toBeNull();
-    fireEvent.click(
-      screen.getByRole("button", { name: "More message actions" }),
-    );
-    fireEvent.click(screen.getByRole("menuitem", { name: "Reply to message" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reply to message" }));
     expect(screen.getByRole("button", { name: "Copy message" })).toBeVisible();
     expect(onReply).toHaveBeenCalledWith(message);
     expect(screen.queryByRole("button", { name: "Helpful" })).toBeNull();
@@ -2854,10 +3076,7 @@ describe("Room Message timeline cards", () => {
     expect(
       screen.queryByRole("button", { name: "Reply to thread" }),
     ).toBeNull();
-    fireEvent.click(
-      screen.getByRole("button", { name: "More message actions" }),
-    );
-    fireEvent.click(screen.getByRole("menuitem", { name: "Reply to message" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reply to message" }));
     expect(onReply).toHaveBeenCalledWith(message);
   });
 
@@ -3014,6 +3233,9 @@ function renderTimeline(
     onReplyWithQuote?: ComponentProps<
       typeof MessageTimeline
     >["onReplyWithQuote"];
+    onToggleReaction?: ComponentProps<
+      typeof MessageTimeline
+    >["onToggleReaction"];
     presentations?: ComponentProps<typeof MessageTimeline>["presentations"];
     unreadDividerIndex?: ComponentProps<
       typeof MessageTimeline
@@ -3357,6 +3579,7 @@ describe("Runtime timeline projection reuse", () => {
         "run-status-1": firstEvents,
         "run-status-2": secondEvents,
       },
+      t: translate,
     });
 
     const next = buildRuntimeTimelineViews({
@@ -3369,6 +3592,7 @@ describe("Runtime timeline projection reuse", () => {
           runtimeStatusRecord("2", "working", "Writing"),
         ],
       },
+      t: translate,
     });
     expect(next).toHaveLength(2);
     expect(next[0]).toBe(firstView);
@@ -3378,6 +3602,7 @@ describe("Runtime timeline projection reuse", () => {
       cache,
       runStatuses: [{ ...first, revision: 2 }],
       runtimePresentationEventsByRunStatusId: { "run-status-1": firstEvents },
+      t: translate,
     });
     expect(revised[0]).not.toBe(firstView);
     // A Run that leaves the list leaves the cache too.

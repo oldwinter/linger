@@ -1,5 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
+import { useT } from "@/i18n/use-translation";
+
+import { routinesMessages as m } from "./routines.messages";
+
 const HOURS = Array.from({ length: 24 }, (_, hour) =>
   String(hour).padStart(2, "0"),
 );
@@ -14,6 +18,7 @@ export function RoutineTimeField({
   onChange: (value: string) => void;
   value: string;
 }) {
+  const t = useT();
   const rootRef = useRef<HTMLDivElement>(null);
   const minuteInputRef = useRef<HTMLInputElement>(null);
   const hourOptionRef = useRef<HTMLButtonElement>(null);
@@ -73,7 +78,7 @@ export function RoutineTimeField({
     <div className="relative mt-1 w-full" ref={rootRef}>
       <div className="relative grid grid-cols-2 rounded-md border border-input bg-card transition-colors duration-150 hover:border-border-hover focus-within:border-foreground focus-within:ring-2 focus-within:ring-ring">
         <input
-          aria-label="Hour"
+          aria-label={t(m.hour)}
           className="h-[34px] w-full bg-transparent px-3 py-1 text-center text-sm tabular-nums text-foreground outline-none"
           inputMode="numeric"
           maxLength={2}
@@ -90,7 +95,7 @@ export function RoutineTimeField({
           value={hourText}
         />
         <input
-          aria-label="Minute"
+          aria-label={t(m.minute)}
           className="h-[34px] w-full bg-transparent px-3 py-1 text-center text-sm tabular-nums text-foreground outline-none"
           inputMode="numeric"
           maxLength={2}
@@ -116,14 +121,14 @@ export function RoutineTimeField({
       {open ? (
         <div className="app-floating-enter absolute inset-x-0 top-full z-20 mt-1 grid grid-cols-2 overflow-hidden rounded-lg bg-popover shadow-lg">
           <TimeColumn
-            label="Hours"
+            label={t(m.hours)}
             onSelect={(nextHour) => commit(nextHour, parsed.minute)}
             options={HOURS}
             selected={parsed.hour}
             selectedRef={hourOptionRef}
           />
           <TimeColumn
-            label="Minutes"
+            label={t(m.minutes)}
             onSelect={(nextMinute) => {
               commit(parsed.hour, nextMinute);
               setOpen(false);

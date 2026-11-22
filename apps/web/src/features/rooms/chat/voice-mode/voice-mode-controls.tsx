@@ -24,6 +24,8 @@ import styles from "./voice-mode.module.css";
 import { voiceModeStatusLabel } from "./voice-mode-presentation";
 import { openVoicePip } from "./voice-pip";
 import { LazyVoiceKeyDialog } from "@/features/rooms/voice-control/lazy-voice-key-dialog";
+import { useT } from "@/i18n/use-translation";
+import { voiceModeMessages } from "./voice-mode.messages";
 
 export type { VoiceModePresentation } from "./voice-mode-presentation";
 
@@ -62,6 +64,7 @@ export function VoiceModeControls(props: {
   /** The deployment's voice support, read once by the composer. */
   policy: TeamHubVoiceMediaPolicy | undefined;
 }) {
+  const t = useT();
   const voice = useOptionalVoiceModeSession();
   const { roomId, tenantId } = props.target;
   // xAI makes Voice Mode a Live conversation; with Soniox alone it dictates.
@@ -72,6 +75,8 @@ export function VoiceModeControls(props: {
   // the click then asks for a Soniox or xAI key.
   const offered = supported || policy?.voice_available === true;
   const [keyDialogOpen, setKeyDialogOpen] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [startError, setStartError] = useState<string>();
   // Once Voice Mode is offered, its code loads in the background.
   const prepare = voice?.prepare;
   useEffect(() => {
@@ -84,51 +89,77 @@ export function VoiceModeControls(props: {
   const entered = Boolean(here?.entered);
   const closing = Boolean(here?.closing);
   const enter = (next = modes) => {
-    if (!voice || props.disabled || session) return;
+    if (!voice || props.disabled || session || starting) return;
     if (!next.dictation && !next.live) {
       if (offered) setKeyDialogOpen(true);
       return;
     }
-    // Only this click may open the floating window that stays over other
-    // tabs and apps, so it opens now while the session starts.
-    void openVoicePip("voice-mode");
-    voice.start(
-      {
-        accountId: props.target.accountId ?? "",
-        recipient: props.target.recipient,
-        roomId,
-        roomName: props.target.roomName ?? "",
-        tenantId,
-      },
-      props.prefix,
-      next,
-    );
+    setStarting(true);
+    setStartError(undefined);
+    void voice
+      .start(
+        {
+          accountId: props.target.accountId ?? "",
+          recipient: props.target.recipient,
+          roomId,
+          roomName: props.target.roomName ?? "",
+          tenantId,
+        },
+        props.prefix,
+        next,
+        () => openVoicePip("voice-mode"),
+      )
+      .catch((cause: unknown) => {
+        setStartError(
+          cause instanceof Error
+            ? cause.message
+            : t(voiceModeMessages.unableToStart),
+        );
+      })
+      .finally(() => setStarting(false));
   };
   if (!entered && !closing && (!props.empty || !offered)) return null;
   if (!entered)
     return (
       <>
         <Button
-          aria-label={closing ? "Finishing Voice Mode" : "Start Voice Mode"}
+          aria-label={t(
+            closing ? voiceModeMessages.finishing : voiceModeMessages.start,
+          )}
           title={
-            closing
-              ? "Finishing last words and releasing the microphone"
+            startError ??
+            (closing
+              ? t(voiceModeMessages.finishingHint)
               : elsewhere
-                ? `Voice Mode is on in ${elsewhere.target.roomName || "another Room"}`
-                : modes.live
-                  ? "Voice Mode: a live conversation with Grok"
-                  : modes.dictation
-                    ? "Voice Mode: sends when you finish speaking"
-                    : "Voice Mode: add a Soniox or xAI key to start"
+                ? elsewhere.target.roomName
+                  ? t(voiceModeMessages.onInRoom, {
+                      room: elsewhere.target.roomName,
+                    })
+                  : t(voiceModeMessages.onInAnotherRoom)
+                : t(
+                    modes.live
+                      ? voiceModeMessages.liveHint
+                      : modes.dictation
+                        ? voiceModeMessages.dictationHint
+                        : voiceModeMessages.keyHint,
+                  ))
           }
           className="message-composer-send"
-          disabled={closing || props.disabled || Boolean(elsewhere)}
+          disabled={starting || closing || props.disabled || Boolean(elsewhere)}
           onClick={() => enter()}
           size="compactIcon"
           tone="primary"
         >
           <Icon icon={AudioWave01Icon} size={16} />
         </Button>
+        {startError ? (
+          <span
+            className="max-w-56 text-xs leading-4 text-app-danger"
+            role="alert"
+          >
+            {startError}
+          </span>
+        ) : null}
         {keyDialogOpen ? (
           <LazyVoiceKeyDialog
             onClose={() => setKeyDialogOpen(false)}
@@ -153,13 +184,13 @@ export function VoiceModeControls(props: {
   return (
     <div
       className={styles.panel}
-      aria-label="Voice Mode controls"
+      aria-label={t(voiceModeMessages.controls)}
       data-settling={settling || undefined}
       role="group"
     >
       <span className={styles.lead}>
         <Icon icon={AudioWave01Icon} size={14} />
-        <span className={styles.label}>Voice input</span>
+        <span className={styles.label}>{t(voiceModeMessages.voiceInput)}</span>
       </span>
       <LiveVoiceWaveform active={active} />
       {settling ? (
@@ -169,13 +200,23 @@ export function VoiceModeControls(props: {
           <i />
         </span>
       ) : null}
-      <span className="sr-only" role="status">
-        {voiceModeStatusLabel({ ...state, entered })}
-      </span>
+      {state.error || state.status === "error" ? (
+        <span
+          className="min-w-0 truncate text-xs text-app-danger"
+          role="alert"
+          title={voiceModeStatusLabel({ ...state, entered }, t)}
+        >
+          {voiceModeStatusLabel({ ...state, entered }, t)}
+        </span>
+      ) : (
+        <span className="sr-only" role="status">
+          {voiceModeStatusLabel({ ...state, entered }, t)}
+        </span>
+      )}
       {state.canRetry ? (
         <Button
-          aria-label="Retry voice message"
-          title="Retry the same voice message"
+          aria-label={t(voiceModeMessages.retry)}
+          title={t(voiceModeMessages.retryHint)}
           size="compactIcon"
           tone="ghost"
           disabled={state.sending}
@@ -185,7 +226,9 @@ export function VoiceModeControls(props: {
         </Button>
       ) : null}
       <Button
-        aria-label={muted ? "Unmute microphone" : "Mute microphone"}
+        aria-label={t(
+          muted ? voiceModeMessages.unmute : voiceModeMessages.mute,
+        )}
         aria-pressed={muted}
         className={styles.mute}
         disabled={!state.microphoneActive || state.status === "closing"}
@@ -201,7 +244,11 @@ export function VoiceModeControls(props: {
       </Button>
       {soundOff === undefined ? null : (
         <Button
-          aria-label={soundOff ? "Turn reply sound on" : "Turn reply sound off"}
+          aria-label={t(
+            soundOff
+              ? voiceModeMessages.replySoundOn
+              : voiceModeMessages.replySoundOff,
+          )}
           aria-pressed={soundOff}
           className={styles.sound}
           onClick={() => voice?.setSoundOff(!soundOff)}
@@ -216,7 +263,7 @@ export function VoiceModeControls(props: {
         </Button>
       )}
       <Button
-        aria-label="Exit Voice Mode"
+        aria-label={t(voiceModeMessages.exit)}
         className={styles.exit}
         disabled={state.status === "closing"}
         onClick={() => voice?.exit()}

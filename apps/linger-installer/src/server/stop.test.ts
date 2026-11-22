@@ -3,10 +3,17 @@ import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
 
+import { INSTANCE_BUSY } from "@linger/local-installation/instance";
+import { withLocalModelsLock } from "@linger/local-installation/local-models";
+
 import { parseInstallerArguments } from "../main.js";
 import { launchInstaller } from "./launch.js";
 import { privateDirectory, privateWrite } from "./storage.js";
-import { stopDesktopInstallation, type StopDependencies } from "./stop.js";
+import {
+  stopDesktopInstallation,
+  stopDesktopLocalModels,
+  type StopDependencies,
+} from "./stop.js";
 
 const clean: Array<() => Promise<unknown>> = [];
 afterEach(async () => {
@@ -39,6 +46,12 @@ test("the uninstall stop needs only the instance", () => {
     parseInstallerArguments(["--instance", "desktop", "--stop"]),
   ).toMatchObject({ stop: true, instanceName: "desktop" });
   expect(() => parseInstallerArguments(["--stop"])).toThrow(/instance/);
+});
+
+test("the quit's local model stop needs no instance or source", () => {
+  expect(parseInstallerArguments(["--stop-local-models"])).toMatchObject({
+    stopLocalModels: true,
+  });
 });
 
 test("stops the desktop's manager while a job runs, then the instance's services", async () => {
@@ -227,4 +240,72 @@ test("stops the local models in every home, even where the services did not stop
     { home: value, message: "services still running" },
     { home: custom, message: "localmodels stack down: gateway still running" },
   ]);
+});
+
+test("a quit stops only the local models, in every home, and keeps their controller", async () => {
+  const value = await home();
+  const custom = await home();
+  await mkdir(path.join(value, "desktop"), { recursive: true });
+  await writeFile(
+    path.join(value, "desktop/local-server.json"),
+    JSON.stringify({ home: custom }),
+  );
+  const failure =
+    "Cannot stop local models: the installed tool kit could not be verified. Start Linger to repair the kit, then try again.";
+  const models: { home: string; keepController?: boolean }[] = [];
+  const log: string[] = [];
+  const outcome = await stopDesktopLocalModels(
+    { ...options(value), log: (message) => log.push(message) },
+    {
+      stopModels: async (at, { keepController }) => {
+        models.push({ home: at, keepController });
+        if (at === value) throw new Error(failure);
+      },
+    },
+  );
+  expect(models).toEqual([
+    { home: value, keepController: true },
+    { home: custom, keepController: true },
+  ]);
+  expect(outcome.failed).toEqual([
+    {
+      home: value,
+      message: failure,
+    },
+  ]);
+  expect(log).toEqual([
+    `Could not stop the local models in ${value}: ${failure}`,
+  ]);
+});
+
+test("a quit holds each home's local model lock while it stops the models", async () => {
+  const value = await home();
+  await mkdir(path.join(value, "runtime/localmodels"), { recursive: true });
+  let held: unknown;
+  const outcome = await stopDesktopLocalModels(options(value), {
+    stopModels: async (at) => {
+      // A restore checking the stack now finds the lock taken.
+      held = await withLocalModelsLock(at, async () => "free").catch(
+        (error: { code?: unknown }) => error.code,
+      );
+    },
+  });
+  expect(held).toBe(INSTANCE_BUSY);
+  expect(outcome.failed).toEqual([]);
+});
+
+test("a quit while a deployment holds the lock leaves that home's models running", async () => {
+  const value = await home();
+  await mkdir(path.join(value, "runtime/localmodels"), { recursive: true });
+  const stopModels = vi.fn(async () => {});
+  const log: string[] = [];
+  const outcome = await withLocalModelsLock(value, () =>
+    stopDesktopLocalModels(
+      { ...options(value), log: (message) => log.push(message) },
+      { stopModels },
+    ),
+  );
+  expect(stopModels).not.toHaveBeenCalled();
+  expect(outcome.failed).toEqual([]);
+  expect(log.join("\n")).toContain("another local model operation holds them");
 });

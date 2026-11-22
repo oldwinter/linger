@@ -1,53 +1,62 @@
 import {
   ArrowDown01Icon,
+  Cancel01Icon,
   Delete02Icon,
-  File01Icon,
   Search01Icon,
 } from "@hugeicons/core-free-icons";
 import { Icon } from "@/components/ui/icon";
+import { StatusPill } from "@/components/ui/status-pill";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 
 import {
   calendarMonths,
   formatMeetingDay,
+  formatMeetingMonthDay,
+  formatMeetingWeekday,
   formatMeetingWhen,
   meetingLevel,
   meetingsByDate,
-  monthLabels,
 } from "./meetings-calendar";
 import {
   meetingsRanTogether,
   meetingsRanTogetherText,
 } from "./meetings-ran-together";
 import { Spinner } from "@/components/ui/spinner";
+import { useOptionalVoiceControl } from "@/features/rooms/voice-control/voice-control-context";
+import { commonMessages } from "@/i18n/common.messages";
+import { formatLocale } from "@/i18n/language";
+import type { Message } from "@/i18n/messages";
+import { useTranslation } from "@/i18n/use-translation";
 import { dayShapePath } from "./day-shape";
+import { HideMeetingDialog } from "./hide-meeting-dialog";
 import { liveMeetingLine } from "./live-meeting";
 import { LiveMeetingNow } from "./live-meeting-now";
-import { useOptionalVoiceControl } from "@/features/rooms/voice-control/voice-control-context";
 import { useLocalCalendarDay } from "./local-calendar-day";
-import { useMeetings } from "./memory-queries";
 import { meetingPath } from "./meeting-routes";
-import { weekMemoryPath } from "./week-memory";
-import { HideMeetingDialog } from "./hide-meeting-dialog";
+import { meetingsMessages as m } from "./meetings.messages";
+import { useMeetings } from "./memory-queries";
 import { upNextPath } from "./up-next";
+import { weekMemoryPath } from "./week-memory";
 
 const levelClass = [
-  "bg-[#f1f0ec]",
-  "bg-[#dedcd1]",
-  "bg-[#b5b3a5]",
-  "bg-[#7d7b6e]",
+  "bg-app-heat-0",
+  "bg-app-heat-1",
+  "bg-app-heat-2",
+  "bg-app-heat-3",
   "bg-app-ink",
 ] as const;
-const weekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const recentDayCount = 7;
 
 /** Which meetings the panel shows; `?meetings=` keeps the choice in the URL. */
 export type MeetingsRange = "all" | "today" | "week";
-const meetingRanges: ReadonlyArray<{ id: MeetingsRange; label: string }> = [
-  { id: "today", label: "Today" },
-  { id: "week", label: "Past 7 days" },
-  { id: "all", label: "All meetings" },
+const meetingRanges: ReadonlyArray<{
+  id: MeetingsRange;
+  label: Message<string>;
+}> = [
+  { id: "today", label: m.rangeToday },
+  { id: "week", label: m.rangeWeek },
+  { id: "all", label: m.rangeAll },
 ];
 const rangeParam: Record<MeetingsRange, string> = {
   all: "all",
@@ -81,6 +90,7 @@ function shiftDate(date: string, days: number) {
  * the list by file name, date, or time.
  */
 export function MeetingsPanel({ tenantId }: { tenantId: string }) {
+  const { language, t } = useTranslation();
   const meetings = useMeetings(tenantId);
   const voice = useOptionalVoiceControl();
   const liveLine = liveMeetingLine({
@@ -98,8 +108,9 @@ export function MeetingsPanel({ tenantId }: { tenantId: string }) {
       calendarMonths(
         today,
         new Map([...byDate].map(([date, items]) => [date, items.length])),
+        formatLocale(language),
       ),
-    [byDate, today],
+    [byDate, today, language],
   );
   const latest = [...byDate.keys()].sort().at(-1);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -111,9 +122,9 @@ export function MeetingsPanel({ tenantId }: { tenantId: string }) {
       : range === "today"
         ? today
         : shiftDate(today, -(recentDayCount - 1));
-  const rangeLabel = meetingRanges.find(
-    (candidate) => candidate.id === range,
-  )!.label;
+  const rangeLabel = t(
+    meetingRanges.find((candidate) => candidate.id === range)!.label,
+  );
   const [chosen, setChosen] = useState<string>();
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const [tip, setTip] = useState<{ text: string; x: number; y: number }>();
@@ -123,12 +134,11 @@ export function MeetingsPanel({ tenantId }: { tenantId: string }) {
   }>();
   const recentDays = Array.from({ length: recentDayCount }, (_, index) => {
     const date = shiftDate(today, index - (recentDayCount - 1));
-    const [, month, day] = date.split("-");
     return {
       date,
       count: byDate.get(date)?.length ?? 0,
-      weekday: weekdayLabels[new Date(`${date}T00:00:00Z`).getUTCDay()]!,
-      label: `${monthLabels[Number(month) - 1]} ${Number(day)}`,
+      weekday: formatMeetingWeekday(date),
+      label: formatMeetingMonthDay(date),
     };
   });
   const selected = chosen ?? (byDate.has(today) ? today : (latest ?? today));
@@ -141,13 +151,19 @@ export function MeetingsPanel({ tenantId }: { tenantId: string }) {
       date,
       items: needle
         ? items.filter((item) =>
-            `meeting ${item.recordingFilename} ${date} ${item.time} ${formatMeetingDay(date)}`
+            // "meeting" finds every entry whatever the language on screen.
+            `meeting ${meetingName(item)} ${item.recordingFilename} ${item.title ?? ""} ${item.summary ?? ""} ${date} ${item.time} ${formatMeetingDay(date)}`
               .toLowerCase()
               .includes(needle),
           )
         : items,
     }))
     .filter((day) => day.items.length > 0);
+  function meetingName(meeting: { date: string; time: string }) {
+    return t(m.meetingNamed, {
+      when: formatMeetingWhen(meeting.date, meeting.time, t),
+    });
+  }
   const dayRefs = useRef(new Map<string, HTMLElement>());
   // A day chosen on the calendar brings its meetings into view.
   useEffect(() => {
@@ -164,7 +180,10 @@ export function MeetingsPanel({ tenantId }: { tenantId: string }) {
   function showTip(cell: Element, day: { date: string; count: number }) {
     const box = cell.getBoundingClientRect();
     setTip({
-      text: `${formatMeetingDay(day.date)} · ${day.count} ${day.count === 1 ? "meeting" : "meetings"}`,
+      text: t(m.dayCountTip, {
+        count: day.count,
+        date: formatMeetingDay(day.date),
+      }),
       x: box.left + box.width / 2,
       y: box.top,
     });
@@ -199,7 +218,7 @@ export function MeetingsPanel({ tenantId }: { tenantId: string }) {
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div
-          aria-label="Meeting range"
+          aria-label={t(m.range)}
           className="inline-flex w-fit gap-0.5 rounded-lg bg-muted p-0.5"
           role="radiogroup"
         >
@@ -216,7 +235,7 @@ export function MeetingsPanel({ tenantId }: { tenantId: string }) {
               role="radio"
               type="button"
             >
-              {candidate.label}
+              {t(candidate.label)}
             </button>
           ))}
         </div>
@@ -243,20 +262,20 @@ export function MeetingsPanel({ tenantId }: { tenantId: string }) {
         {meetings.isPending ? (
           <p className="flex items-center gap-2 text-sm text-app-muted">
             <Spinner size={15} />
-            Loading meetings…
+            {t(m.loading)}
           </p>
         ) : meetings.isError ? (
           <p role="alert" className="text-sm text-app-danger">
-            Meetings could not be loaded.{" "}
+            {t(m.couldNotLoad)}{" "}
             <button type="button" onClick={() => void meetings.refetch()}>
-              Retry
+              {t(commonMessages.retry)}
             </button>
           </p>
         ) : (
           <div className="flex w-full flex-col gap-4">
             {range === "today" ? null : (
               <section
-                aria-label="Meeting calendar"
+                aria-label={t(m.calendar)}
                 className="rounded-xl border border-border bg-card p-4 md:p-5"
               >
                 {recentOnly ? (
@@ -271,7 +290,10 @@ export function MeetingsPanel({ tenantId }: { tenantId: string }) {
                           key={day.date}
                         >
                           <button
-                            aria-label={`${day.date}: ${day.count} ${day.count === 1 ? "meeting" : "meetings"}`}
+                            aria-label={t(m.dayCount, {
+                              count: day.count,
+                              date: day.date,
+                            })}
                             aria-pressed={day.date === selected}
                             className={`meeting-calendar-cell flex aspect-square w-full items-center justify-center rounded-lg text-[15px] font-semibold tabular-nums transition-colors hover:outline hover:outline-1 hover:outline-app-ink/40 ${levelClass[level]} ${level >= 3 ? "text-app-surface" : "text-app-ink"} ${day.date === today ? "meeting-today" : ""} ${day.date === selected ? "ring-2 ring-app-ink ring-offset-2 ring-offset-app-surface" : ""}`}
                             onClick={() => {
@@ -282,14 +304,17 @@ export function MeetingsPanel({ tenantId }: { tenantId: string }) {
                                 return next;
                               });
                             }}
-                            title={`${day.date} · ${day.count} ${day.count === 1 ? "meeting" : "meetings"}`}
+                            title={t(m.dayCountTip, {
+                              count: day.count,
+                              date: day.date,
+                            })}
                             type="button"
                           >
                             {day.count || ""}
                           </button>
                           <span className="text-center leading-4">
                             <span className="block font-medium text-app-ink">
-                              {day.date === today ? "Today" : day.weekday}
+                              {day.date === today ? t(m.today) : day.weekday}
                             </span>
                             {day.label}
                           </span>
@@ -330,7 +355,10 @@ export function MeetingsPanel({ tenantId }: { tenantId: string }) {
                                   ) : (
                                     <button
                                       key={day.date}
-                                      aria-label={`${day.date}: ${day.count} ${day.count === 1 ? "meeting" : "meetings"}`}
+                                      aria-label={t(m.dayCount, {
+                                        count: day.count,
+                                        date: day.date,
+                                      })}
                                       aria-pressed={day.date === selected}
                                       className={`meeting-heatmap-cell aspect-square w-full rounded-[4px] ${levelClass[meetingLevel(day.count)]} ${day.date === today ? "meeting-today" : ""} ${day.date === selected ? "ring-2 ring-app-ink ring-offset-1 ring-offset-app-surface" : ""}`}
                                       onClick={() => {
@@ -387,18 +415,39 @@ export function MeetingsPanel({ tenantId }: { tenantId: string }) {
                 <label className="flex h-9 w-full items-center gap-2 rounded-lg border border-border bg-card px-3 text-muted-foreground transition-colors hover:border-border-hover focus-within:border-foreground focus-within:ring-2 focus-within:ring-ring/40 sm:w-64">
                   <Icon icon={Search01Icon} size={16} />
                   <input
-                    aria-label="Search meetings"
-                    className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
+                    aria-label={t(m.search)}
+                    className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-app-placeholder"
                     onChange={(event) => setQuery(event.target.value)}
-                    placeholder="Search by date or time"
-                    type="search"
+                    onKeyDown={(event) => {
+                      if (
+                        event.nativeEvent.isComposing ||
+                        event.keyCode === 229
+                      )
+                        return;
+                      if (event.key !== "Escape" || !query) return;
+                      event.preventDefault();
+                      setQuery("");
+                    }}
+                    placeholder={t(m.searchPlaceholder)}
+                    role="searchbox"
+                    type="text"
                     value={query}
                   />
+                  {query ? (
+                    <button
+                      aria-label="Clear search"
+                      className="flex size-5 shrink-0 items-center justify-center rounded-sm text-app-muted hover:bg-app-hover hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      onClick={() => setQuery("")}
+                      type="button"
+                    >
+                      <Icon icon={Cancel01Icon} size={12} />
+                    </button>
+                  ) : null}
                 </label>
               </div>
               {chosen && !byDate.has(chosen) && !needle ? (
                 <p className="border-b border-app-border px-4 py-2.5 text-sm text-app-muted md:px-5">
-                  No meetings on {formatMeetingDay(chosen)}.
+                  {t(m.noneOnDay, { day: formatMeetingDay(chosen) })}
                 </p>
               ) : null}
               {liveLine && !needle ? <LiveMeetingNow line={liveLine} /> : null}
@@ -408,7 +457,7 @@ export function MeetingsPanel({ tenantId }: { tenantId: string }) {
                     const together = meetingsRanTogether(day.items);
                     return (
                       <section
-                        aria-label={`Meetings on ${day.date}`}
+                        aria-label={t(m.meetingsOn, { date: day.date })}
                         className="meeting-date-group"
                         key={day.date}
                         ref={(node) => {
@@ -430,8 +479,11 @@ export function MeetingsPanel({ tenantId }: { tenantId: string }) {
                             }
                             type="button"
                           >
-                            {formatMeetingDay(day.date)}
-                            {day.date === today ? " · Today" : ""}
+                            {day.date === today
+                              ? t(m.dayToday, {
+                                  day: formatMeetingDay(day.date),
+                                })
+                              : formatMeetingDay(day.date)}
                             <Icon
                               icon={ArrowDown01Icon}
                               size={14}
@@ -449,43 +501,42 @@ export function MeetingsPanel({ tenantId }: { tenantId: string }) {
                           ) : null}
                           {day.items.map((meeting) => {
                             const to = meetingPath(tenantId, meeting.id);
-                            const name = `Meeting ${formatMeetingWhen(meeting.date, meeting.time)}`;
+                            const name = meetingName(meeting);
+                            const detail = [meeting.title, meeting.summary]
+                              .filter(Boolean)
+                              .join(" · ");
                             return (
                               <li
                                 className="group flex items-center gap-3 transition-colors duration-300 hover:bg-muted/70"
                                 key={meeting.id}
                               >
                                 <Link
-                                  className="min-w-0 flex-1 truncate py-2 text-sm text-app-ink"
+                                  className="flex min-w-0 flex-1 items-baseline gap-2 py-2 text-sm text-app-ink"
                                   to={to}
                                 >
-                                  Meeting{" "}
-                                  {formatMeetingWhen(
-                                    meeting.date,
-                                    meeting.time,
-                                  )}
+                                  <span className="shrink-0">{name}</span>
+                                  {detail ? (
+                                    <span className="min-w-0 truncate text-app-muted">
+                                      {detail}
+                                    </span>
+                                  ) : null}
                                 </Link>
                                 {meeting.summaryReady ? (
-                                  // The meeting entry opens on its summary.
-                                  <Link
-                                    aria-label={`Summary of Meeting ${formatMeetingWhen(meeting.date, meeting.time)}`}
-                                    className="inline-flex shrink-0 items-center gap-1 rounded text-xs text-app-muted hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
-                                    to={to}
-                                  >
-                                    <Icon icon={File01Icon} size={12} />
-                                    Summary
-                                  </Link>
+                                  <StatusPill tone="neutral">
+                                    {t(m.summary)}
+                                  </StatusPill>
                                 ) : null}
                                 <button
-                                  aria-label={`Delete ${name}`}
-                                  className="flex size-6 shrink-0 items-center justify-center rounded text-app-muted opacity-0 transition-opacity hover:text-app-danger focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus group-hover:opacity-100 [@media(hover:none)]:opacity-100"
+                                  data-voice-risk="never"
+                                  aria-label={t(m.deleteNamed, { name })}
+                                  className="flex size-6 shrink-0 items-center justify-center rounded text-app-muted opacity-0 transition-opacity hover:text-app-danger focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 [@media(hover:none)]:opacity-100"
                                   onClick={() =>
                                     setDeleting({
                                       captureId: meeting.captureId,
                                       name,
                                     })
                                   }
-                                  title="Delete meeting"
+                                  title={t(m.deleteMeeting)}
                                   type="button"
                                 >
                                   <Icon icon={Delete02Icon} size={14} />
@@ -501,12 +552,12 @@ export function MeetingsPanel({ tenantId }: { tenantId: string }) {
               ) : liveLine && !needle ? null : (
                 <p className="px-4 py-3 text-sm text-app-muted md:px-5">
                   {needle
-                    ? `No meetings match “${query.trim()}”.`
+                    ? t(m.noMatch, { query: query.trim() })
                     : range === "today"
-                      ? "No meetings today."
+                      ? t(m.noneToday)
                       : recentOnly
-                        ? "No meetings in the past 7 days."
-                        : "No meetings yet."}
+                        ? t(m.noneThisWeek)
+                        : t(m.noneYet)}
                 </p>
               )}
             </section>

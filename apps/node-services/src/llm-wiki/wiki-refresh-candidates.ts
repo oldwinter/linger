@@ -53,10 +53,51 @@ const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/u;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/u;
 const MAX_SOURCE_BYTES = 50 * 1024 * 1024;
 
+type RuntimeActorAssetErrorCode =
+  | "WIKI_RUNTIME_INCOMPATIBLE"
+  | "WIKI_RUNTIME_AUTH_REQUIRED"
+  | "WIKI_RUNTIME_UNAVAILABLE";
+
+interface RuntimeActorErrorSpec {
+  readonly disposition: "retryable" | "terminal";
+  readonly status: 500 | 503;
+  readonly message: string;
+}
+
+const RUNTIME_ACTOR_ERRORS: Record<
+  RuntimeActorAssetErrorCode,
+  RuntimeActorErrorSpec
+> = {
+  WIKI_RUNTIME_INCOMPATIBLE: {
+    disposition: "terminal",
+    status: 500,
+    message: "The Wiki owner's Local Computer Runtime is incompatible",
+  },
+  WIKI_RUNTIME_AUTH_REQUIRED: {
+    disposition: "terminal",
+    status: 500,
+    message: "The Wiki owner's Local Computer Runtime requires sign-in",
+  },
+  WIKI_RUNTIME_UNAVAILABLE: {
+    disposition: "retryable",
+    status: 503,
+    message: "The Wiki owner's Local Computer Runtime is unavailable",
+  },
+};
+
+function isRuntimeActorAssetErrorCode(
+  code: ActorAssetError["code"],
+): code is RuntimeActorAssetErrorCode {
+  return Object.hasOwn(RUNTIME_ACTOR_ERRORS, code);
+}
+
 export class WikiRefreshCandidateError extends Error {
   constructor(
     readonly code:
       | "WIKI_COMPUTER_OFFLINE"
+      | "WIKI_RUNTIME_INCOMPATIBLE"
+      | "WIKI_RUNTIME_AUTH_REQUIRED"
+      | "WIKI_RUNTIME_UNAVAILABLE"
       | "WIKI_SERVICE_STOPPING"
       | "WIKI_REFRESH_CANDIDATE_REQUEST_INVALID"
       | "WIKI_REFRESH_GENERATION_INVALID"
@@ -217,6 +258,19 @@ export class WikiRefreshCandidateService {
             "terminal",
             500,
             "Wiki refresh candidate output is invalid",
+            { cause: error },
+          );
+        }
+        if (
+          error instanceof ActorAssetError &&
+          isRuntimeActorAssetErrorCode(error.code)
+        ) {
+          const spec = RUNTIME_ACTOR_ERRORS[error.code];
+          throw new WikiRefreshCandidateError(
+            error.code,
+            spec.disposition,
+            spec.status,
+            spec.message,
             { cause: error },
           );
         }

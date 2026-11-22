@@ -346,6 +346,16 @@ export function createTeamHubAgentRuntimeStateClient(options: {
     ) => post("trusted-turns", body, signal),
     getRun: (contextKey: string, runId: string, signal?: AbortSignal) =>
       get("run", { context_key: contextKey, local_run_id: runId }, signal),
+    getRunReplyStatus: (
+      contextKey: string,
+      runId: string,
+      signal?: AbortSignal,
+    ) =>
+      get(
+        "runs/reply-status",
+        { context_key: contextKey, local_run_id: runId },
+        signal,
+      ),
     listWaitingContexts: (signal?: AbortSignal) =>
       get("runs/waiting", {}, signal),
     claimRun: (body: ClaimAgentLocalRunRequest, signal?: AbortSignal) =>

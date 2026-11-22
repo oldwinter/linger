@@ -17,13 +17,9 @@ import { artifactPreviewCache } from "../files/artifact-preview-cache";
 import { documentCardVersionQueryKey } from "../files/use-document-card-metadata";
 import { documentQueryKey, roomDocumentsQueryKey } from "../room-queries";
 import { useRoomChatNavigation } from "./use-room-chat-navigation";
+import { openPanelTab, TestRoomChrome } from "./room-chat.fixtures";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
-
-const openPanelTab = vi.fn();
-vi.mock("../room-connectivity", () => ({
-  useRoomOutletContext: () => ({ openPanelTab }),
-}));
 
 beforeEach(() => openPanelTab.mockReset());
 
@@ -40,7 +36,7 @@ function wrapper(queryClient: QueryClient) {
     return (
       <MemoryRouter>
         <QueryClientProvider client={queryClient}>
-          {children}
+          <TestRoomChrome>{children}</TestRoomChrome>
         </QueryClientProvider>
       </MemoryRouter>
     );

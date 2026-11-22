@@ -1,11 +1,13 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { defineGlobalProperty } from "@/test/global-properties";
 
 import {
   VoiceControlContext,
   type VoiceControlContextValue,
 } from "./voice-control-context";
+import { VoiceMicrophoneError } from "./microphone-devices";
 import { RecordingEntry } from "./recording-entry";
 import { VoiceFocusSurface } from "./voice-focus-surface";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
@@ -46,6 +48,7 @@ describe("RecordingEntry", () => {
     expect(meetings).toHaveAttribute("title", "Meetings");
     expect(meetings).toHaveTextContent("Meetings");
     expect(document.querySelector(".animate-spin")).toBeNull();
+    expect(document.querySelector(".town-spinner")).toBeNull();
   });
 });
 
@@ -262,6 +265,56 @@ describe("VoiceFocusSurface", () => {
     expect(startCapture).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Start recording" }));
     await vi.waitFor(() => expect(startCapture).toHaveBeenCalledOnce());
+  });
+
+  it("asks the browser again when the remembered microphone does not connect", async () => {
+    const discoverDevices = vi.fn(async () => [microphone]);
+    const selectDevice = vi.fn(async () => undefined);
+    const startCapture = vi
+      .fn<() => Promise<undefined>>()
+      .mockRejectedValueOnce(new VoiceMicrophoneError("timeout"))
+      .mockResolvedValue(undefined);
+    render(
+      <VoiceControlContext.Provider
+        value={voiceValue({
+          captureState: { status: "idle" },
+          discoverDevices,
+          listenerStatus: "disabled",
+          selectDevice,
+          startCapture,
+        })}
+      >
+        <VoiceFocusSurface autoStart onExit={vi.fn()} />
+      </VoiceControlContext.Provider>,
+    );
+    await vi.waitFor(() => expect(startCapture).toHaveBeenCalledTimes(2));
+    expect(discoverDevices).toHaveBeenCalledOnce();
+    expect(selectDevice).toHaveBeenCalledWith(microphone.deviceId);
+  });
+
+  it("explains an unbound microphone from its code", async () => {
+    const startCapture = vi.fn(async () => {
+      throw new VoiceMicrophoneError("no-binding");
+    });
+    render(
+      <VoiceControlContext.Provider
+        value={voiceValue({
+          captureState: { status: "idle" },
+          discoverDevices: vi.fn(async () => [microphone]),
+          listenerStatus: "disabled",
+          startCapture,
+        })}
+      >
+        <VoiceFocusSurface autoStart onExit={vi.fn()} />
+      </VoiceControlContext.Provider>,
+    );
+    expect(
+      await screen.findByRole("heading", { name: "Recording did not start" }),
+    ).toBeVisible();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Connect a microphone before enabling voice",
+    );
+    expect(startCapture).toHaveBeenCalledTimes(2);
   });
 
   it("shows Pause then Stop in the top row and no separate Mute", () => {
@@ -619,12 +672,16 @@ describe("VoiceFocusSurface", () => {
     );
 
     expect(
-      screen.getByRole("region", { name: "Hardware voice focus" }),
+      screen.getByRole("region", { name: "Voice recording" }),
     ).toBeVisible();
     expect(screen.getByText("Recording")).toBeVisible();
     expect(
-      screen.getByRole("heading", { name: "I’m listening to the meeting..." }),
+      screen.getByRole("heading", {
+        level: 2,
+        name: "I’m listening to the meeting...",
+      }),
     ).toBeVisible();
+    expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
     const transcript = screen.getByRole("log", {
       name: "Voice focus transcript",
     });
@@ -826,10 +883,57 @@ describe("VoiceFocusSurface", () => {
       "And then we",
     );
   });
+
+  it("supports ArrowLeft/ArrowRight navigation and exposes tabpanel semantics for recording views", () => {
+    const onViewChange = vi.fn();
+    const panels = {
+      ask: <p>Ask view body</p>,
+      askComposer: null,
+    };
+    const { rerender } = render(
+      <VoiceControlContext.Provider value={voiceValue()}>
+        <VoiceFocusSurface
+          onExit={vi.fn()}
+          onViewChange={onViewChange}
+          panels={panels}
+          view="transcript"
+        />
+      </VoiceControlContext.Provider>,
+    );
+
+    const transcriptTab = screen.getByRole("tab", { name: "Transcript" });
+    const askTab = screen.getByRole("tab", { name: "Ask" });
+    expect(transcriptTab).toHaveAttribute("tabindex", "0");
+    expect(askTab).toHaveAttribute("tabindex", "-1");
+    expect(screen.getByRole("tabpanel", { name: "Transcript" })).toBeVisible();
+
+    transcriptTab.focus();
+    fireEvent.keyDown(transcriptTab, { key: "ArrowRight" });
+    expect(askTab).toHaveFocus();
+    expect(onViewChange).toHaveBeenCalledWith("ask");
+
+    rerender(
+      <VoiceControlContext.Provider value={voiceValue()}>
+        <VoiceFocusSurface
+          onExit={vi.fn()}
+          onViewChange={onViewChange}
+          panels={panels}
+          view="ask"
+        />
+      </VoiceControlContext.Provider>,
+    );
+    expect(screen.getByRole("tabpanel", { name: "Ask" })).toHaveTextContent(
+      "Ask view body",
+    );
+
+    fireEvent.keyDown(askTab, { key: "ArrowLeft" });
+    expect(transcriptTab).toHaveFocus();
+    expect(onViewChange).toHaveBeenLastCalledWith("transcript");
+  });
 });
 
 function stubMicrophonePermission(result: Promise<PermissionStatus>) {
-  Object.defineProperty(navigator, "permissions", {
+  defineGlobalProperty(navigator, "permissions", {
     configurable: true,
     value: { query: vi.fn(() => result) },
   });

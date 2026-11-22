@@ -43,6 +43,38 @@ func TestWindowsAncestorDeleteRightsRespectVolumeRoot(t *testing.T) {
 	}
 }
 
+func TestWindowsPrivateOwnerIsUserOrAdministrators(t *testing.T) {
+	sid, err := CurrentSID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := currentUserIsAdministrator
+	t.Cleanup(func() { currentUserIsAdministrator = original })
+	for _, test := range []struct {
+		name          string
+		owner         string
+		administrator bool
+		allowed       bool
+	}{
+		{"current user", sid.String(), false, true},
+		{"Administrators, for an administrator", "BA", true, true},
+		{"Administrators, for a standard user", "BA", false, false},
+		{"another account, for an administrator", "S-1-5-21-1-2-3-4", true, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			currentUserIsAdministrator = func() bool { return test.administrator }
+			sd, err := windows.SecurityDescriptorFromString("O:" + test.owner + "D:P(A;;FA;;;" + sid.String() + ")(A;;FA;;;SY)")
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = validateDescriptor(sd, true)
+			if (err == nil) != test.allowed {
+				t.Fatalf("allowed = %v, error = %v", test.allowed, err)
+			}
+		})
+	}
+}
+
 func TestWindowsAncestorTrustsOnlyCodexSandboxSIDs(t *testing.T) {
 	sid, err := CurrentSID()
 	if err != nil {

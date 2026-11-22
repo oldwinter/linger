@@ -160,40 +160,26 @@ func ApplyGenerated(ctx context.Context, tx pgx.Tx, tenantID, actorID string, ge
 	return save(ctx, tx, tenantID, actorID, next)
 }
 
-// AnotherMeName is the name an Another Me carries after its Human.
-func AnotherMeName(humanName string) string {
-	return humanName + "'s Another Me"
-}
-
 // AnotherMeDescription is the description an Another Me carries after its Human.
 func AnotherMeDescription(humanName string) string {
 	return "Private delegate for " + humanName
 }
 
-// renameHuman follows a Human's new name through their Another Me and tells
+// renameHuman updates the Another Me's description and tells
 // the Tenant's browsers, which show the name in the directory, Room members
 // and Chat rows.
 func renameHuman(ctx context.Context, tx pgx.Tx, tenantID, humanActorID, after string) error {
-	if err := renameAnotherMe(ctx, tx, tenantID, humanActorID, after); err != nil {
+	if err := updateAnotherMeDescription(ctx, tx, tenantID, humanActorID, after); err != nil {
 		return err
 	}
 	return PublishTenantChange(ctx, store.New(tx), tenantID, "tenant.directory.changed")
 }
 
-// renameAnotherMe keeps the Human's Another Me named after them when their
-// name changes. Any name or description still in its generated form follows,
-// even one left behind by an earlier rename; one the user edited by hand, or a
-// new name too long for an Actor, stays. A changed description advances the
-// configuration revision, as every profile change does.
-func renameAnotherMe(ctx context.Context, tx pgx.Tx, tenantID, humanActorID, after string) error {
+// A Human rename updates the generated description without changing the Agent's
+// own name. A changed description advances its configuration revision.
+func updateAnotherMeDescription(ctx context.Context, tx pgx.Tx, tenantID, humanActorID, after string) error {
 	const anotherMes = `SELECT actor_id FROM agent_registrations
     WHERE tenant_id=$1 AND agent_type='anotherme' AND represented_human_actor_id=$2`
-	if _, err := tx.Exec(ctx, `UPDATE actors SET display_name=$3
-WHERE tenant_id=$1 AND kind='agent' AND display_name<>$3 AND length($3) <= 120
-  AND right(display_name, length($4)) = $4
-  AND id IN (`+anotherMes+`)`, tenantID, humanActorID, AnotherMeName(after), AnotherMeName("")); err != nil {
-		return err
-	}
 	_, err := tx.Exec(ctx, `UPDATE agent_registrations
 SET description=$3, configuration_revision=configuration_revision+1, updated_at=now()
 WHERE tenant_id=$1 AND status='active' AND description<>$3

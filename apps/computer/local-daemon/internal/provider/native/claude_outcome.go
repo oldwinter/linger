@@ -40,6 +40,7 @@ func (t *claudeTurn) compute(end claudeEnding) Outcome {
 		interrupted = interruptedStatus(t.runCtx)
 	}
 	terminal := t.terminal
+	completedBeforeStop := end.confirmed && terminal != nil && terminal.TerminalReason == "completed" && !terminal.IsError
 	promptTooLong := false
 	if terminal != nil {
 		out.Output = terminal.Result
@@ -68,13 +69,13 @@ func (t *claudeTurn) compute(end claudeEnding) Outcome {
 		switch {
 		case interrupted == statusTimeout:
 			out.Status, out.Error = statusTimeout, "Claude execution deadline exceeded"
-		case interrupted == statusAborted:
+		case interrupted == statusAborted && !completedBeforeStop:
 			out.Status, out.Error = statusAborted, "execution cancelled"
 		case end.readErr != nil:
 			out.Status, out.Error = statusFailed, "Claude stdout read error: "+end.readErr.Error()
 		case t.inputErr != nil && t.observedSession == "":
 			out.Status, out.Error = statusFailed, "write Claude input: "+t.inputErr.Error()
-		case end.exited && t.proc.exitError() != nil:
+		case end.exited && t.proc.exitError() != nil && !(completedBeforeStop && interrupted == statusAborted):
 			out.Status, out.Error = statusFailed, "Claude exited with error: "+t.proc.exitError().Error()
 		case terminal == nil:
 			out.Status, out.Error = statusFailed, "Claude stream ended without terminal result"
@@ -90,7 +91,7 @@ func (t *claudeTurn) compute(end claudeEnding) Outcome {
 		out.Status, out.Error = statusFailed, "Claude native Session cleanup was not confirmed"
 	}
 	if failure == "" && !end.parked && errors.Is(t.callerCtx.Err(), context.Canceled) &&
-		(terminal == nil || t.terminalAfterCancel) && !promptTooLong {
+		(terminal == nil || t.terminalAfterCancel) && !promptTooLong && !completedBeforeStop {
 		out.Status, out.Error = statusAborted, "execution cancelled"
 	}
 	if out.Status == statusCompleted && t.spec.ResumeRequired && t.spec.ResumeID != "" && t.observedSession != t.spec.ResumeID {

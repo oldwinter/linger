@@ -28,7 +28,7 @@ const card: Card = {
   decision_id: "permission-1",
   kind: "computer_permission",
   status: "pending",
-  title: "Grant macOS permissions.",
+  title: "System permission needed on your Mac",
   computer_permission: {
     computer_id: "computer-mac",
     subject: "linger",
@@ -167,10 +167,12 @@ describe("Computer permission card", () => {
     expect(
       within(box).getByRole("heading", {
         level: 3,
-        name: "Grant macOS permissions.",
+        name: "System permission needed on your Mac",
       }),
     ).toBeVisible();
-    expect(screen.getAllByText("Grant macOS permissions.")).toHaveLength(1);
+    expect(
+      screen.getAllByText("System permission needed on your Mac"),
+    ).toHaveLength(1);
     expect(document.querySelector(".card-prompt")).toBeNull();
     expect(screen.queryByText(/Asks you|wants to use/)).not.toBeInTheDocument();
     expect(screen.getByText("Linger · Screen Recording")).toBeVisible();
@@ -221,10 +223,12 @@ describe("Computer permission card", () => {
     expect(
       within(box).getByRole("heading", {
         level: 3,
-        name: "Grant macOS permissions.",
+        name: "System permission needed on your Mac",
       }),
     ).toBeVisible();
-    expect(screen.getAllByText("Grant macOS permissions.")).toHaveLength(1);
+    expect(
+      screen.getAllByText("System permission needed on your Mac"),
+    ).toHaveLength(1);
     expect(document.querySelector(".card-prompt")).toBeNull();
   });
 
@@ -409,7 +413,7 @@ describe("Computer permission card", () => {
       expect(
         screen.getByRole("heading", {
           level: 3,
-          name: "Grant macOS permissions.",
+          name: "System permission needed on your Mac",
         }),
       ).toBeVisible();
       expect(screen.queryByRole("button")).not.toBeInTheDocument();

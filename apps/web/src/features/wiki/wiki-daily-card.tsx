@@ -5,11 +5,15 @@ import {
   SUGGESTED_FOCUS_LABEL,
 } from "@linger/knowledge-format/sections";
 import { Icon } from "@/components/ui/icon";
+import { type Translate, formatLocale, translate } from "@/i18n/language";
+import { useT } from "@/i18n/use-translation";
 import type { TeamHubMemoryEntry } from "@/features/teamhub/teamhub-types";
 import {
   usePeriodReport,
   type PeriodReportKind,
 } from "@/features/memory/wiki-period-reports";
+
+import { wikiMessages as m } from "./wiki.messages";
 
 interface DailyReportParts {
   summary: string;
@@ -17,16 +21,16 @@ interface DailyReportParts {
   next: string;
 }
 
-const dayFormatter = new Intl.DateTimeFormat("en-US", {
-  weekday: "short",
-  month: "short",
-  day: "numeric",
-  timeZone: "UTC",
-});
-
 export function formatReportDay(day: string): string {
   const parsed = Date.parse(`${day}T00:00:00Z`);
-  return Number.isFinite(parsed) ? dayFormatter.format(parsed) : day;
+  return Number.isFinite(parsed)
+    ? new Intl.DateTimeFormat(formatLocale(), {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        timeZone: "UTC",
+      }).format(parsed)
+    : day;
 }
 
 function section(markdown: string, titles: string[]): string {
@@ -77,6 +81,7 @@ function unquote(value: string) {
 /** Reads a Daily Memory into the card's summary, Highlights, and Next. */
 export function parseDailyReport(
   entry: Pick<TeamHubMemoryEntry, "summary" | "content">,
+  t: Translate = translate,
 ): DailyReportParts {
   const meta = frontmatter(entry.content);
   const markdown = entry.content.replace(/^---\n[\s\S]*?\n---\n/u, "");
@@ -92,7 +97,7 @@ export function parseDailyReport(
       plain(description) ||
       plain(entry.summary) ||
       work[0] ||
-      "Open the timeline to read this report.",
+      t(m.openTimelineToRead),
     highlights: work.slice(0, 2),
     next: (
       items(section(markdown, [DAILY_REPORT_SECTIONS.tomorrowFocus]))[0] ?? ""
@@ -125,11 +130,14 @@ export function WikiDailyCard({
     entry,
     load && Boolean(entry) && !entry?.content,
   );
-  const parts = entry ? parseDailyReport(full.data ?? entry) : undefined;
+  const t = useT();
+  const parts = entry ? parseDailyReport(full.data ?? entry, t) : undefined;
   return (
     // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions -- the whole card is a pointer shortcut; keyboard users open the report with its button
     <article
-      aria-label={`${kind === "daily" ? "Daily" : "Weekly"} report ${day}`}
+      aria-label={t(kind === "daily" ? m.dailyReportFor : m.weeklyReportFor, {
+        day,
+      })}
       className={`daily-card ${className}`}
       onClick={(event) => {
         if (
@@ -145,17 +153,17 @@ export function WikiDailyCard({
       </div>
       <div className="daily-card-body">
         <button
-          aria-label={`Open ${kind === "daily" ? "Daily" : "Weekly"} for ${day}`}
+          aria-label={t(kind === "daily" ? m.openDaily : m.openWeekly, { day })}
           className="daily-card-summary"
           onClick={onOpen}
           type="button"
         >
           {parts?.summary ??
-            `No ${kind === "daily" ? "daily" : "weekly"} report for this ${kind === "daily" ? "day" : "week"}.`}
+            t(kind === "daily" ? m.noDailyReport : m.noWeeklyReport)}
         </button>
         {parts?.highlights.length ? (
           <div className="daily-card-group">
-            <span className="daily-tag">Highlights</span>
+            <span className="daily-tag">{t(m.highlights)}</span>
             <ul>
               {parts.highlights.map((item) => (
                 <li key={item}>{item}</li>
@@ -165,7 +173,7 @@ export function WikiDailyCard({
         ) : null}
         {parts?.next ? (
           <div className="daily-card-group">
-            <span className="daily-tag">Next</span>
+            <span className="daily-tag">{t(m.next)}</span>
             <p>{parts.next}</p>
           </div>
         ) : null}

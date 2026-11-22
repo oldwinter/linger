@@ -40,13 +40,14 @@ export const RELEASE_TARGETS = Object.freeze(
 );
 export const NODE_RUNTIME_DOWNLOAD_BASE_URL = "https://nodejs.org/dist";
 // Serves the same archives, so the pinned checksums still decide what is
-// used; tried when nodejs.org is unreachable or slow.
+// used; tried when nodejs.org is unreachable or slow. The desktop app tries it
+// first in the cn download region (scripts/installs/README.md).
 export const NODE_RUNTIME_DOWNLOAD_MIRRORS = Object.freeze([
   "https://cdn.npmmirror.com/binaries/node",
 ]);
 const NODE_RUNTIME_IDLE_TIMEOUT_MS = 60_000;
 
-/** Every host for one pinned archive, the official one first. */
+/** Every host for one pinned archive, the official one first; the desktop app orders them by region. */
 export function nodeRuntimeDownloadUrls(
   archive,
   version = NODE_RUNTIME_VERSION,

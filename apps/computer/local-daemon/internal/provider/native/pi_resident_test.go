@@ -419,7 +419,8 @@ func TestPiReleaseDuringParkProbe(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			h := piNewResidentHome(t, nil)
 			proc, run, _ := piHeldReuse(t, h)
-			time.Sleep(800 * time.Millisecond)
+			// Let the turn settle and reach the park probe that waits on writeMu.
+			time.Sleep(piSettleLaterDelay + 300*time.Millisecond)
 			_, err := stop(h)
 			proc.writeMu.Unlock()
 			if err != nil {
@@ -457,7 +458,8 @@ func TestPiSteerRacingParkIsRejected(t *testing.T) {
 		_, err := run.Steer(context.Background(), SteerRequest{ExpectedTurnID: turn, Input: "late"})
 		steered <- err
 	}()
-	time.Sleep(800 * time.Millisecond)
+	// Let the turn settle and reach the park probe that waits on writeMu.
+	time.Sleep(piSettleLaterDelay + 300*time.Millisecond)
 	proc.writeMu.Unlock()
 	var refused *SteerError
 	if err := <-steered; !errors.As(err, &refused) || refused.Effect != "definitely_not_applied" {

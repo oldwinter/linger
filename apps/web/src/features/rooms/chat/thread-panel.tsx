@@ -25,10 +25,11 @@ import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type {
   TeamHubActorRef,
   TeamHubMessage,
-  TeamHubMessageDocumentSegment,
-  TeamHubMessageFileSegment,
   TeamHubRoom,
 } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import { translate } from "@/i18n/language";
+import { useT } from "@/i18n/use-translation";
 
 import { AgentAvatarStatusContext } from "../members/agent-avatar-status-context";
 import { useRoomOutletContext } from "../room-connectivity";
@@ -44,19 +45,24 @@ import {
   createDirectRoomMessagePresenter,
   withDirectRoomWireBody,
 } from "./direct-room-message";
+import { chatMessages } from "./chat.messages";
 import { isTimelineMessage } from "./message-grouping";
 import {
   MessageRow,
   PendingMessageRow,
   type PendingRoomMessage,
 } from "./message-row";
-import { AgentStreamingStatusDock } from "./message-timeline";
+import {
+  AgentStreamingStatusDock,
+  hasAgentStreamingDockEntries,
+} from "./message-timeline";
 import { useRoomMessagePresentations } from "./room-message-presentations";
 import {
   createRoomProjection,
   replaceLoadedRoomMessage,
 } from "./room-projection";
 import { SharedStreamingStatus } from "./shared-streaming-status";
+import { useMessageFilePreview } from "./use-message-file-preview";
 import { useRoomChatNavigation } from "./use-room-chat-navigation";
 import {
   orderRoomMessages,
@@ -116,13 +122,18 @@ function ThreadPanelContent({
   rootMessage,
   tenantId,
 }: ThreadPanelProps) {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const composition = roomMessageSender(client);
   const parentRoomId = rootMessage.room_id;
   const parentRoom = useQuery(roomQueryOptions(client, tenantId, parentRoomId));
   const directPeer = parentRoom.data?.direct_peer;
   const participating = parentRoom.data?.participation !== "left";
-  const threadRoomId = useThreadRoom(rootMessage, participating, tenantId);
+  const { retryOpenThread, threadOpenError, threadRoomId } = useThreadRoom(
+    rootMessage,
+    participating,
+    tenantId,
+  );
   useEffect(() => {
     onRoomResolved?.(threadRoomId);
   }, [onRoomResolved, threadRoomId]);
@@ -148,6 +159,9 @@ function ThreadPanelContent({
     mentionOptions,
   );
   const navigation = useRoomChatNavigation(client, tenantId, parentRoomId);
+  const { filePreviewError, previewMessageFile } = useMessageFilePreview(
+    navigation.openMessageFile,
+  );
   const draftScope = {
     accountId,
     roomId: parentRoomId,
@@ -159,7 +173,8 @@ function ThreadPanelContent({
     ...roomMessagesInfiniteQueryOptions(client, tenantId, threadRoomId ?? ""),
     enabled: Boolean(threadRoomId),
   });
-  const threadOpening = !threadRoomId || messagesQuery.isPending;
+  const threadOpening =
+    !threadOpenError && (!threadRoomId || messagesQuery.isPending);
   const messages = useMemo(
     () =>
       threadRoomId && messagesQuery.data
@@ -333,7 +348,7 @@ function ThreadPanelContent({
               : undefined
           }
           onOpenArtifact={navigation.previewArtifact}
-          onOpenMessageFile={(segment) => openMessageFile(navigation, segment)}
+          onOpenMessageFile={previewMessageFile}
           onOpenProfile={onOpenProfile}
           onToggleReaction={
             reply && threadRoomId && participating
@@ -351,7 +366,7 @@ function ThreadPanelContent({
 
   return (
     <aside
-      aria-label="Message Thread"
+      aria-label={t(chatMessages.messageThread)}
       className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col app-work-surface"
     >
       <header className="flex h-9 shrink-0 items-center justify-between gap-2 border-b border-app-border px-3">
@@ -360,7 +375,7 @@ function ThreadPanelContent({
           ref={headingRef}
           tabIndex={-1}
         >
-          Thread
+          {t(chatMessages.thread)}
         </h2>
         {headerSummary ? (
           <p
@@ -406,8 +421,12 @@ function ThreadPanelContent({
         agentWorking={conversation.streamingRunStatuses.some(isRunWorking)}
         canLoadEarlier={messagesQuery.hasNextPage}
         hasPending={conversation.pendingMessages.length > 0}
+        isError={messagesQuery.isError}
         loadingEarlier={messagesQuery.isFetchingNextPage}
         onLoadEarlier={() => void loadEarlierReplies()}
+        onRetry={() => void messagesQuery.refetch()}
+        onRetryOpen={retryOpenThread}
+        openError={threadOpenError}
         opening={threadOpening}
         renderMessage={renderMessage}
         replies={presentedReplies}
@@ -417,32 +436,57 @@ function ThreadPanelContent({
         <ThreadPendingReplies
           actorId={currentActorId}
           actorName={
-            rowContext.actorDisplayNames[currentActorId ?? ""] ?? "You"
+            rowContext.actorDisplayNames[currentActorId ?? ""] ??
+            t(commonMessages.you)
           }
           lastAuthorId={replies.at(-1)?.author.id}
           messages={conversation.pendingMessages}
           onCancel={conversation.delivery.cancelMessage}
           onOpenProfile={onOpenProfile}
+          onRestoreToDraft={async (clientId) => {
+            const pending = conversation.pendingMessages.find(
+              (item) => item.clientId === clientId,
+            );
+            if (!pending || !composerRef.current) return;
+            composerRef.current.restoreDraft({
+              body: pending.body,
+              mentions: pending.mentions,
+            });
+            await conversation.delivery.cancelMessage(clientId);
+          }}
           onRetry={conversation.delivery.retryMessage}
         />
       </ThreadTimeline>
       <ThreadReplyDock
         dock={threadRoomId ? conversation.dock : undefined}
+        filePreviewError={filePreviewError}
         outboxError={conversation.delivery.outboxError}
         parentRoom={parentRoom.data}
       >
         <MessageComposer
-          ariaLabel="Reply in Thread"
+          ariaLabel={t(chatMessages.replyInThread)}
+          attachmentDraftKey={
+            threadRoomId
+              ? `${accountId}:${tenantId}:${threadRoomId}`
+              : undefined
+          }
+          attachmentEnabled={Boolean(threadRoomId)}
           disabled={!threadRoomId}
           initialMentions={initialDraft.mentions}
           initialValue={initialDraft.body}
           mentionOptions={mentionOptions}
+          onCancelAttachment={conversation.delivery.cancelAttachment}
           onDraftStateChange={(draft) =>
             writeRoomComposerDraft(draftScope, draft)
           }
           onSend={sendReply}
+          onStageAttachment={conversation.delivery.stageAttachment}
           placeholder={
-            threadRoomId ? "Reply in this Thread" : "Opening Thread…"
+            threadRoomId
+              ? t(chatMessages.replyInThisThread)
+              : threadOpenError
+                ? "Thread could not be opened"
+                : t(chatMessages.openingThread)
           }
           ref={composerRef}
         />
@@ -454,25 +498,42 @@ function ThreadPanelContent({
 function ThreadReplyDock({
   children,
   dock,
+  filePreviewError,
   outboxError,
   parentRoom,
 }: PropsWithChildren<{
   /** Present once the Thread Room exists. */
   dock?: ComponentProps<typeof AgentStreamingStatusDock>;
+  filePreviewError?: string;
   outboxError?: string;
   parentRoom?: TeamHubRoom;
 }>) {
   if (parentRoom?.participation === "left") {
-    return <RoomRejoinBanner room={parentRoom} />;
+    return (
+      <>
+        {filePreviewError ? (
+          <p className="px-3 pb-2 text-xs text-app-danger" role="alert">
+            {filePreviewError}
+          </p>
+        ) : null}
+        <RoomRejoinBanner room={parentRoom} />
+      </>
+    );
   }
+  const hasThreadDock = Boolean(dock && hasAgentStreamingDockEntries(dock));
   return (
     <div className="room-composer-dock shrink-0 px-3">
+      {filePreviewError ? (
+        <p className="mb-2 text-xs text-app-danger" role="alert">
+          {filePreviewError}
+        </p>
+      ) : null}
       {outboxError ? (
         <p className="mb-2 text-sm text-app-danger" role="alert">
           {outboxError}
         </p>
       ) : null}
-      <SharedStreamingStatus surface="thread">
+      <SharedStreamingStatus active={hasThreadDock} surface="thread">
         {dock ? <AgentStreamingStatusDock {...dock} /> : null}
       </SharedStreamingStatus>
       {children}
@@ -489,6 +550,8 @@ function useThreadRoom(
   const { client, events } = useTeamHubRuntime();
   const queryClient = useQueryClient();
   const [threadRoomId, setThreadRoomId] = useState(rootMessage.thread?.room_id);
+  const [threadOpenError, setThreadOpenError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
   const projection = useMemo(
     () =>
       threadRoomId
@@ -514,15 +577,27 @@ function useThreadRoom(
       }),
     )
       .then((result) => {
-        if (!cancelled) setThreadRoomId(result.room.id);
+        if (!cancelled) {
+          setThreadOpenError(null);
+          setThreadRoomId(result.room.id);
+        }
       })
-      .catch(() => undefined);
+      .catch((cause: unknown) => {
+        if (!cancelled) {
+          setThreadOpenError(
+            cause instanceof Error && cause.message.trim()
+              ? cause.message
+              : "Could not open this Thread.",
+          );
+        }
+      });
     return () => {
       cancelled = true;
     };
   }, [
     client,
     participating,
+    retryCount,
     rootMessage.id,
     rootMessage.room_id,
     threadRoomId,
@@ -538,7 +613,12 @@ function useThreadRoom(
     });
   }, [events, participating, projection, threadRoomId]);
 
-  return threadRoomId;
+  function retryOpenThread() {
+    setThreadOpenError(null);
+    setRetryCount((count) => count + 1);
+  }
+
+  return { retryOpenThread, threadOpenError, threadRoomId };
 }
 
 /** A Thread's cards belong to its replies, so they are decided in the Thread
@@ -569,7 +649,8 @@ function useThreadCardDecision(
   );
 
   return async (decision: RoomCardDecision) => {
-    if (!controller) throw new Error("Thread is still opening.");
+    if (!controller)
+      throw new Error(translate(chatMessages.threadStillOpening));
     await controller.decide(decision);
   };
 }
@@ -581,6 +662,7 @@ function ThreadPendingReplies({
   messages,
   onCancel,
   onOpenProfile,
+  onRestoreToDraft,
   onRetry,
 }: {
   actorId?: string;
@@ -589,6 +671,7 @@ function ThreadPendingReplies({
   messages: PendingRoomMessage[];
   onCancel: (clientId: string) => Promise<void> | void;
   onOpenProfile: (actorId: string) => void;
+  onRestoreToDraft?: (clientId: string) => Promise<void> | void;
   onRetry: (clientId: string) => void;
 }) {
   return messages.map((message, index) => (
@@ -599,6 +682,7 @@ function ThreadPendingReplies({
       message={message}
       onCancel={onCancel}
       onOpenProfile={onOpenProfile}
+      onRestoreToDraft={onRestoreToDraft}
       onRetry={onRetry}
       startsGroup={index === 0 && lastAuthorId !== actorId}
     />
@@ -636,11 +720,4 @@ function useThreadRowContext(
     }),
     [actors, agents, members, mentionOptions],
   );
-}
-
-function openMessageFile(
-  navigation: ReturnType<typeof useRoomChatNavigation>,
-  segment: TeamHubMessageFileSegment | TeamHubMessageDocumentSegment,
-) {
-  void navigation.openMessageFile(segment);
 }

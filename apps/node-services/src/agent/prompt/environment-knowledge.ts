@@ -14,9 +14,7 @@ const renderAgentPackageEnvironment =
 - When extracting a tar archive, pass --no-same-owner to tar (for example, tar --no-same-owner -xzf archive.tar.gz -C destination) because archived UID/GID values may not be mapped in the command sandbox.
 - Keep cwd at the Context workspace when resolving ./agent. Use the default non-login command shell; do not request login=true or nest bash -lc, which can reset the tool PATH.
 - Python packages: uv --directory ./agent add <package> and uv --directory ./agent remove <package>. Run Python with uv --directory ./agent run python ... .
-- System CLI and native dependency fallback: micromamba install --yes --override-channels --channel conda-forge --prefix ./agent/conda <package>, micromamba remove --yes --prefix ./agent/conda <package>, and micromamba run --prefix ./agent/conda <command>.
-- The default Conda tools are poppler, pandoc, qpdf, tesseract, and ffmpeg. LibreOffice is not preinstalled.
-- Do not use apt, conda, or mamba. micromamba is the only Conda-compatible command available in the Runtime.`;
+- npm and uv are not always installed. If npm, uv, or a system tool you need is missing, ask the user whether to install it. Don't install anything globally (apt, brew, conda, pip --user, npm -g) without the user's yes: that changes the user's computer.`;
 
 export const renderEnvironmentKnowledge = (
   contextKind: "alter_ego" | "document",
@@ -49,7 +47,7 @@ ${historyKnowledge}
 };
 
 /** Package and filesystem rules shared by the compact recipes. */
-export const COMPACT_PACKAGE_ENVIRONMENT = `- Install packages into ./agent: npm --prefix ./agent install <package>; uv --directory ./agent add <package> and uv --directory ./agent run python ...; system tools with micromamba install --yes --override-channels --channel conda-forge --prefix ./agent/conda <package>. Never use apt or conda. poppler, pandoc, qpdf, tesseract, and ffmpeg are preinstalled. Extract archives with tar --no-same-owner.
+export const COMPACT_PACKAGE_ENVIRONMENT = `- Install packages into ./agent: npm --prefix ./agent install <package>; uv --directory ./agent add <package> and uv --directory ./agent run python .... If npm, uv, or a system tool is missing, ask the user whether to install it; never install globally (apt, brew, conda, pip --user, npm -g) without their yes. Extract archives with tar --no-same-owner.
 - Directories may be symlinks: use find -L or a trailing slash.`;
 
 /** renderEnvironmentKnowledge for small context windows. */

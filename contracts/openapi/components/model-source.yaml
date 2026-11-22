@@ -1,0 +1,367 @@
+components:
+  responses:
+    ModelSourceRefused:
+      description: >-
+        The Computer or TeamHub refused the model-source request; error.code is
+        one of ModelSourceErrorCode.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ModelSourceErrorResponse"
+  schemas:
+    ByokProtocol:
+      description: >-
+        Wire format of a BYOK upstream endpoint. The owner's client derives it
+        from the end of the request address, else from the Runtime's own
+        format; the Computer does not probe for it.
+      type: string
+      enum: [openai-chat, openai-responses, anthropic]
+      x-enum-varnames:
+        [
+          ByokProtocolOpenaiChat,
+          ByokProtocolOpenaiResponses,
+          ByokProtocolAnthropic,
+        ]
+    ModelSourceMode:
+      description: Active model source mode on a Local Computer.
+      type: string
+      enum: [local, subscription, byok]
+      x-enum-varnames:
+        [ModelSourceModeLocal, ModelSourceModeSubscription, ModelSourceModeByok]
+    ModelSourceRuntime:
+      description: Agent runtime harness driving turns on the Computer.
+      type: string
+      enum: [claude, codex, pi]
+      x-enum-varnames:
+        [
+          ModelSourceRuntimeClaude,
+          ModelSourceRuntimeCodex,
+          ModelSourceRuntimePi,
+        ]
+    ByokUrlPath:
+      description: >-
+        A path appended to a BYOK base URL: empty, or whole segments each led
+        by one slash, so it can only extend the base URL's path.
+      type: string
+      maxLength: 256
+      pattern: '^(/[^/?#\s\\]+)*$'
+    ByokInput:
+      description: >-
+        Upstream endpoint configuration supplied by the Computer owner.
+        Requests go to base_url + path + endpoint in protocol, and models are
+        listed at base_url + path + /models. The API key is never persisted in
+        TeamHub or Agent Service; only the Local Computer stores it in a
+        private 0600 file.
+      type: object
+      additionalProperties: false
+      required: [base_url, path, endpoint, protocol, model_id]
+      properties:
+        base_url:
+          type: string
+          minLength: 1
+          maxLength: 2048
+        path:
+          $ref: "#/components/schemas/ByokUrlPath"
+        endpoint:
+          $ref: "#/components/schemas/ByokUrlPath"
+        protocol:
+          $ref: "#/components/schemas/ByokProtocol"
+        api_key:
+          type: string
+          writeOnly: true
+          maxLength: 4096
+        model_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        context_window:
+          type: integer
+          minimum: 1
+          maximum: 2147483647
+        reuse_saved_key:
+          type: boolean
+    ByokEndpointInput:
+      description: >-
+        A BYOK endpoint address and key, enough to list its models at
+        base_url + path + /models with protocol's key header. The API key is
+        never persisted in TeamHub or Agent Service.
+      type: object
+      additionalProperties: false
+      required: [base_url, path, endpoint, protocol]
+      properties:
+        base_url:
+          type: string
+          minLength: 1
+          maxLength: 2048
+        path:
+          $ref: "#/components/schemas/ByokUrlPath"
+        endpoint:
+          $ref: "#/components/schemas/ByokUrlPath"
+        protocol:
+          $ref: "#/components/schemas/ByokProtocol"
+        api_key:
+          type: string
+          writeOnly: true
+          maxLength: 4096
+        reuse_saved_key:
+          type: boolean
+    ByokModel:
+      description: A model a BYOK endpoint lists.
+      type: object
+      additionalProperties: false
+      required: [id]
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        name:
+          description: The endpoint's display name, when it differs from id.
+          type: string
+          maxLength: 256
+        context_window:
+          type: integer
+          minimum: 1
+          maximum: 2147483647
+    ByokModelList:
+      description: The models a BYOK endpoint lists, sorted by id.
+      type: object
+      additionalProperties: false
+      required: [url, models]
+      properties:
+        url:
+          description: The address that listed them.
+          type: string
+          minLength: 1
+          maxLength: 2048
+        models:
+          type: array
+          maxItems: 1000
+          items:
+            $ref: "#/components/schemas/ByokModel"
+    ByokTestRequest:
+      description: A BYOK endpoint to verify with one request from the Computer.
+      type: object
+      additionalProperties: false
+      required: [byok]
+      properties:
+        byok:
+          $ref: "#/components/schemas/ByokInput"
+    ByokSummary:
+      description: >-
+        Redacted BYOK configuration metadata reported by the Computer. path and
+        endpoint are omitted when empty: a configured summary without them
+        appends nothing there.
+      type: object
+      additionalProperties: false
+      required: [configured, key_saved]
+      properties:
+        configured:
+          type: boolean
+        protocol:
+          $ref: "#/components/schemas/ByokProtocol"
+        base_url:
+          type: string
+          maxLength: 2048
+        path:
+          $ref: "#/components/schemas/ByokUrlPath"
+        endpoint:
+          $ref: "#/components/schemas/ByokUrlPath"
+        model_id:
+          type: string
+          maxLength: 256
+        context_window:
+          type: integer
+          minimum: 1
+          maximum: 2147483647
+        key_saved:
+          type: boolean
+    ModelSourceStatus:
+      description: Active model source and redacted BYOK metadata on one Local Computer.
+      type: object
+      additionalProperties: false
+      required: [mode, runtime, runtime_model, byok]
+      properties:
+        mode:
+          $ref: "#/components/schemas/ModelSourceMode"
+        runtime:
+          $ref: "#/components/schemas/ModelSourceRuntime"
+        runtime_model:
+          description: >-
+            After a switch, the model the Computer's Agents run: the target
+            model when the active Runtime offers it, else that Runtime's
+            default.
+          type: string
+          maxLength: 256
+        reasoning_effort:
+          $ref: "./domain.yaml#/components/schemas/AgentReasoningEffort"
+        gateway_url:
+          type: string
+          maxLength: 2048
+        byok:
+          $ref: "#/components/schemas/ByokSummary"
+    ByokTestResult:
+      description: Outcome of one request to an upstream BYOK endpoint from the Local Computer.
+      type: object
+      additionalProperties: false
+      required: [ok, protocol, url, model_id, context_window]
+      properties:
+        ok:
+          type: boolean
+        protocol:
+          $ref: "#/components/schemas/ByokProtocol"
+        url:
+          description: The address the request went to.
+          type: string
+          minLength: 1
+          maxLength: 2048
+        model_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        context_window:
+          type: integer
+          minimum: 1
+          maximum: 2147483647
+    ModelSourceApplyCommand:
+      description: Internal command sent from TeamHub to Agent Service to switch a Computer's model source.
+      type: object
+      additionalProperties: false
+      required: [mode]
+      properties:
+        mode:
+          $ref: "#/components/schemas/ModelSourceMode"
+        runtime:
+          $ref: "#/components/schemas/ModelSourceRuntime"
+        local_model_id:
+          $ref: "./local-models.yaml#/components/schemas/LocalModelId"
+        byok:
+          $ref: "#/components/schemas/ByokInput"
+    ModelSourceSwitchRequest:
+      description: >-
+        Owner request to switch a Computer between local models, native
+        subscriptions, and BYOK on Bifrost. When active Runs exist on the
+        Computer's affected Agents and force_terminate is false, TeamHub
+        refuses with 409 AGENT_HAS_ACTIVE_RUNS; retrying with force_terminate
+        true terminates those Runs and applies the switch.
+      type: object
+      additionalProperties: false
+      required: [mode]
+      properties:
+        mode:
+          $ref: "#/components/schemas/ModelSourceMode"
+        runtime:
+          $ref: "#/components/schemas/ModelSourceRuntime"
+        local_model_id:
+          $ref: "./local-models.yaml#/components/schemas/LocalModelId"
+        byok:
+          $ref: "#/components/schemas/ByokInput"
+        force_terminate:
+          description: True ends running work on the Computer's Agents; absent means false.
+          type: boolean
+    ModelSourceView:
+      description: Current model source state of one Local Computer as viewed from Settings.
+      type: object
+      additionalProperties: false
+      required: [computer_id, viewer_is_owner, online]
+      properties:
+        computer_id:
+          $ref: "./common.yaml#/components/schemas/Id"
+        viewer_is_owner:
+          type: boolean
+        online:
+          type: boolean
+        status:
+          $ref: "#/components/schemas/ModelSourceStatus"
+        updated_agent_count:
+          type: integer
+          minimum: 0
+        terminated_run_count:
+          type: integer
+          minimum: 0
+    ModelSourceErrorCode:
+      description: >-
+        error.code of a refused model-source request (403, 409, 502, 503, 504);
+        400, 401, and 404 use the common codes. LOCAL_COMPUTER_OFFLINE: the
+        Computer is not connected. MODEL_SOURCE_FORBIDDEN: the viewer is not
+        the Computer owner. MODEL_SOURCE_UNAVAILABLE: the Computer has no
+        localmodels tool or cannot switch model sources. AGENT_HAS_ACTIVE_RUNS:
+        Agents on the Computer have running work and force_terminate was
+        false; details carries one entry per such Agent, with field "agent"
+        and the Agent's display name as reason. RUNTIME_NOT_ENABLED,
+        LOCAL_MODEL_NO_ROOM, LOCAL_MODEL_UNKNOWN, and the BYOK endpoint
+        refusals (BYOK_INVALID_CONFIG, BYOK_AUTH_FAILED, BYOK_NOT_FOUND,
+        BYOK_UNREACHABLE, BYOK_UPSTREAM_REJECTED) are the Computer's refusals
+        (409); for BYOK_AUTH_FAILED, BYOK_NOT_FOUND, BYOK_UNREACHABLE and
+        BYOK_UPSTREAM_REJECTED, message is the Computer's own and names the
+        address it sent to and the endpoint's HTTP status.
+        BYOK_GATEWAY_FAILED: the Computer could not start, stop, or configure
+        its local BYOK gateway (502); when the Computer reported a diagnostic
+        message, message carries it and details carries one entry with field
+        "gateway" and that diagnostic as reason. MODEL_SOURCE_FAILED: the
+        Computer failed with an error that has no code of its own here (502).
+        MODEL_SOURCE_SERVICE_UNAVAILABLE: Agent Service could not be reached
+        (503). MODEL_SOURCE_UNCONFIRMED: the Computer had not answered by the
+        deadline; it may still switch (504).
+      type: string
+      enum:
+        - LOCAL_COMPUTER_OFFLINE
+        - MODEL_SOURCE_FORBIDDEN
+        - MODEL_SOURCE_UNAVAILABLE
+        - AGENT_HAS_ACTIVE_RUNS
+        - RUNTIME_NOT_ENABLED
+        - LOCAL_MODEL_NO_ROOM
+        - LOCAL_MODEL_UNKNOWN
+        - BYOK_INVALID_CONFIG
+        - BYOK_AUTH_FAILED
+        - BYOK_NOT_FOUND
+        - BYOK_UNREACHABLE
+        - BYOK_UPSTREAM_REJECTED
+        - BYOK_GATEWAY_FAILED
+        - MODEL_SOURCE_FAILED
+        - MODEL_SOURCE_SERVICE_UNAVAILABLE
+        - MODEL_SOURCE_UNCONFIRMED
+      x-enum-varnames:
+        - ModelSourceErrorCodeLocalComputerOffline
+        - ModelSourceErrorCodeModelSourceForbidden
+        - ModelSourceErrorCodeModelSourceUnavailable
+        - ModelSourceErrorCodeAgentHasActiveRuns
+        - ModelSourceErrorCodeRuntimeNotEnabled
+        - ModelSourceErrorCodeLocalModelNoRoom
+        - ModelSourceErrorCodeLocalModelUnknown
+        - ModelSourceErrorCodeByokInvalidConfig
+        - ModelSourceErrorCodeByokAuthFailed
+        - ModelSourceErrorCodeByokNotFound
+        - ModelSourceErrorCodeByokUnreachable
+        - ModelSourceErrorCodeByokUpstreamRejected
+        - ModelSourceErrorCodeByokGatewayFailed
+        - ModelSourceErrorCodeModelSourceFailed
+        - ModelSourceErrorCodeModelSourceServiceUnavailable
+        - ModelSourceErrorCodeModelSourceUnconfirmed
+    ModelSourceError:
+      description: The common error body with error.code narrowed to ModelSourceErrorCode.
+      type: object
+      additionalProperties: false
+      required: [code, message, request_id]
+      properties:
+        code:
+          $ref: "#/components/schemas/ModelSourceErrorCode"
+        message:
+          type: string
+          minLength: 1
+          description: Human-readable summary safe to display; clients branch on code, not message.
+        request_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        details:
+          type: array
+          items:
+            $ref: "./common.yaml#/components/schemas/ErrorDetail"
+    ModelSourceErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          $ref: "#/components/schemas/ModelSourceError"

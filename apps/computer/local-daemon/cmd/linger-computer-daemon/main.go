@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -41,10 +42,18 @@ import (
 )
 
 func main() {
-	// Codex runs this for every PermissionRequest of a reviewed Run; it only
-	// forwards the hook to the running Daemon.
+	// Codex runs this before every shell command, and the managed Pi
+	// extension before a bash call that may need it.
+	if len(os.Args) == 2 && os.Args[1] == "shell-text-hook" {
+		os.Exit(permission.ShellTextHook(os.Stdin, os.Stderr))
+	}
+	// Codex runs these for managed PermissionRequest and Stop hooks; they only
+	// forward the hook payload to the running Daemon.
 	if len(os.Args) == 3 && os.Args[1] == "permission-hook" {
 		os.Exit(permission.CodexRunHook(os.Stdin, os.Stdout, os.Stderr, os.Args[2]))
+	}
+	if len(os.Args) == 3 && os.Args[1] == "stop-hook" {
+		os.Exit(permission.CodexRunStopHook(os.Stdin, os.Stdout, os.Stderr, os.Args[2]))
 	}
 	if handoff := recoverPendingUpgrade(os.Args[1:]); handoff != nil {
 		if execErr := handoff.Exec(); execErr != nil {
@@ -131,19 +140,45 @@ func run(args []string) (resultErr error) {
 	} else if removed > 0 {
 		slog.Info("pruned abandoned Operation temp directories", "removed", removed, "bytes_freed", bytesFreed)
 	}
-	providerEnvironment := runtimeProviderEnvironment(environment, computer.GatewayToken, computer.CodexAuthFile)
-	discovered, err := provider.Discover(context.Background(), provider.DiscoveryOptions{
-		ConfiguredPaths:  computer.RuntimePaths,
-		Runtimes:         computer.EnabledRuntimes,
-		PreferredRuntime: computer.PreferredRuntime,
-		RuntimeHomeRoot:  filepath.Join(computer.StateDirectory, "runtime-homes"),
-		Environment:      providerEnvironment,
-	})
+	baseProviderEnvironment := runtimeProviderEnvironment(environment, computer.GatewayToken, computer.CodexAuthFile)
+	var localModelsStateDir string
+	if computer.LocalModels != nil {
+		localModelsStateDir = computer.LocalModels.StateDirectory
+	}
+	currentProviderEnvironment := func() map[string]string {
+		return localmodels.OverlayEnvironment(baseProviderEnvironment, localModelsStateDir)
+	}
+	var localModels *localmodels.Library
+	currentDiscoveryOptions := func() provider.DiscoveryOptions {
+		var managedPi string
+		if localModels != nil {
+			managedPi = localModels.PiExecutable()
+		}
+		return provider.DiscoveryOptions{
+			ConfiguredPaths:  withManagedPiPath(localmodels.OverlayRuntimePaths(computer.RuntimePaths, localModelsStateDir), managedPi),
+			Runtimes:         computer.EnabledRuntimes,
+			PreferredRuntime: computer.PreferredRuntime,
+			RuntimeHomeRoot:  filepath.Join(computer.StateDirectory, "runtime-homes"),
+			Environment:      currentProviderEnvironment(),
+		}
+	}
+	discover := func(ctx context.Context, options provider.DiscoveryOptions) (provider.DiscoveryResult, error) {
+		result, err := provider.Discover(ctx, options)
+		if err == nil {
+			result.Diagnostics = byokRuntimeCatalogs(result.Diagnostics, localmodels.ReadOverlay(localModelsStateDir))
+			if localModels != nil {
+				result.Diagnostics = withPiProvisionStatus(result.Diagnostics, localModels.PiProvisionFailed())
+			}
+		}
+		return result, err
+	}
+	providerEnvironment := currentProviderEnvironment()
+	discovered, err := discover(context.Background(), currentDiscoveryOptions())
 	if err != nil {
 		return err
 	}
 	logRuntimeDiagnostics(discovered.Diagnostics)
-	diagnostics, err := provider.DiagnosticsJSON(discovered.Diagnostics)
+	diagnostics, err := provider.DiagnosticsJSON(provider.GatewayDiagnostics(discovered.Diagnostics))
 	if err != nil {
 		return err
 	}
@@ -177,7 +212,7 @@ func run(args []string) (resultErr error) {
 	if err != nil {
 		return err
 	}
-	providers, runtimes := providerInstallations(discovered, providerEnvironment)
+	providers, runtimes := providerInstallations(discovered, providerEnvironment, localModelsStateDir)
 	providerCatalog := lingercontext.NewProviderCatalog(providers)
 	workspaceGrants := make(map[string]lingercontext.WorkspaceGrant)
 	wireGrants := make([]map[string]any, 0, len(computer.WorkspaceGrants))
@@ -261,6 +296,8 @@ func run(args []string) (resultErr error) {
 			resolver.ToolGuide = localtools.MacToolGuide
 		} else if runtime.GOOS == "linux" {
 			resolver.ToolGuide = localtools.NativeLinuxToolGuide
+		} else if runtime.GOOS == "windows" {
+			resolver.ToolGuide = localtools.WindowsToolGuide
 		}
 		if toolManager.ConnectsEverydayBrowser() {
 			browserConnections = toolManager
@@ -286,6 +323,7 @@ func run(args []string) (resultErr error) {
 	// full Runtime discovery.
 	runtimeRefresh := make(chan struct{}, 1)
 	var localDaemon *daemon.Daemon
+	var controller *controlController
 	var localModelsTool *localmodels.Tool
 	if tool := computer.LocalModels; tool != nil {
 		localModelsTool = &localmodels.Tool{
@@ -293,9 +331,22 @@ func run(args []string) (resultErr error) {
 			StateDirectory: tool.StateDirectory, BaseDirectory: tool.BaseDirectory,
 		}
 	}
-	localModels := localmodels.New(localmodels.Options{
-		Tool: localModelsTool, Environment: providerEnvironment,
-		JobDirectory: filepath.Join(computer.StateDirectory, "local-models", "jobs"),
+	jobDir := filepath.Join(computer.StateDirectory, "local-models", "jobs")
+	var nodePath string
+	if toolInstallation != nil {
+		nodePath = toolInstallation.NodePath
+	}
+	piEnabled := len(computer.EnabledRuntimes) == 0 || slices.Contains(computer.EnabledRuntimes, "pi")
+	_, hasPi := discovered.Installations["pi"]
+	libraryHarnessDir := ""
+	if piEnabled && !hasPi {
+		libraryHarnessDir = localmodels.HarnessRoot(localModelsStateDir)
+	}
+	localModels = localmodels.New(localmodels.Options{
+		Tool: localModelsTool, Environment: baseProviderEnvironment,
+		JobDirectory:     jobDir,
+		HarnessDirectory: libraryHarnessDir,
+		NodePath:         nodePath,
 		// The library publishes only from Act and Refresh, which the Daemon
 		// calls once it runs.
 		Publish: func(snapshot wire.LocalModelsSnapshot) { localDaemon.PublishLocalModels(snapshot) },
@@ -307,6 +358,36 @@ func run(args []string) (resultErr error) {
 		},
 	})
 	defer localModels.Close()
+	applyDiscovered := func(publishCtx context.Context, next provider.DiscoveryResult) error {
+		logRuntimeDiagnostics(next.Diagnostics)
+		nextProviders, nextRuntimes := providerInstallations(next, currentProviderEnvironment(), localModelsStateDir)
+		providerCatalog.Replace(nextProviders)
+		if controller != nil {
+			controller.UpdateDiagnostics(next.Diagnostics)
+		}
+		return inventory.publish(publishCtx, nextRuntimes, next.Diagnostics)
+	}
+	modelSource := localmodels.NewModelSource(localmodels.ModelSourceOptions{
+		Tool:         localModelsTool,
+		Environment:  baseProviderEnvironment,
+		JobDirectory: jobDir,
+		NodePath:     nodePath,
+		OnApplied: func(applyCtx context.Context) map[string][]localmodels.RuntimeModelOption {
+			localModels.Refresh(applyCtx)
+			var catalogs map[string][]localmodels.RuntimeModelOption
+			if next, discoverErr := discover(applyCtx, currentDiscoveryOptions()); discoverErr == nil {
+				if pubErr := applyDiscovered(applyCtx, next); pubErr != nil {
+					slog.Warn("model_source.runtime_publish_failed", "error", pubErr)
+				}
+				catalogs = runtimeModelCatalogs(next.Diagnostics)
+			}
+			select {
+			case runtimeRefresh <- struct{}{}:
+			default:
+			}
+			return catalogs
+		},
+	})
 	codexModelSessions := &provider.CodexSessions{Root: filepath.Join(computer.StateDirectory, "model-invoke", "codex-sessions")}
 	// herdr is optional: without it on the terminal PATH nothing watches it
 	// and the herdr tool reports herdr_unavailable.
@@ -323,7 +404,7 @@ func run(args []string) (resultErr error) {
 		RuntimeDiagnostics: diagnostics, WorkspaceGrants: encodedGrants,
 		StateDirectory:      computer.StateDirectory,
 		RuntimeHomeRoot:     filepath.Join(computer.StateDirectory, "runtime-homes"),
-		RuntimeObservations: runtimeObservations(computer, discovered.Diagnostics, runtimeObservationRevision),
+		RuntimeObservations: runtimeObservations(computer, provider.GatewayDiagnostics(discovered.Diagnostics), runtimeObservationRevision),
 		OnModelUnavailable:  inventory.reject,
 		ControlPlane:        transport.GatewayControlPlane{URL: computer.GatewayURL, BearerToken: computer.GatewayToken},
 		IdentityStore:       transport.IdentityFileStore{Path: filepath.Join(computer.StateDirectory, "daemon-identity.json")},
@@ -331,6 +412,7 @@ func run(args []string) (resultErr error) {
 			TempBase: operationTempBase, RuntimeHomeRoot: filepath.Join(computer.StateDirectory, "runtime-homes"),
 			CodexModelSessionHome: codexModelSessions.Home(),
 			PiMCPExtension:        piExtension,
+			ShellTextHook:         executable,
 		}, OperationResolver: resolver,
 		Ledger: daemon.NewMemoryLedger(), Registrations: registrationStore, Assignments: assignmentStore, ContextViews: views,
 		LocalSkills: localSkills, LocalTools: toolBinder,
@@ -340,6 +422,7 @@ func run(args []string) (resultErr error) {
 		TeamHubCLIBin:       teamhubBin,
 		HerdrPanes:          herdrPanes,
 		LocalModels:         localModels,
+		ModelSource:         modelSource,
 		ModelInvoker: provider.ModelInvoker{
 			TempBase:         operationTempBase,
 			ClaudeConfigRoot: filepath.Join(computer.StateDirectory, "model-invoke", "claude", ".claude"),
@@ -349,6 +432,7 @@ func run(args []string) (resultErr error) {
 				installed, ok, err := providerCatalog.Lookup(ctx, runtimeType)
 				return provider.ModelInvokeRuntime{
 					ExecutablePath: installed.ExecutablePath, Environment: installed.Environment, Version: installed.Version,
+					DefaultModel: installed.DefaultModel,
 				}, ok, err
 			},
 		},
@@ -379,7 +463,7 @@ func run(args []string) (resultErr error) {
 		})
 		localDaemon.SetSelfUpdater(updates)
 	}
-	controller := &controlController{
+	controller = &controlController{
 		daemon: localDaemon, assignments: assignmentStore, diagnostics: discovered.Diagnostics,
 		services: managedServices, computerID: computer.ComputerID,
 		capacity:    computer.MaxConcurrentOperations,
@@ -408,14 +492,10 @@ func run(args []string) (resultErr error) {
 	monitorDone := make(chan error, 1)
 	go func() {
 		monitorDone <- provider.MonitorRuntimeDiagnostics(ctx, provider.RuntimeMonitorOptions{
-			Initial: discovered,
-			Discovery: provider.DiscoveryOptions{
-				ConfiguredPaths:  computer.RuntimePaths,
-				Runtimes:         computer.EnabledRuntimes,
-				PreferredRuntime: computer.PreferredRuntime,
-				RuntimeHomeRoot:  filepath.Join(computer.StateDirectory, "runtime-homes"),
-				Environment:      providerEnvironment,
-			},
+			Initial:               discovered,
+			Discovery:             currentDiscoveryOptions(),
+			Discover:              discover,
+			ResolveDiscovery:      currentDiscoveryOptions,
 			RefreshInterval:       15 * time.Second,
 			FullRefreshEveryTicks: 4,
 			FullRefreshAllowed: func() bool {
@@ -426,11 +506,7 @@ func run(args []string) (resultErr error) {
 			},
 			Refresh: runtimeRefresh,
 			OnChanged: func(next provider.DiscoveryResult) error {
-				logRuntimeDiagnostics(next.Diagnostics)
-				nextProviders, nextRuntimes := providerInstallations(next, providerEnvironment)
-				providerCatalog.Replace(nextProviders)
-				controller.UpdateDiagnostics(next.Diagnostics)
-				return inventory.publish(ctx, nextRuntimes, next.Diagnostics)
+				return applyDiscovered(ctx, next)
 			},
 			OnError: func(err error) {
 				slog.Warn("Runtime diagnostic refresh failed", "error", err)
@@ -609,7 +685,7 @@ func (i *runtimeInventory) publishLocked(ctx context.Context) error {
 	if i.daemon == nil {
 		return nil
 	}
-	visible := i.rejected.Filter(i.diagnostics)
+	visible := i.rejected.Filter(provider.GatewayDiagnostics(i.diagnostics))
 	encoded, err := provider.DiagnosticsJSON(visible)
 	if err != nil {
 		return err
@@ -675,7 +751,7 @@ func runtimeObservations(computer computerconfig.Config, diagnostics []provider.
 	return result
 }
 
-func providerInstallations(discovered provider.DiscoveryResult, environment map[string]string) (map[string]lingercontext.ProviderInstallation, []string) {
+func providerInstallations(discovered provider.DiscoveryResult, environment map[string]string, localModelsStateDir string) (map[string]lingercontext.ProviderInstallation, []string) {
 	providers := make(map[string]lingercontext.ProviderInstallation, len(discovered.Installations))
 	runtimes := make([]string, 0, len(discovered.Installations))
 	for runtimeType, diagnostic := range discovered.Installations {
@@ -687,14 +763,21 @@ func providerInstallations(discovered provider.DiscoveryResult, environment map[
 			runtimeEnvironment["PATH"] = diagnostic.ExecutionPath
 		}
 		contextWindows := make(map[string]int, len(diagnostic.Models))
+		defaultModel := ""
 		for _, model := range diagnostic.Models {
 			if model.ContextWindow > 0 {
 				contextWindows[model.ID] = model.ContextWindow
 			}
+			if model.IsDefault && defaultModel == "" {
+				defaultModel = model.ID
+			}
 		}
+		gateway := localmodels.GatewayRuntime(environment, localModelsStateDir, runtimeType)
 		providers[runtimeType] = lingercontext.ProviderInstallation{
 			Type: runtimeType, ExecutablePath: diagnostic.ExecutablePath, EntryPath: diagnostic.EntryPath,
 			Environment: runtimeEnvironment, Version: diagnostic.Version, ContextWindows: contextWindows,
+			DefaultModel: defaultModel, ModelGateway: gateway,
+			APILink: gateway || slices.ContainsFunc(diagnostic.Models, provider.RuntimeModel.OnAPILink),
 		}
 		runtimes = append(runtimes, runtimeType)
 	}
@@ -721,6 +804,35 @@ func installedTeamHubCLIBinAt(executable string) string {
 		return ""
 	}
 	return directory
+}
+
+func withManagedPiPath(paths map[string]string, managed string) map[string]string {
+	if managed == "" || paths["pi"] != "" {
+		return paths
+	}
+	cloned := maps.Clone(paths)
+	if cloned == nil {
+		cloned = make(map[string]string, 1)
+	}
+	cloned["pi"] = managed
+	return cloned
+}
+
+func withPiProvisionStatus(diagnostics []provider.RuntimeDiagnostic, failed bool) []provider.RuntimeDiagnostic {
+	if !failed {
+		return diagnostics
+	}
+	cloned := slices.Clone(diagnostics)
+	for i := range cloned {
+		if cloned[i].Type == "pi" && cloned[i].Status == "not_installed" {
+			cloned[i].Status = "error"
+			cloned[i].Error = &provider.DiagnosticError{
+				Code:    "RUNTIME_DIAGNOSTIC_FAILED",
+				Message: "Automatic Pi runtime setup failed",
+			}
+		}
+	}
+	return cloned
 }
 
 func runtimeProviderEnvironment(source map[string]string, gatewayToken, codexAuthFile string) map[string]string {
@@ -786,4 +898,41 @@ func logRuntimeDiagnostics(diagnostics []provider.RuntimeDiagnostic) {
 		}
 		slog.Info("runtime.diagnostic", attributes...)
 	}
+}
+
+// runtimeModelCatalogs keys each Runtime's discovered models by its type, so a
+// model-source switch can pick the model its Agents run next.
+func runtimeModelCatalogs(diagnostics []provider.RuntimeDiagnostic) map[string][]localmodels.RuntimeModelOption {
+	catalogs := make(map[string][]localmodels.RuntimeModelOption, len(diagnostics))
+	for _, diagnostic := range diagnostics {
+		models := make([]localmodels.RuntimeModelOption, 0, len(diagnostic.Models))
+		for _, model := range diagnostic.Models {
+			models = append(models, localmodels.RuntimeModelOption{
+				ID: model.ID, AllowedReasoningEffort: model.AllowedReasoningEffort,
+				DefaultReasoningEffort: model.DefaultReasoningEffort, IsDefault: model.IsDefault,
+			})
+		}
+		catalogs[diagnostic.Type] = models
+	}
+	return catalogs
+}
+
+// byokRuntimeCatalogs shows a BYOK source as the one model the person entered.
+// The Runtime's own catalog names the gateway route instead, and Claude also
+// lists aliases that all resolve to it.
+func byokRuntimeCatalogs(diagnostics []provider.RuntimeDiagnostic, source *localmodels.OverlayState) []provider.RuntimeDiagnostic {
+	if source == nil || source.Mode != "byok" || source.RuntimeModel == "" || source.ModelLabel == "" {
+		return diagnostics
+	}
+	shaped := append([]provider.RuntimeDiagnostic(nil), diagnostics...)
+	for index, diagnostic := range shaped {
+		i := slices.IndexFunc(diagnostic.Models, func(model provider.RuntimeModel) bool { return model.ID == source.RuntimeModel })
+		if i < 0 {
+			continue
+		}
+		model := diagnostic.Models[i]
+		model.Label, model.IsDefault = source.ModelLabel, true
+		shaped[index].Models = []provider.RuntimeModel{model}
+	}
+	return shaped
 }

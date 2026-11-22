@@ -113,8 +113,19 @@ describe("WeekMemoryPage", () => {
       ),
     ).toBeVisible();
     expect(
-      screen.getByText("Thu, Nov 12 · 2 meetings · a daily"),
-    ).toBeVisible();
-    expect(screen.getByText("Tue, Nov 10 · a note")).toBeVisible();
+      screen.getByRole("link", { name: "What changed this week" }),
+    ).toHaveAttribute("href", "/t/tenant-northstar/library/changed");
+    expect(
+      screen.getByRole("link", { name: "Thu, Nov 12 · 2 meetings · a daily" }),
+    ).toHaveAttribute(
+      "href",
+      "/t/tenant-northstar/library/day?date=2026-11-12",
+    );
+    expect(
+      screen.getByRole("link", { name: "Tue, Nov 10 · a note" }),
+    ).toHaveAttribute(
+      "href",
+      "/t/tenant-northstar/library/day?date=2026-11-10",
+    );
   });
 });

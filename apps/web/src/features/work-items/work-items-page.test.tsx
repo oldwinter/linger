@@ -219,7 +219,7 @@ describe("Dashboard page", () => {
     expect(within(card).queryByText(/Assignees:/)).not.toBeInTheDocument();
     expect(within(card).getByText("#all")).toBeVisible();
     expect(within(card).getByText("Jul 30, 2026")).toBeVisible();
-    expect(within(card).getByText("Todo")).toBeVisible();
+    expect(within(card).queryByText("Todo")).not.toBeInTheDocument();
   });
 
   it("wraps an unbroken Work Item title inside its card", async () => {
@@ -486,21 +486,71 @@ describe("Dashboard page", () => {
       },
     );
 
+    const empty = await screen.findByRole("region", {
+      name: "No matching items",
+    });
     expect(
-      await screen.findByRole("heading", { name: "No Work Items match" }),
+      within(empty).getByRole("heading", { name: "No matching items" }),
     ).toBeVisible();
     expect(
-      screen.getByText("Only Work Item titles are searched."),
+      within(empty).getByText(/Only Work Item titles are searched\./),
     ).toBeVisible();
     expect(screen.queryByRole("region", { name: "Todo" })).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Clear filter" }));
+    fireEvent.click(
+      within(empty).getByRole("button", { name: "Clear filters" }),
+    );
 
     expect(await screen.findByText("Plan the release")).toBeVisible();
     expect(screen.getByRole("region", { name: "Todo" })).toBeVisible();
     expect(
       screen.getByRole("searchbox", { name: "Filter by title" }),
     ).toHaveValue("");
+  });
+
+  it("shows No matching items when non-text filters match nothing and clears them", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    seedWorkItems(runtime, [
+      workItem(human, {
+        assignees: [assignment(human)],
+        id: "workitem-plan",
+        origin_room_id: "room-all",
+        priority: "high",
+        title: "Plan the release",
+      }),
+    ]);
+
+    renderPage(runtime);
+    await screen.findByText("Plan the release");
+
+    fireEvent.click(screen.getByLabelText("Priority"));
+    fireEvent.click(await screen.findByRole("option", { name: "Urgent" }));
+
+    const priorityEmpty = await screen.findByRole("region", {
+      name: "No matching items",
+    });
+    expect(
+      within(priorityEmpty).getByRole("heading", { name: "No matching items" }),
+    ).toBeVisible();
+    expect(screen.queryByRole("region", { name: "Todo" })).toBeNull();
+
+    fireEvent.click(
+      within(priorityEmpty).getByRole("button", { name: "Clear filters" }),
+    );
+    expect(await screen.findByText("Plan the release")).toBeVisible();
+
+    fireEvent.click(screen.getByLabelText("Assignment"));
+    fireEvent.click(await screen.findByRole("option", { name: "Unassigned" }));
+
+    const assignmentEmpty = await screen.findByRole("region", {
+      name: "No matching items",
+    });
+    expect(assignmentEmpty).toBeVisible();
+    fireEvent.click(
+      within(assignmentEmpty).getByRole("button", { name: "Clear filters" }),
+    );
+    expect(await screen.findByText("Plan the release")).toBeVisible();
   });
 
   it("restores the title query from the URL and ignores descriptions", async () => {
@@ -623,7 +673,7 @@ describe("Dashboard page", () => {
     expect(screen.queryByRole("button", { name: "Clear filters" })).toBeNull();
   });
 
-  it("keeps the Room scope while clearing filters", async () => {
+  it("clears the Room filter along with every other filter", async () => {
     const runtime = await testRuntime();
     const human = runtime.seed.identity.actors[0]!;
     seedWorkItems(runtime, [
@@ -643,10 +693,11 @@ describe("Dashboard page", () => {
 
     await waitFor(() =>
       expect(screen.getByTestId("location").textContent).toBe(
-        "/t/tenant-northstar/dashboard?room=room-gtm-launch",
+        "/t/tenant-northstar/dashboard",
       ),
     );
-    expect(screen.getByLabelText("Room")).toHaveValue("room-gtm-launch");
+    expect(screen.getByLabelText("Room")).toHaveValue("");
+    expect(screen.queryByRole("button", { name: "Clear filters" })).toBeNull();
   });
 
   it("replaces history so Back steps past the cleared filters", async () => {
@@ -904,13 +955,26 @@ describe("Dashboard page", () => {
     expect(screen.getByText("Duplicate work")).toBeVisible();
   });
 
-  it("shows an explicit empty state for a Tenant without Work Items", async () => {
+  it("shows an explicit empty state with subcopy and New issue CTA for a Tenant without Work Items", async () => {
     const runtime = await testRuntime();
     seedWorkItems(runtime, []);
 
     renderPage(runtime);
 
-    expect(await screen.findByText("No Work Items yet")).toBeVisible();
+    const heading = await screen.findByRole("heading", {
+      name: "No Work Items yet",
+    });
+    expect(heading).toBeVisible();
+    const emptySection = heading.closest("section")!;
+    expect(
+      within(emptySection).getByText(/Create your first issue to get started/),
+    ).toBeVisible();
+    fireEvent.click(
+      within(emptySection).getByRole("button", { name: "New issue" }),
+    );
+    expect(
+      await screen.findByRole("dialog", { name: "New issue" }),
+    ).toBeVisible();
     expect(screen.getByText("0 items")).toBeVisible();
   });
 
@@ -1145,7 +1209,8 @@ describe("Dashboard page", () => {
       expect(screen.queryByText("Unrelated work")).not.toBeInTheDocument(),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Export CSV" }));
+    fireEvent.click(screen.getByRole("button", { name: "Export & share" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Export CSV" }));
 
     expect(download.triggerArtifactDownload).toHaveBeenCalledOnce();
     const [blob] = download.triggerArtifactDownload.mock.calls[0] as [
@@ -1171,18 +1236,25 @@ describe("Dashboard page", () => {
     renderPage(runtime);
 
     expect(await screen.findByText("No Work Items yet")).toBeVisible();
-    const exportButton = screen.getByRole("button", { name: "Export CSV" });
-    expect(exportButton).toBeDisabled();
-    fireEvent.click(exportButton);
+    fireEvent.click(screen.getByRole("button", { name: "Export & share" }));
+    const exportItem = screen.getByRole("menuitem", { name: "Export CSV" });
+    expect(exportItem).toBeDisabled();
+    fireEvent.click(exportItem);
     expect(download.triggerArtifactDownload).not.toHaveBeenCalled();
   });
 
-  it("uses a 4-column board grid matching the four Work Item columns", async () => {
+  it("uses a responsive 1-column mobile and 4-column desktop board with a mobile column switcher", async () => {
     const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
     seedWorkItems(runtime, [
-      workItem(runtime.seed.identity.actors[0]!, {
+      workItem(human, {
         id: "workitem-grid-1",
         title: "Check board grid",
+      }),
+      workItem(human, {
+        id: "workitem-grid-2",
+        state: "in_progress",
+        title: "Active item",
       }),
     ]);
 
@@ -1190,8 +1262,94 @@ describe("Dashboard page", () => {
 
     expect(await screen.findByText("Check board grid")).toBeVisible();
     const grid = document.querySelector(".work-items-board > div");
-    expect(grid?.className.split(/\s+/)).toContain("grid-cols-4");
-    expect(grid?.className.split(/\s+/)).not.toContain("grid-cols-5");
+    const gridClasses = grid?.className.split(/\s+/) ?? [];
+    expect(gridClasses).toContain("grid-cols-1");
+    expect(gridClasses).toContain("md:grid-cols-4");
+    expect(gridClasses).toContain("md:min-w-[960px]");
+    expect(gridClasses).not.toContain("grid-cols-5");
+    expect(gridClasses).not.toContain("min-w-[960px]");
+
+    const columnTabs = screen.getByRole("tablist", { name: "Board columns" });
+    const todoTab = within(columnTabs).getByRole("tab", {
+      name: /Todo.*\(1\)/u,
+    });
+    const inProgressTab = within(columnTabs).getByRole("tab", {
+      name: /In progress.*\(1\)/u,
+    });
+    expect(todoTab).toHaveAttribute("aria-selected", "true");
+    expect(inProgressTab).toHaveAttribute("aria-selected", "false");
+
+    const todoColumn = screen.getByRole("region", { name: "Todo" });
+    const inProgressColumn = screen.getByRole("region", {
+      name: "In progress",
+    });
+    expect(todoColumn.className.split(/\s+/)).toContain("flex");
+    expect(todoColumn.className.split(/\s+/)).not.toContain("hidden");
+    expect(inProgressColumn.className.split(/\s+/)).toContain("hidden");
+    expect(inProgressColumn.className.split(/\s+/)).toContain("md:flex");
+    expect(inProgressColumn.className.split(/\s+/)).not.toContain("flex");
+
+    fireEvent.click(inProgressTab);
+    expect(inProgressTab).toHaveAttribute("aria-selected", "true");
+    expect(inProgressColumn.className.split(/\s+/)).toContain("flex");
+    expect(inProgressColumn.className.split(/\s+/)).not.toContain("hidden");
+    expect(todoColumn.className.split(/\s+/)).toContain("hidden");
+  });
+
+  it("differentiates Urgent and High priority badges semantically and styles Read side by side as a compact button", async () => {
+    const runtime = await testRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    seedWorkItems(runtime, [
+      workItem(human, {
+        id: "workitem-urgent",
+        priority: "urgent",
+        title: "Outage fix",
+      }),
+      workItem(human, {
+        id: "workitem-high",
+        priority: "high",
+        title: "Release blocker",
+      }),
+      workItem(human, {
+        id: "workitem-low",
+        priority: "low",
+        title: "Backlog cleanup",
+      }),
+    ]);
+
+    renderPage(runtime);
+
+    const urgentCard = await screen.findByRole("link", { name: /Outage fix/ });
+    const urgentBadge = within(urgentCard).getByText("Urgent");
+    expect(urgentBadge).toHaveAttribute("data-priority", "urgent");
+    expect(urgentBadge).toHaveClass(
+      "bg-(--app-status-danger-surface)",
+      "text-(--app-status-danger-text)",
+    );
+    expect(urgentBadge).not.toHaveClass("work-item-priority");
+
+    const highCard = screen.getByRole("link", { name: /Release blocker/ });
+    const highBadge = within(highCard).getByText("High");
+    expect(highBadge).toHaveAttribute("data-priority", "high");
+    expect(highBadge).toHaveClass(
+      "bg-(--app-status-warning-surface)",
+      "text-(--app-status-warning-text)",
+    );
+    expect(highBadge).not.toHaveClass("work-item-priority");
+
+    const lowCard = screen.getByRole("link", { name: /Backlog cleanup/ });
+    const lowBadge = within(lowCard).getByText("Low");
+    expect(lowBadge).toHaveAttribute("data-priority", "low");
+    expect(lowBadge).toHaveClass("text-app-muted");
+
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Select Outage fix" }),
+    );
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Select Release blocker" }),
+    );
+    const compareLink = screen.getByRole("link", { name: "Read side by side" });
+    expect(compareLink).toHaveClass("ui-button-compact");
   });
 });
 

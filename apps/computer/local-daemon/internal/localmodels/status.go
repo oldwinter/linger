@@ -23,8 +23,9 @@ const (
 // Unavailable reason codes of a LocalModelsSnapshot, and the refusal codes
 // the Daemon adds to the tool's own.
 const (
-	CodeToolNotInstalled = "TOOL_NOT_INSTALLED"
-	CodeToolFailed       = "TOOL_FAILED"
+	CodeToolNotInstalled       = "TOOL_NOT_INSTALLED"
+	CodeToolFailed             = "TOOL_FAILED"
+	CodeModelSourceUnsupported = "MODEL_SOURCE_UNSUPPORTED"
 )
 
 // errorCodes is the tool's closed error set (LocalModelErrorCode).
@@ -55,7 +56,7 @@ func unavailable(code, detail string, now time.Time) wire.LocalModelsSnapshot {
 	return wire.LocalModelsSnapshot{
 		Available:  false,
 		Reason:     &wire.LocalModelsUnavailableReason{Code: code, Detail: clip(detail, 4000)},
-		ObservedAt: now.UTC().Format(time.RFC3339),
+		ObservedAt: now.UTC().Format(time.RFC3339Nano),
 		Pools:      []wire.LocalModelPool{}, Models: []wire.LocalModel{},
 	}
 }
@@ -105,9 +106,9 @@ func mapStatus(encoded []byte, now time.Time) (wire.LocalModelsSnapshot, error) 
 	if host.Gpus == nil {
 		host.Gpus = []wire.LocalModelGpu{}
 	}
-	observedAt := now.UTC().Format(time.RFC3339)
-	if parsed, err := time.Parse(time.RFC3339, status.ObservedAt); err == nil {
-		observedAt = parsed.UTC().Format(time.RFC3339)
+	observedAt := now.UTC().Format(time.RFC3339Nano)
+	if parsed, err := time.Parse(time.RFC3339Nano, status.ObservedAt); err == nil {
+		observedAt = parsed.UTC().Format(time.RFC3339Nano)
 	}
 	snapshot := wire.LocalModelsSnapshot{
 		Available: true, ObservedAt: observedAt, ToolVersion: clip(status.ToolVersion, 64), Host: &host,
@@ -246,6 +247,8 @@ type libraryEvent struct {
 	NeedBytes      *float64        `json:"need_bytes"`
 	FreeBytes      *float64        `json:"free_bytes"`
 	HaveBytes      *float64        `json:"have_bytes"`
+	Cause          string          `json:"cause"`
+	Path           string          `json:"path"`
 }
 
 func parseEvent(line []byte) (libraryEvent, bool) {
@@ -304,6 +307,19 @@ func bytesValue(value float64) uint64 {
 		return 1 << 53
 	}
 	return uint64(value)
+}
+
+// errorCauses is the tool's closed set of error causes; a GATEWAY_REGISTRATION_FAILED
+// line carries one with the path it names.
+var errorCauses = []string{"GATEWAY_HOME_NOT_PRIVATE"}
+
+// cause is the error line's cause as the wire carries it on a model's error,
+// or nil when the line names none the contract knows.
+func (e libraryEvent) cause() *wire.LocalModelError {
+	if !slices.Contains(errorCodes, e.Code) || !slices.Contains(errorCauses, e.Cause) || e.Path == "" {
+		return nil
+	}
+	return &wire.LocalModelError{Code: e.Code, Cause: e.Cause, Path: clip(e.Path, 4096)}
 }
 
 // clip bounds display text to the schema's length in characters.

@@ -37,18 +37,76 @@ func TestNextRunAtWeeklyAdvancesAFullWeekWhenDue(t *testing.T) {
 	}
 }
 
-func TestNextRunAtIntervalHours(t *testing.T) {
-	hours := 3
+func TestNextRunAtIntervalMinutes(t *testing.T) {
+	minutes := 10
 	after := time.Date(2026, 9, 21, 8, 0, 0, 0, time.UTC)
 	next, err := nextRunAt(Cadence{
-		Kind: "every_n_hours", Timezone: "Asia/Shanghai", IntervalHours: &hours,
+		Kind: "every_n_minutes", Timezone: "Asia/Shanghai", IntervalMinutes: &minutes,
 	}, after)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := after.Add(3 * time.Hour)
+	want := after.Add(10 * time.Minute)
 	if !next.Equal(want) {
 		t.Fatalf("next=%s want=%s", next, want)
+	}
+}
+
+func TestNextOccurrenceAtIntervalGrid(t *testing.T) {
+	minutes := 10
+	cadence := Cadence{Kind: "every_n_minutes", Timezone: "UTC", IntervalMinutes: &minutes}
+	dueAt := time.Date(2026, 9, 21, 8, 10, 0, 0, time.UTC)
+	cases := []struct {
+		name string
+		now  time.Time
+		want time.Time
+	}{
+		{"slight early wake keeps grid", dueAt.Add(-200 * time.Millisecond), dueAt.Add(10 * time.Minute)},
+		{"exact due time advances one step", dueAt, dueAt.Add(10 * time.Minute)},
+		{"scheduling delay does not drift", dueAt.Add(3*time.Second + 450*time.Millisecond), dueAt.Add(10 * time.Minute)},
+		{"just before next slot keeps next slot", dueAt.Add(9*time.Minute + 59*time.Second), dueAt.Add(10 * time.Minute)},
+		{"exactly on next slot skips to following slot", dueAt.Add(10 * time.Minute), dueAt.Add(20 * time.Minute)},
+		{"downtime skips missed slots without catch-up", dueAt.Add(33*time.Minute + 12*time.Second), dueAt.Add(40 * time.Minute)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			next, err := nextOccurrenceAt(cadence, dueAt, tc.now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !next.Equal(tc.want) {
+				t.Fatalf("next=%s want=%s", next, tc.want)
+			}
+			if !next.After(tc.now) {
+				t.Fatalf("next=%s must be strictly after now=%s", next, tc.now)
+			}
+		})
+	}
+}
+
+func TestValidateIntervalMinutesBoundsAndStep(t *testing.T) {
+	for _, valid := range []int{10, 20, 60, 120, 10080} {
+		minutes := valid
+		cadence, err := ParseSchedule(Schedule{Kind: "every_n_minutes", IntervalMinutes: &minutes})
+		if err != nil {
+			t.Fatalf("minutes=%d rejected: %v", valid, err)
+		}
+		if cadence.Kind != "every_n_minutes" || cadence.IntervalMinutes == nil || *cadence.IntervalMinutes != valid {
+			t.Fatalf("minutes=%d cadence=%+v", valid, cadence)
+		}
+		roundTrip := ScheduleFromCadence(cadence)
+		if roundTrip.Kind != "every_n_minutes" || roundTrip.IntervalMinutes == nil || *roundTrip.IntervalMinutes != valid {
+			t.Fatalf("minutes=%d roundTrip=%+v", valid, roundTrip)
+		}
+	}
+	for _, invalid := range []int{-10, 0, 1, 5, 9, 11, 15, 25, 59, 61, 10075, 10090, 20000} {
+		minutes := invalid
+		if _, err := ParseSchedule(Schedule{Kind: "every_n_minutes", IntervalMinutes: &minutes}); !errors.Is(err, ErrIntervalInvalid) {
+			t.Fatalf("minutes=%d err=%v want ErrIntervalInvalid", invalid, err)
+		}
+	}
+	if _, err := ParseSchedule(Schedule{Kind: "every_n_minutes"}); !errors.Is(err, ErrIntervalInvalid) {
+		t.Fatalf("missing interval_minutes err=%v want ErrIntervalInvalid", err)
 	}
 }
 
@@ -57,25 +115,26 @@ func TestParseScheduleAcceptsTheThreeShapes(t *testing.T) {
 	if err != nil || daily.Kind != "daily" || *daily.Hour != 9 || *daily.Minute != 5 || daily.Timezone != "Asia/Shanghai" {
 		t.Fatalf("daily=%+v err=%v", daily, err)
 	}
-	hours := 4
-	interval, err := ParseSchedule(Schedule{Kind: "every_n_hours", IntervalHours: &hours})
-	if err != nil || interval.Timezone != "UTC" || *interval.IntervalHours != 4 {
+	minutes := 60
+	interval, err := ParseSchedule(Schedule{Kind: "every_n_minutes", IntervalMinutes: &minutes})
+	if err != nil || interval.Timezone != "UTC" || *interval.IntervalMinutes != 60 {
 		t.Fatalf("interval=%+v err=%v", interval, err)
 	}
 	shown := ScheduleFromCadence(interval)
-	if shown.Timezone != "" || shown.Time != "" || *shown.IntervalHours != 4 {
+	if shown.Timezone != "" || shown.Time != "" || *shown.IntervalMinutes != 60 {
 		t.Fatalf("shown=%+v", shown)
 	}
 }
 
 func TestParseScheduleRejectsEasyMistakes(t *testing.T) {
-	hours := 2
+	minutes := 20
 	cases := []Schedule{
 		{Kind: "daily", Time: "9:00", Timezone: "Asia/Shanghai"},
 		{Kind: "daily", Time: "09:00", Timezone: "Not/AZone"},
 		{Kind: "daily", Time: "09:00", Timezone: "UTC", Weekdays: []string{"monday"}},
 		{Kind: "weekly", Time: "09:00", Timezone: "UTC"},
-		{Kind: "every_n_hours", Timezone: "UTC", IntervalHours: &hours},
+		{Kind: "every_n_minutes", Timezone: "UTC", IntervalMinutes: &minutes},
+		{Kind: "every_n_hours", IntervalMinutes: &minutes},
 		{Kind: "hourly", Time: "09:00", Timezone: "UTC"},
 	}
 	for _, schedule := range cases {
@@ -86,9 +145,9 @@ func TestParseScheduleRejectsEasyMistakes(t *testing.T) {
 }
 
 func TestValidateCadenceRejectsMixedFields(t *testing.T) {
-	hour, hours := 9, 2
+	hour, minutes := 9, 20
 	_, err := validateCadence(Cadence{
-		Kind: "every_n_hours", Timezone: "UTC", Hour: &hour, IntervalHours: &hours,
+		Kind: "every_n_minutes", Timezone: "UTC", Hour: &hour, IntervalMinutes: &minutes,
 	})
 	if !errors.Is(err, ErrInvalid) {
 		t.Fatalf("err=%v", err)
@@ -154,15 +213,42 @@ func TestOnceRunsAtItsTimeAndNeverAfter(t *testing.T) {
 	if err != nil || defaulted.Timezone != "UTC" {
 		t.Fatalf("timezone defaults to UTC: %+v err=%v", defaulted, err)
 	}
-	hours := 9
+	minutes := 30
 	for _, bad := range []Schedule{
 		{Kind: "once"},
 		{Kind: "once", RunAt: &runAt, Time: "09:00"},
-		{Kind: "once", RunAt: &runAt, IntervalHours: &hours},
+		{Kind: "once", RunAt: &runAt, IntervalMinutes: &minutes},
 		{Kind: "once", RunAt: &runAt, Weekdays: []string{"monday"}},
 	} {
 		if _, err := ParseSchedule(bad); !errors.Is(err, ErrInvalid) {
 			t.Fatalf("schedule %+v must be rejected, err=%v", bad, err)
 		}
+	}
+}
+
+func TestParseScheduleAcceptsHourlyAliasForCompatibility(t *testing.T) {
+	hours := 2
+	cadence, err := ParseSchedule(Schedule{Kind: "every_n_hours", IntervalHours: &hours})
+	if err != nil {
+		t.Fatalf("ParseSchedule every_n_hours: %v", err)
+	}
+	if cadence.Kind != "every_n_minutes" || cadence.IntervalMinutes == nil || *cadence.IntervalMinutes != 120 {
+		t.Fatalf("cadence=%+v want every_n_minutes=120", cadence)
+	}
+	if back := ScheduleFromCadence(cadence); back.Kind != "every_n_minutes" || back.IntervalMinutes == nil || *back.IntervalMinutes != 120 || back.IntervalHours != nil {
+		t.Fatalf("ScheduleFromCadence=%+v want every_n_minutes=120", back)
+	}
+	for _, badHours := range []int{0, 169} {
+		h := badHours
+		if _, err := ParseSchedule(Schedule{Kind: "every_n_hours", IntervalHours: &h}); !errors.Is(err, ErrIntervalInvalid) {
+			t.Fatalf("hours=%d err=%v want ErrIntervalInvalid", badHours, err)
+		}
+	}
+	minutes := 60
+	if _, err := ParseSchedule(Schedule{Kind: "every_n_hours", IntervalHours: &hours, IntervalMinutes: &minutes}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("mixing interval_hours and interval_minutes err=%v want ErrInvalid", err)
+	}
+	if _, err := ParseSchedule(Schedule{Kind: "every_n_minutes", IntervalHours: &hours, IntervalMinutes: &minutes}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("every_n_minutes with interval_hours err=%v want ErrInvalid", err)
 	}
 }

@@ -1,19 +1,32 @@
 import { officePreviewLimits } from "./office-preview-limits";
 import JSZip from "jszip";
 
-import type { OfficePreviewErrorCode } from "./office-preview-protocol";
+import type {
+  OfficePreviewErrorCode,
+  OfficePreviewLimit,
+} from "./office-preview-protocol";
 import {
   getOfficePreviewExtension,
   isOfficePreviewMediaTypeCompatible,
   type OfficePreviewExtension,
 } from "./office-preview-file-metadata";
 
+/**
+ * A file the basic preview refuses. `message` is English for developers; the
+ * adapter words `code` and `limit` in the language on screen.
+ */
 export class OfficePreviewGuardError extends Error {
   readonly code: OfficePreviewErrorCode;
+  readonly limit?: OfficePreviewLimit;
 
-  constructor(code: OfficePreviewErrorCode, message: string) {
+  constructor(
+    code: OfficePreviewErrorCode,
+    message: string,
+    limit?: OfficePreviewLimit,
+  ) {
     super(message);
     this.code = code;
+    this.limit = limit;
     this.name = "OfficePreviewGuardError";
   }
 }
@@ -87,9 +100,12 @@ function inspectOfficePreviewContainer({
     throw new OfficePreviewGuardError("invalid-file", "The file is empty.");
   }
   if (buffer.byteLength > officePreviewLimits.maxFileBytes) {
-    throw new OfficePreviewGuardError(
-      "limit-exceeded",
+    throw limitError(
       "The file is larger than the 50 MiB basic preview limit.",
+      {
+        kind: "fileSize",
+        mebibytes: officePreviewLimits.maxFileBytes / (1024 * 1024),
+      },
     );
   }
 
@@ -127,9 +143,9 @@ export function inspectSpreadsheetRanges(
   ranges: Array<{ name: string; range?: string }>,
 ) {
   if (ranges.length > officePreviewLimits.maxSheets) {
-    throw new OfficePreviewGuardError(
-      "limit-exceeded",
+    throw limitError(
       `The workbook has more than ${officePreviewLimits.maxSheets} sheets.`,
+      { kind: "sheets", max: officePreviewLimits.maxSheets },
     );
   }
 
@@ -143,16 +159,16 @@ export function inspectSpreadsheetRanges(
       dimensions.rows > officePreviewLimits.maxRowsPerSheet ||
       dimensions.columns > officePreviewLimits.maxColumnsPerSheet
     ) {
-      throw new OfficePreviewGuardError(
-        "limit-exceeded",
+      throw limitError(
         `Sheet "${sheet.name}" exceeds the basic preview row or column limit.`,
+        { kind: "sheetSize", sheet: sheet.name },
       );
     }
     totalCells += dimensions.rows * dimensions.columns;
     if (totalCells > officePreviewLimits.maxCells) {
-      throw new OfficePreviewGuardError(
-        "limit-exceeded",
+      throw limitError(
         "The workbook exceeds the 1,000,000-cell basic preview limit.",
+        { kind: "cells", max: officePreviewLimits.maxCells },
       );
     }
   }
@@ -190,7 +206,9 @@ function inspectZipContainer(
     throw invalidZip("ZIP64 Office files are not supported.");
   }
   if (totalEntries > officePreviewLimits.maxEntries) {
-    throw limitError("The Office package contains too many entries.");
+    throw limitError("The Office package contains too many entries.", {
+      kind: "entries",
+    });
   }
   if (totalEntries === 0) {
     throw invalidZip("The Office ZIP contains no entries.");
@@ -255,11 +273,14 @@ function inspectZipContainer(
       uncompressedBytes > 0 &&
       compressedBytes === 0
     ) {
-      throw limitError("The Office package has an unsafe compression ratio.");
+      throw limitError("The Office package has an unsafe compression ratio.", {
+        kind: "compression",
+      });
     }
     if (uncompressedBytes > officePreviewLimits.maxSingleEntryBytes) {
       throw limitError(
         "An Office package entry is too large to preview safely.",
+        { kind: "entrySize" },
       );
     }
     if (
@@ -267,12 +288,15 @@ function inspectZipContainer(
       uncompressedBytes / compressedBytes >
         officePreviewLimits.maxCompressionRatio
     ) {
-      throw limitError("The Office package has an unsafe compression ratio.");
+      throw limitError("The Office package has an unsafe compression ratio.", {
+        kind: "compression",
+      });
     }
     totalUncompressedBytes += uncompressedBytes;
     if (totalUncompressedBytes > officePreviewLimits.maxUncompressedBytes) {
       throw limitError(
         "The expanded Office package is too large to preview safely.",
+        { kind: "expandedSize" },
       );
     }
 
@@ -303,6 +327,7 @@ function inspectZipContainer(
       if (slideCount > officePreviewLimits.maxSlides) {
         throw limitError(
           `The presentation has more than ${officePreviewLimits.maxSlides} slides.`,
+          { kind: "slides", max: officePreviewLimits.maxSlides },
         );
       }
     }
@@ -377,7 +402,12 @@ function countActualEntryBytes(entry: JSZip.JSZipObject, totalBefore: number) {
       entryBytes += chunk.byteLength;
       if (entryBytes > officePreviewLimits.maxSingleEntryBytes) {
         fail(
-          limitError("An Office package entry is too large to preview safely."),
+          limitError(
+            "An Office package entry is too large to preview safely.",
+            {
+              kind: "entrySize",
+            },
+          ),
         );
       } else if (
         totalBefore + entryBytes >
@@ -386,6 +416,7 @@ function countActualEntryBytes(entry: JSZip.JSZipObject, totalBefore: number) {
         fail(
           limitError(
             "The expanded Office package is too large to preview safely.",
+            { kind: "expandedSize" },
           ),
         );
       }
@@ -520,6 +551,6 @@ function invalidZip(message: string) {
   return new OfficePreviewGuardError("invalid-container", message);
 }
 
-function limitError(message: string) {
-  return new OfficePreviewGuardError("limit-exceeded", message);
+function limitError(message: string, limit: OfficePreviewLimit) {
+  return new OfficePreviewGuardError("limit-exceeded", message, limit);
 }

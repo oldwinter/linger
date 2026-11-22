@@ -31,6 +31,9 @@ type TransientImportResult struct {
 	Status        string
 	LastErrorCode string
 	Fetched       int
+	// Mailbox is a mailbox import's mailbox identity, which with each
+	// document's RemoteID names its Wiki source (MailWikiSourceKey).
+	Mailbox string
 }
 
 // importRun is one connection import. Nothing about it is stored: its caller
@@ -45,7 +48,9 @@ type importRun struct {
 	CreatedAt                                                                       time.Time
 	callsUsed                                                                       atomic.Int64
 	mail                                                                            bool
-	result                                                                          TransientImportResult
+	// mailbox keys a mail run's Wiki sources; see MailWikiSourceKey.
+	mailbox string
+	result  TransientImportResult
 }
 
 // ImportSlack fetches the selected Slack conversations for its caller.

@@ -14,6 +14,9 @@ changes are reviewed. Repository-wide conventions live in
 - Docker with Docker Compose, only for the Compose setup and for TeamHub
   integration tests
 
+For a no-Docker PostgreSQL setup, see
+[Local PostgreSQL 17 for development](docs/local-postgresql.md).
+
 ## Run it locally
 
 From the repository root:
@@ -51,7 +54,7 @@ you touched. None of these need a database or containers.
 
 | Change           | Command                                                                                               |
 | ---------------- | ----------------------------------------------------------------------------------------------------- |
-| Anything         | `make check BASE=origin/<target-branch>` runs every app's fast check in parallel                      |
+| Anything         | `make check BASE=origin/<target-branch>` runs the fast checks your changes select (`ALL=1` for all)   |
 | Web              | `make check-web`                                                                                      |
 | TeamHub          | `make -C apps/teamhub fmt-check` and `cd apps/teamhub && go test ./tests/integration/layout -count=1` |
 | Other apps       | the matching `make check-<app>`                                                                       |

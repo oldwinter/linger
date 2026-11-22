@@ -97,7 +97,7 @@ test("creates the Room before optional membership and persists the second step",
       await page
         .getByLabel("Password", { exact: true })
         .fill("teamhub-dev-alice");
-      await page.getByRole("button", { name: "Sign in", exact: true }).click();
+      await page.getByRole("button", { name: "Log in", exact: true }).click();
       await page.waitForURL(/\/t\//);
       await page.goto(
         new URL(

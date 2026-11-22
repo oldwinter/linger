@@ -11,6 +11,7 @@ import type { ComposerReferenceInsertion } from "./use-composer-reference-insert
 import type { ComposerSend } from "./use-composer-send";
 
 export interface ComposerKeyDownInput {
+  clearReplyContext?: () => void;
   draft: ComposerDraft;
   insertion: ComposerReferenceInsertion;
   picker: ComposerPicker;
@@ -20,6 +21,7 @@ export interface ComposerKeyDownInput {
 
 /** Picker navigation and Enter-to-send, deferring to an open IME composition. */
 export function useComposerKeyDown({
+  clearReplyContext,
   draft: { isComposing },
   insertion: { insertAtPickerItem, insertSkill },
   picker: {
@@ -117,6 +119,7 @@ export function useComposerKeyDown({
 
     if (event.key === "Escape" && (mentionQuery || skillQuery)) {
       event.preventDefault();
+      event.stopPropagation();
       applyMentionQuery(null);
       setSkillQuery(null);
       return;
@@ -126,7 +129,15 @@ export function useComposerKeyDown({
     // dismissed once no suggestion is showing.
     if (event.key === "Escape" && stagedQuoteReply) {
       event.preventDefault();
+      event.stopPropagation();
       dismissQuoteReply();
+      return;
+    }
+
+    if (event.key === "Escape" && clearReplyContext) {
+      event.preventDefault();
+      event.stopPropagation();
+      clearReplyContext();
       return;
     }
 

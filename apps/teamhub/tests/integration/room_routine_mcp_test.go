@@ -47,7 +47,7 @@ func TestAgentRoomRoutineMCP(t *testing.T) {
 	mixed["invocation_id"] = routineInvocation("02")
 	mixed["name"] = "Interval"
 	mixed["instruction"] = "Ping."
-	mixed["schedule"] = map[string]any{"kind": "every_n_hours", "interval_hours": 4, "timezone": "UTC"}
+	mixed["schedule"] = map[string]any{"kind": "every_n_minutes", "interval_minutes": 240, "timezone": "UTC"}
 	status, body = postAgentInRoom(t, env, token, roomID, "/api/agent/v1/routines", mixed)
 	if status != http.StatusBadRequest {
 		t.Fatalf("mixed interval: %d %s", status, body)

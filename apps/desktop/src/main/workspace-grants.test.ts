@@ -81,4 +81,24 @@ describe("WorkspaceGrantsModule", () => {
     expect(grants.list().map((g) => g.grantId)).toEqual(["grant_1"]);
     await host.stop("quit");
   });
+
+  it("serializes concurrent ensureDefault calls without creating duplicates", async () => {
+    const directory = path.join(tempDirectory(), "Linger");
+    const grants = new WorkspaceGrantsModule({
+      pickDirectory: pickNothing,
+      defaultDirectory: directory,
+    });
+    const host = testHost([stubModule("Config"), grants], {});
+    await host.start();
+
+    await Promise.all([
+      grants.ensureDefault(),
+      grants.ensureDefault(),
+      grants.ensureDefault(),
+    ]);
+
+    expect(grants.list()).toHaveLength(1);
+    expect(grants.list()[0]?.path).toBe(realpathSync(directory));
+    await host.stop("quit");
+  });
 });

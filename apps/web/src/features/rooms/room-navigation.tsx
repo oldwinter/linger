@@ -8,6 +8,7 @@ import {
   LibrariesIcon,
   Message01Icon,
   Plug01Icon,
+  Search01Icon,
   SidebarLeft01Icon,
   SidebarLeftIcon,
 } from "@hugeicons/core-free-icons";
@@ -16,6 +17,8 @@ import { BrandMark } from "@/components/ui/brand-mark";
 import { Icon, type IconSvgElement } from "@/components/ui/icon";
 import { NavigationDrawer } from "@/components/ui/navigation-drawer";
 import { useRoomListWidth } from "@/components/ui/use-sidebar-width";
+import { searchShortcutLabel } from "@/features/search/search-shortcut";
+import { useT } from "@/i18n/use-translation";
 import {
   documentQueryOptions,
   teamHubIdentityQueryOptions,
@@ -26,6 +29,7 @@ import type {
   TeamHubTenant,
 } from "@/features/teamhub/teamhub-types";
 
+import { navigationMessages } from "./room-navigation.messages";
 import { useRoomActivity } from "./use-room-activity";
 
 const RoomSecondaryNavigation = lazy(async () => ({
@@ -65,6 +69,8 @@ export function RoomNavigation({
   tenant: TeamHubTenant;
 }) {
   const location = useLocation();
+  const t = useT();
+  const spaceName = t(navigationMessages.space, { name: username });
   const [expanded, setExpanded] = useState(false);
   // Width also changes when the Room list is dragged wider; animating only while
   // the rail is toggling keeps the drag following the pointer with no lag.
@@ -94,24 +100,31 @@ export function RoomNavigation({
   const effectivePathname = pendingPathname ?? location.pathname;
   const effectiveRoomId =
     roomIdFromPath(effectivePathname, tenant.id) ?? roomId;
+  const tenantPrefix = `/t/${tenant.id}`;
   const roomNavigationVisible = effectivePathname.startsWith(
-    `/t/${tenant.id}/rooms`,
+    `${tenantPrefix}/rooms`,
   );
-  const dashboardVisible = effectivePathname.startsWith(
-    `/t/${tenant.id}/dashboard`,
-  );
+  const dashboardVisible =
+    effectivePathname.startsWith(`${tenantPrefix}/dashboard`) ||
+    effectivePathname.startsWith(`${tenantPrefix}/work-items`);
   const secondaryNavigationVisible =
     roomNavigationVisible && !(desktopShell && listCollapsed);
+  const mobilePrimaryOnly = mobileOpen && !secondaryNavigationVisible;
+  const railExpanded = expanded || mobilePrimaryOnly;
   const wikiVisible =
-    effectivePathname.startsWith(`/t/${tenant.id}/library/wiki`) ||
+    effectivePathname.startsWith(`${tenantPrefix}/library/wiki`) ||
+    effectivePathname.startsWith(`${tenantPrefix}/wiki-preview`) ||
+    effectivePathname.startsWith(`${tenantPrefix}/library/remembered`) ||
+    effectivePathname.startsWith(`${tenantPrefix}/library/introduction`) ||
+    effectivePathname.startsWith(`${tenantPrefix}/library/life`) ||
     (Boolean(documentId) &&
       document.data?.from.some(
         (source) => source.binding_kind === "wiki_page",
       ) === true);
   const workspaceVisible =
     !wikiVisible &&
-    (effectivePathname.startsWith(`/t/${tenant.id}/library`) ||
-      effectivePathname.startsWith(`/t/${tenant.id}/documents/`));
+    (effectivePathname.startsWith(`${tenantPrefix}/library`) ||
+      effectivePathname.startsWith(`${tenantPrefix}/documents/`));
   const { failedRoomIds, runningRoomIds } = useRoomActivity(
     tenant.id,
     roomNavigationVisible && rooms.length > 0,
@@ -119,19 +132,21 @@ export function RoomNavigation({
   return (
     <NavigationDrawer
       ariaLabel="Room navigation"
-      closeLabel="Close Room navigation"
+      closeLabel={t(navigationMessages.closeNavigation)}
       onClose={onCloseMobile}
       open={mobileOpen}
     >
       <aside
-        aria-label="Collaboration sidebar"
+        aria-label={t(navigationMessages.sidebar)}
+        data-voice-area="sidebar"
         data-animating={railToggling || undefined}
-        data-expanded={expanded}
+        data-expanded={railExpanded}
+        data-secondary-navigation={secondaryNavigationVisible || undefined}
         // The Library sidebar continues this rail as its secondary column,
         // so the rail draws no boundary of its own there, as beside Message.
         data-workspace-adjoined={workspaceVisible || wikiVisible || undefined}
         className={`app-navigation fixed inset-y-0 left-0 z-40 flex shrink-0 max-w-[86vw] bg-card transition-[transform,visibility] md:relative md:visible md:max-w-none md:translate-x-0 ${
-          expanded
+          railExpanded
             ? secondaryNavigationVisible
               ? "w-[calc(220px+20px+var(--sidebar-width))]"
               : "w-[220px]"
@@ -143,54 +158,63 @@ export function RoomNavigation({
         style={navigationWidth.style}
       >
         <nav
-          aria-label="Primary navigation"
+          aria-label={t(navigationMessages.primary)}
+          data-voice-area="navigation"
           className="app-primary-navigation flex min-h-0 shrink-0 flex-col bg-card"
         >
           <div className="primary-navigation-topbar">
-            {expanded ? (
+            {railExpanded ? (
               <>
                 <BrandMark className="room-brand-mark size-6 shrink-0" />
                 <span
-                  className="min-w-0 flex-1 truncate text-center text-sm font-medium"
-                  title={`${username}'s space`}
+                  className={`min-w-0 flex-1 truncate text-sm font-medium ${
+                    mobilePrimaryOnly ? "text-left" : "text-center"
+                  }`}
+                  title={spaceName}
                 >
-                  {username}'s space
+                  {spaceName}
                 </span>
               </>
             ) : null}
-            <button
-              aria-label={expanded ? "Collapse sidebar" : "Expand sidebar"}
-              aria-expanded={expanded}
-              className="primary-navigation-toggle flex size-8 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-sidebar-muted"
-              onClick={() => {
-                setRailToggling(true);
-                setExpanded((value) => !value);
-              }}
-              type="button"
-            >
-              {expanded ? (
-                // The arrow says which way the open sidebar folds away.
-                <RoomRailGlyph icon={SidebarLeft01Icon} />
-              ) : (
-                // Collapsed, the corner shows the brand and turns into the
-                // expand control only under the pointer or keyboard focus.
-                <>
-                  <BrandMark className="room-brand-mark primary-navigation-toggle-logo size-6 shrink-0" />
-                  <span className="primary-navigation-toggle-glyph">
-                    <RoomRailGlyph icon={SidebarLeftIcon} />
-                  </span>
-                </>
-              )}
-            </button>
+            {mobilePrimaryOnly ? null : (
+              <button
+                aria-label={t(
+                  expanded
+                    ? navigationMessages.collapseSidebar
+                    : navigationMessages.expandSidebar,
+                )}
+                aria-expanded={expanded}
+                className="primary-navigation-toggle flex size-8 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-sidebar-muted"
+                onClick={() => {
+                  setRailToggling(true);
+                  setExpanded((value) => !value);
+                }}
+                type="button"
+              >
+                {expanded ? (
+                  // The arrow says which way the open sidebar folds away.
+                  <RoomRailGlyph icon={SidebarLeft01Icon} />
+                ) : (
+                  // Collapsed, the corner shows the brand and turns into the
+                  // expand control only under the pointer or keyboard focus.
+                  <>
+                    <BrandMark className="room-brand-mark primary-navigation-toggle-logo size-6 shrink-0" />
+                    <span className="primary-navigation-toggle-glyph">
+                      <RoomRailGlyph icon={SidebarLeftIcon} />
+                    </span>
+                  </>
+                )}
+              </button>
+            )}
           </div>
           {desktopShell && roomNavigationVisible && listCollapsed ? (
             // The desktop app's Chat list folds away; this brings it back.
             <div className="primary-navigation-list-toggle">
               <button
-                aria-label="Show Chat list"
+                aria-label={t(navigationMessages.showChatList)}
                 className="primary-navigation-toggle flex shrink-0 items-center justify-center text-app-muted transition-colors hover:bg-app-hover hover:text-app-ink"
                 onClick={() => setListCollapsed(false)}
-                title="Show Chat list"
+                title={t(navigationMessages.showChatList)}
                 type="button"
               >
                 <RoomRailGlyph icon={SidebarLeftIcon} />
@@ -201,7 +225,7 @@ export function RoomNavigation({
             <RailLink
               active={roomNavigationVisible}
               icon={<RoomRailGlyph icon={Message01Icon} />}
-              label="Messages"
+              label={t(navigationMessages.messages)}
               onNavigate={onCloseMobile}
               to={
                 roomId
@@ -219,23 +243,30 @@ export function RoomNavigation({
             <RailLink
               active={workspaceVisible}
               icon={<RoomRailGlyph icon={LibrariesIcon} />}
-              label="Library"
+              label={t(navigationMessages.library)}
               onNavigate={onCloseMobile}
               to={`/t/${tenant.id}/library`}
             />
             <RailLink
               active={wikiVisible}
               icon={<RoomRailGlyph icon={BookOpen01Icon} />}
-              label="Wiki"
+              label={t(navigationMessages.wiki)}
               onNavigate={onCloseMobile}
               to={`/t/${tenant.id}/library/wiki`}
             />
             <RailLink
               active={effectivePathname === `/t/${tenant.id}/apps`}
               icon={<RoomRailGlyph icon={Plug01Icon} />}
-              label="Connectors"
+              label={t(navigationMessages.connectors)}
               onNavigate={onCloseMobile}
               to={`/t/${tenant.id}/apps`}
+            />
+            <RailSearchButton
+              expanded={railExpanded}
+              onClick={() => {
+                onOpenSearch?.();
+                onCloseMobile();
+              }}
             />
           </div>
           <div className="primary-navigation-footer flex shrink-0 flex-col gap-1">
@@ -267,7 +298,7 @@ export function RoomNavigation({
         {secondaryNavigationVisible ? (
           <div
             {...navigationWidth.handleProps}
-            aria-label="Resize Chat navigation"
+            aria-label={t(navigationMessages.resizeChatList)}
           />
         ) : null}
       </aside>
@@ -311,6 +342,38 @@ function RailLink({
       {icon}
       <span className="primary-navigation-label truncate">{label}</span>
     </Link>
+  );
+}
+
+function RailSearchButton({
+  expanded,
+  onClick,
+}: {
+  expanded: boolean;
+  onClick: () => void;
+}) {
+  const shortcut = searchShortcutLabel();
+  return (
+    <button
+      aria-keyshortcuts="Control+k Meta+k"
+      aria-label="Search"
+      className="room-rail-link flex cursor-pointer select-none items-center text-app-muted"
+      onClick={onClick}
+      title={`Search (${shortcut})`}
+      type="button"
+    >
+      <Icon
+        className="room-rail-glyph pointer-events-none shrink-0"
+        icon={Search01Icon}
+        size={16}
+      />
+      <span className="primary-navigation-label truncate">Search</span>
+      {expanded ? (
+        <kbd className="ml-auto mr-2 shrink-0 font-sans text-2xs text-app-subtle">
+          {shortcut}
+        </kbd>
+      ) : null}
+    </button>
   );
 }
 

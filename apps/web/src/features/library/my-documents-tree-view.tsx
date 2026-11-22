@@ -8,15 +8,19 @@ import {
 import { type ReactNode, useEffect, useLayoutEffect, useState } from "react";
 
 import { ActionMenu } from "@/components/ui/action-menu";
+import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { ModalDialog } from "@/components/ui/modal-dialog";
 import { Spinner } from "@/components/ui/spinner";
 import type {
   TeamHubDocumentPlacementNode,
   TeamHubDocumentTreeSummary,
 } from "@/features/teamhub/teamhub-types";
+import { useT } from "@/i18n/use-translation";
 
 import { DocumentDeleteDialog } from "./document-delete-dialog";
 import { documentFileName } from "./document-display-name";
+import { libraryMessages as m } from "./library.messages";
 import {
   readDroppedUploadSources,
   type UploadBatch,
@@ -55,6 +59,13 @@ export function MyDocumentsTreeView({
       ),
     );
 
+  const confirmingDeleteFolder = model.confirmingDeleteFolderId
+    ? model.folders.find(
+        (folder) => folder.id === model.confirmingDeleteFolderId,
+      )
+    : undefined;
+  const deletingFolderPending = Boolean(model.deletingFolderId);
+
   return (
     <OwnedDocumentDropZone
       onCancel={model.onExternalDropCancel}
@@ -69,6 +80,40 @@ export function MyDocumentsTreeView({
           pending={model.trashPending}
           title={model.trashingDocument.title}
         />
+      ) : null}
+      {confirmingDeleteFolder ? (
+        <ModalDialog
+          closeOnBackdrop={!deletingFolderPending}
+          description={
+            <>
+              Delete <strong>{confirmingDeleteFolder.name}</strong>? This action
+              cannot be undone.
+            </>
+          }
+          footer={
+            <>
+              <Button
+                disabled={deletingFolderPending}
+                onClick={model.onCancelDeleteFolder}
+                tone="secondary"
+              >
+                Cancel
+              </Button>
+              <Button
+                loading={deletingFolderPending}
+                onClick={model.onConfirmDeleteFolder}
+                tone="danger"
+              >
+                Delete folder
+              </Button>
+            </>
+          }
+          onClose={model.onCancelDeleteFolder}
+          size="sm"
+          title="Delete folder"
+        >
+          {null}
+        </ModalDialog>
       ) : null}
       <OwnedTreeHeading
         collectionCollapsed={collectionCollapsed}
@@ -168,11 +213,12 @@ function OwnedTreeHeading({
   onImportPick: () => void;
   onToggleCollection: () => void;
 }) {
+  const t = useT();
   return (
     <div className="document-tree-heading flex items-center justify-between gap-1">
       <button
         aria-expanded={!collectionCollapsed}
-        aria-label={`${collectionCollapsed ? "Expand" : "Collapse"} Owned by Me`}
+        aria-label={t(collectionCollapsed ? m.expandOwned : m.collapseOwned)}
         className={workspaceHeadingToggleClass}
         onClick={onToggleCollection}
         type="button"
@@ -182,7 +228,7 @@ function OwnedTreeHeading({
           className="shrink-0 text-app-muted"
           size={WORKSPACE_HEADING_ICON_SIZE}
         />
-        <span className="truncate">My pages</span>
+        <span className="truncate">{t(m.myPages)}</span>
       </button>
       <ActionMenu
         placement="right-start"
@@ -191,23 +237,23 @@ function OwnedTreeHeading({
           {
             children: [{ label: "md", onSelect: onCreateDocument }],
             disabled: createDisabled,
-            icon: <Icon icon={FileAddIcon} size={16} />,
-            label: "New file",
+            icon: <Icon icon={FileAddIcon} size={14} />,
+            label: t(m.newFile),
           },
           {
             disabled: createDisabled,
-            icon: <Icon icon={FolderAddIcon} size={16} />,
-            label: "New folder",
+            icon: <Icon icon={FolderAddIcon} size={14} />,
+            label: t(m.newFolder),
             onSelect: onCreateFolder,
           },
           {
             disabled: createDisabled,
-            icon: <Icon icon={FileImportIcon} size={16} />,
-            label: "Import",
+            icon: <Icon icon={FileImportIcon} size={14} />,
+            label: t(m.importFile),
             onSelect: onImportPick,
           },
         ]}
-        label="Create in Owned by Me"
+        label={t(m.createInOwned)}
         trigger={
           <Icon icon={PlusSignIcon} size={WORKSPACE_HEADING_ICON_SIZE} />
         }
@@ -223,6 +269,7 @@ function OwnedTreeBody({
   model: MyDocumentsTreeModel;
   onRenameDocument: (document: TeamHubDocumentTreeSummary) => void;
 }) {
+  const t = useT();
   const { movingPlacement } = model;
   return (
     <>
@@ -244,7 +291,7 @@ function OwnedTreeBody({
                   );
                   return movingDocument
                     ? documentFileName(movingDocument)
-                    : "document";
+                    : undefined;
                 })()
           }
           onCancel={model.onMoveCancel}
@@ -254,23 +301,23 @@ function OwnedTreeBody({
       ) : null}
       {model.loadError ? (
         <p className="px-1 py-3 text-xs text-app-danger" role="alert">
-          {model.loadError.message || "The Document tree is unavailable."}
+          {model.loadError.message || t(m.treeUnavailable)}
         </p>
       ) : model.pending ? (
         <p className="flex items-center gap-2 px-1 py-3 text-xs text-app-muted">
           <Spinner size={14} />
-          Loading tree…
+          {t(m.loadingTree)}
         </p>
       ) : (
         <>
           {model.items.length === 0 && model.pendingUploads.length === 0 ? (
             <p className="py-3 pl-[30px] pr-2 text-xs text-muted-foreground">
-              No documents yet.
+              {t(m.noDocumentsYet)}
             </p>
           ) : (
             // eslint-disable-next-line jsx-a11y/interactive-supports-focus -- composite widget: focus is managed on its child items
             <div
-              aria-label="Owned by Me"
+              aria-label={t(m.ownedByMe)}
               className="mt-2 ml-4"
               onKeyDown={model.onTreeKeyDown}
               role="tree"
@@ -308,6 +355,7 @@ function OwnedTreeBody({
                 pendingUploads: model.pendingUploads,
                 revealDocumentId: model.revealDocumentId,
                 renamingFolder: model.renamingFolder,
+                t,
                 tenantId: model.tenantId,
               })}
             </div>
@@ -329,9 +377,10 @@ function OwnedDocumentDropZone({
   onEnter: () => void;
   onFiles: (batch: Promise<UploadBatch>) => void;
 }) {
+  const t = useT();
   return (
     <section
-      aria-label="Owned by Me tree"
+      aria-label={t(m.ownedTree)}
       onDragEnter={(event) => {
         if (!isExternalFileTransfer(event.dataTransfer)) return;
         event.preventDefault();
@@ -369,11 +418,13 @@ function MovePlacementDialog({
 }: {
   folders: DocumentTreeFolder[];
   items: TeamHubDocumentPlacementNode[];
-  label: string;
+  /** The name of what moves; a Document that is no longer listed has none. */
+  label: string | undefined;
   onCancel: () => void;
   onMove: (parentId: string) => void;
   placement: TeamHubDocumentPlacementNode;
 }) {
+  const t = useT();
   const disabledFolderIds = new Set<string>();
   if (placement.node_kind === "folder") {
     for (const folder of folders) {
@@ -390,7 +441,7 @@ function MovePlacementDialog({
       label={label}
       onCancel={onCancel}
       onMove={onMove}
-      rootLabel="Owned by Me"
+      rootLabel={t(m.ownedByMe)}
     />
   );
 }

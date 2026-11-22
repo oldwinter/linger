@@ -8,10 +8,20 @@ import {
   within,
 } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+import { defineGlobalProperty } from "@/test/global-properties";
 
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
 import { LibraryLayout } from "@/features/library/library-layout";
+import { TeamHubError } from "@/features/teamhub/teamhub-error";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
 import type {
   TeamHubPersonalWiki,
@@ -24,9 +34,8 @@ import { WikiGraphPage } from "./wiki-graph-page";
 
 afterEach(() => vi.restoreAllMocks());
 // jsdom supplies no scroll geometry; the real-service proof verifies movement.
-Object.defineProperty(HTMLElement.prototype, "scrollTo", {
-  configurable: true,
-  value: vi.fn(),
+beforeEach(() => {
+  defineGlobalProperty(HTMLElement.prototype, "scrollTo", { value: vi.fn() });
 });
 
 describe("WikiGraphPage", () => {
@@ -396,6 +405,28 @@ describe("WikiGraphPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Retry graph" }));
     await waitFor(() => expect(getGraph).toHaveBeenCalledTimes(2));
     expect(await screen.findByTitle("Personal knowledge graph")).toBeVisible();
+  });
+
+  it("words the graph-unavailable state itself and keeps other errors as sent", async () => {
+    const runtime = await loggedInRuntime();
+    vi.spyOn(
+      runtime.client,
+      "getPersonalKnowledgeGraphVisualization",
+    ).mockRejectedValue(
+      new TeamHubError({
+        code: "GRAPH_UNAVAILABLE",
+        message: "words from the server",
+        status: 503,
+      }),
+    );
+    renderPage(runtime);
+
+    expect(
+      await screen.findByRole("alert", {
+        name: "Personal Knowledge Graph is unavailable",
+      }),
+    ).toBeVisible();
+    expect(screen.queryByText("words from the server")).toBeNull();
   });
 
   it("shows generation progress instead of a graph failure before the first revision", async () => {

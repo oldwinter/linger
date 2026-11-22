@@ -3,8 +3,9 @@ import { RuntimeSignIn } from "./RuntimeSignIn.js";
 import { InstallationProgress } from "./InstallationProgress.js";
 import {
   SetupChoicePanel,
+  type ByokConfiguration,
+  type PanelChoice,
   type SetupReport,
-  type SetupChoice,
 } from "./SetupChoicePanel.js";
 import {
   authenticate,
@@ -45,7 +46,7 @@ export function App() {
   const [ready, setReady] = useState(false);
   const [environment, setEnvironment] = useState<EnvironmentReport>();
   const [setup, setSetup] = useState<SetupReport>();
-  const [choice, setChoice] = useState<SetupChoice>();
+  const [choice, setChoice] = useState<PanelChoice>();
   const [config, setConfig] = useState<InstallerConfig>();
   const [job, setJob] = useState<InstallationJob>();
   const [login, setLogin] = useState<LoginInformation>();
@@ -230,14 +231,17 @@ export function App() {
       active = false;
     };
   }, [finished, jobId]);
-  async function install() {
+  async function install(byok?: ByokConfiguration) {
     if (!choice) return;
+    const setupChoice =
+      choice === "byok" ? (byok?.runtime ?? "claude") : choice;
     await perform(async () => {
       setSkipped(false);
       setJob(
         await request<InstallationJob>("/jobs", {
           instance: config?.instance ?? "default",
-          setupChoice: choice,
+          setupChoice,
+          ...(byok ? { byok } : {}),
         }),
       );
     });
@@ -331,7 +335,7 @@ export function App() {
               report={setup}
               choice={choice}
               onChange={setChoice}
-              onInstall={() => void install()}
+              onInstall={(byok) => void install(byok)}
               disabled={!choice || Boolean(blocker) || busy}
               blocker={blocker?.detail}
             />

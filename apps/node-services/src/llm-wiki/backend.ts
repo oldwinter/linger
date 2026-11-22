@@ -1,4 +1,4 @@
-import type { AnotherMeActor } from "../runtime-model-call.js";
+import type { AnotherMeActor, ModelRunBudget } from "../runtime-model-call.js";
 
 export interface WikiInputSnapshot {
   assetKey: string;
@@ -40,9 +40,9 @@ export interface LlmWikiGenerateRequest {
   outputDirectory: string;
   /** Stops waiting for the Runtime when the caller has gone away. */
   signal?: AbortSignal;
-  /** Epoch milliseconds after which no further model task or step starts;
-   * what is left unwritten is reported as unsettled. */
-  deadline?: number;
+  /** Model time the generation may spend; once spent, no further model task
+   * or step starts and what is left unwritten is reported deferred. */
+  budget?: ModelRunBudget;
 }
 
 export interface LlmWikiGenerateResult {
@@ -52,7 +52,7 @@ export interface LlmWikiGenerateResult {
    * times. */
   unsettled: string[];
   /** Asset keys of changed sources left unwritten only because the
-   * generation's deadline passed. TeamHub keeps them pending without
+   * generation's budget was spent. TeamHub keeps them pending without
    * counting a try. */
   deferred: string[];
 }

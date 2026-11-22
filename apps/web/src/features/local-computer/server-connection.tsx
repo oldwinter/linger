@@ -5,8 +5,11 @@ import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { formatLocale } from "@/i18n/language";
+import { useTranslation } from "@/i18n/use-translation";
 
 import { computerCommand } from "./computer-platform";
+import { computerSetupMessages } from "./computer-setup.messages";
 import { CopyValueButton } from "./computer-setup-instructions";
 import { publishLocalComputerEnrollment } from "./local-computer-enrollment-events";
 
@@ -18,6 +21,7 @@ const base64url = (bytes: Uint8Array) =>
 
 export function ServerConnection({ tenantId }: { tenantId: string }) {
   const { client } = useTeamHubRuntime();
+  const { language, t } = useTranslation();
   const [name, setName] = useState("");
   const [pending, setPending] = useState(false);
   const [result, setResult] = useState<{ token: string; expiresAt: string }>();
@@ -79,22 +83,21 @@ export function ServerConnection({ tenantId }: { tenantId: string }) {
   return (
     <details className="mt-4 rounded-xl border border-border bg-muted/40 p-4">
       <summary className="cursor-pointer text-sm font-medium text-foreground">
-        Connect a server · No browser on this computer?
+        {t(computerSetupMessages.serverSummary)}
       </summary>
       <div className="mt-4 space-y-3 text-sm">
         <p className="text-muted-foreground">
-          Install the CLI using step 1, then use a temporary token instead of
-          browser sign-in. The server only needs an outbound connection.
+          {t(computerSetupMessages.serverIntro)}
         </p>
         <label className="block text-foreground">
-          Server name
+          {t(computerSetupMessages.serverName)}
           <input
             className="ui-field-control mt-1 block w-full"
             maxLength={120}
             value={name}
             onChange={(event) => setName(event.target.value)}
             disabled={pending || Boolean(result)}
-            placeholder="My server"
+            placeholder={t(computerSetupMessages.serverNamePlaceholder)}
           />
         </label>
         {!result && (
@@ -102,27 +105,34 @@ export function ServerConnection({ tenantId }: { tenantId: string }) {
             disabled={pending || !name.trim()}
             onClick={() => void generate()}
           >
-            {pending ? "Generating…" : "Generate connection token"}
+            {t(
+              pending
+                ? computerSetupMessages.generating
+                : computerSetupMessages.generateToken,
+            )}
           </Button>
         )}
         {failed && (
           <p role="alert" className="text-app-danger">
-            Could not generate a token. Check your connection and try again.
+            {t(computerSetupMessages.tokenFailed)}
           </p>
         )}
         {result && (
           <>
             <p className="text-muted-foreground">
-              Run the command on the server, paste this token at the prompt,
-              then press Enter. Expires at{" "}
-              {formatDateTime(result.expiresAt, { timeStyle: "short" })}. Keep
-              it private.
+              {t(computerSetupMessages.tokenInstructions, {
+                time: formatDateTime(
+                  result.expiresAt,
+                  { timeStyle: "short" },
+                  formatLocale(language),
+                ),
+              })}
             </p>
             <div className="flex gap-2 rounded-lg border border-border bg-card p-3">
               <code
                 ref={tokenRef}
                 className="max-h-28 min-w-0 flex-1 overflow-auto break-all text-xs"
-                aria-label="Server connection token"
+                aria-label={t(computerSetupMessages.tokenLabel)}
               >
                 {result.token}
               </code>
@@ -144,11 +154,10 @@ export function ServerConnection({ tenantId }: { tenantId: string }) {
               />
             </div>
             <p className="text-muted-foreground">
-              Waiting for the server to connect. If exchange is interrupted,
-              retry the same token before it expires.
+              {t(computerSetupMessages.waitingForServer)}
             </p>
             <Button onClick={() => setResult(undefined)}>
-              Generate another token
+              {t(computerSetupMessages.generateAnother)}
             </Button>
           </>
         )}

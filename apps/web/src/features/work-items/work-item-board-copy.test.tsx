@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { defineGlobalProperty } from "@/test/global-properties";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { Suspense } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
@@ -38,15 +39,18 @@ describe("Copy the Work Items board as Markdown", () => {
     ]);
 
     renderPage(runtime, "/t/tenant-northstar/dashboard?priority=high");
-    const copy = await screen.findByRole("button", {
-      name: "Copy board as Markdown",
+    const menuTrigger = await screen.findByRole("button", {
+      name: "Export & share",
     });
     const readsBefore = runtime.server.requestsTo(
       "GET",
       WORK_ITEMS_PATH,
     ).length;
 
-    fireEvent.click(copy);
+    fireEvent.click(menuTrigger);
+    fireEvent.click(
+      screen.getByRole("menuitem", { name: "Copy board as Markdown" }),
+    );
 
     const origin = window.location.origin;
     await waitFor(() =>
@@ -73,7 +77,7 @@ describe("Copy the Work Items board as Markdown", () => {
 
   it("says the copy failed instead of claiming success", async () => {
     stubClipboard(() => Promise.reject(new Error("Clipboard is denied")));
-    Object.defineProperty(document, "execCommand", {
+    defineGlobalProperty(document, "execCommand", {
       configurable: true,
       value: vi.fn(() => false),
     });
@@ -83,10 +87,13 @@ describe("Copy the Work Items board as Markdown", () => {
 
     renderPage(runtime);
     fireEvent.click(
-      await screen.findByRole("button", { name: "Copy board as Markdown" }),
+      await screen.findByRole("button", { name: "Export & share" }),
+    );
+    fireEvent.click(
+      screen.getByRole("menuitem", { name: "Copy board as Markdown" }),
     );
 
-    expect(await screen.findByRole("status")).toHaveTextContent("Copy failed");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Copy failed");
   });
 });
 
@@ -197,9 +204,10 @@ describe("Copy the selected Work Item links", () => {
     const runtime = seededRuntime();
 
     renderPage(runtime);
+    await screen.findByRole("checkbox", { name: "Select Alpha item" });
     expect(
-      await screen.findByRole("button", { name: "Copy links" }),
-    ).toBeDisabled();
+      screen.queryByRole("button", { name: "Copy links" }),
+    ).not.toBeInTheDocument();
 
     fireEvent.click(
       screen.getByRole("checkbox", { name: "Select Alpha item" }),
@@ -208,13 +216,15 @@ describe("Copy the selected Work Item links", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Clear" }));
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Copy links" })).toBeDisabled(),
+      expect(
+        screen.queryByRole("button", { name: "Copy links" }),
+      ).not.toBeInTheDocument(),
     );
   });
 
   it("says the copy failed and keeps the selection", async () => {
     stubClipboard(() => Promise.reject(new Error("Clipboard is denied")));
-    Object.defineProperty(document, "execCommand", {
+    defineGlobalProperty(document, "execCommand", {
       configurable: true,
       value: vi.fn(() => false),
     });

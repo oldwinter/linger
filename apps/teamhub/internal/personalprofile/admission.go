@@ -31,24 +31,24 @@ func (s *Service) fileAdmission(ctx context.Context, tenant, version string) (ad
 	return
 }
 
-func (s *Service) connectionAdmission(ctx context.Context, claimed claimedGeneration, source storedSource, documents []composio.AppDocument) ([]bool, bool, error) {
+func (s *Service) connectionAdmission(ctx context.Context, claimed claimedGeneration, source storedSource, result externalsource.TransientImportResult) ([]bool, bool, error) {
 	if !externalsource.IsMailProvider(source.Provider) {
-		allowed, err := s.transientAdmission(ctx, documents)
+		allowed, err := s.transientAdmission(ctx, result.Documents)
 		return allowed, false, err
 	}
-	return s.mailAdmission(ctx, claimed, source.ConnectionID, documents)
+	return s.mailAdmission(ctx, claimed, result.Mailbox, result.Documents)
 }
 
 // mailAdmission matches the selected mailbox snapshot to its bound Wiki document,
 // including the content hash: a newer message version cannot authorize older bytes.
-func (s *Service) mailAdmission(ctx context.Context, claimed claimedGeneration, connection string, documents []composio.AppDocument) ([]bool, bool, error) {
+func (s *Service) mailAdmission(ctx context.Context, claimed claimedGeneration, mailbox string, documents []composio.AppDocument) ([]bool, bool, error) {
 	keys := make([]string, 0, len(documents))
 	hashes := make([]string, 0, len(documents))
 	for _, d := range documents {
 		if len(d.ProfileMarkdown) == 0 {
 			continue
 		}
-		keys = append(keys, "mail:"+connection+":"+d.RemoteID)
+		keys = append(keys, externalsource.MailWikiSourceKey(mailbox, d.RemoteID))
 		hash := sha256.Sum256(d.Markdown)
 		hashes = append(hashes, hex.EncodeToString(hash[:]))
 	}
@@ -79,7 +79,7 @@ func (s *Service) mailAdmission(ctx context.Context, claimed claimedGeneration, 
 		admittedKeys[key] = ok
 	}
 	for i, d := range documents {
-		admitted[i] = admittedKeys["mail:"+connection+":"+d.RemoteID]
+		admitted[i] = admittedKeys[externalsource.MailWikiSourceKey(mailbox, d.RemoteID)]
 	}
 	return admitted, false, rows.Err()
 }

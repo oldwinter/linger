@@ -1,12 +1,15 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { render as renderUi, screen } from "@testing-library/react";
+import type { ReactElement } from "react";
+import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { MemoryRouter } from "react-router";
 import { MessageCard } from "./message-card";
 import { anotherMeQueryKey } from "@/features/rooms/room-queries";
-import type { TeamHubApi } from "@/features/teamhub/teamhub-api";
-import { createHttpTeamHubClient } from "@/features/teamhub/teamhub-client";
-import { TeamHubTestServer } from "@/test/teamhub-test-server";
+import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
+import {
+  createTestTeamHubRuntime,
+  type TestTeamHubRuntime,
+} from "@/test/teamhub-test-runtime";
 
 import { profilePreview, useProfileCardContent } from "./profile-card-content";
 
@@ -22,28 +25,31 @@ function profileDocument(backgroundOverview: string) {
   };
 }
 
-const runtime = vi.hoisted(() => ({
-  client: {
-    api: undefined as TeamHubApi | undefined,
-    getPersonalProfile: vi.fn(),
-    listExternalApps: vi.fn(),
-  },
-}));
-vi.mock("@/features/teamhub/teamhub-runtime", () => ({
-  useOptionalTeamHubRuntime: () => runtime,
-}));
-
+let runtime: TestTeamHubRuntime;
+// The fixtures carry only the fields the card reads.
+let getPersonalProfile: Mock<(...args: unknown[]) => Promise<unknown>>;
+let listExternalApps: Mock<(...args: unknown[]) => Promise<unknown>>;
 beforeEach(() => {
-  const server = new TeamHubTestServer().on(
-    "GET",
-    "/v0/tenants/{tenantId}/another-me",
-    () => ({ room_id: "room-1", agent_actor_id: "agent-1" }),
-  );
-  runtime.client.api = createHttpTeamHubClient({
-    fetchRequest: server.fetch,
-    onAuthenticationRequired: () => undefined,
-  }).api;
+  runtime = createTestTeamHubRuntime();
+  runtime.server.on("GET", "/v0/tenants/{tenantId}/another-me", () => ({
+    room_id: "room-1",
+    agent_actor_id: "agent-1",
+  }));
+  getPersonalProfile = vi.spyOn(
+    runtime.client,
+    "getPersonalProfile",
+  ) as unknown as typeof getPersonalProfile;
+  listExternalApps = vi.spyOn(runtime.client, "listExternalApps");
 });
+
+const render = (ui: ReactElement) =>
+  renderUi(ui, {
+    wrapper: ({ children }) => (
+      <TeamHubRuntimeProvider runtime={runtime}>
+        {children}
+      </TeamHubRuntimeProvider>
+    ),
+  });
 
 function CardDetails({ roomId = "room-1" }: { roomId?: string }) {
   const content = useProfileCardContent({
@@ -80,9 +86,7 @@ describe("Profile card content", () => {
   ])(
     "only enhances the owner's delivery in room %s by %s",
     async (roomId, authorId, enhanced) => {
-      runtime.client.getPersonalProfile
-        .mockClear()
-        .mockResolvedValue({ current: null });
+      getPersonalProfile.mockClear().mockResolvedValue({ current: null });
       const client = new QueryClient({
         defaultOptions: { queries: { retry: false } },
       });
@@ -121,7 +125,7 @@ describe("Profile card content", () => {
         );
         expect(screen.queryByRole("link", { name: "Open" })).toBeNull();
         expect(screen.queryByRole("img", { name: "Jenny avatar" })).toBeNull();
-        expect(runtime.client.getPersonalProfile).not.toHaveBeenCalled();
+        expect(getPersonalProfile).not.toHaveBeenCalled();
         expect(screen.getByText("Role — Original summary")).toBeVisible();
         expect(screen.queryByText("Enhanced summary")).toBeNull();
       }
@@ -166,7 +170,7 @@ describe("Profile card content", () => {
   });
 
   it("shows the published excerpt", async () => {
-    runtime.client.getPersonalProfile.mockResolvedValue({
+    getPersonalProfile.mockResolvedValue({
       current: {
         profile: profileDocument(
           "A sufficiently detailed paragraph drawn directly from the published profile.",
@@ -180,7 +184,7 @@ describe("Profile card content", () => {
   });
 
   it("shows all recorded apps and excludes other available apps without reading the summary", async () => {
-    runtime.client.getPersonalProfile.mockResolvedValue({
+    getPersonalProfile.mockResolvedValue({
       current: {
         profile: profileDocument(
           "A sufficiently detailed description of the subject's work.",
@@ -188,7 +192,7 @@ describe("Profile card content", () => {
         source_apps: ["gmail", "github"],
       },
     });
-    runtime.client.listExternalApps.mockResolvedValue({
+    listExternalApps.mockResolvedValue({
       apps: [
         { key: "gmail", display_name: "Gmail" },
         { key: "github", display_name: "GitHub" },
@@ -204,17 +208,15 @@ describe("Profile card content", () => {
   });
 
   it("keeps the original summary if the Profile is unavailable", async () => {
-    runtime.client.getPersonalProfile.mockRejectedValue(
-      new Error("unavailable"),
-    );
+    getPersonalProfile.mockRejectedValue(new Error("unavailable"));
     renderDetails();
     expect(await screen.findByText("Original summary")).toBeVisible();
     expect(screen.queryByRole("list", { name: /Profile sources/ })).toBeNull();
   });
 
   it("does not infer sources for a Profile whose source record is unknown", async () => {
-    runtime.client.listExternalApps.mockClear();
-    runtime.client.getPersonalProfile.mockResolvedValue({
+    listExternalApps.mockClear();
+    getPersonalProfile.mockResolvedValue({
       current: {
         profile: profileDocument(
           "A long enough description mentioning Gmail but with no source record.",
@@ -224,7 +226,7 @@ describe("Profile card content", () => {
     renderDetails();
     expect(await screen.findByText(/mentioning Gmail/)).toBeVisible();
     expect(screen.queryByRole("list", { name: "Profile sources" })).toBeNull();
-    expect(runtime.client.listExternalApps).not.toHaveBeenCalled();
+    expect(listExternalApps).not.toHaveBeenCalled();
   });
 
   it("does not show cached personal Profile data in a different room", async () => {

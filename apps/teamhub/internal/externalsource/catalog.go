@@ -162,6 +162,17 @@ var curatedApps = []ExternalApp{
 	{Key: "outlook_calendar", DisplayName: "Outlook Calendar", Description: "Let Agents work with your Outlook calendars and events.", Capabilities: []string{"connect", "agent_tools"}, AllowsMultipleConnections: true},
 }
 
+// CatalogAppKeys returns the sorted keys of every connectable app. The catalog
+// is fixed, so the keys do not depend on a Composio key being configured.
+func CatalogAppKeys() []string {
+	keys := make([]string, 0, len(curatedApps))
+	for _, app := range curatedApps {
+		keys = append(keys, app.Key)
+	}
+	slices.Sort(keys)
+	return keys
+}
+
 // ProviderConfigured reports whether a connection provider backs the catalog.
 // Without one, every app stays unavailable.
 func (s *Service) ProviderConfigured() bool {

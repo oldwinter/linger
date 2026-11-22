@@ -6,7 +6,9 @@ import {
   Tick02Icon,
 } from "@hugeicons/core-free-icons";
 import { Icon } from "@/components/ui/icon";
+import { useT } from "@/i18n/use-translation";
 
+import { createAgentMessages } from "./create-agent.messages";
 import styles from "./agent-creation-progress.module.css";
 
 export type AgentCreationStage = "preparing" | "creating" | "opening";
@@ -16,18 +18,27 @@ export function AgentCreationProgress({
 }: {
   stage: AgentCreationStage;
 }) {
-  const steps = ["Connect computer", "Create Agent", "Open chat"];
+  const t = useT();
+  const steps = [
+    t(createAgentMessages.stepConnect),
+    t(createAgentMessages.stepCreate),
+    t(createAgentMessages.stepOpen),
+  ];
   const activeStep = { preparing: 0, creating: 1, opening: 2 }[stage];
-  const title = {
-    preparing: "Finding your computer",
-    creating: "Bringing your Agent to life",
-    opening: "Your Agent is ready",
-  }[stage];
-  const description = {
-    preparing: "Looking for a connected computer to get started.",
-    creating: "Setting up everything for your first conversation.",
-    opening: "Opening your conversation. Say hello!",
-  }[stage];
+  const title = t(
+    {
+      preparing: createAgentMessages.preparingTitle,
+      creating: createAgentMessages.creatingTitle,
+      opening: createAgentMessages.openingTitle,
+    }[stage],
+  );
+  const description = t(
+    {
+      preparing: createAgentMessages.preparingDescription,
+      creating: createAgentMessages.creatingDescription,
+      opening: createAgentMessages.openingDescription,
+    }[stage],
+  );
 
   return (
     <div className="w-full max-w-sm py-3 text-center text-app-ink">
@@ -65,7 +76,7 @@ export function AgentCreationProgress({
         </p>
       </div>
       <ol
-        aria-label="Agent creation progress"
+        aria-label={t(createAgentMessages.progressLabel)}
         className="mt-7 grid grid-cols-3 gap-2 text-xs leading-4"
       >
         {steps.map((step, index) => (
@@ -92,11 +103,13 @@ export function AgentCreationProgress({
             </span>
             {step}
             <span className="sr-only">
-              {index < activeStep
-                ? ": complete"
-                : index === activeStep
-                  ? ": in progress"
-                  : ": waiting"}
+              {t(
+                index < activeStep
+                  ? createAgentMessages.stepComplete
+                  : index === activeStep
+                    ? createAgentMessages.stepInProgress
+                    : createAgentMessages.stepWaiting,
+              )}
             </span>
           </li>
         ))}

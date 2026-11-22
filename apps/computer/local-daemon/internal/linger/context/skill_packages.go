@@ -60,7 +60,9 @@ type skillPackageFile struct {
 }
 
 // skillMapping returns the read-only skills mapping of a View: every file of
-// every package under <package_name>/, with its verified local source.
+// every package under <package_name>/, with its verified local source. A new
+// Computer has none of the packages, and each fetch is a round trip to
+// TeamHub, so the packages are fetched together.
 func (s *ViewStore) skillMapping(ctx context.Context, skills []Skill, fetch func(context.Context, string) (io.ReadCloser, error)) (Mapping, error) {
 	mapping := Mapping{Kind: "skills", TargetPath: skillsTargetPath, Access: "read_only"}
 	names := make(map[string]struct{}, len(skills))
@@ -69,15 +71,48 @@ func (s *ViewStore) skillMapping(ctx context.Context, skills []Skill, fetch func
 			return Mapping{}, errors.New("Context View names one Skill package twice")
 		}
 		names[skill.PackageName] = struct{}{}
-		directory, files, err := s.skills.ensure(ctx, skill, fetch)
-		if err != nil {
-			return Mapping{}, err
+	}
+	type ensured struct {
+		directory string
+		files     []skillPackageFile
+		err       error
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	results := make([]ensured, len(skills))
+	slots := make(chan struct{}, contextDownloadParallelism)
+	var wg sync.WaitGroup
+	for index, skill := range skills {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			slots <- struct{}{}
+			defer func() { <-slots }()
+			directory, files, err := s.skills.ensure(ctx, skill, fetch)
+			if err != nil {
+				cancel()
+			}
+			results[index] = ensured{directory: directory, files: files, err: err}
+		}()
+	}
+	wg.Wait()
+	// The first failure in View order is reported, not one the cancellation
+	// it caused produced.
+	for _, result := range results {
+		if result.err != nil && !errors.Is(result.err, context.Canceled) {
+			return Mapping{}, result.err
 		}
-		for _, file := range files {
+	}
+	for index, skill := range skills {
+		result := results[index]
+		if result.err != nil {
+			return Mapping{}, result.err
+		}
+		for _, file := range result.files {
 			mapping.Files = append(mapping.Files, FileInput{
 				RelativePath: skill.PackageName + "/" + file.Path, MediaType: "application/octet-stream",
 				SizeBytes: file.SizeBytes, SHA256: file.SHA256, Executable: file.Executable,
-				source: filepath.Join(directory, filepath.FromSlash(file.Path)),
+				source: filepath.Join(result.directory, filepath.FromSlash(file.Path)),
 			})
 		}
 	}

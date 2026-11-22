@@ -14,7 +14,7 @@ vi.mock("@linger/local-installation/setup-plan", () => ({
     choices: ["local-models", "codex", "claude", "pi"],
     localModels: {
       eligible: false,
-      reasons: ["upstream-unavailable"],
+      reasons: [{ code: "upstream-unavailable", message: "" }],
       selectedGpuIndex: null,
       estimate: {
         model: "",
@@ -313,6 +313,29 @@ test("runtime API key input rejects mixed authorization, control characters and 
     expect(response.status).toBe(400);
     expect(await response.text()).not.toContain("key\\nextra");
   }
+});
+
+test("runtime login takes a Codex login method only to start a login", async () => {
+  const { api } = await setup();
+  const started = await api("/api/runtime-login", "POST", {
+    instance: "default",
+    method: "browser",
+  });
+  expect(started.status).toBe(200);
+  expect(await started.json()).toEqual({ state: "idle" });
+  for (const input of [
+    { method: "terminal" },
+    { method: "device", code: "ABCD" },
+    { method: "browser", apiKey: "key", provider: "openai" },
+  ])
+    expect(
+      (
+        await api("/api/runtime-login", "POST", {
+          instance: "default",
+          ...input,
+        })
+      ).status,
+    ).toBe(400);
 });
 
 test("accepts complete compatible-model input and rejects partial or mixed fields", async () => {

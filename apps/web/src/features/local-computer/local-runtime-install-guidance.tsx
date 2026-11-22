@@ -1,7 +1,9 @@
 import type { TeamHubLocalRuntimeType } from "@/features/teamhub/teamhub-types";
+import { RichMessage, useT } from "@/i18n/use-translation";
 
 import type { ComputerPlatform } from "./computer-platform";
 import { appNames } from "./computer-readiness";
+import { computerSetupMessages } from "./computer-setup.messages";
 import { installCommand } from "./local-runtime-commands";
 
 export function LocalRuntimeInstallGuidance({
@@ -13,26 +15,40 @@ export function LocalRuntimeInstallGuidance({
   platform?: ComputerPlatform;
   computerName: string;
 }) {
+  const t = useT();
   if (runtimeTypes.length === 0) return null;
   return (
     <div className="text-xs text-muted-foreground">
       <p>
-        Install a Runtime on {computerName} as the OS user that runs Local
-        Computer{platform === "win32" ? ", in PowerShell" : ""}. It appears here
-        within a minute.
+        {t(
+          platform === "win32"
+            ? computerSetupMessages.installRuntimePowerShell
+            : computerSetupMessages.installRuntime,
+          { computer: computerName },
+        )}
       </p>
       <ul className="mt-2 flex flex-col gap-1">
         {runtimeTypes.map((runtimeType) => (
           <li key={runtimeType}>
-            {appNames[runtimeType]}:{" "}
-            <code className="select-all font-mono text-foreground">
-              {installCommand(runtimeType, platform)}
-            </code>
+            <RichMessage
+              message={computerSetupMessages.runtimeCommand}
+              tags={{
+                code: (text) => (
+                  <code className="select-all font-mono text-foreground">
+                    {text}
+                  </code>
+                ),
+              }}
+              values={{
+                app: appNames[runtimeType],
+                command: installCommand(runtimeType, platform),
+              }}
+            />
           </li>
         ))}
       </ul>
       {runtimeTypes.some((runtimeType) => runtimeType !== "claude") ? (
-        <p className="mt-2">The npm commands need Node.js.</p>
+        <p className="mt-2">{t(computerSetupMessages.npmNeedsNode)}</p>
       ) : null}
     </div>
   );

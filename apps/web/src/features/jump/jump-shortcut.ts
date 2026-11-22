@@ -22,16 +22,29 @@ export function isJumpShortcut(event: KeyboardEvent) {
   return event.key.toLowerCase() === "j";
 }
 
-export function useJumpShortcut(onOpen: () => void) {
+export function useJumpShortcut(
+  onOpen: () => void,
+  options?: {
+    canTrigger?: (event: KeyboardEvent) => boolean;
+    enabled?: boolean;
+  },
+) {
+  const enabled = options?.enabled ?? true;
   const open = useEffectEvent(onOpen);
+  const canTrigger = useEffectEvent(
+    (event: KeyboardEvent) => options?.canTrigger?.(event) ?? true,
+  );
   useEffect(() => {
+    if (!enabled) return;
     function onKeyDown(event: KeyboardEvent) {
+      if (event.defaultPrevented) return;
       if (!isJumpShortcut(event)) return;
+      if (!canTrigger(event)) return;
       event.preventDefault();
       event.stopPropagation();
       open();
     }
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, []);
+  }, [enabled]);
 }

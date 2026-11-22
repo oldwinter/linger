@@ -53,7 +53,7 @@ export function SelectPopup({
       const trigger = triggerRef.current;
       if (!trigger) return;
 
-      const portalRoot = trigger.closest("dialog") ?? document.body;
+      const portalRoot = trigger.closest("dialog[open]") ?? document.body;
       const origin = supportsPopover
         ? null
         : selectPopupContainingBlock(portalRoot);
@@ -84,7 +84,9 @@ export function SelectPopup({
   }, [options.length, position.width, supportsPopover, triggerRef]);
 
   useEffect(() => {
-    const selected = options.findIndex((option) => option.value === value);
+    const selected = options.findIndex(
+      (option) => option.value === value && !option.disabled,
+    );
     const initial =
       selected >= 0
         ? selected
@@ -116,6 +118,22 @@ export function SelectPopup({
       onClose();
       return;
     }
+    if (event.key === "Home") {
+      event.preventDefault();
+      const first = options.findIndex((option) => !option.disabled);
+      if (first >= 0) optionRefs.current[first]?.focus();
+      return;
+    }
+    if (event.key === "End") {
+      event.preventDefault();
+      for (let index = options.length - 1; index >= 0; index -= 1) {
+        if (!options[index]?.disabled) {
+          optionRefs.current[index]?.focus();
+          return;
+        }
+      }
+      return;
+    }
     const direction =
       event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
     if (!direction) return;
@@ -133,7 +151,8 @@ export function SelectPopup({
     }
   }
 
-  const portalRoot = triggerRef.current?.closest("dialog") ?? document.body;
+  const portalRoot =
+    triggerRef.current?.closest("dialog[open]") ?? document.body;
 
   return createPortal(
     <DropdownOptions

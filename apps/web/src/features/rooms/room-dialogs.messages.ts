@@ -1,0 +1,21 @@
+import { defineMessages } from "@/i18n/messages";
+
+/** The dialogs the Messages list opens: create a Room, delete a Room, remove an Agent. */
+export const roomDialogMessages = defineMessages("roomDialogs", {
+  createRoom: "Create Room",
+  roomName: "Room name",
+  nameTaken: "You already have a Room with this name. Choose a different name.",
+  createUnconfirmed:
+    "TeamHub did not confirm whether this Room was created. Check your Rooms before you retry.",
+  deleteRoom: "Delete Room",
+  deleteRoomDescription:
+    "Every member will lose access to this Room. Its messages, files, and history will no longer be available.",
+  deleteUnconfirmed:
+    "TeamHub did not confirm whether this Room was deleted. Check your Rooms before you retry.",
+  typeToConfirm: "Type <name>{name}</name> to confirm",
+  confirmationLabel: "Room name confirmation",
+  removeAgentTitle: "Remove {name}?",
+  removeAgentDescription:
+    "The Agent will be removed from every Room and your direct chat with it will be deleted. Messages in shared Rooms stay available.",
+  removeAgent: "Remove Agent",
+});

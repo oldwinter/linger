@@ -37,14 +37,14 @@ export async function atomicPrivate(
   const temporary = `${file}.${randomUUID()}.tmp`;
   const handle = await open(temporary, "wx", 0o600);
   try {
-    if (process.platform === "win32")
-      await windowsPrivatePath(temporary, "file", true);
-    await handle.writeFile(contents);
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-  try {
+    try {
+      if (process.platform === "win32")
+        await windowsPrivatePath(temporary, "file", true);
+      await handle.writeFile(contents);
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
     await rename(temporary, file);
   } finally {
     await rm(temporary, { force: true });

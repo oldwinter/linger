@@ -81,6 +81,13 @@ function useVoiceControlProviderValue(
     restoreActiveCapture,
   });
   useVoiceCapturePolling(state, runtime, cleanupMedia);
+  const {
+    discoverDevices,
+    selectDevice,
+    connectDevice,
+    setMicrophoneMuted,
+    disable,
+  } = useVoiceDevices(state, tenantId, enable, cleanupMedia);
   const { startCapture, startNewCapture, stopCapture } =
     useVoiceCaptureCommands({
       state,
@@ -89,14 +96,8 @@ function useVoiceControlProviderValue(
       navigate,
       enable,
       ensureTarget,
+      setMicrophoneMuted,
     });
-  const {
-    discoverDevices,
-    selectDevice,
-    connectDevice,
-    setMicrophoneMuted,
-    disable,
-  } = useVoiceDevices(state, tenantId, enable, cleanupMedia);
   const { leavePage, disconnectDevice } = useVoiceSessionLifecycle(
     state,
     runtime,

@@ -389,6 +389,44 @@ paths:
                 $ref: "#/components/schemas/ModelCheckReport"
         "400": *a2
         "401": *a3
+  /api/byok/check:
+    post:
+      operationId: checkInstallerByok
+      summary: Validate BYOK upstream endpoint via localmodels
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ByokConfiguration"
+      responses:
+        "200":
+          description: BYOK check result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ByokCheckReport"
+        "400": *a2
+        "401": *a3
+  /api/byok/models:
+    post:
+      operationId: listInstallerByokModels
+      summary: List the models a BYOK upstream endpoint serves via localmodels
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ByokEndpoint"
+      responses:
+        "200":
+          description: The endpoint's models, sorted by id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ByokModelReport"
+        "400": *a2
+        "401": *a3
   /api/runtime-login:
     get:
       operationId: inspectInstallerRuntimeLogin
@@ -444,6 +482,10 @@ paths:
                   type: string
                   minLength: 1
                   maxLength: 4096
+                method:
+                  type: string
+                  enum: [browser, device]
+                  description: Codex only. browser runs the localhost-callback login, finished in a browser on this computer; on Linux the runtime does not open its link, which is left to the caller, and elsewhere it opens the page itself. device runs the device-code login, finished in any browser. Defaults to browser on macOS and Windows and device elsewhere, with the runtime opening its own page.
       responses:
         "200":
           description: Owner-only ephemeral authentication state
@@ -636,6 +678,122 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/CheckResult"
+    ByokUrlPath:
+      description: Empty, or whole path segments each led by one slash, appended to baseUrl.
+      type: string
+      maxLength: 256
+      pattern: '^(/[^/?#\s\\]+)*$'
+    ByokProtocol:
+      type: string
+      enum: [openai-chat, openai-responses, anthropic]
+    ByokEndpoint:
+      description: Requests go to baseUrl + path + endpoint in protocol; models are listed at baseUrl + path + /models.
+      type: object
+      additionalProperties: false
+      required:
+        - baseUrl
+        - path
+        - endpoint
+        - protocol
+      properties:
+        baseUrl:
+          type: string
+          minLength: 1
+          maxLength: 2048
+        path:
+          $ref: "#/components/schemas/ByokUrlPath"
+        endpoint:
+          $ref: "#/components/schemas/ByokUrlPath"
+        protocol:
+          $ref: "#/components/schemas/ByokProtocol"
+        apiKey:
+          type: string
+          maxLength: 4096
+    ByokConfiguration:
+      type: object
+      additionalProperties: false
+      required:
+        - baseUrl
+        - path
+        - endpoint
+        - protocol
+        - modelId
+      properties:
+        baseUrl:
+          type: string
+          minLength: 1
+          maxLength: 2048
+        path:
+          $ref: "#/components/schemas/ByokUrlPath"
+        endpoint:
+          $ref: "#/components/schemas/ByokUrlPath"
+        protocol:
+          $ref: "#/components/schemas/ByokProtocol"
+        apiKey:
+          type: string
+          maxLength: 4096
+        modelId:
+          type: string
+          minLength: 1
+          maxLength: 256
+        contextWindow:
+          type: integer
+          minimum: 1
+          maximum: 2147483647
+        runtime:
+          description: The Runtime BYOK is mounted for when the job applies it.
+          type: string
+          enum: [claude, codex, pi]
+    ByokModelReport:
+      type: object
+      additionalProperties: false
+      required:
+        - url
+        - models
+      properties:
+        url:
+          type: string
+          minLength: 1
+        models:
+          type: array
+          maxItems: 1000
+          items:
+            type: object
+            additionalProperties: false
+            required:
+              - id
+            properties:
+              id:
+                type: string
+                minLength: 1
+                maxLength: 256
+              name:
+                type: string
+                maxLength: 256
+              contextWindow:
+                type: integer
+                minimum: 1
+                maximum: 2147483647
+    ByokCheckReport:
+      type: object
+      additionalProperties: false
+      required:
+        - ok
+        - protocol
+        - url
+        - modelId
+        - contextWindow
+      properties:
+        ok:
+          type: boolean
+        protocol:
+          $ref: "#/components/schemas/ByokProtocol"
+        url: *a1
+        modelId: *a1
+        contextWindow:
+          type: integer
+          minimum: 1
+          maximum: 2147483647
     LocalModelsAuthority:
       type: object
       additionalProperties: false
@@ -715,6 +873,8 @@ components:
           description: Prepare a dependency without starting product services.
         runtimeModel:
           $ref: "#/components/schemas/ModelConfiguration"
+        byok:
+          $ref: "#/components/schemas/ByokConfiguration"
         instance:
           type: string
           pattern: ^[a-z][a-z0-9-]{0,39}$
@@ -903,6 +1063,10 @@ components:
           type: boolean
         message:
           type: string
+        reason:
+          type: string
+          enum: [unavailable, timed_out, ended]
+          description: Why a failed sign-in ended. unavailable - this runtime has no native sign-in; timed_out - nobody finished it in time; ended - the login process stopped without a sign-in.
     InstallationJob:
       type: object
       additionalProperties: false
@@ -1150,7 +1314,7 @@ components:
                 - ready
                 - blocked-now
                 - unavailable
-              description: Upstream stack.state. blocked-now means the hardware can run the plan, but installing now would stop until other programs free memory; a tool without stack.state reports that case as basis capacity or reason free-memory-required.
+              description: Upstream stack.state. blocked-now means the hardware can run the plan, but installing now would stop until a local blocker clears (such as freeing memory or updating the NVIDIA driver); a tool without stack.state reports memory blocks as basis capacity or reason free-memory-required.
             hardwareCapable:
               type:
                 - boolean
@@ -1174,13 +1338,39 @@ components:
                   type: number
             reasons:
               type: array
+              description: Upstream stack.reasons. Clients choose their copy by code and its counts; message is upstream diagnostic text for logs, never shown or matched on.
               items:
-                type: string
-            reasonMessages:
-              type: array
-              description: Human-readable upstream explanations in the same order as reasons; model eligibility remains upstream-owned.
-              items:
-                type: string
+                type: object
+                additionalProperties: false
+                required:
+                  - code
+                  - message
+                properties:
+                  code:
+                    type: string
+                  message:
+                    type: string
+                  gpuIndex:
+                    type: number
+                    description: On gpu-memory-required, the card other programs hold memory on.
+                  freeBytes:
+                    type: number
+                    description: On gpu-memory-required (that card's VRAM) and free-memory-required (RAM), the memory free now.
+                  requiredBytes:
+                    type: number
+                    description: The memory the install needs free, for the same resource as freeBytes.
+                  detectedCudaVersion:
+                    type: string
+                    pattern: '^\d+(?:\.\d+){0,2}$'
+                    description: On cuda-driver-update-required, the CUDA version the installed NVIDIA driver reports.
+                  requiredCudaVersion:
+                    type: string
+                    pattern: '^\d+(?:\.\d+){0,2}$'
+                    description: On cuda-driver-update-required and cuda-driver-version-unknown, the minimum CUDA version the pinned engine requires.
+                  driverVersion:
+                    type: string
+                    pattern: '^\d+(?:\.\d+){0,2}$'
+                    description: On CUDA driver reasons, the installed NVIDIA driver version when known.
             basis:
               type: string
               enum:

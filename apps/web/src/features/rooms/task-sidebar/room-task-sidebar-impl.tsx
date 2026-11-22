@@ -53,6 +53,7 @@ interface RoomTaskSidebarImplProps {
   focusMessageId?: string | null;
   messagePresentations?: Record<string, TeamHubMessagePresentation>;
   onActiveMessageChange?: (messageId: string | null) => void;
+  onActiveTabChange?: (tabId: string | null) => void;
   onCollapse: () => void;
   onReady?: () => void;
   onExitAnimationEnd?: () => void;
@@ -73,6 +74,7 @@ export function RoomTaskSidebarImpl({
   focusMessageId = null,
   messagePresentations = EMPTY_MESSAGE_PRESENTATIONS,
   onActiveMessageChange,
+  onActiveTabChange,
   onCollapse,
   onReady,
   onExitAnimationEnd,
@@ -120,6 +122,9 @@ export function RoomTaskSidebarImpl({
     members,
     tenantId,
   });
+  useEffect(() => {
+    onActiveTabChange?.(tabState.activeTabId);
+  }, [onActiveTabChange, tabState.activeTabId]);
   useEffect(() => {
     const current = ensureDefaultAgentInfoTab(
       scope,
@@ -248,22 +253,21 @@ export function RoomTaskSidebarImpl({
         const actor = actors.items.find(
           (candidate) => candidate.id === actorId,
         );
-        const name = actor?.display_name || "Agent";
         setTabState(
           openPanelTab(scope, {
             kind: "agentInfo",
             actorId,
             activityRunStatusId: next?.runStatusId,
             anchorMessageId: next?.messageId,
-            title: `Agent · ${name}`,
+            title: actor?.display_name ?? "",
           }),
         );
         if (next?.messageId) onActiveMessageChange?.(next.messageId);
       }}
       onAgentActivityChange={(actorId, next) => {
-        const name =
-          actors.items.find((actor) => actor.id === actorId)?.display_name ||
-          "Agent";
+        const actor = actors.items.find(
+          (candidate) => candidate.id === actorId,
+        );
         setTabState(
           openPanelTab(scope, {
             kind: "agentActivity",
@@ -271,7 +275,7 @@ export function RoomTaskSidebarImpl({
             activityRunStatusId: next?.runStatusId,
             activityRoomId: next?.activityRoomId,
             anchorMessageId: next?.messageId,
-            title: `Activity · ${name}`,
+            title: actor?.display_name ?? "",
           }),
         );
         if (
@@ -360,7 +364,7 @@ function openPanelCreationChoice(
     return openPanelTab(scope, {
       kind: "agentInfo",
       actorId: directPeer.id,
-      title: `Agent · ${directPeer.display_name}`,
+      title: directPeer.display_name,
     });
   }
   return openPanelTab(scope, {

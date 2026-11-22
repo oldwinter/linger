@@ -1,24 +1,42 @@
 import type { TeamHubMessage } from "@/features/teamhub/teamhub-types";
+import { formatLocale, type Translation } from "@/i18n/language";
 import { dateTimeFormat } from "@/lib/date-format";
 
 import { settledCardNotice } from "../cards/card-notice";
 import { knownRoomMessageCard } from "../cards/room-message-card";
+import { chatMessages } from "./chat.messages";
 
-const messageDateFormatter = dateTimeFormat({
-  weekday: "long",
-  month: "long",
-  day: "numeric",
-  year: "numeric",
-});
-const messageClockFormatter = dateTimeFormat({
-  hour: "numeric",
-  minute: "2-digit",
-});
+const messageTimeFormatters = new Map<
+  string,
+  { date: Intl.DateTimeFormat; clock: Intl.DateTimeFormat }
+>();
+
+function messageTimeFormatter(locale: string) {
+  let formatters = messageTimeFormatters.get(locale);
+  if (!formatters) {
+    formatters = {
+      date: dateTimeFormat(
+        { weekday: "long", month: "long", day: "numeric", year: "numeric" },
+        locale,
+      ),
+      clock: dateTimeFormat({ hour: "numeric", minute: "2-digit" }, locale),
+    };
+    messageTimeFormatters.set(locale, formatters);
+  }
+  return formatters;
+}
 
 /** Conversation separator, e.g. "Friday, October 23, 2026 at 3:04 PM". */
-export function formatMessageTime(timestamp: string) {
-  const date = new Date(timestamp);
-  return `${messageDateFormatter.format(date)} at ${messageClockFormatter.format(date)}`;
+export function formatMessageTime(
+  timestamp: string,
+  { language, t }: Translation,
+) {
+  const value = new Date(timestamp);
+  const { date, clock } = messageTimeFormatter(formatLocale(language));
+  return t(chatMessages.messageTime, {
+    date: date.format(value),
+    time: clock.format(value),
+  });
 }
 
 export function messageStartsConversation(

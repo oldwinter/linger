@@ -52,6 +52,10 @@ type RuntimeModel struct {
 	resolved string
 }
 
+// OnAPILink reports whether the Runtime reaches the model through an API
+// gateway and key in its own configuration rather than a vendor subscription.
+func (m RuntimeModel) OnAPILink() bool { return m.Link == linkAPI }
+
 type DiagnosticError struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
@@ -81,6 +85,7 @@ var runtimeDefinitions = []runtimeDefinition{
 	{"codex", "codex", "app-server"},
 	{"claude", "claude", "stream-json"},
 	{"pi", "pi", "rpc"},
+	{"antigravity", "agy", "acp"},
 }
 
 // ValidateRuntimeSelection accepts an omitted scope or a nonempty unique supported subset.
@@ -105,6 +110,17 @@ func ValidateRuntimeSelection(types []string) error {
 	return nil
 }
 
+// discoveryStageBudget is each discovery stage's default budget; tests lower it
+// while no discovery runs.
+var discoveryStageBudget = defaultDiscoveryStageBudget(runtime.GOOS)
+
+func defaultDiscoveryStageBudget(goos string) time.Duration {
+	if goos == "windows" || goos == "linux" {
+		return 30 * time.Second
+	}
+	return 15 * time.Second
+}
+
 func Discover(ctx context.Context, options DiscoveryOptions) (DiscoveryResult, error) {
 	options.Environment = terminalEnvironment(ctx, platformEnvironment(options.Environment))
 	return discoverResolved(ctx, options), nil
@@ -113,10 +129,7 @@ func Discover(ctx context.Context, options DiscoveryOptions) (DiscoveryResult, e
 func discoverResolved(ctx context.Context, options DiscoveryOptions) DiscoveryResult {
 	budget := options.Timeout
 	if budget <= 0 {
-		budget = 15 * time.Second
-		if runtime.GOOS == "windows" || runtime.GOOS == "linux" {
-			budget = 30 * time.Second
-		}
+		budget = discoveryStageBudget
 	}
 	definitions := runtimeDefinitions
 	if len(options.Runtimes) > 0 {
@@ -193,7 +206,7 @@ func diagnose(ctx context.Context, kind, executable, protocol string, options Di
 	catalogAllowed := outcome.Status == "ready" || ((kind == "codex" || kind == "pi") && outcome.Status == "authentication_required")
 	if catalogAllowed {
 		catalogCtx, stop := context.WithTimeout(ctx, budget)
-		observation.Models, observation.ModelCatalogError = discoverRuntimeModels(catalogCtx, kind, canonical, environment)
+		observation.Models, observation.ModelCatalogError = probedRuntimeModels(catalogCtx, kind, canonical, environment, outcome)
 		if observation.ModelCatalogError == "" {
 			getModelLink := newGetModelLink(catalogCtx, kind, environment)
 			for i := range observation.Models {
@@ -238,8 +251,20 @@ func versionProbeTimedOut(err error) bool {
 	return false
 }
 
+// probedRuntimeModels uses the catalog the probe already read, or discovers
+// it.
+func probedRuntimeModels(ctx context.Context, kind, executable string, environment map[string]string, outcome runtimeProbeOutcome) ([]RuntimeModel, string) {
+	if outcome.catalog != nil {
+		return catalogModels(*outcome.catalog, nil)
+	}
+	return discoverRuntimeModels(ctx, kind, executable, environment)
+}
+
 func discoverRuntimeModels(ctx context.Context, kind, executable string, environment map[string]string) ([]RuntimeModel, string) {
-	catalog, err := native.DiscoverModels(ctx, kind, native.NewInvocation(executable, nil).WithEnvironment(environment))
+	return catalogModels(native.DiscoverModels(ctx, kind, native.NewInvocation(executable, nil).WithEnvironment(environment)))
+}
+
+func catalogModels(catalog native.ModelList, err error) ([]RuntimeModel, string) {
 	if err == nil {
 		models := normalizeRuntimeModels(catalog.Models)
 		if len(models) > 0 || len(catalog.Models) == 0 {
@@ -330,6 +355,21 @@ func resolveExecutableEntry(ctx context.Context, kind, name string, options Disc
 
 // macOS desktop apps ship their CLI inside the bundle, outside PATH.
 var applicationBundles = map[string]string{"codex": "Codex.app", "claude": "Claude.app"}
+
+// GatewayDiagnostics drops the Antigravity diagnostic when `agy` is not
+// installed. An Agent Service released before Antigravity support rejects a
+// runner.hello that names it, so a Computer without `agy` stays able to
+// connect to one. The control API keeps the full list.
+func GatewayDiagnostics(observations []RuntimeDiagnostic) []RuntimeDiagnostic {
+	kept := slices.DeleteFunc(slices.Clone(observations), func(observation RuntimeDiagnostic) bool {
+		return observation.Type == "antigravity" && observation.Status == "not_installed"
+	})
+	// The hello requires at least one diagnostic.
+	if len(kept) == 0 {
+		return observations
+	}
+	return kept
+}
 
 func canonicalExecutable(path string) (string, error) {
 	if !filepath.IsAbs(path) {

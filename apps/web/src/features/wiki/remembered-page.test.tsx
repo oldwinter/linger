@@ -1,10 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { describe, expect, it } from "vitest";
 
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
 import { seedProfile } from "@/test/teamhub-seed";
+import { teamHubErrorResponse } from "@/test/teamhub-test-server";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubPersonalProfileRevision } from "@/features/teamhub/teamhub-types";
 
@@ -81,5 +82,47 @@ describe("RememberedPage", () => {
       ),
     ).toBeVisible();
     expect(screen.getByText("Jenny Bin")).toBeVisible();
+  });
+
+  it("shows a retryable alert instead of an empty state when the profile fails to load", async () => {
+    const runtime = createTestTeamHubRuntime();
+    const current = revision("only", seedProfile);
+    let attempts = 0;
+    runtime.server.on("GET", "/v0/tenants/{tenantId}/personal-profile", () => {
+      attempts += 1;
+      if (attempts === 1) {
+        return teamHubErrorResponse(500, "UNAVAILABLE", "Profile failed.");
+      }
+      return { current, has_more: false, history: [current] };
+    });
+    const router = createMemoryRouter(
+      [
+        {
+          element: <RememberedPage />,
+          path: "/t/:tenantId/library/remembered",
+        },
+      ],
+      { initialEntries: ["/t/tenant-northstar/library/remembered"] },
+    );
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <TeamHubRuntimeProvider runtime={runtime}>
+          <RouterProvider router={router} />
+        </TeamHubRuntimeProvider>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Could not load what Another Me remembers.",
+    );
+    expect(
+      screen.queryByText("Another Me has not written a profile yet."),
+    ).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("Jenny Bin")).toBeVisible();
   });
 });

@@ -1,5 +1,6 @@
 import { cp, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { ModelRunBudget } from "../runtime-model-call.js";
 import type {
   LlmWikiBackend,
   LlmWikiGenerateRequest,
@@ -14,12 +15,14 @@ import { WikiCandidateValidationError } from "./wiki-candidate-validation.js";
 // source costs about 2*log2(n) runs; this covers a few rejected sources.
 // Each run may itself spend several correction attempts.
 const MAX_RETRY_RUNS = 32;
-/** How long one refresh may start model work. TeamHub waits four hours for
- * the whole generation; a step already running when this passes may take
- * most of the rest, so no further task, step or bisection run starts after
- * it. What is left is reported deferred: it stays pending without spending
- * a try. */
+/** Model running time one refresh may spend before no further task, step or
+ * bisection run starts; waiting for a place does not count. What is left is
+ * reported deferred: it stays pending without spending a try. */
 export const WIKI_GENERATION_BUDGET_MS = 150 * 60_000;
+/** TeamHub waits four hours for the whole request, waiting included, and
+ * drops every accepted run past it. Past this no further step starts, so the
+ * steps already running can finish and the accepted runs publish in time. */
+const WIKI_GENERATION_WALL_CLOCK_MS = 210 * 60_000;
 
 interface Source {
   input: WikiInput;
@@ -42,7 +45,11 @@ export async function generateWikiCandidate(
 ): Promise<Pick<LlmWikiGenerateResult, "unsettled" | "deferred">> {
   const request = {
     ...input,
-    deadline: input.deadline ?? Date.now() + WIKI_GENERATION_BUDGET_MS,
+    budget:
+      input.budget ??
+      new ModelRunBudget(WIKI_GENERATION_BUDGET_MS, {
+        wallClockMs: WIKI_GENERATION_WALL_CLOCK_MS,
+      }),
   };
   let rejected: WikiCandidateValidationError;
   try {
@@ -100,7 +107,7 @@ export async function generateWikiCandidate(
     request.signal?.throwIfAborted();
     // Past its run or time budget, bisection stops: the sources not yet run
     // stay pending for a later refresh, and the accepted runs still publish.
-    if (attempt >= MAX_RETRY_RUNS || Date.now() >= request.deadline) {
+    if (attempt >= MAX_RETRY_RUNS || request.budget.spent) {
       // Not a failure of these sources: they spend none of their tries.
       for (const source of batch) deferred.add(source.input.assetKey);
       writeWikiLog(
@@ -108,7 +115,7 @@ export async function generateWikiCandidate(
         {
           mode: request.mode,
           asset_keys: batch.map((source) => source.input.assetKey),
-          reason: attempt >= MAX_RETRY_RUNS ? "retry_runs" : "deadline",
+          reason: attempt >= MAX_RETRY_RUNS ? "retry_runs" : "budget",
           retry_runs: attempt,
         },
         "ERROR",

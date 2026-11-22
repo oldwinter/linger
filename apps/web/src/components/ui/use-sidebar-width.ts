@@ -7,6 +7,8 @@ import {
 } from "react";
 
 import { isDesktopShell } from "@/app/desktop-shell";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
 
 const SECONDARY_NAVIGATION_DEFAULT_WIDTH = 240;
 
@@ -45,6 +47,7 @@ export function useSidebarWidth(
     edge = "right",
   }: { min?: number; max?: number; edge?: "left" | "right" } = {},
 ) {
+  const t = useT();
   const direction = edge === "right" ? 1 : -1;
   const [preference, setPreference] = useState(() => ({
     storageKey,
@@ -156,7 +159,7 @@ export function useSidebarWidth(
     onPointerCancel: finishResize,
     role: "separator",
     tabIndex: 0,
-    title: "Drag to resize; double-click to reset",
+    title: t(commonMessages.resizeHint),
   };
 
   return {

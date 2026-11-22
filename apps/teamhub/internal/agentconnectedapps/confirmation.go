@@ -34,15 +34,21 @@ type Result struct {
 // confirmationAction is the stored call. DraftDigest pins the content of a
 // draft that a send-draft call sends, which TeamHub read to build the card.
 type confirmationAction struct {
-	ToolSlug    string         `json:"tool_slug,omitempty"`
-	ToolVersion string         `json:"tool_version,omitempty"`
-	Arguments   map[string]any `json:"arguments,omitempty"`
-	DraftDigest string         `json:"draft_digest,omitempty"`
+	ToolSlug           string         `json:"tool_slug,omitempty"`
+	ToolVersion        string         `json:"tool_version,omitempty"`
+	Arguments          map[string]any `json:"arguments,omitempty"`
+	DraftDigest        string         `json:"draft_digest,omitempty"`
+	CanvasSourceDigest string         `json:"canvas_source_digest,omitempty"`
 }
 
 // prepareConfirmation builds the stored call and its card from what will run
 // for an authorized call on an active connection.
 func (s *Service) prepareConfirmation(ctx context.Context, connection externalsource.AgentToolConnection, action confirmationAction) (Result, error) {
+	canvas, err := s.checkedCanvasSource(ctx, connection, action)
+	if err != nil {
+		return Result{}, err
+	}
+	action.CanvasSourceDigest = canvas.digest
 	card := describeConfirmation(connection, action)
 	// A tool without its own card layout shows only its arguments, so they
 	// must fit on the card: the sponsor approves nothing they cannot see.
@@ -113,10 +119,18 @@ func (s *Service) ExecuteConfirmed(ctx context.Context, decisionID, tenantID, ag
 			return "failed", "The draft changed after the card was posted, so it was not sent.", nil
 		}
 	}
+	canvas, err := s.checkedCanvasSource(ctx, connection, action)
+	if err != nil {
+		return "failed", "The email canvas changed or could not be checked. Update the Gmail draft from the current canvas and request a new confirmation; nothing was sent.", nil
+	}
 	execution, err := s.provider.ExecuteTool(ctx, connection.UpstreamConnectionID, connection.UserID,
 		action.ToolSlug, action.ToolVersion, action.Arguments)
 	if err != nil {
-		return failedOrUnknown(err)
+		status, outcome, value := failedOrUnknown(err)
+		if status == "unknown" {
+			s.recordCanvasSend(ctx, connection, canvas, "unknown", "The Agent's send was not confirmed. Check Sent in Gmail before sending again.")
+		}
+		return status, outcome, value
 	}
 	if !execution.Successful {
 		outcome := "The connected application rejected the call."
@@ -125,6 +139,7 @@ func (s *Service) ExecuteConfirmed(ctx context.Context, decisionID, tenantID, ag
 		}
 		return "failed", outcome, nil
 	}
+	s.recordCanvasSend(ctx, connection, canvas, "sent", "")
 	return "succeeded", "", sanitizeValue(execution.Data)
 }
 

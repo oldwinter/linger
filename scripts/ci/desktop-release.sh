@@ -22,7 +22,12 @@ set -euo pipefail
 #                                                 package from a GitLab CI job (test builds only)
 #   desktop-release.sh github-release <dir> <tag> <version>
 #                                                 create or update the GitHub Release of <tag>
-#                                                 in RELEASE_REPO with <dir>'s files (gh)
+#                                                 in RELEASE_REPO with <dir>'s files (gh);
+#                                                 stable releases are created as drafts
+#   desktop-release.sh publish <tag> --notes-file <file>
+#                                                 attach release notes, publish a stable draft
+#                                                 release as latest, and remove matching
+#                                                 desktop-v<version>-rc.* prereleases
 #
 # Inputs (environment):
 #   DESKTOP_VERSION              release version, as printed by `version` (compile, package)
@@ -68,7 +73,7 @@ die() {
 usage() {
   echo "Usage: $0 version <tag> | fetch-native|compile|package|build <target>" \
     "| manifest|checksums <dir> <version> | github-release <dir> <tag> <version>" \
-    "| gitlab-upload <dir> <version>" >&2
+    "| publish <tag> --notes-file <file> | gitlab-upload <dir> <version>" >&2
   exit 2
 }
 
@@ -203,9 +208,20 @@ cmd_compile() {
   )
 }
 
+ensure_docker_image() {
+  local tag="$1" dir="$2" sha current
+  sha="$(sha256_of "$dir/Dockerfile")"
+  current="$(docker image inspect --format '{{index .Config.Labels "linger.dockerfile.sha256"}}' "$tag" 2>/dev/null || true)"
+  if [[ "$current" == "$sha" ]]; then
+    echo "desktop-release: reusing cached Docker image $tag"
+    return 0
+  fi
+  docker build -q --label "linger.dockerfile.sha256=$sha" -t "$tag" "$dir" >/dev/null
+}
+
 package_darwin() {
   local version="$1" pkg="$2" assets="$3" args=()
-  docker build -q -t dmgtool "$desktop/packaging/mac" >/dev/null
+  ensure_docker_image dmgtool "$desktop/packaging/mac"
   args+=(--arch arm64 --rcodesign "${RCODESIGN:-rcodesign}" --out "$pkg")
   if [[ -n "${MACOS_DEVELOPER_ID_P12:-}" ]]; then
     args+=(--developer-id "$MACOS_DEVELOPER_ID_P12" --developer-id-password "${MACOS_DEVELOPER_ID_PASSWORD_FILE:?MACOS_DEVELOPER_ID_PASSWORD_FILE is required with MACOS_DEVELOPER_ID_P12}")
@@ -228,7 +244,7 @@ package_linux() {
 
 package_windows() {
   local version="$1" pkg="$2" assets="$3" setup
-  docker build -q -t wintool "$desktop/packaging/win" >/dev/null
+  ensure_docker_image wintool "$desktop/packaging/win"
   (cd "$desktop" && python3 packaging/win/package.py --out "$pkg")
   setup="$pkg/Linger-$version-x64-setup.exe"
   if [[ -n "${WINDOWS_SIGNING_P12:-}" ]]; then
@@ -275,6 +291,7 @@ cmd_build() {
 # packageFor in apps/desktop/src/main/update-manifest.ts. Linux and the
 # portable Windows folder only link to the release.
 update_packages='darwin-arm64:macos-arm64.app.tar.gz linux-x64:linux-x64.tar.gz win32-x64:windows-x64-setup.exe'
+required_installers='macos-arm64.dmg linux-x64.tar.gz windows-x64-setup.exe'
 
 # manifest.json lists every platform's package with its size and sha256, and
 # manifest.json.sig is its Ed25519 signature, made with DESKTOP_UPDATE_KEY.
@@ -333,13 +350,13 @@ NODE
 }
 
 # Every release ships the three installers; SHA256SUMS.txt covers each file
-# of the version, extra ones such as the portable zip and the app archive
-# included, and the update manifest and its signature when there are.
+# of the version, extra ones such as the portable zip and the app archive,
+# and the update manifest and its signature when there are.
 cmd_checksums() {
   local dir="${1:-}" version="${2:-}" required file files=()
   [[ -d "$dir" ]] || die "checksums needs the folder holding the release files"
   [[ "$version" =~ $version_pattern ]] || die "checksums needs the release version"
-  for required in macos-arm64.dmg linux-x64.tar.gz windows-x64-setup.exe; do
+  for required in $required_installers; do
     [[ -f "$dir/Linger-$version-$required" ]] || die "$dir has no Linger-$version-$required"
   done
   while IFS= read -r file; do
@@ -408,17 +425,79 @@ cmd_github_release() {
     notes="**Prerelease** for testing, not for general use. $notes"
     flags+=(--prerelease)
   else
-    # releases/latest, which the download links use, follows this flag.
-    flags+=(--latest)
+    # Stable releases start as drafts so subscribers and auto-updaters never
+    # see placeholder notes; `publish` attaches the release notes and marks latest.
+    flags+=(--draft)
   fi
   if gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
     gh release upload "$tag" "$dir"/* --repo "$repo" --clobber
     echo "desktop-release: updated the $tag release of $repo"
   else
     gh release create "$tag" "$dir"/* --repo "$repo" --title "Linger Desktop $version" --notes "$notes" "${flags[@]}"
-    echo "desktop-release: created the $tag release of $repo"
+    if [[ "$version" == *-* ]]; then
+      echo "desktop-release: created the $tag prerelease of $repo"
+    else
+      echo "desktop-release: created draft release $tag of $repo (publish with: $0 publish $tag --notes-file <file>)"
+    fi
   fi
   echo "desktop-release: https://github.com/$repo/releases/tag/$tag"
+}
+
+cmd_publish() {
+  local tag="${1:-}" notes_file="" version repo assets required missing=() rc_jq rc_tags rc_tag
+  shift || true
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --notes-file)
+        [[ $# -ge 2 ]] || die "publish --notes-file needs a file path"
+        notes_file="$2"
+        shift 2
+        ;;
+      *) die "unknown publish argument: $1" ;;
+    esac
+  done
+  [[ -n "$tag" && "$tag" == desktop-v* ]] ||
+    die "publish needs a stable desktop-v<version> tag and --notes-file <file>"
+  version="${tag#desktop-v}"
+  [[ "$version" =~ $version_pattern ]] ||
+    die "$tag does not hold a valid version"
+  [[ "$version" != *-* ]] ||
+    die "publish is for stable desktop-v<version> releases, not prereleases ($tag)"
+  [[ -n "$notes_file" && -f "$notes_file" ]] ||
+    die "publish needs an existing --notes-file <file>"
+  grep -q '[^[:space:]]' "$notes_file" ||
+    die "release notes file is empty: $notes_file"
+  repo="${RELEASE_REPO:-$default_release_repo}"
+  [[ "$repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || die "RELEASE_REPO must be owner/name, not $repo"
+  command -v gh >/dev/null || die "publish needs the GitHub CLI (gh)"
+
+  assets="$(gh release view "$tag" --repo "$repo" --json assets --jq '.assets[].name')" ||
+    die "could not read release $tag in $repo"
+  for required in $required_installers; do
+    grep -qxF "Linger-$version-$required" <<<"$assets" || missing+=("Linger-$version-$required")
+  done
+  grep -qxF "SHA256SUMS.txt" <<<"$assets" || missing+=("SHA256SUMS.txt")
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    die "refusing to publish $tag: missing required assets: ${missing[*]}"
+  fi
+
+  gh release edit "$tag" --repo "$repo" --notes-file "$notes_file" --draft=false --latest
+  echo "desktop-release: published $tag as latest in $repo"
+  echo "desktop-release: https://github.com/$repo/releases/tag/$tag"
+
+  rc_jq=".[] | select(.isPrerelease and (.isDraft | not) and (.tagName | startswith(\"desktop-v${version}-rc.\"))) | .tagName"
+  if rc_tags="$(gh release list --repo "$repo" --limit 100 --json tagName,isPrerelease,isDraft --jq "$rc_jq" 2>/dev/null)"; then
+    while IFS= read -r rc_tag; do
+      [[ -n "$rc_tag" ]] || continue
+      if gh release delete "$rc_tag" --repo "$repo" --cleanup-tag --yes; then
+        echo "desktop-release: removed graduated prerelease $rc_tag"
+      else
+        echo "desktop-release: warning: could not remove graduated prerelease $rc_tag" >&2
+      fi
+    done <<<"$rc_tags"
+  else
+    echo "desktop-release: warning: could not list prereleases for RC cleanup" >&2
+  fi
 }
 
 command="${1:-}"
@@ -433,5 +512,6 @@ case "$command" in
   checksums) cmd_checksums "$@" ;;
   gitlab-upload) cmd_gitlab_upload "$@" ;;
   github-release) cmd_github_release "$@" ;;
+  publish) cmd_publish "$@" ;;
   *) usage ;;
 esac

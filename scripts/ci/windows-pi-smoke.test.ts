@@ -1,0 +1,74 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, expect, it } from "vitest";
+import { probePi } from "./windows-pi-smoke.mjs";
+
+const tempDirs: string[] = [];
+
+async function privateCwd() {
+  const dir = await mkdtemp(join(tmpdir(), "linger-windows-pi-smoke-"));
+  tempDirs.push(dir);
+  return dir;
+}
+
+afterEach(async () => {
+  await Promise.all(
+    tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })),
+  );
+});
+
+function fixture(commands: unknown[]) {
+  return `
+    const readline = require("node:readline");
+    const lines = readline.createInterface({ input: process.stdin });
+    lines.on("line", (line) => {
+      const { id, type } = JSON.parse(line);
+      console.log(JSON.stringify({
+        id, type: "response", command: type, success: true,
+        data: type === "get_commands" ? { commands: ${JSON.stringify(commands)} } : {},
+      }));
+    });
+  `;
+}
+
+it("passes only after the state reply and MCP extension registration", async () => {
+  const cwd = await privateCwd();
+  const script = fixture([{ name: "mcp", source: "extension" }]);
+  await expect(
+    probePi(process.execPath, ["-e", script], { cwd }),
+  ).resolves.toBeUndefined();
+});
+
+it("rejects state success when the packaged extension did not load", async () => {
+  const cwd = await privateCwd();
+  const script = fixture([{ name: "mcp", source: "prompt" }]);
+  await expect(
+    probePi(process.execPath, ["-e", script], { cwd }),
+  ).rejects.toThrow("the managed MCP command was not registered");
+});
+
+it("retains bounded startup diagnostics on real subprocess exit", async () => {
+  const cwd = await privateCwd();
+  await expect(
+    probePi(
+      process.execPath,
+      ["-e", 'console.error("Cannot find module jiti"); process.exitCode = 1'],
+      { cwd },
+    ),
+  ).rejects.toThrow(
+    /process closed before handshake \(exit 1\)\nCannot find module jiti/,
+  );
+});
+
+it("kills a silent probe at its deadline", async () => {
+  const cwd = await privateCwd();
+  await expect(
+    probePi(
+      process.execPath,
+      ["-e", "setInterval(() => {}, 1000)"],
+      { cwd },
+      200,
+    ),
+  ).rejects.toThrow("RPC deadline exceeded");
+});

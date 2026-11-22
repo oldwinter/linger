@@ -16,6 +16,10 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
+import {
+  stageComputerTools,
+  validatedComputerToolAssets,
+} from "../apps/computer/scripts/bundle-computer-tools.mjs";
 
 import {
   parseReleaseArguments,
@@ -165,6 +169,43 @@ describe("Local Computer release", () => {
       expect(NODE_RUNTIME_RELEASES[target]?.sha256).toMatch(/^[0-9a-f]{64}$/);
     }
   });
+
+  it("runs the base QuickJS engine from the staged tool bundle", async () => {
+    const root = await temporaryDirectory();
+    const target = "linux-x64";
+    await stageComputerTools(root, { target });
+    const assets = await validatedComputerToolAssets(root, target);
+    const tools = "cli/computer-tools";
+    const engine = tools + "/node_modules/quickjs-wasi/";
+    expect(assets.filter((name: string) => name.startsWith(engine))).toEqual(
+      [
+        "LICENSE",
+        "dist/extensions.js",
+        "dist/index.js",
+        "dist/version.js",
+        "dist/wasi-shim.js",
+        "package.json",
+        "quickjs.wasm",
+      ].map((name) => engine + name),
+    );
+    const { stdout } = await execFileAsync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        `
+      import { readFile } from "node:fs/promises";
+      import { QuickJS } from "quickjs-wasi";
+      const wasm = await readFile("node_modules/quickjs-wasi/quickjs.wasm");
+      using vm = await QuickJS.create({ wasm });
+      using value = vm.evalCode("6 * 7");
+      console.log(value.toNumber());
+    `,
+      ],
+      { cwd: path.join(root, tools) },
+    );
+    expect(stdout.trim()).toBe("42");
+  }, 120_000);
 
   it("builds byte-identical, reproducible dependency archives from the same inputs", async () => {
     const root = await temporaryDirectory();

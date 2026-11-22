@@ -31,6 +31,8 @@ components:
         - connection_not_active
         - app_not_connected
         - provider_key_required
+        - search_key_requested
+        - search_quota_exhausted
         - tool_not_found
         - invalid_tool_arguments
         - provider_auth_failed
@@ -89,6 +91,58 @@ components:
           maxItems: 100
           items:
             $ref: "#/components/schemas/AgentApiErrorIssue"
+        details:
+          $ref: "#/components/schemas/AgentApiErrorDetails"
+    AgentApiErrorDetails:
+      type: object
+      description: >-
+        Machine-readable facts a failure carries for the CLI to act on. A
+        search_key_requested failure names the card it posted and the backend
+        it shows; a quota or rate limit names the backend and the other
+        backends ready now.
+      additionalProperties: false
+      properties:
+        backend:
+          type: string
+          maxLength: 64
+        origin:
+          type: string
+          enum: [requested, suggested]
+          x-enum-varnames:
+            [
+              AgentApiErrorDetailsOriginRequested,
+              AgentApiErrorDetailsOriginSuggested,
+            ]
+          description: >-
+            requested when the command named the backend the card shows;
+            suggested when it named none and TeamHub picked one.
+        reason:
+          type: string
+          enum: [missing, rejected, free_limit]
+          x-enum-varnames:
+            [
+              AgentApiErrorDetailsReasonMissing,
+              AgentApiErrorDetailsReasonRejected,
+              AgentApiErrorDetailsReasonFreeLimit,
+            ]
+        room_id:
+          type: string
+          maxLength: 128
+        message_id:
+          type: string
+          maxLength: 128
+        interaction_id:
+          type: string
+          maxLength: 128
+        ready_backends:
+          type: array
+          maxItems: 10
+          items:
+            type: string
+            maxLength: 64
+        retry_after_seconds:
+          type: integer
+          minimum: 0
     AgentApiErrorEnvelope:
       type: object
       description: Standard failure envelope for every TeamHub Agent API operation.

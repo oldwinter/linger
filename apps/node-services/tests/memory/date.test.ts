@@ -1,14 +1,51 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  assertDateString,
   localDate,
   localDateWindow,
   localTimeZone,
+  previousDate,
 } from "../../src/memory/date.js";
+import { parseOptions } from "../../src/memory/options.js";
 
 describe("Memory business days", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
+  });
+
+  it.each([
+    "2026-02-29",
+    "2026-02-30",
+    "1900-02-29",
+    "2026-04-31",
+    "2026-13-01",
+    "2026-00-10",
+    "2026-01-00",
+    "2026-01-32",
+  ])(
+    "rejects impossible calendar dates before selecting a collection window: %s",
+    (date) => {
+      expect(() => assertDateString(date)).toThrow(/date/i);
+      expect(() => parseOptions(["--date", date])).toThrow(/date/i);
+      expect(() => parseOptions(["--week-start", date])).toThrow(/date/i);
+      expect(() => localDateWindow(date)).toThrow(/date/i);
+      expect(() => previousDate(date)).toThrow(/date/i);
+    },
+  );
+
+  it.each([
+    ["2024-02-29", "2024-02-28"],
+    ["2000-02-29", "2000-02-28"],
+    ["1900-03-01", "1900-02-28"],
+    ["2026-01-01", "2025-12-31"],
+  ])("keeps valid calendar boundaries for %s", (date, previous) => {
+    expect(assertDateString(date)).toBe(date);
+    expect(parseOptions(["--date", date, "--week-start", date])).toMatchObject({
+      date,
+      weekStart: date,
+    });
+    expect(previousDate(date)).toBe(previous);
   });
 
   it("puts the Daily window on the process zone's midnights, DST included", () => {

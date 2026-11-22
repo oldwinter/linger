@@ -119,6 +119,18 @@ func (q *Queries) GetAnotherMeHuman(ctx context.Context, arg GetAnotherMeHumanPa
 	return represented_human_actor_id, err
 }
 
+const getExternalConnectionIdentityLabel = `-- name: GetExternalConnectionIdentityLabel :one
+SELECT coalesce(identity_label,'')::text FROM external_connections WHERE id=$1::text
+`
+
+// The account label a proactive event names for its granted connection.
+func (q *Queries) GetExternalConnectionIdentityLabel(ctx context.Context, id string) (string, error) {
+	row := q.db.QueryRow(ctx, getExternalConnectionIdentityLabel, id)
+	var column_1 string
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const getLatestProactiveGuideline = `-- name: GetLatestProactiveGuideline :one
 SELECT version,rules,deleted_rules,clues FROM proactive_guidelines
 WHERE tenant_id=$1::text AND owner_actor_id=$2::text

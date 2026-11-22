@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-type StatusPillTone = "neutral" | "warning" | "success" | "danger";
+type StatusPillTone = "danger" | "info" | "neutral" | "success" | "warning";
 
 export function StatusPill({
   children,

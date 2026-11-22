@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { translate } from "@/i18n/language";
+
 import { artifactFileKind, artifactFileTypeLabel } from "./artifact-file-kind";
 
 describe("artifactFileKind", () => {
@@ -53,6 +55,8 @@ describe("artifactFileKind", () => {
     ["MP4 sample", "Video"],
     ["Excel XLSX sample", "Excel"],
   ] as const)("labels %s as %s", (filename, expected) => {
-    expect(artifactFileTypeLabel(filename)).toBe(expected);
+    expect(artifactFileTypeLabel(filename, undefined, translate)).toBe(
+      expected,
+    );
   });
 });

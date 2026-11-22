@@ -6,6 +6,7 @@ import {
   dataPreviewLimits,
   type DataPreviewRequest,
   type DataPreviewResponse,
+  type DataPreviewTruncation,
 } from "./data-preview-protocol";
 import {
   completeRowsInDataPreviewChunk,
@@ -30,8 +31,8 @@ async function parseData(request: DataPreviewRequest) {
   const sourceByteTruncated = request.sourceSizeBytes > previewBlob.size;
   const tail = await previewBlob.slice(-2).text();
   let truncated = sourceByteTruncated;
-  let truncationReason = truncated
-    ? "Only the first 5 MiB of this file is shown."
+  let truncation: DataPreviewTruncation | undefined = truncated
+    ? "bytes"
     : undefined;
 
   const finish = (response: DataPreviewResponse) => {
@@ -47,9 +48,11 @@ async function parseData(request: DataPreviewRequest) {
         sourceByteTruncated,
       );
       if (fatalError) {
+        const row = fatalError.row ?? rows.length + 1;
         finish({
           kind: "failed",
-          message: `Data preview failed near row ${fatalError.row ?? rows.length + 1}: ${fatalError.message}`,
+          failure: { code: "parse", detail: fatalError.message, row },
+          message: `Data preview failed near row ${row}: ${fatalError.message}`,
           requestId: request.requestId,
         });
         parser.abort();
@@ -68,20 +71,21 @@ async function parseData(request: DataPreviewRequest) {
         if (rows.length >= dataPreviewLimits.maxRows) {
           stoppedAtDisplayLimit = true;
           truncated = true;
-          truncationReason = `Only the first ${dataPreviewLimits.maxRows.toLocaleString()} rows are shown.`;
+          truncation = "rows";
           parser.abort();
           break;
         }
         const row = rawRow.slice(0, dataPreviewLimits.maxColumns).map(String);
         if (rawRow.length > dataPreviewLimits.maxColumns) {
           truncated = true;
-          truncationReason = `Only the first ${dataPreviewLimits.maxColumns} columns are shown.`;
+          truncation = "columns";
         }
         if (
           row.some((cell) => cell.length > dataPreviewLimits.maxCellCharacters)
         ) {
           finish({
             kind: "failed",
+            failure: { code: "cellTooLarge" },
             message: "A cell exceeds the 64 KiB basic preview limit.",
             requestId: request.requestId,
           });
@@ -91,7 +95,7 @@ async function parseData(request: DataPreviewRequest) {
         if (cells + row.length > dataPreviewLimits.maxCells) {
           stoppedAtDisplayLimit = true;
           truncated = true;
-          truncationReason = `Only the first ${dataPreviewLimits.maxCells.toLocaleString()} cells are shown.`;
+          truncation = "cells";
           parser.abort();
           break;
         }
@@ -108,6 +112,7 @@ async function parseData(request: DataPreviewRequest) {
       ) {
         finish({
           kind: "failed",
+          failure: { code: "firstRecordTooLarge" },
           message:
             "The first data record exceeds the 5 MiB basic preview limit.",
           requestId: request.requestId,
@@ -128,7 +133,7 @@ async function parseData(request: DataPreviewRequest) {
         requestId: request.requestId,
         rows,
         truncated,
-        truncationReason,
+        truncation,
       });
     },
     delimiter: request.delimiter,

@@ -236,14 +236,34 @@ describe("RemoveComputerDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Connect a computer" }));
     expect(onConnect).toHaveBeenCalledTimes(1);
   });
+
+  it("disables Cancel and blocks closing while the DELETE request is pending", () => {
+    const onClose = vi.fn();
+    renderDialog({
+      agents: [],
+      onClose,
+      pending: true,
+    });
+
+    const dialog = screen.getByRole("dialog", {
+      name: "Remove Local Computer",
+    });
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    fireEvent(dialog, new Event("cancel", { bubbles: true, cancelable: true }));
+    fireEvent.click(dialog);
+    expect(onClose).not.toHaveBeenCalled();
+  });
 });
 
 function renderDialog({
   agents,
   handlers = {},
   computers = [oldComputer(), computer("computer-new", "New Mac")],
+  onClose = vi.fn(),
   onConfirm = vi.fn(),
   onConnect = vi.fn(),
+  pending = false,
 }: {
   agents: TeamHubTenantAgent[];
   handlers?: {
@@ -251,8 +271,10 @@ function renderDialog({
     updateTenantAgent?: TestRouteHandler;
   };
   computers?: LocalComputer[];
+  onClose?: () => void;
   onConfirm?: () => void;
   onConnect?: () => void;
+  pending?: boolean;
 }) {
   const runtime = createTestTeamHubRuntime();
   runtime.server
@@ -273,10 +295,10 @@ function renderDialog({
           agents={agents}
           computer={computers[0]!}
           computers={computers}
-          onClose={vi.fn()}
+          onClose={onClose}
           onConfirm={onConfirm}
           onConnect={onConnect}
-          pending={false}
+          pending={pending}
           tenantId="tenant-northstar"
         />
       </TeamHubRuntimeProvider>

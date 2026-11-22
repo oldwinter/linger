@@ -45,6 +45,9 @@ const secretSeed = "e2e-document-runtime-secret-seed-0123456789";
 const teamHubToRuntimeToken = serviceCredential("node-services-internal", {
   LINGER_SECRET_SEED: secretSeed,
 })!;
+const teamHubInternalToken = serviceCredential("teamhub-internal", {
+  LINGER_SECRET_SEED: secretSeed,
+})!;
 const connectionTokenKey = serviceCredential("document-connection-token", {
   LINGER_SECRET_SEED: secretSeed,
 })!;
@@ -132,6 +135,7 @@ export class RealRealtimeE2EEnvironment implements RealtimeE2EControl {
       `${this.#teamHubBaseUrl}/healthz`,
       this.#config.teamHubStartupTimeoutMs,
     );
+    await this.#fixtureManager.ensureAnotherMe(teamHubInternalToken);
     if (process.env.VERIFY_ROOM_STARTUP_PRODUCTION === "1") {
       await this.#fixtureManager.seedStartupDirectory();
     }

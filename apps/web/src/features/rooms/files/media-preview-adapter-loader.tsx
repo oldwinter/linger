@@ -1,5 +1,7 @@
 import { Spinner } from "@/components/ui/spinner";
 import { lazy, Suspense } from "react";
+import { useT } from "@/i18n/use-translation";
+import { filePreviewMessages as m } from "./file-preview.messages";
 
 import type { MediaPreviewAdapterProps } from "./media-preview-adapter";
 
@@ -9,6 +11,7 @@ const LazyMediaPreviewAdapter = lazy(async () => {
 });
 
 export function MediaPreviewAdapterLoader(props: MediaPreviewAdapterProps) {
+  const t = useT();
   return (
     <Suspense
       fallback={
@@ -17,7 +20,7 @@ export function MediaPreviewAdapterLoader(props: MediaPreviewAdapterProps) {
           role="status"
         >
           <Spinner size={16} />
-          Loading media player...
+          {t(m.loadingMediaPlayer)}
         </div>
       }
     >

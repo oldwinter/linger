@@ -30,17 +30,21 @@ export class DocumentMutationPreflight {
   readonly #ordering: DocumentOrderingQueue;
   readonly #rawFrames = new WeakMap<object, Uint8Array>();
   readonly #bodies: DocumentBodyStore;
+  readonly #authorizationDeadlineMs: number;
 
   constructor(input: {
     disconnects: ConnectionDisconnects;
     durability: DocumentDurabilityCoordinator;
     ordering: DocumentOrderingQueue;
     bodies: DocumentBodyStore;
+    authorizationDeadlineMs?: number;
   }) {
     this.#disconnects = input.disconnects;
     this.#durability = input.durability;
     this.#ordering = input.ordering;
     this.#bodies = input.bodies;
+    this.#authorizationDeadlineMs =
+      input.authorizationDeadlineMs ?? mutationAuthorizationDeadlineMs;
   }
 
   captureRawFrame(connection: object, rawFrame: Uint8Array): void {
@@ -79,7 +83,7 @@ export class DocumentMutationPreflight {
     try {
       lease = await this.#ordering.acquireMutation(
         input.documentId,
-        mutationAuthorizationDeadlineMs,
+        this.#authorizationDeadlineMs,
       );
     } catch (error) {
       if (

@@ -104,6 +104,7 @@ func TestMailConnectionAutomaticallyImportsWikiWithoutProfile(t *testing.T) {
 			// Authorization goes through managed Composio; start from the job it queues.
 			connectionID := providerName + "_auto"
 			seedExternalConnection(t, ctx, pool, connectionID, "account_alice", providerName, "active")
+			mailbox := providerName + ":" + connectionID
 			tx, err := pool.Begin(ctx)
 			if err != nil {
 				t.Fatal(err)
@@ -120,7 +121,7 @@ func TestMailConnectionAutomaticallyImportsWikiWithoutProfile(t *testing.T) {
 			for time.Now().Before(deadline) {
 				var completed bool
 				var docs int
-				_ = pool.QueryRow(ctx, `SELECT coalesce((SELECT mail_import_status='completed' FROM external_connections WHERE id=$1),false), (SELECT count(*) FROM wiki_source_items WHERE source_key LIKE 'mail:'||$1||':%')`, connectionID).Scan(&completed, &docs)
+				_ = pool.QueryRow(ctx, `SELECT coalesce((SELECT mail_import_status='completed' FROM external_connections WHERE id=$1),false), (SELECT count(*) FROM wiki_source_items WHERE source_key LIKE 'mail:'||$2||':%')`, connectionID, mailbox).Scan(&completed, &docs)
 				if completed && docs == 3000 {
 					finished = true
 					break
@@ -134,7 +135,7 @@ func TestMailConnectionAutomaticallyImportsWikiWithoutProfile(t *testing.T) {
 			}
 			var docs, snapshots int
 			var snapshot string
-			if err = pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM wiki_source_items WHERE source_key LIKE 'mail:'||$1||':%'), (SELECT count(*) FROM external_mail_import_documents WHERE connection_id=$1), (SELECT mail_import_status FROM external_connections WHERE id=$1)`, connectionID).Scan(&docs, &snapshots, &snapshot); err != nil {
+			if err = pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM wiki_source_items WHERE source_key LIKE 'mail:'||$2||':%'), (SELECT count(*) FROM external_mail_import_documents WHERE connection_id=$1), (SELECT mail_import_status FROM external_connections WHERE id=$1)`, connectionID, mailbox).Scan(&docs, &snapshots, &snapshot); err != nil {
 				t.Fatal(err)
 			}
 			if docs != 3000 || snapshots != 3000 || snapshot != "completed" {
@@ -152,7 +153,7 @@ func TestMailConnectionAutomaticallyImportsWikiWithoutProfile(t *testing.T) {
 			}
 			// Automated mail reaches the Wiki.
 			var automatedWiki int
-			if err = pool.QueryRow(ctx, `SELECT count(*) FROM wiki_source_items WHERE source_key=$1`, "mail:"+connectionID+":message:0").Scan(&automatedWiki); err != nil || automatedWiki != 1 {
+			if err = pool.QueryRow(ctx, `SELECT count(*) FROM wiki_source_items WHERE source_key=$1`, externalsource.MailWikiSourceKey(mailbox, "message:0")).Scan(&automatedWiki); err != nil || automatedWiki != 1 {
 				t.Fatalf("automated mail Wiki sources=%d err=%v", automatedWiki, err)
 			}
 			generator.mu.Lock()

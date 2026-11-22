@@ -1,7 +1,8 @@
-import { Cancel01Icon, LinkSquare02Icon } from "@hugeicons/core-free-icons";
+import { LinkSquare02Icon } from "@hugeicons/core-free-icons";
 import { Icon } from "@/components/ui/icon";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
+import { Link, useInRouterContext } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
@@ -12,7 +13,10 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { TeamHubError } from "@/features/teamhub/teamhub-error";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubBrowserConnectionStatus } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import { RichMessage, useT } from "@/i18n/use-translation";
 
+import { computersMessages } from "../computers.messages";
 import { localComputersQueryOptions } from "../local-computer-queries";
 import {
   browserConnectionQueryKey,
@@ -46,6 +50,7 @@ export function BrowserConnectionDialog({
   reason?: string;
   tenantId: string;
 }) {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const queryClient = useQueryClient();
   const inventory = useQuery(localComputersQueryOptions(client, tenantId));
@@ -71,19 +76,23 @@ export function BrowserConnectionDialog({
   });
   const [pastedToken, setPastedToken] = useState("");
   const [editing, setEditing] = useState(false);
+  const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
   const [pending, setPending] = useState<PendingAction>(null);
-  const [failure, setFailure] = useState<string | null>(null);
+  // The error is kept, not its text, so the text follows the language.
+  const [failure, setFailure] = useState<{ error: unknown } | null>(null);
 
   function selectComputer(computerId: string) {
     setRequestedComputerId(computerId);
     setPastedToken("");
     setEditing(false);
+    setConfirmingDisconnect(false);
     setFailure(null);
   }
 
   async function run(
     action: Exclude<PendingAction, null>,
     send: () => Promise<TeamHubBrowserConnectionStatus>,
+    onSuccess?: () => void,
   ) {
     if (!computer) return;
     const computerId = computer.computer_id;
@@ -95,9 +104,10 @@ export function BrowserConnectionDialog({
         browserConnectionQueryKey(tenantId, computerId),
         next,
       );
+      onSuccess?.();
       setEditing(false);
     } catch (error) {
-      setFailure(browserConnectionErrorMessage(error));
+      setFailure({ error });
     } finally {
       setPending(null);
     }
@@ -107,15 +117,25 @@ export function BrowserConnectionDialog({
     event.preventDefault();
     if (!computer || pending || !pastedToken.trim()) return;
     const token = pastedToken;
-    // Clear the field before the request so the token does not stay in state.
-    setPastedToken("");
-    void run("configure", () =>
-      configureBrowserConnection(client, tenantId, computer.computer_id, token),
+    // Clear the token only after the request succeeds so a transient failure
+    // does not force the user to copy it again.
+    void run(
+      "configure",
+      () =>
+        configureBrowserConnection(
+          client,
+          tenantId,
+          computer.computer_id,
+          token,
+        ),
+      () => setPastedToken(""),
     );
   }
 
   function requestClose() {
-    if (!pending) onClose();
+    if (pending) return;
+    setPastedToken("");
+    onClose();
   }
 
   const current = status.data;
@@ -132,64 +152,58 @@ export function BrowserConnectionDialog({
 
   return (
     <ModalDialog
-      ariaLabel="Connect my browser"
-      className="fixed inset-0 z-50 m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-[480px] overflow-auto rounded-xl border border-border bg-popover p-0 shadow-lg backdrop:bg-[var(--app-overlay)]"
+      description={t(computersMessages.connectMyBrowserIntro)}
       onClose={requestClose}
+      size="sm"
+      title={t(computersMessages.connectMyBrowser)}
     >
-      <div className="p-5">
-        <header className="mb-5 flex items-start justify-between gap-4">
-          <div>
-            <h2 className="text-lg">Connect my browser</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Let Agent browser tasks on this Computer use your everyday Chrome
-              and its sign-ins. The token goes only to your Computer and never
-              appears in chat.
-            </p>
-            {reason ? (
-              <p className="mt-2 text-sm font-medium text-foreground">
-                {reason}
-              </p>
-            ) : null}
-          </div>
-          <Button
-            aria-label="Close"
-            disabled={pending !== null}
-            onClick={requestClose}
-            size="icon"
-            tone="ghost"
-          >
-            <Icon icon={Cancel01Icon} size={16} />
-          </Button>
-        </header>
+      <div className="space-y-5 px-5 py-4">
+        {reason ? (
+          <p className="text-sm font-medium text-foreground">{reason}</p>
+        ) : null}
 
         {inventory.isPending ? (
           <p className="text-sm text-muted-foreground" role="status">
-            Loading your Computers…
+            {t(computersMessages.loadingComputers)}
           </p>
         ) : inventory.isError ? (
           <FormFeedback tone="danger">
-            Can't load your Computers right now.
+            {t(computersMessages.cannotLoadComputers)}
           </FormFeedback>
         ) : !computer ? (
           <FormFeedback tone="info">
-            {lockedComputerId
-              ? "This Computer is no longer connected to your account."
-              : "You don't have a Local Computer yet. Connect one in Settings > Computers first. Cloud Computers can't use your browser."}
+            {lockedComputerId ? (
+              t(computersMessages.computerNoLongerConnected)
+            ) : (
+              <>
+                You don&apos;t have a Local Computer yet. Connect one in{" "}
+                <ComputersSettingsLink
+                  onNavigate={requestClose}
+                  tenantId={tenantId}
+                />{" "}
+                first. Cloud Computers can&apos;t use your browser.
+              </>
+            )}
           </FormFeedback>
         ) : (
           <div className="space-y-5">
             {lockedComputerId ? (
               <p className="text-sm text-foreground">
-                Computer:{" "}
-                <span className="font-medium">{computer.display_name}</span>
+                <RichMessage
+                  message={computersMessages.computerNamed}
+                  tags={{
+                    name: (text) => <span className="font-medium">{text}</span>,
+                  }}
+                  values={{ computer: computer.display_name }}
+                />
               </p>
             ) : (
               <label className="block">
                 <span className="mb-1.5 block text-sm font-medium text-foreground">
-                  Computer
+                  {t(computersMessages.computer)}
                 </span>
                 <Select
-                  aria-label="Computer"
+                  aria-label={t(computersMessages.computer)}
                   className="ui-field-control w-full text-sm"
                   disabled={pending !== null}
                   onValueChange={selectComputer}
@@ -199,7 +213,9 @@ export function BrowserConnectionDialog({
                     <SelectItem key={item.computer_id} value={item.computer_id}>
                       {item.status === "online"
                         ? item.display_name
-                        : `${item.display_name} (offline)`}
+                        : t(computersMessages.computerOfflineOption, {
+                            computer: item.display_name,
+                          })}
                     </SelectItem>
                   ))}
                 </Select>
@@ -218,59 +234,99 @@ export function BrowserConnectionDialog({
             !unsupported &&
             isLinked(current) &&
             !editing ? (
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  disabled={pending !== null}
-                  onClick={() => {
-                    setFailure(null);
-                    setEditing(true);
-                  }}
+              confirmingDisconnect ? (
+                <div
+                  aria-label="Confirm browser disconnection"
+                  className="flex flex-wrap items-center gap-2"
+                  role="group"
                 >
-                  Reconfigure
-                </Button>
-                <Button
-                  disabled={pending !== null}
-                  onClick={() =>
-                    void run("disconnect", () =>
-                      disconnectBrowserConnection(
-                        client,
-                        tenantId,
-                        computer.computer_id,
-                      ),
-                    )
-                  }
-                  tone="danger"
-                >
-                  {pending === "disconnect" ? "Disconnecting…" : "Disconnect"}
-                </Button>
-              </div>
+                  <span className="text-sm text-foreground">
+                    Disconnect Chrome?
+                  </span>
+                  <Button
+                    disabled={pending !== null}
+                    loading={pending === "disconnect"}
+                    onClick={() =>
+                      void run("disconnect", () =>
+                        disconnectBrowserConnection(
+                          client,
+                          tenantId,
+                          computer.computer_id,
+                        ),
+                      ).finally(() => setConfirmingDisconnect(false))
+                    }
+                    tone="danger"
+                  >
+                    {pending === "disconnect"
+                      ? t(computersMessages.disconnecting)
+                      : t(computersMessages.disconnect)}
+                  </Button>
+                  <Button
+                    disabled={pending !== null}
+                    onClick={() => setConfirmingDisconnect(false)}
+                    tone="ghost"
+                  >
+                    {t(commonMessages.cancel)}
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    disabled={pending !== null}
+                    onClick={() => {
+                      setFailure(null);
+                      setConfirmingDisconnect(false);
+                      setEditing(true);
+                    }}
+                  >
+                    {t(computersMessages.reconfigure)}
+                  </Button>
+                  <Button
+                    disabled={pending !== null}
+                    onClick={() => {
+                      setFailure(null);
+                      setConfirmingDisconnect(true);
+                    }}
+                    tone="danger"
+                  >
+                    {t(computersMessages.disconnect)}
+                  </Button>
+                </div>
+              )
             ) : null}
 
             {showForm ? (
               <form className="space-y-4" onSubmit={submit}>
                 <ol className="list-decimal space-y-1.5 pl-5 text-sm text-foreground">
                   <li>
-                    Install{" "}
-                    <a
-                      className="inline-flex items-center gap-1 font-medium text-app-link underline-offset-2 hover:underline"
-                      href={PLAYWRIGHT_EXTENSION_URL}
-                      rel="noreferrer"
-                      target="_blank"
-                    >
-                      Playwright Extension
-                      <Icon icon={LinkSquare02Icon} size={14} />
-                    </a>{" "}
-                    in Chrome
+                    <RichMessage
+                      message={computersMessages.installExtensionStep}
+                      tags={{
+                        link: (text) => (
+                          <a
+                            className="inline-flex items-center gap-1 font-medium text-app-link underline-offset-2 hover:underline"
+                            href={PLAYWRIGHT_EXTENSION_URL}
+                            rel="noreferrer"
+                            target="_blank"
+                          >
+                            {text}
+                            <Icon icon={LinkSquare02Icon} size={14} />
+                          </a>
+                        ),
+                      }}
+                    />
                   </li>
                   <li>
-                    Click the extension icon and copy the token it shows (the
-                    full{" "}
-                    <code className="break-all text-xs">
-                      PLAYWRIGHT_MCP_EXTENSION_TOKEN=…
-                    </code>{" "}
-                    line also works)
+                    <RichMessage
+                      message={computersMessages.copyTokenStep}
+                      tags={{
+                        code: (text) => (
+                          <code className="break-all text-xs">{text}</code>
+                        ),
+                      }}
+                    />
                   </li>
-                  <li>Paste it below and connect</li>
+                  <li>{t(computersMessages.pasteTokenStep)}</li>
                 </ol>
                 <Field
                   autoCapitalize="off"
@@ -279,13 +335,13 @@ export function BrowserConnectionDialog({
                   data-1p-ignore=""
                   data-lpignore="true"
                   disabled={pending !== null}
-                  label="Extension token"
+                  label={t(computersMessages.extensionToken)}
                   name="playwright-extension-token"
                   onChange={(event) => {
                     setFailure(null);
                     setPastedToken(event.target.value);
                   }}
-                  placeholder="Paste token"
+                  placeholder={t(computersMessages.pasteToken)}
                   spellCheck={false}
                   type="password"
                   value={pastedToken}
@@ -299,29 +355,57 @@ export function BrowserConnectionDialog({
                         setEditing(false);
                       }}
                     >
-                      Cancel
+                      {t(commonMessages.cancel)}
                     </Button>
                   ) : null}
                   <Button
                     disabled={pending !== null || !pastedToken.trim()}
+                    loading={pending === "configure"}
                     tone="primary"
                     type="submit"
                   >
                     {pending === "configure"
-                      ? "Connecting, up to 1 minute…"
-                      : "Connect"}
+                      ? t(computersMessages.connectingUpToMinute)
+                      : t(computersMessages.connect)}
                   </Button>
                 </div>
               </form>
             ) : null}
 
             {failure ? (
-              <FormFeedback tone="danger">{failure}</FormFeedback>
+              <FormFeedback tone="danger">
+                {browserConnectionErrorMessage(failure.error, t)}
+              </FormFeedback>
             ) : null}
           </div>
         )}
       </div>
     </ModalDialog>
+  );
+}
+
+function ComputersSettingsLink({
+  onNavigate,
+  tenantId,
+}: {
+  onNavigate: () => void;
+  tenantId: string;
+}) {
+  const inRouter = useInRouterContext();
+  const to = `/t/${encodeURIComponent(tenantId)}/settings/computers`;
+  const className =
+    "font-medium text-app-link underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  if (inRouter) {
+    return (
+      <Link className={className} onClick={onNavigate} to={to}>
+        Settings › Computers
+      </Link>
+    );
+  }
+  return (
+    <a className={className} href={to} onClick={onNavigate}>
+      Settings › Computers
+    </a>
   );
 }
 
@@ -336,24 +420,25 @@ function BrowserConnectionStatusSection({
   loading: boolean;
   online: boolean;
 }) {
+  const t = useT();
   if (!online) {
     return (
       <FormFeedback tone="info">
-        This Computer is offline. Make sure it's on and running Linger Computer.
+        {t(computersMessages.browserComputerOffline)}
       </FormFeedback>
     );
   }
   if (loading) {
     return (
       <p className="text-sm text-muted-foreground" role="status">
-        Checking browser status…
+        {t(computersMessages.checkingBrowserStatus)}
       </p>
     );
   }
   if (!current) {
     return (
       <FormFeedback tone="danger">
-        {browserConnectionErrorMessage(error)}
+        {browserConnectionErrorMessage(error, t)}
       </FormFeedback>
     );
   }
@@ -365,7 +450,8 @@ function BrowserConnectionSummary({
 }: {
   status: TeamHubBrowserConnectionStatus;
 }) {
-  const copy = browserConnectionStateCopy(status.state);
+  const t = useT();
+  const copy = browserConnectionStateCopy(status.state, t);
   return (
     <div className="space-y-2" role="status">
       <StatusPill tone={copy.tone}>{copy.short}</StatusPill>

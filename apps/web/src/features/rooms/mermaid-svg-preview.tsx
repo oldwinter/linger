@@ -6,6 +6,8 @@ import {
 import { Icon } from "@/components/ui/icon";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { useT } from "@/i18n/use-translation";
+import { mermaidPreviewMessages as m } from "./mermaid-preview.messages";
 import { createMermaidSandboxDocument } from "./mermaid-preview-adapter";
 import "./mermaid-svg-preview.css";
 
@@ -20,6 +22,7 @@ export function MermaidSvgPreview({
   onLoad?: () => void;
   fitContent?: boolean;
 }) {
+  const t = useT();
   const viewport = useRef<HTMLDivElement>(null);
   const drag = useRef<{
     x: number;
@@ -95,22 +98,22 @@ export function MermaidSvgPreview({
       <div
         className="mermaid-svg-preview__toolbar"
         role="group"
-        aria-label="Mermaid preview zoom"
+        aria-label={t(m.zoomToolbar)}
       >
         <button
           type="button"
-          title="Zoom diagram out"
-          aria-label="Zoom diagram out"
+          title={t(m.zoomDiagramOut)}
+          aria-label={t(m.zoomDiagramOut)}
           disabled={zoom <= 0.25}
           onClick={() => updateZoom(1 / 1.25)}
         >
           <Icon icon={MinusSignIcon} />
         </button>
-        <output aria-label="Diagram zoom">{Math.round(zoom * 100)}%</output>
+        <output aria-label={t(m.diagramZoom)}>{Math.round(zoom * 100)}%</output>
         <button
           type="button"
-          title="Zoom diagram in"
-          aria-label="Zoom diagram in"
+          title={t(m.zoomDiagramIn)}
+          aria-label={t(m.zoomDiagramIn)}
           disabled={zoom >= 4}
           onClick={() => updateZoom(1.25)}
         >
@@ -118,8 +121,8 @@ export function MermaidSvgPreview({
         </button>
         <button
           type="button"
-          title="Fit diagram"
-          aria-label="Fit diagram"
+          title={t(m.fitDiagram)}
+          aria-label={t(m.fitDiagram)}
           onClick={reset}
         >
           <Icon icon={Maximize01Icon} />
@@ -131,7 +134,7 @@ export function MermaidSvgPreview({
         // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- keyboard-focusable scroll region so keyboard users can scroll it
         tabIndex={0}
         role="region"
-        aria-label="Diagram canvas"
+        aria-label={t(m.diagramCanvas)}
         onPointerDown={(event) => {
           if (event.button !== 0) return;
           const element = event.currentTarget;

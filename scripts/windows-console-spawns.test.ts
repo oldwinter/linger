@@ -17,6 +17,7 @@ const scripts = ["scripts/replace-process.mjs", "scripts/with-local-env.mjs"];
 // These never start a process on Windows.
 const posixOnly = new Set([
   "apps/desktop/src/main/mac-permissions.ts",
+  "apps/desktop/src/main/open-url.ts",
   "apps/desktop/src/main/shell-env.ts",
   "apps/desktop/src/main/updater.ts",
   "apps/linger-installer/src/server/platform.ts",

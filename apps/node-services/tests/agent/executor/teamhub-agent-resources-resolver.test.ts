@@ -9,6 +9,7 @@ const response = () => ({
   effective_sha256: "a".repeat(64),
   connected_apps: true,
   connected_app_keys: ["gmail", "google_calendar"],
+  connectable_app_keys: ["gmail", "google_calendar", "linear"],
   skills: [
     {
       skill_id: "skill-one",
@@ -48,6 +49,11 @@ describe("Agent effective resources", () => {
       config: { mode: "exact" },
     });
     expect(resources.connectedAppKeys).toEqual(["gmail", "google_calendar"]);
+    expect(resources.connectableAppKeys).toEqual([
+      "gmail",
+      "google_calendar",
+      "linear",
+    ]);
     expect(JSON.stringify(resources)).not.toMatch(/snapshot|access.token/u);
   });
   it("rejects repeated package identity and never reflects upstream error bodies", async () => {
@@ -60,6 +66,8 @@ describe("Agent effective resources", () => {
     expect(() =>
       parseAgentEffectiveResources({ ...response(), connected_app_keys: [1] }),
     ).toThrow();
+    const { connectable_app_keys: _, ...withoutCatalog } = response();
+    expect(() => parseAgentEffectiveResources(withoutCatalog)).toThrow();
     const reader = createTeamHubAgentResourcesResolver({
       baseUrl: "https://teamhub.example/",
       serviceToken: "private-service",

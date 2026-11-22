@@ -4,8 +4,10 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { useT } from "@/i18n/use-translation";
 
 import { externalAppsQueryOptions } from "./connected-apps-queries";
+import { connectorMessages as m } from "./connectors.messages";
 
 /**
  * Takes one provider API key and hands it to `save`. TeamHub checks a key
@@ -16,7 +18,7 @@ export function ProviderKeyForm({
   hint,
   label,
   onSaved,
-  pendingLabel = "Checking key...",
+  pendingLabel,
   save,
 }: {
   /** The message shown under the field when `save` fails. */
@@ -24,10 +26,11 @@ export function ProviderKeyForm({
   hint: string;
   label: string;
   onSaved?: () => void;
-  /** The Save button's text while `save` runs. */
+  /** The Save button's text while `save` runs; "Checking key..." without one. */
   pendingLabel?: string;
   save: (apiKey: string) => Promise<unknown>;
 }) {
+  const t = useT();
   const [apiKey, setApiKey] = useState("");
   const mutation = useMutation({
     mutationFn: () => save(apiKey.trim()),
@@ -60,7 +63,7 @@ export function ProviderKeyForm({
         tone="primary"
         type="submit"
       >
-        {mutation.isPending ? pendingLabel : "Save key"}
+        {mutation.isPending ? (pendingLabel ?? t(m.checkingKey)) : t(m.saveKey)}
       </Button>
     </form>
   );
@@ -70,10 +73,11 @@ export function ProviderKeyForm({
 export function ComposioKeyForm({ onSaved }: { onSaved?: () => void } = {}) {
   const { client } = useTeamHubRuntime();
   const queryClient = useQueryClient();
+  const t = useT();
   return (
     <ProviderKeyForm
-      hint="Use a key with full read and write access (Read All and Write All). It is stored encrypted and never shown again."
-      label="Composio API key"
+      hint={t(m.composioKeyHint)}
+      label={t(m.composioApiKey)}
       onSaved={onSaved}
       save={async (apiKey) => {
         await client.saveExternalProviderKey(apiKey);

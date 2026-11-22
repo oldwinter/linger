@@ -18,6 +18,7 @@
     "lint": "eslint --max-warnings=0 src"
   },
   "dependencies": {
+    "@linger/service-kit": "workspace:*",
     "tar": "7.5.22"
   }
 }

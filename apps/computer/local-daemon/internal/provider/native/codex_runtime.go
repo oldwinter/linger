@@ -248,8 +248,6 @@ func (op *codexOperation) finish(ctx context.Context, failure codexFailure) Outc
 	op.mu.Lock()
 	out.TurnID = op.turnID
 	out.NativeResume = op.nativeResume
-	out.Diagnostics = op.turnDiag
-	out.FailureCode = op.failureCode
 	fingerprint := op.boundFingerprint
 	setupMethod, setupSent := op.setupMethod, op.setupSentAt
 	op.mu.Unlock()
@@ -289,6 +287,14 @@ func (op *codexOperation) finish(ctx context.Context, failure codexFailure) Outc
 	if !parked {
 		confirmed = codexResidents.retire(proc)
 		out.ExitConfirmed, out.ExitUnconfirmed = confirmed, !confirmed
+		if confirmed && out.Status == statusAborted {
+			select {
+			case <-op.terminal:
+				terminal := op.terminalFailure()
+				out.Status, out.Error = terminal.status, terminal.err
+			default:
+			}
+		}
 		code = "reaped"
 		if !confirmed {
 			code = "unconfirmed"
@@ -300,6 +306,9 @@ func (op *codexOperation) finish(ctx context.Context, failure codexFailure) Outc
 			}
 		}
 	}
+	op.mu.Lock()
+	out.Diagnostics, out.FailureCode = op.turnDiag, op.failureCode
+	op.mu.Unlock()
 	recordTiming(op.logger, time.Now(), timingCodexCleanupComplete, "thread_id", out.SessionID, "turn_id", out.TurnID, "code", code)
 	if failure.process {
 		out.Error = withStderr(out.Error, "codex", proc.stderr.Tail())

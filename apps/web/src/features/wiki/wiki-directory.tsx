@@ -37,12 +37,13 @@ import { useLibraryTreeState } from "@/features/library/use-library-tree-state";
 import { documentQueryOptions } from "@/features/rooms/room-queries";
 import { HighlightedText } from "@/features/search/search-highlight";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { useT } from "@/i18n/use-translation";
 import { useWikiDocuments } from "./knowledge-sidebar-trees";
 import {
   isWikiCollection,
   useWikiDisplayState,
   wikiCollection,
-  wikiCollectionLabels,
+  wikiCollections,
   wikiPageKey,
   wikiPagePath,
   type WikiCollection,
@@ -52,14 +53,23 @@ import { wikiPreviewPages } from "./wiki-preview-pages";
 import { usePersonalWikiRefresh } from "./wiki-refresh";
 import { filterWikiEntries } from "./wiki-title-filter";
 import { useRecordRecentWikiPage } from "./use-recent-wiki-pages";
+import { wikiMessages as m } from "./wiki.messages";
 
 const entries = [
-  { id: "profile", label: "Profile", icon: UserIcon },
-  { id: "graph", label: "Timeline", icon: NoteEditIcon },
-  { id: "projects", label: "Projects", icon: Briefcase01Icon },
-  { id: "topics", label: wikiCollectionLabels.topics, icon: Tag01Icon },
-  { id: "contacts", label: wikiCollectionLabels.contacts, icon: UserGroupIcon },
-  { id: "clients", label: wikiCollectionLabels.clients, icon: Building03Icon },
+  { id: "profile", label: m.profileTab, icon: UserIcon },
+  { id: "graph", label: m.timeline, icon: NoteEditIcon },
+  {
+    id: "projects",
+    label: wikiCollections.projects.label,
+    icon: Briefcase01Icon,
+  },
+  { id: "topics", label: wikiCollections.topics.label, icon: Tag01Icon },
+  {
+    id: "contacts",
+    label: wikiCollections.contacts.label,
+    icon: UserGroupIcon,
+  },
+  { id: "clients", label: wikiCollections.clients.label, icon: Building03Icon },
 ] as const;
 // Rows reuse the Library sidebar's row tokens (30px, 14px/18px, grey idle
 // tone, grey pill when current) so both sidebars match. Touch
@@ -81,6 +91,7 @@ export function WikiDirectory({
   onFileOpen?: () => void;
 }) {
   const { client } = useTeamHubRuntime();
+  const t = useT();
   const location = useLocation();
   const workspaceTree = useWorkspaceTree();
   const navigate = useNavigate();
@@ -166,6 +177,11 @@ export function WikiDirectory({
     collection: WikiCollection | null;
     text: string;
   }>({ collection: null, text: "" });
+  const [hiddenNotice, setHiddenNotice] = useState<{
+    collection: WikiCollection;
+    path: string;
+    title: string;
+  } | null>(null);
   const filterText = filter.collection === collection ? filter.text : "";
   const clearFilter = () => setFilter({ collection, text: "" });
   // Slash opens the filter field without reaching for the pointer, unless the
@@ -198,7 +214,7 @@ export function WikiDirectory({
         <div className="flex min-w-0 items-center gap-2">
           {collection ? (
             <button
-              aria-label="Back to Wiki"
+              aria-label={t(m.backToWiki)}
               className="flex size-8 max-sm:size-11 shrink-0 items-center justify-center rounded-md text-app-muted hover:bg-app-hover focus-visible:ring-2 focus-visible:ring-app-focus"
               onClick={() => {
                 setAnimateNavigation(true);
@@ -213,17 +229,15 @@ export function WikiDirectory({
             </button>
           ) : null}
           <h2 className={secondaryNavigationTitleClass}>
-            {collection ? wikiCollectionLabels[collection] : "Wiki"}
+            {t(collection ? wikiCollections[collection].label : m.title)}
           </h2>
         </div>
       </header>
       <nav
         key={collection ?? "root"}
-        aria-label={
-          collection
-            ? `${wikiCollectionLabels[collection]} files`
-            : "Wiki directory"
-        }
+        aria-label={t(
+          collection ? wikiCollections[collection].files : m.directory,
+        )}
         className={`space-y-0.5 pt-2 ${animateNavigation ? (collection ? "wiki-directory-forward" : "wiki-directory-back") : ""}`}
       >
         {!collection ? (
@@ -250,7 +264,9 @@ export function WikiDirectory({
                   className={current ? "shrink-0" : "shrink-0 text-app-muted"}
                   size={WORKSPACE_HEADING_ICON_SIZE}
                 />
-                <span className="min-w-0 flex-1 truncate">{entry.label}</span>
+                <span className="min-w-0 flex-1 truncate">
+                  {t(entry.label)}
+                </span>
                 {entry.id !== "profile" && entry.id !== "graph" ? (
                   <Icon
                     icon={ArrowRight01Icon}
@@ -267,18 +283,20 @@ export function WikiDirectory({
               <label className="select-pill mb-2 w-full cursor-text pr-1.5 focus-within:ring-2 focus-within:ring-app-focus">
                 <Icon icon={Search01Icon} size={14} />
                 <input
-                  aria-label={`Filter ${wikiCollectionLabels[collection]}`}
-                  className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
+                  aria-label={`Filter ${t(wikiCollections[collection].label)}`}
+                  className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-app-placeholder"
                   onChange={(event) =>
                     setFilter({ collection, text: event.target.value })
                   }
                   onKeyDown={(event) => {
+                    if (event.nativeEvent.isComposing || event.keyCode === 229)
+                      return;
                     if (event.key !== "Escape" || !filterText) return;
                     event.preventDefault();
                     clearFilter();
                     event.currentTarget.blur();
                   }}
-                  placeholder={`Filter ${wikiCollectionLabels[collection].toLowerCase()}`}
+                  placeholder={`Filter ${t(wikiCollections[collection].label).toLowerCase()}`}
                   ref={filterRef}
                   role="searchbox"
                   type="text"
@@ -286,7 +304,7 @@ export function WikiDirectory({
                 />
                 {filterText ? (
                   <button
-                    aria-label={`Clear ${wikiCollectionLabels[collection]} filter`}
+                    aria-label={`Clear ${t(wikiCollections[collection].label)} filter`}
                     className="flex size-5 shrink-0 items-center justify-center rounded-sm text-app-muted hover:bg-app-hover hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
                     onClick={clearFilter}
                     type="button"
@@ -296,28 +314,61 @@ export function WikiDirectory({
                 ) : null}
               </label>
             ) : null}
+            {hiddenNotice && hiddenNotice.collection === collection ? (
+              <div
+                className="mb-2 flex items-center gap-1.5 rounded-lg border border-app-border bg-app-surface-soft px-2.5 py-1.5 text-xs text-app-muted"
+                role="status"
+              >
+                <span className="min-w-0 truncate">
+                  Hidden {hiddenNotice.title}
+                </span>
+                <span aria-hidden="true" className="shrink-0">
+                  ·
+                </span>
+                <button
+                  className="shrink-0 font-medium text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+                  onClick={() => {
+                    display.decide(hiddenNotice.path, "keep");
+                    setHiddenNotice(null);
+                  }}
+                  type="button"
+                >
+                  Undo
+                </button>
+                <button
+                  aria-label="Dismiss hidden notice"
+                  className="ml-auto flex size-5 shrink-0 items-center justify-center rounded-sm text-app-muted hover:bg-app-hover hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+                  onClick={() => setHiddenNotice(null)}
+                  type="button"
+                >
+                  <Icon icon={Cancel01Icon} size={12} />
+                </button>
+              </div>
+            ) : null}
             {documents.isPending ? (
               <p className="px-2 py-2 text-sm text-app-muted">
-                Loading Wiki Documents…
+                {t(m.loadingDocuments)}
               </p>
             ) : documents.error ? (
               <div role="alert" className="px-2 py-2 text-sm text-app-danger">
                 {documents.error.message}
                 <button onClick={() => void documents.refetch()} type="button">
-                  Retry Wiki
+                  {t(m.retryWiki)}
                 </button>
               </div>
             ) : pages.length === 0 &&
               newPages.length === 0 &&
               !documents.hasNextPage ? (
               <p className="px-2 py-2 text-sm text-app-muted">
-                No generated {collection} yet.
+                {t(wikiCollections[collection].noneGenerated)}
               </p>
             ) : filtering &&
               visiblePages.length === 0 &&
               visibleNewPages.length === 0 ? (
               <p className="px-2 py-2 text-sm text-app-muted">
-                {`No ${wikiCollectionLabels[collection].toLowerCase()} match “${filterText.trim()}”.`}
+                {t(wikiCollections[collection].noMatch, {
+                  query: filterText.trim(),
+                })}
               </p>
             ) : null}
             {visiblePages.map((page) => (
@@ -358,24 +409,31 @@ export function WikiDirectory({
                     <button
                       className="min-h-7 max-sm:min-h-11 max-sm:min-w-11 rounded-full bg-secondary px-2.5 text-xs font-medium text-secondary-foreground transition-colors hover:bg-primary/9 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
                       disabled={!display.ready}
-                      aria-label={`Keep ${page.title}`}
+                      aria-label={t(m.keepPage, { title: page.title })}
                       type="button"
                       onClick={() => display.decide(wikiPagePath(page), "keep")}
                     >
-                      Keep
+                      {t(m.keep)}
                     </button>
                     <button
-                      className="min-h-7 max-sm:min-h-11 max-sm:min-w-11 rounded-full border border-destructive/40 bg-card px-2.5 text-xs font-medium text-destructive transition-colors hover:border-foreground/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                      data-voice-risk="never"
+                      className="min-h-7 max-sm:min-h-11 max-sm:min-w-11 rounded-full border border-border bg-card px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:border-foreground/15 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
                       disabled={!display.ready}
-                      aria-label={`Delete ${page.title}`}
+                      aria-label={`Hide ${page.title}`}
                       type="button"
                       onClick={() => {
-                        display.decide(wikiPagePath(page), "delete");
+                        const path = wikiPagePath(page);
+                        display.decide(path, "delete");
+                        setHiddenNotice({
+                          collection,
+                          path,
+                          title: pageRowTitle(page),
+                        });
                         if (documentId === page.id)
                           void navigate(`${base}/${collection}`);
                       }}
                     >
-                      Delete
+                      Hide
                     </button>
                   </div>
                 ) : null}

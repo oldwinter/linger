@@ -12,7 +12,7 @@ teamhub docs update --schema
 
 ## Common operations
 
-Pass a body directly with `--content`, or read UTF-8 with `--file <path>`; `--file -` reads stdin. `--json` returns business JSON.
+Pass a body directly with `--content`, or read UTF-8 with `--file <path>`; `--file -` reads stdin, such as a quoted heredoc (`<<'EOF'`), which keeps `$` and backticks as typed. `docs update --command str_replace` and `docs comment replace` drop the line break that ends a file or heredoc, since their text replaces a run of text in place. `--json` returns business JSON.
 
 ```bash
 teamhub message read --json
@@ -30,6 +30,8 @@ teamhub room collaborate --file ./team.md --json
 
 Messages go to the configured Room or Task by default; `--thread <thread-id>` picks a Thread in that Room, and `--alterego <task-id>` and `--meta <task-id>` are for permitted private collaboration. `message read --inbox` accepts `room:`, `thread:`, `task:`, `meta:` and `taskmeta:` addresses, so another authorized Room is read with `--inbox room:<room-id>`; a Meta reads a Task's public messages with `--inbox task:<task-id>`. Publishing files and submitting the message are one atomic operation. For complex ordered resources use `--message` or `--message-file` with an object holding the full `segments` array; private targets accept no uploads, media or segments. A structured mention in a message is written `[@name](user:actor_id)` or `[@name](agent:actor_id)`; a plain `@name` mentions no one.
 
+`room collaborate` publishes the Room's `team.md` and `room protocol` reads the current one. A Room where none has been published yet, the normal state of a new Room, is not an error: `room protocol` prints that no protocol has been published, and `--json` returns `published: false` with `revision: 0`.
+
 ## Documents and recovery
 
 `docs update` changes only the given heading, text or block; do not simulate a partial edit with a full replacement. Block operations need real stable IDs. `str_replace` accepts only a unique, exact single-line match; a missing or ambiguous match or a moved anchor returns a conflict. `docs replace` saves only a Native blocks/HTML working copy that carries its original revision baseline; after a conflict, download to another path and reconcile. Plain file downloads have no Native save command.
@@ -38,11 +40,15 @@ An Agent reads, edits and manages every Document its Human has; no access reques
 
 Write commands that accept `--operation-id` should use one unique ID per logical operation. The CLI keeps no local receipts: after an unknown outcome, rerun the same command and input with the operation ID the error printed, and TeamHub returns the original result. Without `--operation-id` every run is a new write. An operation ID does not replace CAS. `duplicate_request: true` means TeamHub reused the original result and comes with a `reason`; neither a conflict nor an unknown outcome is a success. When a Connected Apps write has an unknown outcome, check the external application first; the CLI never resends it.
 
+A TeamHub write with an operation ID also reports `outcome_unknown` when its successful HTTP response has an interrupted, malformed, oversized, or non-object JSON body. The error preserves the same operation ID for a deliberate retry; receiving success headers alone does not cause the CLI to invent a result or resend the write. A successful `204 No Content` remains a complete empty result.
+
 Task completion uses only the generation, attempt and input revision accepted before work started; Runtime-managed configuration freezes them. `task list` returns authorized summaries only; it does not replace the original Task input or refresh the submission baseline of an old result.
 
 The current entry points are the ones help lists.
 
 `agent list` and `agent get --agent-id <actor-id>` show the General Agents under a Sponsor. `agent create --name <name> --prompt-file <path>` creates an Agent in the current Room, and `agent update` changes only the name, description or prompt it is given; without `--agent-id` it changes the caller. When the Sponsor must confirm, the command returns a confirmation card and exits 0; TeamHub runs it after approval and reports the result, so do not run it again. `room invite --agent-id <actor-id>` adds an existing Agent from `agent list` to the current Room at once, with the Sponsor's authority; a Direct Room or Thread keeps its members. A Task context cannot use these commands.
+
+`room handoff --inbox room:<room-id> --content <instruction>` lets Another Me, in its direct chat and in a turn its Human started by writing or deciding a card, hand that request to itself in another Room where both are members. TeamHub posts a hidden handoff there that wakes Another Me's Context in that Room, which then posts and mentions Agents itself; the direct chat never writes in that Room. Results come back with `message direct`.
 
 ```bash
 teamhub room invite --agent-id <actor-id> --json
@@ -50,14 +56,36 @@ teamhub agent create --name 'Reviewer' --description 'Checks patches' --prompt-f
 teamhub agent update --agent-id <actor-id> --prompt-file ./reviewer.md --json
 ```
 
+## Windows Subsystem for Linux
+
+When Pi runs the Desktop TeamHub CLI from WSL, use Linux paths directly for Room message attachments (`--attach` and JSON `content-path`), command input files (`--file`, `--prompt-file`), and `docs` file and image arguments. Quote paths with spaces. Message text is passed through as text.
+
+Connected application commands may have their own file options. For those options, convert an absolute Linux path explicitly, for example `gdrive download ... --output "$(wslpath -w /home/me/report.pdf)"`.
+
 ## Connected applications
 
-Eight applications have dedicated commands: Gmail, Outlook, Slack, Google Calendar, Notion, Google Drive, Figma and GitHub, with 50 Connector leaf commands. `teamhub gmail --help` and `teamhub gdrive --help` discover them offline, and each command keeps its own help, examples and Composio support boundary.
-Choose an account with `--account <connection ID|full label>`. Without a delegation, the command asks the user in an allowed chat to click an authorization card; run the original command again after authorization.
+Eight applications have dedicated commands: Gmail, Outlook (mail via `teamhub outlook` and calendar via `teamhub outlook-calendar`), Slack, Google Calendar, Notion, Google Drive, Figma and GitHub, with 57 Connector leaf commands. `teamhub gmail --help` and `teamhub outlook-calendar --help` discover them offline, and each command keeps its own help, examples and Composio support boundary.
+Choose an account with `--account <connection ID|full label>`; labels match case-insensitively, connection IDs exactly. A connection ID that no longer matches a delegated account returns `account_ambiguous` with the delegated candidates instead of switching accounts. Without a delegation, the command posts an authorization card in an allowed chat that names the requested label and exits with `authorization_required`; the Agent ends its turn, and the card's result wakes it to run the original command again.
 Mail `--markdown` is converted to HTML by TeamHub; only `--attach` adds attachments.
 
 GitHub reads the connected account, its repositories, issues and pull requests at once; `github comment` and `github create-issue` wait for the sponsor's confirmation card.
 
-Other Connected Apps (such as Canva or Linear) have no dedicated commands and are called through `teamhub apps search/execute`.
+Other Connected Apps (such as Canva or Linear) have no dedicated commands and are called through `teamhub apps search/execute`. TeamHub runs the tools it knows as reads at once, including Linear's list, get and search tools and a `LINEAR_RUN_QUERY_OR_MUTATION` document that declares only queries; every other call waits for the sponsor's confirmation card.
 
 `teamhub apps connect <app-key>` asks for access to any Connected App that supports Agent tools; without an authorized account it posts an authorization card in the current chat. `teamhub apps auto-reminders list|set` lists or toggles automatic reminders for the Sponsor's own connections. `teamhub proactive shadow-divergence` lets Another Me record, while judging a proactive wake, where one of its Human's shadow rules would have acted differently; the Human reads these in My Rules. `teamhub proactive act` lets it create a Work Item for an outside event, or delegate it as a Task, only under a mandate the Human granted on one of their rules.
+
+## Web search
+
+`teamhub web` searches the web and reads pages through providers whose API keys are saved once for the whole deployment, in TeamHub; keys never reach the Computer.
+
+```bash
+teamhub web search 'postgres 19 features' --recency month --site postgresql.org
+teamhub web open https://www.postgresql.org/about/ --output ./about.md
+teamhub web list
+teamhub web connect tavily
+```
+
+- `web search <query>` runs on Tavily, Brave Search, Firecrawl, Exa, You.com or DuckDuckGo (`--backend`), with `--limit 1-20`, `--recency day|week|month|year` and repeatable `--site <domain>`; DuckDuckGo takes at most 10 results and one site. Without `--backend` it uses the default backend the user chose, else the first backend with a key in that order, else DuckDuckGo, which needs no key and blocks searches that come too often. You.com also works without a key when named, with limited, lower quality results. Results carry title, URL, snippet and an optional date, never the backend.
+- `web open <url>` fetches the page from this computer by default (`--backend direct`) and converts its main content to Markdown; `--backend tavily|firecrawl|exa|you` reads it through the provider instead, which helps with pages that need JavaScript or block plain requests. The Markdown is cut at 20,000 characters with `truncated: true`, and `--output <file>` saves it to a new file and never overwrites one.
+- `web list` shows each backend's commands, filters, readiness and live quota; `web connect <backend>` posts a key card unless that backend is ready.
+- A backend never falls back to another one. When the requested backend, or the default one, has no key, a rejected key or no keyless searches left, TeamHub posts a key card in the chat and the command exits 4 with `search_key_requested`, the backend and the card in `details`. The Agent ends its turn: a key saved from the card reruns the request and wakes the Agent with its results. A used-up quota (`search_quota_exhausted`) or rate limit (`provider_rate_limited`) lists `ready_backends` to choose from.

@@ -1,8 +1,16 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
+import { labView } from "@/features/local-models/local-models-test-support";
 import type { TestRouteHandler } from "@/test/teamhub-test-server";
 import type {
   TeamHubTenantAgent,
@@ -37,7 +45,9 @@ describe("Direct Agent runtime settings", () => {
     }));
     renderSwitch({ updateTenantAgent });
     fireEvent.click(
-      await screen.findByRole("button", { name: "5.4 Sol Medium" }),
+      await screen.findByRole("button", {
+        name: "Switch model (current: 5.4 Sol)",
+      }),
     );
     expect(
       await screen.findByRole("dialog", { name: "Runtime settings" }),
@@ -75,15 +85,100 @@ describe("Direct Agent runtime settings", () => {
     );
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
+  it("keeps the effort outside the model label that shortens", async () => {
+    renderSwitch({});
+    const trigger = await screen.findByRole("button", {
+      name: "Switch model (current: 5.4 Sol)",
+    });
+    expect(trigger).toHaveAttribute(
+      "title",
+      "Switch model (current: 5.4 Sol, Medium)",
+    );
+    const label = within(trigger).getByText("5.4 Sol");
+    expect(label).toHaveClass("agent-model-switch-trigger-label");
+    expect(label).not.toHaveTextContent("Medium");
+    expect(within(trigger).getByText("Medium")).toHaveClass(
+      "agent-model-switch-trigger-effort",
+    );
+  });
   it("allows inspecting while busy but disables saving", async () => {
     const updateTenantAgent = vi.fn();
     renderSwitch({ updateTenantAgent, busy: true });
     fireEvent.click(
-      await screen.findByRole("button", { name: "5.4 Sol Medium" }),
+      await screen.findByRole("button", {
+        name: "Switch model (current: 5.4 Sol)",
+      }),
     );
-    expect(screen.getByRole("button", { name: "Save Runtime" })).toBeDisabled();
+    // The settings dialog is a lazy chunk on its first open.
+    expect(
+      await screen.findByRole("button", { name: "Save Runtime" }),
+    ).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(updateTenantAgent).not.toHaveBeenCalled();
+  });
+
+  it("resolves Bifrost localmodels-library model names from local-models before Pi lists them", async () => {
+    const base = localAgent();
+    const piAgent: TeamHubTenantAgent = {
+      ...base,
+      runtime: {
+        model: "localmodels-library/qwen3-coder-30b",
+        placement: {
+          computer_id: "computer-1",
+          runtime_type: "pi",
+          type: "local",
+          workspace_grant_id: "grant-1",
+        },
+      },
+    };
+    const runtime = createTestTeamHubRuntime();
+    runtime.server.on("GET", "/v0/tenants/{tenantId}/local-computers", () => ({
+      items: [
+        {
+          computer_id: "computer-1",
+          display_name: "Computer",
+          runtimes: [{ models: [], status: "ready", type: "pi" }],
+          status: "online",
+          workspace_grants: [
+            {
+              grant_id: "grant-1",
+              label: "Workspace",
+              mode: "workspace-write",
+            },
+          ],
+        },
+      ],
+    }));
+    runtime.server.on(
+      "GET",
+      "/v0/tenants/{tenantId}/local-computers/{computerId}/local-models",
+      () => labView(),
+    );
+
+    render(
+      <MemoryRouter>
+        <QueryClientProvider
+          client={
+            new QueryClient({
+              defaultOptions: { queries: { retry: false } },
+            })
+          }
+        >
+          <DirectAgentModelSwitch
+            client={runtime.client}
+            currentActorId="actor-jenny"
+            registration={piAgent}
+            tenantId="tenant-northstar"
+          />
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+
+    expect(
+      await screen.findByRole("button", {
+        name: "Switch model (current: Qwen3 Coder 30B)",
+      }),
+    ).toBeVisible();
   });
 });
 
@@ -122,21 +217,23 @@ function renderSwitch({
     ],
   }));
   render(
-    <QueryClientProvider
-      client={
-        new QueryClient({
-          defaultOptions: { queries: { retry: false } },
-        })
-      }
-    >
-      <DirectAgentModelSwitch
-        busy={busy}
-        client={runtime.client}
-        currentActorId={currentActorId}
-        registration={registration}
-        tenantId="tenant-northstar"
-      />
-    </QueryClientProvider>,
+    <MemoryRouter>
+      <QueryClientProvider
+        client={
+          new QueryClient({
+            defaultOptions: { queries: { retry: false } },
+          })
+        }
+      >
+        <DirectAgentModelSwitch
+          busy={busy}
+          client={runtime.client}
+          currentActorId={currentActorId}
+          registration={registration}
+          tenantId="tenant-northstar"
+        />
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
 }
 

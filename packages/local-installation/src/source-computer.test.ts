@@ -6,6 +6,18 @@ import type { Instance } from "./instance.js";
 import { runProcess } from "./process.js";
 import { prepareSourceComputer } from "./source-computer.js";
 vi.mock("./process.js", () => ({ runProcess: vi.fn() }));
+// Fake the Computer CLI and its installer, not Windows' private-path probe.
+vi.mock("./windows-private.js", async (original) => {
+  const actual = await original<typeof import("./windows-private.js")>();
+  const { runProcess } =
+    await vi.importActual<typeof import("./process.js")>("./process.js");
+  const windowsPrivatePath: typeof actual.windowsPrivatePath = (
+    file,
+    kind,
+    repair,
+  ) => actual.windowsPrivatePath(file, kind, repair, runProcess);
+  return { ...actual, windowsPrivatePath };
+});
 const roots: string[] = [];
 afterEach(async () => {
   vi.resetAllMocks();
@@ -58,36 +70,41 @@ test("reuses a suitable installed release without changing global Computer", asy
 });
 test("downloads the checkout-served release when installed Computer is below the work admission minimum", async () => {
   const instance = await fixture();
+  const windows = process.platform === "win32";
+  const shell = windows ? "powershell.exe" : "bash";
+  const url = `http://localhost:31234/install/linger-computer.${windows ? "ps1" : "sh"}`;
+  const executable = path.join(
+    instance.root,
+    "computer",
+    "bin",
+    windows ? "linger-computer.exe" : "linger-computer",
+  );
   vi.mocked(runProcess).mockImplementation(async (command) => ({
     code: 0,
     stdout:
       command === "linger-computer"
         ? "linger-computer 0.38.0"
-        : command === "bash"
+        : command === shell
           ? "installed"
           : "linger-computer 0.39.0",
     stderr: "",
   }));
-  const fetcher = vi.fn(async (url: string) => {
-    expect(url).toBe("http://localhost:31234/install/linger-computer.sh");
-    return new Response("#!/bin/bash\nexit 0\n");
-  });
+  const fetcher = vi.fn(
+    async (_url: string) =>
+      new Response(windows ? "exit 0\n" : "#!/bin/bash\nexit 0\n"),
+  );
   vi.stubGlobal("fetch", fetcher);
   await prepareSourceComputer(instance, new AbortController().signal);
-  expect(fetcher.mock.calls[0]?.[0]).toBe(
-    "http://localhost:31234/install/linger-computer.sh",
-  );
+  expect(fetcher.mock.calls[0]?.[0]).toBe(url);
   const installer = vi
     .mocked(runProcess)
-    .mock.calls.find((call) => call[0] === "bash");
+    .mock.calls.find((call) => call[0] === shell);
   expect(installer?.[2]?.env).toMatchObject({
     LINGER_COMPUTER_DATA_DIR: path.join(instance.root, "computer/release"),
     LINGER_COMPUTER_BIN_DIR: path.join(instance.root, "computer/bin"),
     LINGER_COMPUTER_CONFIG: instance.computerConfig,
   });
-  expect(instance.computerExecutable).toBe(
-    path.join(instance.root, "computer/bin/linger-computer"),
-  );
+  expect(instance.computerExecutable).toBe(executable);
   expect(
     JSON.parse(
       await readFile(path.join(instance.root, "instance.json"), "utf8"),

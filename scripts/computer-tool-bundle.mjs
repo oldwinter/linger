@@ -21,6 +21,7 @@ import { stagePinnedNodeRuntime } from "./prepare-local-computer-release.mjs";
 export {
   COMPUTER_TOOL_VERSIONS,
   CUA_ARCHIVES,
+  QUICKJS_TOOL_ASSETS,
 } from "../apps/computer/scripts/bundle-computer-tools.mjs";
 export { NODE_RUNTIME_RELEASES } from "./local-computer-node-distributions.mjs";
 

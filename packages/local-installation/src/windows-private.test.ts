@@ -1,6 +1,9 @@
+import path from "node:path";
 import { expect, it, vi } from "vitest";
 import {
   windowsPrivatePath,
+  windowsPrivateRefusal,
+  WINDOWS_PRIVATE_PATH_UNSAFE,
   WINDOWS_PRIVATE_SCRIPT,
 } from "./windows-private.js";
 it("sends paths through stdin and runs a fixed encoded ACL program", async () => {
@@ -19,10 +22,51 @@ it("sends paths through stdin and runs a fixed encoded ACL program", async () =>
   expect(WINDOWS_PRIVATE_SCRIPT).toContain("AccessControlSections]::Access");
 });
 it("fails closed without disclosing command diagnostics", async () => {
-  const run = vi.fn().mockResolvedValue({ code: 1, stderr: "sensitive path" });
+  const run = vi
+    .fn()
+    .mockResolvedValue({ code: 1, stdout: "", stderr: "sensitive path" });
+  const error = await windowsPrivatePath("private", "file", false, run).catch(
+    (failure: unknown) => failure as Error,
+  );
+  expect(error?.message).toMatch(/^Windows private path validation failed/);
+  expect(error?.message).not.toContain("sensitive");
+  expect(error).toMatchObject({
+    code: "WINDOWS_PRIVATE_PATH_UNSAFE",
+    reason: "UNCHECKED",
+  });
+});
+it("names the path and why it is not private", async () => {
+  const file =
+    "C:\\Users\\person\\.simplexai\\instances\\desktop\\native.env.1.tmp";
+  const owned = vi
+    .fn()
+    .mockResolvedValue({ code: 1, stdout: "UNSAFE_OWNER", stderr: "" });
+  const error = await windowsPrivatePath(file, "file", false, owned).catch(
+    (failure: unknown) => failure as Error,
+  );
+  expect(error).toMatchObject({
+    code: "WINDOWS_PRIVATE_PATH_UNSAFE",
+    reason: "UNSAFE_OWNER",
+    path: path.resolve(file),
+  });
+  expect(error?.message).toContain(path.resolve(file));
+  expect(error?.message).toContain("owned by another account");
+  // Only the script's fixed codes pass; anything else is unchecked.
+  const other = vi.fn().mockResolvedValue({
+    code: 1,
+    stdout: "Access denied to C:\\x",
+    stderr: "",
+  });
   await expect(
-    windowsPrivatePath("private", "file", false, run),
-  ).rejects.toThrow("Windows private path validation failed");
+    windowsPrivatePath(file, "file", false, other),
+  ).rejects.toMatchObject({ reason: "UNCHECKED" });
+});
+it("gives every failure in the ACL program a fixed reason code", () => {
+  const thrown = [...WINDOWS_PRIVATE_SCRIPT.matchAll(/throw '([^']*)'/g)].map(
+    (match) => match[1],
+  );
+  expect(thrown.length).toBeGreaterThan(5);
+  for (const code of thrown) expect(code).toMatch(/^[A-Z][A-Z_]+$/);
 });
 it("ignores inherit-only ACEs only for effective ancestor permissions", () => {
   const ancestors = WINDOWS_PRIVATE_SCRIPT.slice(
@@ -36,5 +80,36 @@ it("ignores inherit-only ACEs only for effective ancestor permissions", () => {
     "$rule.PropagationFlags -band [Security.AccessControl.PropagationFlags]::InheritOnly",
   );
   expect(target).not.toContain("PropagationFlags");
-  expect(target).toContain("Non-private permissions");
+  expect(target).toContain("SHARED_ACCESS");
+});
+it("hands on the code and reason of a refusal, and nothing else", async () => {
+  const run = vi.fn().mockResolvedValue({
+    code: 1,
+    stdout: "UNSAFE_PARENT_ACCESS",
+    stderr: "",
+  });
+  const error: unknown = await windowsPrivatePath(
+    "D:\\Apps\\Linger",
+    "directory",
+    true,
+    run,
+  ).catch((error: unknown) => error);
+  const refusal = {
+    code: WINDOWS_PRIVATE_PATH_UNSAFE,
+    reason: "UNSAFE_PARENT_ACCESS",
+  };
+  expect(windowsPrivateRefusal(error)).toEqual(refusal);
+  // The copy another process receives as JSON reads the same.
+  expect(windowsPrivateRefusal(JSON.parse(JSON.stringify(refusal)))).toEqual(
+    refusal,
+  );
+  for (const other of [
+    undefined,
+    "UNSAFE_PARENT_ACCESS",
+    new Error("is inside a folder"),
+    { code: "EACCES", reason: "UNSAFE_PARENT_ACCESS" },
+    { code: WINDOWS_PRIVATE_PATH_UNSAFE, reason: "SOMETHING_ELSE" },
+    { code: WINDOWS_PRIVATE_PATH_UNSAFE, reason: "toString" },
+  ])
+    expect(windowsPrivateRefusal(other)).toBeUndefined();
 });

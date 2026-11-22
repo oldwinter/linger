@@ -947,6 +947,7 @@ describe("Context Runtime Activator", () => {
           skills: [],
           connectedApps: true,
           connectedAppKeys: [],
+          connectableAppKeys: [],
         })),
       };
       const harness = wired({
@@ -1002,6 +1003,7 @@ describe("Context Runtime Activator", () => {
             skills: [],
             connectedApps,
             connectedAppKeys: [],
+            connectableAppKeys: [],
           })),
         };
         const harness = wired({ agentResourcesResolver });
@@ -1040,6 +1042,7 @@ describe("Context Runtime Activator", () => {
               skills: [],
               connectedApps: true,
               connectedAppKeys: [],
+              connectableAppKeys: [],
             })),
           },
         });
@@ -1903,6 +1906,7 @@ describe("Skills of Contexts resolved by TeamHub", () => {
         skills: [effectiveSkill],
         connectedApps: true,
         connectedAppKeys: [],
+        connectableAppKeys: [],
       });
       resolution.resolve(mcpResolution());
       const active = await activation;

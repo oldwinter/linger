@@ -146,6 +146,10 @@ type leaseProbeToolProvider struct {
 func (p *leaseProbeToolProvider) SearchTools(context.Context, composio.ToolSearchRequest) ([]composio.Tool, error) {
 	return nil, nil
 }
+func (p *leaseProbeToolProvider) GetDiscordChannelGuild(context.Context, string, string) (string, error) {
+	p.probe("discord_channel_lookup")
+	return "", errors.New("unexpected Discord channel lookup")
+}
 func (p *leaseProbeToolProvider) GetConnectionStatusForToolkit(context.Context, string, string) (composio.ConnectionStatus, error) {
 	p.probe("connection_status")
 	return composio.ConnectionActive, nil

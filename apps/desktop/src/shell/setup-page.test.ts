@@ -5,17 +5,26 @@ import { fileURLToPath } from "node:url";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { Language } from "../i18n/language.js";
+import zhCN from "../i18n/locales/zh-CN.json" with { type: "json" };
+import { localizePage } from "../i18n/page.js";
 import type {
   SetupCommand,
   SetupLocalAccount,
   SetupLocalModelsCheck,
+  SetupReason,
   SetupState,
 } from "../shared/setup.js";
 
-const page = readFileSync(
-  path.join(path.dirname(fileURLToPath(import.meta.url)), "setup.html"),
-  "utf8",
-);
+import { setupMessages } from "./setup.messages.js";
+
+const shellFile = (name: string) =>
+  readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), name),
+    "utf8",
+  );
+const rawPage = shellFile("setup.html");
+const messagesRuntime = shellFile("messages.html");
 const PASSWORD = "a-private-password";
 
 const state = (
@@ -46,11 +55,26 @@ const state = (
   },
 });
 
+// A loaded page keeps its timers, including a once-a-second render while
+// installing, so a page from an earlier test would redraw its own state into
+// the next test's document. Each test stops the previous page's timers first.
+let stopPage = () => {};
+
 // Loads the setup page with a fake main process, mid-install by default.
 const openPage = async (
   initial: SetupState = state("installing"),
   step = "installing",
+  language: Language = "en",
 ) => {
+  stopPage();
+  const intervals: ReturnType<typeof setInterval>[] = [];
+  const timeouts: ReturnType<typeof setTimeout>[] = [];
+  stopPage = () => {
+    intervals.forEach(clearInterval);
+    timeouts.forEach(clearTimeout);
+  };
+  // The page as setup-window.ts serves it.
+  const page = localizePage(rawPage, messagesRuntime, setupMessages, language);
   const [, body] = /<body[^>]*>([\s\S]*)<\/body>/.exec(page)!;
   const [, script] = /<script>([\s\S]*)<\/script>/.exec(body!)!;
   document.body.innerHTML = body!.replace(/<script>[\s\S]*<\/script>/, "");
@@ -75,7 +99,18 @@ const openPage = async (
       run,
     },
   });
-  new Function(script!)();
+  new Function("setInterval", "setTimeout", script!)(
+    (...args: Parameters<typeof setInterval>) => {
+      const id = setInterval(...args);
+      intervals.push(id);
+      return id;
+    },
+    (...args: Parameters<typeof setTimeout>) => {
+      const id = setTimeout(...args);
+      timeouts.push(id);
+      return id;
+    },
+  );
   await vi.waitFor(() =>
     expect(
       document.querySelector(`section[data-step="${step}"].active`),
@@ -180,12 +215,13 @@ const small: SetupLocalModelsCheck = {
   eligible: false,
   memoryBytes: 8 * GB,
   diskFreeBytes: 100 * GB,
-  // A code the page never parses: it shows only the message.
-  reasons: [
-    { code: "upstream_policy", message: "No model fits this computer." },
-  ],
+  reasons: [{ code: "plan-unavailable" }],
   recommendation: "codex",
 };
+// The tool's own words, which the page must never show.
+const TOOL_WORDS = "GPU service owners unknown; explicit sharing";
+const reason = (fields: SetupReason): SetupReason =>
+  ({ ...fields, message: TOOL_WORDS }) as SetupReason;
 // The model fits the hardware, but other programs hold its memory now.
 const held: SetupLocalModelsCheck = {
   state: "checked",
@@ -199,13 +235,7 @@ const held: SetupLocalModelsCheck = {
     diskBytes: 8 * GB,
     memoryBytes: 12 * GB,
   },
-  reasons: [
-    {
-      code: "free-memory-required",
-      message:
-        "Other programs are using memory it needs (now 2.7 GB of RAM is available).",
-    },
-  ],
+  reasons: [reason({ code: "free-memory-required" })],
   recommendation: "codex",
 };
 const welcome = (localModels: SetupLocalModelsCheck): SetupState => {
@@ -240,7 +270,7 @@ describe("setup page Quick Install recommendation", () => {
       "Recommended for this computer: Codex",
     );
     expect($("plan-why").textContent).toBe(
-      "No local model: No model fits this computer.",
+      "No local model fits this computer.",
     );
     expect($("local-row").hidden).toBe(true);
     $("local-install").click();
@@ -255,17 +285,29 @@ describe("setup page Quick Install recommendation", () => {
       "Recommended for this computer: Codex",
     );
     expect($("plan-why").textContent).toBe(
-      "Local model on hold: Other programs are using memory it needs (now 2.7 GB of RAM is available). Quick Install sets up Codex now, or choose Check again once memory is free.",
+      "Local model on hold. Other programs are using the memory it needs. Close other programs. Quick Install sets up Codex now, or choose Check again once memory is free.",
     );
     expect($("local-recheck").hidden).toBe(false);
     $("local-customize").click();
+    // Subscription is active by default when the local model is on hold;
+    // selecting Local model reveals the held card and disables Install.
+    expect($("subscription-row").hidden).toBe(false);
+    expect($("local-row").hidden).toBe(true);
+    document
+      .querySelector<HTMLButtonElement>(
+        '[data-plan="source"] [data-value="local"]',
+      )!
+      .click();
     expect($("local-row").hidden).toBe(false);
+    expect($("subscription-row").hidden).toBe(true);
+    expect($("byok-row").hidden).toBe(true);
     expect($("local-model-name").textContent).toBe("qwen3-8b");
     expect($("local-sub").textContent).toBe(
       "On hold: close other programs, then Check again.",
     );
     expect(($("local-model") as HTMLButtonElement).disabled).toBe(true);
     expect($("local-model").getAttribute("aria-checked")).toBe("false");
+    expect(($("local-install") as HTMLButtonElement).disabled).toBe(true);
     $("local-recheck").click();
     await vi.waitFor(() =>
       expect(run).toHaveBeenCalledWith({ op: "local.recheck" }),
@@ -278,25 +320,40 @@ describe("setup page Quick Install recommendation", () => {
   });
 
   it("says how much memory a held local model needs and how much is free", async () => {
-    const counted = (
-      code: string,
-      message: string,
-      vram = false,
-    ): SetupLocalModelsCheck => ({
+    const withCounts = (reasons: SetupReason[]): SetupLocalModelsCheck => ({
       ...held,
       freeMemory: {
         ramAvailableBytes: 2899102924,
         ramRequiredBytes: 13689304433,
-        ...(vram ? { vramFreeBytes: 3 * GB, vramRequiredBytes: 9 * GB } : {}),
+        vramFreeBytes: 3 * GB,
+        vramRequiredBytes: 9 * GB,
       },
-      reasons: [{ code, message }],
+      reasons,
     });
+    const customizeLocal = () => {
+      $("local-customize").click();
+      document
+        .querySelector<HTMLButtonElement>(
+          '[data-plan="source"] [data-value="local"]',
+        )!
+        .click();
+    };
+    // The GPU and the RAM each name what is free and what the install needs.
     await openPage(
       welcome(
-        counted(
-          "free-memory-required",
-          "Other programs are using memory it needs.",
-        ),
+        withCounts([
+          reason({
+            code: "gpu-memory-required",
+            gpuIndex: 1,
+            freeBytes: 3 * GB,
+            requiredBytes: 9 * GB,
+          }),
+          reason({
+            code: "free-memory-required",
+            freeBytes: 2899102924,
+            requiredBytes: 13689304433,
+          }),
+        ]),
       ),
       "welcome",
     );
@@ -304,26 +361,179 @@ describe("setup page Quick Install recommendation", () => {
       "Recommended for this computer: Codex",
     );
     expect($("plan-why").textContent).toBe(
-      "Local model on hold: quit other programs first; it needs 12.7 GB of memory, 2.7 GB is free. Quick Install sets up Codex now, or choose Check again once memory is free.",
+      "Local model on hold. Other programs are using GPU 1's memory (3.0 GB free, 9.0 GB needed). Close programs that use the GPU, such as games, video or other AI apps. Other programs are using the memory it needs (2.7 GB free, 12.7 GB needed). Close other programs. Quick Install sets up Codex now, or choose Check again once memory is free.",
     );
     expect($("local-recheck").hidden).toBe(false);
-    $("local-customize").click();
+    customizeLocal();
     expect($("local-sub").textContent).toBe(
-      "On hold: 12.7 GB memory needed, 2.7 GB free",
+      "On hold: GPU 1 has 3.0 GB free, needs 9.0 GB",
     );
-    // Another code names what holds the memory, so its words stay.
+    expect(document.body.textContent).not.toContain(TOOL_WORDS);
+    // A tool that counts only the plan's memory: the RAM counts from it.
     await openPage(
-      welcome(
-        counted(
-          "plan-unavailable",
-          "Another inference app holds this Mac's memory; quit it and check again.",
-          true,
-        ),
-      ),
+      welcome(withCounts([reason({ code: "free-memory-required" })])),
       "welcome",
     );
     expect($("plan-why").textContent).toBe(
-      "Local model on hold: quit other programs first; it needs 12.7 GB of memory, 2.7 GB is free; graphics memory needs 9.0 GB, 3.0 GB is free. Another inference app holds this Mac's memory; quit it and check again. Quick Install sets up Codex now, or choose Check again once memory is free.",
+      "Local model on hold. Other programs are using the memory it needs (2.7 GB free, 12.7 GB needed). Close other programs. Quick Install sets up Codex now, or choose Check again once memory is free.",
+    );
+    customizeLocal();
+    expect($("local-sub").textContent).toBe(
+      "On hold: 2.7 GB of memory free, needs 12.7 GB",
+    );
+  });
+
+  it("words every localmodels reason by its code, never the tool's message", async () => {
+    const cases: [SetupLocalModelsCheck, string][] = [
+      [
+        { ...held, reasons: [reason({ code: "gpu-sharing-required" })] },
+        "Local model on hold. Other work is running on the GPU. Close it.",
+      ],
+      [
+        { ...held, reasons: [reason({ code: "plan-unavailable" })] },
+        "Local model on hold. Another app is holding the memory it needs, such as another AI app. Quit it.",
+      ],
+      [
+        { ...small, reasons: [reason({ code: "gpu-ownership-unknown" })] },
+        "Linger couldn't tell which programs are using the GPU, so it can't share it. Close programs that use the GPU.",
+      ],
+      [
+        { ...small, reasons: [reason({ code: "facts-unavailable" })] },
+        "Linger couldn't read this computer's memory, disk or GPU.",
+      ],
+      [
+        {
+          ...small,
+          reasons: [
+            reason({
+              code: "cuda-driver-update-required",
+              detectedCudaVersion: "12.1",
+              requiredCudaVersion: "12.4",
+              driverVersion: "535.98",
+            }),
+          ],
+        },
+        "Your NVIDIA driver supports CUDA 12.1, but local models require CUDA 12.4 or newer. Update your NVIDIA driver, then choose Check again.",
+      ],
+      [
+        {
+          ...small,
+          reasons: [
+            reason({
+              code: "cuda-driver-update-required",
+              requiredCudaVersion: "12.4",
+            }),
+          ],
+        },
+        "Your NVIDIA driver is too old for local models (requires CUDA 12.4 or newer). Update your NVIDIA driver, then choose Check again.",
+      ],
+      [
+        {
+          ...small,
+          reasons: [
+            reason({
+              code: "cuda-driver-version-unknown",
+              requiredCudaVersion: "12.4",
+            }),
+          ],
+        },
+        "Linger couldn't read the CUDA version from your NVIDIA driver (requires CUDA 12.4 or newer). Update or reinstall your NVIDIA driver, then choose Check again.",
+      ],
+      [
+        {
+          ...small,
+          reasons: [reason({ code: "cuda-driver-version-unknown" })],
+        },
+        "Linger couldn't read the CUDA version from your NVIDIA driver. Update or reinstall your NVIDIA driver, then choose Check again.",
+      ],
+      [
+        { ...small, reasons: [reason({ code: "unsupported-platform" })] },
+        "Local models don't run on this system.",
+      ],
+      [
+        { ...small, reasons: [reason({ code: "a-new-code" })] },
+        "This computer can't run a local model now.",
+      ],
+    ];
+    for (const [check, words] of cases) {
+      await openPage(welcome(check), "welcome");
+      expect($("plan-why").textContent).toContain(words);
+      expect(document.body.textContent).not.toContain(TOOL_WORDS);
+    }
+  });
+
+  it("shows the Local model card disabled with the reason when none can run", async () => {
+    await openPage(
+      welcome({
+        ...small,
+        reasons: [reason({ code: "gpu-ownership-unknown" })],
+      }),
+      "welcome",
+    );
+    $("local-customize").click();
+    document
+      .querySelector<HTMLButtonElement>(
+        '[data-plan="source"] [data-value="local"]',
+      )!
+      .click();
+    expect($("local-row").hidden).toBe(false);
+    expect($("local-model").hidden).toBe(false);
+    expect(($("local-model") as HTMLButtonElement).disabled).toBe(true);
+    expect($("local-model").getAttribute("aria-checked")).toBe("false");
+    expect($("local-model-name").textContent).toBe(
+      "Not available on this computer",
+    );
+    expect($("local-model-needs").textContent).toBe(
+      "Linger couldn't tell which programs are using the GPU, so it can't share it. Close programs that use the GPU.",
+    );
+    expect(($("local-install") as HTMLButtonElement).disabled).toBe(true);
+    expect(document.body.textContent).not.toContain(TOOL_WORDS);
+  });
+
+  it("explains an outdated NVIDIA driver and lets the user check again", async () => {
+    const { run } = await openPage(
+      welcome({
+        ...small,
+        reasons: [
+          reason({
+            code: "cuda-driver-update-required",
+            detectedCudaVersion: "12.1",
+            requiredCudaVersion: "12.4",
+            driverVersion: "535.98",
+          }),
+        ],
+      }),
+      "welcome",
+    );
+    expect($("plan-why").textContent).toBe(
+      "Your NVIDIA driver supports CUDA 12.1, but local models require CUDA 12.4 or newer. Update your NVIDIA driver, then choose Check again.",
+    );
+    expect($("local-recheck").hidden).toBe(false);
+    $("local-customize").click();
+    document
+      .querySelector<HTMLButtonElement>(
+        '[data-plan="source"] [data-value="local"]',
+      )!
+      .click();
+    expect($("local-model-name").textContent).toBe(
+      "Not available on this computer",
+    );
+    expect($("local-model-needs").textContent).toBe(
+      "Your NVIDIA driver supports CUDA 12.1, but local models require CUDA 12.4 or newer. Update your NVIDIA driver, then choose Check again.",
+    );
+    expect(($("local-install") as HTMLButtonElement).disabled).toBe(true);
+    $("local-recheck").click();
+    await vi.waitFor(() =>
+      expect(run).toHaveBeenCalledWith({ op: "local.recheck" }),
+    );
+    expect(document.body.textContent).not.toContain(TOOL_WORDS);
+  });
+
+  it("says the stack's memory covers the model and its services", async () => {
+    await openPage(welcome(capable), "welcome");
+    $("local-customize").click();
+    expect($("local-model-needs").textContent).toBe(
+      "6 GB download · 8 GB disk · 12 GB memory with its services",
     );
   });
 
@@ -383,14 +593,20 @@ describe("setup page Quick Install recommendation", () => {
       "welcome",
     );
     $("local-customize").click();
+    const source = (value: string) =>
+      document.querySelector<HTMLButtonElement>(
+        `[data-plan="source"] [data-value="${value}"]`,
+      )!;
     const option = (value: string) =>
       document.querySelector<HTMLButtonElement>(
         `[data-plan="runtime"] [data-value="${value}"]`,
       )!;
     option("recommended").click();
     push(welcome(capable));
-    expect(option("recommended").hidden).toBe(true);
-    expect(option("pi").getAttribute("aria-checked")).toBe("true");
+    expect(source("local").getAttribute("aria-checked")).toBe("true");
+    expect($("local-row").hidden).toBe(false);
+    expect($("subscription-row").hidden).toBe(true);
+    expect($("byok-row").hidden).toBe(true);
     expect($("local-model").getAttribute("aria-checked")).toBe("true");
     $("local-install").click();
     await vi.waitFor(() =>
@@ -398,24 +614,32 @@ describe("setup page Quick Install recommendation", () => {
     );
   });
 
-  it("marks the recommendation under Customize and installs the person's choice", async () => {
+  it("marks the recommendation under Customize and keeps model sources mutually exclusive", async () => {
     const { run } = await openPage(welcome(capable), "welcome");
     $("local-customize").click();
+    const source = (value: string) =>
+      document.querySelector<HTMLButtonElement>(
+        `[data-plan="source"] [data-value="${value}"]`,
+      )!;
     const option = (value: string) =>
       document.querySelector<HTMLButtonElement>(
         `[data-plan="runtime"] [data-value="${value}"]`,
       )!;
-    expect(option("pi").dataset.recommended).toBe("true");
-    expect(option("pi").getAttribute("aria-checked")).toBe("true");
-    expect(option("codex").dataset.recommended).toBe("false");
-    expect(option("recommended").hidden).toBe(true);
-    expect($("runtime-sub").textContent).toBe("Recommended: Pi.");
+    expect(source("local").dataset.recommended).toBe("true");
+    expect(source("local").getAttribute("aria-checked")).toBe("true");
+    expect(source("subscription").dataset.recommended).toBe("false");
+    expect($("local-row").hidden).toBe(false);
+    expect($("subscription-row").hidden).toBe(true);
+    expect($("byok-row").hidden).toBe(true);
     expect($("local-sub").textContent).toContain(
       "Recommended for this computer",
     );
     expect($("local-model").getAttribute("aria-checked")).toBe("true");
+    source("subscription").click();
+    expect($("local-row").hidden).toBe(true);
+    expect($("subscription-row").hidden).toBe(false);
+    expect($("byok-row").hidden).toBe(true);
     option("claude").click();
-    expect($("local-model").getAttribute("aria-checked")).toBe("false");
     expect($("local-install-label").textContent).toBe("Install");
     $("local-install").click();
     await vi.waitFor(() =>
@@ -429,69 +653,249 @@ describe("setup page Quick Install recommendation", () => {
       "Recommended for this computer: Local model + Pi",
     );
   });
-  it("offers the local model only with the Pi runtime", async () => {
-    const { run } = await openPage(welcome(capable), "welcome");
-    // Quick Install follows the tool's pick: Pi with the local model.
-    expect($("plan-summary").textContent).toBe(
-      "Recommended for this computer: Local model + Pi",
-    );
-    $("local-customize").click();
-    const option = (value: string) =>
-      document.querySelector<HTMLButtonElement>(
-        `[data-plan="runtime"] [data-value="${value}"]`,
-      )!;
-    const local = $("local-model") as HTMLButtonElement;
-    expect(local.getAttribute("aria-disabled")).toBe("false");
-    expect(local.hasAttribute("aria-describedby")).toBe(false);
-    expect($("local-pi-only").hidden).toBe(true);
-    for (const runtime of ["codex", "claude"]) {
-      option(runtime).click();
-      // Greyed, still focusable, and it says why.
-      expect(local.getAttribute("aria-checked")).toBe("false");
-      expect(local.getAttribute("aria-disabled")).toBe("true");
-      expect(local.disabled).toBe(false);
-      expect(local.getAttribute("aria-describedby")).toBe("local-pi-only");
-      expect($("local-pi-only").hidden).toBe(false);
-      expect($("local-pi-only").textContent).toBe(
-        "Local models are only available with the Pi runtime.",
-      );
-      // Clicking or pressing it does not pick it, nor switch the runtime.
-      local.click();
-      expect(local.getAttribute("aria-checked")).toBe("false");
-      expect(option(runtime).getAttribute("aria-checked")).toBe("true");
-    }
-    // Pi alone: the local model is off until chosen again.
-    option("pi").click();
-    expect(local.getAttribute("aria-disabled")).toBe("false");
-    expect($("local-pi-only").hidden).toBe(true);
-    expect(local.getAttribute("aria-checked")).toBe("false");
-    local.click();
-    expect(local.getAttribute("aria-checked")).toBe("true");
-    $("local-install").click();
-    await vi.waitFor(() =>
-      expect(installed(run)).toEqual([{ op: "local.start", runtime: "local" }]),
-    );
+
+  // Types into a field as a person does.
+  const type = (id: string, value: string) => {
+    const input = $(id) as HTMLInputElement;
+    input.value = value;
+    input.dispatchEvent(new Event("input"));
+  };
+  const pick = (comboId: string, value: string) => {
+    (
+      $(comboId).parentElement!.querySelector(".cb-caret") as HTMLButtonElement
+    ).click();
+    $(`${comboId}-menu`)
+      .querySelector<HTMLButtonElement>(`[data-value="${value}"]`)!
+      .click();
+  };
+  const words = (id: string) => $(id).textContent!.replace(/\s+/g, " ").trim();
+  const withLocal = (
+    base: SetupState,
+    localServer: Partial<SetupState["localServer"]>,
+  ): SetupState => ({
+    ...base,
+    localServer: { ...base.localServer, ...localServer },
   });
 
-  it("keeps a held local model on hold with Pi and says Pi is needed otherwise", async () => {
-    await openPage(welcome(held), "welcome");
+  it("builds the request address from base URL, path and endpoint, with tooltip, refresh, Test and secret scrubbing", async () => {
+    const { run } = await openPage(welcome(small), "welcome");
     $("local-customize").click();
-    const local = $("local-model") as HTMLButtonElement;
-    // Codex is the tool's pick here.
-    expect(local.disabled).toBe(true);
-    expect($("local-pi-only").hidden).toBe(false);
+    const byokSource = document.querySelector<HTMLButtonElement>(
+      '[data-plan="source"] [data-value="byok"]',
+    )!;
+    expect(byokSource.getAttribute("aria-describedby")).toBe("byok-tip-text");
+    expect($("byok-tip-text").textContent).toContain("Bring Your Own Key");
+    byokSource.click();
+    expect($("byok-row").hidden).toBe(false);
+    expect($("local-row").hidden).toBe(true);
+    expect($("subscription-row").hidden).toBe(true);
+    expect(($("local-install") as HTMLButtonElement).disabled).toBe(true);
+    // Grey defaults: /v1, and the runtime's own endpoint.
+    const path = $("byok-path") as HTMLInputElement;
+    const endpoint = $("byok-endpoint") as HTMLInputElement;
+    expect(path.value).toBe("/v1");
+    expect(endpoint.value).toBe("/messages");
+    expect(path.parentElement!.dataset.default).toBe("true");
+    expect(endpoint.parentElement!.dataset.default).toBe("true");
+    expect($("byok-status").textContent).toBe(
+      "Grey values are defaults. Path and endpoint are optional.",
+    );
+
     document
       .querySelector<HTMLButtonElement>(
-        '[data-plan="runtime"] [data-value="pi"]',
+        '[data-byok="runtime"] [data-value="codex"]',
       )!
       .click();
-    expect($("local-pi-only").hidden).toBe(true);
-    expect(local.getAttribute("aria-disabled")).toBe("false");
-    // Pi does not lift the hold: the model still waits for free memory.
-    expect(local.disabled).toBe(true);
-    expect($("local-sub").textContent).toBe(
-      "On hold: close other programs, then Check again.",
+    expect(endpoint.value).toBe("/responses");
+    type("byok-url", "https://open.bigmodel.cn/");
+    pick("byok-path", "/api/paas/v4");
+    expect(path.value).toBe("/api/paas/v4");
+    expect(path.parentElement!.dataset.default).toBe("false");
+    pick("byok-endpoint", "/chat/completions");
+    expect($("byok-status").textContent).toBe(
+      "Sends OpenAI Chat Completions requests to https://open.bigmodel.cn/api/paas/v4/chat/completions",
     );
+    type("byok-key", "sk-top-secret");
+
+    // Refresh lists the endpoint's models and opens them.
+    expect(($("byok-test") as HTMLButtonElement).disabled).toBe(true);
+    run.mockImplementationOnce(async () =>
+      withLocal(welcome(small), {
+        byokModels: {
+          state: "ready",
+          url: "https://open.bigmodel.cn/api/paas/v4/models",
+          models: [
+            { id: "glm-4.6", contextWindow: 204_800 },
+            { id: "glm-4.5-air" },
+          ],
+        },
+      }),
+    );
+    $("byok-list").click();
+    const endpointOf = {
+      baseUrl: "https://open.bigmodel.cn",
+      path: "/api/paas/v4",
+      endpoint: "/chat/completions",
+      protocol: "openai-chat",
+      apiKey: "sk-top-secret",
+    };
+    expect(run).toHaveBeenCalledWith({
+      op: "local.byok.models",
+      byok: endpointOf,
+    });
+    await vi.waitFor(() => expect($("byok-model-menu").hidden).toBe(false));
+    expect(words("byok-model-menu")).toContain(
+      "2 models from https://open.bigmodel.cn/api/paas/v4/models",
+    );
+    expect(words("byok-model-menu")).toContain("glm-4.6 200k context");
+    $("byok-model-menu")
+      .querySelector<HTMLButtonElement>('[data-value="glm-4.6"]')!
+      .click();
+    expect(($("byok-model") as HTMLInputElement).value).toBe("glm-4.6");
+    expect(($("local-install") as HTMLButtonElement).disabled).toBe(false);
+    expect($("plan-summary").textContent).toBe("BYOK · Codex · glm-4.6");
+
+    // Test sends one request and floats the outcome under the button.
+    run.mockImplementationOnce(async () =>
+      withLocal(welcome(small), {
+        byokCheck: {
+          state: "ready",
+          protocol: "openai-chat",
+          url: "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+          modelId: "glm-4.6",
+          contextWindow: 204_800,
+        },
+      }),
+    );
+    $("byok-test").click();
+    const config = { ...endpointOf, modelId: "glm-4.6", runtime: "codex" };
+    expect(run).toHaveBeenCalledWith({ op: "local.byok.check", byok: config });
+    await vi.waitFor(() => expect($("byok-toast").hidden).toBe(false));
+    expect($("byok-toast").dataset.tone).toBe("ok");
+    expect(words("byok-toast")).toBe(
+      "Connected glm-4.6 · 200k context · OpenAI Chat Completionshttps://open.bigmodel.cn/api/paas/v4/chat/completions",
+    );
+
+    $("local-install").click();
+    await vi.waitFor(() => {
+      expect(installed(run)).toEqual([
+        { op: "local.start", runtime: "codex", byok: config },
+      ]);
+      expect(($("byok-key") as HTMLInputElement).value).toBe("");
+    });
+  });
+
+  it("sends a pasted full address as is, and keeps a failed test until the fields change", async () => {
+    const { run } = await openPage(welcome(small), "welcome");
+    $("local-customize").click();
+    document
+      .querySelector<HTMLButtonElement>(
+        '[data-plan="source"] [data-value="byok"]',
+      )!
+      .click();
+    type("byok-url", "https://llm.example.com/gateway");
+    pick("byok-path", "");
+    pick("byok-endpoint", "");
+    expect(($("byok-path") as HTMLInputElement).value).toBe("");
+    // No known ending: the Claude Code runtime's own format.
+    expect($("byok-status").textContent).toBe(
+      "Sends Anthropic Messages (the Claude Code format) requests to https://llm.example.com/gateway",
+    );
+    type("byok-path", "a//b");
+    expect($("byok-status").dataset.tone).toBe("err");
+    expect(($("byok-list") as HTMLButtonElement).disabled).toBe(true);
+    type("byok-path", "");
+    type("byok-model", "claude-sonnet-4-6");
+
+    run.mockImplementationOnce(async () =>
+      withLocal(welcome(small), {
+        byokCheck: {
+          state: "failed",
+          message:
+            "Nothing answered at https://llm.example.com/gateway (HTTP 404).",
+        },
+      }),
+    );
+    $("byok-test").click();
+    expect(run).toHaveBeenCalledWith({
+      op: "local.byok.check",
+      byok: {
+        baseUrl: "https://llm.example.com/gateway",
+        path: "",
+        endpoint: "",
+        protocol: "anthropic",
+        modelId: "claude-sonnet-4-6",
+        runtime: "claude",
+      },
+    });
+    await vi.waitFor(() => expect($("byok-toast").hidden).toBe(false));
+    expect($("byok-toast").dataset.tone).toBe("err");
+    expect(words("byok-toast")).toBe(
+      "Couldn't connect Nothing answered at https://llm.example.com/gateway (HTTP 404).",
+    );
+    type("byok-model", "claude-opus-4-1");
+    expect($("byok-toast").hidden).toBe(true);
+  });
+
+  it("offers the same BYOK fields inside the runtime sign-in dialog", async () => {
+    const base = state("installing");
+    const { run } = await openPage({
+      ...base,
+      localServer: {
+        ...base.localServer,
+        steps: ["prepare", "services", "signin", "connect", "agents"],
+        step: "signin",
+        signIn: { runtime: "claude", state: "required" },
+      },
+    });
+    expect($("runtime-signin").hidden).toBe(false);
+    expect($("runtime-signin-byok").hidden).toBe(true);
+    $("runtime-signin-byok-toggle").click();
+    expect($("runtime-signin-byok").hidden).toBe(false);
+    expect(($("signin-byok-endpoint") as HTMLInputElement).value).toBe(
+      "/messages",
+    );
+    expect($("signin-byok-list")).not.toBeNull();
+    expect($("signin-byok-test")).not.toBeNull();
+    type("signin-byok-url", "https://api.anthropic.com");
+    type("signin-byok-key", "sk-ant-fallback");
+    type("signin-byok-model", "claude-sonnet-4-6");
+    $("runtime-signin-byok").dispatchEvent(
+      new Event("submit", { cancelable: true }),
+    );
+    await vi.waitFor(() =>
+      expect(run).toHaveBeenCalledWith({
+        op: "local.signin.byok",
+        byok: {
+          runtime: "claude",
+          baseUrl: "https://api.anthropic.com",
+          path: "/v1",
+          endpoint: "/messages",
+          protocol: "anthropic",
+          apiKey: "sk-ant-fallback",
+          modelId: "claude-sonnet-4-6",
+        },
+      }),
+    );
+    expect(($("signin-byok-key") as HTMLInputElement).value).toBe("");
+  });
+});
+
+describe("setup page permissions", () => {
+  it("names the menu bar on macOS and the system tray elsewhere", async () => {
+    const permissions = () =>
+      document.querySelector('[data-step="permissions"]')!.textContent!;
+    for (const [platform, place] of [
+      ["darwin", "menu bar"],
+      ["win32", "system tray"],
+      ["linux", "system tray"],
+    ] as const) {
+      await openPage({ ...welcome(capable), platform }, "welcome");
+      const words = permissions().replace(/\s+/g, " ");
+      expect(words).toContain(`Change these later from the ${place} or`);
+      expect(words).toContain(`Start in the ${place} when you log in.`);
+      if (platform !== "darwin") expect(words).not.toContain("menu bar");
+    }
   });
 });
 
@@ -666,5 +1070,121 @@ describe("setup page Send Diagnostics", () => {
     expect($("send-primary").hidden).toBe(true);
     expect($("send-lead").textContent).toContain("Save Diagnostics");
     expect($("send-close").textContent).toBe("Close");
+  });
+});
+
+describe("setup page refused install location", () => {
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = () => {};
+  });
+
+  const message = (folder: string) =>
+    `Windows private path validation failed: ${folder} is inside a folder other accounts on this computer can rename or replace. Use a current-user owned local directory without links or shared access.`;
+  const failed = (
+    location: string,
+    reason?: NonNullable<SetupState["localServer"]["refusal"]>["reason"],
+  ): SetupState => {
+    const base = state("failed");
+    return {
+      ...base,
+      platform: "win32",
+      localServer: {
+        ...base.localServer,
+        message: message(location),
+        location: { path: location, custom: true },
+        ...(reason
+          ? { refusal: { code: "WINDOWS_PRIVATE_PATH_UNSAFE", reason } }
+          : {}),
+      },
+    };
+  };
+
+  const usual = "Your data is kept. Fix the problem and try again.";
+
+  it("says where to install when a nested folder on a drive is refused", async () => {
+    const folder = "D:\\Software\\Linger";
+    const { push } = await openPage(failed(folder, "UNSAFE_PARENT_ACCESS"));
+    expect($("installing-error").textContent).toBe(message(folder));
+    expect($("installing-plan").textContent).toBe(
+      "Go back and set the install location to the drive itself (Linger installs into D:\\Linger) or an empty folder directly on the drive.",
+    );
+    // The hint leaves with the failure.
+    push(state("installing"));
+    expect($("installing-plan").textContent).toBe(
+      "This takes a few minutes. You can keep working.",
+    );
+  });
+
+  it("gives no hint the person has already followed", async () => {
+    // Directly on the drive, the drive's own permissions are what refuse it.
+    await openPage(failed("E:\\Linger", "UNSAFE_PARENT_ACCESS"));
+    expect($("installing-plan").textContent).toBe(usual);
+  });
+
+  it("keeps the hint to this refusal, known by its code", async () => {
+    await openPage(failed("D:\\Software\\Linger", "UNSAFE_OWNER"));
+    expect($("installing-plan").textContent).toBe(usual);
+    // The words alone do not bring the hint.
+    await openPage(failed("D:\\Software\\Linger"));
+    expect($("installing-plan").textContent).toBe(usual);
+  });
+});
+
+describe("setup page in Chinese", () => {
+  const zh = zhCN.setup;
+  const fill = (text: string, values: Record<string, string>) =>
+    text.replace(/\{(\w+)\}/gu, (_, name: string) => values[name]!);
+
+  it("speaks the language it was served in", async () => {
+    await openPage(welcome(capable), "welcome", "zh-CN");
+    // The harness loads the body only; static text comes from data-t.
+    expect(document.querySelector('[data-t="welcomeTitle"]')!.textContent).toBe(
+      zh.welcomeTitle,
+    );
+    expect($("plan-summary").textContent).toBe(
+      fill(zh.recommendedPlan, { plan: zh.localModelPi }),
+    );
+    expect($("plan-why").textContent).toBe(
+      [
+        "qwen3-8b",
+        fill(zh.fitsGpu, { gpu: "RTX 4090" }),
+        fill(zh.memoryAmount, { size: "64 GB" }),
+        fill(zh.downloadAmount, { size: "6 GB" }),
+      ].join(" · "),
+    );
+    expect($("local-install-label").textContent).toBe(zh.quickInstall);
+  });
+
+  it("words a held local model from the catalog", async () => {
+    await openPage(welcome(held), "welcome", "zh-CN");
+    expect($("plan-why").textContent).toBe(
+      fill(zh.heldWhy, { reasons: zh.reasonHeld, plan: "Codex" }),
+    );
+  });
+
+  it("counts the download its way", async () => {
+    const base = state("installing");
+    await openPage(
+      {
+        ...base,
+        localServer: {
+          ...base.localServer,
+          transfer: {
+            label: "Downloading the local model…",
+            completed: 3 * GB,
+            total: 4 * GB,
+            bytesPerSecond: 50 * 1024 ** 2,
+            partial: true,
+          },
+        },
+      },
+      "installing",
+      "zh-CN",
+    );
+    expect($("installing-transfer-bytes").textContent).toBe(
+      `${fill(zh.thisFile, {
+        amount: fill(zh.amountOf, { done: "3.0 GB", total: "4.0 GB" }),
+      })} · 50 MB/s`,
+    );
   });
 });

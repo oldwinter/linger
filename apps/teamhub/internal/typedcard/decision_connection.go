@@ -23,11 +23,13 @@ const connectionAuthorizationTTL = 30 * time.Minute
 var browserConnectionComputerPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
 
 // ConnectionAuthDecision asks a Human to connect a Connected App for the
-// requesting Agent. ReusePending answers a repeated request with the card
-// still waiting for it.
+// requesting Agent. Account is the identity the Agent asked for, never a
+// connection ID, and empty when it named none. ReusePending answers a repeated
+// request for the same app and account with the card still waiting for it.
 type ConnectionAuthDecision struct {
 	Prompt       string
 	AppKey       string
+	Account      string
 	ReusePending bool
 }
 
@@ -52,6 +54,7 @@ type BrowserConnectionDecision struct {
 type connectionView struct {
 	Prompt     string `json:"prompt"`
 	AppKey     string `json:"app_key,omitempty"`
+	Account    string `json:"account,omitempty"`
 	ComputerID string `json:"computer_id,omitempty"`
 }
 
@@ -66,11 +69,12 @@ func normalizeConnectionPrompt(prompt string) (string, error) {
 func (command ConnectionAuthDecision) draft() (decisionDraft, error) {
 	prompt, err := normalizeConnectionPrompt(command.Prompt)
 	appKey := strings.TrimSpace(command.AppKey)
-	if err != nil || appKey == "" || utf8.RuneCountInString(appKey) > 120 {
+	account := strings.TrimSpace(command.Account)
+	if err != nil || appKey == "" || utf8.RuneCountInString(appKey) > 120 || utf8.RuneCountInString(account) > 240 {
 		return decisionDraft{}, ErrInvalid
 	}
 	return decisionDraft{kind: DecisionKindConnectionAuth, text: prompt, request: struct{}{},
-		view: connectionView{Prompt: prompt, AppKey: appKey}, lifetime: connectionAuthorizationTTL, connection: true}, nil
+		view: connectionView{Prompt: prompt, AppKey: appKey, Account: account}, lifetime: connectionAuthorizationTTL, connection: true}, nil
 }
 
 func (command ProviderKeyDecision) draft() (decisionDraft, error) {
@@ -157,7 +161,7 @@ func connectionAuthParticipants(ctx context.Context, tx pgx.Tx, tenantID, roomID
 }
 
 // reusePendingConnectionAuth admits a connection authorization card and
-// returns the card still open for the same app, Human and Agent when the
+// returns the card still open for the same app, account, Human and Agent when the
 // command reuses one.
 func (s *Service) reusePendingConnectionAuth(
 	ctx context.Context, tx pgx.Tx, tenantID, roomID, agentID, humanID string,
@@ -179,9 +183,10 @@ func (s *Service) reusePendingConnectionAuth(
 	}
 	return pendingConnectionCard(ctx, tx, `SELECT message_id,id FROM decisions
  WHERE tenant_id=$1 AND room_id=$2 AND requested_by_actor_id=$3 AND decider_actor_id=$4
- AND kind='connection_auth' AND view->>'app_key'=$5 AND status IN ('pending','authorizing')
+ AND kind='connection_auth' AND view->>'app_key'=$5 AND coalesce(view->>'account','')=$7
+ AND status IN ('pending','authorizing')
  AND expires_at>clock_timestamp() AND alter_ego_task_id IS NOT DISTINCT FROM $6
- ORDER BY created_at DESC LIMIT 1`, tenantID, roomID, agentID, humanID, appKey, optionalText(alterEgoTaskID))
+ ORDER BY created_at DESC LIMIT 1`, tenantID, roomID, agentID, humanID, appKey, optionalText(alterEgoTaskID), strings.TrimSpace(command.Account))
 }
 
 // reusePendingProviderKey admits a Composio key card and returns the one
@@ -416,7 +421,7 @@ func (s *Service) SettleBrowserConnections(ctx context.Context, tenantID, ownerA
 }
 
 func (s *Service) settleBrowserConnection(ctx context.Context, id string) error {
-	return s.answerConnectionCard(ctx, id, "connected")
+	return s.answerConnectionCard(ctx, id, decisionAnswer{Decision: "connected"}, nil)
 }
 
 // SettleProviderKeys answers every pending Composio key card once a key is
@@ -433,14 +438,15 @@ func (s *Service) SettleProviderKeys(ctx context.Context) error {
 	}
 	var settleErr error
 	for _, id := range ids {
-		settleErr = errors.Join(settleErr, s.answerConnectionCard(ctx, id, "configured"))
+		settleErr = errors.Join(settleErr, s.answerConnectionCard(ctx, id, decisionAnswer{Decision: "configured"}, nil))
 	}
 	return settleErr
 }
 
 // answerConnectionCard answers one pending card on its decider's behalf with
-// what happened outside it, and hands the answer to its Agent.
-func (s *Service) answerConnectionCard(ctx context.Context, id, decision string) error {
+// what happened outside it, records result when it is set, and hands the
+// answer to its Agent.
+func (s *Service) answerConnectionCard(ctx context.Context, id string, answer decisionAnswer, result []byte) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -450,14 +456,14 @@ func (s *Service) answerConnectionCard(ctx context.Context, id, decision string)
 	if err != nil || !live {
 		return err
 	}
-	answer, err := json.Marshal(decisionAnswer{Decision: decision})
+	encoded, err := json.Marshal(answer)
 	if err != nil {
 		return err
 	}
 	var alterEgo bool
-	err = tx.QueryRow(ctx, `UPDATE decisions SET status='answered', answer=$2::jsonb,
+	err = tx.QueryRow(ctx, `UPDATE decisions SET status='answered', answer=$2::jsonb, result=coalesce($3::jsonb,result),
  decided_at=clock_timestamp(), decided_by_actor_id=decider_actor_id, finished_at=clock_timestamp()
- WHERE id=$1 AND status='pending' RETURNING alter_ego_task_id IS NOT NULL`, id, answer).Scan(&alterEgo)
+ WHERE id=$1 AND status='pending' RETURNING alter_ego_task_id IS NOT NULL`, id, encoded, result).Scan(&alterEgo)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
@@ -487,8 +493,9 @@ func connectionCardView(kind string, view connectionView, rawAnswer []byte) (jso
 	}
 	encoded, err := json.Marshal(struct {
 		AppKey       string `json:"app_key"`
+		Account      string `json:"account,omitempty"`
 		ConnectionID string `json:"connection_id,omitempty"`
-	}{view.AppKey, answer.ConnectionID})
+	}{view.AppKey, view.Account, answer.ConnectionID})
 	return encoded, nil, err
 }
 

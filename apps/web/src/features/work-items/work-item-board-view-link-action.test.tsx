@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { defineGlobalProperty } from "@/test/global-properties";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { Suspense } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
@@ -55,7 +56,8 @@ describe("Copy the Work Items board's view link", () => {
       WORK_ITEMS_PATH,
     ).length;
 
-    fireEvent.click(screen.getByRole("button", { name: "Copy view link" }));
+    fireEvent.click(screen.getByRole("button", { name: "Export & share" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Copy view link" }));
 
     const copied = `${window.location.origin}${BOARD_PATH}?q=release+plan&priority=high&sort=priority`;
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(copied));
@@ -87,8 +89,9 @@ describe("Copy the Work Items board's view link", () => {
 
     renderPage(runtime);
     fireEvent.click(
-      await screen.findByRole("button", { name: "Copy view link" }),
+      await screen.findByRole("button", { name: "Export & share" }),
     );
+    fireEvent.click(screen.getByRole("menuitem", { name: "Copy view link" }));
 
     await waitFor(() =>
       expect(writeText).toHaveBeenCalledWith(
@@ -100,7 +103,7 @@ describe("Copy the Work Items board's view link", () => {
 
   it("says the copy failed instead of claiming success", async () => {
     stubClipboard(() => Promise.reject(new Error("Clipboard is denied")));
-    Object.defineProperty(document, "execCommand", {
+    defineGlobalProperty(document, "execCommand", {
       configurable: true,
       value: vi.fn(() => false),
     });
@@ -110,10 +113,11 @@ describe("Copy the Work Items board's view link", () => {
 
     renderPage(runtime);
     fireEvent.click(
-      await screen.findByRole("button", { name: "Copy view link" }),
+      await screen.findByRole("button", { name: "Export & share" }),
     );
+    fireEvent.click(screen.getByRole("menuitem", { name: "Copy view link" }));
 
-    expect(await screen.findByRole("status")).toHaveTextContent("Copy failed");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Copy failed");
   });
 });
 

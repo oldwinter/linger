@@ -2,6 +2,9 @@ import { Fragment, type PropsWithChildren, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import type { TeamHubMessage } from "@/features/teamhub/teamhub-types";
+import { useT, useTranslation } from "@/i18n/use-translation";
+
+import { chatMessages } from "./chat.messages";
 
 import {
   formatMessageTime,
@@ -18,8 +21,12 @@ export function ThreadTimeline({
   canLoadEarlier,
   children,
   hasPending,
+  isError = false,
   loadingEarlier,
   onLoadEarlier,
+  onRetry,
+  onRetryOpen,
+  openError,
   opening,
   renderMessage,
   replies,
@@ -29,8 +36,12 @@ export function ThreadTimeline({
   agentWorking: boolean;
   canLoadEarlier: boolean;
   hasPending: boolean;
+  isError?: boolean;
   loadingEarlier: boolean;
   onLoadEarlier: () => void;
+  onRetry?: () => void;
+  onRetryOpen?: () => void;
+  openError?: string | null;
   opening: boolean;
   renderMessage: (
     message: TeamHubMessage,
@@ -41,11 +52,12 @@ export function ThreadTimeline({
   rootMessage: TeamHubMessage;
   timeline: ReturnType<typeof useRoomTimelineScroll>;
 }>) {
+  const t = useT();
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
       <div
         aria-busy={opening || undefined}
-        aria-label="Thread timeline"
+        aria-label={t(chatMessages.threadTimeline)}
         data-voice-scroll="thread"
         className="workspace-scrollbar min-h-0 flex-1 overflow-y-auto px-3 pt-3 pb-10 [overflow-anchor:none]"
         data-initial-scroll-ready={timeline.initialScrollReady}
@@ -58,23 +70,51 @@ export function ThreadTimeline({
         {opening ? (
           <div className="mt-4 space-y-3" data-testid="thread-panel-loading">
             <p className="text-[12px] font-medium text-app-muted">
-              Opening Thread…
+              {t(chatMessages.openingThread)}
             </p>
             <div className="h-16 animate-pulse rounded-lg bg-app-hover" />
             <div className="h-16 animate-pulse rounded-lg bg-app-hover" />
           </div>
         ) : null}
+        {openError ? (
+          <div
+            className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-app-border bg-app-surface-soft px-3 py-2.5 text-xs text-app-danger"
+            role="alert"
+          >
+            <p className="min-w-0 flex-1">{openError}</p>
+            {onRetryOpen ? (
+              <Button onClick={onRetryOpen} size="compact" tone="secondary">
+                Retry
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+        {!openError && !opening && isError ? (
+          <div
+            className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-app-border bg-app-surface-soft px-3 py-2.5 text-xs text-app-danger"
+            role="alert"
+          >
+            <p className="min-w-0 flex-1">
+              Replies could not be loaded. Try again.
+            </p>
+            {onRetry ? (
+              <Button onClick={onRetry} size="compact" tone="secondary">
+                Retry
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
         {replies.length || hasPending ? (
           <div className="my-4 flex items-center gap-2 text-[12px] text-app-subtle">
             <span className="h-px flex-1 bg-app-border" />
-            Replies
+            {t(chatMessages.replies)}
             <span className="h-px flex-1 bg-app-border" />
           </div>
         ) : null}
         {canLoadEarlier ? (
           <div className="mb-3 text-center">
             <Button loading={loadingEarlier} onClick={onLoadEarlier}>
-              Load earlier replies
+              {t(chatMessages.loadEarlierReplies)}
             </Button>
           </div>
         ) : null}
@@ -114,9 +154,10 @@ export function ThreadTimeline({
 }
 
 function ConversationTime({ at }: { at: string }) {
+  const translation = useTranslation();
   return (
     <div className="room-conversation-time text-center text-xs text-app-subtle">
-      <time dateTime={at}>{formatMessageTime(at)}</time>
+      <time dateTime={at}>{formatMessageTime(at, translation)}</time>
     </div>
   );
 }

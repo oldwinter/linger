@@ -2,20 +2,27 @@ import { Suspense, type ReactNode } from "react";
 import { useLocation, useNavigation } from "react-router";
 
 import { Skeleton } from "@/components/ui/skeleton";
+import { useT } from "@/i18n/use-translation";
 import { routeLayoutKey } from "./route-layout-key";
+import { shellExtrasMessages as m } from "./shell-extras.messages";
 
-const CONTENT_LOADING = (
-  <div
-    role="status"
-    aria-label="Loading content"
-    aria-busy="true"
-    className="route-loading-surface min-w-0 flex-1 space-y-4 p-6"
-  >
-    <span className="sr-only">Loading content...</span>
-    <Skeleton className="h-6 w-40" />
-    <Skeleton className="h-24 w-full" />
-  </div>
-);
+function ContentLoading() {
+  const t = useT();
+  return (
+    <div
+      role="status"
+      aria-label={t(m.loadingContent)}
+      aria-busy="true"
+      className="route-loading-surface min-w-0 flex-1 space-y-4 p-6"
+    >
+      <span className="sr-only">{t(m.loadingContentStatus)}</span>
+      <Skeleton className="h-6 w-40" />
+      <Skeleton className="h-24 w-full" />
+    </div>
+  );
+}
+
+const CONTENT_LOADING = <ContentLoading />;
 
 /** Secondary navigation survives both route-module and query loading. */
 export function RouteContentBoundary({ children }: { children: ReactNode }) {

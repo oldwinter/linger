@@ -1,0 +1,55 @@
+<!-- The page side of a shell page's messages; src/i18n/page.ts puts this
+script in front of the page's own, with the messages in a JSON block. -->
+<script>
+  const MESSAGES = JSON.parse(
+    document.getElementById("linger-messages").textContent,
+  );
+  // A message's text in the language it resolved to, its plural form picked
+  // by `count`.
+  const pickMessage = (name, values) => {
+    const [language, source] = MESSAGES.messages[name] ?? ["en", name];
+    const text =
+      typeof source === "string"
+        ? source
+        : (source[new Intl.PluralRules(language).select(values.count)] ??
+          source.other);
+    return { language, text };
+  };
+  // Fills each {name}; numbers are grouped the way the language writes them.
+  const fillMessage = ({ language, text }, values) =>
+    text.replace(/\{(\w+)\}/gu, (placeholder, key) => {
+      const value = values[key];
+      if (value === undefined) return placeholder;
+      return typeof value === "number"
+        ? new Intl.NumberFormat(language).format(value)
+        : value;
+    });
+  const t = (name, values = {}) =>
+    fillMessage(pickMessage(name, values), values);
+  // The message as nodes, each <name>…</name> span as <span class="name"> so
+  // the page can style it. The spans come from the message alone: a value
+  // that contains a tag stays text.
+  const tSpans = (name, values = {}) => {
+    const picked = pickMessage(name, values);
+    const fill = (text) => fillMessage({ ...picked, text }, values);
+    const nodes = [];
+    let end = 0;
+    for (const match of picked.text.matchAll(/<(\w+)>(.*?)<\/\1>/gsu)) {
+      nodes.push(fill(picked.text.slice(end, match.index)));
+      const span = document.createElement("span");
+      span.className = match[1];
+      span.textContent = fill(match[2]);
+      nodes.push(span);
+      end = match.index + match[0].length;
+    }
+    nodes.push(fill(picked.text.slice(end)));
+    return nodes.filter((node) => node !== "");
+  };
+  // Static text names its message: data-t for the text, data-t-<attribute>
+  // for an attribute.
+  for (const el of document.querySelectorAll("[data-t]"))
+    el.textContent = t(el.dataset.t);
+  for (const attribute of ["title", "aria-label", "placeholder", "alt"])
+    for (const el of document.querySelectorAll(`[data-t-${attribute}]`))
+      el.setAttribute(attribute, t(el.getAttribute(`data-t-${attribute}`)));
+</script>

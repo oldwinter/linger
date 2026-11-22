@@ -56,7 +56,10 @@ vi.mock(
   "@/features/rooms/documents/room-document-blocknote-editor-loader",
   () => ({
     RoomDocumentBlockNoteEditor: ({ editable }: { editable: boolean }) => (
-      <section aria-label="Room Document editor">
+      <section
+        aria-label="Room Document editor"
+        className="room-document-blocknote"
+      >
         <div className="bn-editor" data-editable={String(editable)}>
           Room BlockNote editor
         </div>

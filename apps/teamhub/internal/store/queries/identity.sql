@@ -131,3 +131,9 @@ SELECT pg_advisory_xact_lock(hashtextextended(sqlc.arg(lock_key), 0));
 
 -- name: AcquireAdvisoryTransactionSharedLock :exec
 SELECT pg_advisory_xact_lock_shared(hashtextextended(sqlc.arg(lock_key), 0));
+
+-- name: AcquireAdvisorySessionLock :exec
+SELECT pg_advisory_lock(hashtextextended(sqlc.arg(lock_key), 0));
+
+-- name: ReleaseAdvisorySessionLock :one
+SELECT pg_advisory_unlock(hashtextextended(sqlc.arg(lock_key), 0));

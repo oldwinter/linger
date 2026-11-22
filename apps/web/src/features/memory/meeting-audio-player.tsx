@@ -40,6 +40,10 @@ import {
   type MeetingPlaybackRate,
 } from "./meeting-playback-speed";
 
+import { useT } from "@/i18n/use-translation";
+
+import { meetingsMessages as m } from "./meetings.messages";
+
 /** "754.2" seconds -> "12:34"; hours appear only when needed. */
 export function formatPlaybackTime(seconds: number) {
   if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
@@ -131,6 +135,7 @@ export function MeetingAudioPlayer({
   /** Replaces the time line, e.g. while the recording is still loading. */
   status?: string;
 }) {
+  const t = useT();
   const audioRef = useRef<HTMLAudioElement>(null);
   const earRef = useRef<MeetingEarWalk | undefined>(undefined);
   const sectionRef = useRef<HTMLElement>(null);
@@ -469,7 +474,7 @@ export function MeetingAudioPlayer({
 
   return (
     <section
-      aria-label="Meeting recording"
+      aria-label={t(m.recording)}
       className="flex items-center gap-3 rounded-xl border border-app-border bg-app-surface px-3 py-2.5"
       ref={sectionRef}
     >
@@ -527,7 +532,7 @@ export function MeetingAudioPlayer({
         </audio>
       ) : null}
       <button
-        aria-label={playing ? "Pause recording" : "Play recording"}
+        aria-label={t(playing ? m.pauseRecording : m.playRecording)}
         className="flex size-9 shrink-0 items-center justify-center rounded-full bg-app-ink text-app-surface transition-[transform,opacity] duration-150 active:scale-95 disabled:opacity-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus focus-visible:ring-offset-2"
         disabled={!ready}
         onClick={toggle}
@@ -542,18 +547,21 @@ export function MeetingAudioPlayer({
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-3">
           <span className="truncate text-[14px] font-medium text-app-ink">
-            Meeting recording
+            {t(m.recording)}
           </span>
           <span className="shrink-0 text-[12px] tabular-nums text-app-muted">
             {failed
-              ? "This browser cannot play it; download instead."
+              ? t(m.cannotPlay)
               : (status ??
                 `${formatPlaybackTime(current)} / ${formatPlaybackTime(duration)}`)}
           </span>
         </div>
         <input
-          aria-label="Seek recording"
-          aria-valuetext={`${formatPlaybackTime(current)} of ${formatPlaybackTime(duration)}`}
+          aria-label={t(m.seekRecording)}
+          aria-valuetext={t(m.playbackPosition, {
+            current: formatPlaybackTime(current),
+            total: formatPlaybackTime(duration),
+          })}
           className="meeting-audio-track mt-1.5 block w-full"
           disabled={!ready || !duration}
           max={duration || 0}
@@ -639,11 +647,11 @@ export function MeetingAudioPlayer({
         </span>
       ) : null}
       <button
-        aria-label={`Download ${filename}`}
+        aria-label={t(m.downloadFile, { filename })}
         className="flex size-8 shrink-0 items-center justify-center rounded-lg text-app-muted transition-colors hover:bg-app-hover hover:text-app-ink disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
         disabled={downloadDisabled}
         onClick={onDownload}
-        title="Download recording"
+        title={t(m.downloadRecording)}
         type="button"
       >
         <Icon icon={Download01Icon} size={16} />

@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -21,6 +20,13 @@ type DiscordIdentity struct {
 var (
 	ErrDiscordGuildRequired      = errors.New("Discord server must be selected")
 	ErrDiscordGuildNotAccessible = errors.New("Discord server is not accessible")
+	// ErrDiscordToolRefused marks a Discord tool execution that Composio
+	// reported unsuccessful without a status code, so callers can tell a
+	// refusal from a transient failure without reading its text.
+	ErrDiscordToolRefused = errors.New("Discord tool execution was refused")
+	// ErrDiscordChannelGuildUnknown marks a channel lookup that succeeded but
+	// did not name the channel's server.
+	ErrDiscordChannelGuildUnknown = errors.New("Discord channel response was incomplete")
 )
 
 type DiscordChannel struct {
@@ -52,68 +58,100 @@ type DiscordMessagePage struct {
 	NextBefore string
 }
 
+// Discord tools are pinned so a TeamHub release keeps its behavior when
+// Composio publishes a new tool version. Composio disables Proxy Execute for
+// discordbot, so every Discord read goes through these tools.
+const discordToolVersion = "20261116_00"
+
+// executeDiscordTool runs a read-only Discord tool for the bound user and
+// decodes its data into target. A failed execution is classified only by the
+// structured data.status_code, never by the error prose.
+func (c *Client) executeDiscordTool(ctx context.Context, connectedAccountID, slug string, arguments map[string]any, target any, operation string) error {
+	binding, err := c.authorizeConnection(ctx, connectedAccountID)
+	if err != nil {
+		return err
+	}
+	request := struct {
+		ConnectedAccountID string         `json:"connected_account_id"`
+		UserID             string         `json:"user_id"`
+		Version            string         `json:"version"`
+		Arguments          map[string]any `json:"arguments"`
+	}{ConnectedAccountID: connectedAccountID, UserID: binding.UserID, Version: discordToolVersion, Arguments: arguments}
+	var response struct {
+		Data       json.RawMessage `json:"data"`
+		Successful bool            `json:"successful"`
+	}
+	endpoint := "/api/v3.1/tools/execute/" + url.PathEscape(slug)
+	if err := c.requestJSON(ctx, http.MethodPost, endpoint, request, &response, operation); err != nil {
+		return err
+	}
+	if !response.Successful {
+		var failure struct {
+			StatusCode int `json:"status_code"`
+		}
+		_ = decodeDiscordToolData(response.Data, &failure)
+		switch {
+		case failure.StatusCode == http.StatusTooManyRequests:
+			return &RateLimitError{Operation: operation}
+		case failure.StatusCode > 0:
+			return &remoteError{operation: operation, status: failure.StatusCode}
+		default:
+			return fmt.Errorf("Composio %s failed: %w", operation, ErrDiscordToolRefused)
+		}
+	}
+	if err := decodeDiscordToolData(response.Data, target); err != nil {
+		return fmt.Errorf("Composio %s returned an invalid response", operation)
+	}
+	return nil
+}
+
+// decodeDiscordToolData accepts data as an object or as a string holding an
+// object: Composio documents a string, but the live tools return objects.
+func decodeDiscordToolData(data json.RawMessage, target any) error {
+	payload := data
+	if len(payload) > 0 && payload[0] == '"' {
+		var encoded string
+		if err := json.Unmarshal(payload, &encoded); err != nil {
+			return err
+		}
+		payload = []byte(strings.TrimSpace(encoded))
+	}
+	if len(payload) == 0 || payload[0] != '{' {
+		return errors.New("Discord tool data was not an object")
+	}
+	return json.Unmarshal(payload, target)
+}
+
+// IdentifyDiscord returns the server the bot connection was installed in. It
+// fails closed with ErrDiscordGuildRequired unless Composio reports a valid
+// server id and a readable name.
 func (c *Client) IdentifyDiscord(ctx context.Context, connectedAccountID string) (DiscordIdentity, error) {
-	if _, err := c.authorizeConnection(ctx, connectedAccountID); err != nil {
+	var guild struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	if err := c.executeDiscordTool(ctx, connectedAccountID, "DISCORDBOT_GET_CONNECTED_GUILD", map[string]any{}, &guild, "identify Discord installation"); err != nil {
 		return DiscordIdentity{}, err
 	}
-	var account struct {
-		Toolkit struct {
-			Slug string `json:"slug"`
-		} `json:"toolkit"`
-		State *struct {
-			Val json.RawMessage `json:"val"`
-		} `json:"state"`
-	}
-	endpoint := "/api/v3.1/connected_accounts/" + url.PathEscape(connectedAccountID)
-	if err := c.requestJSON(ctx, http.MethodGet, endpoint, nil, &account, "identify Discord installation"); err != nil {
-		return DiscordIdentity{}, err
-	}
-	if account.Toolkit.Slug != "discordbot" || account.State == nil {
-		return DiscordIdentity{}, errors.New("Discord installation response was incomplete")
-	}
-	var state struct {
-		Guild struct {
-			ID   string `json:"id"`
-			Name string `json:"name"`
-		} `json:"guild"`
-		GuildID string `json:"guild_id"`
-		OAuth2  struct {
-			Guild struct {
-				ID   string `json:"id"`
-				Name string `json:"name"`
-			} `json:"guild"`
-		} `json:"oauth2"`
-	}
-	payload := account.State.Val
-	var encoded string
-	if len(payload) > 0 && payload[0] == '"' && json.Unmarshal(payload, &encoded) == nil {
-		payload = []byte(encoded)
-	}
-	if err := json.Unmarshal(payload, &state); err != nil {
-		return DiscordIdentity{}, errors.New("Discord installation state was invalid")
-	}
-	guildID, guildName := state.Guild.ID, state.Guild.Name
-	if guildID == "" {
-		guildID = state.OAuth2.Guild.ID
-		guildName = state.OAuth2.Guild.Name
-	}
-	if guildID == "" {
-		guildID = state.GuildID
-	}
-	if guildID == "" || strings.EqualFold(strings.TrimSpace(guildID), "REDACTED") {
+	name := strings.TrimSpace(guild.Name)
+	if !validDiscordGuildID(guild.ID) || name == "" || strings.EqualFold(name, "REDACTED") {
 		return DiscordIdentity{}, ErrDiscordGuildRequired
 	}
-	guild, err := c.GetDiscordGuild(ctx, connectedAccountID, guildID)
-	if err != nil {
-		return DiscordIdentity{}, err
+	return DiscordIdentity{GuildID: guild.ID, GuildName: name}, nil
+}
+
+// validDiscordGuildID accepts only Discord snowflakes so a redacted or
+// malformed value never becomes a bound identity.
+func validDiscordGuildID(id string) bool {
+	if len(id) < 17 || len(id) > 20 {
+		return false
 	}
-	if guild.GuildName != "" {
-		guildName = guild.GuildName
+	for _, r := range id {
+		if r < '0' || r > '9' {
+			return false
+		}
 	}
-	if strings.TrimSpace(guildName) == "" {
-		return DiscordIdentity{}, errors.New("Discord installation guild name was missing")
-	}
-	return DiscordIdentity{GuildID: guildID, GuildName: guildName}, nil
+	return true
 }
 
 func (c *Client) GetDiscordGuild(ctx context.Context, connectedAccountID, guildID string) (DiscordIdentity, error) {
@@ -124,8 +162,7 @@ func (c *Client) GetDiscordGuild(ctx context.Context, connectedAccountID, guildI
 		ID   string `json:"id"`
 		Name string `json:"name"`
 	}
-	endpoint := "/guilds/" + url.PathEscape(guildID)
-	if err := c.proxy(ctx, proxyRequest{ConnectedAccountID: connectedAccountID, Endpoint: endpoint, Method: http.MethodGet}, &wire, "get Discord guild"); err != nil {
+	if err := c.executeDiscordTool(ctx, connectedAccountID, "DISCORDBOT_GET_GUILD", map[string]any{"guild_id": guildID}, &wire, "get Discord guild"); err != nil {
 		var remote *remoteError
 		if errors.As(err, &remote) && (remote.status == http.StatusForbidden || remote.status == http.StatusNotFound) {
 			return DiscordIdentity{}, ErrDiscordGuildNotAccessible
@@ -138,20 +175,41 @@ func (c *Client) GetDiscordGuild(ctx context.Context, connectedAccountID, guildI
 	return DiscordIdentity{GuildID: wire.ID, GuildName: wire.Name}, nil
 }
 
-func (c *Client) ListDiscordChannels(ctx context.Context, connectedAccountID, guildID string) ([]DiscordChannel, error) {
-	var wire []struct {
-		ID       string `json:"id"`
-		GuildID  string `json:"guild_id"`
-		ParentID string `json:"parent_id"`
-		Name     string `json:"name"`
-		Type     int    `json:"type"`
+// GetDiscordChannelGuild returns the server a channel or thread belongs to.
+// A response without a string guild_id fails with
+// ErrDiscordChannelGuildUnknown.
+func (c *Client) GetDiscordChannelGuild(ctx context.Context, connectedAccountID, channelID string) (string, error) {
+	if channelID == "" {
+		return "", errors.New("Discord channel id is required")
 	}
-	endpoint := "/guilds/" + url.PathEscape(guildID) + "/channels"
-	if err := c.proxy(ctx, proxyRequest{ConnectedAccountID: connectedAccountID, Endpoint: endpoint, Method: http.MethodGet}, &wire, "list Discord guild channels"); err != nil {
+	var wire struct {
+		GuildID any `json:"guild_id"`
+	}
+	if err := c.executeDiscordTool(ctx, connectedAccountID, "DISCORDBOT_GET_CHANNEL", map[string]any{"channel_id": channelID}, &wire, "get Discord channel"); err != nil {
+		return "", err
+	}
+	guildID, _ := wire.GuildID.(string)
+	if guildID == "" {
+		return "", ErrDiscordChannelGuildUnknown
+	}
+	return guildID, nil
+}
+
+func (c *Client) ListDiscordChannels(ctx context.Context, connectedAccountID, guildID string) ([]DiscordChannel, error) {
+	var wire struct {
+		Channels []struct {
+			ID       string `json:"id"`
+			GuildID  string `json:"guild_id"`
+			ParentID string `json:"parent_id"`
+			Name     string `json:"name"`
+			Type     int    `json:"type"`
+		} `json:"channels"`
+	}
+	if err := c.executeDiscordTool(ctx, connectedAccountID, "DISCORDBOT_LIST_GUILD_CHANNELS", map[string]any{"guild_id": guildID}, &wire, "list Discord guild channels"); err != nil {
 		return nil, err
 	}
-	channels := make([]DiscordChannel, 0, len(wire))
-	for _, item := range wire {
+	channels := make([]DiscordChannel, 0, len(wire.Channels))
+	for _, item := range wire.Channels {
 		if item.ID == "" || item.GuildID != guildID || strings.TrimSpace(item.Name) == "" {
 			return nil, errors.New("Discord channel response was incomplete")
 		}
@@ -166,8 +224,7 @@ func (c *Client) ListDiscordActiveThreads(ctx context.Context, connectedAccountI
 	var wire struct {
 		Threads []discordThreadWire `json:"threads"`
 	}
-	endpoint := "/guilds/" + url.PathEscape(guildID) + "/threads/active"
-	if err := c.proxy(ctx, proxyRequest{ConnectedAccountID: connectedAccountID, Endpoint: endpoint, Method: http.MethodGet}, &wire, "list active Discord threads"); err != nil {
+	if err := c.executeDiscordTool(ctx, connectedAccountID, "DISCORDBOT_GET_ACTIVE_GUILD_THREADS", map[string]any{"guild_id": guildID}, &wire, "list active Discord threads"); err != nil {
 		return nil, err
 	}
 	return normalizeDiscordThreads(guildID, wire.Threads)
@@ -177,16 +234,15 @@ func (c *Client) ListDiscordArchivedThreads(ctx context.Context, connectedAccoun
 	if guildID == "" || channelID == "" || limit < 1 || limit > 100 {
 		return DiscordThreadPage{}, errors.New("invalid Discord archived thread request")
 	}
-	parameters := []proxyParameter{{Name: "limit", Value: strconv.Itoa(limit), Type: "query"}}
+	arguments := map[string]any{"channel_id": channelID, "limit": limit}
 	if cursor != "" {
-		parameters = append(parameters, proxyParameter{Name: "before", Value: cursor, Type: "query"})
+		arguments["before"] = cursor
 	}
 	var wire struct {
 		Threads []discordThreadWire `json:"threads"`
 		HasMore bool                `json:"has_more"`
 	}
-	endpoint := "/channels/" + url.PathEscape(channelID) + "/threads/archived/public"
-	if err := c.proxy(ctx, proxyRequest{ConnectedAccountID: connectedAccountID, Endpoint: endpoint, Method: http.MethodGet, Parameters: parameters}, &wire, "list archived Discord threads"); err != nil {
+	if err := c.executeDiscordTool(ctx, connectedAccountID, "DISCORDBOT_LIST_PUBLIC_ARCHIVED_THREADS", arguments, &wire, "list archived Discord threads"); err != nil {
 		return DiscordThreadPage{}, err
 	}
 	threads, err := normalizeDiscordThreads(guildID, wire.Threads)
@@ -243,36 +299,17 @@ func (c *Client) ListDiscordMessages(ctx context.Context, connectedAccountID, ch
 	if channelID == "" || limit < 1 || limit > 100 {
 		return DiscordMessagePage{}, errors.New("invalid Discord message page request")
 	}
-	parameters := []proxyParameter{{Name: "limit", Value: strconv.Itoa(limit), Type: "query"}}
+	arguments := map[string]any{"channel_id": channelID, "limit": limit}
 	if before != "" {
-		parameters = append(parameters, proxyParameter{Name: "before", Value: before, Type: "query"})
+		arguments["before"] = before
 	}
-	var wire []struct {
-		ID              string `json:"id"`
-		ChannelID       string `json:"channel_id"`
-		Content         string `json:"content"`
-		Timestamp       string `json:"timestamp"`
-		EditedTimestamp string `json:"edited_timestamp"`
-		Type            int    `json:"type"`
-		Author          struct {
-			ID         string `json:"id"`
-			Username   string `json:"username"`
-			GlobalName string `json:"global_name"`
-			Bot        bool   `json:"bot"`
-		} `json:"author"`
-		Member struct {
-			Nick string `json:"nick"`
-		} `json:"member"`
-		Attachments []struct {
-			ID       string `json:"id"`
-			Filename string `json:"filename"`
-			URL      string `json:"url"`
-		} `json:"attachments"`
+	var envelope struct {
+		Messages []discordMessageWire `json:"messages"`
 	}
-	endpoint := "/channels/" + url.PathEscape(channelID) + "/messages"
-	if err := c.proxy(ctx, proxyRequest{ConnectedAccountID: connectedAccountID, Endpoint: endpoint, Method: http.MethodGet, Parameters: parameters}, &wire, "list Discord messages"); err != nil {
+	if err := c.executeDiscordTool(ctx, connectedAccountID, "DISCORDBOT_LIST_MESSAGES", arguments, &envelope, "list Discord messages"); err != nil {
 		return DiscordMessagePage{}, err
 	}
+	wire := envelope.Messages
 	page := DiscordMessagePage{}
 	for _, item := range wire {
 		timestamp, err := time.Parse(time.RFC3339Nano, item.Timestamp)
@@ -303,6 +340,29 @@ func (c *Client) ListDiscordMessages(ctx context.Context, connectedAccountID, ch
 		page.NextBefore = wire[len(wire)-1].ID
 	}
 	return page, nil
+}
+
+type discordMessageWire struct {
+	ID              string `json:"id"`
+	ChannelID       string `json:"channel_id"`
+	Content         string `json:"content"`
+	Timestamp       string `json:"timestamp"`
+	EditedTimestamp string `json:"edited_timestamp"`
+	Type            int    `json:"type"`
+	Author          struct {
+		ID         string `json:"id"`
+		Username   string `json:"username"`
+		GlobalName string `json:"global_name"`
+		Bot        bool   `json:"bot"`
+	} `json:"author"`
+	Member struct {
+		Nick string `json:"nick"`
+	} `json:"member"`
+	Attachments []struct {
+		ID       string `json:"id"`
+		Filename string `json:"filename"`
+		URL      string `json:"url"`
+	} `json:"attachments"`
 }
 
 func RenderDiscordDocumentsWithLimits(identity DiscordIdentity, channels map[string]DiscordChannel, messages []DiscordMessage, limits AppImportLimits) ([]AppDocument, error) {

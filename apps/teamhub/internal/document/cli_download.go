@@ -80,6 +80,28 @@ func (s *Service) DownloadAgentFileAs(ctx context.Context, tenantID, agentID, do
 	return s.DownloadAgentFileConditional(ctx, tenantID, agentID, documentID, format, "")
 }
 
+// DownloadHumanFileAs exports the latest native content under current Human access.
+func (s *Service) DownloadHumanFileAs(ctx context.Context, accountID, documentID, format string) (AgentFileDownload, error) {
+	if format != "markdown" && format != "blocks" {
+		return AgentFileDownload{}, ErrInvalidInput
+	}
+	return s.readLatestAgentDownload(ctx, func() (AgentFileDownload, error) {
+		tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
+		if err != nil {
+			return AgentFileDownload{}, err
+		}
+		defer tx.Rollback(ctx)
+		value, err := get(ctx, tx, accountID, documentID)
+		if err != nil {
+			return AgentFileDownload{}, err
+		}
+		if !value.Capabilities.Export || value.AccessV2 == nil {
+			return AgentFileDownload{}, ErrNotFound
+		}
+		return s.downloadAuthorizedFile(ctx, tx, value.TenantID, documentID, value.AccessV2.ContentRole, format, "", "human")
+	})
+}
+
 func (s *Service) DownloadAgentFileConditional(ctx context.Context, tenantID, agentID, documentID, format, ifNoneMatch string) (AgentFileDownload, error) {
 	if format != "markdown" && format != "html" && format != "blocks" {
 		return AgentFileDownload{}, ErrInvalidInput

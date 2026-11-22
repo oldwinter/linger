@@ -53,13 +53,13 @@ var AppTools = []Tool{
 	{
 		Name: ToolSendEmailCanvas,
 		Description: "Send a Gmail canvas in this room from the user's Gmail. It saves the canvas as a draft first, so what is sent is exactly the canvas; the canvas's file blocks go as attachments. " +
-			"This cannot be undone: first call without confirmed; it returns needs_confirmation with who it goes to, the subject and any attachments: say that and that it cannot be undone, and ask the user. Only after they clearly say yes in their next turn, call again with the same document_id and confirmed=true. " +
-			"A canvas changed after the question asks again. Say it was sent only when the result is sent; outcome_unknown means it may have gone out: never send again, ask the user to check their Sent folder. " +
+			"The canvas is open beside the chat, so the user has seen it: when the user tells you to send it, call with confirmed=true and it is sent, without asking again. When you are not sure they want it sent now, call without confirmed: it returns needs_confirmation with who it goes to, the subject and any attachments; say that and that it cannot be undone, ask, and after they say yes in their next turn call again with confirmed=true. " +
+			"Before the result, say only that you are sending it, never that it was sent. Say it was sent only when the result is sent; outcome_unknown means it may have gone out: never send again, ask the user to check their Sent folder. " +
 			"no_recipients: ask who it goes to and set them with edit_email_canvas first. " + accountChoice,
 		Parameters: objectSchema([]string{"document_id", "confirmed"}, map[string]any{
 			"document_id": stringProperty("The canvas, from open_email_canvas"),
 			"account":     stringProperty("Optional Gmail address to send from"),
-			"confirmed":   map[string]any{"type": "boolean", "description": "Whether the user said yes to sending it, in their own next turn"},
+			"confirmed":   map[string]any{"type": "boolean", "description": "true when the user, in their own latest turn, told you to send this email"},
 		}),
 	},
 	{

@@ -1,4 +1,8 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  focusManager,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query";
 import {
   act,
   fireEvent,
@@ -9,13 +13,21 @@ import {
 } from "@testing-library/react";
 import { Suspense } from "react";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { anotherMeQueryKey } from "@/features/rooms/room-queries";
+import {
+  anotherMeQueryKey,
+  teamHubIdentityQueryOptions,
+  teamHubTenantQueryOptions,
+} from "@/features/rooms/room-queries";
 import { RoomShell } from "@/features/rooms/room-shell";
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubLocalComputerPage } from "@/features/teamhub/teamhub-types";
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
+import {
+  teamHubErrorResponse,
+  type TestRouteHandler,
+} from "@/test/teamhub-test-server";
 
 type LocalComputer = TeamHubLocalComputerPage["items"][number];
 
@@ -46,7 +58,7 @@ const newMac: LocalComputer = {
 
 describe("Local Computer gate", () => {
   it("covers the product until a Computer runs an AI app, then opens the Another Me Chat", async () => {
-    const fixture = renderShell(newMac);
+    const fixture = await renderShell(newMac);
 
     const gate = await screen.findByRole("dialog", {
       name: "Connect your computer",
@@ -81,7 +93,7 @@ describe("Local Computer gate", () => {
 
   it("lets a Computer with no ready app open Settings to load a local model", async () => {
     // Pi with no model yet: nothing can run Another Me until one is loaded.
-    const fixture = renderShell({
+    const fixture = await renderShell({
       ...newMac,
       runtimes: [
         {
@@ -97,12 +109,12 @@ describe("Local Computer gate", () => {
       name: "Connect your computer",
     });
     fireEvent.click(
-      await within(gate).findByRole("link", { name: "Local models" }),
+      await within(gate).findByRole("link", { name: "Settings › Models" }),
     );
 
     await waitFor(() =>
       expect(fixture.router.state.location.pathname).toBe(
-        "/t/tenant-northstar/settings/local-models",
+        "/t/tenant-northstar/settings/models",
       ),
     );
     expect(fixture.router.state.location.search).toBe(
@@ -124,20 +136,60 @@ describe("Local Computer gate", () => {
       }),
     );
     expect(fixture.router.state.location.pathname).toBe(
-      "/t/tenant-northstar/settings/local-models",
+      "/t/tenant-northstar/settings/models",
     );
   });
 
   it("keeps covering the rest of the product while Another Me is missing", async () => {
-    renderShell(newMac, "/t/tenant-northstar/rooms/room-1/chat");
+    await renderShell(newMac, "/t/tenant-northstar/rooms/room-1/chat");
     expect(
       await screen.findByRole("dialog", { name: "Connect your computer" }),
     ).toBeVisible();
     expect(screen.getByText("Shell content").closest("[inert]")).not.toBeNull();
   });
 
+  it("keeps polling while the page is hidden so a preloaded desktop window leaves the gate", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const fixture = await renderShell({
+      ...newMac,
+      runtimes: [
+        {
+          models: [{ id: "claude-sonnet", label: "Claude Sonnet" }],
+          status: "ready",
+          type: "claude",
+          version: "2.1.0",
+        },
+      ],
+    });
+    expect(await screen.findByText(/Creating your Another Me/)).toBeVisible();
+    act(() => focusManager.setFocused(false));
+    const server = fixture.runtime.server;
+    const anotherMeGets = () =>
+      server.requestsTo("GET", "/v0/tenants/{tenantId}/another-me").length;
+    const computerGets = () =>
+      server.requestsTo("GET", "/v0/tenants/{tenantId}/local-computers").length;
+    const before = { anotherMe: anotherMeGets(), computers: computerGets() };
+
+    await act(() => vi.advanceTimersByTimeAsync(3_100));
+    await act(() => vi.advanceTimersByTimeAsync(3_100));
+
+    expect(anotherMeGets()).toBeGreaterThanOrEqual(before.anotherMe + 2);
+    expect(computerGets()).toBeGreaterThanOrEqual(before.computers + 2);
+
+    fixture.anotherMe = {
+      agent_actor_id: "actor-anotherme",
+      room_id: "room-another-me",
+    };
+    await act(() => vi.advanceTimersByTimeAsync(3_100));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "Connect your computer" }),
+      ).toBeNull(),
+    );
+  });
+
   it("waits for the CLI login while no Computer is connected", async () => {
-    renderShell();
+    await renderShell();
 
     const gate = await screen.findByRole("dialog", {
       name: "Connect your computer",
@@ -150,19 +202,77 @@ describe("Local Computer gate", () => {
       within(gate).getByRole("button", { name: "Sign out" }),
     ).toBeEnabled();
   });
+
+  it("shows an alert with Retry instead of an endless waiting spinner when loading computers fails", async () => {
+    const runtime = createTestTeamHubRuntime();
+    const listComputers = vi
+      .fn<TestRouteHandler>()
+      .mockReturnValueOnce(
+        teamHubErrorResponse(
+          503,
+          "TEAMHUB_UNAVAILABLE",
+          "Could not reach TeamHub.",
+        ),
+      )
+      .mockReturnValueOnce({ items: [newMac] });
+    runtime.server
+      .on("GET", "/v0/tenants/{tenantId}/another-me", () => ({}))
+      .on("GET", "/v0/tenants/{tenantId}/local-computers", listComputers);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    await Promise.all([
+      queryClient.ensureQueryData(teamHubIdentityQueryOptions(runtime.client)),
+      queryClient.ensureQueryData(
+        teamHubTenantQueryOptions(runtime.client, "tenant-northstar"),
+      ),
+    ]);
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/t/:tenantId",
+          element: <RoomShell />,
+          children: [{ path: "*", element: <p>Shell content</p> }],
+        },
+      ],
+      { initialEntries: ["/t/tenant-northstar/rooms"] },
+    );
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TeamHubRuntimeProvider runtime={runtime}>
+          <Suspense fallback={<p>Loading</p>}>
+            <RouterProvider router={router} />
+          </Suspense>
+        </TeamHubRuntimeProvider>
+      </QueryClientProvider>,
+    );
+
+    const gate = await screen.findByRole("dialog", {
+      name: "Connect your computer",
+    });
+    const alert = await within(gate).findByRole("alert");
+    expect(alert).toHaveTextContent("Could not reach TeamHub.");
+    expect(within(gate).queryByText(/Waiting for your computer/)).toBeNull();
+
+    fireEvent.click(within(alert).getByRole("button", { name: "Retry" }));
+    expect(await within(gate).findByText("New Mac is online.")).toBeVisible();
+    expect(listComputers).toHaveBeenCalledTimes(2);
+  });
 });
 
-function renderShell(
+async function renderShell(
   computer?: LocalComputer,
   path = "/t/tenant-northstar/rooms",
 ) {
   const runtime = createTestTeamHubRuntime();
   const fixture: {
     anotherMe: { agent_actor_id?: string; room_id?: string };
+    runtime: typeof runtime;
     queryClient: QueryClient;
     router: ReturnType<typeof createMemoryRouter>;
   } = {
     anotherMe: {},
+    runtime,
     queryClient: new QueryClient({
       defaultOptions: { queries: { retry: false } },
     }),
@@ -182,6 +292,16 @@ function renderShell(
     .on("GET", "/v0/tenants/{tenantId}/local-computers", () => ({
       items: computer ? [computer] : [],
     }));
+  // Loading what RoomShell suspends on before rendering skips React's
+  // Suspense reveal throttle, which otherwise costs every test a fixed delay.
+  await Promise.all([
+    fixture.queryClient.ensureQueryData(
+      teamHubIdentityQueryOptions(runtime.client),
+    ),
+    fixture.queryClient.ensureQueryData(
+      teamHubTenantQueryOptions(runtime.client, "tenant-northstar"),
+    ),
+  ]);
   render(
     <QueryClientProvider client={fixture.queryClient}>
       <TeamHubRuntimeProvider runtime={runtime}>

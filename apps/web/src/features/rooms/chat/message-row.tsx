@@ -41,6 +41,9 @@ import type {
   TeamHubMessageReactionId,
 } from "@/features/teamhub/teamhub-types";
 
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
+
 import type { RoomCardDecision } from "../cards/room-message-card-contract";
 import {
   knownRoomMessageCard,
@@ -53,6 +56,7 @@ import {
 import { cn } from "@/lib/cn";
 import { artifactFileTypeLabel } from "../files/artifact-file-kind";
 import { MessageFileAttachment } from "../files/message-file-attachment";
+import { MessageMailCanvas } from "./message-mail-canvas";
 import { selectArtifactRenderer } from "../files/artifact-renderer-policy";
 import { chatImageSize, useDecodedImage } from "../files/local-message-images";
 import {
@@ -73,6 +77,7 @@ import {
 } from "./message-body-blocks";
 import { messageQuoteText } from "./message-quote";
 import { messagePlainText } from "./message-plain-text";
+import { chatMessages } from "./chat.messages";
 import { MessageCard } from "./message-card";
 import { MessageHtmlFragment } from "./message-html-fragment";
 import { MessageMeetingNotes } from "./message-meeting-notes";
@@ -91,6 +96,7 @@ import {
 import { applySearchTermHighlight } from "./search-term-highlight";
 import { settledCardNotice } from "../cards/card-notice";
 import { CardNoticeRows } from "./card-notice-rows";
+import type { PendingMessageFailure } from "./pending-message-failure";
 import { ReplyContext } from "./reply-context";
 import { quoteReplyFromMessage, type StagedQuoteReply } from "./quote-reply";
 import { RoomNoticeRow } from "./room-notice-row";
@@ -117,9 +123,12 @@ export interface PendingRoomMessage {
   clientId: string;
   // Epoch milliseconds of the first send; retries keep it.
   createdAt: number;
+  // TeamHub's own words for a refusal, or the sentence an older client stored.
   error?: string;
   // The person stopped this send. Coming back does not try it again.
   heldByPerson?: true;
+  // Why this client could not finish the send; worded when it is shown.
+  failure?: PendingMessageFailure;
   mentions: TeamHubActorRef[];
   status: "failed" | "sending" | "unknown";
 }
@@ -266,6 +275,7 @@ function ConversationMessageRow({
   focusHighlight,
   workspaceAgentIds,
 }: MessageRowProps) {
+  const t = useT();
   const rowRef = useRef<HTMLElement>(null);
   useEffect(() => {
     if (!focused || !focusHighlight) return;
@@ -298,6 +308,7 @@ function ConversationMessageRow({
       : undefined;
   const hasCardPayload = message.card !== undefined;
   const [reactionError, setReactionError] = useState(false);
+  const [pinError, setPinError] = useState<string | null>(null);
   const { cheer, cheerOnAdd } = useReactionCheer();
   const toggleReaction =
     onToggleReaction && currentActorId && messageSupportsReactions(message)
@@ -353,7 +364,14 @@ function ConversationMessageRow({
   );
   const togglePin = onTogglePin
     ? () => {
-        void onTogglePin(message, isPinned).catch(() => undefined);
+        setPinError(null);
+        void onTogglePin(message, isPinned).catch(() =>
+          setPinError(
+            isPinned
+              ? "Could not unpin the message."
+              : "Could not pin the message.",
+          ),
+        );
       }
     : undefined;
   const messageActions = (
@@ -447,7 +465,7 @@ function ConversationMessageRow({
     const attachment = attachmentByDocument.get(documentId);
     return {
       ...(metadata
-        ? documentCardPresentation(metadata)
+        ? documentCardPresentation(metadata, t)
         : { filename: attachedName }),
       disabled: attachment ? !attachment.available : false,
       documentId,
@@ -466,7 +484,7 @@ function ConversationMessageRow({
       return (
         <MessageFileItem
           actionLabel="Preview"
-          detail={artifactTreeDetail(block.segment)}
+          detail={artifactTreeDetail(block.segment, t)}
           key={block.segment.publication_group_id}
           name={block.segment.root_path}
           onOpen={
@@ -506,7 +524,7 @@ function ConversationMessageRow({
       // An attached file already knows its type and version, so it shows as
       // what it is before the Document metadata arrives.
       const attachment = attachmentByDocument.get(block.segment.document_id);
-      return (
+      const file = (
         <MessageFileAttachment
           {...documentFile(block.segment.document_id, block.segment.content)}
           // A live Document opens in its editor rather than previewing.
@@ -524,6 +542,18 @@ function ConversationMessageRow({
             attachment?.document.current_version?.id
           }
         />
+      );
+      // A gmail canvas shows as the email itself; other canvases as files.
+      return block.segment.presentation === "canvas" ? (
+        <MessageMailCanvas
+          documentId={block.segment.document_id}
+          fallback={file}
+          key={block.segment.document_id}
+          onOpen={() => onOpenMessageFile(block.segment)}
+          tenantId={tenantId}
+        />
+      ) : (
+        file
       );
     }
     const attachedName = block.segment.filename ?? block.segment.content;
@@ -628,10 +658,12 @@ function ConversationMessageRow({
                   disabled={!onMentionAuthor || !canMentionAuthor}
                   title={
                     canMentionAuthor
-                      ? `Mention ${authorName}`
+                      ? t(chatMessages.mentionAuthor, { name: authorName })
                       : isAuthorMember
-                        ? `${authorName} is unavailable right now`
-                        : `${authorName} is no longer in this Room`
+                        ? t(chatMessages.authorUnavailable, {
+                            name: authorName,
+                          })
+                        : t(chatMessages.authorNotInRoom, { name: authorName })
                   }
                   type="button"
                 >
@@ -650,7 +682,9 @@ function ConversationMessageRow({
         ) : null}
         {isAgent && message.routine_name ? (
           <div
-            aria-label={`Scheduled task: ${message.routine_name}`}
+            aria-label={t(chatMessages.scheduledTask, {
+              name: message.routine_name,
+            })}
             className="mt-2 flex min-w-0 items-center gap-1 text-xs font-normal leading-[18px] text-app-muted"
             data-testid="message-routine-label"
           >
@@ -661,7 +695,7 @@ function ConversationMessageRow({
         ) : null}
         {message.context_messages?.length ? (
           <ReplyContext
-            label="Reply context"
+            label={t(chatMessages.replyContext)}
             messages={message.context_messages.map((contextMessage) => ({
               author: contextMessage.author,
               key: contextMessage.message_id,
@@ -770,6 +804,11 @@ function ConversationMessageRow({
         ) : null}
 
         {reactionsOnBubble ? null : reactionBar}
+        {pinError ? (
+          <p className="mt-1 text-xs text-app-danger" role="alert">
+            {pinError}
+          </p>
+        ) : null}
       </div>
     </article>
   );
@@ -844,13 +883,11 @@ function ConversationMessageActions({
   onToggleReaction?: (reactionId: TeamHubMessageReactionId) => void;
   onTogglePin?: () => void;
 }) {
-  const [copied, setCopied] = useState(false);
-  const [quoteState, setQuoteState] = useState<"idle" | "copied" | "failed">(
-    "idle",
-  );
-  const [textCopy, setTextCopy] = useState<"idle" | "copied" | "failed">(
-    "idle",
-  );
+  const t = useT();
+  const [copyFeedback, setCopyFeedback] = useState<{
+    source: "link" | "message" | "quote" | "text";
+    status: "copied" | "failed";
+  } | null>(null);
   const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
   const runtime = useOptionalTeamHubRuntime();
   const queryClient = useQueryClient();
@@ -872,10 +909,13 @@ function ConversationMessageActions({
   }, [pocketSave]);
 
   useEffect(() => {
-    if (textCopy === "idle") return;
-    const timer = window.setTimeout(() => setTextCopy("idle"), 1200);
+    if (!copyFeedback) return;
+    const timer = window.setTimeout(
+      () => setCopyFeedback(null),
+      copyFeedback.status === "copied" ? 1200 : 3000,
+    );
     return () => window.clearTimeout(timer);
-  }, [textCopy]);
+  }, [copyFeedback]);
 
   function saveToPocketNote() {
     if (!runtime || pocketSaving.current) return;
@@ -898,23 +938,14 @@ function ConversationMessageActions({
       });
   }
 
-  function copyText(text: string) {
+  function copyToClipboard(
+    source: "link" | "message" | "quote" | "text",
+    text: string,
+  ) {
     void import("@/lib/clipboard")
       .then(({ writeClipboardText }) => writeClipboardText(text))
-      .then(() => {
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 1200);
-      })
-      .catch(() => setCopied(false));
-  }
-
-  function copyMessageText() {
-    void import("@/lib/clipboard")
-      .then(({ writeClipboardText }) =>
-        writeClipboardText(messagePlainText(message.raw_message)),
-      )
-      .then(() => setTextCopy("copied"))
-      .catch(() => setTextCopy("failed"));
+      .then(() => setCopyFeedback({ source, status: "copied" }))
+      .catch(() => setCopyFeedback({ source, status: "failed" }));
   }
 
   overflowItems.push({
@@ -922,12 +953,29 @@ function ConversationMessageActions({
     label: "Copy link",
     // Absolute, so the link opens from a document or another app.
     onSelect: () =>
-      copyText(roomMessageUrl(window.location.origin, tenantId, message)),
+      copyToClipboard(
+        "link",
+        roomMessageUrl(window.location.origin, tenantId, message),
+      ),
   });
   overflowItems.push({
     icon: <Icon icon={Copy01Icon} size={14} />,
     label: "Copy text",
-    onSelect: copyMessageText,
+    onSelect: () =>
+      copyToClipboard("text", messagePlainText(message.raw_message)),
+  });
+  overflowItems.push({
+    icon: <Icon icon={TextQuoteIcon} size={14} />,
+    label: "Copy as quote",
+    onSelect: () =>
+      copyToClipboard(
+        "quote",
+        messageQuoteText({
+          authorName,
+          createdAt: message.created_at,
+          message: message.raw_message,
+        }),
+      ),
   });
   if (runtime) {
     overflowItems.push({
@@ -941,7 +989,7 @@ function ConversationMessageActions({
   if (onForwardMessage) {
     overflowItems.push({
       icon: <Icon icon={SentIcon} size={14} />,
-      label: "Forward message",
+      label: t(chatMessages.forwardMessage),
       onSelect: () => onForwardMessage(message),
     });
   }
@@ -950,13 +998,6 @@ function ConversationMessageActions({
       icon: <Icon icon={CheckListIcon} size={14} />,
       label: "Create issue",
       onSelect: () => onCreateIssueMessage(message),
-    });
-  }
-  if (onReply) {
-    overflowItems.push({
-      icon: <Icon icon={MailReply01Icon} size={14} />,
-      label: "Reply to message",
-      onSelect: () => onReply(message),
     });
   }
   if (onReplyWithQuote) {
@@ -976,7 +1017,7 @@ function ConversationMessageActions({
   if (onOpenThread && !hasCardPayload) {
     overflowItems.push({
       icon: <Icon icon={Message01Icon} size={14} />,
-      label: "Reply to thread",
+      label: t(chatMessages.replyToThread),
       onSelect: () => {
         // The sidebar must restore focus to the persistent trigger, not the removed menu item.
         actionsRef.current
@@ -994,6 +1035,9 @@ function ConversationMessageActions({
     });
   }
 
+  const messageCopyStatus =
+    copyFeedback?.source === "message" ? copyFeedback.status : "idle";
+
   return (
     <div
       ref={actionsRef}
@@ -1003,15 +1047,15 @@ function ConversationMessageActions({
           ? pocketSave
           : undefined
       }
-      data-text-copy-status={textCopy === "idle" ? undefined : textCopy}
+      data-text-copy-status={copyFeedback?.status}
       data-reaction-picker-open={reactionPickerOpen || undefined}
     >
       {onToggleReaction ? (
         <MessageActionButton
-          aria-label="Add reaction"
+          aria-label={t(chatMessages.addReaction)}
           aria-pressed={reactionPickerOpen}
           onClick={() => setReactionPickerOpen((open) => !open)}
-          tooltip="Add reaction"
+          tooltip={t(chatMessages.addReaction)}
         >
           <Icon icon={SmilePlusIcon} size={16} />
         </MessageActionButton>
@@ -1031,50 +1075,32 @@ function ConversationMessageActions({
           onSelect={onToggleReaction}
         />
       ) : null}
+      {onReply ? (
+        <MessageActionButton
+          aria-label={t(chatMessages.replyToMessage)}
+          onClick={() => onReply(message)}
+          tooltip={t(chatMessages.replyToMessage)}
+        >
+          <Icon icon={MailReply01Icon} size={16} />
+        </MessageActionButton>
+      ) : null}
       <MessageActionButton
-        aria-label="Copy message"
-        onClick={() => copyText(message.raw_message)}
-        tooltip={copied ? "Copied" : "Copy message"}
-      >
-        {copied ? (
-          <Icon icon={Tick02Icon} size={16} />
-        ) : (
-          <Icon icon={Copy01Icon} size={16} />
-        )}
-      </MessageActionButton>
-      <MessageActionButton
-        aria-label="Copy as quote"
-        onClick={() => {
-          void import("@/lib/clipboard")
-            .then(({ writeClipboardText }) =>
-              writeClipboardText(
-                messageQuoteText({
-                  authorName,
-                  createdAt: message.created_at,
-                  message: message.raw_message,
-                }),
-              ),
-            )
-            .then(() => setQuoteState("copied"))
-            .catch(() => setQuoteState("failed"))
-            .finally(() => {
-              window.setTimeout(() => setQuoteState("idle"), 1200);
-            });
-        }}
+        aria-label={t(chatMessages.copyMessage)}
+        onClick={() => copyToClipboard("message", message.raw_message)}
         tooltip={
-          quoteState === "copied"
-            ? "Copied"
-            : quoteState === "failed"
+          messageCopyStatus === "copied"
+            ? t(commonMessages.copied)
+            : messageCopyStatus === "failed"
               ? "Copy failed"
-              : "Copy as quote"
+              : t(chatMessages.copyMessage)
         }
       >
-        {quoteState === "copied" ? (
+        {messageCopyStatus === "copied" ? (
           <Icon icon={Tick02Icon} size={16} />
-        ) : quoteState === "failed" ? (
+        ) : messageCopyStatus === "failed" ? (
           <Icon icon={Cancel01Icon} size={16} />
         ) : (
-          <Icon icon={TextQuoteIcon} size={16} />
+          <Icon icon={Copy01Icon} size={16} />
         )}
       </MessageActionButton>
       {overflowItems.length ? (
@@ -1083,22 +1109,24 @@ function ConversationMessageActions({
           iconClassName="flex size-3.5 shrink-0 items-center justify-center"
           itemClassName="flex min-h-8 w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left font-(family-name:--app-room-font) text-sm text-foreground outline-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
           items={overflowItems}
-          label="More message actions"
+          label={t(chatMessages.moreMessageActions)}
           menuClassName="fixed z-[100] w-48 rounded-md bg-popover p-1 font-(family-name:--app-room-font) text-sm shadow-md"
           trigger={<Icon icon={MoreHorizontalIcon} size={16} />}
         />
       ) : null}
-      {textCopy === "copied" || textCopy === "failed" ? (
+      {copyFeedback ? (
         <span
           className={cn(
             "ml-1 whitespace-nowrap rounded-md px-2 py-1 text-xs leading-[18px]",
-            textCopy === "copied"
+            copyFeedback.status === "copied"
               ? "bg-primary text-primary-foreground"
               : "border border-[var(--app-status-danger-border)] bg-[var(--app-status-danger-surface)] text-destructive",
           )}
           role="status"
         >
-          {textCopy === "copied" ? "Copied" : "Copy failed"}
+          {copyFeedback.status === "copied"
+            ? t(commonMessages.copied)
+            : "Copy failed"}
         </span>
       ) : null}
       {pocketSave === "saved" || pocketSave === "failed" ? (
@@ -1163,6 +1191,7 @@ export function PendingMessageRow({
   onCancel,
   onOpenProfile,
   onOpenUrl,
+  onRestoreToDraft,
   onRetry,
 }: {
   actorId?: string;
@@ -1172,8 +1201,10 @@ export function PendingMessageRow({
   onCancel: (clientId: string) => Promise<void> | void;
   onOpenProfile: (actorId: string) => void;
   onOpenUrl?: (url: string) => void;
+  onRestoreToDraft?: (clientId: string) => Promise<void> | void;
   onRetry: (clientId: string) => void;
 }) {
+  const t = useT();
   // A send that commits quickly never shows a status line, so the committed
   // row replaces it at the same height.
   const [slow, setSlow] = useState(false);
@@ -1203,7 +1234,7 @@ export function PendingMessageRow({
       <div className="room-message-content min-w-0">
         {message.contextMessages.length ? (
           <ReplyContext
-            label="Pending reply context"
+            label={t(chatMessages.pendingReplyContext)}
             messages={message.contextMessages.map((contextMessage) => ({
               author: contextMessage.author,
               key: contextMessage.id,
@@ -1241,7 +1272,7 @@ export function PendingMessageRow({
             ) : (
               <MessageFileItem
                 detail={fileItemDetail(
-                  artifactFileTypeLabel(attachment.filename),
+                  artifactFileTypeLabel(attachment.filename, undefined, t),
                   attachment.sizeBytes,
                 )}
                 name={attachment.filename}
@@ -1254,43 +1285,47 @@ export function PendingMessageRow({
           <div className="mt-1 flex items-center justify-end gap-2 leading-[18px]">
             <span className="text-xs text-muted-foreground">
               {message.status === "sending"
-                ? "Sending..."
+                ? t(chatMessages.sending)
                 : message.status === "unknown"
-                  ? "Delivery status unknown"
-                  : "Not sent"}
+                  ? t(chatMessages.deliveryUnknown)
+                  : t(chatMessages.notSent)}
             </span>
           </div>
         ) : null}
         {message.status === "failed" || message.status === "unknown" ? (
           <div className="mt-2 flex flex-col items-end gap-2">
             <span className="text-right text-sm text-destructive" role="alert">
-              {message.error ?? "Failed to connect to the server..."}
+              {message.error ?? t(chatMessages.connectFailed)}
             </span>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                className="inline-flex h-6 items-center gap-1 rounded-full px-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            <div className="flex flex-wrap items-center justify-end gap-1.5">
+              <Button
                 onClick={() => onRetry(message.clientId)}
-                type="button"
+                size="compact"
+                tone="secondary"
               >
-                <Icon
-                  icon={RotateLeft01Icon}
-                  className="size-4 text-muted-foreground"
-                  size={16}
-                />
-                <span className="px-1">Retry</span>
-              </button>
-              <button
-                className="inline-flex h-6 items-center gap-1 rounded-full px-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                <Icon icon={RotateLeft01Icon} size={16} />
+                {t(commonMessages.retry)}
+              </Button>
+              {onRestoreToDraft &&
+              (message.body.trim().length > 0 ||
+                message.contextMessages.length > 0) ? (
+                <Button
+                  onClick={() => void onRestoreToDraft(message.clientId)}
+                  size="compact"
+                  tone="ghost"
+                >
+                  <Icon icon={NoteEditIcon} size={16} />
+                  Restore to draft
+                </Button>
+              ) : null}
+              <Button
                 onClick={() => void onCancel(message.clientId)}
-                type="button"
+                size="compact"
+                tone="ghost"
               >
-                <Icon
-                  icon={Cancel01Icon}
-                  className="size-4 text-muted-foreground"
-                  size={16}
-                />
-                <span className="px-1">Cancel</span>
-              </button>
+                <Icon icon={Cancel01Icon} size={16} />
+                {t(commonMessages.cancel)}
+              </Button>
             </div>
           </div>
         ) : null}

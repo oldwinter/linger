@@ -1,4 +1,8 @@
 import { lazy, Suspense } from "react";
+
+import { documentEditorMessages } from "@/features/rooms/documents/document-editor.messages";
+import { useT } from "@/i18n/use-translation";
+
 import { Spinner } from "./ui/spinner";
 import type { ReadOnlyBlockNoteDocumentProps } from "./read-only-blocknote-document";
 
@@ -11,6 +15,7 @@ const ReadOnlyBlockNoteDocument = lazy(() =>
 export function ReadOnlyBlockNoteDocumentLoader(
   props: ReadOnlyBlockNoteDocumentProps,
 ) {
+  const t = useT();
   return (
     <Suspense
       fallback={
@@ -19,7 +24,7 @@ export function ReadOnlyBlockNoteDocumentLoader(
           role="status"
         >
           <Spinner size={16} />
-          Loading document…
+          {t(documentEditorMessages.loadingDocument)}
         </div>
       }
     >

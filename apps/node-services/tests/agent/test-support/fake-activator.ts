@@ -359,6 +359,10 @@ class FakeRuntimeState implements ContextRuntimeStatePort {
     return this.#state.getLocalRun(runId);
   }
 
+  hasLocalRunReplied(runId: string, signal?: AbortSignal) {
+    return this.#state.hasLocalRunReplied(runId, signal);
+  }
+
   enqueueSteer(groupId: string, messages: NonEmptyReadonlyArray<Message>) {
     return this.#state.enqueueSteer(groupId, messages);
   }

@@ -28,9 +28,9 @@ Structure:
 prompts/
   sync/
     daily/
-      daily.md
+      daily-summary.md
     weekly/
-      weekly.md
+      weekly-user.md
     client-memory/
       client-memory.md
   tracking/

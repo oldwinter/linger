@@ -27,10 +27,6 @@ func TestUnconfirmedUpgradeRollsBackBeforeDaemonInitialization(t *testing.T) {
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build daemon: %v\n%s", err, output)
 	}
-	content, err := os.ReadFile(binary)
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	cases := []struct {
 		name      string
@@ -44,7 +40,14 @@ func TestUnconfirmedUpgradeRollsBackBeforeDaemonInitialization(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
 			daemon := filepath.Join(root, "lib-new", "daemon", "linger-computer-daemon")
-			writeStartupFile(t, daemon, content, 0o755)
+			// Link rather than copy: macOS scans every new executable inode on
+			// its first launch, which costs about a second for a daemon binary.
+			if err := os.MkdirAll(filepath.Dir(daemon), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Link(binary, daemon); err != nil {
+				t.Fatal(err)
+			}
 			appSHA256 := strings.Repeat("a", 64)
 			writeStartupFile(t, filepath.Join(root, "lib-new", "app-sha256"), []byte(appSHA256+"\n"), 0o600)
 			started := filepath.Join(root, "previous-started")

@@ -1,29 +1,40 @@
-export const INSUFFICIENT_PERMISSION_MESSAGE =
-  "This app did not grant enough permission. Reconnect and approve all requested access.";
+import { type Translate, translate } from "@/i18n/language";
+
+import { connectorMessages as m } from "./connectors.messages";
+
+/**
+ * The English of `connectorMessages.insufficientPermission`, for comparing
+ * with. Show the message itself, so it follows the language on screen.
+ */
+export const INSUFFICIENT_PERMISSION_MESSAGE = m.insufficientPermission.source;
 
 export function connectionStatusErrorMessage(
   statusErrorCode: string | null | undefined,
+  t: Translate = translate,
 ): string | undefined {
   switch (statusErrorCode) {
     case "discord_guild_required":
-      return "Discord could not verify the authorized Server. Reconnect from Apps.";
+      return t(m.discordUnconfirmedFromApps);
     case "duplicate_remote_principal":
-      return "This account is already connected.";
+      return t(m.accountAlreadyConnected);
     case "provider_auth_failed":
-      return INSUFFICIENT_PERMISSION_MESSAGE;
+      return t(m.insufficientPermission);
     default:
       return undefined;
   }
 }
 
-export function connectionAuthorizationError(connection: {
-  status: string;
-  status_error_code?: string | null;
-}): string | undefined {
+export function connectionAuthorizationError(
+  connection: {
+    status: string;
+    status_error_code?: string | null;
+  },
+  t: Translate = translate,
+): string | undefined {
   return (
-    connectionStatusErrorMessage(connection.status_error_code) ??
+    connectionStatusErrorMessage(connection.status_error_code, t) ??
     (connection.status === "failed" || connection.status === "expired"
-      ? "Authorization failed. Reconnect this app and approve the requested access."
+      ? t(m.authorizationFailed)
       : undefined)
   );
 }

@@ -14,6 +14,9 @@ import type {
   TeamHubDocument,
   TeamHubDocumentPlacementNode,
 } from "@/features/teamhub/teamhub-types";
+import { translate } from "@/i18n/language";
+
+import { documentPageMessages as m } from "./document-page.messages";
 
 import { documentDownloadContent } from "./document-download-content";
 
@@ -83,7 +86,7 @@ export function useUnifiedDocumentActions({
       setTrashError(
         trashDocumentError instanceof Error
           ? trashDocumentError.message
-          : "The Document could not be moved to trash.",
+          : translate(m.trashFailed),
       );
     } finally {
       setTrashPending(false);
@@ -105,7 +108,7 @@ export function useUnifiedDocumentActions({
       setExportError(
         exportDocumentError instanceof Error
           ? exportDocumentError.message
-          : "The Document could not be exported.",
+          : translate(m.exportFailed),
       );
     } finally {
       setExportPending(false);
@@ -134,7 +137,7 @@ export function useUnifiedDocumentActions({
       setDocumentActionError(
         duplicateError instanceof Error
           ? duplicateError.message
-          : "The Document could not be duplicated.",
+          : translate(m.duplicateFailed),
       );
     } finally {
       setDuplicatePending(false);

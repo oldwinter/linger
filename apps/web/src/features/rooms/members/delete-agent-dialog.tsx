@@ -1,5 +1,9 @@
 import { Button } from "@/components/ui/button";
 import { ModalDialog } from "@/components/ui/modal-dialog";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
+
+import { roomDialogMessages as m } from "../room-dialogs.messages";
 
 export function DeleteAgentDialog({
   agentName,
@@ -14,22 +18,27 @@ export function DeleteAgentDialog({
   onClose: () => void;
   onDelete: () => void;
 }) {
-  const title = `Remove ${agentName}?`;
+  const t = useT();
   return (
     <ModalDialog
-      description="The Agent will be removed from every Room and your direct chat with it will be deleted. Messages in shared Rooms stay available."
+      description={t(m.removeAgentDescription)}
       onClose={() => {
         if (!isPending) onClose();
       }}
       size="sm"
-      title={title}
+      title={t(m.removeAgentTitle, { name: agentName })}
       footer={
         <>
           <Button disabled={isPending} onClick={onClose}>
-            Cancel
+            {t(commonMessages.cancel)}
           </Button>
-          <Button loading={isPending} onClick={onDelete} tone="danger">
-            Remove Agent
+          <Button
+            data-voice-risk="never"
+            loading={isPending}
+            onClick={onDelete}
+            tone="danger"
+          >
+            {t(m.removeAgent)}
           </Button>
         </>
       }

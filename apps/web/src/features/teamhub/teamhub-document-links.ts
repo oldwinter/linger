@@ -1,4 +1,5 @@
 import type { components } from "@linger/wire-contracts/teamhub-public/types";
+import { translate } from "@/i18n/language";
 import {
   readBoundedArtifactContent,
   runBoundedArtifactDownload,
@@ -9,6 +10,7 @@ import {
   type TeamHubApi,
 } from "./teamhub-api";
 import { TeamHubError } from "./teamhub-error";
+import { teamHubExtrasMessages } from "./teamhub-extras.messages";
 import type { TeamHubArtifactContent } from "./teamhub-types";
 
 export type DocumentLinkPolicy = components["schemas"]["DocumentLinkShare"];
@@ -87,7 +89,9 @@ export function createTeamHubDocumentLinks(
               }),
             ]);
             if (response.status === 202)
-              throw new Error("File content is being prepared. Retry shortly.");
+              throw new Error(
+                translate(teamHubExtrasMessages.sharedFilePreparing),
+              );
             const content = await readBoundedArtifactContent(response, {
               signal,
             });
@@ -104,7 +108,9 @@ export function createTeamHubDocumentLinks(
               !representationFormat ||
               content.sha256 !== response.headers.get("X-Content-Sha256")
             )
-              throw new Error("The shared file failed integrity verification.");
+              throw new Error(
+                translate(teamHubExtrasMessages.sharedFileIntegrityFailed),
+              );
             const filename = new TextDecoder().decode(
               Uint8Array.from(
                 atob(encodedName.replaceAll("-", "+").replaceAll("_", "/")),

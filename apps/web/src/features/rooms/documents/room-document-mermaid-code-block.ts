@@ -7,10 +7,13 @@ import { createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import "./room-document-mermaid-code-block.css";
 
+import { commonMessages } from "@/i18n/common.messages";
+import { translate } from "@/i18n/language";
 import { writeClipboardText } from "@/lib/clipboard";
 
 import { renderMermaidSvg } from "../mermaid-preview-adapter";
 import { MermaidSvgPreview } from "../mermaid-svg-preview";
+import { documentEditorMessages as m } from "./document-editor.messages";
 
 /**
  * Languages a Document can carry. Pasted source keeps its own label instead of
@@ -121,9 +124,9 @@ function renderRoomDocumentCodeBlock(
   const language = document.createElement("span");
   language.className = "room-document-mermaid__language";
   language.textContent = "Mermaid";
-  const sourceButton = modeButton("Source", mode === "source");
-  const previewButton = modeButton("Preview", mode === "preview");
-  const copyButton = modeButton("Copy source", false);
+  const sourceButton = modeButton(translate(m.source), mode === "source");
+  const previewButton = modeButton(translate(m.preview), mode === "preview");
+  const copyButton = modeButton(translate(m.copySource), false);
   copyButton.classList.add("room-document-mermaid__copy");
   copyButton.removeAttribute("aria-pressed");
   const modes = document.createElement("div");
@@ -192,14 +195,14 @@ function renderRoomDocumentCodeBlock(
       preview.dataset.renderVersion = String(++renderVersion);
       renderedMermaidSource = mermaidSource;
       previewRoot.render(
-        createElement("p", null, "Add Mermaid source to see the diagram."),
+        createElement("p", null, translate(m.addMermaidSource)),
       );
       return;
     }
     if (mermaidSource === undefined) {
       if (mode === "preview") {
         previewRoot.render(
-          createElement("p", null, "Mermaid source is unavailable."),
+          createElement("p", null, translate(m.mermaidSourceUnavailable)),
         );
         preview.hidden = false;
         source.hidden = true;
@@ -233,14 +236,14 @@ function renderRoomDocumentCodeBlock(
   const copySource = () => {
     void writeClipboardText(currentCodeBlockSource())
       .then(() => {
-        copyButton.textContent = "Copied";
+        copyButton.textContent = translate(commonMessages.copied);
       })
       .catch(() => {
-        copyButton.textContent = "Select source to copy";
+        copyButton.textContent = translate(m.selectSourceToCopy);
       })
       .finally(() => {
         window.setTimeout(() => {
-          copyButton.textContent = "Copy source";
+          copyButton.textContent = translate(m.copySource);
         }, 1_500);
       });
   };
@@ -359,7 +362,7 @@ async function renderMermaidPreview(
       createElement(MermaidSvgPreview, {
         key: version,
         svg: sanitized,
-        title: "Mermaid diagram preview",
+        title: translate(m.mermaidPreview),
         fitContent: true,
         onLoad: () => {
           if (!signal.aborted && version === currentRenderVersion(host))
@@ -372,8 +375,8 @@ async function renderMermaidPreview(
     if (version !== currentRenderVersion(host)) return;
     const message =
       error instanceof Error
-        ? `Mermaid syntax error: ${error.message}`
-        : "Mermaid syntax error.";
+        ? translate(m.mermaidSyntaxError, { message: error.message })
+        : translate(m.mermaidSyntaxErrorPlain);
     root.render(
       createElement(
         "p",

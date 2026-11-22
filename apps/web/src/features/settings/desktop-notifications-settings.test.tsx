@@ -51,15 +51,27 @@ describe("Desktop notifications setting", () => {
       screen.getByText(/cannot show desktop notifications/u),
     ).toBeVisible();
     expect(screen.queryByRole("button", { name: "Enable" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Pause for 1 hour" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Pause until tomorrow morning" }),
+    ).toBeNull();
   });
 
-  it("offers Enable until the browser has decided", () => {
+  it("offers Enable until the browser has decided and hides pause controls", () => {
     stubNotification("default");
 
     render(<DesktopNotificationsSettings />);
 
     expect(screen.getByText(/Notifications are off/u)).toBeVisible();
     expect(screen.getByRole("button", { name: "Enable" })).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "Pause for 1 hour" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Pause until tomorrow morning" }),
+    ).toBeNull();
   });
 
   it("says notifications are on once granted and offers no action", () => {
@@ -80,6 +92,12 @@ describe("Desktop notifications setting", () => {
       screen.getByText(/Allow notifications for this site/u),
     ).toBeVisible();
     expect(screen.queryByRole("button", { name: "Enable" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Pause for 1 hour" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Pause until tomorrow morning" }),
+    ).toBeNull();
   });
 
   it("asks for permission and shows the answer in place", async () => {
