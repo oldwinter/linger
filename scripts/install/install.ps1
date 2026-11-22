@@ -167,8 +167,8 @@ $script:PowerShellExe = (Get-Process -Id $PID).Path
 $script:Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 $script:TempDirsToClean = New-Object System.Collections.Generic.List[string]
 # >>> stack release pin
-$script:StackPinNpmVersion = '0.1.0-dev.48'
-$script:StackPinSha256 = 'a91f98393146fa2c9904766742202e9e8d6a0e43f470a63a8482351b9918af0b'
+$script:StackPinNpmVersion = '0.1.0-dev.49'
+$script:StackPinSha256 = 'defc16a56f242205b94e65d2db7bd577e2588d46d6a7242dab0c851fc7135896'
 # <<< stack release pin
 $script:StackScriptPath = ''
 $script:KitHome = ''
