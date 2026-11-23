@@ -278,23 +278,45 @@ describe("BYOK localmodels integration", () => {
     expect(await readByokEnvironment(home)).toBeUndefined();
   });
 
-  it("reports what localmodels refused when setting a source", async () => {
+  it("reports what localmodels refused when setting a source, including after JSONL progress lines", async () => {
+    const calls: string[][] = [];
+    const stdout = [
+      '{"kind":"stage","stage":"gateway","state":"starting"}',
+      JSON.stringify(
+        {
+          code: "MODEL_UNKNOWN",
+          message: "No model is loaded.",
+        },
+        null,
+        1,
+      ),
+    ].join("\n");
     const outcome = await applyNativeSource(
       await makeHome(),
       "local",
       "pi",
-      { signal: new AbortController().signal },
+      { signal: new AbortController().signal, model: "qwen3.8-27b:UD-Q4_K_M" },
       {
-        localmodels: async () => ({
-          code: 2,
-          stdout: JSON.stringify({
-            code: "MODEL_UNKNOWN",
-            message: "No model is loaded.",
-          }),
-          stderr: "",
-        }),
+        localmodels: async (_home, args) => {
+          calls.push(args);
+          return {
+            code: 2,
+            stdout,
+            stderr: "",
+          };
+        },
       },
     );
+    expect(calls[0]!.slice(0, 8)).toEqual([
+      "source",
+      "apply",
+      "--mode",
+      "local",
+      "--runtime",
+      "pi",
+      "--model",
+      "qwen3.8-27b:UD-Q4_K_M",
+    ]);
     expect(outcome).toEqual({
       code: 1,
       state: "failed",

@@ -198,6 +198,65 @@ describe("PocketNoteLauncher", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("positions the floating panel below its trigger aligned with the sidebar left edge instead of overlapping chat", async () => {
+    const originalWidth = window.innerWidth;
+    const originalHeight = window.innerHeight;
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 1280,
+    });
+    Object.defineProperty(window, "innerHeight", {
+      configurable: true,
+      value: 800,
+    });
+    try {
+      const runtime = createTestTeamHubRuntime();
+      runtime.server.on("GET", "/v0/tenants/{tenantId}/me/pocket-notes", () =>
+        Promise.resolve(page),
+      );
+      const { container } = render(
+        <QueryClientProvider client={new QueryClient()}>
+          <TeamHubRuntimeProvider runtime={runtime}>
+            <MemoryRouter>
+              <PocketNoteHost />
+              <nav className="app-secondary-navigation">
+                <PocketNoteLauncher tenantId="tenant-1" />
+              </nav>
+            </MemoryRouter>
+          </TeamHubRuntimeProvider>
+        </QueryClientProvider>,
+      );
+
+      const sidebar = container.querySelector(".app-secondary-navigation")!;
+      vi.spyOn(sidebar, "getBoundingClientRect").mockReturnValue(
+        new DOMRect(60, 0, 260, 800),
+      );
+      const button = screen.getByRole("button", { name: "Pocket Notes" });
+      vi.spyOn(button, "getBoundingClientRect").mockReturnValue(
+        new DOMRect(220, 14, 28, 28),
+      );
+
+      fireEvent.click(button);
+      const dialog = await screen.findByRole("dialog", {
+        name: "Pocket notes",
+      });
+      // Left aligns to the sidebar column (60px), staying clear of the chat
+      // canvas and centered date dividers (starting around x >= 424px).
+      expect(dialog.style.left).toBe("60px");
+      expect(dialog.style.top).toBe("50px");
+      expect(dialog.style.width).toBe("360px");
+    } finally {
+      Object.defineProperty(window, "innerWidth", {
+        configurable: true,
+        value: originalWidth,
+      });
+      Object.defineProperty(window, "innerHeight", {
+        configurable: true,
+        value: originalHeight,
+      });
+    }
+  });
+
   it("opens on today's blank page and autosaves what the Human writes", async () => {
     const putTodayPocketNote = vi.fn(
       async (_tenantId: string, text: string) => ({

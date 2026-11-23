@@ -1,5 +1,6 @@
 import { unified } from "unified";
 import remarkParse from "remark-parse";
+import { echo, inputIssue, invalidInput } from "./input-issues.js";
 
 interface Node {
   type: string;
@@ -78,9 +79,14 @@ export function parseActorReferences(
     )
       continue;
     const [, label, kind, actorID] = match;
-    if (!actorID || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(actorID)) {
-      throw new Error("Actor reference must contain a valid Actor ID.");
-    }
+    if (!actorID || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(actorID))
+      throw invalidInput("A mention in the body has no valid Actor ID.", [
+        inputIssue(
+          "content",
+          "invalid_format",
+          `expected a mention like [@Ana](user:actor_ana) whose ID has up to 64 letters, digits, _ or -; got ${echo(match[0])}.`,
+        ),
+      ]);
     if (start > cursor) pushText(content.slice(cursor, start));
     segments.push(
       style === "comment"

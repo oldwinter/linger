@@ -88,7 +88,7 @@ export function createFileBackend(
           );
         if (matches.length > 1)
           throw new CliError(
-            "ambiguous_name",
+            "target_ambiguous",
             "Multiple readable Documents match that name. Retry with a Document ID.",
             { candidates: matches.map((file) => file.document_id) },
           );

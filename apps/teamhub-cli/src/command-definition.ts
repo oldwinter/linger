@@ -5,6 +5,8 @@ export interface CommandOption {
   readonly description: string;
   readonly boolean?: boolean;
   readonly repeatable?: boolean;
+  /** The input field this flag's JSON value fills; "" is the whole input. Help lists its fields. */
+  readonly json?: string;
 }
 
 export interface CommandArguments {
@@ -16,8 +18,9 @@ export interface CommandArguments {
 export interface CommandInputReader {
   readonly cwd: string;
   localPath(source: string): string;
-  text(source: string): Promise<string>;
-  json(source: string): Promise<unknown>;
+  /** Reads a file path or - (stdin); `flag` names the source in errors. */
+  text(source: string, flag?: string): Promise<string>;
+  json(source: string, flag?: string): Promise<unknown>;
 }
 
 export interface CommandTarget {

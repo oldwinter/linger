@@ -128,6 +128,12 @@ func claudeFakeMain(mode string) int {
 		dir: os.Getenv("CLAUDE_FAKE_DIR"), session: os.Getenv("CLAUDE_FAKE_SESSION"),
 	}
 	f.record("argv", strings.Join(os.Args[1:], "\n"))
+	if want := os.Getenv("CLAUDE_FAKE_WANT_NONESSENTIAL_DISABLED"); want != "" {
+		if got := os.Getenv(claudeDisableNonessentialTrafficKey); got != want {
+			fmt.Fprintf(os.Stderr, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = %q, want %q\n", got, want)
+			return 19
+		}
+	}
 	switch mode {
 	case "sleeper":
 		signal.Ignore(syscall.SIGTERM)

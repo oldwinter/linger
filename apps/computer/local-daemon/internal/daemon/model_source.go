@@ -23,6 +23,9 @@ type ModelSourceManager interface {
 	// EnsureGateway brings back the BYOK gateway runtimeType reaches its
 	// model through when it does not answer.
 	EnsureGateway(ctx context.Context, runtimeType string) error
+	// GatewayMode names the managed gateway runtimeType reaches its model
+	// through, "local" or "byok", or is empty for the Runtime's own provider.
+	GatewayMode(runtimeType string) string
 }
 
 // ensureModelGateway brings back the model gateway runtimeType runs on, if

@@ -14,12 +14,20 @@ import {
 import type { InstallOutcome, InstallerEvent } from "./events.js";
 import {
   applyNativeSource,
+  lastJsonObject,
   mountSavedByokSource,
   readByokEnvironment,
   type ByokGatewayFailure,
 } from "./byok-source.js";
-import { localmodelsFailure } from "./localmodels-failure.js";
-import { runLocalmodels } from "./localmodels-tool.js";
+import {
+  formatLocalmodelsFailureMessage,
+  localmodelsFailure,
+  redactLocalmodelsOutput,
+} from "./localmodels-failure.js";
+import {
+  localmodelsBaseDirectory,
+  runLocalmodels,
+} from "./localmodels-tool.js";
 import {
   readSetupChoice,
   DEFAULT_GPU_SHARING,
@@ -106,6 +114,7 @@ interface RestoreDependencies extends Dependencies {
   // how often it tries again.
   lockWaitMs?: number;
   lockRetryMs?: number;
+  withLock?: typeof withLocalModelsLock;
 }
 // A little above the quit-time stop's 150 s hard exit, so a reopen during
 // that stop sees where it left the stack.
@@ -271,11 +280,11 @@ function reasonCodes(observed: Binding | null): string[] {
   );
 }
 // The first reason's upstream message, for display only.
-function reasonText(observed: Binding | null): string {
+function reasonMessage(observed: Binding | null): string | undefined {
   const message = observed?.reasons?.[0]?.message;
   return typeof message === "string" && message.trim()
-    ? `: ${message.trim().replace(/\s+/g, " ").slice(0, 300)}`
-    : "";
+    ? message.trim()
+    : undefined;
 }
 export async function localModelsEnvironment(
   instance: Instance,
@@ -433,7 +442,11 @@ export async function prepareLocalModels(
         options.onEvent({ kind: "log", stage: "runtime", message });
       return action(
         code,
-        `${text}${cause ? `: ${cause}` : "."} Existing resources were preserved.`,
+        formatLocalmodelsFailureMessage(
+          text,
+          cause,
+          "Existing resources were preserved.",
+        ),
         { causeCode },
       );
     };
@@ -675,7 +688,11 @@ export async function prepareLocalModels(
     if (!observed?.ready)
       return action(
         "LOCAL_MODELS_RECOVERY_REQUIRED",
-        `The upstream tool could not verify the local stack binding${reasonText(observed)}. Existing resources were preserved.`,
+        formatLocalmodelsFailureMessage(
+          "The upstream tool could not verify the local stack binding",
+          reasonMessage(observed),
+          "Existing resources were preserved.",
+        ),
       );
     await atomicPrivate(bindFile, JSON.stringify(observed));
     options.onEvent({
@@ -694,10 +711,11 @@ async function waitForLocalModelsLock<T>(
   signal: AbortSignal,
   dependencies: RestoreDependencies,
 ): Promise<{ value: T } | undefined> {
+  const lock = dependencies.withLock ?? withLocalModelsLock;
   const deadline = Date.now() + (dependencies.lockWaitMs ?? LOCK_WAIT_MS);
   for (;;) {
     try {
-      return { value: await withLocalModelsLock(home, callback) };
+      return { value: await lock(home, callback) };
     } catch (error) {
       if ((error as { code?: unknown }).code !== INSTANCE_BUSY) throw error;
       if (Date.now() >= deadline) return undefined;
@@ -742,40 +760,328 @@ export async function restoreByokSource(
   return failure;
 }
 
+interface ObservedLibraryModel {
+  id: string;
+  piModel: string;
+}
+
+interface ObservedLibraryState {
+  loadedModels: ObservedLibraryModel[];
+  loadingIds: string[];
+  idleModels: ObservedLibraryModel[];
+}
+
+interface LibraryLoadErrorEvent {
+  code?: string;
+  detail?: string;
+  message?: string;
+}
+
+const LIBRARY_MODEL_ID_PATTERN = /^[a-z0-9][a-z0-9._-]*:[A-Za-z0-9._-]+$/;
+const ERROR_CODE_PATTERN = /^[A-Z][A-Z0-9_]{0,63}$/;
+const LIBRARY_LOAD_IDLE_TIMEOUT_MS = 240_000;
+
+function validErrorCode(value: unknown, fallback: string): string {
+  return typeof value === "string" && ERROR_CODE_PATTERN.test(value)
+    ? value
+    : fallback;
+}
+
+function cleanUserCause(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  const cleaned = redactLocalmodelsOutput(raw).replace(/\s+/g, " ").trim();
+  if (!cleaned) return undefined;
+  return cleaned.length > 300 ? `${cleaned.slice(0, 299)}…` : cleaned;
+}
+
+function parseLibraryLoadError(
+  value: unknown,
+): LibraryLoadErrorEvent | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    return undefined;
+  const record = value as Record<string, unknown>;
+  const isError =
+    record.event === "error" ||
+    record.kind === "error" ||
+    record.ok === false ||
+    (typeof record.code === "string" &&
+      (typeof record.detail === "string" ||
+        typeof record.message === "string"));
+  if (!isError) return undefined;
+  const read = (key: string) => {
+    const field = record[key];
+    return typeof field === "string" && field.trim() ? field.trim() : undefined;
+  };
+  const code = read("code");
+  const message = read("message");
+  const detail = read("detail");
+  if (!code && !message && !detail) return undefined;
+  return { code, message, detail };
+}
+
+// Inspects the model library to see which local models are loaded, currently
+// loading, or idle. Returns undefined when the kit does not return a library
+// status report so older kits keep relying on setup binding.
+async function observeLibraryModels(
+  home: string,
+  invoke: typeof runLocalmodels,
+  signal: AbortSignal,
+): Promise<ObservedLibraryState | undefined> {
+  const result = await invoke(
+    home,
+    [
+      "library",
+      "status",
+      "--base-dir",
+      localmodelsBaseDirectory(home),
+      "--json",
+    ],
+    { signal, timeoutMs: 30_000 },
+  );
+  if (result.code !== 0) return undefined;
+  const parsed = lastJsonObject(result.stdout);
+  if (!Array.isArray(parsed?.models)) return undefined;
+  const loadedModels: ObservedLibraryModel[] = [];
+  const loadingIds: string[] = [];
+  const idleModels: ObservedLibraryModel[] = [];
+  for (const entry of parsed.models as Record<string, unknown>[]) {
+    if (
+      typeof entry?.id !== "string" ||
+      !LIBRARY_MODEL_ID_PATTERN.test(entry.id)
+    )
+      continue;
+    const model: ObservedLibraryModel = {
+      id: entry.id,
+      piModel: typeof entry.pi_model === "string" ? entry.pi_model : "",
+    };
+    if (entry.state === "loaded") {
+      loadedModels.push(model);
+    } else if (entry.state === "loading") {
+      loadingIds.push(entry.id);
+    } else if (entry.state === "idle") {
+      idleModels.push(model);
+    }
+  }
+  return { loadedModels, loadingIds, idleModels };
+}
+
+function selectIdleLibraryModel(
+  idleModels: readonly ObservedLibraryModel[],
+  runtimeModel: string,
+): ObservedLibraryModel | undefined {
+  if (!runtimeModel) return undefined;
+  return idleModels.find((model) => model.piModel === runtimeModel);
+}
+
+// Runs `library load` while the caller holds the local models lock.
+async function runLoadLibraryModel(
+  home: string,
+  modelId: string,
+  options: { signal: AbortSignal; onEvent: (e: InstallerEvent) => void },
+  invoke: typeof runLocalmodels,
+): Promise<InstallOutcome | undefined> {
+  options.onEvent({
+    kind: "stage",
+    stage: "runtime",
+    state: "running",
+    message: `Restoring local model ${modelId}…`,
+  });
+  let buffer = "";
+  let tail = "";
+  let lastErrorEvent: LibraryLoadErrorEvent | undefined;
+  const handleLine = (rawLine: string) => {
+    const trimmed = rawLine.trim();
+    if (!trimmed) return;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      tail = `${tail}${rawLine}\n`.slice(-8000);
+      return;
+    }
+    const errEvent = parseLibraryLoadError(parsed);
+    if (errEvent) lastErrorEvent = errEvent;
+  };
+  const result = await invoke(
+    home,
+    [
+      "library",
+      "load",
+      modelId,
+      "--base-dir",
+      localmodelsBaseDirectory(home),
+      "--jsonl",
+    ],
+    {
+      signal: options.signal,
+      idleTimeoutMs: LIBRARY_LOAD_IDLE_TIMEOUT_MS,
+      capture: false,
+      onEvent: options.onEvent,
+      onOutput: (chunk) => {
+        buffer += chunk;
+        if (buffer.length > 128000) buffer = buffer.slice(-64000);
+        for (;;) {
+          const newline = buffer.indexOf("\n");
+          if (newline < 0) break;
+          const line = buffer.slice(0, newline);
+          buffer = buffer.slice(newline + 1);
+          handleLine(line);
+        }
+      },
+    },
+  );
+  if (buffer.trim()) handleLine(buffer);
+  if (result.code === 0) return undefined;
+  if (!lastErrorEvent && result.stdout.trim()) {
+    lastErrorEvent = parseLibraryLoadError(lastJsonObject(result.stdout));
+  }
+  if (lastErrorEvent) {
+    const code = validErrorCode(lastErrorEvent.code, "LOCAL_MODEL_LOAD_FAILED");
+    const cause = cleanUserCause(
+      lastErrorEvent.message ?? lastErrorEvent.detail,
+    );
+    options.onEvent({
+      kind: "log",
+      stage: "runtime",
+      message: `localmodels library load exited with code ${result.code} (${code})${cause ? `: ${cause}` : ""}.\n`,
+    });
+    return {
+      code: 1,
+      state: "failed",
+      message: formatLocalmodelsFailureMessage(
+        `Could not reload local model ${modelId}`,
+        cause,
+      ),
+      details: { code },
+    };
+  }
+  const { code, cause, log } = localmodelsFailure(["library", "load"], {
+    ...result,
+    stderr: tail || result.stderr,
+  });
+  for (const message of log)
+    options.onEvent({ kind: "log", stage: "runtime", message });
+  return {
+    code: 1,
+    state: "failed",
+    message: formatLocalmodelsFailureMessage(
+      `Could not reload local model ${modelId}`,
+      cause,
+    ),
+    details: { code: validErrorCode(code, "LOCAL_MODEL_LOAD_FAILED") },
+  };
+}
+
+// Checks whether the saved local library model is loaded, loading, or idle
+// while the caller holds the local models lock, reloading and applying it when
+// idle. Returns `handled: true` when no generic no-model `source apply` fallback
+// is needed.
+async function restoreLibraryModelUnderLock(
+  home: string,
+  savedRuntimeModel: string,
+  applyIfAlreadyLoaded: boolean,
+  options: { signal: AbortSignal; onEvent: (e: InstallerEvent) => void },
+  dependencies: RestoreDependencies,
+): Promise<{ handled: boolean; outcome?: InstallOutcome }> {
+  if (!savedRuntimeModel) return { handled: false };
+  const invoke = dependencies.localmodels ?? runLocalmodels;
+  const library = await observeLibraryModels(home, invoke, options.signal);
+  if (!library) return { handled: false };
+  const loaded = library.loadedModels.find(
+    (model) => model.piModel === savedRuntimeModel,
+  );
+  if (loaded) {
+    if (!applyIfAlreadyLoaded) return { handled: true };
+    const applied = await applyNativeSource(
+      home,
+      "local",
+      "pi",
+      { signal: options.signal, onEvent: options.onEvent, model: loaded.id },
+      dependencies,
+    );
+    return applied ? { handled: true, outcome: applied } : { handled: true };
+  }
+  if (library.loadingIds.length > 0) return { handled: true };
+  const target = selectIdleLibraryModel(library.idleModels, savedRuntimeModel);
+  if (!target) return { handled: false };
+  const loadOutcome = await runLoadLibraryModel(
+    home,
+    target.id,
+    options,
+    invoke,
+  );
+  if (loadOutcome) return { handled: true, outcome: loadOutcome };
+  const applied = await applyNativeSource(
+    home,
+    "local",
+    "pi",
+    { signal: options.signal, onEvent: options.onEvent, model: target.id },
+    dependencies,
+  );
+  return applied ? { handled: true, outcome: applied } : { handled: true };
+}
+
 /**
- * Brings back the local model stack of a local-models setup whose services
- * still run, such as when Linger opens again after a quit stopped the
- * models. Only while the Computer's model source is local: a person who
- * switched to a subscription or BYOK keeps that choice. A ready stack costs
- * one binding check; otherwise this applies the approved plan again and makes
- * the stack the model source. Returns the outcome when the restore fails.
+ * Brings back the local model stack and unloaded library model of a local
+ * model source whose services still run, such as when Linger opens again after
+ * a quit stopped the models. Only while the Computer's model source is local
+ * (or not saved yet on a local-models setup): a person who switched to a
+ * subscription or BYOK keeps that choice. When the stack binding already
+ * reports ready, this still verifies `library status` for a saved runtime model
+ * so a quit-time `library unload` cannot leave it unloaded, without ever
+ * guessing an arbitrary idle model when no saved runtime model is recorded.
+ * Returns an outcome when stack recovery or library-model restoration fails,
+ * which resume callers surface through `details.localModelsDegraded`.
  */
 export async function restoreLocalModels(
   instance: Instance,
   options: { signal: AbortSignal; onEvent: (e: InstallerEvent) => void },
   dependencies: RestoreDependencies = {},
 ): Promise<InstallOutcome | undefined> {
-  if ((await readSetupChoice(instance)) !== "local-models") return;
+  const setupChoice = await readSetupChoice(instance);
   const home = path.resolve(instance.root, "../..");
   // Installs from earlier releases may have no model source saved yet; their
-  // source is the local stack they set up.
+  // source is the local stack they set up. Conversely, a non-local setup that
+  // later switched to local mode on the Models page still restores here.
   const source = await readByokEnvironment(home);
   if (source && source.mode !== "local") return;
+  if (!source && setupChoice !== "local-models") return;
   const planID = await savedPlanID(home);
-  if (!planID) return;
+  if (!planID && source?.mode !== "local") return;
   const invoke = dependencies.localmodels ?? runLocalmodels;
-  const observe = () =>
-    observeBinding(
-      path.join(home, "runtime/localmodels/plan.json"),
-      planID,
-      (args) =>
-        invoke(home, args, { signal: options.signal, timeoutMs: 120000 }),
-    );
-  // A quit-time stop may still hold the lock; checking before it ends would
-  // see a stack it is about to take down.
+  const savedRuntimeModel = source?.runtimeModel ?? "";
+  const wantsLibraryModel = savedRuntimeModel.startsWith(
+    "localmodels-library/",
+  );
+
+  // A quit-time stop may still hold the lock; checking, loading, and applying
+  // under the same lock prevents racing with a quit-time unload.
   const held = await waitForLocalModelsLock(
     home,
-    observe,
+    async () => {
+      const observed = planID
+        ? await observeBinding(
+            path.join(home, "runtime/localmodels/plan.json"),
+            planID,
+            (args) =>
+              invoke(home, args, { signal: options.signal, timeoutMs: 120000 }),
+          )
+        : null;
+      if (planID && !observed?.ready) {
+        return { needsPrepare: true as const };
+      }
+      const restored = await restoreLibraryModelUnderLock(
+        home,
+        savedRuntimeModel,
+        false,
+        options,
+        dependencies,
+      );
+      return {
+        needsPrepare: false as const,
+        ...(restored.outcome ? { outcome: restored.outcome } : {}),
+      };
+    },
     options.signal,
     dependencies,
   );
@@ -785,19 +1091,56 @@ export async function restoreLocalModels(
       state: "action_required",
       message:
         "Another local model operation is still running. Try again once it ends.",
-      details: { code: "LOCAL_MODELS_RECOVERY_REQUIRED" },
+      details: {
+        code: planID ? "LOCAL_MODELS_RECOVERY_REQUIRED" : "LOCAL_MODELS_BUSY",
+      },
     };
-  const observed = held.value;
-  if (observed?.ready) return;
+  if (!held.value.needsPrepare) {
+    return held.value.outcome;
+  }
+
   // prepareLocalModels takes the lock itself, and the lock is not reentrant.
-  return (
-    (await prepareLocalModels(instance, options, dependencies)) ??
-    (await applyNativeSource(
-      home,
-      "local",
-      "pi",
-      { signal: options.signal, onEvent: options.onEvent },
-      dependencies,
-    ))
+  const prepared = await prepareLocalModels(instance, options, dependencies);
+  if (prepared) return prepared;
+
+  const postHeld = await waitForLocalModelsLock(
+    home,
+    async (): Promise<{ outcome?: InstallOutcome }> => {
+      if (wantsLibraryModel) {
+        const restored = await restoreLibraryModelUnderLock(
+          home,
+          savedRuntimeModel,
+          true,
+          options,
+          dependencies,
+        );
+        if (restored.handled) {
+          return restored.outcome ? { outcome: restored.outcome } : {};
+        }
+      }
+      const applied = await applyNativeSource(
+        home,
+        "local",
+        "pi",
+        { signal: options.signal, onEvent: options.onEvent },
+        dependencies,
+      );
+      return applied ? { outcome: applied } : {};
+    },
+    options.signal,
+    dependencies,
   );
+  if (!postHeld)
+    return {
+      code: 4,
+      state: "action_required",
+      message:
+        "Another local model operation is still running. Try again once it ends.",
+      details: {
+        code: wantsLibraryModel
+          ? "LOCAL_MODELS_BUSY"
+          : "LOCAL_MODELS_RECOVERY_REQUIRED",
+      },
+    };
+  return postHeld.value.outcome;
 }

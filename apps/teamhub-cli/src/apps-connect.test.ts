@@ -126,7 +126,10 @@ describe("apps connect", () => {
       expect(
         await runCli(["apps", "connect", ...positionals, "--json"], f.deps),
       ).not.toBe(0);
-      expect(JSON.parse(f.errors.join("")).error.code).toBe("usage");
+      // A wrong value is invalid_input; a wrong argument count is usage.
+      expect(JSON.parse(f.errors.join("")).error.code).toBe(
+        positionals.length === 1 ? "invalid_input" : "usage",
+      );
       expect(f.calls).toEqual([]);
     },
   );

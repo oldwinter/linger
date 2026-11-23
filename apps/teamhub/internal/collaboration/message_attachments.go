@@ -451,7 +451,7 @@ func (s *Service) WriteOnboardingHandoff(ctx context.Context, tx pgx.Tx, queries
 	}
 	return messagecreation.CardHandoff(ctx, queries, messagecreation.Draft{
 		ID: messageID, TenantID: handoff.TenantID, RoomID: room.ID, Author: handoff.Human,
-		CardContextMessageID: handoff.CardMessageID, Attachments: attachments,
+		CardContextMessageID: handoff.CardMessageID, Attachments: attachments, HumanWaiting: true,
 	}, handoff.Agent, " "+handoff.Text)
 }
 

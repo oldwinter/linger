@@ -296,8 +296,8 @@ func TestCodexResidentReuseAndRebind(t *testing.T) {
 	if fake.launchCount() != 1 || fake.count("initialize") != 1 || fake.count("config/read") != 1 || fake.count("thread/resume") != 0 || fake.count("thread/unsubscribe") != 0 {
 		t.Fatalf("methods = %v", fake.methods())
 	}
-	// A changed AppendPrompt rebinds on the same process.
-	spec.AppendPrompt = "be brief"
+	// A changed SystemPrompt rebinds on the same process.
+	spec.SystemPrompt = "be brief"
 	out, _ = codexDrain(t, rt, "three", spec)
 	if out.Status != statusCompleted || fake.count("thread/unsubscribe") != 1 || fake.count("thread/resume") != 1 || fake.launchCount() != 1 {
 		t.Fatalf("rebind = %+v methods = %v", out, fake.methods())

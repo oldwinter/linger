@@ -9,7 +9,12 @@ import {
   validateLocalFiles,
 } from "./connector-files.js";
 import type { CommandDefinition } from "./command-definition.js";
-import { assertPositionals, bodySource, option } from "./command-input.js";
+import {
+  assertPositionals,
+  bodySource,
+  oneOf,
+  option,
+} from "./command-input.js";
 import {
   booleanSchema,
   choice,
@@ -33,7 +38,15 @@ import {
   type ConnectorRuntime,
   type Json,
 } from "./connector-runtime.js";
-import { ConnectorError as CliError } from "./errors.js";
+import { CliError } from "./errors.js";
+import {
+  conflictingFlags,
+  echo,
+  inputIssue,
+  invalidFlag,
+  invalidInput,
+  mebibytes,
+} from "./input-issues.js";
 import {
   array,
   id,
@@ -237,16 +250,7 @@ export const mailCommandDefinitions: CommandDefinition[] = [
           const name = option(args, "--attachment"),
             attachmentId = option(args, "--attachment-id");
           const all = option(args, "--all");
-          if (
-            [
-              name !== undefined,
-              attachmentId !== undefined,
-              Boolean(all),
-            ].filter(Boolean).length !== 1
-          )
-            usage(
-              "Choose exactly one of --attachment, --attachment-id, or --all.",
-            );
+          oneOf(args, ["--attachment", "--attachment-id", "--all"]);
           if (name !== undefined)
             input.attachmentName = text(name, "--attachment", 1024);
           if (attachmentId !== undefined)
@@ -260,9 +264,10 @@ export const mailCommandDefinitions: CommandDefinition[] = [
               () => null,
             );
             if (!directory?.isDirectory() || directory.isSymbolicLink())
-              throw new CliError(
-                "invalid_path",
-                "--all requires an existing ordinary directory.",
+              throw invalidFlag(
+                "--output",
+                "unwritable",
+                `${output}: not an existing directory; --all saves every attachment into one.`,
               );
           } else input.output = await assertNewOutput(output, reader.cwd);
         } else if (action === "list") {
@@ -358,7 +363,7 @@ export const mailCommandDefinitions: CommandDefinition[] = [
             );
           const content = await bodySource(args, reader, update === undefined);
           if (option(args, "--markdown") && option(args, "--html"))
-            usage("Choose --markdown or --html.");
+            throw conflictingFlags(["--markdown", "--html"]);
           if (content !== undefined) {
             if (
               !content.trim() ||
@@ -986,9 +991,15 @@ async function updateDraft(
         8192,
     );
     if (encodedSize > 25 * 1024 * 1024)
-      throw new CliError(
-        "too_large",
-        "The reconstructed draft would exceed Gmail's encoded message limit.",
+      throw invalidInput(
+        "The draft with these attachments would exceed Gmail's limit.",
+        [
+          inputIssue(
+            "--attach",
+            "out_of_range",
+            `the encoded draft must be at most 25 MiB; got ${mebibytes(encodedSize)}.`,
+          ),
+        ],
         { operation_rejected: true },
       );
     const kept = [];
@@ -1441,12 +1452,7 @@ async function downloadMail(
       throw new CliError(
         "target_ambiguous",
         "Attachment names are ambiguous; use --attachment-id from read.",
-        {
-          issues: selected.map((x) => ({
-            attachmentId: x.attachmentId,
-            name: x.name,
-          })),
-        },
+        { candidates: selected.map((x) => x.attachmentId) },
       );
     if (selected[0]!.type !== "file")
       throw new CliError(
@@ -1466,9 +1472,10 @@ async function downloadMail(
         path.isAbsolute(name) ||
         /[\\/\r\n\p{Cc}]/u.test(name))
     )
-      throw new CliError(
-        "invalid_path",
-        "An attachment filename is unsafe; download it separately with an explicit output path.",
+      throw invalidFlag(
+        "--all",
+        "invalid_value",
+        `attachment ${echo(name)} has a name that is not a plain filename; download it with --attachment-id and --output.`,
       );
     const output = await assertNewOutput(
       input.all ? path.join(String(input.output), name) : String(input.output),

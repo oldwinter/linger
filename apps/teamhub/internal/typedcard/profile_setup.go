@@ -131,6 +131,7 @@ func (s *Service) OnboardingProgressTx(ctx context.Context, tx pgx.Tx, queries *
 	}
 	message, err := messagecreation.CardHandoff(ctx, queries, messagecreation.Draft{
 		TenantID: room.TenantID, RoomID: room.ID, Author: human, CardContextMessageID: cardMessageID,
+		HumanWaiting: true,
 	}, agent, " "+onboardingStatusText(onboardingStatus{connections: connections}))
 	return message, err == nil, err
 }

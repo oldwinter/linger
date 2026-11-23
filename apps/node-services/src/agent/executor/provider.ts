@@ -1,4 +1,8 @@
-import type { RunKind, CapacityPriority } from "../../model-tasks.js";
+import type {
+  RunKind,
+  CapacityPriority,
+  RunPriority,
+} from "../../model-tasks.js";
 import type { RuntimeHistoryOptions, RuntimeHistoryPage } from "./history.js";
 
 export interface McpServerResource {
@@ -140,6 +144,8 @@ export interface ExecutionSpec {
   acceptedAtMonotonicMs?: number;
   /** What queued the Run, for model scheduling; never sent over the wire. */
   runKind?: RunKind;
+  /** The Run's live queue priority; absent, its kind's. */
+  priority?: RunPriority;
   /** Revalidate the live claim after readmission and before resuming its native session. */
   beforeYieldResume?: () => Promise<void>;
   /** Evaluated before a Runtime finishes a turn when stop interception is active. */

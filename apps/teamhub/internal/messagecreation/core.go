@@ -87,6 +87,10 @@ type Draft struct {
 	// FiredRoutine is the Routine whose fire this agent_runtime wake is; only
 	// the Routine scheduler sets it.
 	FiredRoutine *FiredRoutine
+	// HumanWaiting marks an agent_runtime Message through which a Human acted
+	// and now waits for the Agent's answer, so the Agent's Run for it is
+	// scheduled as chat.
+	HumanWaiting bool
 	// TrustedRunID is the Local Run a writer knows wrote the Message: a runtime
 	// callback, a delayed bubble or a published directory. Without it, the Run
 	// an Agent request names in its header is checked by ResolveRunClaim.
@@ -156,7 +160,8 @@ func Persist(ctx context.Context, queries *store.Queries, draft Draft) (Persiste
 	if draft.TenantID == "" || draft.RoomID == "" || draft.Author.TenantID != draft.TenantID ||
 		kind != "conversation" && kind != "agent_runtime" && kind != "task_terminal_notice" && kind != "room_notice" ||
 		!validCardTitle(draft.CardTitle, kind) || draft.CardKind != "" && (draft.CardKind != "profile" || draft.CardTitle == "") ||
-		draft.FiredRoutine != nil && (kind != "agent_runtime" || draft.FiredRoutine.ID == "" || draft.FiredRoutine.Instruction == "") {
+		draft.FiredRoutine != nil && (kind != "agent_runtime" || draft.FiredRoutine.ID == "" || draft.FiredRoutine.Instruction == "") ||
+		draft.HumanWaiting && kind != "agent_runtime" {
 		return Persisted{}, ErrInvalid
 	}
 	var firedRoutineID, firedRoutineInstruction pgtype.Text
@@ -238,6 +243,7 @@ func Persist(ctx context.Context, queries *store.Queries, draft Draft) (Persiste
 		Attachments:             storedAttachments,
 		FiredRoutineID:          firedRoutineID,
 		FiredRoutineInstruction: firedRoutineInstruction,
+		HumanWaiting:            draft.HumanWaiting,
 	})
 	if err != nil {
 		return Persisted{}, err

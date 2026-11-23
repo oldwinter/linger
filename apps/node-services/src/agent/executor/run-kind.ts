@@ -9,11 +9,15 @@ interface QueuedMessageOrigin {
   readonly authorType?: string;
   readonly messageKind?: string;
   readonly firedRoutine?: boolean;
+  /** A Human acted through this hidden Message and waits for the answer. */
+  readonly humanWaiting?: boolean;
 }
 
 function messageRunKind(origin: QueuedMessageOrigin): RunKind {
-  if (origin.messageKind === "agent_runtime")
+  if (origin.messageKind === "agent_runtime") {
+    if (origin.humanWaiting) return "chat";
     return origin.firedRoutine ? "routine" : "proactive";
+  }
   if (origin.messageKind === "task_terminal_notice") return "task_callback";
   return origin.authorType === "agent" ? "agent_message" : "chat";
 }
@@ -47,15 +51,21 @@ export function queuedMetaRunKind(
         authorType: origin.author_type,
         messageKind: origin.message_kind,
         firedRoutine: origin.fired_routine,
+        humanWaiting: origin.human_waiting,
       });
     }),
   );
 }
 
+const kindOrder = Object.keys(runPriorities) as RunKind[];
+
 function highestKind(kinds: readonly RunKind[]): RunKind {
   return kinds.length
     ? kinds.reduce((best, kind) =>
-        runPriorities[kind] < runPriorities[best] ? kind : best,
+        (runPriorities[kind] - runPriorities[best] ||
+          kindOrder.indexOf(kind) - kindOrder.indexOf(best)) < 0
+          ? kind
+          : best,
       )
     : "follow_up";
 }

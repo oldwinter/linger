@@ -18,6 +18,7 @@ import (
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/messagecreation"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/reminder"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/store"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/tenantmembership"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/typedcard"
 )
 
@@ -81,16 +82,35 @@ func (s *Service) Create(
 	if err != nil {
 		return CreateResult{}, err
 	}
+	preflight, err := s.contexts.Authorize(ctx, token, createTaskTool)
+	if err != nil {
+		return CreateResult{}, err
+	}
+	if preflight.Target.Kind != "room" || preflight.RoomID == "" || preflight.ParticipantTaskID != "" {
+		return CreateResult{}, ErrForbidden
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return CreateResult{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	queries := store.New(tx)
+	// Take per-Agent advisory locks before any row lock or room-mutation fence:
+	// Work Room creation takes tenantmembership.LockAgent, and both Room and Agent
+	// deletion acquire it before agent_registrations and room-mutation locks.
+	if err := tenantmembership.LockAgent(ctx, queries, preflight.AgentActorID); err != nil {
+		return CreateResult{}, err
+	}
+	// Count and insert under one per-Agent lock so concurrent creates respect the cap.
+	if err := queries.AcquireAdvisoryTransactionLock(ctx, "task-delegation|"+preflight.AgentActorID); err != nil {
+		return CreateResult{}, err
+	}
 	authorization, err := s.contexts.AuthorizeInTx(ctx, tx, token, createTaskTool)
 	if err != nil {
 		return CreateResult{}, err
 	}
-	if authorization.Target.Kind != "room" || authorization.RoomID == "" || authorization.ParticipantTaskID != "" {
+	if authorization.Target.Kind != "room" || authorization.RoomID == "" || authorization.ParticipantTaskID != "" ||
+		authorization.AgentActorID != preflight.AgentActorID {
 		return CreateResult{}, ErrForbidden
 	}
 	receipt, replay, err := agentauth.LookupReceipt(ctx, tx, authorization.Principal, createTaskTool, input.InvocationID, requestHash)
@@ -141,13 +161,14 @@ func StartInTx(ctx context.Context, tx pgx.Tx, authorization agentauth.Authoriza
 		return "", ErrForbidden
 	}
 	queries := store.New(tx)
+	// Count and insert under one per-Agent lock before locking the room so
+	// concurrent creates follow canonical lock order and respect the cap.
+	if err := queries.AcquireAdvisoryTransactionLock(ctx, "task-delegation|"+authorization.AgentActorID); err != nil {
+		return "", err
+	}
 	if _, err := queries.LockActiveRoomForMutation(ctx, authorization.RoomID); errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrForbidden
 	} else if err != nil {
-		return "", err
-	}
-	// Count and insert under one per-Agent lock so concurrent creates respect the cap.
-	if err := queries.AcquireAdvisoryTransactionLock(ctx, "task-delegation|"+authorization.AgentActorID); err != nil {
 		return "", err
 	}
 	running, err := queries.CountRunningDelegatedTasksForAgent(ctx, store.CountRunningDelegatedTasksForAgentParams{

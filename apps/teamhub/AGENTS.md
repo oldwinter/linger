@@ -107,7 +107,10 @@ Go service owning Human HTTP/SSE, Agent callbacks, and active product state.
   `teamhub room handoff`): TeamHub posts a hidden `agent_runtime` message,
   authored by the Human and mentioning the AnotherMe, in another live Room
   where both are members, and it wakes the AnotherMe's Context there, which
-  then speaks for itself. Only a Run whose inputs carry a message the Human
+  then speaks for itself. `teamhub message read --list-inboxes` returns each
+  authorized Room's display `name` alongside `inbox_id` so AnotherMe can
+  resolve a natural-language Room name to `room:<room-id>` before handing off.
+  Only a Run whose inputs carry a message the Human
   wrote, or a card they decided, in the direct chat may hand off
   (`X-TeamHub-Run-Id`); proactive wakes, Routines and Task callbacks may not,
   because they often carry outside content. A refusal names its reason in an
@@ -298,9 +301,19 @@ Go service owning Human HTTP/SSE, Agent callbacks, and active product state.
   (`internal/app/handlers_model_source.go`); TeamHub never stores a BYOK key.
   A switch checks for running work, runs `apply` on the Computer, then moves
   the owner's Agents on it in one transaction
-  (`agentregistry.SwitchComputerRuntime`). Work found before `apply` refuses
-  the switch with `AGENT_HAS_ACTIVE_RUNS` unless the owner sent
-  `force_terminate`; work that starts during `apply` keeps only its Agent
-  behind, answered with the same code after the others moved.
+  (`agentregistry.SwitchComputerRuntime`). Both `apply` and the Agent switch run
+  under a context detached from the HTTP client's cancellation (bounded by
+  `modelSourceApplyLifetime`, 190 s) so navigating away mid-switch cannot leave
+  the Computer switched while TeamHub Agents remain on the old Runtime model.
+  TeamHub rejects invalid `apply` statuses (empty `runtime_model` or mismatched
+  `mode`) before updating Agents. Work found before `apply` refuses the switch
+  with `AGENT_HAS_ACTIVE_RUNS` unless the owner sent `force_terminate`; work
+  that starts during `apply` keeps only its Agent behind, answered with the same
+  code after the others moved. Allowlisted BYOK endpoint refusals and
+  `BYOK_GATEWAY_FAILED` forward Computer messages scrubbed of credentials, URL
+  query strings/userinfo, and user-home paths (`safeComputerMessage`), unmapped
+  refusals return generic `MODEL_SOURCE_FAILED` (HTTP 502), and timeouts,
+  `MODEL_SOURCE_EXPIRED`, or client disconnects return `MODEL_SOURCE_UNCONFIRMED`
+  (HTTP 504).
 - Do not add write-only audit, event, or provenance tables. A new audit table
   needs a named product or compliance reader in the same pull request.

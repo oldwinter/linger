@@ -8,7 +8,9 @@ name: CI
 # checks the paths its whole group changes, on top of the latest main. Pushes
 # to main run every check. scripts/check-plan.mjs maps paths to checks, here
 # and in `make check`. Only jobs that use BASE check out full history. CI runs
-# the computer daemon's Go unit tests; the rest of check-computer (TS and process
+# the computer daemon's Go unit tests, and on Windows builds every daemon
+# package and tests only its Windows launcher, CLI, config, local-model and
+# process packages; the rest of check-computer (TS and process
 # tests) and the heavier suites (node-services, voice-runtime, integration,
 # containers and E2E) stay local: run `make check BASE=<target-ref>` and the
 # targets in the Makefile before you open a pull request.
@@ -226,3 +228,77 @@ jobs:
         with:
           app: computer-go
           changes-result: ${{ needs.changes.result }}
+
+  # The daemon ships on Windows, and its Windows-only files build and run only
+  # there. The same paths as check (computer-go) select it.
+  computer_go_windows:
+    name: check (computer-go-windows)
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs['computer-go'] == 'true') }}
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: apps/computer/local-daemon
+    steps:
+      - name: Fail when the path filter failed
+        if: needs.changes.result != 'success'
+        working-directory: .
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+        run: |
+          echo "::error::The changes job did not succeed ($CHANGES_RESULT); no check can be skipped."
+          exit 1
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: apps/computer/local-daemon/go.mod
+          cache: false
+      # Same cache policy as the Linux Go checks: pull requests restore main's
+      # latest entry and only pushes to main save.
+      - name: Point the Go caches at the runner temp directory
+        run: |
+          echo "GOCACHE=$RUNNER_TEMP/go-build" >>"$GITHUB_ENV"
+          echo "GOMODCACHE=$RUNNER_TEMP/go-mod" >>"$GITHUB_ENV"
+      - id: gomod
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/go-mod
+          key: gomod-Windows-${{ runner.arch }}-${{ hashFiles('apps/computer/local-daemon/go.sum') }}
+          restore-keys: gomod-Windows-${{ runner.arch }}-
+      - uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/go-build
+          key: go-computer-go-windows-${{ hashFiles('apps/computer/local-daemon/go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-computer-go-windows-${{ hashFiles('apps/computer/local-daemon/go.sum') }}-
+            go-computer-go-windows-
+      # Backdating lets the prune before the save keep only the entries this
+      # run used, as in the Linux Go checks.
+      - if: github.event_name == 'push'
+        run: |
+          cache=$(cygpath -u "$GOCACHE")
+          if [ -d "$cache" ]; then
+            find "$cache" -type f -exec touch -m -d '2 hours ago' {} +
+          fi
+      # Builds every package and test for Windows, then runs the packages that
+      # hold the Windows launcher, process Job, CLI and overlay path code.
+      - run: go test -run '^$' ./...
+      - run: go test ./cmd/linger-computer-launcher ./internal/computercli ./internal/computerconfig ./internal/localmodels ./internal/process
+      # A failed run saves unpruned; the next successful push prunes.
+      - if: success() && github.event_name == 'push'
+        run: |
+          cache=$(cygpath -u "$GOCACHE")
+          if [ -d "$cache" ]; then
+            find "$cache" -type f -mmin +60 -delete
+          fi
+      - uses: actions/cache/save@v6
+        if: success() && github.event_name == 'push' && steps.gomod.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/go-mod
+          key: ${{ steps.gomod.outputs.cache-primary-key }}
+      - uses: actions/cache/save@v6
+        if: always() && github.event_name == 'push'
+        with:
+          path: ${{ runner.temp }}/go-build
+          key: go-computer-go-windows-${{ hashFiles('apps/computer/local-daemon/go.sum') }}-${{ github.sha }}

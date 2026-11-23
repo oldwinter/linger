@@ -94,23 +94,20 @@ func (p *codexProcess) boundThread() string {
 func (p *codexProcess) dispatchNotice(method string, params json.RawMessage) {
 	op := p.currentOp()
 	if op == nil {
+		// A stop retried after the Operation detached still waits on the
+		// tracker, so its notifications must keep reaching it.
+		if n, turnID, ok := parseCodexNotice(method, params); ok {
+			p.trackNotification(method, n.ThreadID, turnID, n.Item)
+		}
 		return
 	}
 	op.observed.Add(1)
-	trimmed := bytes.TrimSpace(params)
-	if len(trimmed) == 0 || trimmed[0] != '{' || strings.HasPrefix(method, "codex/event") {
-		return
-	}
-	var n codexNotification
-	if json.Unmarshal(trimmed, &n) != nil {
+	n, turnID, ok := parseCodexNotice(method, params)
+	if !ok {
 		return
 	}
 	if bound := p.boundThread(); n.ThreadID != "" && bound != "" && n.ThreadID != bound {
 		return
-	}
-	turnID := n.TurnID
-	if method == "turn/started" || method == "turn/completed" {
-		turnID = n.Turn.ID
 	}
 	if !op.admit(method, turnID, n.TurnID) {
 		// A usage report outside the turn still moves the thread's total, so a
@@ -123,7 +120,25 @@ func (p *codexProcess) dispatchNotice(method string, params json.RawMessage) {
 		return
 	}
 	p.trackNotification(method, n.ThreadID, turnID, n.Item)
-	op.project(method, &n)
+	op.project(method, n)
+}
+
+// parseCodexNotice decodes a notification's params and resolves the turn it
+// belongs to; ok is false for notifications the Daemon does not consume.
+func parseCodexNotice(method string, params json.RawMessage) (*codexNotification, string, bool) {
+	trimmed := bytes.TrimSpace(params)
+	if len(trimmed) == 0 || trimmed[0] != '{' || strings.HasPrefix(method, "codex/event") {
+		return nil, "", false
+	}
+	var n codexNotification
+	if json.Unmarshal(trimmed, &n) != nil {
+		return nil, "", false
+	}
+	turnID := n.TurnID
+	if method == "turn/started" || method == "turn/completed" {
+		turnID = n.Turn.ID
+	}
+	return &n, turnID, true
 }
 
 // admit applies the notification gate.

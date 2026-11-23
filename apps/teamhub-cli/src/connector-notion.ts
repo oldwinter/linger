@@ -9,6 +9,7 @@ import {
   text,
   usage,
 } from "./connector-input.js";
+import { conflictingFlags, missingFlag } from "./input-issues.js";
 import {
   connectorDefinition,
   cursor,
@@ -21,7 +22,7 @@ import {
   type ConnectorRuntime,
   type Json,
 } from "./connector-runtime.js";
-import { ConnectorError as CliError } from "./errors.js";
+import { CliError } from "./errors.js";
 const descriptions = {
   search: "Find accessible Notion pages by title.",
   read: "Read the page body and report completeness explicitly.",
@@ -131,11 +132,14 @@ export const notionCommandDefinitions: CommandDefinition[] = (
           if (action === "edit") {
             const direct = option(args, "--find"),
               file = option(args, "--find-file");
-            if ((direct === undefined) === (file === undefined))
-              usage("Choose --find or --find-file.");
-            if (file === "-" && option(args, "--file") === "-")
-              usage("Only one source may read stdin.");
-            input.find = file === undefined ? direct : await reader.text(file);
+            if (direct !== undefined && file !== undefined)
+              throw conflictingFlags(["--find", "--find-file"]);
+            if (direct === undefined && file === undefined)
+              throw missingFlag(["--find", "--find-file"]);
+            input.find =
+              file === undefined
+                ? direct
+                : await reader.text(file, "--find-file");
             if (
               typeof input.find !== "string" ||
               !input.find.length ||

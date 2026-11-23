@@ -14,6 +14,21 @@ import (
 // Runtime on the BYOK gateway starts; a gateway that is up answers at once.
 const gatewayHealthTimeout = 2 * time.Second
 
+// GatewayMode names the managed gateway runtimeType reaches its model through,
+// "local" or "byok", read from the saved source; it is empty when runtimeType
+// reaches its own provider.
+func (m *ModelSource) GatewayMode(runtimeType string) string {
+	if m.tool == nil || !m.tool.installed() {
+		return ""
+	}
+	overlay := ReadOverlay(m.tool.StateDirectory)
+	if overlay == nil || (overlay.Mode != "local" && overlay.Mode != "byok") ||
+		!GatewayRuntime(overlay.Environment, m.tool.StateDirectory, runtimeType) {
+		return ""
+	}
+	return overlay.Mode
+}
+
 // EnsureGateway brings back the Bifrost gateway of the saved BYOK source
 // before runtimeType runs on it. A source applied while its endpoint was
 // down, or a gateway a quit stopped, otherwise leaves every Run refused at

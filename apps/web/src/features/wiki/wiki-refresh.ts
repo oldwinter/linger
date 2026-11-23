@@ -18,8 +18,13 @@ export interface WikiRefreshStatus {
   preview?: Record<string, string>;
   failed: boolean;
   failureReason?: WikiRefreshFailureReason;
+  hasPublishedWiki: boolean;
   initializing: boolean;
+  refetchStatus: () => Promise<unknown>;
   refreshing: boolean;
+  statusError: Error | null;
+  statusFetching: boolean;
+  statusPending: boolean;
 }
 
 const wikiRefreshPollIntervalMs = 2_000;
@@ -129,7 +134,12 @@ export function usePersonalWikiRefresh(tenantId: string): WikiRefreshStatus {
     failed: wiki.data?.state === "failed",
     failureReason:
       wiki.data?.state === "failed" ? wiki.data.failure_reason : undefined,
+    hasPublishedWiki: (wiki.data?.published_generation ?? 0) > 0,
     initializing: refreshing && wiki.data?.published_generation === 0,
+    refetchStatus: () => wiki.refetch(),
     refreshing,
+    statusError: wiki.error,
+    statusFetching: wiki.isFetching,
+    statusPending: wiki.isPending,
   };
 }

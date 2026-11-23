@@ -1024,7 +1024,7 @@ func waitForDocumentCommentRunState(t *testing.T, env *testEnv, runID, wantRunSt
 
 func assertDocumentRunClaimable(t *testing.T, queries *store.Queries, contextKey string, want bool) {
 	t.Helper()
-	origins, err := queries.NextAgentRunInputOrigins(t.Context(), contextKey)
+	origins, err := queries.QueuedAgentRunInputOrigins(t.Context(), contextKey)
 	if err != nil {
 		t.Fatal(err)
 	}

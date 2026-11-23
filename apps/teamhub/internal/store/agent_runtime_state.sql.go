@@ -3679,59 +3679,6 @@ func (q *Queries) NextAgentLocalRunSteerOrdinal(ctx context.Context, runID strin
 	return column_1, err
 }
 
-const nextAgentRunInputOrigins = `-- name: NextAgentRunInputOrigins :many
-WITH next_run AS (
-    SELECT run.run_id FROM agent_local_runs run
-    WHERE run.context_key=$1::text AND run.status='queued'
-      AND agent_document_run_claimable(run.run_id,run.context_key)
-    ORDER BY run.created_at, run.run_id LIMIT 1
-)
-SELECT DISTINCT (input.payload ? 'acceptedNotification')::boolean AS notification,
-       coalesce(input.payload->'acceptedNotification'->>'inboxId' LIKE 'taskmeta:%', false)::boolean AS task_inbox,
-       coalesce(msg.value->>'authorType', '')::text AS author_type,
-       coalesce(msg.value->>'messageKind', '')::text AS message_kind,
-       coalesce(msg.value->>'firedRoutine' = 'true', false)::boolean AS fired_routine
-FROM next_run
-JOIN agent_local_run_inputs relation ON relation.run_id=next_run.run_id AND relation.relation='initial'
-JOIN agent_runtime_inputs input ON input.context_key=relation.context_key AND input.input_id=relation.input_id
-LEFT JOIN LATERAL jsonb_array_elements(input.payload->'acceptedNotification'->'messages') AS msg(value) ON true
-`
-
-type NextAgentRunInputOriginsRow struct {
-	Notification bool   `json:"notification"`
-	TaskInbox    bool   `json:"task_inbox"`
-	AuthorType   string `json:"author_type"`
-	MessageKind  string `json:"message_kind"`
-	FiredRoutine bool   `json:"fired_routine"`
-}
-
-// Match claim order without locking the Run or returning message bodies.
-func (q *Queries) NextAgentRunInputOrigins(ctx context.Context, contextKey string) ([]NextAgentRunInputOriginsRow, error) {
-	rows, err := q.db.Query(ctx, nextAgentRunInputOrigins, contextKey)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []NextAgentRunInputOriginsRow{}
-	for rows.Next() {
-		var i NextAgentRunInputOriginsRow
-		if err := rows.Scan(
-			&i.Notification,
-			&i.TaskInbox,
-			&i.AuthorType,
-			&i.MessageKind,
-			&i.FiredRoutine,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const observeAgentRuntimeLocalComputer = `-- name: ObserveAgentRuntimeLocalComputer :one
 UPDATE local_computers
 SET display_name=$1::text,
@@ -3812,6 +3759,62 @@ WHERE requested_computer_id=$1::text
 func (q *Queries) PurgeAgentRuntimeLocalComputerEnrollmentsByComputer(ctx context.Context, computerID string) error {
 	_, err := q.db.Exec(ctx, purgeAgentRuntimeLocalComputerEnrollmentsByComputer, computerID)
 	return err
+}
+
+const queuedAgentRunInputOrigins = `-- name: QueuedAgentRunInputOrigins :many
+WITH queued_run AS (
+    SELECT run.run_id FROM agent_local_runs run
+    WHERE run.context_key=$1::text AND run.status='queued'
+      AND agent_document_run_claimable(run.run_id,run.context_key)
+)
+SELECT DISTINCT (input.payload ? 'acceptedNotification')::boolean AS notification,
+       coalesce(input.payload->'acceptedNotification'->>'inboxId' LIKE 'taskmeta:%', false)::boolean AS task_inbox,
+       coalesce(msg.value->>'authorType', '')::text AS author_type,
+       coalesce(msg.value->>'messageKind', '')::text AS message_kind,
+       coalesce(msg.value->>'firedRoutine' = 'true', false)::boolean AS fired_routine,
+       coalesce(msg.value->>'humanWaiting' = 'true', false)::boolean AS human_waiting
+FROM queued_run
+JOIN agent_local_run_inputs relation ON relation.run_id=queued_run.run_id AND relation.relation='initial'
+JOIN agent_runtime_inputs input ON input.context_key=relation.context_key AND input.input_id=relation.input_id
+LEFT JOIN LATERAL jsonb_array_elements(input.payload->'acceptedNotification'->'messages') AS msg(value) ON true
+`
+
+type QueuedAgentRunInputOriginsRow struct {
+	Notification bool   `json:"notification"`
+	TaskInbox    bool   `json:"task_inbox"`
+	AuthorType   string `json:"author_type"`
+	MessageKind  string `json:"message_kind"`
+	FiredRoutine bool   `json:"fired_routine"`
+	HumanWaiting bool   `json:"human_waiting"`
+}
+
+// Every claimable queued Run, without locking it or returning message bodies:
+// the Run claimed next serves them all, so it waits as the most urgent.
+func (q *Queries) QueuedAgentRunInputOrigins(ctx context.Context, contextKey string) ([]QueuedAgentRunInputOriginsRow, error) {
+	rows, err := q.db.Query(ctx, queuedAgentRunInputOrigins, contextKey)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []QueuedAgentRunInputOriginsRow{}
+	for rows.Next() {
+		var i QueuedAgentRunInputOriginsRow
+		if err := rows.Scan(
+			&i.Notification,
+			&i.TaskInbox,
+			&i.AuthorType,
+			&i.MessageKind,
+			&i.FiredRoutine,
+			&i.HumanWaiting,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const recordAgentDocumentCommentContextInput = `-- name: RecordAgentDocumentCommentContextInput :exec

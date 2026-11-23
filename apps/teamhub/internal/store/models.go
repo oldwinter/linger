@@ -1177,6 +1177,7 @@ type Message struct {
 	FiredRoutineID          pgtype.Text        `json:"fired_routine_id"`
 	FiredRoutineInstruction pgtype.Text        `json:"fired_routine_instruction"`
 	CardKind                pgtype.Text        `json:"card_kind"`
+	HumanWaiting            bool               `json:"human_waiting"`
 }
 
 type MessageCard struct {

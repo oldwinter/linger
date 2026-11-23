@@ -50,14 +50,20 @@ scripts/ci/desktop-release.sh publish desktop-v0.16.36 --notes-file notes.md
 ## How the workflow runs
 
 The workflow runs for `desktop-v*` tags and from Actions → Desktop release →
-Run workflow. Its `build` jobs
-run on `ubuntu-24.04` (the macOS and Windows runners have no Docker) and keep
+Run workflow. Its `build` (`darwin-arm64`, `linux-x64`) and `build-win32`
+(`win32-x64`) jobs run on `ubuntu-24.04` (the macOS and Windows runners have no
+Docker), pull the prebuilt `dmgtool` and `wintool` images from GHCR (published
+by [`.github/workflows/desktop-packaging-images.yml`](../.github/workflows/desktop-packaging-images.yml)
+whenever a packaging Dockerfile changes, with automatic fallback to local
+`docker build`), and keep
 the files as workflow artifacts for 14 days: `desktop-<target>`, a zip of
 every file for the platform (with the Windows portable archive split into
 `desktop-win32-x64-portable` so `desktop-win32-x64` carries only the Setup and
 its `windows-setup.sha256` digest), and the installer on its own, not zipped
 (the `.dmg`, the `-setup.exe`, the Linux `.tar.gz`), for testers to download
-directly. `windows-smoke` downloads `desktop-win32-x64`, verifies the Setup
+directly. `windows-smoke` depends only on `prepare` and `build-win32`, so it
+starts as soon as `win32-x64` finishes without waiting for `darwin-arm64`; it
+downloads `desktop-win32-x64`, verifies the Setup
 against `windows-setup.sha256`, and installs those bytes silently under a fresh
 standard user on `windows-2022`. It requests only packaged Pi preparation and
 checks the real Pi RPC handshake (`get_state`, `get_commands`) and the
@@ -117,6 +123,37 @@ new archive there before tagging:
 
 ```sh
 gh release upload native-deps <archive> --repo simplexai-labs/linger
+```
+
+Apple inspects the archives inside a notarized app, so the macOS archives
+(PostgreSQL and the voice tools) carry a Developer ID signature with the
+hardened runtime on every Mach-O file inside them. Their builds leave only the
+linker's ad-hoc signature, so after pinning a new macOS archive (uploaded as
+above), sign it once with Actions → Sign macOS native archives → Run workflow
+on the branch that pins it
+([`.github/workflows/sign-macos-native-archives.yml`](../.github/workflows/sign-macos-native-archives.yml)).
+It uses the `MACOS_DEVELOPER_ID_*` secrets, uploads each signed archive to
+`native-deps` beside the original under the name with its new sha256, and
+keeps the updated `distribution/darwin-arm64.json` as the `distribution`
+artifact. Commit that file on the branch; the run's summary gives the command:
+
+```sh
+gh run download <run-id> -n distribution -D apps/desktop/distribution
+```
+
+The workflow pushes nothing, because a commit pushed with its token would not
+start the pull request's checks. Archives already signed are left alone. The
+archive is signed once rather than at every release because installs unpack
+each new sha256 into a folder of its own. A release with `MACOS_NOTARY_KEY_JSON`
+stops before signing the app when a bundled archive still holds an unsigned
+Mach-O file, and names this workflow.
+
+On a Mac with the Developer ID `.p12`, the same signing runs locally (it asks
+for the password; upload the new archives yourself):
+
+```sh
+scripts/ci/desktop-release.sh fetch-native darwin-arm64
+cd apps/desktop && python3 packaging/mac/sign_native_archives.py --developer-id DeveloperID.p12
 ```
 
 ### First release in simplexai-labs/linger
@@ -503,8 +540,10 @@ the generated API key and secret in the owner-only `livekit.env` of the
 instance, logs in `native/logs/livekit.log`. ICE over TCP stays off because
 LiveKit binds it on every interface. Without the tools for the computer, or
 when they fail to prepare, Native logs it, keeps voice off, gives TeamHub
-`TEAMHUB_VOICE_MEDIA=off` and finishes the install. The macOS tools are ad-hoc signed by their linker and
-live in the archive, outside the app's signature, like PostgreSQL.
+`TEAMHUB_VOICE_MEDIA=off` and finishes the install. The macOS tools live in
+the archive, outside the app's signature, like PostgreSQL; their Mach-O files
+are signed with the Developer ID before the archive is pinned (see
+[Bundled archives](#bundled-archives)).
 
 A build with a source package for `win32-x64`, `linux-x64` or `darwin-arm64`
 also ships TeamHub prebuilt (`scripts/build-teamhub.mjs`): build.mjs

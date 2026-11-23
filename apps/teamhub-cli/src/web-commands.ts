@@ -5,7 +5,7 @@ import type {
 } from "./command-definition.js";
 import { assertPositionals, option, values } from "./command-input.js";
 import { displayText } from "./display-text.js";
-import { CliError, ConnectorError } from "./errors.js";
+import { CliError } from "./errors.js";
 import { teamHubData } from "./http-client.js";
 
 type Json = Record<string, unknown>;
@@ -61,11 +61,11 @@ const readyHint = (details: Json) => {
  * structured details; TeamHub's own prose is never shown.
  */
 function webFailure(error: unknown): never {
-  if (!(error instanceof CliError) || error.trustedMessage) throw error;
+  if (!(error instanceof CliError) || error.origin === "local") throw error;
   const details = error.details;
   const name = nameOf(details.backend);
   const authored = (message: string) =>
-    new ConnectorError(error.code, message, details);
+    new CliError(error.code, message, details);
   switch (error.code.toLowerCase()) {
     case "search_key_requested":
       throw authored(

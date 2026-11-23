@@ -49,6 +49,7 @@ import {
 import type { ReplyRhythmSettings } from "../../../src/agent/agent-features/reply-rhythm/types.js";
 import { renderAcceptedNotification } from "../../../src/agent/prompt/accepted-notification.js";
 import { RunLoop } from "../../../src/agent/executor/run-loop.js";
+import { runPriorities, type RunKind } from "../../../src/model-tasks.js";
 import type {
   ToolRunContext,
   Message,
@@ -1267,6 +1268,116 @@ describe("RunLoop", () => {
     ).resolves.toBeUndefined();
     expect(harness.state.getLocalRun(secondId)?.status).toBe("succeeded");
     expect(harness.provider.starts).toHaveLength(2);
+    harness.state.close();
+  });
+
+  it("raises a Meta Run waiting for its place to chat queued behind it", async () => {
+    const harness = createHarness();
+    const providerStart = deferred<AgentRun>();
+    harness.provider.startGate = providerStart;
+    let queued: RunKind = "follow_up";
+    const queuedMetaKind = vi.fn(async () => queued);
+    Object.assign(harness.state, { queuedMetaKind });
+    const runId = enqueue(harness.state, message("follow-up"));
+    harness.execution.start();
+    await vi.waitFor(() => expect(harness.provider.starts).toHaveLength(1));
+    const priority = harness.provider.starts[0]!.spec.priority!;
+    // The claim reads what still queues behind the Run: nothing more urgent.
+    await vi.waitFor(() => expect(queuedMetaKind).toHaveBeenCalledOnce());
+    expect(priority.value).toBe(runPriorities.follow_up);
+
+    enqueue(harness.state, chatMessage("queued-chat"));
+    queued = "chat";
+    harness.execution.notifyWorkAvailable({ workStateAlreadyFresh: true });
+    await vi.waitFor(() => expect(priority.value).toBe(runPriorities.chat));
+    expect(queuedMetaKind).toHaveBeenCalledTimes(2);
+    // A chat cannot raise it further, so later wakes read nothing.
+    harness.execution.notifyWorkAvailable({ workStateAlreadyFresh: true });
+    expect(queuedMetaKind).toHaveBeenCalledTimes(2);
+
+    const run = new FakeRun();
+    providerStart.resolve(run);
+    run.complete("done");
+    await vi.waitFor(() =>
+      expect(harness.state.getLocalRun(runId)?.status).toBe("succeeded"),
+    );
+    await harness.execution.drain({ cancelActive: false });
+    harness.state.close();
+  });
+
+  it("claims a Meta Run at the priority of a chat already queued behind it", async () => {
+    const harness = createHarness();
+    const providerStart = deferred<AgentRun>();
+    harness.provider.startGate = providerStart;
+    Object.assign(harness.state, {
+      queuedMetaKind: vi.fn(async () => "chat" as const),
+    });
+    enqueue(harness.state, message("follow-up"));
+    enqueue(harness.state, chatMessage("queued-chat"));
+    harness.execution.start();
+    await vi.waitFor(() => expect(harness.provider.starts).toHaveLength(1));
+    const priority = harness.provider.starts[0]!.spec.priority!;
+    await vi.waitFor(() => expect(priority.value).toBe(runPriorities.chat));
+    providerStart.resolve(new FakeRun());
+    await harness.execution.drain({ cancelActive: true });
+    harness.state.close();
+  });
+
+  it("raises a waiting Meta Run as soon as a chat steers into it", async () => {
+    const harness = createHarness();
+    const providerStart = deferred<AgentRun>();
+    harness.provider.startGate = providerStart;
+    enqueue(harness.state, message("follow-up", "room:room-1"));
+    harness.execution.start();
+    await vi.waitFor(() => expect(harness.provider.starts).toHaveLength(1));
+    const priority = harness.provider.starts[0]!.spec.priority!;
+    const steer = selectSteer(harness.state, chatMessage("steered-chat"));
+    const steering = harness.execution.steer(
+      steer.groupId,
+      steer.messages,
+      new AbortController().signal,
+      "room:room-1",
+    );
+    // Before the steer waits for the Provider that waits for a place.
+    expect(priority.value).toBe(runPriorities.chat);
+    const run = new FakeRun();
+    providerStart.resolve(run);
+    await steering;
+    run.complete("done");
+    await harness.execution.drain({ cancelActive: false });
+    harness.state.close();
+  });
+
+  it("keeps a Task Run at Task priority whatever reaches it", async () => {
+    const harness = createHarness(undefined, undefined, undefined, undefined, {
+      kind: "alter_ego",
+      agentId: "agent-1",
+      taskId: "task-1",
+    });
+    const providerStart = deferred<AgentRun>();
+    harness.provider.startGate = providerStart;
+    const queuedMetaKind = vi.fn(async () => "chat" as const);
+    Object.assign(harness.state, { queuedMetaKind });
+    enqueue(harness.state, message("task-input", "task:task-1"));
+    harness.execution.start();
+    await vi.waitFor(() => expect(harness.provider.starts).toHaveLength(1));
+    const priority = harness.provider.starts[0]!.spec.priority!;
+    expect(priority.value).toBe(runPriorities.task);
+    enqueue(harness.state, chatMessage("queued-chat"));
+    harness.execution.notifyWorkAvailable({ workStateAlreadyFresh: true });
+    const steer = selectSteer(harness.state, chatMessage("steered-chat"));
+    const steering = harness.execution.steer(
+      steer.groupId,
+      steer.messages,
+      new AbortController().signal,
+    );
+    expect(priority.value).toBe(runPriorities.task);
+    expect(queuedMetaKind).not.toHaveBeenCalled();
+    const run = new FakeRun();
+    providerStart.resolve(run);
+    await steering;
+    run.complete("done");
+    await harness.execution.drain({ cancelActive: false });
     harness.state.close();
   });
 
@@ -4210,6 +4321,26 @@ const enqueue = (state: ContextRuntimeState, value: Message): string =>
 
 const selectSteer = (state: ContextRuntimeState, value: Message) =>
   state.openSteerGroup([value]);
+
+/** A Human's Room Message as its Inbox notification. */
+const chatMessage = (messageId: string): Message =>
+  ({
+    ...message(messageId, "room:room-1"),
+    acceptedNotification: {
+      inboxId: "room:room-1",
+      after: "0",
+      through: "1",
+      messages: [
+        {
+          id: `${messageId}-message`,
+          body: "are you there?",
+          author: "Leo",
+          authorType: "user",
+          messageKind: "conversation",
+        },
+      ],
+    },
+  }) as Message;
 
 const message = (
   messageId: string,

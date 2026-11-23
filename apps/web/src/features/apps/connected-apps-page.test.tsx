@@ -162,6 +162,7 @@ describe("Connected apps", () => {
 
     const card = await screen.findByRole("button", { name: "Gmail" });
     expect(within(card).getByText("Email")).toHaveClass("truncate");
+    expect(within(card).getByText("Email")).toHaveAttribute("title", "Email");
     expect(within(card).queryByText(description)).toBeNull();
     // A saved provider key is not managed from this page.
     expect(screen.queryByRole("button", { name: "Composio key" })).toBeNull();
@@ -170,6 +171,35 @@ describe("Connected apps", () => {
     expect(
       await screen.findByRole("dialog", { name: "Gmail" }),
     ).toHaveTextContent(description);
+  });
+
+  it("renders a concise non-truncating subtitle for Calendly with full title tooltip", async () => {
+    const runtime = await testRuntime();
+    vi.spyOn(runtime.client, "listExternalApps").mockResolvedValue({
+      provider_configured: true,
+      provider_key: { source: "stored", can_save: true },
+      apps: [
+        {
+          key: "calendly",
+          display_name: "Calendly",
+          description: "Manage Calendly scheduling links and events.",
+          availability: "available",
+          capabilities: ["connect", "agent_tools"],
+          allows_multiple_connections: false,
+          supports_reauthorization: false,
+        },
+      ],
+    });
+    vi.spyOn(runtime.client, "listExternalConnections").mockResolvedValue({
+      connections: [],
+    });
+
+    renderPage(runtime);
+
+    const card = await screen.findByRole("button", { name: "Calendly" });
+    const subtitle = within(card).getByText("Scheduling links");
+    expect(subtitle).toBeVisible();
+    expect(subtitle).toHaveAttribute("title", "Scheduling links");
   });
 
   it("groups apps into sections, hides ungrouped apps, and filters by group", async () => {
@@ -1202,6 +1232,10 @@ describe("Connected apps", () => {
       gmailCard.querySelector('[data-logo-fallback="loading"]'),
     ).not.toBeNull();
 
+    Object.defineProperty(gmailImg!, "naturalWidth", {
+      configurable: true,
+      value: 64,
+    });
     fireEvent.load(gmailImg!);
     expect(
       gmailCard.querySelector('[data-logo-fallback="loading"]'),

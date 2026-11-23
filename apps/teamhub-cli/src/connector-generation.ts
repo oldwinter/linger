@@ -1,5 +1,6 @@
 import type { CommandDefinition } from "./command-definition.js";
 import { assertPositionals, option, values } from "./command-input.js";
+import { conflictingFlags } from "./input-issues.js";
 import { falGeneration } from "./connector-fal.js";
 import { higgsfieldGeneration } from "./connector-higgsfield.js";
 import { assertNewOutput, validateLocalFiles } from "./connector-files.js";
@@ -126,7 +127,7 @@ export const generationCommandDefinitions: CommandDefinition[] = [
         ) ?? usage("Provide --provider fal or higgsfield.");
       const jobIds = values(args, "--job");
       if (args.options["--price"] && jobIds.length)
-        usage("Choose --price or --job, not both.");
+        throw conflictingFlags(["--price", "--job"]);
       const mode = args.options["--price"]
         ? "price"
         : jobIds.length

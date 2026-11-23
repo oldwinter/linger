@@ -69,6 +69,10 @@ func TestAnotherMeProfileSetupReminderWakesAnotherMeOnceWhenQuiet(t *testing.T) 
 	f.runProfileReminder(t)
 
 	status := f.onboardingStatus(t, appsMessageID)
+	// TeamHub sent the reminder on its own; no Human waits on it.
+	if status.humanWaiting {
+		t.Fatalf("the reminder %s waits on AnotherMe as if a Human had acted", status.id)
+	}
 	for _, want := range []string{"Setup cards: not finished", "- Gmail alice@example.test, connection connection_onboarding_gmail",
 		"no message of theirs comes with this status", "ask whether to start now from what is connected"} {
 		if !strings.Contains(status.body, want) {

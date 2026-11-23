@@ -67,3 +67,43 @@ esac
 		})
 	}
 }
+
+func TestCheckLiveClaudeDisablesNonessentialTrafficAndPreservesOverride(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fixture uses a POSIX script")
+	}
+	root := t.TempDir()
+	claude := filepath.Join(root, "claude")
+	script := `#!/bin/sh
+want="${EXPECTED_NONESSENTIAL:-1}"
+if [ "$CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC" != "$want" ]; then
+  echo "unexpected CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=$CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC" >&2
+  exit 11
+fi
+echo OK
+`
+	if err := os.WriteFile(claude, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	diagnostic := RuntimeDiagnostic{Type: "claude", ExecutablePath: claude, Status: "ready"}
+
+	callerEnv := map[string]string{"HOME": root, "PATH": root}
+	check := checkLive(context.Background(), diagnostic, callerEnv, 5*time.Second)
+	if !check.Passed || check.Reply != "OK" {
+		t.Fatalf("default checkLive(claude) = %+v, want passed OK", check)
+	}
+	if _, mutated := callerEnv["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"]; mutated {
+		t.Fatal("checkLive(claude) mutated caller environment map")
+	}
+
+	overrideEnv := map[string]string{
+		"HOME": root,
+		"PATH": root,
+		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "0",
+		"EXPECTED_NONESSENTIAL":                    "0",
+	}
+	overrideCheck := checkLive(context.Background(), diagnostic, overrideEnv, 5*time.Second)
+	if !overrideCheck.Passed || overrideCheck.Reply != "OK" {
+		t.Fatalf("override checkLive(claude) = %+v, want passed OK", overrideCheck)
+	}
+}

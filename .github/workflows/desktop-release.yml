@@ -76,202 +76,66 @@ jobs:
     # with Docker, which the macOS and Windows runners do not offer.
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: read
     strategy:
       fail-fast: false
       matrix:
-        target: [darwin-arm64, linux-x64, win32-x64]
+        target: [darwin-arm64, linux-x64]
         # The file a tester downloads and runs, uploaded on its own below.
         include:
           - target: darwin-arm64
             installer: macos-arm64.dmg
             docker_image: dmgtool
-            docker_file: apps/desktop/packaging/mac/Dockerfile
           - target: linux-x64
             installer: linux-x64.tar.gz
             docker_image: ""
-            docker_file: ""
-          - target: win32-x64
-            installer: windows-x64-setup.exe
-            docker_image: wintool
-            docker_file: apps/desktop/packaging/win/Dockerfile
     env:
       DESKTOP_VERSION: ${{ needs.prepare.outputs.version }}
       RELEASE_OUT: ${{ github.workspace }}/.linger-runtime/desktop-release
       LINGER_NATIVE_POSTGRES_DIR: ${{ github.workspace }}/.linger-runtime/native-deps
     steps:
-      # A target's build holds the bundled runtime, its archive and the
-      # package at once; the runner image's SDKs leave too little room.
-      - name: Free disk space
-        run: >-
-          sudo bash -c
-          'rm -rf /usr/share/dotnet & rm -rf /usr/local/lib/android & rm -rf /opt/ghc & rm -rf /opt/hostedtoolcache/CodeQL & wait'
       - uses: actions/checkout@v7
-      - id: versions
-        shell: bash
-        run: |
-          echo "node=$(tr -d '[:space:]' <.node-version)" >>"$GITHUB_OUTPUT"
-          go_ver=$(sed -n 's/^toolchain go//p' apps/teamhub/go.mod | head -n 1)
-          [ -n "$go_ver" ] || go_ver=$(sed -n 's/^go //p' apps/teamhub/go.mod | head -n 1)
-          echo "go=$go_ver" >>"$GITHUB_OUTPUT"
-      - uses: actions/cache@v6
+      - uses: ./.github/actions/desktop-build
         with:
-          path: ${{ runner.tool_cache }}/node/${{ steps.versions.outputs.node }}
-          key: toolcache-node-${{ runner.os }}-${{ runner.arch }}-${{ steps.versions.outputs.node }}
-      - uses: actions/cache@v6
+          target: ${{ matrix.target }}
+          installer: ${{ matrix.installer }}
+          docker-image: ${{ matrix.docker_image }}
+          ghcr-token: ${{ github.token }}
+          diagnostics-upload-url: ${{ secrets.LINGER_DIAGNOSTICS_UPLOAD_URL }}
+          macos-developer-id-p12-base64: ${{ secrets.MACOS_DEVELOPER_ID_P12_BASE64 }}
+          macos-developer-id-password: ${{ secrets.MACOS_DEVELOPER_ID_PASSWORD }}
+          macos-notary-key-json: ${{ secrets.MACOS_NOTARY_KEY_JSON }}
+
+  # Split from the build matrix so windows-smoke starts as soon as win32-x64
+  # finishes instead of waiting for darwin-arm64 packaging and notarization.
+  build-win32:
+    name: build (win32-x64)
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: read
+    env:
+      DESKTOP_VERSION: ${{ needs.prepare.outputs.version }}
+      RELEASE_OUT: ${{ github.workspace }}/.linger-runtime/desktop-release
+      LINGER_NATIVE_POSTGRES_DIR: ${{ github.workspace }}/.linger-runtime/native-deps
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/desktop-build
         with:
-          path: ${{ runner.tool_cache }}/go/${{ steps.versions.outputs.go }}
-          key: toolcache-go-${{ runner.os }}-${{ runner.arch }}-${{ steps.versions.outputs.go }}
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-      # Cache GOMODCACHE once across targets and GOCACHE per target so cross-
-      # compiled stdlib and TeamHub packages stay warm for darwin-arm64 and win32-x64.
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: apps/teamhub/go.mod
-          cache: false
-      - uses: actions/cache@v6
-        with:
-          path: ~/go/pkg/mod
-          key: desktop-gomod-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('apps/teamhub/go.sum', 'apps/computer/local-daemon/go.sum', 'contracts/generated/go/go.sum') }}
-          restore-keys: desktop-gomod-${{ runner.os }}-${{ runner.arch }}-
-      - uses: actions/cache@v6
-        with:
-          path: ~/.cache/go-build
-          key: desktop-gobuild-${{ matrix.target }}-${{ steps.versions.outputs.go }}-${{ hashFiles('apps/teamhub/go.sum', 'apps/computer/local-daemon/go.sum', 'contracts/generated/go/go.sum') }}
-          restore-keys: desktop-gobuild-${{ matrix.target }}-${{ steps.versions.outputs.go }}-
-      - run: pnpm install --frozen-lockfile
-      # Pinned binary downloads reused across releases: Electron, Cua driver,
-      # native PostgreSQL + voice tools, and the pinned Node.js distribution.
-      - uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cache/linger-desktop
-            ~/.cache/linger-computer-tools
-            ${{ env.LINGER_NATIVE_POSTGRES_DIR }}
-            .linger-runtime/node-distributions
-          key: desktop-downloads-${{ matrix.target }}-${{ hashFiles('apps/desktop/package.json', 'apps/desktop/distribution/*.json', 'scripts/local-computer-node-distributions.mjs', 'apps/computer/scripts/bundle-computer-tools.mjs') }}
-          restore-keys: desktop-downloads-${{ matrix.target }}-
-      - id: docker-cache
-        if: matrix.docker_image != ''
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/linger-docker/${{ matrix.docker_image }}.tar
-          key: desktop-docker-${{ matrix.docker_image }}-${{ hashFiles(matrix.docker_file) }}
-      - name: Load cached Docker image
-        if: matrix.docker_image != '' && steps.docker-cache.outputs.cache-hit == 'true'
-        run: docker load -i ~/.cache/linger-docker/${{ matrix.docker_image }}.tar
-      - name: Install rcodesign
-        if: matrix.target == 'darwin-arm64'
-        shell: bash
-        run: |
-          set -euo pipefail
-          name="apple-codesign-$APPLE_CODESIGN_VERSION-x86_64-unknown-linux-musl"
-          curl -fsSL --retry 3 -o "$RUNNER_TEMP/rcodesign.tar.gz" \
-            "https://github.com/indygreg/apple-platform-rs/releases/download/apple-codesign%2F$APPLE_CODESIGN_VERSION/$name.tar.gz"
-          echo "$APPLE_CODESIGN_SHA256  $RUNNER_TEMP/rcodesign.tar.gz" | sha256sum -c -
-          tar -xzf "$RUNNER_TEMP/rcodesign.tar.gz" -C "$RUNNER_TEMP"
-          echo "RCODESIGN=$RUNNER_TEMP/$name/rcodesign" >>"$GITHUB_ENV"
-      - name: Install osslsigncode
-        if: matrix.target == 'win32-x64'
-        env:
-          WINDOWS_SIGNING_P12_BASE64: ${{ secrets.WINDOWS_SIGNING_P12_BASE64 }}
-        run: |
-          if [ -z "$WINDOWS_SIGNING_P12_BASE64" ]; then
-            echo "Skipping osslsigncode install: WINDOWS_SIGNING_P12_BASE64 is not set."
-            exit 0
-          fi
-          sudo apt-get update -q && sudo apt-get install -y -q osslsigncode
-      # Optional signing material goes to files only rcodesign, openssl and
-      # osslsigncode read; each is skipped when its secret is empty.
-      - name: Write signing files
-        shell: bash
-        env:
-          MACOS_DEVELOPER_ID_P12_BASE64: ${{ secrets.MACOS_DEVELOPER_ID_P12_BASE64 }}
-          MACOS_DEVELOPER_ID_PASSWORD: ${{ secrets.MACOS_DEVELOPER_ID_PASSWORD }}
-          MACOS_NOTARY_KEY_JSON: ${{ secrets.MACOS_NOTARY_KEY_JSON }}
-          WINDOWS_SIGNING_P12_BASE64: ${{ secrets.WINDOWS_SIGNING_P12_BASE64 }}
-          WINDOWS_SIGNING_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PASSWORD }}
-          TARGET: ${{ matrix.target }}
-        run: |
-          set -euo pipefail
-          umask 077
-          keys="$RUNNER_TEMP/signing"
-          mkdir -p "$keys"
-          if [ "$TARGET" = darwin-arm64 ] && [ -n "$MACOS_DEVELOPER_ID_P12_BASE64" ]; then
-            base64 -d <<<"$MACOS_DEVELOPER_ID_P12_BASE64" >"$keys/developer-id.p12"
-            printf '%s' "$MACOS_DEVELOPER_ID_PASSWORD" >"$keys/developer-id.password"
-            echo "MACOS_DEVELOPER_ID_P12=$keys/developer-id.p12" >>"$GITHUB_ENV"
-            echo "MACOS_DEVELOPER_ID_PASSWORD_FILE=$keys/developer-id.password" >>"$GITHUB_ENV"
-            if [ -n "$MACOS_NOTARY_KEY_JSON" ]; then
-              printf '%s' "$MACOS_NOTARY_KEY_JSON" >"$keys/notary.json"
-              echo "MACOS_NOTARY_KEY=$keys/notary.json" >>"$GITHUB_ENV"
-            fi
-          fi
-          if [ "$TARGET" = win32-x64 ] && [ -n "$WINDOWS_SIGNING_P12_BASE64" ]; then
-            base64 -d <<<"$WINDOWS_SIGNING_P12_BASE64" >"$keys/authenticode.p12"
-            printf '%s' "$WINDOWS_SIGNING_PASSWORD" >"$keys/authenticode.password"
-            echo "WINDOWS_SIGNING_P12=$keys/authenticode.p12" >>"$GITHUB_ENV"
-            echo "WINDOWS_SIGNING_PASSWORD_FILE=$keys/authenticode.password" >>"$GITHUB_ENV"
-          fi
-      - run: scripts/ci/desktop-release.sh build ${{ matrix.target }}
-        env:
-          # The hosted diagnostics receiver this build carries; a secret so
-          # the address stays masked. Without it Send Diagnostics is hidden.
-          LINGER_DIAGNOSTICS_UPLOAD_URL: ${{ secrets.LINGER_DIAGNOSTICS_UPLOAD_URL }}
-      - name: Record Windows Setup digest
-        if: matrix.target == 'win32-x64'
-        shell: bash
-        run: |
-          cd "$RELEASE_OUT/assets"
-          sha256sum "Linger-$DESKTOP_VERSION-windows-x64-setup.exe" > windows-setup.sha256
-      - name: Save Docker image for cache
-        if: matrix.docker_image != '' && steps.docker-cache.outputs.cache-hit != 'true'
-        run: |
-          mkdir -p ~/.cache/linger-docker
-          docker save -o ~/.cache/linger-docker/${{ matrix.docker_image }}.tar ${{ matrix.docker_image }}
-      - name: Remove signing files
-        if: always()
-        run: rm -rf "$RUNNER_TEMP/signing"
-      - uses: actions/upload-artifact@v7
-        if: matrix.target != 'win32-x64'
-        with:
-          name: desktop-${{ matrix.target }}
-          path: ${{ env.RELEASE_OUT }}/assets/
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 14
-      - uses: actions/upload-artifact@v7
-        if: matrix.target == 'win32-x64'
-        with:
-          name: desktop-win32-x64
-          path: |
-            ${{ env.RELEASE_OUT }}/assets/Linger-${{ env.DESKTOP_VERSION }}-windows-x64-setup.exe
-            ${{ env.RELEASE_OUT }}/assets/windows-setup.sha256
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 14
-      - uses: actions/upload-artifact@v7
-        if: matrix.target == 'win32-x64'
-        with:
-          name: desktop-win32-x64-portable
-          path: ${{ env.RELEASE_OUT }}/assets/Linger-${{ env.DESKTOP_VERSION }}-windows-x64-portable.zip
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 14
-      # The installer again on its own, not zipped, so a tester downloads
-      # only the file they run instead of every package for the platform.
-      - uses: actions/upload-artifact@v7
-        with:
-          path: ${{ env.RELEASE_OUT }}/assets/Linger-${{ env.DESKTOP_VERSION }}-${{ matrix.installer }}
-          archive: false
-          if-no-files-found: error
-          retention-days: 14
+          target: win32-x64
+          installer: windows-x64-setup.exe
+          docker-image: wintool
+          ghcr-token: ${{ github.token }}
+          diagnostics-upload-url: ${{ secrets.LINGER_DIAGNOSTICS_UPLOAD_URL }}
+          windows-signing-p12-base64: ${{ secrets.WINDOWS_SIGNING_P12_BASE64 }}
+          windows-signing-password: ${{ secrets.WINDOWS_SIGNING_PASSWORD }}
 
   windows-smoke:
-    needs: [prepare, build]
+    needs: [prepare, build-win32]
     runs-on: windows-2022
     timeout-minutes: 25
     steps:
@@ -292,7 +156,7 @@ jobs:
           scripts/ci/windows-desktop-smoke.ps1 -Setup $setup -ExpectedSha256 $digest
 
   release:
-    needs: [prepare, build, windows-smoke]
+    needs: [prepare, build, build-win32, windows-smoke]
     if: needs.prepare.outputs.publish == 'true'
     runs-on: ubuntu-24.04
     permissions:

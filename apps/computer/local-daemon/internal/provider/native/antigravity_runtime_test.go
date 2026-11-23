@@ -85,7 +85,7 @@ func drainAgy(t *testing.T, run *Run) ([]Event, Outcome) {
 func TestAntigravityRunsOneTurnOverACP(t *testing.T) {
 	h := newAgyHarness(t, "turn", nil)
 	run, err := h.runtime.Start(t.Context(), "list files", RunSpec{
-		Dir: h.dir, Model: "gemini-flash", Effort: "medium", AppendPrompt: "Be brief.",
+		Dir: h.dir, Model: "gemini-flash", Effort: "medium", SystemPrompt: "Be brief.",
 		MCPServers: json.RawMessage(`{"mcpServers":{"teamhub":{"type":"http","url":"http://127.0.0.1:9/mcp","headers":{"Authorization":"Bearer x"}},"local":{"command":"/bin/tool","args":["--stdio"],"env":{"A":"1"}}}}`),
 	})
 	if err != nil {

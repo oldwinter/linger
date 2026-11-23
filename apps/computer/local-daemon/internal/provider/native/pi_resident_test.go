@@ -203,7 +203,7 @@ func TestPiResidentRespawnsOnShapeMismatch(t *testing.T) {
 	}{
 		"model":         {first: RunSpec{Model: "fixture/a"}, second: RunSpec{Model: "fixture/b"}},
 		"thinking":      {first: RunSpec{Effort: "low"}, second: RunSpec{Effort: "high"}},
-		"append prompt": {first: RunSpec{AppendPrompt: "a"}, second: RunSpec{AppendPrompt: "b"}},
+		"system prompt": {first: RunSpec{SystemPrompt: "a"}, second: RunSpec{SystemPrompt: "b"}},
 		"delivered skills": {change: func(t *testing.T, h *piResidentHome) {
 			h.profile.ResidentSkillDigest = "skills-b"
 		}},

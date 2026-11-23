@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/linger/transport"
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/localmodels"
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/protocol"
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/provider"
+	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/provider/native"
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/provider/redact"
 	wire "github.com/simplexai-labs/linger/contracts-go/runnergateway"
 )
@@ -19,6 +21,11 @@ import (
 // modelInvokeLogReasonLimit keeps a failed call's log line short; the full
 // receipt reason still goes to the Agent Service.
 const modelInvokeLogReasonLimit = 300
+
+// serviceFeatureModelInvokeOutcomes in runner.welcome's service_features says
+// the Agent Service accepts context_too_long and unsupported outcomes on
+// executed model_invoke. Older services close the connection on them.
+const serviceFeatureModelInvokeOutcomes = "model_invoke_outcomes"
 
 // ModelInvoker runs one execute model_invoke on a local Runtime.
 type ModelInvoker interface {
@@ -68,10 +75,9 @@ func (d *Daemon) handleModelInvoke(ctx context.Context, stream transport.Stream,
 	var invokeCtx context.Context
 	if result.Outcome == "" {
 		d.modelInvokeMu.Lock()
-		switch {
-		case d.modelInvokes[request.InvokeID] != nil:
+		if d.modelInvokes[request.InvokeID] != nil {
 			result = provider.ModelInvokeResult{Outcome: provider.ModelInvokeFailed, Reason: "Model invocation is already running"}
-		default:
+		} else {
 			var cancel context.CancelFunc
 			invokeCtx, cancel = context.WithCancel(ctx)
 			entry = &modelInvoke{id: request.InvokeID, cancel: cancel}
@@ -149,12 +155,14 @@ func (d *Daemon) runModelInvoke(ctx context.Context, stream transport.Stream, co
 	if failureCode, err := d.ensureModelGateway(ctx, command.RuntimeType); err != nil {
 		result = modelGatewayInvokeFailure(ctx, failureCode, err)
 	} else {
+		effort := d.normalizeModelInvokeEffort(command.RuntimeType, request.ReasoningEffort)
 		result = d.modelInvoker.Invoke(ctx, provider.ModelInvokeRequest{
-			RuntimeType: command.RuntimeType, Mode: request.Mode, ReasoningEffort: request.ReasoningEffort,
+			RuntimeType: command.RuntimeType, Mode: request.Mode, ReasoningEffort: effort,
 			Instructions: request.Instructions, Input: request.Input, OutputSchema: request.OutputSchema,
 			WorkspaceFiles: request.WorkspaceFiles, Timeout: time.Duration(request.TimeoutMS) * time.Millisecond,
 			SessionKey: request.SessionKey, MaxOutputChars: request.MaxOutputChars,
 		})
+		result = d.networkUnavailableModelInvoke(ctx, entry.id, command.RuntimeType, result)
 	}
 	entry.cancel()
 	d.modelInvokeMu.Lock()
@@ -168,8 +176,10 @@ func (d *Daemon) runModelInvoke(ctx context.Context, stream transport.Stream, co
 }
 
 // modelGatewayInvokeFailure answers a model call whose Runtime's gateway
-// could not be mounted: the Computer is online, its Runtime cannot run the
-// call, and the reason names the tool's code.
+// could not be mounted. When the tool could not reach the endpoint or the
+// network, the call is unavailable, so the caller waits for this Computer as
+// it does for a disconnected one; otherwise the Computer is online, its
+// Runtime cannot run the call, and the reason names the tool's code.
 func modelGatewayInvokeFailure(ctx context.Context, failureCode string, err error) provider.ModelInvokeResult {
 	if ctx.Err() != nil {
 		return provider.ModelInvokeResult{Outcome: provider.ModelInvokeCanceled, Reason: "Model invocation was canceled"}
@@ -179,10 +189,91 @@ func modelGatewayInvokeFailure(ctx context.Context, failureCode string, err erro
 	if errors.As(err, &sourceErr) {
 		reason += " (" + sourceErr.Code + ")"
 	}
-	if failureCode == "authentication_required" {
+	switch failureCode {
+	case "authentication_required":
 		return provider.ModelInvokeResult{Outcome: provider.ModelInvokeAuthRequired, Reason: reason}
+	case "network_error":
+		return provider.ModelInvokeResult{Outcome: provider.ModelInvokeUnavailable, Reason: reason}
 	}
 	return provider.ModelInvokeResult{Outcome: provider.ModelInvokeRuntimeUnavailable, Reason: reason}
+}
+
+// normalizeModelInvokeEffort clamps requested reasoning effort for Codex and
+// Claude against the Runtime's discovered default model. Pi clamps live from
+// its own get_state model metadata inside InvokePiModel.
+func (d *Daemon) normalizeModelInvokeEffort(runtimeType, requested string) string {
+	if runtimeType != "codex" && runtimeType != "claude" {
+		return requested
+	}
+	d.inventoryMu.RLock()
+	raw := append(json.RawMessage(nil), d.runtimeDiagnostics...)
+	d.inventoryMu.RUnlock()
+	if len(raw) == 0 {
+		return requested
+	}
+	var diagnostics []provider.RuntimeDiagnostic
+	if json.Unmarshal(raw, &diagnostics) != nil {
+		return requested
+	}
+	for _, diag := range diagnostics {
+		if diag.Type != runtimeType {
+			continue
+		}
+		model, ok := defaultRuntimeModel(diag.Models)
+		if !ok || len(model.AllowedReasoningEffort) == 0 {
+			return requested
+		}
+		allowed := filterModelInvokeEfforts(runtimeType, model.AllowedReasoningEffort)
+		if len(allowed) == 0 {
+			return requested
+		}
+		normalized := native.NormalizeReasoningEffort(requested, allowed, model.DefaultReasoningEffort)
+		if normalized != requested {
+			slog.Info("runner.model.invoke.effort_normalized", "runtime_type", runtimeType,
+				"model", model.ID, "requested", requested, "normalized", normalized)
+		}
+		return normalized
+	}
+	return requested
+}
+
+func filterModelInvokeEfforts(runtimeType string, efforts []string) []string {
+	supported := make([]string, 0, len(efforts))
+	for _, raw := range efforts {
+		value := strings.ToLower(strings.TrimSpace(raw))
+		if validModelInvokeEffort(runtimeType, value) {
+			supported = append(supported, value)
+		}
+	}
+	return supported
+}
+
+func validModelInvokeEffort(runtimeType, effort string) bool {
+	switch runtimeType {
+	case "claude":
+		switch effort {
+		case "none", "low", "medium", "high", "xhigh", "max":
+			return true
+		}
+	case "codex":
+		switch effort {
+		case "none", "minimal", "low", "medium", "high", "xhigh":
+			return true
+		}
+	}
+	return false
+}
+
+func defaultRuntimeModel(models []provider.RuntimeModel) (provider.RuntimeModel, bool) {
+	for _, model := range models {
+		if model.IsDefault {
+			return model, true
+		}
+	}
+	if len(models) == 1 {
+		return models[0], true
+	}
+	return provider.RuntimeModel{}, false
 }
 
 // cancelModelInvoke cancels one in-flight model call; its canceled receipt
@@ -220,17 +311,26 @@ func (d *Daemon) cancelModelInvokes(source string) {
 }
 
 func (d *Daemon) sendModelInvoked(ctx context.Context, stream transport.Stream, command protocol.Command, invokeID string, result provider.ModelInvokeResult, duration time.Duration) error {
+	outcome := result.Outcome
+	if !d.modelInvokeOutcomes.Load() {
+		switch outcome {
+		case provider.ModelInvokeContextTooLong:
+			outcome = provider.ModelInvokeFailed
+		case provider.ModelInvokeUnsupported:
+			outcome = provider.ModelInvokeRuntimeUnavailable
+		}
+	}
 	payload := map[string]any{
 		"type": wire.TypeExecuted, "kind": wire.KindModelInvoke, "command_id": command.CommandID, "runner_id": command.RunnerID,
-		"invoke_id": invokeID, "outcome": result.Outcome, "duration_ms": duration.Milliseconds(),
+		"invoke_id": invokeID, "outcome": outcome, "duration_ms": duration.Milliseconds(),
 	}
 	// The Gateway closes the connection on a frame its schema rejects, so
 	// optional fields are sent only when they fit it.
 	// A session call that stopped early carries what it streamed so far.
-	if result.Outcome != provider.ModelInvokeCompleted && result.Text != "" {
+	if outcome != provider.ModelInvokeCompleted && result.Text != "" {
 		payload["text"] = result.Text
 	}
-	if result.Outcome == provider.ModelInvokeCompleted {
+	if outcome == provider.ModelInvokeCompleted {
 		payload["text"] = result.Text
 		if result.WorkspaceFiles != nil {
 			payload["workspace_files"] = result.WorkspaceFiles
@@ -245,7 +345,7 @@ func (d *Daemon) sendModelInvoked(ctx context.Context, stream transport.Stream, 
 	if result.RuntimeVersion != "" && len(result.RuntimeVersion) <= 128 {
 		payload["runtime_version"] = result.RuntimeVersion
 	}
-	if reason := receiptReason(redact.Text(result.Reason)); reason != "" && result.Outcome != provider.ModelInvokeCompleted {
+	if reason := receiptReason(redact.Text(result.Reason)); reason != "" && outcome != provider.ModelInvokeCompleted {
 		payload["reason"] = reason
 	}
 	encoded := mustJSON(payload)
@@ -257,12 +357,12 @@ func (d *Daemon) sendModelInvoked(ctx context.Context, stream transport.Stream, 
 		for _, field := range []string{"text", "workspace_files", "usage"} {
 			delete(payload, field)
 		}
-		result.Outcome = provider.ModelInvokeFailed
-		payload["outcome"] = result.Outcome
+		outcome = provider.ModelInvokeFailed
+		payload["outcome"] = outcome
 		payload["reason"] = "Model invocation reply exceeds the Runner Gateway frame limit"
 		encoded = mustJSON(payload)
 	}
-	attrs := []any{"phase", result.Outcome, "invoke_id", invokeID, "duration_ms", duration.Milliseconds()}
+	attrs := []any{"phase", outcome, "invoke_id", invokeID, "duration_ms", duration.Milliseconds()}
 	// The reason sent above is already redacted, so a diagnostics bundle can
 	// show why a call failed without leaking a credential.
 	if reason, _ := payload["reason"].(string); reason != "" {

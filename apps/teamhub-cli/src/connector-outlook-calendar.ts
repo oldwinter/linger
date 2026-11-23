@@ -5,6 +5,7 @@ import {
   option,
   values,
 } from "./command-input.js";
+import { conflictingFlags } from "./input-issues.js";
 import {
   booleanSchema,
   email,
@@ -28,7 +29,7 @@ import {
   type ConnectorRuntime,
   type Json,
 } from "./connector-runtime.js";
-import { ConnectorError as CliError } from "./errors.js";
+import { CliError } from "./errors.js";
 import {
   array,
   calendarWriteSchema,
@@ -461,7 +462,7 @@ export const outlookCalendarCommandDefinitions: CommandDefinition[] = (
         if (action === "create") {
           input.start = rfc3339(start, "--start");
           if (end !== undefined && duration !== undefined)
-            usage("Choose --end or --duration.");
+            throw conflictingFlags(["--end", "--duration"]);
           input.end =
             end === undefined
               ? new Date(

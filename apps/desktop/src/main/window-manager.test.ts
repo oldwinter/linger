@@ -211,6 +211,10 @@ function contentView() {
   return state.views.at(-1)!;
 }
 
+function titlebarView() {
+  return state.views.length > 1 ? state.views[0] : undefined;
+}
+
 describe("WindowManagerModule", () => {
   beforeEach(() => {
     state.windows.length = 0;
@@ -262,6 +266,119 @@ describe("WindowManagerModule", () => {
     await flush();
     expect(content.loadURL).toHaveBeenCalledTimes(3);
     expect(content.loadURL).toHaveBeenLastCalledWith(local);
+    await host.stop("quit");
+  });
+
+  it("leaves app://offline/?starting=1, syncs the titlebar to the new port, and ignores stale old-port load failures", async () => {
+    const previousPort = "http://localhost:62986";
+    const movedPort = "http://localhost:63009";
+    let resolveResumable!: (value: boolean) => void;
+    const { manager, host, config } = setup(
+      { serverUrl: previousPort },
+      {
+        localServerResumable: () =>
+          new Promise<boolean>((resolve) => {
+            resolveResumable = resolve;
+          }),
+      },
+    );
+    await host.start();
+
+    const content = contentView().webContents;
+    const titlebar = titlebarView()?.webContents;
+    // Simulate boot failing on the old port while resume moves it to 63009.
+    content.emit(
+      "did-fail-load",
+      {},
+      -102,
+      "ERR_CONNECTION_REFUSED",
+      `${previousPort}/`,
+      true,
+    );
+    manager.showStarting();
+    expect(content.loadURL).toHaveBeenLastCalledWith(
+      "app://offline/?starting=1",
+    );
+
+    manager.setServer(movedPort, previousPort, { reason: "resume_ready" });
+    // Titlebar updates immediately on serverUrl change before setImmediate.
+    expect(config.get().serverUrl).toBe(movedPort);
+    if (titlebar) {
+      expect(titlebar.send).toHaveBeenLastCalledWith(
+        expect.any(String),
+        expect.objectContaining({ title: "localhost:63009" }),
+      );
+    }
+
+    // Late resolution of the old port's resumable check and a late
+    // did-fail-load for the superseded port must not trap the window on
+    // Starting.
+    resolveResumable(true);
+    await flush();
+    expect(content.loadURL).toHaveBeenLastCalledWith(movedPort);
+
+    const loadsAfterMove = content.loadURL.mock.calls.length;
+    content.emit(
+      "did-fail-load",
+      {},
+      -102,
+      "ERR_CONNECTION_REFUSED",
+      `${previousPort}/`,
+      true,
+    );
+    await flush();
+    expect(content.loadURL).toHaveBeenCalledTimes(loadsAfterMove);
+    expect(content.loadURL).toHaveBeenLastCalledWith(movedPort);
+    await host.stop("quit");
+  });
+
+  it("ignores stale localServerResumable checks from an earlier did-fail-load on the same origin", async () => {
+    const local = "http://localhost:3000";
+    const resolvers: Array<(value: boolean) => void> = [];
+    const { manager, host } = setup(
+      { serverUrl: local },
+      {
+        localServerResumable: () =>
+          new Promise<boolean>((resolve) => {
+            resolvers.push(resolve);
+          }),
+      },
+    );
+    await host.start();
+
+    const content = contentView().webContents;
+    // First load fails while localServerResumable is still pending.
+    content.emit(
+      "did-fail-load",
+      {},
+      -102,
+      "ERR_CONNECTION_REFUSED",
+      `${local}/`,
+      true,
+    );
+    // A retry triggers a new load that also fails.
+    manager.loadServer("retry");
+    content.emit(
+      "did-fail-load",
+      {},
+      -102,
+      "ERR_CONNECTION_REFUSED",
+      `${local}/`,
+      true,
+    );
+    expect(resolvers).toHaveLength(2);
+
+    // Resolving the first (superseded) check with true must not trap the window
+    // on Starting; the second check decides the fallback page.
+    resolvers[0]!(true);
+    await flush();
+    expect(content.loadURL).toHaveBeenLastCalledWith(local);
+
+    resolvers[1]!(false);
+    await flush();
+    expect(content.loadURL).toHaveBeenLastCalledWith(
+      `app://offline/?server=${encodeURIComponent(local)}&error=ERR_CONNECTION_REFUSED`,
+    );
     await host.stop("quit");
   });
 

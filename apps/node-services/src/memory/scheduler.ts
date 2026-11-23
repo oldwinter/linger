@@ -88,9 +88,9 @@ const CALENDAR_RETRY_DELAYS_MS = [15_000, 60_000, 180_000, 600_000, 3_600_000];
 const MAX_CALENDAR_ATTEMPTS = CALENDAR_RETRY_DELAYS_MS.length + 1;
 // How long a task waits for an offline Computer before it asks again.
 const COMPUTER_OFFLINE_RETRY_DELAY_MS = 5 * 60_000;
-// A Computer that stays offline this long is treated as gone, so the task
-// fails terminally instead of waiting forever.
-const COMPUTER_OFFLINE_WAIT_LIMIT_MS = 7 * 24 * 3_600_000;
+// A Computer that stays offline for a day is treated as gone, so the task
+// fails terminally and shows in the failure report instead of waiting on.
+const COMPUTER_OFFLINE_WAIT_LIMIT_MS = 24 * 3_600_000;
 
 /** The running scheduler cannot accept an operator rebuild in its current mode. */
 export class MemoryRebuildUnavailableError extends Error {}

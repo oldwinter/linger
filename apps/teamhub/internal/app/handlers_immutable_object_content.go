@@ -7,7 +7,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
-	"path/filepath"
+	"path"
 	"strconv"
 	"strings"
 
@@ -163,7 +163,7 @@ var inlineImmutableMediaTypes = map[string]map[string]struct{}{
 
 func immutableContentDisposition(record immutableContentMetadata) string {
 	disposition := "attachment"
-	extension := strings.ToLower(filepath.Ext(record.Filename))
+	extension := strings.ToLower(path.Ext(record.Filename))
 	mediaType, _, err := mime.ParseMediaType(record.MediaType)
 	if err == nil {
 		if allowed, ok := inlineImmutableMediaTypes[extension]; ok {
@@ -176,7 +176,44 @@ func immutableContentDisposition(record immutableContentMetadata) string {
 	if formatted == "" {
 		return disposition
 	}
+	if extParam, ok := strings.CutPrefix(formatted, disposition+"; "); ok && strings.HasPrefix(extParam, "filename*=") {
+		return fmt.Sprintf(`%s; filename=%q; %s`, disposition, asciiDispositionFallback(record.Filename), extParam)
+	}
 	return formatted
+}
+
+func isPurePrintableASCII(value string) bool {
+	for index := 0; index < len(value); index++ {
+		if value[index] < 0x20 || value[index] > 0x7e {
+			return false
+		}
+	}
+	return true
+}
+
+func asciiDispositionFallback(filename string) string {
+	ext := path.Ext(filename)
+	if ext == "." || !isPurePrintableASCII(ext) || strings.ContainsAny(ext, `"/\; `) {
+		ext = ""
+	}
+	stem := strings.TrimSuffix(filename, ext)
+	var builder strings.Builder
+	for index := 0; index < len(stem); index++ {
+		b := stem[index]
+		if b < 0x20 || b > 0x7e {
+			continue
+		}
+		if b == '"' || b == '\\' || b == '/' || b == ';' {
+			builder.WriteByte(' ')
+			continue
+		}
+		builder.WriteByte(b)
+	}
+	cleanStem := strings.Trim(strings.Join(strings.Fields(builder.String()), " "), ". ")
+	if cleanStem == "" {
+		cleanStem = "document"
+	}
+	return cleanStem + ext
 }
 
 type artifactByteRange struct {

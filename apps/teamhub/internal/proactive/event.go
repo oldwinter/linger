@@ -137,9 +137,10 @@ func (w *eventWorker) Work(ctx context.Context, job *river.Job[EventArgs]) error
 var ErrNoJudge = errors.New("proactive event judge is unavailable")
 
 // HandleEvent wakes the Human's AnotherMe with one new event and the rules it
-// judges it by, in its own Run: remind them, record or update a Tracking Item
-// without replying, or stay silent. Quiet hours and the daily limit leave a
-// non-urgent event only tracking.
+// judges it by: remind them, record or update a Tracking Item without
+// replying, or stay silent. An event queued while an earlier event's wake still
+// waits out reminder.EventSettle shares its Run. Quiet hours and the daily
+// limit leave a non-urgent event only tracking.
 func (s *Service) HandleEvent(ctx context.Context, event Event) (Outcome, error) {
 	if err := event.validate(); err != nil {
 		return Outcome{}, err

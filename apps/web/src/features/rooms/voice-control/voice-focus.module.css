@@ -261,6 +261,19 @@
   background: hsl(var(--town-accent));
 }
 
+/* In a minimized window's row the two choices take the size of the Pause
+   and Stop controls they replace, and give up their labels' ends before
+   leaving the row. */
+.confirmInRow {
+  flex-shrink: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 /* A request in Ask handed to Another Me: its node fills green and draws a check. */
 .taskSent {
   animation: task-sent-node 300ms cubic-bezier(0.2, 0.9, 0.3, 1.2) both;

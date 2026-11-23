@@ -40,6 +40,12 @@ set -euo pipefail
 #                                without it Send Diagnostics is hidden
 #   RELEASE_OUT                  output root (.linger-runtime/desktop-release); release
 #                                files go to $RELEASE_OUT/assets/
+#   DESKTOP_PACKAGING_IMAGE_PREFIX
+#                                optional container image prefix (such as
+#                                ghcr.io/simplexai-labs/linger/desktop); when
+#                                set, ensure_docker_image tries pulling
+#                                <prefix>-<tag>:<dockerfile-sha256> before
+#                                building locally
 #   RCODESIGN                    rcodesign executable for darwin-arm64 (PATH)
 #   MACOS_DEVELOPER_ID_P12, MACOS_DEVELOPER_ID_PASSWORD_FILE
 #                                Developer ID Application .p12 and a file with its
@@ -209,14 +215,24 @@ cmd_compile() {
 }
 
 ensure_docker_image() {
-  local tag="$1" dir="$2" sha current
+  local tag="$1" dir="$2" sha current remote
   sha="$(sha256_of "$dir/Dockerfile")"
   current="$(docker image inspect --format '{{index .Config.Labels "linger.dockerfile.sha256"}}' "$tag" 2>/dev/null || true)"
   if [[ "$current" == "$sha" ]]; then
     echo "desktop-release: reusing cached Docker image $tag"
     return 0
   fi
-  docker build -q --label "linger.dockerfile.sha256=$sha" -t "$tag" "$dir" >/dev/null
+  if [[ -n "${DESKTOP_PACKAGING_IMAGE_PREFIX:-}" ]]; then
+    remote="${DESKTOP_PACKAGING_IMAGE_PREFIX%/}-${tag}:${sha}"
+    echo "desktop-release: pulling prebuilt Docker image $remote"
+    if docker pull "$remote" && docker tag "$remote" "$tag"; then
+      echo "desktop-release: using prebuilt Docker image $remote as $tag"
+      return 0
+    fi
+    echo "desktop-release: prebuilt image $remote unavailable; building $tag locally" >&2
+  fi
+  echo "desktop-release: building Docker image $tag from $dir/Dockerfile"
+  docker build --label "linger.dockerfile.sha256=$sha" -t "$tag" "$dir"
 }
 
 package_darwin() {

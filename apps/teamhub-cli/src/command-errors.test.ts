@@ -23,12 +23,12 @@ const rejected = new CliError(
       },
     ],
   },
+  "remote",
 );
 
 it("keeps server field-level issues in JSON errors without exposing other details", () => {
   const formatted = formatCommandError(rejected, {
     command: "room collaborate",
-    remote: true,
   });
   expect(formatted.details).toEqual({
     http_status: 400,
@@ -39,7 +39,7 @@ it("keeps server field-level issues in JSON errors without exposing other detail
 
 it("renders one text line per server issue with path, code and message", () => {
   const text = renderCommandError(
-    formatCommandError(rejected, { command: "room collaborate", remote: true }),
+    formatCommandError(rejected, { command: "room collaborate" }),
   );
   expect(text).toContain(
     'Issue: members[0].id: team_md_actor_not_room_member: Team Member "actor_bob" is not an active member of this Room.',
@@ -51,71 +51,79 @@ it("renders one text line per server issue with path, code and message", () => {
 });
 
 it("keeps version-conflict guidance specific to the attempted resource", () => {
-  const error = new CliError("version_conflict", "internal conflict", {
-    http_status: 409,
-  });
+  const error = new CliError(
+    "version_conflict",
+    "internal conflict",
+    { http_status: 409 },
+    "remote",
+  );
   const task = formatCommandError(error, {
     command: "task create",
-    remote: true,
   });
   expect(task.message).not.toContain("Document");
-  expect(task.message).toContain("resource state");
+  expect(task.message).toContain("changed since it was read");
   const document = formatCommandError(error, {
     command: "docs replace",
-    remote: true,
   });
   expect(document.message).toContain("Preserve local changes");
 });
 
 it("tells personal-profile write to reread and merge after a revision conflict", () => {
   const formatted = formatCommandError(
-    new CliError("profile_revision_conflict", "server prose", {
-      http_status: 409,
-    }),
-    { command: "personal-profile write", remote: true },
+    new CliError(
+      "profile_revision_conflict",
+      "server prose",
+      { http_status: 409 },
+      "remote",
+    ),
+    { command: "personal-profile write" },
   );
   expect(formatted.code).toBe("profile_revision_conflict");
   expect(formatted.message).toContain("teamhub personal-profile show");
 });
 
-it("exposes only bare Document IDs as ambiguous-name candidates", () => {
+it("exposes only bare object IDs as ambiguous-name candidates", () => {
   const error = formatCommandError(
-    new CliError("ambiguous_name", "internal routing prose", {
-      candidates: [
-        "document_first",
-        "room:secret",
-        "document_bad\nInjected",
-        { token: "secret" },
-      ],
-    }),
-    { command: "docs get", remote: true },
+    new CliError(
+      "target_ambiguous",
+      "internal routing prose",
+      {
+        candidates: [
+          "document_first",
+          "AAMkAGI2THVSAAA=",
+          "room:secret",
+          "document_bad\nInjected",
+          { token: "secret" },
+        ],
+      },
+      "remote",
+    ),
+    { command: "docs get" },
   );
-  expect(error.details).toEqual({ candidates: ["document_first"] });
-  expect(renderCommandError(error)).toContain("Candidates: document_first");
+  expect(error.details).toEqual({
+    candidates: ["document_first", "AAMkAGI2THVSAAA="],
+  });
+  expect(renderCommandError(error)).toContain(
+    "Candidates: document_first, AAMkAGI2THVSAAA=",
+  );
   expect(JSON.stringify(error)).not.toMatch(/secret|Injected|internal routing/);
 });
 
-it("tells every command to retry an unknown outcome with its operation ID", () => {
-  const error = new CliError("outcome_unknown", "backend prose", {
-    operation_id: "operation-one",
-  });
-  for (const command of ["message send", "task create"]) {
-    const formatted = formatCommandError(error, { command, remote: true });
-    expect(formatted.message).toContain("--operation-id");
-    expect(formatted.details).toEqual({ operation_id: "operation-one" });
-  }
-});
-
-it("exposes no ambiguous-name candidates when none is a bare Document ID", () => {
+it("exposes no ambiguous-name candidates when none is a bare object ID", () => {
   const error = formatCommandError(
-    new CliError("ambiguous_name", "internal routing prose", {
-      candidates: [
-        "room:secret",
-        "document_bad\nInjected",
-        { token: "secret" },
-      ],
-    }),
-    { command: "docs get", remote: true },
+    new CliError(
+      "target_ambiguous",
+      "internal routing prose",
+      {
+        candidates: [
+          "room:secret",
+          "document_bad\nInjected",
+          { token: "secret" },
+        ],
+      },
+      "remote",
+    ),
+    { command: "docs get" },
   );
   expect(error.details).toBeUndefined();
   expect(JSON.stringify(error)).not.toMatch(/secret|Injected|room:/);
@@ -128,7 +136,7 @@ it("exposes no ambiguous-name candidates when none is a bare Document ID", () =>
 
 it("renders string candidates on one line", () => {
   const text = renderCommandError({
-    code: "ambiguous_name",
+    code: "target_ambiguous",
     message: "m",
     details: { candidates: ["document_a\nForged: line"] },
   });

@@ -1,10 +1,11 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { type KeyboardEvent, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { FormFeedback } from "@/components/ui/form-feedback";
 import { ModalDialog } from "@/components/ui/modal-dialog";
 import { Select, SelectItem } from "@/components/ui/select";
+import { useTabIndicator } from "@/components/ui/tab-indicator";
 import { Hint } from "@/features/local-computer/computer-hint";
 import { localComputersQueryKey } from "@/features/local-computer/local-computer-queries";
 import {
@@ -16,7 +17,6 @@ import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import { commonMessages } from "@/i18n/common.messages";
 import type { Translate } from "@/i18n/language";
 import { RichMessage, useT } from "@/i18n/use-translation";
-import { cn } from "@/lib/cn";
 
 import {
   modelSourceFailureCopy,
@@ -25,6 +25,7 @@ import {
 } from "./local-models-copy";
 import { localModelsMessages as m } from "./local-models.messages";
 import {
+  invalidateOfflineComputer,
   type LocalModel,
   tenantLocalModelsQueryKey,
 } from "./local-models-queries";
@@ -92,11 +93,18 @@ export function useModelSourceSwitch({
     mutationFn: (body: ModelSourceSwitchRequest) =>
       switchModelSource(client, tenantId, computerId, body),
     onError: (error, body) => {
-      // A switch can fail after the Computer changed (work started meanwhile,
-      // or no answer in time), so show what it serves now.
-      void queryClient.invalidateQueries({
-        queryKey: modelSourceQueryKey(tenantId, computerId),
-      });
+      if (
+        error instanceof TeamHubError &&
+        error.code === "LOCAL_COMPUTER_OFFLINE"
+      ) {
+        void invalidateOfflineComputer(queryClient, tenantId, computerId);
+      } else {
+        // A switch can fail after the Computer changed (work started meanwhile,
+        // or no answer in time), so show what it serves now.
+        void queryClient.invalidateQueries({
+          queryKey: modelSourceQueryKey(tenantId, computerId),
+        });
+      }
       if (
         error instanceof TeamHubError &&
         error.code === "AGENT_HAS_ACTIVE_RUNS"
@@ -222,7 +230,7 @@ function TerminateTasksDialog({
   );
 }
 
-/** The offered model sources as tabs; a dot marks the one in use. */
+/** The offered model sources as underline tabs; a dot marks the one in use. */
 export function ModelSourceTabs({
   active,
   onChange,
@@ -233,45 +241,71 @@ export function ModelSourceTabs({
   value: ModelSourceMode;
 }) {
   const t = useT();
+  const indicatorKey = `${value}:${active}`;
+  const { indicator, tabRef } = useTabIndicator(indicatorKey);
+
+  function handleKeyDown(
+    event: KeyboardEvent<HTMLButtonElement>,
+    index: number,
+  ) {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const step = event.key === "ArrowRight" ? 1 : -1;
+    const nextIndex = (index + step + modes.length) % modes.length;
+    const nextMode = modes[nextIndex];
+    if (!nextMode) return;
+    onChange(nextMode);
+    const tabs = event.currentTarget
+      .closest('[role="tablist"]')
+      ?.querySelectorAll<HTMLButtonElement>('[role="tab"]');
+    tabs?.[nextIndex]?.focus();
+  }
+
   return (
-    <div
-      aria-label={t(m.modelSource)}
-      className="mt-6 inline-flex self-start rounded-lg bg-muted p-0.5"
-      role="tablist"
-    >
-      {modes.map((mode) => {
-        const tab = (
-          <button
-            aria-selected={mode === value}
-            className={cn(
-              "inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-sm transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none",
-              mode === value
-                ? "bg-background text-foreground shadow-xs"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-            key={mode}
-            onClick={() => onChange(mode)}
-            role="tab"
-            type="button"
-          >
-            {mode === active ? (
-              <span
-                aria-label={t(m.inUse)}
-                className="size-1.5 rounded-full bg-app-success"
-                role="img"
-              />
-            ) : null}
-            {t(modelSourceModeLabels[mode])}
-          </button>
-        );
-        return mode === "byok" ? (
-          <Hint key={mode} placement="top" text={t(m.byokExplanation)}>
-            {tab}
-          </Hint>
-        ) : (
-          tab
-        );
-      })}
+    <div className="mt-5 border-b border-border">
+      <div
+        aria-label={t(m.modelSource)}
+        className="relative -ml-3 inline-flex max-w-full self-start gap-1"
+        role="tablist"
+      >
+        {modes.map((mode, index) => {
+          const tab = (
+            <button
+              aria-selected={mode === value}
+              className="workspace-view-tab inline-flex h-9 shrink-0 items-center gap-1.5 rounded-t-md px-3 text-sm font-medium text-muted-foreground transition-colors duration-150 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+              onClick={() => onChange(mode)}
+              onKeyDown={(event) => handleKeyDown(event, index)}
+              role="tab"
+              type="button"
+            >
+              {mode === active ? (
+                <span
+                  aria-label={t(m.inUse)}
+                  className="size-1.5 rounded-full bg-app-success"
+                  role="img"
+                />
+              ) : null}
+              {t(modelSourceModeLabels[mode])}
+            </button>
+          );
+          return (
+            <span
+              className="inline-flex shrink-0"
+              key={mode}
+              ref={tabRef(`${mode}:${active}`)}
+            >
+              {mode === "byok" ? (
+                <Hint placement="top" text={t(m.byokExplanation)}>
+                  {tab}
+                </Hint>
+              ) : (
+                tab
+              )}
+            </span>
+          );
+        })}
+        {indicator}
+      </div>
     </div>
   );
 }
@@ -297,7 +331,7 @@ export function SwitchToLocalNotice({
   const single = models.length === 1 ? models[0] : undefined;
 
   return (
-    <div className="mt-6 flex flex-col gap-3 rounded-xl bg-muted px-4 py-3">
+    <div className="mt-5 flex flex-col gap-3 rounded-xl border border-border bg-card px-4 py-3.5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="min-w-0 flex-1 text-sm text-muted-foreground">
           {single ? (
@@ -305,7 +339,7 @@ export function SwitchToLocalNotice({
               message={m.switchLocalSingle}
               tags={{
                 model: (text) => (
-                  <span className="text-foreground">{text}</span>
+                  <span className="font-medium text-foreground">{text}</span>
                 ),
               }}
               values={{ name: single.name }}

@@ -2,11 +2,16 @@ package provider
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/provider/native"
 )
 
 func TestDiscoverUsesConfiguredExecutableAndReportsAllRuntimes(t *testing.T) {
@@ -290,7 +295,7 @@ func TestDiscoverRejectsUnknownCodexVersion(t *testing.T) {
 			if diagnostic.Status != "error" || diagnostic.Error == nil || diagnostic.Error.Code != "RUNTIME_DIAGNOSTIC_FAILED" {
 				t.Fatalf("unknown version must fail admission: %+v", diagnostic)
 			}
-			if len(installationsFromDiagnostics([]RuntimeDiagnostic{diagnostic})) != 0 {
+			if len(InstallationsFromDiagnostics([]RuntimeDiagnostic{diagnostic})) != 0 {
 				t.Fatal("unknown version entered executable installations")
 			}
 			if _, err := os.Stat(codex + ".started"); !os.IsNotExist(err) {
@@ -462,5 +467,143 @@ func TestGatewayDiagnosticsLeaveOutAnAntigravityThatIsNotInstalled(t *testing.T)
 	}
 	if got := GatewayDiagnostics([]RuntimeDiagnostic{missing}); len(got) != 1 {
 		t.Fatalf("the only diagnostic was dropped: %+v", got)
+	}
+}
+
+func TestNormalizeRuntimeModelsRetainsDefaultBeyondWireCap(t *testing.T) {
+	catalog := make([]native.ModelOption, 0, 500)
+	for i := range 500 {
+		entry := native.ModelOption{
+			ID:    fmt.Sprintf("provider/model-%03d", i+1),
+			Label: fmt.Sprintf("Model %03d", i+1),
+		}
+		if i == 465 {
+			entry = native.ModelOption{
+				ID:            "localmodels/localmodels-byok",
+				Label:         "localmodels-byok",
+				Default:       true,
+				ContextWindow: 1_048_576,
+				Effort: &native.EffortSupport{
+					Options: []native.EffortOption{{Value: "low"}, {Value: "high"}},
+					Default: "high",
+				},
+			}
+		}
+		catalog = append(catalog, entry)
+	}
+	snapshot := append([]native.ModelOption(nil), catalog...)
+
+	models := normalizeRuntimeModels(catalog)
+	if !reflect.DeepEqual(catalog, snapshot) {
+		t.Fatal("input catalog was mutated")
+	}
+	if len(models) != 100 {
+		t.Fatalf("normalized model count = %d, want 100", len(models))
+	}
+	gotDefault := models[0]
+	if gotDefault.ID != "localmodels/localmodels-byok" ||
+		gotDefault.Label != "localmodels-byok" ||
+		!gotDefault.IsDefault ||
+		gotDefault.ContextWindow != 1_048_576 ||
+		gotDefault.DefaultReasoningEffort != "high" ||
+		!reflect.DeepEqual(gotDefault.AllowedReasoningEffort, []string{"low", "high"}) {
+		t.Fatalf("default model = %+v", gotDefault)
+	}
+	for i := 1; i < len(models); i++ {
+		wantID := fmt.Sprintf("provider/model-%03d", i)
+		if models[i].ID != wantID || models[i].IsDefault {
+			t.Fatalf("models[%d] = %+v, want non-default %s", i, models[i], wantID)
+		}
+	}
+}
+
+func TestNormalizeRuntimeModelsPreservesOrderWithoutDefault(t *testing.T) {
+	catalog := make([]native.ModelOption, 0, 120)
+	for i := range 120 {
+		catalog = append(catalog, native.ModelOption{
+			ID:    fmt.Sprintf("provider/model-%03d", i+1),
+			Label: fmt.Sprintf("Model %03d", i+1),
+		})
+	}
+	snapshot := append([]native.ModelOption(nil), catalog...)
+
+	models := normalizeRuntimeModels(catalog)
+	if !reflect.DeepEqual(catalog, snapshot) {
+		t.Fatal("input catalog was mutated")
+	}
+	if len(models) != 100 {
+		t.Fatalf("normalized model count = %d, want 100", len(models))
+	}
+	for i, model := range models {
+		wantID := fmt.Sprintf("provider/model-%03d", i+1)
+		if model.ID != wantID || model.IsDefault {
+			t.Fatalf("models[%d] = %+v, want %s", i, model, wantID)
+		}
+	}
+}
+
+func TestNormalizeRuntimeModelsSkipsInvalidAndDuplicateDefaults(t *testing.T) {
+	tooLong := strings.Repeat("a", 161)
+	catalog := []native.ModelOption{
+		{ID: "non-default-1", Label: "First"},
+		{ID: "gw/model", Label: "Shadowed non-default"},
+		{ID: "   ", Label: "Blank default", Default: true},
+		{ID: tooLong, Label: "Overlong default", Default: true},
+		{ID: "gw/model", Label: "Primary default", Default: true, ContextWindow: 1_048_576},
+		{ID: " gw/model ", Label: "Duplicate default", Default: true, ContextWindow: 200_000},
+		{ID: "non-default-2", Label: "Second"},
+		{ID: "non-default-1", Label: "Duplicate non-default"},
+	}
+	snapshot := append([]native.ModelOption(nil), catalog...)
+
+	models := normalizeRuntimeModels(catalog)
+	if !reflect.DeepEqual(catalog, snapshot) {
+		t.Fatal("input catalog was mutated")
+	}
+	want := []RuntimeModel{
+		{ID: "gw/model", Label: "Primary default", AllowedReasoningEffort: []string{}, ContextWindow: 1_048_576, IsDefault: true},
+		{ID: "non-default-1", Label: "First", AllowedReasoningEffort: []string{}},
+		{ID: "non-default-2", Label: "Second", AllowedReasoningEffort: []string{}},
+	}
+	if !reflect.DeepEqual(models, want) {
+		t.Fatalf("models = %+v, want %+v", models, want)
+	}
+}
+
+func TestDiscoverClaudeVersionProbeDisablesNonessentialTraffic(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fixture uses a POSIX script")
+	}
+	root := t.TempDir()
+	claude := filepath.Join(root, "claude")
+	script := `#!/bin/sh
+if [ "$CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC" != "1" ]; then
+  echo "missing CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC" >&2
+  exit 11
+fi
+case "$1" in
+  --version) echo "2.1.309 (Claude Code)" ;;
+  auth) echo '{"loggedIn":false}'; exit 1 ;;
+  *) exit 2 ;;
+esac
+`
+	if err := os.WriteFile(claude, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	callerEnv := map[string]string{"PATH": root, "HOME": root}
+	result, err := Discover(context.Background(), DiscoveryOptions{
+		ConfiguredPaths: map[string]string{"claude": claude},
+		Runtimes:        []string{"claude"},
+		Environment:     callerEnv,
+		Timeout:         5 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Diagnostics) != 1 || result.Diagnostics[0].Version != "2.1.309 (Claude Code)" {
+		t.Fatalf("Claude diagnostic = %+v, want version 2.1.309 (Claude Code)", result.Diagnostics)
+	}
+	if _, mutated := callerEnv["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"]; mutated {
+		t.Fatal("Discover mutated caller environment map")
 	}
 }

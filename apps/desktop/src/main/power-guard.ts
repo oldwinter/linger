@@ -7,14 +7,15 @@ export interface PowerApi {
   onPowerEvent(listener: (kind: "suspend" | "resume") => void): () => void;
 }
 
-// Keeps the system awake while operations run or in always-on mode.
-// The daemon reconnects by itself after a resume.
+// Keeps the system awake while operations or installations run, or in always-on
+// mode. The daemon reconnects by itself after a resume.
 export class PowerGuardModule implements Module {
   readonly name = "PowerGuard";
   readonly dependsOn = ["ComputerDaemon"];
   readonly #power: PowerApi;
   #ctx: ModuleContext | undefined;
   #running = 0;
+  #installing = false;
   #blocker: number | undefined;
   readonly #unsubscribe: (() => void)[] = [];
 
@@ -27,6 +28,10 @@ export class PowerGuardModule implements Module {
     this.#unsubscribe.push(
       ctx.bus.on("runtime.activity", (running) => {
         this.#running = running;
+        this.#apply();
+      }),
+      ctx.bus.on("local-server.busy", (busy) => {
+        this.#installing = busy;
         this.#apply();
       }),
       this.#power.onPowerEvent((kind) => {
@@ -55,10 +60,13 @@ export class PowerGuardModule implements Module {
   }
 
   #apply(): void {
-    const want = this.alwaysOn() || this.#running > 0;
+    const want = this.alwaysOn() || this.#running > 0 || this.#installing;
     if (want && this.#blocker === undefined) {
       this.#blocker = this.#power.block();
-      this.#ctx!.log.info("power.blocking", { running: this.#running });
+      this.#ctx!.log.info("power.blocking", {
+        running: this.#running,
+        installing: this.#installing,
+      });
     } else if (!want) {
       this.#release();
     }

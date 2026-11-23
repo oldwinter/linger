@@ -6,6 +6,7 @@ schemas:
     properties:
       inbox_id: { type: string }
       kind: { type: string, enum: [room, thread, task, meta, taskmeta] }
+      name: { type: string }
   AgentHistoryMessage:
     type: object
     additionalProperties: false

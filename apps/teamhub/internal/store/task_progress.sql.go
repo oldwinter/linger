@@ -49,6 +49,7 @@ WHERE item.tenant_id=$1::text
   AND item.kind='task'
   AND item.archived_at IS NULL
   AND item.task_execution_status IN ('running','waiting_for_approval')
+  AND NOT item.quiet
   AND generation.coordinator_context_key=$2::text
 ORDER BY item.created_at,item.id
 `
@@ -65,7 +66,8 @@ type ListCoordinatorActiveTasksRow struct {
 }
 
 // The Tasks one Meta Context coordinates that are still at work, oldest
-// first, with the latest Run of each that has started.
+// first, with the latest Run of each that has started. A quiet Task, which
+// the Room does not show, gets no progress update either.
 func (q *Queries) ListCoordinatorActiveTasks(ctx context.Context, arg ListCoordinatorActiveTasksParams) ([]ListCoordinatorActiveTasksRow, error) {
 	rows, err := q.db.Query(ctx, listCoordinatorActiveTasks, arg.TenantID, arg.CoordinatorContextKey)
 	if err != nil {

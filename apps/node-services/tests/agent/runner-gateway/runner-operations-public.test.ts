@@ -1,4 +1,4 @@
-import { runPriorities } from "../../../src/model-tasks.js";
+import { runPriorities, RunPriority } from "../../../src/model-tasks.js";
 import { describe, expect, it, vi } from "vitest";
 import type {
   AgentToDaemonEnvelope,
@@ -197,6 +197,171 @@ describe("RunnerGateway", () => {
         const interactive = await chat;
         expect(interactive.operationId).not.toBe(start.operation_id);
         void interactive.result.catch(() => undefined);
+      } finally {
+        connection.disconnect();
+      }
+    },
+  );
+
+  it.each([1, null])(
+    "swaps out a running Task for any Meta Run waiting behind it (Computer capacity %s)",
+    async (capacity) => {
+      const gateway = createTestRunnerGateway({ createId: sequenceIds() });
+      const peer = new RecordingPeer();
+      const connection = await acceptReadyConnection(gateway, peer, {
+        ...hello([], capacity),
+        runtime_diagnostics: runtimeDiagnostics({ link: "api" }),
+      });
+      try {
+        const task = await gateway.startOperation({
+          ...runTarget(),
+          runKind: "task",
+        });
+        const start = peer.sent.find(
+          (command) => command.type === "operation.start",
+        )!;
+        await connection.receive(
+          event(start, 1, {
+            type: "operation.accepted",
+            command_id: start.command_id,
+            runner_pid: 100,
+          }),
+        );
+        await connection.receive(
+          event(start, 2, {
+            type: "operation.event",
+            event: {
+              type: "run.started",
+              turn_id: "turn-task",
+              session: { threadId: "task-session", canYield: true },
+            },
+          }),
+        );
+        await connection.receive(
+          event(start, 3, {
+            type: "operation.event",
+            event: {
+              type: "tool.called",
+              call_id: "read",
+              tool_name: "read",
+              input: {},
+            },
+          }),
+        );
+        // A progress follow-up the Meta was claimed for while the Task ran.
+        const followUp = gateway.startOperation({
+          ...runTarget(),
+          ...readyContextScope("meta"),
+          runKind: "follow_up",
+        });
+        await vi.waitFor(() =>
+          expect(
+            peer.sent.find((command) => command.type === "cancel"),
+          ).toMatchObject({
+            operation_id: start.operation_id,
+            reason: "scheduler_yield",
+          }),
+        );
+        const yielded = expect(task.result).rejects.toMatchObject({
+          session: { threadId: "task-session" },
+        });
+        await connection.receive(
+          event(start, 4, {
+            type: "operation.cancelled",
+            reason: "scheduler_yield",
+          }),
+        );
+        await yielded;
+        const meta = await followUp;
+        expect(meta.operationId).not.toBe(start.operation_id);
+        void meta.result.catch(() => undefined);
+      } finally {
+        connection.disconnect();
+      }
+    },
+  );
+
+  it.each([
+    ["the Computer", 1, "subscription"],
+    ["the model endpoint", null, "api"],
+  ] as const)(
+    "swaps out a Meta Run for one raised to chat while it waits for %s",
+    async (_, capacity, link) => {
+      const gateway = createTestRunnerGateway({ createId: sequenceIds() });
+      const peer = new RecordingPeer();
+      const connection = await acceptReadyConnection(gateway, peer, {
+        ...hello([], capacity),
+        runtime_diagnostics: runtimeDiagnostics({ link }),
+      });
+      try {
+        const routine = await gateway.startOperation({
+          ...runTarget(),
+          runKind: "routine",
+        });
+        const start = peer.sent.find(
+          (command) => command.type === "operation.start",
+        )!;
+        await connection.receive(
+          event(start, 1, {
+            type: "operation.accepted",
+            command_id: start.command_id,
+            runner_pid: 100,
+          }),
+        );
+        await connection.receive(
+          event(start, 2, {
+            type: "operation.event",
+            event: {
+              type: "run.started",
+              turn_id: "turn-routine",
+              session: { threadId: "routine-session", canYield: true },
+            },
+          }),
+        );
+        await connection.receive(
+          event(start, 3, {
+            type: "operation.event",
+            event: {
+              type: "tool.called",
+              call_id: "read",
+              tool_name: "read",
+              input: {},
+            },
+          }),
+        );
+        const priority = new RunPriority(runPriorities.follow_up);
+        const followUp = gateway.startOperation({
+          ...runTarget(),
+          ...readyContextScope("other"),
+          runKind: "follow_up",
+          priority,
+        });
+        expect(await settlesWithin(followUp, 25)).toBe(false);
+        expect(peer.sent.some((command) => command.type === "cancel")).toBe(
+          false,
+        );
+        // A Human's chat queued behind the waiting Run.
+        priority.raise(runPriorities.chat);
+        await vi.waitFor(() =>
+          expect(
+            peer.sent.find((command) => command.type === "cancel"),
+          ).toMatchObject({
+            operation_id: start.operation_id,
+            reason: "scheduler_yield",
+          }),
+        );
+        const yielded = expect(routine.result).rejects.toMatchObject({
+          session: { threadId: "routine-session" },
+        });
+        await connection.receive(
+          event(start, 4, {
+            type: "operation.cancelled",
+            reason: "scheduler_yield",
+          }),
+        );
+        await yielded;
+        const meta = await followUp;
+        void meta.result.catch(() => undefined);
       } finally {
         connection.disconnect();
       }

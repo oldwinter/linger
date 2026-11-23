@@ -68,6 +68,7 @@ import {
   localModelsDegradedFromOutcome,
   prepareLocalModels,
   restoreByokSource,
+  restoreLocalModels,
   type LocalModelsDegraded,
 } from "./local-models.js";
 import { prepareSourceComputer } from "./source-computer.js";
@@ -487,14 +488,16 @@ async function runNativeSource(
         Boolean(options.localModelsReplan) ||
         options.shareGpu !== undefined;
       // A restart reads the choice from setup-choice.json, which a source
-      // switched since on the Models page does not update, so a saved BYOK
-      // source keeps its own runtime and gateway, and a local-models choice
-      // switched to BYOK or subscription leaves the local stack stopped.
+      // switched since on the Models page does not update, so a saved BYOK or
+      // local source keeps its own runtime and gateway/model, and a
+      // local-models choice switched to BYOK or subscription leaves the local
+      // stack stopped.
       const saved =
         !options.byok && !options.setupChoice && !explicitLocal
           ? await readByokEnvironment(home)
           : undefined;
       const restoredByok = saved?.mode === "byok" ? saved : undefined;
+      const restoredLocal = saved?.mode === "local" ? saved : undefined;
       await writeSetupChoice(current, choice);
       if (options.shareGpu !== undefined)
         await writeGpuSharing(current, options.shareGpu);
@@ -518,6 +521,29 @@ async function runNativeSource(
         !options.setupChoice &&
         !options.localModelsApproval &&
         !options.localModelsReplan;
+      const logLocalModelsDegraded = (degraded: LocalModelsDegraded) => {
+        emit({
+          kind: "log",
+          stage: "runtime",
+          message: `${degraded.message} (${degraded.code}) Linger is starting without local models; open the Models page to manage local models or switch to another AI runtime.\n`,
+        });
+      };
+      const restoreSavedLocalModel = async () => {
+        try {
+          const restored = await restoreLocalModels(current, {
+            signal,
+            onEvent: emit,
+          });
+          if (restored) {
+            localModelsDegraded = localModelsDegradedFromOutcome(restored);
+            logLocalModelsDegraded(localModelsDegraded);
+          }
+        } catch (error) {
+          if (signal.aborted) throw error;
+          localModelsDegraded = localModelsDegradedFromError(error);
+          logLocalModelsDegraded(localModelsDegraded);
+        }
+      };
       const runtime = (async () => {
         try {
           if (restoredByok) {
@@ -586,11 +612,7 @@ async function runNativeSource(
                 runtimeOutcome = prepared;
               }
               if (localModelsDegraded) {
-                emit({
-                  kind: "log",
-                  stage: "runtime",
-                  message: `${localModelsDegraded.message} (${localModelsDegraded.code}) Linger is starting without local models; open the Models page to manage local models or switch to another AI runtime.\n`,
-                });
+                logLocalModelsDegraded(localModelsDegraded);
               }
               // A person who chose local models just now makes them the
               // source, replacing one an earlier setup left. A restart reads
@@ -606,7 +628,35 @@ async function runNativeSource(
                   signal,
                   onEvent: emit,
                 });
+              else if (
+                !runtimeOutcome &&
+                !localModelsDegraded &&
+                !options.localModelsReplan &&
+                restoredLocal?.runtimeModel.startsWith("localmodels-library/")
+              )
+                await restoreSavedLocalModel();
             }
+          } else if (restoredLocal) {
+            // Setup originally chose a subscription runtime, then the person
+            // switched to local mode on Settings -> Models. Preserve local mode
+            // and restore the saved local model instead of overwriting
+            // model-source.json back to subscription.
+            runtimeOutcome = await prepareByokNativeRuntime(
+              restoredLocal.runtime,
+              {
+                home,
+                signal,
+                onEvent: emit,
+                ...(options.resume
+                  ? { reuseInstalled: true }
+                  : {
+                      env: await managedRuntimeEnvironment(home, current.root),
+                    }),
+                onDescriptor: (descriptor) =>
+                  options.onRuntimeDescriptors?.([descriptor]),
+              },
+            );
+            if (!runtimeOutcome) await restoreSavedLocalModel();
           } else {
             runtimeOutcome = await prepareRuntime(choice, {
               home,

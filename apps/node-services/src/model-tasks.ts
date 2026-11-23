@@ -27,18 +27,55 @@ export type RunKind =
   | "follow_up"
   | "document";
 
-/** Smaller priorities go first. Work up to chat may use the last place and
- * swaps out a running Run of a lower priority when it cannot start. */
+/** Smaller priorities go first. Interactive work may use the last place and
+ * swaps out a running Run of a lower priority when it cannot start. A Meta
+ * Run's work either answers someone or reports to them, so all of it goes
+ * before Tasks and Documents. Among kinds of one priority, the earlier listed
+ * one names a merged Run. */
 export const runPriorities: Readonly<Record<RunKind, number>> = {
   chat: 10,
+  task_callback: 11,
+  agent_message: 11,
+  follow_up: 11,
+  routine: 11,
+  proactive: 11,
   task: 12,
-  task_callback: 12,
   document: 12,
-  agent_message: 12,
-  routine: 15,
-  proactive: 15,
-  follow_up: 15,
 };
+
+/** Work at or before this priority is interactive: it may take the last
+ * place and asks lower work holding a place to yield. */
+export const INTERACTIVE_PRIORITY = 11;
+
+/**
+ * A Run's queue priority. It only rises while the Run lives, as input someone
+ * waits on more joins it, and every wait for a place re-ranks when it does.
+ */
+export class RunPriority {
+  #value: number;
+  readonly #listeners = new Set<() => void>();
+
+  constructor(value: number) {
+    this.#value = value;
+  }
+
+  get value(): number {
+    return this.#value;
+  }
+
+  /** Moves the Run up to priority; an equal or lower priority changes nothing. */
+  raise(priority: number): void {
+    if (priority >= this.#value) return;
+    this.#value = priority;
+    for (const listener of [...this.#listeners]) listener();
+  }
+
+  /** Calls listener after each raise until the returned function is called. */
+  onRaise(listener: () => void): () => void {
+    this.#listeners.add(listener);
+    return () => this.#listeners.delete(listener);
+  }
+}
 export interface ModelLeaseResult {
   readonly outcome: string;
   /** Token usage as the Runtime reported it; only logged. */
@@ -55,6 +92,7 @@ export interface ModelLease {
 /** A bounded Computer resolves an unknown Meta priority only when work contends. */
 export type CapacityPriority =
   | number
+  | RunPriority
   | {
       /** Monotonic arrival time retained across priority refreshes for this wait. */
       readonly queuedAt: number;
@@ -71,7 +109,7 @@ export function softLimit(hard: number): number {
 }
 
 export function admissionLimit(hard: number, priority: number): number {
-  return priority <= runPriorities.chat ? hard : softLimit(hard);
+  return priority <= INTERACTIVE_PRIORITY ? hard : softLimit(hard);
 }
 
 export interface ModelCallPolicy {

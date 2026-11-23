@@ -1,6 +1,7 @@
 import {
   admissionLimit,
-  runPriorities,
+  INTERACTIVE_PRIORITY,
+  RunPriority,
   type ModelLease,
   type ModelLeaseResult,
 } from "../../model-tasks.js";
@@ -22,13 +23,17 @@ export interface ModelEndpoint {
 }
 
 export interface ModelWork {
-  /** Lowest first; see model-tasks. */
-  readonly priority: number;
+  /** Lowest first; see model-tasks. A raised Run priority re-ranks the wait. */
+  readonly priority: number | RunPriority;
   /** A call kind, a Run kind or compaction. */
   readonly kind: string;
   /** Names the work in the log. */
   readonly key: string;
 }
+
+/** How long interactive work waits for a place before the log says who
+ * holds the places and why none of them yields. */
+export const INTERACTIVE_STALL_MS = 30_000;
 
 /** A Runtime whose every model is on the signed-in account. */
 const SUBSCRIPTION_CONCURRENCY: ConcurrencyRange = { initial: 10, max: 10 };
@@ -52,7 +57,7 @@ export function endpointConcurrency(
 }
 
 interface Waiter {
-  readonly priority: number;
+  readonly priority: () => number;
   readonly seq: number;
   readonly signal: AbortSignal;
   readonly admit: () => void;
@@ -70,8 +75,8 @@ interface EndpointState {
 /**
  * Admits model work per endpoint. A Run Operation, a model attempt and a
  * compaction each occupy one place. Smaller priority numbers start first,
- * in arrival order within a priority. When the limit exceeds one, work up to
- * chat priority may fill the last place. When it cannot start, it asks a
+ * in arrival order within a priority. When the limit exceeds one,
+ * interactive work may fill the last place. When it cannot start, it asks a
  * lower-priority Run holding a place to yield.
  * The limit adapts to what finished requests report. Admission only; it
  * never picks, orders or retries a Run.
@@ -89,6 +94,10 @@ export class ModelQueue {
       endpoint: ModelEndpoint,
       priority: number,
     ) => void,
+    /** The Runs holding places on endpoint and why each cannot yield. */
+    private readonly describeHolders?: (
+      endpoint: ModelEndpoint,
+    ) => readonly Record<string, unknown>[],
   ) {}
 
   /** A model request on endpoint finished, whoever holds its place. */
@@ -144,28 +153,62 @@ export class ModelQueue {
     signal.throwIfAborted();
     const queuedAt = Date.now();
     const state = this.#state(endpoint);
-    await new Promise<void>((resolve, reject) => {
-      const onAbort = () => {
-        const index = state.waiting.indexOf(waiter);
-        if (index >= 0) state.waiting.splice(index, 1);
-        this.#prune(state);
-        reject(signal.reason);
-      };
-      const waiter: Waiter = {
-        priority: work.priority,
-        seq: this.#seq++,
-        signal,
-        admit: () => {
-          signal.removeEventListener("abort", onAbort);
-          resolve();
-        },
-        reject,
-        onAbort,
-      };
-      state.waiting.push(waiter);
-      signal.addEventListener("abort", onAbort, { once: true });
-      this.#drain(state);
-    });
+    const { priority } = work;
+    // A raise keeps the arrival order within the new priority.
+    const unsubscribe =
+      priority instanceof RunPriority
+        ? priority.onRaise(() => this.#drain(state))
+        : undefined;
+    const value = () =>
+      priority instanceof RunPriority ? priority.value : priority;
+    let stall: ReturnType<typeof setTimeout> | undefined;
+    const watchStall = () => {
+      stall = setTimeout(() => {
+        if (value() > INTERACTIVE_PRIORITY) return watchStall();
+        logAgentEvent("warn", "model_queue.interactive_waiting", {
+          kind: work.kind,
+          key: work.key.slice(0, 200),
+          priority: value(),
+          computer_id: endpoint.computerId,
+          runtime_type: endpoint.runtimeType,
+          waited_ms: Date.now() - queuedAt,
+          active: state.active,
+          waiting: state.waiting.length,
+          limit: this.#limits.get(state.key)?.value,
+          holders: this.describeHolders?.(endpoint) ?? [],
+        });
+      }, INTERACTIVE_STALL_MS);
+      stall.unref?.();
+    };
+    if (priority instanceof RunPriority || priority <= INTERACTIVE_PRIORITY)
+      watchStall();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const onAbort = () => {
+          const index = state.waiting.indexOf(waiter);
+          if (index >= 0) state.waiting.splice(index, 1);
+          this.#prune(state);
+          reject(signal.reason);
+        };
+        const waiter: Waiter = {
+          priority: value,
+          seq: this.#seq++,
+          signal,
+          admit: () => {
+            signal.removeEventListener("abort", onAbort);
+            resolve();
+          },
+          reject,
+          onAbort,
+        };
+        state.waiting.push(waiter);
+        signal.addEventListener("abort", onAbort, { once: true });
+        this.#drain(state);
+      });
+    } finally {
+      clearTimeout(stall);
+      unsubscribe?.();
+    }
     return this.#lease(state, work, queuedAt);
   }
 
@@ -174,14 +217,15 @@ export class ModelQueue {
   recheckInteractiveWait(endpoint: ModelEndpoint): void {
     const state = this.#endpoints.get(endpointKey(endpoint));
     const next = state?.waiting[0];
+    const priority = next?.priority();
     if (
       state &&
-      next &&
-      next.priority <= runPriorities.chat &&
+      priority !== undefined &&
+      priority <= INTERACTIVE_PRIORITY &&
       state.active >=
-        admissionLimit(this.#limit(state.key, endpoint).value, next.priority)
+        admissionLimit(this.#limit(state.key, endpoint).value, priority)
     )
-      this.onInteractiveWait?.(endpoint, next.priority);
+      this.onInteractiveWait?.(endpoint, priority);
   }
 
   /** The Computer is gone; work waiting for it fails with error. */
@@ -265,11 +309,11 @@ export class ModelQueue {
   }
 
   #drain(state: EndpointState): void {
-    state.waiting.sort((a, b) => a.priority - b.priority || a.seq - b.seq);
+    state.waiting.sort((a, b) => a.priority() - b.priority() || a.seq - b.seq);
     const limit = this.#limit(state.key, state.endpoint).value;
     while (state.active < limit && state.waiting.length > 0) {
       const next = state.waiting[0]!;
-      if (state.active >= admissionLimit(limit, next.priority)) break;
+      if (state.active >= admissionLimit(limit, next.priority())) break;
       state.active += 1;
       state.waiting.shift();
       next.admit();

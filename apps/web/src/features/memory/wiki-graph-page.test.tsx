@@ -29,7 +29,10 @@ import type {
 } from "@/features/teamhub/teamhub-types";
 
 import { serveWikiStatus, wikiStatus } from "@/features/wiki/wiki.test-support";
-import type { TestRouteHandler } from "@/test/teamhub-test-server";
+import {
+  teamHubErrorResponse,
+  type TestRouteHandler,
+} from "@/test/teamhub-test-server";
 import { WikiGraphPage } from "./wiki-graph-page";
 
 afterEach(() => vi.restoreAllMocks());
@@ -452,6 +455,64 @@ describe("WikiGraphPage", () => {
         name: "Graph has not been generated yet.",
       }),
     ).toBeNull();
+  });
+
+  it("shows an empty state without requesting the graph when no Wiki generation exists yet", async () => {
+    const runtime = await loggedInRuntime();
+    serveWikiStatus(runtime).mockResolvedValue(
+      wikiStatus({
+        published_generation: 0,
+        state: "idle",
+      }),
+    );
+    const getGraph = vi.spyOn(
+      runtime.client,
+      "getPersonalKnowledgeGraphVisualization",
+    );
+
+    renderPage(runtime);
+
+    expect(
+      await screen.findByText(
+        "No timeline yet. Add a source or have a conversation to build your Wiki.",
+      ),
+    ).toBeVisible();
+    expect(getGraph).not.toHaveBeenCalled();
+  });
+
+  it("shows a retryable error instead of an infinite loading spinner when personal-wiki status fails", async () => {
+    const runtime = await loggedInRuntime();
+    const status = serveWikiStatus(runtime)
+      .mockResolvedValueOnce(
+        teamHubErrorResponse(
+          503,
+          "WIKI_UNAVAILABLE",
+          "Personal wiki status is unavailable.",
+        ),
+      )
+      .mockResolvedValueOnce(wikiStatus({ published_generation: 1 }));
+    const getGraph = vi
+      .spyOn(runtime.client, "getPersonalKnowledgeGraphVisualization")
+      .mockResolvedValue("<!doctype html><title>Recovered timeline</title>");
+
+    renderPage(runtime);
+
+    expect(
+      await screen.findByRole("alert", {
+        name: "Personal wiki status is unavailable.",
+      }),
+    ).toBeVisible();
+    expect(screen.queryByText("Loading timeline…")).toBeNull();
+    expect(
+      screen.queryByText(
+        "No timeline yet. Add a source or have a conversation to build your Wiki.",
+      ),
+    ).toBeNull();
+    expect(getGraph).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(status).toHaveBeenCalledTimes(2));
+    expect(await screen.findByTitle("Personal knowledge graph")).toBeVisible();
   });
 
   it("waits for Wiki publication before reloading the graph", async () => {

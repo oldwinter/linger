@@ -133,7 +133,11 @@ func (f profileSetupFixture) decideApps(t *testing.T, decision string) {
 }
 
 // onboardingStatusMessage is a hidden onboarding status AnotherMe reads.
-type onboardingStatusMessage struct{ id, body string }
+type onboardingStatusMessage struct {
+	id, body string
+	// humanWaiting marks a status the Human's own action sent.
+	humanWaiting bool
+}
 
 // onboardingStatus returns the one hidden status, written in the Human's name
 // for the setup card cardMessageID, that mentions AnotherMe.
@@ -141,10 +145,10 @@ func (f profileSetupFixture) onboardingStatus(t *testing.T, cardMessageID string
 	t.Helper()
 	var status onboardingStatusMessage
 	if err := f.pool.QueryRow(t.Context(), `
-		SELECT id,body FROM messages
+		SELECT id,body,human_waiting FROM messages
 		WHERE room_id=$1 AND message_kind='agent_runtime' AND author_actor_id='actor_acme_alice'
 		  AND card_context_message_id=$2 AND mentioned_actor_ids=ARRAY[$3]::text[]
-	`, f.roomID, cardMessageID, f.agentID).Scan(&status.id, &status.body); err != nil {
+	`, f.roomID, cardMessageID, f.agentID).Scan(&status.id, &status.body, &status.humanWaiting); err != nil {
 		t.Fatalf("read onboarding status of %s: %v", cardMessageID, err)
 	}
 	return status
@@ -317,6 +321,9 @@ func TestAnotherMeProfileSetupSourcesDoneHandsOffStatusWithAttachments(t *testin
 	}
 	// The Human never wrote, so the status tells AnotherMe to start.
 	status := f.onboardingStatus(t, cardMessageID)
+	if !status.humanWaiting {
+		t.Fatalf("the finished setup status %s does not wait on AnotherMe", status.id)
+	}
 	for _, want := range []string{"Setup cards: finished.", "Connected apps right now: none.",
 		"Links: https://alice.example.com https://github.com/alice", "Files: 2, attached to this message.",
 		"Tell the Human you are starting their profile"} {
@@ -452,6 +459,9 @@ func TestAnotherMeOnboardingStatusPrecedesTheHumansFirstMessage(t *testing.T) {
 	f.grantGmail(t)
 	first := f.say(t, "hello", "onboarding-first")
 	progress := f.onboardingStatus(t, appsMessageID)
+	if !progress.humanWaiting {
+		t.Fatalf("the progress status %s does not wait on AnotherMe", progress.id)
+	}
 	for _, want := range []string{"Setup cards: not finished", "- Gmail alice@example.test, connection connection_onboarding_gmail",
 		"ask whether to start now from what is connected so far"} {
 		if !strings.Contains(progress.body, want) {

@@ -41,6 +41,24 @@ describe("PowerGuard module", () => {
     expect(blocks).toEqual([]);
   });
 
+  it("blocks sleep while a local server installation or resume is busy", async () => {
+    const { host, guard, blocks } = await setup();
+    expect(guard.active()).toBe(false);
+    host.ctx.bus.emit("local-server.busy", true);
+    expect(guard.active()).toBe(true);
+    expect(guard.alwaysOn()).toBe(false);
+    expect(blocks).toEqual([1]);
+    // Runtime activity overlapping an install shares the single blocker.
+    host.ctx.bus.emit("runtime.activity", 1);
+    expect(blocks).toEqual([1]);
+    host.ctx.bus.emit("local-server.busy", false);
+    expect(blocks).toEqual([1]);
+    host.ctx.bus.emit("runtime.activity", 0);
+    expect(guard.active()).toBe(false);
+    expect(blocks).toEqual([]);
+    await host.stop("quit");
+  });
+
   it("keeps blocking in always-on mode and saves the choice", async () => {
     const { host, guard, blocks } = await setup(true);
     expect(blocks).toHaveLength(1);

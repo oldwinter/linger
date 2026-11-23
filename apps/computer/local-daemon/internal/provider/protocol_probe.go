@@ -71,7 +71,7 @@ func probeRuntimeProtocol(ctx context.Context, runtimeType, executable string, e
 	var payload string
 	switch runtimeType {
 	case "pi":
-		args = append([]string{"--mode", "rpc", "--no-session"}, native.PiRPCResourceArgs()...)
+		args = append([]string{"--mode", "rpc", "--no-session"}, native.PiRPCResourceArgs("")...)
 		payload = `{"id":"linger-probe","type":"get_state"}` + "\n"
 	case "codex":
 		args = codexProbeArgs(version)
@@ -95,6 +95,7 @@ func probeRuntimeProtocol(ctx context.Context, runtimeType, executable string, e
 			"--strict-mcp-config", "--mcp-config", `{"mcpServers":{}}`, "--tools", "",
 		}
 		payload = `{"type":"control_request","request_id":"linger-computer-doctor","request":{"subtype":"initialize"}}` + "\n"
+		environment = native.ClaudeEnvironment(environment)
 	default:
 		return errors.New("unsupported Runtime protocol probe")
 	}
@@ -243,7 +244,7 @@ func probeClaudeAuthentication(ctx context.Context, executable string, environme
 }
 
 func probeClaudeAuthStatus(ctx context.Context, executable string, prepared map[string]string, timeout time.Duration) runtimeProbeOutcome {
-	stdout, _, err := runBoundedProbe(ctx, executable, []string{"auth", "status", "--json"}, prepared, "", boundedAuthTimeout(timeout))
+	stdout, _, err := runBoundedProbe(ctx, executable, []string{"auth", "status", "--json"}, native.ClaudeEnvironment(prepared), "", boundedAuthTimeout(timeout))
 	var status struct {
 		LoggedIn *bool `json:"loggedIn"`
 	}

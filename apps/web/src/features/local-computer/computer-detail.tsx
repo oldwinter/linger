@@ -57,6 +57,7 @@ import {
   appNames,
   appOrder,
   computerReadiness,
+  preferredComputerRuntime,
   type ComputerReadiness,
 } from "./computer-readiness";
 import { relativeTime } from "./computer-relative-time";
@@ -72,6 +73,7 @@ interface AppSetup {
 }
 
 export function ComputerDetail({
+  activeRuntime,
   agentAvailabilities,
   agents,
   browserConnection,
@@ -82,6 +84,8 @@ export function ComputerDetail({
   onOpenAgent,
   onRemove,
 }: {
+  /** Active runtime from the Computer's current model source when known. */
+  activeRuntime?: TeamHubLocalRuntimeType;
   agentAvailabilities: ReadonlyMap<string, AgentAvailability>;
   agents: TeamHubTenantAgent[];
   /** The browser status as a progress chip or an Access row; the page owns its TeamHub reads. */
@@ -121,7 +125,12 @@ export function ComputerDetail({
     computer.computer_id,
     computer.status,
   );
-  const readiness = computerReadiness(computer, displayStatus);
+  const preferredRuntime = preferredComputerRuntime(agents, activeRuntime);
+  const readiness = computerReadiness(
+    computer,
+    displayStatus,
+    preferredRuntime,
+  );
   const [setup, setSetup] = useState<AppSetup | null>(null);
   const [updateOpen, setUpdateOpen] = useState(false);
   const online = displayStatus === "online";

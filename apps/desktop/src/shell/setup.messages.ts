@@ -53,6 +53,10 @@ export const setupMessages = defineMessages("setup", {
   memoryWithServices: "{size} memory with its services",
   heldWhy:
     "Local model on hold. {reasons} Quick Install sets up {plan} now, or choose Check again once memory is free.",
+  heldWhyGeneric:
+    "Local model on hold. {reasons} Quick Install sets up {plan} now, or choose Check again once the issue is resolved.",
+  heldWhyCudaDriver:
+    "Local model on hold. {reasons} Quick Install sets up {plan} now.",
   keyRemovedOnInstall: "Removed when you install",
   keySaved: "Saved · type to replace",
   apiKey: "API key",
@@ -62,6 +66,7 @@ export const setupMessages = defineMessages("setup", {
   chooseSource: "Choose how your agents run.",
   localRecommended: "Recommended for this computer · Runs on Pi via Bifrost",
   localRuns: "Runs your tasks on this computer via Pi",
+  localOnHold: "Local model on hold",
   localNotAvailable: "Not available on this computer",
   recommendedRuntime: "Recommended: {runtime}.",
   subscriptionHint: "Sign in with your ChatGPT or Claude subscription.",
@@ -106,6 +111,10 @@ export const setupMessages = defineMessages("setup", {
   reasonGpuSharing: "Other work is running on the GPU. Close it.",
   reasonGpuOwnership:
     "Linger couldn't tell which programs are using the GPU, so it can't share it. Close programs that use the GPU.",
+  reasonGatewayPortInUse:
+    "Another program is using the port Linger's local model gateway needs. Close the program using that port.",
+  reasonHarnessUnavailable:
+    "The Pi runtime required for local models isn't ready right now. Check your connection or permissions.",
   reasonFacts: "Linger couldn't read this computer's memory, disk or GPU.",
   reasonCudaUpdate:
     "Your NVIDIA driver supports CUDA {has}, but local models require CUDA {needs} or newer. Update your NVIDIA driver, then choose Check again.",
@@ -123,11 +132,17 @@ export const setupMessages = defineMessages("setup", {
   reasonPlanUnavailable: "No local model fits this computer.",
   reasonHeld:
     "Other programs are using the memory it needs. Close other programs.",
+  reasonHeldGeneric:
+    "Something on this computer is temporarily blocking the local model.",
   reasonUnavailable: "This computer can't run a local model now.",
   heldGpu: "On hold: The GPU has {free} free, needs {needed}",
   heldGpuOf: "On hold: GPU {gpu} has {free} free, needs {needed}",
   heldMemory: "On hold: {free} of memory free, needs {needed}",
+  heldGatewayPort: "On hold: free the gateway port, then Check again.",
+  heldHarnessUnavailable: "On hold: prepare the Pi runtime, then Check again.",
+  heldCudaDriver: "On hold: update your NVIDIA driver, then Check again.",
   heldClose: "On hold: close other programs, then Check again.",
+  heldResolve: "On hold: resolve the issue, then Check again.",
 
   // BYOK fields.
   pathMostProviders: "Most providers",

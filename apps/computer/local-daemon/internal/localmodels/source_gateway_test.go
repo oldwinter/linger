@@ -183,3 +183,38 @@ func TestEnsureGatewaySharesARemountThatFailedWhileWaiting(t *testing.T) {
 		t.Fatalf("remounts = %d, want 2", n)
 	}
 }
+
+// GatewayMode names the managed gateway only for a Runtime whose profile the
+// saved local or BYOK source manages; a Runtime on its own provider, or a
+// subscription source, reaches no gateway.
+func TestGatewayModeNamesTheGatewayARuntimeReaches(t *testing.T) {
+	ft := newFakeTool(t)
+	ms := NewModelSource(ModelSourceOptions{
+		Tool:         &ft.tool,
+		Environment:  map[string]string{"LOCALMODELS_FAKE_TOOL": "1"},
+		JobDirectory: filepath.Join(t.TempDir(), "jobs"),
+		NodePath:     "/usr/local/bin/node",
+	})
+	if got := ms.GatewayMode("pi"); got != "" {
+		t.Fatalf("mode without a saved source = %q, want empty", got)
+	}
+	for _, tc := range []struct {
+		mode, home, runtime, want string
+	}{
+		{"byok", "byok-home", "pi", "byok"},
+		{"local", "gateway-home", "pi", "local"},
+		{"byok", "byok-home", "codex", ""},
+		{"subscription", "byok-home", "pi", ""},
+	} {
+		t.Run(tc.mode+"/"+tc.runtime, func(t *testing.T) {
+			writeModelSourceJSON(t, ft.state, map[string]any{
+				"schema": modelSourceSchema, "mode": tc.mode, "runtime": "pi",
+				"runtime_model": "localmodels/localmodels-byok", "gateway_url": "http://127.0.0.1:43120",
+				"environment": map[string]string{"PI_CODING_AGENT_DIR": filepath.Join(ft.state, tc.home, ".pi", "agent")},
+			})
+			if got := ms.GatewayMode(tc.runtime); got != tc.want {
+				t.Fatalf("mode = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

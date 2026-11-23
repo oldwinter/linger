@@ -48,6 +48,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import tarfile
 import tempfile
 import urllib.request
 import zipfile
@@ -224,7 +225,8 @@ def bundled_node(path):
             and parts[6].startswith("runtime-") and parts[7:] == ["node", "bin", "node"])
 
 
-MACHO_MAGIC = {b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe"}
+FAT_MAGIC = b"\xca\xfe\xba\xbe"
+MACHO_MAGIC = {b"\xcf\xfa\xed\xfe", FAT_MAGIC}
 
 
 def macho_files(app):
@@ -239,6 +241,83 @@ def macho_files(app):
                 if source.read(4) in MACHO_MAGIC:
                     found.append(os.path.relpath(path, app))
     return sorted(found)
+
+
+def _be32(data, at):
+    return int.from_bytes(data[at:at + 4], "big")
+
+
+def _le32(data, at):
+    return int.from_bytes(data[at:at + 4], "little")
+
+
+def developer_id_signed(data):
+    """Whether every slice of the Mach-O in data has a certificate signature
+    with the hardened runtime, which notarization requires. A linker's ad-hoc
+    signature has neither."""
+    if data[:4] == FAT_MAGIC:
+        entries = [8 + 20 * index for index in range(_be32(data, 4))]
+        images = [data[_be32(data, at + 8):_be32(data, at + 8) + _be32(data, at + 12)] for at in entries]
+    else:
+        images = [data]
+    for image in images:
+        if image[:4] != b"\xcf\xfa\xed\xfe":
+            return False
+        signature, cursor = b"", 32
+        for _ in range(_le32(image, 16)):
+            if _le32(image, cursor) == 0x1D:  # LC_CODE_SIGNATURE
+                start = _le32(image, cursor + 8)
+                signature = image[start:start + _le32(image, cursor + 12)]
+            cursor += _le32(image, cursor + 4)
+        if _be32(signature, 0) != 0xFADE0CC0:  # embedded signature superblob
+            return False
+        blobs = {_be32(signature, 12 + 8 * index): signature[_be32(signature, 16 + 8 * index):]
+                 for index in range(_be32(signature, 8))}
+        flags = _be32(blobs.get(0, b""), 12)  # the CodeDirectory's flags
+        cms = blobs.get(0x10000, b"")  # the CMS signature blob, empty when ad-hoc
+        if flags & 0x2 or not flags & 0x10000 or _be32(cms, 4) <= 8:
+            return False
+    return True
+
+
+def unsigned_archive_files(archive):
+    """Mach-O files in the tar.gz archive that lack a Developer ID signature."""
+    unsigned = []
+    with tarfile.open(archive) as tar:
+        for member in tar:
+            if member.isfile():
+                data = tar.extractfile(member).read()
+                if data[:4] in MACHO_MAGIC and not developer_id_signed(data):
+                    unsigned.append(member.name)
+    return unsigned
+
+
+def check_bundled_archives(app):
+    """Apple inspects the archives inside the app and refuses to notarize it
+    while one holds a Mach-O file without a Developer ID signature."""
+    native = os.path.join(app, NATIVE)
+    for name in sorted(os.listdir(native)) if os.path.isdir(native) else []:
+        if name.endswith(".tar.gz"):
+            unsigned = unsigned_archive_files(os.path.join(native, name))
+            if unsigned:
+                sys.exit(f"{name} holds {len(unsigned)} Mach-O files without a Developer ID signature "
+                         f"(first: {unsigned[0]}); run the Sign macOS native archives workflow on this "
+                         "branch and commit the pins it produces (docs/desktop-release.md#bundled-archives)")
+
+
+def signing_scopes(app, path):
+    """rcodesign scopes that select every architecture of the Mach-O at path.
+
+    rcodesign reads the text after the last "@" of a scope as an architecture
+    selector, so a path under an npm scope (node_modules/@img/...) names each
+    slice explicitly instead; rcodesign numbers a thin file's only slice 0.
+    """
+    if "@" not in path:
+        return [path]
+    with open(os.path.join(app, path), "rb") as source:
+        header = source.read(8)
+    slices = _be32(header, 4) if header[:4] == FAT_MAGIC else 1
+    return [f"{path}@{index}" for index in range(slices)]
 
 
 class Signing:
@@ -273,12 +352,13 @@ class Signing:
         scoped = []
         for path in macho_files(app):
             javascript = path.startswith("Contents/MacOS/") or ".app/Contents/MacOS/" in path
-            if self.developer_id:
-                scoped += ["--code-signature-flags", f"{path}:runtime"]
-            if bundled_node(path):
-                scoped += ["--entitlements-xml-file", f"{path}:{node_entitlements}"]
-            elif self.developer_id and javascript:
-                scoped += ["--entitlements-xml-file", f"{path}:{entitlements}"]
+            for scope in signing_scopes(app, path):
+                if self.developer_id:
+                    scoped += ["--code-signature-flags", f"{scope}:runtime"]
+                if bundled_node(path):
+                    scoped += ["--entitlements-xml-file", f"{scope}:{node_entitlements}"]
+                elif self.developer_id and javascript:
+                    scoped += ["--entitlements-xml-file", f"{scope}:{entitlements}"]
         check = ["--for-notarization"] if self.notary_key else []
         depth = ["--shallow"] if shallow else []
         return [self.rcodesign, "sign", *self._identity(), *check, *depth, *scoped,
@@ -339,7 +419,9 @@ def build_dmg(stage, workdir, output, volume_name):
         'dmg dmg vol.hfs out.dmg'
     )
     dmgtool(workdir, "sh", "-ec", script, "_", volume_name)
-    shutil.move(os.path.join(workdir, "out.dmg"), output)
+    # The container writes out.dmg as root; a copy is this user's to sign.
+    shutil.copyfile(os.path.join(workdir, "out.dmg"), output)
+    os.remove(os.path.join(workdir, "out.dmg"))
 
 
 def update_archive(app, output):
@@ -379,6 +461,8 @@ def main():
         workdir = tempfile.mkdtemp(prefix=f"linger-dmg-{arch}-")
         try:
             stage, app = stage_app(arch, version, electron_version, workdir, args.cache)
+            if args.notary_key:
+                check_bundled_archives(app)
             signing.sign_app(app, f"darwin-{arch}")
             # The stapled app carries its ticket into the DMG and the update.
             signing.notarize(app)

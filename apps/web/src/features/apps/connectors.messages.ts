@@ -26,7 +26,7 @@ export const connectorMessages = defineMessages("connectors", {
   groupMultimodal: "Multimodal",
 
   // What each app of the catalog holds
-  summaryCalendly: "Scheduling links and events",
+  summaryCalendly: "Scheduling links",
   summaryCanva: "Designs and presentations",
   summaryDiscord: "Servers and channels",
   summaryFalAi: "Generative media models",

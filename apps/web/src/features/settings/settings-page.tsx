@@ -8,7 +8,7 @@ import {
   UserIcon,
 } from "@hugeicons/core-free-icons";
 import { Icon } from "@/components/ui/icon";
-import { Suspense, useEffect, useRef, type ReactNode } from "react";
+import { Suspense, type ReactNode } from "react";
 import { NavLink, Outlet, useLocation } from "react-router";
 
 import { Skeleton } from "@/components/ui/skeleton";
@@ -21,13 +21,6 @@ import { settingsMessages } from "./settings.messages";
 export function SettingsLayout() {
   const { pathname } = useLocation();
   const t = useT();
-  const sections = useRef<HTMLElement>(null);
-  // In a narrow window the sections scroll sideways; the open one stays in view.
-  useEffect(() => {
-    sections.current
-      ?.querySelector('[aria-current="page"]')
-      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [pathname]);
   return (
     <div className="flex min-h-0 flex-1 flex-col md:flex-row">
       <aside
@@ -41,8 +34,7 @@ export function SettingsLayout() {
         </div>
         <nav
           aria-label={t(settingsMessages.sections)}
-          className="workspace-scrollbar flex min-h-0 flex-1 gap-0.5 overflow-x-auto md:flex-col md:overflow-x-visible md:overflow-y-auto"
-          ref={sections}
+          className="workspace-scrollbar flex min-h-0 flex-1 flex-wrap gap-1 md:flex-col md:flex-nowrap md:gap-0.5 md:overflow-y-auto"
         >
           <SettingsLink
             icon={<Icon icon={UserIcon} size={14} />}
@@ -130,7 +122,7 @@ function SettingsLink({
   return (
     <NavLink
       className={({ isActive }) =>
-        `flex h-[33px] shrink-0 items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none ${
+        `flex h-[33px] shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-[13px] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none md:gap-2 md:text-sm ${
           isActive
             ? "bg-muted text-foreground"
             : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"

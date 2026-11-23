@@ -13,12 +13,26 @@ import {
   markdownBodySource,
   option,
   parseJsonValue,
+  oneOf,
   requiredOption,
   targetFromFlags,
   values,
 } from "./command-input.js";
-import { parseActorReferences } from "./command-mentions.js";
+import { parseActorReferences } from "./content-segments.js";
 import { CliError } from "./errors.js";
+import {
+  conflictingFlags,
+  echo,
+  flagOutOfRange,
+  flagPaths,
+  inputIssue,
+  invalidFlag,
+  invalidInput,
+  missingFlag,
+  typeName,
+  usageError,
+  zodInputIssues,
+} from "./input-issues.js";
 import {
   resolveConnectorAccount,
   validateAccountSelector,
@@ -33,9 +47,6 @@ const singleLineText = (value: unknown): string =>
   displayText(value ?? "")
     .replace(/\s+/gu, " ")
     .trim();
-function invalid(message: string): never {
-  throw new CliError("usage", message);
-}
 const flag = (description: string, repeatable = false): CommandOption => ({
   description,
   ...(repeatable ? { repeatable: true } : {}),
@@ -50,15 +61,25 @@ const listOptions = {
   "--limit": flag("Maximum items in this page; 1-100."),
   "--cursor": flag("Exact next_cursor returned by the previous page."),
 };
-const jsonOptions = (name: string, description: string) => ({
-  [`--${name}`]: flag(description),
+const jsonOptions = (
+  name: string,
+  description: string,
+  json = name.replaceAll("-", "_"),
+) => ({
+  [`--${name}`]: { ...flag(description), json },
   [`--${name}-file`]: flag(`Read ${name} JSON from a file or - for stdin.`),
 });
 const optional = (field: string, value: unknown): Json =>
   value === undefined ? {} : { [field]: value };
 const object = (value: unknown, label: string): Json => {
   if (value === null || typeof value !== "object" || Array.isArray(value))
-    invalid(`${label} must contain one JSON object.`);
+    throw invalidInput(`${label} must be one JSON object.`, [
+      inputIssue(
+        label,
+        "invalid_type",
+        `expected object; got ${typeName(value)}.`,
+      ),
+    ]);
   return value as Json;
 };
 const integer = (
@@ -74,20 +95,42 @@ const integer = (
     Number(value) < min ||
     Number(value) > max
   )
-    invalid(`${label} must be an integer from ${min} to ${max}.`);
+    throw flagOutOfRange(label, min, max, value);
   return Number(value);
 };
+const scheduleFlags = [
+  "--daily",
+  "--weekly",
+  "--every-minutes",
+  "--every-hours",
+  "--at",
+  "--timezone",
+  "--weekday",
+];
+const definitionsByTool = new Map<string, CommandDefinition>();
+/**
+ * Checks the wire input against the command's business schema. Each issue
+ * names the flag that set its field, or, when the whole input is one JSON
+ * flag (`root`), the field's path inside that JSON.
+ */
 async function validate(
   tool: string,
   input: Json,
   wire: Json = input,
+  root?: string,
 ): Promise<Json> {
   const schema = await loadAgentCommandSchema(tool);
-  if (schema && !schema.input.safeParse(wire).success)
-    invalid(
-      "Command input does not match its business schema. Run this command with --schema.",
-    );
-  return input;
+  const parsed = schema?.input.safeParse(wire);
+  if (!parsed || parsed.success) return input;
+  const command = definitionsByTool.get(tool);
+  const issues = zodInputIssues(parsed.error.issues, wire, {
+    root: root ?? "input",
+    schema: schema!.input,
+  });
+  throw invalidInput(
+    `The ${root ? `${root} JSON` : "input"} does not match ${command ? command.command.join(" ") : "this command"}.`,
+    root ? issues : flagPaths(issues, command?.options ?? {}),
+  );
 }
 function definition(
   command: string[],
@@ -97,7 +140,7 @@ function definition(
   normalize: CommandDefinition["normalize"],
   extras: Partial<CommandDefinition> = {},
 ): CommandDefinition {
-  return {
+  const created: CommandDefinition = {
     command,
     toolName,
     description,
@@ -110,6 +153,9 @@ function definition(
     render: (result) => renderBusinessResult(command.join(" "), result),
     ...extras,
   };
+  if (!definitionsByTool.has(toolName))
+    definitionsByTool.set(toolName, created);
+  return created;
 }
 function uniqueList(
   args: CommandArguments,
@@ -120,12 +166,11 @@ function uniqueList(
   const list = values(args, repeated);
   const json = option(args, structured);
   if (list.length && json !== undefined)
-    invalid(`Choose ${repeated} or ${structured}.`);
-  if (json !== undefined) return parseJsonValue(json);
-  if (!list.length && required)
-    invalid(`Provide ${repeated} at least once or ${structured}.`);
+    throw conflictingFlags([repeated, structured]);
+  if (json !== undefined) return parseJsonValue(json, structured);
+  if (!list.length && required) throw missingFlag([repeated, structured]);
   if (new Set(list).size !== list.length)
-    invalid(`${repeated} values must be unique.`);
+    throw invalidFlag(repeated, "conflict", "give each value only once.");
   return list.length ? [...list] : undefined;
 }
 async function initialMessage(
@@ -140,7 +185,12 @@ async function initialMessage(
     "--initial-message-segments-file",
   ].some((name) => option(args, name) !== undefined);
   if (ordinary && structured)
-    invalid("Choose a body source or initial-message-segments, not both.");
+    throw conflictingFlags([
+      "--content",
+      "--file",
+      "--initial-message-segments",
+      "--initial-message-segments-file",
+    ]);
   if (structured)
     return jsonSource(
       args,
@@ -258,7 +308,12 @@ const agentUpdate = definition(
       ),
     };
     if (!["name", "description", "prompt"].some((key) => key in input))
-      invalid("Provide --name, --description, --prompt or --prompt-file.");
+      throw missingFlag([
+        "--name",
+        "--description",
+        "--prompt",
+        "--prompt-file",
+      ]);
     return { input: await validate("update_agent", input) };
   },
   {
@@ -332,7 +387,11 @@ const appsConnect: CommandDefinition = {
     assertPositionals(args, 1);
     const appKey = args.positionals[0]!;
     if (!/^[a-z0-9_]{1,120}$/u.test(appKey))
-      invalid("<app-key> must be a catalog key such as linear.");
+      throw invalidFlag(
+        "<app-key>",
+        "invalid_format",
+        `expected a catalog key, for example linear; got ${echo(appKey)}.`,
+      );
     const account = option(args, "--account");
     validateAccountSelector(account);
     return { input: { appKey, ...optional("account", account) } };
@@ -477,10 +536,15 @@ const appsAutoRemindersSet: CommandDefinition = {
     assertPositionals(args, 1);
     const connectionId = args.positionals[0]!;
     if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u.test(connectionId))
-      invalid("<connection-id> must be a connection ID from the list.");
+      throw invalidFlag(
+        "<connection-id>",
+        "invalid_format",
+        `expected a connection ID from teamhub apps auto-reminders list; got ${echo(connectionId)}.`,
+      );
     const on = option(args, "--on") !== undefined;
     const off = option(args, "--off") !== undefined;
-    if (on === off) invalid("Choose exactly one of --on or --off.");
+    if (on && off) throw conflictingFlags(["--on", "--off"]);
+    if (!on && !off) throw missingFlag(["--on", "--off"]);
     return { input: { connectionId, enabled: on } };
   },
   execute: async (input, context) =>
@@ -546,14 +610,36 @@ const proactiveShadowDivergence: CommandDefinition = {
     const would = option(args, "--would") ?? "";
     const took = option(args, "--took") ?? "";
     if (!/^pr_[a-f0-9]{32}$/u.test(ruleId))
-      invalid("--rule must be a shadow rule ID from the wake.");
+      throw invalidInput("--rule must be a shadow rule ID from the wake.", [
+        inputIssue(
+          "--rule",
+          "invalid_format",
+          "expected a shadow rule ID from the wake.",
+        ),
+      ]);
     if (!matter || matter.length > 300)
-      invalid("--matter must name the matter in at most 300 characters.");
+      throw invalidInput(
+        "--matter must name the matter in at most 300 characters.",
+        [
+          inputIssue(
+            "--matter",
+            matter ? "out_of_range" : "missing",
+            "must be 1 to 300 characters.",
+          ),
+        ],
+      );
     const isAction = (value: string) =>
       (proactiveActions as readonly string[]).includes(value);
     if (!isAction(would) || !isAction(took) || would === took)
-      invalid(
+      throw invalidInput(
         "--would and --took must be two different actions of notify, track or silent.",
+        [
+          inputIssue(
+            !isAction(would) ? "--would" : "--took",
+            "invalid_value",
+            "must be two different actions of notify, track or silent.",
+          ),
+        ],
       );
     return {
       input: {
@@ -644,11 +730,23 @@ const proactiveAct: CommandDefinition = {
     assertPositionals(args, 0);
     const ruleId = option(args, "--rule") ?? "";
     if (!/^pr_[a-f0-9]{32}$/u.test(ruleId))
-      invalid("--rule must be a mandate rule ID from the wake.");
+      throw invalidInput("--rule must be a mandate rule ID from the wake.", [
+        inputIssue(
+          "--rule",
+          "invalid_format",
+          "expected a mandate rule ID from the wake.",
+        ),
+      ]);
     const text = (name: string, max: number) => {
       const value = (option(args, name) ?? "").trim();
       if (!value || value.length > max)
-        invalid(`${name} must be 1 to ${max} characters.`);
+        throw invalidInput(`${name} must be 1 to ${max} characters.`, [
+          inputIssue(
+            name,
+            value ? "out_of_range" : "missing",
+            `must be 1 to ${max} characters.`,
+          ),
+        ]);
       return value;
     };
     return {
@@ -754,8 +852,15 @@ const appsExecute = definition(
       "--arguments-file",
     );
     if (argumentsValue === undefined)
-      invalid(
-        "Provide --arguments or --arguments-file, including {} for a tool without arguments.",
+      throw usageError(
+        "One of --arguments, --arguments-file is required; pass {} for a tool without arguments.",
+        [
+          inputIssue(
+            "--arguments",
+            "missing",
+            "required; give one of --arguments, --arguments-file.",
+          ),
+        ],
       );
     return {
       input: await validate("execute_app_tool", {
@@ -851,15 +956,28 @@ const knowledgeDefinitions: CommandDefinition[] = [
       assertPositionals(args, 1);
       const input: Json = { evidenceId: args.positionals[0] };
       const sectionIds = [...values(args, "--section-id")];
-      if (
-        sectionIds.length < 1 ||
-        sectionIds.length > 8 ||
-        new Set(sectionIds).size !== sectionIds.length
-      )
-        invalid("Provide 1-8 distinct --section-id values.");
+      if (!sectionIds.length) throw missingFlag(["--section-id"]);
+      if (sectionIds.length > 8)
+        throw invalidFlag(
+          "--section-id",
+          "out_of_range",
+          `must be given at most 8 times; got ${sectionIds.length}.`,
+        );
+      if (new Set(sectionIds).size !== sectionIds.length)
+        throw invalidFlag(
+          "--section-id",
+          "conflict",
+          "give each value only once.",
+        );
       const offset = integer(option(args, "--offset"), "--offset", 0, 200000);
       if (offset !== undefined && sectionIds.length !== 1)
-        invalid("--offset requires exactly one --section-id.");
+        throw usageError("--offset reads one section; give one --section-id.", [
+          inputIssue(
+            "--section-id",
+            "out_of_range",
+            `must be given once with --offset; got ${sectionIds.length}.`,
+          ),
+        ]);
       Object.assign(input, { sectionIds }, optional("offset", offset));
       await validate("read_knowledge", input, rawReadWire(input));
       return { input };
@@ -902,7 +1020,11 @@ const skillPublish = definition(
   async (args, reader) => {
     assertPositionals(args, 1);
     if (args.positionals[0] === "-")
-      invalid("Skill publication requires a real local folder.");
+      throw invalidFlag(
+        "<folder>",
+        "invalid_value",
+        'expected a local folder path; "-" (stdin) cannot hold a folder.',
+      );
     return {
       input: {
         folder_path: (await import("node:path")).default.resolve(
@@ -1018,7 +1140,7 @@ const roomHandoff = definition(
   "Hand your Human's request from your direct chat to yourself in another Room you both are in.",
   {
     "--inbox": flag(
-      "room:<room-id> of another Room where you and your Human are both members.",
+      "room:<room-id> of another Room where you and your Human are both members. Run teamhub message read --list-inboxes and match kind=room entries to resolve a Room name to its room:<room-id>.",
     ),
     ...bodyOptions,
   },
@@ -1027,7 +1149,17 @@ const roomHandoff = definition(
     const room = /^room:([A-Za-z0-9][A-Za-z0-9_-]*)$/u.exec(
       requiredOption(args, "--inbox"),
     );
-    if (!room) invalid("--inbox accepts only a room: address.");
+    if (!room)
+      throw invalidInput(
+        "--inbox accepts only a room: address. Run teamhub message read --list-inboxes and match kind=room entries to resolve a Room name to its room:<room-id>.",
+        [
+          inputIssue(
+            "--inbox",
+            "invalid_format",
+            `expected room:<room-id>, for example room:room_123; got ${echo(option(args, "--inbox")!)}.`,
+          ),
+        ],
+      );
     return {
       input: await validate("hand_off_to_room", {
         room_id: room[1],
@@ -1041,6 +1173,7 @@ const roomHandoff = definition(
       "A Task cannot hand off work. Say in your final reply which Room should take it; the Meta that started the Task can hand it off.",
     notes: [
       "Only Another Me, from its direct chat with its Human, in a turn the Human started by writing to it or deciding one of its cards.",
+      "When your Human names a Room without its room_id, run teamhub message read --list-inboxes first and match kind=room entries to resolve the Room name to room:<room-id>; if multiple Rooms share the same name, ask your Human to clarify before handing off.",
       "The instruction is hidden from that Room. You there are woken with it, read that Room, and post and @ the Agents yourself; the direct chat's messages are not copied.",
       "Results come back to the direct chat through teamhub message direct.",
     ],
@@ -1074,12 +1207,11 @@ const taskCreate = definition(
     assertPositionals(args, 0);
     const inline = option(args, "--requirement");
     const file = option(args, "--requirement-file");
-    if ((inline === undefined) === (file === undefined))
-      invalid("Provide exactly one of --requirement or --requirement-file.");
+    oneOf(args, ["--requirement", "--requirement-file"]);
     return {
       input: await validate("create_task", {
         name: requiredOption(args, "--name"),
-        requirement: inline ?? (await reader.text(file!)),
+        requirement: inline ?? (await reader.text(file!, "--requirement-file")),
       }),
     };
   },
@@ -1129,12 +1261,11 @@ const taskSend = definition(
     assertPositionals(args, 0);
     const inline = option(args, "--message");
     const file = option(args, "--message-file");
-    if ((inline === undefined) === (file === undefined))
-      invalid("Provide exactly one of --message or --message-file.");
+    oneOf(args, ["--message", "--message-file"]);
     return {
       input: await validate("send_task", {
         task_id: requiredOption(args, "--task-id"),
-        message: inline ?? (await reader.text(file!)),
+        message: inline ?? (await reader.text(file!, "--message-file")),
         ...(option(args, "--steer") === undefined ? {} : { steer: true }),
       }),
     };
@@ -1182,29 +1313,44 @@ async function schedule(
   ).length;
   if (jsonProvided) {
     if (simple || timezone !== undefined || weekdays.length)
-      invalid(
-        "Complete schedule JSON is exclusive with all simple schedule flags.",
-      );
+      throw conflictingFlags([
+        option(args, "--schedule") !== undefined
+          ? "--schedule"
+          : "--schedule-file",
+        ...scheduleFlags.filter((name) => option(args, name) !== undefined),
+      ]);
     return jsonSource(args, reader, "--schedule", "--schedule-file");
   }
-  if (simple !== 1)
-    invalid(
-      "Choose --daily, --weekly, --every-minutes, --every-hours, --at or complete schedule JSON.",
+  if (!simple) throw missingFlag([...scheduleFlags.slice(0, 5), "--schedule"]);
+  if (simple > 1)
+    throw conflictingFlags(
+      scheduleFlags
+        .slice(0, 5)
+        .filter((name) => option(args, name) !== undefined),
     );
   if (at !== undefined) {
-    if (weekdays.length) invalid("--at cannot include weekday.");
+    if (weekdays.length) throw conflictingFlags(["--at", "--weekday"]);
     if (!/(?:Z|[+-]\d{2}:\d{2})$/u.test(at) || Number.isNaN(Date.parse(at)))
-      invalid(
-        "--at must be an RFC 3339 time with an offset, such as 2026-10-22T14:30:00-04:00.",
+      throw invalidFlag(
+        "--at",
+        "invalid_format",
+        `expected a time with offset, for example 2026-10-22T14:30:00-04:00; got ${echo(at)}.`,
       );
     return { kind: "once", run_at: at, ...optional("timezone", timezone) };
   }
   if (everyMinutes !== undefined) {
     if (timezone !== undefined || weekdays.length)
-      invalid("--every-minutes cannot include timezone or weekday.");
+      throw conflictingFlags([
+        "--every-minutes",
+        timezone !== undefined ? "--timezone" : "--weekday",
+      ]);
     const minutes = integer(everyMinutes, "--every-minutes", 10, 10_080)!;
     if (minutes % 10 !== 0)
-      invalid("--every-minutes must be a multiple of 10 minutes.");
+      throw invalidFlag(
+        "--every-minutes",
+        "invalid_value",
+        `must be a multiple of 10; got ${minutes}.`,
+      );
     return {
       kind: "every_n_minutes",
       interval_minutes: minutes,
@@ -1212,16 +1358,21 @@ async function schedule(
   }
   if (everyHours !== undefined) {
     if (timezone !== undefined || weekdays.length)
-      invalid("--every-hours cannot include timezone or weekday.");
+      throw conflictingFlags([
+        "--every-hours",
+        timezone !== undefined ? "--timezone" : "--weekday",
+      ]);
     return {
       kind: "every_n_hours",
       interval_hours: integer(everyHours, "--every-hours", 1, 168),
     };
   }
   if (timezone === undefined)
-    invalid("Provide --timezone explicitly for a daily or weekly schedule.");
+    throw usageError("--timezone is required for a daily or weekly schedule.", [
+      inputIssue("--timezone", "missing", "required."),
+    ]);
   if (daily !== undefined) {
-    if (weekdays.length) invalid("--weekday requires --weekly.");
+    if (weekdays.length) throw conflictingFlags(["--daily", "--weekday"]);
     return { kind: "daily", time: daily, timezone };
   }
   return { kind: "weekly", time: weekly, timezone, weekdays: [...weekdays] };
@@ -1317,7 +1468,23 @@ const routines = ["create", "list", "pause", "enable", "run", "delete"].map(
           (!(input.name as string).trim() ||
             !(input.instruction as string).trim())
         )
-          invalid("Routine name and instruction must not be blank.");
+          throw invalidInput(
+            "Routine name and instruction must not be blank.",
+            [
+              ...(!(input.name as string).trim()
+                ? [inputIssue("--name", "out_of_range", "must not be blank.")]
+                : []),
+              ...(!(input.instruction as string).trim()
+                ? [
+                    inputIssue(
+                      "--content",
+                      "out_of_range",
+                      "must not be blank.",
+                    ),
+                  ]
+                : []),
+            ],
+          );
         return {
           input: await validate(
             `${action}_routine${action === "list" ? "s" : ""}`,
@@ -1373,10 +1540,22 @@ const routineUpdate = definition(
     const mention = option(args, "--mention-actor-id"),
       clearMention = option(args, "--no-mention") !== undefined;
     if (mention !== undefined && clearMention)
-      invalid("Choose --mention-actor-id or --no-mention, not both.");
+      throw invalidInput(
+        "Choose --mention-actor-id or --no-mention, not both.",
+        [
+          inputIssue(
+            "--mention-actor-id",
+            "conflict",
+            "give only one of --mention-actor-id, --no-mention.",
+          ),
+        ],
+      );
     const on = option(args, "--on") !== undefined,
       off = option(args, "--off") !== undefined;
-    if (on && off) invalid("Choose --on or --off, not both.");
+    if (on && off)
+      throw invalidInput("Choose --on or --off, not both.", [
+        inputIssue("--on", "conflict", "give only one of --on, --off."),
+      ]);
     const input: Json = {
       routine_id: args.positionals[0],
       ...optional("name", option(args, "--name")),
@@ -1392,8 +1571,15 @@ const routineUpdate = definition(
       ),
     };
     if (Object.keys(input).length === 1)
-      invalid(
+      throw invalidInput(
         "Provide --name, --content, a schedule flag, a mention flag, --on or --off.",
+        [
+          inputIssue(
+            "input",
+            "missing",
+            "provide at least one field to update.",
+          ),
+        ],
       );
     return { input: await validate("update_routine", input) };
   },
@@ -1415,6 +1601,12 @@ const routineUpdate = definition(
   },
 );
 
+const itemFlag = (args: CommandArguments): string => {
+  if (option(args, "--item-file") !== undefined) return "--item-file";
+  if (option(args, "--item") === undefined)
+    throw missingFlag(["--item", "--item-file"]);
+  return "--item";
+};
 const trackingItemCommands = (
   [
     ["list", "list_tracking_items"],
@@ -1430,12 +1622,17 @@ const trackingItemCommands = (
     action === "list"
       ? {
           ...listOptions,
+          "--limit": flag("Maximum items in this page; 1-200."),
           "--include-closed": {
             description: "Include done and expired facts.",
             boolean: true,
           },
         }
-      : jsonOptions("item", "Tracking Item command JSON; see --schema."),
+      : jsonOptions(
+          "item",
+          "Tracking Item JSON; its fields are listed below.",
+          "",
+        ),
     async (args, reader) => {
       assertPositionals(args, 0);
       const input =
@@ -1444,7 +1641,7 @@ const trackingItemCommands = (
               ...optional("cursor", option(args, "--cursor")),
               ...optional(
                 "limit",
-                integer(option(args, "--limit"), "limit", 1, 200),
+                integer(option(args, "--limit"), "--limit", 1, 200),
               ),
               ...(option(args, "--include-closed")
                 ? { include_closed: true }
@@ -1452,18 +1649,44 @@ const trackingItemCommands = (
             }
           : object(
               await jsonSource(args, reader, "--item", "--item-file"),
-              "input",
+              itemFlag(args),
             );
-      return { input: await validate(tool, input) };
+      return {
+        input: await validate(
+          tool,
+          input,
+          input,
+          action === "list" ? undefined : itemFlag(args),
+        ),
+      };
     },
     {
       readOnly: action === "list",
-      execute: async (input, context) =>
-        await teamHubData(
-          context.client.api.POST(`/api/agent/v1/tracking-items/${action}`, {
-            body: input as never,
-          }),
-        ),
+      // TeamHub deduplicates a new item by its idempotency_key and an edit by
+      // its expected_revision, never by an Operation ID.
+      operationId: false,
+      execute: async (input, context) => {
+        try {
+          return await teamHubData(
+            context.client.api.POST(`/api/agent/v1/tracking-items/${action}`, {
+              body: input as never,
+            }),
+          );
+        } catch (error) {
+          if (
+            action === "list" ||
+            !(error instanceof CliError) ||
+            error.code !== "connection_failed"
+          )
+            throw error;
+          throw new CliError(
+            "outcome_unknown",
+            action === "add"
+              ? "The connection was lost; the item may have been added. Run the same command again with the same idempotency_key: TeamHub returns the existing item instead of adding it twice."
+              : "The connection was lost; the change may have been saved. Run teamhub tracking-items list and compare the item's revision before changing it again.",
+          );
+        }
+      },
     },
   ),
 );
@@ -1573,7 +1796,7 @@ const accountProfileUpdate = definition(
       ...optional("organization", option(args, "--organization")),
     };
     if (!Object.keys(input).length)
-      invalid("Provide --name, --bio or --organization.");
+      throw missingFlag(["--name", "--bio", "--organization"]);
     return { input: await validate("update_account_profile", input) };
   },
   { notes: [ownerNote] },

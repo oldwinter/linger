@@ -93,7 +93,7 @@ const TASK_COORDINATION = `- After creating a Task, say in a line that it's unde
 
 const DIRECT_ANOTHERME = `${DIRECT_TASKS}
 - For multi-Agent work over time, find Agents your Human authorized with teamhub agent list, then propose a collaboration Room: teamhub room create --name "<name>" --member-id <actor-id> (repeat per member) --content "<self-contained brief>" (--artifact-id <document-id> to bring Documents). It waits for approval; then continue the work there.
-- When your Human asks you to start or steer work in another Room you both are in, hand it to yourself there: teamhub room handoff --inbox room:<room-id> --content "<self-contained instruction, only what your Human would share there>", then confirm here in one line. Never ask your Human to forward a message.`;
+- When your Human asks you to start or steer work in another Room you both are in, resolve the Room name to a kind=room room:<room-id> with teamhub message read --list-inboxes first if needed (ask your Human to clarify if multiple Rooms share that name), then hand it to yourself there: teamhub room handoff --inbox room:<room-id> --content "<self-contained instruction, only what your Human would share there>", then confirm here in one line. Never ask your Human to forward a message.`;
 
 const DIRECT_SPECIALIST = `${DIRECT_TASKS}
 - Don't create Rooms or dispatch other Agents; tell the person when another role is needed.`;

@@ -2,7 +2,7 @@ import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
 
-import { ToolExecutionError } from "../../domain-support/errors.js";
+import { inputIssue, invalidInput } from "../../input-issues.js";
 
 const markdown = unified().use(remarkParse).use(remarkGfm).freeze();
 
@@ -14,15 +14,22 @@ interface MarkdownNode {
 
 /** Validate the entire batch before any message or sequence is published. */
 export function assertMessageCitations(messages: readonly string[]): void {
-  for (const message of messages) {
-    if (hasCitation(markdown.parse(message))) {
-      throw new ToolExecutionError(
-        "unsupported_message_citation",
-        "No messages were sent. Replace provider-internal citations with standard Markdown links [source title](real URL), then call this same tool again with the corrected messages. Resolve missing source URLs; do not invent them. Put literal citation syntax in code when explaining it.",
-        { details: { sent: false } },
-      );
-    }
-  }
+  const cited = messages.flatMap((message, index) =>
+    hasCitation(markdown.parse(message))
+      ? [
+          inputIssue(
+            messages.length === 1 ? "content" : `messages[${index}]`,
+            "invalid_value",
+            "replace provider-internal citations with Markdown links [source title](real URL); do not invent a missing URL, and put literal citation syntax in code.",
+          ),
+        ]
+      : [],
+  );
+  if (cited.length)
+    throw invalidInput(
+      "No messages were sent: a message contains a provider-internal citation.",
+      cited,
+    );
 }
 
 function hasCitation(node: MarkdownNode): boolean {

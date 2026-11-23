@@ -278,8 +278,8 @@ func codexDeveloperInstructions(spec RunSpec) *string {
 	if spec.BaseInstructions != nil || spec.DeveloperInstructions != nil {
 		return spec.DeveloperInstructions
 	}
-	if spec.AppendPrompt != "" {
-		value := spec.AppendPrompt
+	if spec.SystemPrompt != "" {
+		value := spec.SystemPrompt
 		return &value
 	}
 	return nil

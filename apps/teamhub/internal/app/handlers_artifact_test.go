@@ -2,7 +2,9 @@ package app
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/hex"
+	"mime"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -12,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	artifactstore "github.com/simplexai-labs/linger/apps/teamhub/internal/artifact"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/config"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/document"
 )
 
 func TestImmutableContentHeadersRequireRevalidation(t *testing.T) {
@@ -230,6 +233,265 @@ func TestImmutableContentDisposition(t *testing.T) {
 			got := immutableContentDisposition(immutableContentMetadata{Filename: test.filename, MediaType: test.mediaType})
 			if !strings.HasPrefix(got, test.want+";") {
 				t.Fatalf("immutableContentDisposition(%q, %q)=%q want %q", test.filename, test.mediaType, got, test.want)
+			}
+		})
+	}
+}
+
+func TestImmutableContentDispositionSupportsASCIIAndUTF8RFC5987(t *testing.T) {
+	tests := []struct {
+		name             string
+		filename         string
+		wantSubstring    string
+		wantRFC5987      bool
+		wantASCIIPart    string
+		wantParsedResult string
+	}{
+		{
+			name:             "ascii markdown title",
+			filename:         "WIN015-DOC-TITLE.md",
+			wantSubstring:    "WIN015-DOC-TITLE.md",
+			wantRFC5987:      false,
+			wantParsedResult: "WIN015-DOC-TITLE.md",
+		},
+		{
+			name:             "pure utf8 cjk title",
+			filename:         "\u4e2d\u6587\u6587\u6863.md",
+			wantSubstring:    "filename*=utf-8''%E4%B8%AD%E6%96%87%E6%96%87%E6%A1%A3.md",
+			wantRFC5987:      true,
+			wantASCIIPart:    `filename="document.md"`,
+			wantParsedResult: "\u4e2d\u6587\u6587\u6863.md",
+		},
+		{
+			name:             "mixed ascii and utf8 cjk title",
+			filename:         "WIN015 \u4e2d\u6587.md",
+			wantSubstring:    "filename*=utf-8''WIN015%20%E4%B8%AD%E6%96%87.md",
+			wantRFC5987:      true,
+			wantASCIIPart:    `filename="WIN015.md"`,
+			wantParsedResult: "WIN015 \u4e2d\u6587.md",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := immutableContentDisposition(immutableContentMetadata{
+				Filename:  tc.filename,
+				MediaType: "text/markdown",
+			})
+			if !strings.HasPrefix(got, "attachment;") {
+				t.Fatalf("disposition=%q want attachment prefix", got)
+			}
+			if !strings.Contains(got, tc.wantSubstring) {
+				t.Fatalf("disposition=%q missing %q", got, tc.wantSubstring)
+			}
+			if tc.wantRFC5987 && !strings.Contains(got, tc.wantASCIIPart) {
+				t.Fatalf("disposition=%q missing ASCII fallback %q", got, tc.wantASCIIPart)
+			}
+			mediaType, params, err := mime.ParseMediaType(got)
+			if err != nil {
+				t.Fatalf("mime.ParseMediaType(%q): %v", got, err)
+			}
+			if mediaType != "attachment" || params["filename"] != tc.wantParsedResult {
+				t.Fatalf("parsed=(%q, %v) want filename=%q", mediaType, params, tc.wantParsedResult)
+			}
+		})
+	}
+}
+
+func TestImmutableContentDispositionAdversarialFilenames(t *testing.T) {
+	tests := []struct {
+		name             string
+		filename         string
+		wantASCIIPart    string
+		wantRFC5987Part  string
+		wantParsedResult string
+	}{
+		{
+			name:             "ascii crlf uses rfc5987 without raw line breaks",
+			filename:         "report\r\nX-Injected: 1.md",
+			wantASCIIPart:    `filename="reportX-Injected: 1.md"`,
+			wantRFC5987Part:  "filename*=utf-8''report%0D%0AX-Injected%3A%201.md",
+			wantParsedResult: "report\r\nX-Injected: 1.md",
+		},
+		{
+			name:             "utf8 crlf uses rfc5987 without raw line breaks",
+			filename:         "\u4e2d\r\n\u6587.md",
+			wantASCIIPart:    `filename="document.md"`,
+			wantRFC5987Part:  "filename*=utf-8''%E4%B8%AD%0D%0A%E6%96%87.md",
+			wantParsedResult: "\u4e2d\r\n\u6587.md",
+		},
+		{
+			name:             "ascii quotes semicolons and backslashes",
+			filename:         `report "Q1"; file.a\b`,
+			wantParsedResult: `report "Q1"; file.a\b`,
+		},
+		{
+			name:             "utf8 quotes semicolons and backslashes",
+			filename:         "\u4e2d\"q\";s\\b.md",
+			wantASCIIPart:    `filename="q s b.md"`,
+			wantRFC5987Part:  "filename*=utf-8''%E4%B8%AD%22q%22%3Bs%5Cb.md",
+			wantParsedResult: "\u4e2d\"q\";s\\b.md",
+		},
+		{
+			name:             "utf8 backslash in extension strips unsafe extension from fallback",
+			filename:         "\u4e2d.a\\b",
+			wantASCIIPart:    `filename="a b"`,
+			wantRFC5987Part:  "filename*=utf-8''%E4%B8%AD.a%5Cb",
+			wantParsedResult: "\u4e2d.a\\b",
+		},
+		{
+			name:             "non-ascii trailing dot never produces document dot fallback",
+			filename:         "\u4e2d\u6587.",
+			wantASCIIPart:    `filename="document"`,
+			wantRFC5987Part:  "filename*=utf-8''%E4%B8%AD%E6%96%87.",
+			wantParsedResult: "\u4e2d\u6587.",
+		},
+		{
+			name:             "mixed ascii and non-ascii trailing dot trims trailing dot",
+			filename:         "foo\u4e2d.",
+			wantASCIIPart:    `filename="foo"`,
+			wantRFC5987Part:  "filename*=utf-8''foo%E4%B8%AD.",
+			wantParsedResult: "foo\u4e2d.",
+		},
+		{
+			name:             "non-ascii double dot falls back to document",
+			filename:         "\u4e2d..",
+			wantASCIIPart:    `filename="document"`,
+			wantRFC5987Part:  "filename*=utf-8''%E4%B8%AD..",
+			wantParsedResult: "\u4e2d..",
+		},
+		{
+			name:             "ascii trailing dot and dot names",
+			filename:         "foo.",
+			wantParsedResult: "foo.",
+		},
+		{
+			name:             "ascii single dot",
+			filename:         ".",
+			wantParsedResult: ".",
+		},
+		{
+			name:             "ascii double dot",
+			filename:         "..",
+			wantParsedResult: "..",
+		},
+		{
+			name:             "utf8 with percent sign percent-encodes percent",
+			filename:         "100% \u4e2d\u6587.md",
+			wantASCIIPart:    `filename="100%.md"`,
+			wantRFC5987Part:  "filename*=utf-8''100%25%20%E4%B8%AD%E6%96%87.md",
+			wantParsedResult: "100% \u4e2d\u6587.md",
+		},
+		{
+			name:             "ascii with percent sign",
+			filename:         "100% report.md",
+			wantParsedResult: "100% report.md",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := immutableContentDisposition(immutableContentMetadata{
+				Filename:  tc.filename,
+				MediaType: "text/markdown",
+			})
+			if strings.ContainsAny(got, "\r\n") {
+				t.Fatalf("disposition=%q must not contain raw CR or LF", got)
+			}
+			if tc.wantASCIIPart != "" && !strings.Contains(got, tc.wantASCIIPart) {
+				t.Fatalf("disposition=%q missing ASCII fallback %q", got, tc.wantASCIIPart)
+			}
+			if tc.wantRFC5987Part != "" && !strings.Contains(got, tc.wantRFC5987Part) {
+				t.Fatalf("disposition=%q missing RFC 5987 part %q", got, tc.wantRFC5987Part)
+			}
+			mediaType, params, err := mime.ParseMediaType(got)
+			if err != nil {
+				t.Fatalf("mime.ParseMediaType(%q): %v", got, err)
+			}
+			if mediaType != "attachment" || params["filename"] != tc.wantParsedResult {
+				t.Fatalf("parsed=(%q, %v) want filename=%q", mediaType, params, tc.wantParsedResult)
+			}
+		})
+	}
+}
+
+func TestASCIIDispositionFallbackEdgeCases(t *testing.T) {
+	tests := []struct {
+		filename string
+		want     string
+	}{
+		{filename: "\u4e2d\u6587.", want: "document"},
+		{filename: "foo.", want: "foo"},
+		{filename: ".", want: "document"},
+		{filename: "..", want: "document"},
+		{filename: `file.a\b`, want: "file.a b"},
+		{filename: "\u4e2d.a\\b", want: "a b"},
+	}
+	for _, tc := range tests {
+		if got := asciiDispositionFallback(tc.filename); got != tc.want {
+			t.Fatalf("asciiDispositionFallback(%q)=%q want %q", tc.filename, got, tc.want)
+		}
+	}
+}
+
+func TestWriteSharedDocumentContentWireHeaders(t *testing.T) {
+	store, err := artifactstore.NewLocalStore(t.TempDir(), 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	object, err := store.Put(context.Background(), strings.NewReader("# Shared\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := hex.EncodeToString(object.SHA256[:])
+	app := &App{artifacts: store}
+
+	for _, tc := range []struct {
+		name          string
+		filename      string
+		wantASCIIPart string
+	}{
+		{name: "ascii", filename: "WIN015-DOC-TITLE.md"},
+		{name: "utf8 cjk", filename: "\u4e2d\u6587\u6587\u6863.md", wantASCIIPart: `filename="document.md"`},
+		{name: "utf8 trailing dot", filename: "\u4e2d\u6587.", wantASCIIPart: `filename="document"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(response)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v0/shared-documents/content", nil)
+			app.writeSharedDocumentContent(c, document.AgentFileDownload{
+				AgentFileEntry: document.AgentFileEntry{
+					DocumentID: "doc-1",
+					VersionID:  "ver-1",
+					ReadOnly:   true,
+				},
+				LatestDownloadContent: document.LatestDownloadContent{
+					Filename:  tc.filename,
+					MediaType: "text/markdown",
+					ObjectKey: object.Key,
+					SHA256:    digest,
+					SizeBytes: object.Size,
+				},
+				RepresentationFormat: "markdown",
+			})
+			c.Writer.WriteHeaderNow()
+			if response.Code != http.StatusOK || response.Body.String() != "# Shared\n" {
+				t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
+			}
+			encoded := response.Header().Get("X-Document-Filename")
+			decodedBytes, err := base64.RawURLEncoding.DecodeString(encoded)
+			if err != nil || string(decodedBytes) != tc.filename {
+				t.Fatalf("X-Document-Filename=%q decoded=%q err=%v want %q", encoded, string(decodedBytes), err, tc.filename)
+			}
+			disposition := response.Header().Get("Content-Disposition")
+			if tc.wantASCIIPart != "" && !strings.Contains(disposition, tc.wantASCIIPart) {
+				t.Fatalf("Content-Disposition=%q missing %q", disposition, tc.wantASCIIPart)
+			}
+			mediaType, params, err := mime.ParseMediaType(disposition)
+			if err != nil || mediaType != "attachment" || params["filename"] != tc.filename {
+				t.Fatalf("Content-Disposition=%q parsed=(%q, %v, %v) want filename=%q", disposition, mediaType, params, err, tc.filename)
+			}
+			if got := response.Header().Get("X-Content-Sha256"); got != digest {
+				t.Fatalf("X-Content-Sha256=%q want %q", got, digest)
 			}
 		})
 	}

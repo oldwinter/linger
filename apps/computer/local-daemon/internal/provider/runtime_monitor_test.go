@@ -3,11 +3,15 @@ package provider
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -318,5 +322,148 @@ func TestRuntimeMonitorRunsARequestedFullRefreshBeforeItsSchedule(t *testing.T) 
 	}
 	if len(published) != 1 || len(published[0].Diagnostics[0].Models) != 1 {
 		t.Fatalf("published = %+v, want the refreshed Pi model list", published)
+	}
+}
+
+func TestRuntimeMonitorAppliesShapeOnAuthAndFullRefreshes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fixture uses a POSIX shell")
+	}
+	root := t.TempDir()
+	piAgentDir := filepath.Join(root, ".pi", "agent")
+	if err := os.MkdirAll(piAgentDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var gatewayRequests atomic.Int32
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			http.NotFound(w, r)
+			return
+		}
+		gatewayRequests.Add(1)
+		_, _ = w.Write([]byte(`{"data":[{"id":"gw","context_window":1048576}]}`))
+	}))
+	defer gateway.Close()
+	if err := os.WriteFile(filepath.Join(piAgentDir, "models.json"), []byte(fmt.Sprintf(`{"providers":{"localmodels":{"baseUrl":"%s/v1","apiKey":"test-key"}}}`, gateway.URL)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	piExecutable := filepath.Join(root, "pi")
+	script := `#!/bin/sh
+if [ "$1" = "--version" ]; then echo '1.2.0'; exit 0; fi
+if [ "$1" = "auth" ]; then echo '{"status":"ready"}'; exit 0; fi
+while IFS= read -r line; do
+  case "$line" in
+  *linger-probe*) echo '{"type":"response","id":"linger-probe","command":"get_state","success":true,"data":{"isStreaming":false}}' ;;
+  *linger-state*) echo '{"type":"response","id":"linger-state","command":"get_state","success":true,"data":{"model":{"provider":"localmodels","id":"gw"},"thinkingLevel":"off"}}' ;;
+  *linger-models*) echo '{"type":"response","id":"linger-models","command":"get_available_models","success":true,"data":{"models":[{"provider":"builtin","id":"other"},{"provider":"localmodels","id":"gw"}]}}' ;;
+  esac
+done
+`
+	if err := os.WriteFile(piExecutable, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	primeTestExecutable(t, piExecutable)
+	options := DiscoveryOptions{
+		ConfiguredPaths: map[string]string{"pi": piExecutable},
+		Runtimes:        []string{"pi"},
+		Environment:     map[string]string{"HOME": root, "PATH": root, "PI_CODING_AGENT_DIR": piAgentDir},
+		Timeout:         10 * time.Second,
+	}
+	shape := func(result DiscoveryResult) DiscoveryResult {
+		diagnostics := append([]RuntimeDiagnostic(nil), result.Diagnostics...)
+		for i := range diagnostics {
+			for _, model := range diagnostics[i].Models {
+				if model.ID == "localmodels/gw" {
+					model.Label = "custom/gw"
+					model.IsDefault = true
+					diagnostics[i].Models = []RuntimeModel{model}
+					break
+				}
+			}
+		}
+		return DiscoveryResult{Diagnostics: diagnostics, Installations: InstallationsFromDiagnostics(diagnostics)}
+	}
+	initial, err := Discover(t.Context(), options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initial = shape(initial)
+	if len(initial.Diagnostics[0].Models) != 1 || initial.Diagnostics[0].Models[0].Link != linkAPI || initial.Diagnostics[0].Models[0].ContextWindow != 1_048_576 {
+		t.Fatalf("initial = %+v", initial.Diagnostics[0])
+	}
+	if got := gatewayRequests.Load(); got != 1 {
+		t.Fatalf("initial discovery gateway requests = %d, want 1", got)
+	}
+	// Steady-state auth refresh carries Link and ContextWindow forward without
+	// querying the gateway's /models endpoint again.
+	refreshed, err := RefreshRuntimeAuthentication(t.Context(), initial, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(refreshed.Diagnostics[0].Models) != 2 ||
+		refreshed.Diagnostics[0].Models[0].ID != "localmodels/gw" ||
+		refreshed.Diagnostics[0].Models[0].Link != linkAPI ||
+		refreshed.Diagnostics[0].Models[0].ContextWindow != 1_048_576 ||
+		refreshed.Diagnostics[0].Models[1].Link != linkSubscription {
+		t.Fatalf("auth refresh models = %+v", refreshed.Diagnostics[0].Models)
+	}
+	if got := gatewayRequests.Load(); got != 1 {
+		t.Fatalf("steady auth refresh hit gateway /models: requests = %d, want 1", got)
+	}
+	// When the previous diagnostic had no models (for example, Pi logged in
+	// after starting signed out), auth refresh resolves Link and ContextWindow
+	// for the newly observed gateway model.
+	emptyPrev := initial
+	emptyPrev.Diagnostics = []RuntimeDiagnostic{initial.Diagnostics[0]}
+	emptyPrev.Diagnostics[0].Models = []RuntimeModel{}
+	recovered, err := RefreshRuntimeAuthentication(t.Context(), emptyPrev, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recovered.Diagnostics[0].Models) != 2 ||
+		recovered.Diagnostics[0].Models[0].Link != linkAPI ||
+		recovered.Diagnostics[0].Models[0].ContextWindow != 1_048_576 {
+		t.Fatalf("newly observed model on auth refresh = %+v", recovered.Diagnostics[0].Models)
+	}
+	if got := gatewayRequests.Load(); got != 2 {
+		t.Fatalf("auth refresh for newly observed gateway model requests = %d, want 2", got)
+	}
+	gatewayRequests.Store(1)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	shapeCalls := 0
+	fullRefreshes := 0
+	err = MonitorRuntimeDiagnostics(ctx, RuntimeMonitorOptions{
+		Initial:               initial,
+		Discovery:             options,
+		RefreshInterval:       5 * time.Millisecond,
+		FullRefreshEveryTicks: 2,
+		Discover: func(ctx context.Context, opts DiscoveryOptions) (DiscoveryResult, error) {
+			fullRefreshes++
+			result, discoverErr := Discover(ctx, opts)
+			if fullRefreshes >= 2 {
+				cancel()
+			}
+			return result, discoverErr
+		},
+		Shape: func(result DiscoveryResult) DiscoveryResult {
+			shapeCalls++
+			return shape(result)
+		},
+		OnChanged: func(next DiscoveryResult) error {
+			t.Fatalf("unexpected OnChanged when shaped diagnostics did not change: %+v", next.Diagnostics)
+			return nil
+		},
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("monitor exited with %v, want context.Canceled", err)
+	}
+	if shapeCalls < 3 {
+		t.Fatalf("shapeCalls = %d, want at least 3 across auth and full refresh ticks", shapeCalls)
+	}
+	// Only initial discovery plus the full refreshes should query /v1/models;
+	// auth-only ticks carry the gateway link and window forward.
+	if got := int(gatewayRequests.Load()); got != 1+fullRefreshes {
+		t.Fatalf("gateway /v1/models requests = %d, want %d (1 initial + %d full refreshes)", got, 1+fullRefreshes, fullRefreshes)
 	}
 }

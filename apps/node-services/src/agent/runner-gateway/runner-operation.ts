@@ -1,5 +1,6 @@
 import {
   runPriorities,
+  RunPriority,
   type RunKind,
   type CapacityPriority,
 } from "../../model-tasks.js";
@@ -46,6 +47,8 @@ interface RunnerOperationTargetBase {
   readonly executionEpoch?: string;
   /** What queued the Run. Absent, chat. */
   readonly runKind?: RunKind;
+  /** The Run's live queue priority. Absent, its kind's. */
+  readonly priority?: RunPriority;
   readonly beforeYieldResume?: () => Promise<void>;
   /** Stops the Run waiting for its turn in the model queue. */
   readonly signal?: AbortSignal;
@@ -265,7 +268,7 @@ export class RunnerOperationState {
   #terminal = false;
   #cancelCommand?: OperationCancel;
   readonly #delegatedTask: boolean;
-  readonly #priority: number;
+  readonly #priority: RunPriority;
   #yieldSessionId?: string;
   #yieldRequested = false;
   #observedNativeWork = false;
@@ -319,7 +322,9 @@ export class RunnerOperationState {
   }) {
     this.#epoch = options.target.executionEpoch;
     this.#delegatedTask = options.target.runKind === "task";
-    this.#priority = runPriorities[options.target.runKind ?? "chat"];
+    this.#priority =
+      options.target.priority ??
+      new RunPriority(runPriorities[options.target.runKind ?? "chat"]);
     this.#createId = options.createId;
     this.#send = options.send;
     this.#cancelTimeoutMs = options.cancelTimeoutMs;
@@ -618,9 +623,9 @@ export class RunnerOperationState {
     }
   }
 
-  /** The queue priority of the Run's kind; smaller goes first. */
+  /** The Run's current queue priority; smaller goes first. */
   get priority(): number {
-    return this.#priority;
+    return this.#priority.value;
   }
 
   get resumable(): boolean {
@@ -639,17 +644,29 @@ export class RunnerOperationState {
     return this.#yieldRequested && !this.#terminal;
   }
 
+  /** Why the Run cannot be asked to yield now; undefined when it can. */
+  get yieldBlocker():
+    | "terminal"
+    | "yielding"
+    | "cancel"
+    | "not_resumable"
+    | "interaction"
+    | "pending_input"
+    | undefined {
+    if (this.#terminal) return "terminal";
+    if (this.#yieldRequested) return "yielding";
+    if (this.#cancelCommand) return "cancel";
+    if (!this.resumable) return "not_resumable";
+    if (this.#interactions.size) return "interaction";
+    if ([...this.#pendingInputs.values()].some((input) => !input.settled))
+      return "pending_input";
+    return undefined;
+  }
+
   /** Only a native terminal can hand a running Run's place to another
    * caller. Answers whether this call asked the Run to yield. */
   requestYield(): boolean {
-    if (
-      !this.resumable ||
-      this.#terminal ||
-      this.#cancelCommand ||
-      this.#interactions.size ||
-      [...this.#pendingInputs.values()].some((input) => !input.settled)
-    )
-      return false;
+    if (this.yieldBlocker) return false;
     this.#yieldRequested = true;
     this.#cancelCommand = createCancel(
       this.start,

@@ -187,8 +187,8 @@ func (t *antigravityTurn) exchange(prompt string, servers []any) Outcome {
 		return failed("protocol_incompatible", "Antigravity ACP handshake failed: "+err.Error())
 	}
 	params := map[string]any{"cwd": spec.Dir, "mcpServers": servers}
-	if spec.AppendPrompt != "" {
-		params["_meta"] = map[string]any{"antigravity": map[string]any{"systemPrompt": map[string]any{"append": spec.AppendPrompt}}}
+	if spec.SystemPrompt != "" {
+		params["_meta"] = map[string]any{"antigravity": map[string]any{"systemPrompt": map[string]any{"append": spec.SystemPrompt}}}
 	}
 	// Antigravity names a new session itself. session/load reopens a stored
 	// one and replays it as updates, which the turn drops until its own

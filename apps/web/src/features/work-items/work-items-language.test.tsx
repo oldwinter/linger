@@ -32,6 +32,10 @@ function renderPage(runtime: TestTeamHubRuntime, entry: string) {
                 element={<WorkItemsPage />}
                 path="/t/:tenantId/dashboard"
               />
+              <Route
+                element={<WorkItemsPage />}
+                path="/t/:tenantId/dashboard/:workItemId"
+              />
             </Routes>
           </Suspense>
         </MemoryRouter>
@@ -162,6 +166,53 @@ describe("the Dashboard in the language on screen", () => {
     expect(
       screen.getByText(words.itemCount.other.replace("{count}", "0")),
     ).toBeVisible();
+  });
+
+  it("words the Work Item detail drawer and comments in Chinese with Voice Mode markers", async () => {
+    await setLanguage("zh-CN");
+    const runtime = createTestTeamHubRuntime();
+    const human = runtime.seed.identity.actors[0]!;
+    runtime.seed.workItems = [
+      workItem(human, {
+        description: "",
+        id: "workitem-detail-zh",
+        kind: "task",
+        number: 9,
+        resolution: "not_planned",
+        state: "resolved",
+        task_execution: {
+          control_revision: 1,
+          control_settled_revision: 1,
+          desired_control: "run",
+          execution_revision: 2,
+          execution_updated_at: "2026-07-30T01:00:00Z",
+          generation: 1,
+          pending_control: false,
+          reason_code: "run_succeeded",
+          status: "idle",
+        },
+        title: "Audit localized drawer",
+      }),
+    ];
+
+    renderPage(runtime, "/t/tenant-northstar/dashboard/workitem-detail-zh");
+
+    const detail = await screen.findByRole("complementary", {
+      name: words.detailTitle,
+    });
+    expect(within(detail).getByText(words.noDescription)).toBeVisible();
+    expect(within(detail).getByText(words.resolutionNotPlanned)).toBeVisible();
+    expect(
+      within(detail).getByText(words.executionFinishedAwaitingResolution),
+    ).toBeVisible();
+    expect(within(detail).getByText(words.unassigned)).toBeVisible();
+    expect(await within(detail).findByText(words.noComments)).toBeVisible();
+    expect(
+      within(detail).getByRole("button", { name: words.closeDetail }),
+    ).toHaveAttribute("data-voice-close");
+    expect(
+      within(detail).getByRole("button", { name: words.postComment }),
+    ).toHaveAttribute("data-voice-risk", "never");
   });
 });
 

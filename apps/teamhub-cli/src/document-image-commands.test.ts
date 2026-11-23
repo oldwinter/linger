@@ -167,14 +167,14 @@ describe("docs image commands", () => {
     await writeFile(path.join(cwd, "card.png"), png);
     await expect(
       normalize(cwd, ["docs", "image", "put"], ["document_one", "card.png"]),
-    ).rejects.toThrow("--after or --replace");
+    ).rejects.toThrow("One of --after, --replace is required.");
     await expect(
       normalize(
         cwd,
         ["docs", "image", "put"],
         ["document_one", "card.png", "--after", "a", "--replace", "b"],
       ),
-    ).rejects.toThrow("--after or --replace");
+    ).rejects.toThrow("--after, --replace cannot be used together.");
     await expect(
       normalize(
         cwd,

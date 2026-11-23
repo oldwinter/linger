@@ -200,6 +200,7 @@ func persistCreationApprovalRuntimeMessage(
 	}
 	return messagecreation.CardHandoff(ctx, queries, messagecreation.Draft{
 		TenantID: tenantID, RoomID: roomID, Author: decisionOwner, CardContextMessageID: cardMessageID,
+		HumanWaiting: true,
 	}, requestingAgent, summary)
 }
 
@@ -227,6 +228,7 @@ func persistRoomCreationHandoffMessage(
 	}
 	return messagecreation.CardHandoff(ctx, queries, messagecreation.Draft{
 		ID: roomCreationHandoffMessageID(requestID), TenantID: tenantID, RoomID: roomID, Author: decisionOwner,
+		HumanWaiting: true,
 	}, requestingAgent, text)
 }
 

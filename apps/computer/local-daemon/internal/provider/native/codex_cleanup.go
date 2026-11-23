@@ -14,7 +14,12 @@ var (
 	codexCleanupPoll   = 25 * time.Millisecond
 )
 
-const codexTerminalPageLimit = 100
+const (
+	codexTerminalPageLimit = 100
+	// codexInvalidRequest is the JSON-RPC code Codex returns when it rejects
+	// an interrupt because no matching turn is active.
+	codexInvalidRequest = -32600
+)
 
 // codexTurnTracker remembers the most recent turn/start of a process, so
 // cleanup can interrupt it and terminate its background commands.
@@ -128,7 +133,7 @@ func (p *codexProcess) cleanupTurn() error {
 	if !snapshot.completed {
 		// The turn can finish between the snapshot and Codex handling the interrupt.
 		_, _, interruptErr := p.transport.call(ctx, "turn/interrupt", map[string]any{"threadId": thread, "turnId": turn}, 0, nil)
-		if _, err := p.waitTracker(ctx, func(t codexTurnTracker) bool { return t.completed }); err != nil {
+		if err := p.waitInterruptedTurn(ctx, thread, interruptErr); err != nil {
 			if interruptErr != nil {
 				return fmt.Errorf("interrupt Codex turn: %w", interruptErr)
 			}
@@ -158,6 +163,61 @@ func (p *codexProcess) cleanupTurn() error {
 		case <-time.After(codexCleanupPoll):
 		}
 	}
+}
+
+// waitInterruptedTurn waits for the interrupted turn to complete. The
+// completion notification can be missed when the turn ended before the
+// tracker could see it. Codex rejects an interrupt of a turn that has already
+// ended as an invalid request, so after that rejection an idle status on the
+// same thread also proves the turn is over.
+func (p *codexProcess) waitInterruptedTurn(ctx context.Context, threadID string, interruptErr error) error {
+	if p.trackerSnapshot().completed {
+		return nil
+	}
+	var probeDone chan struct{}
+	var idle bool
+	var rpcErr *codexRPCError
+	if errors.As(interruptErr, &rpcErr) && rpcErr.Code == codexInvalidRequest {
+		readCtx, cancel := context.WithCancel(ctx)
+		probeDone = make(chan struct{})
+		go func() {
+			idle = p.readIdleThread(readCtx, threadID)
+			close(probeDone)
+		}()
+		defer func() {
+			cancel()
+			<-probeDone
+		}()
+	}
+	_, err := p.waitTracker(ctx, func(t codexTurnTracker) bool {
+		if t.completed {
+			return true
+		}
+		select {
+		case <-probeDone:
+			return idle
+		default:
+			return false
+		}
+	})
+	return err
+}
+
+func (p *codexProcess) readIdleThread(ctx context.Context, threadID string) bool {
+	result, _, err := p.transport.call(ctx, "thread/read", map[string]any{"threadId": threadID}, 0, &codexCallHooks{bestEffort: true})
+	if err != nil {
+		return false
+	}
+	var response struct {
+		Thread struct {
+			ID     string `json:"id"`
+			Status struct {
+				Type string `json:"type"`
+			} `json:"status"`
+		} `json:"thread"`
+	}
+	return json.Unmarshal(result, &response) == nil &&
+		response.Thread.ID == threadID && response.Thread.Status.Type == "idle"
 }
 
 // waitTracker polls until ready holds, the transport dies, or ctx ends.

@@ -62,7 +62,7 @@ func assertRoomCreationApprovalAccessTransactions(t *testing.T, env *testEnv, al
 		var roomID, runtimeBody string
 		if err := env.pool.QueryRow(t.Context(), `SELECT request.result->'data'->>'created_room_id',message.body
    FROM decisions request JOIN messages message ON message.card_context_message_id=request.message_id
-   AND message.message_kind='agent_runtime' WHERE request.id=$1 AND request.status='succeeded'`,
+   AND message.message_kind='agent_runtime' AND message.human_waiting WHERE request.id=$1 AND request.status='succeeded'`,
 			pending.CreationApprovalRequestID).Scan(&roomID, &runtimeBody); err != nil {
 			t.Fatal(err)
 		}

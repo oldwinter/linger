@@ -521,6 +521,8 @@ export const localModelsMessages = defineMessages("localModels", {
     "This computer can't switch models. Update Linger on it, then try again.",
   sourceUnconfirmed:
     "The computer didn't answer in time. It may still be switching; check again in a minute.",
+  sourceByokProbeUnconfirmed:
+    "The computer didn't answer in time while checking the endpoint. Try again.",
   sourceRuntimeNotEnabled: "This AI runtime isn't set up on the computer.",
   sourceReadUnconfirmed: "The computer didn't answer in time.",
   sourceReadFailed:

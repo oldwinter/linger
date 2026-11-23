@@ -226,10 +226,14 @@ export const messageAskUserOutputSchema = object({
   message_id: teamhubID,
   status: { const: "pending" },
 });
-export const historyInboxSchema = object({
-  inbox_id: { type: "string" },
-  kind: { enum: ["room", "thread", "task", "meta", "taskmeta"] },
-});
+export const historyInboxSchema = object(
+  {
+    inbox_id: { type: "string" },
+    kind: { enum: ["room", "thread", "task", "meta", "taskmeta"] },
+    name: { type: "string" },
+  },
+  ["inbox_id", "kind"],
+);
 export const historyMessageSchema = object({
   message_id: identity,
   inbox_id: { type: "string" },

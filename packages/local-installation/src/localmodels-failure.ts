@@ -12,6 +12,39 @@ export interface LocalmodelsFailure {
   log: string[];
 }
 
+/**
+ * Trims upstream text and collapses accidental double periods (`..`, while
+ * preserving ellipses `...`).
+ */
+export function normalizeFailurePunctuation(text: string): string {
+  return text.trim().replace(/(?<!\.)\.{2}(\s|$)/g, ".$1");
+}
+
+/**
+ * Joins a base message, optional redacted detail clause, and optional suffix
+ * with single terminal punctuation so upstream sentences ending in a period
+ * never produce double periods (`..`).
+ */
+export function formatLocalmodelsFailureMessage(
+  prefix: string,
+  detail: string | undefined,
+  suffix?: string,
+): string {
+  const cleanPrefix = prefix.trim().replace(/\.+$/, "");
+  const cleanDetail = detail
+    ? normalizeFailurePunctuation(
+        redactLocalmodelsOutput(detail)
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 300),
+      )
+    : "";
+  const head = cleanDetail ? `${cleanPrefix}: ${cleanDetail}` : cleanPrefix;
+  const punctuated = /[.!?…]$/.test(head) ? head : `${head}.`;
+  const cleanSuffix = suffix?.trim();
+  return cleanSuffix ? `${punctuated} ${cleanSuffix}` : punctuated;
+}
+
 const LOG_PART = 1800;
 const LOG_PARTS = 8;
 
@@ -148,6 +181,16 @@ function extractEvent(value: unknown): ParsedErrorEvent | undefined {
           ? `Local model gateway failed: ${gateway}`
           : "The installed local model stack did not start.";
     return { code: "STACK_UP_FAILED", message };
+  }
+
+  if (event.schema === "localmodels.stack-plan-error/v1") {
+    const code = text("code");
+    const causeCode = text("causeCode") ?? code;
+    return {
+      code: code ?? "STACK_PLAN_FAILED",
+      ...(causeCode ? { causeCode } : {}),
+      message: text("message"),
+    };
   }
 
   if (

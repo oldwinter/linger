@@ -176,52 +176,54 @@ export function MakeRoomDialog({
             })}
           </FormFeedback>
         ) : check.loaded.length ? (
-          <fieldset className="grid gap-0.5">
-            <legend className="mb-1.5 text-sm text-muted-foreground">
+          <fieldset className="grid gap-1.5">
+            <legend className="mb-1.5 text-xs font-medium text-muted-foreground">
               {t(m.unloadTheseLegend)}
             </legend>
-            {check.loaded.map((item) => (
-              <label
-                className={cn(
-                  "flex min-h-10 cursor-pointer items-center gap-2 rounded-sm px-2 text-sm transition-colors duration-150 motion-reduce:transition-none",
-                  chosen.has(item.model.id)
-                    ? "bg-app-selected text-app-ink"
-                    : "text-app-body hover:bg-app-hover",
-                )}
-                key={item.model.id}
-              >
-                <input
-                  checked={chosen.has(item.model.id)}
-                  className={sourceCheckClassName}
-                  onChange={(event) =>
-                    setSelected((current) =>
-                      event.target.checked
-                        ? [...current, item.model.id]
-                        : current.filter((id) => id !== item.model.id),
-                    )
-                  }
-                  type="checkbox"
-                />
-                <span className="min-w-0 flex-1 truncate">
-                  {item.model.name}
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  {(() => {
-                    const names = usedByAgentNames(
-                      item,
-                      assignableAgents,
-                      computerId,
-                    );
-                    return names.length
-                      ? t(m.usedByNames, { names: joinList(names, t) })
-                      : t(m.notUsed);
-                  })()}
-                </span>
-                <span className="w-16 text-right text-xs tabular-nums text-muted-foreground">
-                  {formatGigabytes(item.model.memory_bytes, t)}
-                </span>
-              </label>
-            ))}
+            <div className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-card">
+              {check.loaded.map((item) => (
+                <label
+                  className={cn(
+                    "flex min-h-11 cursor-pointer items-center gap-2.5 px-3 py-2 text-sm transition-colors duration-150 motion-reduce:transition-none",
+                    chosen.has(item.model.id)
+                      ? "bg-app-selected text-app-ink"
+                      : "text-app-body hover:bg-app-hover",
+                  )}
+                  key={item.model.id}
+                >
+                  <input
+                    checked={chosen.has(item.model.id)}
+                    className={sourceCheckClassName}
+                    onChange={(event) =>
+                      setSelected((current) =>
+                        event.target.checked
+                          ? [...current, item.model.id]
+                          : current.filter((id) => id !== item.model.id),
+                      )
+                    }
+                    type="checkbox"
+                  />
+                  <span className="min-w-0 flex-1 truncate font-medium">
+                    {item.model.name}
+                  </span>
+                  <span className="truncate text-xs text-muted-foreground">
+                    {(() => {
+                      const names = usedByAgentNames(
+                        item,
+                        assignableAgents,
+                        computerId,
+                      );
+                      return names.length
+                        ? t(m.usedByNames, { names: joinList(names, t) })
+                        : t(m.notUsed);
+                    })()}
+                  </span>
+                  <span className="w-16 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+                    {formatGigabytes(item.model.memory_bytes, t)}
+                  </span>
+                </label>
+              ))}
+            </div>
           </fieldset>
         ) : null}
         {tooBig ? (
@@ -235,16 +237,19 @@ export function MakeRoomDialog({
         ) : reachable ? null : (
           <>
             {inUse.length ? (
-              <ul aria-label={t(m.alsoUsingMemory)} className="grid gap-0.5">
+              <ul
+                aria-label={t(m.alsoUsingMemory)}
+                className="divide-y divide-border/70 overflow-hidden rounded-lg border border-border bg-muted/40"
+              >
                 {inUse.map((holder) => (
                   <li
-                    className="flex min-h-8 items-center gap-2 px-2 text-sm text-app-body"
+                    className="flex min-h-9 items-center gap-2 px-3 py-1.5 text-sm text-app-body"
                     key={holder.id}
                   >
                     <span className="min-w-0 flex-1 truncate">
                       {holder.name}
                     </span>
-                    <span className="w-16 text-right text-xs tabular-nums text-muted-foreground">
+                    <span className="w-16 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
                       {formatGigabytes(holder.bytes, t)}
                     </span>
                   </li>
@@ -292,7 +297,7 @@ export function MakeRoomDialog({
           </FormFeedback>
         ) : null}
         {canSwitchOnLoad ? (
-          <label className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-app-ink">
+          <label className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-border bg-app-canvas/50 px-3 py-2.5 text-sm text-app-ink transition-colors duration-150 hover:bg-app-hover motion-reduce:transition-none">
             <input
               checked={switchAgents}
               className={sourceCheckClassName}

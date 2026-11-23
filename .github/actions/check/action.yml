@@ -24,10 +24,12 @@ runs:
         exit 1
     # TeamHub runs only Go. Computer Go tests exercise the workspace's pinned
     # QuickJS engine through the managed Node runtime.
-    # Each Go check keeps its own build and module cache, so one job's save
-    # never replaces another's. Pull requests and merge-queue builds restore
-    # main's latest entry; only pushes to main save, and a successful push
-    # keeps only the build cache entries its own run used.
+    # Each Go check keeps its own build cache (~/.cache/go-build) per app and
+    # SHA, so one job's save never replaces another's, while ~/go/pkg/mod is
+    # shared across all Go jobs and workflows and saved once per go.sum change
+    # by the teamhub push job on main. Pull requests and merge-queue builds
+    # restore main's latest entries; only pushes to main save, and a successful
+    # push keeps only the build cache entries its own run used.
     - id: plan
       shell: bash
       env:
@@ -48,6 +50,7 @@ runs:
           echo "is_go=$is_go"
           echo "node=$node"
           echo "install=$install"
+          echo "go_sum_hash=$GO_SUM_HASH"
           echo "app_prefix=go-$APP-$RUNNER_OS-"
           echo "prefix=go-$APP-$RUNNER_OS-$GO_SUM_HASH-"
         } >>"$GITHUB_OUTPUT"
@@ -56,12 +59,19 @@ runs:
         node: ${{ steps.plan.outputs.node }}
         install: ${{ steps.plan.outputs.install }}
         go: ${{ steps.plan.outputs.is_go }}
+    # Cache GOMODCACHE once across all Go jobs and workflows, keyed only by
+    # go.sum so main pushes do not duplicate ~350 MB of modules per app and SHA.
+    - id: gomod
+      uses: actions/cache/restore@v6
+      if: steps.plan.outputs.is_go == 'true'
+      with:
+        path: ~/go/pkg/mod
+        key: gomod-${{ runner.os }}-${{ runner.arch }}-${{ steps.plan.outputs.go_sum_hash }}
+        restore-keys: gomod-${{ runner.os }}-${{ runner.arch }}-
     - uses: actions/cache/restore@v6
       if: steps.plan.outputs.is_go == 'true'
       with:
-        path: |
-          ~/.cache/go-build
-          ~/go/pkg/mod
+        path: ~/.cache/go-build
         key: ${{ steps.plan.outputs.prefix }}${{ github.sha }}
         restore-keys: |
           ${{ steps.plan.outputs.prefix }}
@@ -105,6 +115,21 @@ runs:
         if [ -d ~/.cache/go-build ]; then
           find ~/.cache/go-build -type f -mmin +60 -delete
         fi
+    # Populate the shared GOMODCACHE once per go.sum change from the teamhub
+    # push job (which always runs on main) after downloading the remaining Go
+    # modules so desktop, computer-go, contracts and desktop-release share it.
+    - name: Populate shared Go module cache
+      if: success() && github.event_name == 'push' && inputs.app == 'teamhub' && steps.gomod.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        (cd apps/computer/local-daemon && go mod download)
+        (cd contracts/generated/go && go mod download)
+    - uses: actions/cache/save@v6
+      if: success() && github.event_name == 'push' && inputs.app == 'teamhub' && steps.gomod.outputs.cache-hit != 'true'
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ steps.gomod.outputs.cache-primary-key }}
     - uses: actions/cache/save@v6
       if: always() && github.event_name == 'push' && inputs.app == 'teamhub'
       with:
@@ -113,7 +138,5 @@ runs:
     - uses: actions/cache/save@v6
       if: always() && github.event_name == 'push' && steps.plan.outputs.is_go == 'true'
       with:
-        path: |
-          ~/.cache/go-build
-          ~/go/pkg/mod
+        path: ~/.cache/go-build
         key: ${{ steps.plan.outputs.prefix }}${{ github.sha }}

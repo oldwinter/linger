@@ -9,9 +9,13 @@ import {
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 
 /** The published graph, when the visualization has been read. */
-export function useWikiGraph(tenantId: string): WikiGraphData | undefined {
+export function useWikiGraph(
+  tenantId: string,
+  enabled = true,
+): WikiGraphData | undefined {
   const { client } = useTeamHubRuntime();
   const graph = useQuery({
+    enabled,
     queryFn: () => client.getPersonalKnowledgeGraphVisualization(tenantId),
     queryKey: ["teamhub", tenantId, "personal-wiki", "graph"],
     retry: false,
@@ -23,8 +27,8 @@ export function useWikiGraph(tenantId: string): WikiGraphData | undefined {
 }
 
 /** Graph nodes by Wiki page key; descriptions and links feed the cards. */
-export function useWikiGraphNodes(tenantId: string) {
-  const graph = useWikiGraph(tenantId);
+export function useWikiGraphNodes(tenantId: string, enabled = true) {
+  const graph = useWikiGraph(tenantId, enabled);
   return useMemo(
     () =>
       new Map<string, WikiGraphNode>(

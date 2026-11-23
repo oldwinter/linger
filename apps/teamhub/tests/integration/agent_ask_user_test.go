@@ -81,7 +81,7 @@ func TestAgentAskUserPostsQuestionCardAnsweredAsMention(t *testing.T) {
 	var answerID, answer, disposition string
 	if err := env.pool.QueryRow(t.Context(), `SELECT message.id, message.body,
  (SELECT disposition FROM agent_inbox_message_disposition('tenant_acme','actor_acme_official',NULL,'room:'||$1,message.id))
- FROM messages message WHERE message.card_context_message_id=$2 AND message.message_kind='agent_runtime'`, roomID, created.MessageID).Scan(&answerID, &answer, &disposition); err != nil {
+ FROM messages message WHERE message.card_context_message_id=$2 AND message.message_kind='agent_runtime' AND message.human_waiting`, roomID, created.MessageID).Scan(&answerID, &answer, &disposition); err != nil {
 		t.Fatal(err)
 	}
 	if disposition != "notify" || !strings.HasSuffix(answer, " Human interaction "+created.InteractionID+

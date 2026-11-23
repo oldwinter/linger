@@ -754,6 +754,21 @@ function installSeedRoutes(server: TeamHubTestServer, seed: TeamHubTestSeed) {
     .on("GET", "/v0/tenants/{tenantId}/local-computers", () => ({
       items: seed.localComputers,
     }))
+    .on(
+      "GET",
+      "/v0/tenants/{tenantId}/local-computers/{computerId}/model-source",
+      ({ params }) => {
+        const computer = seed.localComputers.find(
+          (item) => item.computer_id === params.computerId,
+        );
+        if (!computer) return notFound("LOCAL_COMPUTER_NOT_FOUND");
+        return {
+          computer_id: computer.computer_id,
+          online: computer.status === "online",
+          viewer_is_owner: true,
+        };
+      },
+    )
     .on("GET", "/v0/tenants/{tenantId}/agent-templates", () => ({
       items: seed.agentTemplates,
     }))
@@ -1199,10 +1214,12 @@ function installSeedRoutes(server: TeamHubTestServer, seed: TeamHubTestSeed) {
         seed.workItems.find((item) => item.id === params.workItemId) ??
         notFound("WORK_ITEM_NOT_FOUND"),
     )
-    .on("GET", "/v0/work-items/{workItemId}/comments", () => ({
-      items: [],
-      page: { has_more: false },
-    }))
+    .on("GET", "/v0/work-items/{workItemId}/comments", ({ params }) => {
+      const exists = seed.workItems.some(
+        (item) => item.id === params.workItemId,
+      );
+      return exists ? page([]) : notFound("WORK_ITEM_NOT_FOUND");
+    })
     .on("GET", "/v0/work-items/{workItemId}/timeline", () => ({
       items: [],
       page: { has_more: false },

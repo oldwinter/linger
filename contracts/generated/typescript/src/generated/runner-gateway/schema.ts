@@ -207,7 +207,12 @@ export const runnerGatewayEnvelopeSchema = {
     ServiceFeature: {
       description:
         "An optional Runner behavior the Agent Service accepts. An older service rejects its frames as a protocol violation.",
-      enum: ["local_models", "byok_endpoint", "local_models_diagnostics"],
+      enum: [
+        "local_models",
+        "byok_endpoint",
+        "local_models_diagnostics",
+        "model_invoke_outcomes",
+      ],
     },
     Timestamp: {
       type: "string",
@@ -4895,6 +4900,8 @@ export const runnerGatewayEnvelopeSchema = {
           $ref: "#/$defs/Id",
         },
         outcome: {
+          description:
+            "context_too_long and unsupported are sent only after a runner.welcome whose service_features names model_invoke_outcomes; otherwise the Daemon downgrades them to failed and runtime_unavailable.",
           enum: [
             "completed",
             "timed_out",
@@ -4904,6 +4911,8 @@ export const runnerGatewayEnvelopeSchema = {
             "runtime_unavailable",
             "auth_required",
             "runtime_incompatible",
+            "context_too_long",
+            "unsupported",
             "failed",
           ],
         },

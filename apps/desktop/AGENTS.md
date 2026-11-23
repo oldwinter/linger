@@ -25,7 +25,10 @@ Gateway and runs Agents. The daemon exits with the app.
   `packaging/mac/Dockerfile` and `rcodesign` (ad-hoc signature). Add
   `--developer-id P12 --developer-id-password FILE` for a Developer ID
   signature with the hardened runtime, and `--notary-key JSON` to notarize and
-  staple; see the script's docstring.
+  staple; see the script's docstring. Notarizing needs the bundled macOS
+  archives Developer ID signed first: the Sign macOS native archives workflow
+  runs `packaging/mac/sign_native_archives.py` with the release secrets (see
+  [Bundled archives](../../docs/desktop-release.md#bundled-archives)).
 - `python3 packaging/win/package.py`: build
   `out/Linger-<version>-x64-setup.exe` (per-user NSIS installer) and
   `out/Linger-<version>-x64.zip` on Linux after `node build.mjs` with the
@@ -250,7 +253,17 @@ Gateway and runs Agents. The daemon exits with the app.
   Try Again or Set Up Again for transient `LOCAL_MODELS_RECOVERY_REQUIRED`
   failures (the resume applies the approved plan again). During Quick Install,
   `LOCAL_MODELS_RECOVERY_REQUIRED` with `binding-unavailable` in
-  `errorReasons` skips blind replanning and surfaces the structured reason copy. A Quick Install that stopped
+  `errorReasons` skips blind replanning and surfaces the structured reason copy;
+  transient apply failures (`STACK_COMPONENT_FAILED`, `STACK_APPLY_INTERRUPTED`)
+  after a plan was approved in the same run retry that approved plan once to
+  resume downloads instead of forcing a replan, while other
+  `LOCAL_MODELS_RECOVERY_REQUIRED` causes (including ones without a prior
+  approval in the same run) still replan once, and `LOCAL_MODELS_UNAVAILABLE`
+  selects user guidance by `errorCauseCode` (`HUB_UNREACHABLE`,
+  `DISK_INSUFFICIENT`, `GPU_CONFLICT`, `STACK_PLAN_FAILED`, or memory when
+  `MEMORY_INSUFFICIENT`/absent). While installing or resuming, `LocalServer`
+  emits `local-server.busy` so `PowerGuard` keeps the system from suspending
+  mid-download without toggling the saved `preventSleep` preference. A Quick Install that stopped
   before the computer enrolled is not resumed: setup shows again and Install
   finishes it, reusing a finished job only while its origin answers (a stopped
   server gets a new job, which starts the services again). The start failure
@@ -342,9 +355,12 @@ Gateway and runs Agents. The daemon exits with the app.
   enrolled server in the hidden window without showing it, and `prewarmAssets`
   warms `/` and `/assets/*` in `session.defaultSession`'s HTTP cache. On
   launch the window loads `serverUrl` without a blocking HTTP probe; if
-  `did-fail-load` fires and `localServer.resumable(serverUrl)` sees an active
-  resume or a valid matching `local-server.json`, it shows the
-  Starting page instead of `offline.html`. `window.did_finish_load` logs
+  `did-fail-load` fires for the current `serverUrl` and
+  `localServer.isStarting(serverUrl)` sees an active resume (or a valid
+  matching `local-server.json` before `LocalServer.start()` runs), it shows the
+  Starting page instead of `offline.html`; stale failures from an older port
+  are ignored, and `setServer` pushes the updated origin to the title bar right
+  away. `window.did_finish_load` logs
   `{ reason, duration_ms, target }` with origin + pathname only (never query or
   hash), and `LocalServer` resume emits `local_server.resume_started`,
   `local_server.resume_stage` (`stage`, `ms`), `local_server.resume_succeeded`
@@ -472,7 +488,11 @@ Gateway and runs Agents. The daemon exits with the app.
   failed state with that reason, and Retry runs the migration again. There is
   no downgrade path: an older build reads neither the converted instances nor
   the moved data folder. The bundle ID and
-  Windows AppUserModelID are `com.simplexai.linger.desktop.preview`. The
+  Windows AppUserModelID are `com.simplexai.linger.desktop.preview`. On
+  Windows, `markStartMenuShortcut` (`src/main/start-menu-shortcut.ts`) updates
+  `Linger.lnk` only when `LINGER_DESKTOP_USER_DATA` is unset and the shortcut
+  already targets the current executable (after canonicalizing both absolute
+  paths); write failures log a warning without aborting startup. The
   Windows setup installs into `%LOCALAPPDATA%\Programs\Linger`; on upgrade it
   closes and removes `%LOCALAPPDATA%\Programs\Simplex` and moves the
   "Open at login" Run value from `ai.simplex.desktop.preview` to the new id.

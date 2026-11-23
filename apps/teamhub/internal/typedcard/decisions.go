@@ -1103,5 +1103,6 @@ func decisionHandoff(
 	}
 	return messagecreation.CardHandoff(ctx, queries, messagecreation.Draft{
 		TenantID: tenantID, RoomID: roomID, Author: human, CardContextMessageID: cardMessageID,
+		HumanWaiting: true,
 	}, agent, text)
 }

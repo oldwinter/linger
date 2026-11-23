@@ -153,6 +153,7 @@ func (s *Service) HandOff(ctx context.Context, token string, input Input) (Resul
 	// as its own; the mention wakes only that AnotherMe's Context.
 	persisted, err := messagecreation.CardHandoff(ctx, queries, messagecreation.Draft{
 		ID: handoffID, TenantID: authorization.TenantID, RoomID: input.RoomID, Author: humanActor,
+		HumanWaiting: true,
 	}, agentActor, text)
 	if err != nil {
 		return Result{}, err

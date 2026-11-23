@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -55,6 +56,8 @@ const (
 	ModelInvokeRuntimeUnavailable  = "runtime_unavailable"
 	ModelInvokeAuthRequired        = "auth_required"
 	ModelInvokeRuntimeIncompatible = "runtime_incompatible"
+	ModelInvokeContextTooLong      = "context_too_long"
+	ModelInvokeUnsupported         = "unsupported"
 	ModelInvokeFailed              = "failed"
 )
 
@@ -220,6 +223,8 @@ type modelInvocation struct {
 	reply func() (ModelInvokeResult, error)
 	// failure names the last error the CLI reported in its own output.
 	failure func() string
+	// diagnostics returns structured failure metadata the CLI emitted.
+	diagnostics func() (string, native.RuntimeFailureDiagnostics)
 }
 
 // Invoke runs one model call and always returns a result; failures are
@@ -300,7 +305,8 @@ func (m ModelInvoker) invoke(ctx context.Context, request ModelInvokeRequest, in
 	}
 	runErr := run(invokeCtx, command)
 	if runErr != nil || invokeCtx.Err() != nil {
-		return classifyModelInvokeFailure(ctx, invokeCtx, runErr, stderr.String(), invocation.failure())
+		failureCode, diag := invocationDiagnostics(invocation)
+		return classifyModelInvokeFailureWithDiagnostics(ctx, invokeCtx, request.RuntimeType, runErr, stderr.String(), invocation.failure(), failureCode, diag)
 	}
 	result, err := invocation.reply()
 	if err != nil {
@@ -308,7 +314,8 @@ func (m ModelInvoker) invoke(ctx context.Context, request ModelInvokeRequest, in
 		if reported == "" {
 			reported = err.Error()
 		}
-		return classifyModelInvokeFailure(ctx, invokeCtx, err, stderr.String(), reported)
+		failureCode, diag := invocationDiagnostics(invocation)
+		return classifyModelInvokeFailureWithDiagnostics(ctx, invokeCtx, request.RuntimeType, err, stderr.String(), reported, failureCode, diag)
 	}
 	if request.Mode == ModelInvokeWorkspace {
 		files, err := readModelInvokeFiles(work)
@@ -389,7 +396,12 @@ func (m ModelInvoker) sessionInvoke(ctx context.Context, request ModelInvokeRequ
 	case errors.Is(err, native.ErrCodexModelOutputLimit):
 		return ModelInvokeResult{Outcome: ModelInvokeOutputLimited, Reason: "Model reply exceeded its output limit", Text: answer.Text}, true
 	case err != nil:
-		result := classifyModelInvokeFailure(ctx, invokeCtx, err, "", err.Error())
+		var diag native.RuntimeFailureDiagnostics
+		var sessionErr *native.CodexModelFailureError
+		if errors.As(err, &sessionErr) {
+			diag = sessionErr.Diagnostics
+		}
+		result := classifyModelInvokeFailureWithDiagnostics(ctx, invokeCtx, "codex", err, "", err.Error(), "", diag)
 		if result.Outcome == ModelInvokeTimedOut || result.Outcome == ModelInvokeCanceled {
 			result.Text = answer.Text
 		}
@@ -504,7 +516,8 @@ func codexModelInvocation(request ModelInvokeRequest, environment map[string]str
 			}
 			return ModelInvokeResult{Text: text, Usage: events.usage()}, nil
 		},
-		failure: events.failure,
+		failure:     events.failure,
+		diagnostics: events.diagnostics,
 	}, nil
 }
 
@@ -531,9 +544,11 @@ func codexModelInvokeArgs(version, mode, effort, model, work, schemaPath, lastPa
 	args := []string{
 		"exec", "--skip-git-repo-check", "--ephemeral", "--sandbox", sandbox, "--ignore-rules",
 		"--color", "never", "-C", work,
-		"-c", fmt.Sprintf("model_reasoning_effort=%q", effort),
-		"-c", `web_search="disabled"`,
 	}
+	if effort != "" {
+		args = append(args, "-c", fmt.Sprintf("model_reasoning_effort=%q", effort))
+	}
+	args = append(args, "-c", `web_search="disabled"`)
 	if model != "" {
 		args = append(args, "-m", model)
 	}
@@ -560,11 +575,12 @@ func codexModelInvokeArgs(version, mode, effort, model, work, schemaPath, lastPa
 // only the reported usage and the last error. Oversized lines, such as a long
 // agent message, are skipped.
 type codexInvokeEvents struct {
-	mu        sync.Mutex
-	line      []byte
-	skipping  bool
-	lastUsage *ModelInvokeUsage
-	lastError string
+	mu              sync.Mutex
+	line            []byte
+	skipping        bool
+	lastUsage       *ModelInvokeUsage
+	lastError       string
+	lastDiagnostics native.RuntimeFailureDiagnostics
 }
 
 func (e *codexInvokeEvents) Write(value []byte) (int, error) {
@@ -603,9 +619,11 @@ func (e *codexInvokeEvents) observe(line []byte) {
 			CachedInputTokens int64 `json:"cached_input_tokens"`
 			OutputTokens      int64 `json:"output_tokens"`
 		} `json:"usage"`
-		Message string `json:"message"`
-		Error   *struct {
-			Message string `json:"message"`
+		Message        string          `json:"message"`
+		CodexErrorInfo json.RawMessage `json:"codexErrorInfo"`
+		Error          *struct {
+			Message        string          `json:"message"`
+			CodexErrorInfo json.RawMessage `json:"codexErrorInfo"`
 		} `json:"error"`
 	}
 	if json.Unmarshal(line, &event) != nil {
@@ -621,9 +639,15 @@ func (e *codexInvokeEvents) observe(line []byte) {
 		}
 	case "error":
 		e.lastError = event.Message
+		if diag := native.CodexErrorDiagnostics(event.CodexErrorInfo); diag.Code != "" || diag.StatusCode != nil {
+			e.lastDiagnostics = diag
+		}
 	case "turn.failed":
 		if event.Error != nil {
 			e.lastError = event.Error.Message
+			if diag := native.CodexErrorDiagnostics(event.Error.CodexErrorInfo); diag.Code != "" || diag.StatusCode != nil {
+				e.lastDiagnostics = diag
+			}
 		}
 	}
 }
@@ -640,6 +664,12 @@ func (e *codexInvokeEvents) failure() string {
 	return e.lastError
 }
 
+func (e *codexInvokeEvents) diagnostics() (string, native.RuntimeFailureDiagnostics) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return "", e.lastDiagnostics
+}
+
 func claudeModelInvocation(request ModelInvokeRequest, environment map[string]string, configRoot string) (modelInvocation, error) {
 	var prepared map[string]string
 	var release func()
@@ -652,6 +682,7 @@ func claudeModelInvocation(request ModelInvokeRequest, environment map[string]st
 	if err != nil {
 		return modelInvocation{}, fmt.Errorf("prepare Claude credentials: %w", err)
 	}
+	prepared = native.ClaudeEnvironment(prepared)
 	stdout := &boundedProbeBuffer{limit: modelInvokeMaxJSONOutputBytes}
 	var reported claudeInvokeOutput
 	parse := func() error {
@@ -693,6 +724,20 @@ func claudeModelInvocation(request ModelInvokeRequest, environment map[string]st
 			}
 			return ""
 		},
+		diagnostics: func() (string, native.RuntimeFailureDiagnostics) {
+			if parse() != nil {
+				return "", native.RuntimeFailureDiagnostics{}
+			}
+			var diag native.RuntimeFailureDiagnostics
+			if reported.APIErrorStatus != 0 {
+				status := int(reported.APIErrorStatus)
+				diag.StatusCode = &status
+			}
+			if strings.TrimSpace(reported.TerminalReason) == "prompt_too_long" {
+				return "context_too_long", diag
+			}
+			return "", diag
+		},
 	}, nil
 }
 
@@ -709,12 +754,22 @@ func claudeModelInvokeArgs(mode, effort string, schema json.RawMessage) []string
 	} else {
 		args = append(args, "--tools", "", "--permission-mode", "dontAsk")
 	}
-	return append(args, "--safe-mode", "--strict-mcp-config", "--no-session-persistence",
-		"--disable-slash-commands", "--effort", effort)
+	args = append(args, "--safe-mode", "--strict-mcp-config", "--no-session-persistence",
+		"--disable-slash-commands")
+	switch effort {
+	case "":
+	case "none":
+		args = append(args, "--thinking", "disabled")
+	default:
+		args = append(args, "--effort", effort)
+	}
+	return args
 }
 
 type claudeInvokeOutput struct {
 	IsError          bool            `json:"is_error"`
+	TerminalReason   string          `json:"terminal_reason"`
+	APIErrorStatus   float64         `json:"api_error_status"`
 	Result           string          `json:"result"`
 	StructuredOutput json.RawMessage `json:"structured_output"`
 	Usage            *struct {
@@ -858,42 +913,108 @@ var modelInvokeAuthMarkers = []string{
 	"invalid api key", "invalid_api_key", "please sign in",
 }
 
-// unavailableModelReason reads the API error body a Runtime reports as its
-// failure. The model_not_found code names a model the signed-in account
-// cannot use: every attempt fails the same way until the configuration or the
-// Runtime changes, so it is reported as incompatible rather than as a
-// transient failure.
-func unavailableModelReason(reported string) (string, bool) {
-	var body struct {
-		Error struct {
+var posixNetworkErrnoPattern = regexp.MustCompile(`\b(?:ECONNREFUSED|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ENOTFOUND)\b`)
+
+type structuredAPIError struct {
+	Code    string
+	Type    string
+	Message string
+}
+
+// parseStructuredAPIError extracts a structured provider API error object
+// (`{"error":{"code":...,"type":...}}` or top-level `{"code":...,"type":...}`)
+// from a whole JSON body or a client error line carrying an embedded JSON body.
+func parseStructuredAPIError(text string) (structuredAPIError, bool) {
+	rest := strings.TrimSpace(text)
+	for len(rest) > 0 {
+		idx := strings.IndexByte(rest, '{')
+		if idx < 0 {
+			return structuredAPIError{}, false
+		}
+		rest = rest[idx:]
+		var body struct {
 			Code    string `json:"code"`
+			Type    string `json:"type"`
 			Message string `json:"message"`
-		} `json:"error"`
+			Error   *struct {
+				Code    string `json:"code"`
+				Type    string `json:"type"`
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		dec := json.NewDecoder(strings.NewReader(rest))
+		if err := dec.Decode(&body); err == nil {
+			if body.Error != nil && (body.Error.Code != "" || body.Error.Type != "") {
+				return structuredAPIError{
+					Code:    strings.TrimSpace(body.Error.Code),
+					Type:    strings.TrimSpace(body.Error.Type),
+					Message: strings.TrimSpace(body.Error.Message),
+				}, true
+			}
+			if body.Code != "" {
+				return structuredAPIError{
+					Code:    strings.TrimSpace(body.Code),
+					Type:    strings.TrimSpace(body.Type),
+					Message: strings.TrimSpace(body.Message),
+				}, true
+			}
+		}
+		rest = rest[1:]
 	}
-	if json.Unmarshal([]byte(strings.TrimSpace(reported)), &body) != nil || body.Error.Code != "model_not_found" {
-		return "", false
+	return structuredAPIError{}, false
+}
+
+func isContextTooLongErrorCode(code string) bool {
+	switch code {
+	case "exceed_context_size_error", "context_length_exceeded", "context_window_exceeded", "contextWindowExceeded", "prompt_too_long":
+		return true
 	}
-	reason := "The model is not available to this account"
-	if message := strings.TrimSpace(body.Error.Message); message != "" {
-		reason += ": " + message
+	return false
+}
+
+func isAuthErrorCode(code string) bool {
+	switch code {
+	case "invalid_api_key", "authentication_error", "authentication_failed", "unauthorized":
+		return true
 	}
-	return reason, true
+	return false
+}
+
+func isUnavailableErrorCode(code string) bool {
+	switch code {
+	case "server_error", "overloaded_error", "service_unavailable", "unavailable_error", "model_not_loaded":
+		return true
+	}
+	return false
+}
+
+func invocationDiagnostics(invocation modelInvocation) (string, native.RuntimeFailureDiagnostics) {
+	if invocation.diagnostics == nil {
+		return "", native.RuntimeFailureDiagnostics{}
+	}
+	return invocation.diagnostics()
 }
 
 // classifyModelInvokeFailure maps a failed run to an outcome. The caller's
 // cancellation wins over the call's own deadline, which wins over the CLI's
 // message.
 func classifyModelInvokeFailure(ctx, invokeCtx context.Context, err error, stderr, reported string) ModelInvokeResult {
+	return classifyModelInvokeFailureWithDiagnostics(ctx, invokeCtx, "", err, stderr, reported, "", native.RuntimeFailureDiagnostics{})
+}
+
+func classifyModelInvokeFailureWithDiagnostics(
+	ctx, invokeCtx context.Context,
+	runtimeType string,
+	err error,
+	stderr, reported, failureCode string,
+	diagnostics native.RuntimeFailureDiagnostics,
+) ModelInvokeResult {
 	if ctx.Err() != nil {
 		return ModelInvokeResult{Outcome: ModelInvokeCanceled, Reason: "Model invocation was canceled"}
 	}
 	if errors.Is(invokeCtx.Err(), context.DeadlineExceeded) {
 		return ModelInvokeResult{Outcome: ModelInvokeTimedOut, Reason: "Model invocation timed out"}
 	}
-	if reason, ok := unavailableModelReason(reported); ok {
-		return ModelInvokeResult{Outcome: ModelInvokeRuntimeIncompatible, Reason: truncateRunes(redact.Text(reason), 300)}
-	}
-	evidence := strings.ToLower(stderr + "\n" + reported)
 	reason := reported
 	if reason == "" {
 		if err == nil {
@@ -902,6 +1023,45 @@ func classifyModelInvokeFailure(ctx, invokeCtx context.Context, err error, stder
 		reason = liveFailureMessage(stderr, err)
 	}
 	reason = truncateRunes(redact.Text(strings.TrimSpace(reason)), 300)
+
+	if failureCode != "" || diagnostics.Code != "" || diagnostics.StatusCode != nil {
+		classified := ClassifyExecutionFailure(runtimeType, "", "failed", failureCode, diagnostics)
+		switch classified.Code {
+		case "context_too_long":
+			return ModelInvokeResult{Outcome: ModelInvokeContextTooLong, Reason: "Model invocation prompt exceeds the model context window"}
+		case "authentication_required":
+			return ModelInvokeResult{Outcome: ModelInvokeAuthRequired, Reason: reason}
+		case "model_unavailable":
+			return ModelInvokeResult{Outcome: ModelInvokeRuntimeIncompatible, Reason: reason}
+		case "model_service_error", "network_error":
+			return ModelInvokeResult{Outcome: ModelInvokeRuntimeUnavailable, Reason: reason}
+		}
+	}
+
+	apiSource := reported
+	if apiSource == "" {
+		apiSource = stderr
+	}
+	if apiErr, ok := parseStructuredAPIError(apiSource); ok {
+		if apiErr.Code == "model_not_found" {
+			unavailable := "The model is not available to this account"
+			if apiErr.Message != "" {
+				unavailable += ": " + apiErr.Message
+			}
+			return ModelInvokeResult{Outcome: ModelInvokeRuntimeIncompatible, Reason: truncateRunes(redact.Text(unavailable), 300)}
+		}
+		if isContextTooLongErrorCode(apiErr.Code) || isContextTooLongErrorCode(apiErr.Type) {
+			return ModelInvokeResult{Outcome: ModelInvokeContextTooLong, Reason: "Model invocation prompt exceeds the model context window"}
+		}
+		if isAuthErrorCode(apiErr.Code) || isAuthErrorCode(apiErr.Type) {
+			return ModelInvokeResult{Outcome: ModelInvokeAuthRequired, Reason: reason}
+		}
+		if isUnavailableErrorCode(apiErr.Code) || isUnavailableErrorCode(apiErr.Type) {
+			return ModelInvokeResult{Outcome: ModelInvokeRuntimeUnavailable, Reason: reason}
+		}
+	}
+
+	evidence := strings.ToLower(stderr + "\n" + reported)
 	for _, marker := range modelInvokeIncompatibleMarkers {
 		if strings.Contains(evidence, marker) {
 			return ModelInvokeResult{Outcome: ModelInvokeRuntimeIncompatible, Reason: reason}
@@ -911,6 +1071,9 @@ func classifyModelInvokeFailure(ctx, invokeCtx context.Context, err error, stder
 		if strings.Contains(evidence, marker) {
 			return ModelInvokeResult{Outcome: ModelInvokeAuthRequired, Reason: reason}
 		}
+	}
+	if posixNetworkErrnoPattern.MatchString(stderr + "\n" + reported) {
+		return ModelInvokeResult{Outcome: ModelInvokeRuntimeUnavailable, Reason: reason}
 	}
 	return ModelInvokeResult{Outcome: ModelInvokeFailed, Reason: reason}
 }

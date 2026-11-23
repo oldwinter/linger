@@ -159,7 +159,7 @@ func (s *Service) sendRecordingTaskTx(
 	// A recording Ask hands off to the Meta without showing in the Room.
 	message, err := messagecreation.Create(ctx, queries, messagecreation.Draft{
 		TenantID: room.TenantID, RoomID: room.ID, Author: author, Content: content, Kind: "agent_runtime",
-		AttachmentVersionIDs: []string{version.ID},
+		AttachmentVersionIDs: []string{version.ID}, HumanWaiting: true,
 	})
 	if err != nil {
 		return idempotency.Result{}, false, err

@@ -27,7 +27,7 @@ import {
   saveConnectorDownload,
   validateLocalFiles,
 } from "./connector-files.js";
-import { ConnectorError as CliError } from "./errors.js";
+import { CliError } from "./errors.js";
 import { displayText } from "./display-text.js";
 const descriptions = {
   list: "List one folder level; defaults to the root.",

@@ -9,6 +9,16 @@ const list = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
 const yes = (value: unknown) => (value === true ? "yes" : "no");
 const text = (value: unknown) =>
   typeof value === "string" ? value : displayText(value ?? "");
+const singleLine = (value: unknown): string =>
+  Array.from(displayText(value ?? ""), (character) => {
+    const code = character.codePointAt(0)!;
+    if (character === "\n") return "\\n";
+    if (character === "\r") return "\\r";
+    if (character === "\t") return "\\t";
+    return code < 32 || code === 127
+      ? `\\u${code.toString(16).padStart(4, "0")}`
+      : character;
+  }).join("");
 // Render the flag that reads this Inbox again; the configured Room has none.
 function target(inbox: unknown): string {
   const address = text(inbox);
@@ -57,11 +67,18 @@ export function renderMessageRead(result: Json): string {
   const messages = list(result.messages);
   if (result.mode === "inboxes") {
     const inboxes = list(result.inboxes);
+    const hasNames = inboxes.some((value) => {
+      const name = object(value).name;
+      return typeof name === "string" && name !== "";
+    });
     return inboxes.length
-      ? `${inboxes.length} inboxes\n\nINBOX  KIND\n${inboxes
+      ? `${inboxes.length} inboxes\n\n${hasNames ? "INBOX  KIND  NAME" : "INBOX  KIND"}\n${inboxes
           .map((value) => {
             const item = object(value);
-            return `${text(item.inbox_id)}  ${text(item.kind)}`;
+            const base = `${singleLine(item.inbox_id)}  ${singleLine(item.kind)}`;
+            return typeof item.name === "string" && item.name !== ""
+              ? `${base}  ${singleLine(item.name)}`
+              : base;
           })
           .join("\n")}`
       : "No inboxes found.";

@@ -1,7 +1,9 @@
 package integration_test
 
 import (
+	"context"
 	"errors"
+	"net/http"
 	"strconv"
 	"strings"
 	"testing"
@@ -136,6 +138,51 @@ func TestFirstQuietWakeWaitsForOrdinaryAgentReply(t *testing.T) {
 	}
 	if wait, err := reminder.Deliver(ctx, pool, id, now.Add(2*time.Minute), reminder.Window); err != nil || wait != 0 {
 		t.Fatalf("quiet Room did not release its first wake: wait=%v err=%v", wait, err)
+	}
+}
+
+// A mail and a calendar change about the same meeting arrive as separate
+// events from separate polls. Their wakes wait before delivery, so the first
+// delivery sends both and AnotherMe reads them in one Run.
+func TestEventWakesQueuedTogetherShareOneRun(t *testing.T) {
+	allowParallelIntegrationTest(t)
+	judge := func(context.Context, proactive.EventJudgeRequest) (string, error) {
+		return "[Proactive event: decide yourself]", nil
+	}
+	f := newListenerGrantFixture(t, func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "unexpected", http.StatusInternalServerError)
+	}, judge)
+	ctx := t.Context()
+	service := proactive.New(f.pool, judge, nil)
+	started := time.Now()
+	for _, event := range []proactive.Event{
+		{Source: reminder.ListenerGCal, ExternalID: "evt_1on1", Kind: "event_updated", Summary: "1:1 with Sam (Priya covering)"},
+		{Source: reminder.ListenerGmail, ExternalID: "mail_sam", Kind: "new_mail", Summary: "Sam is out today; Priya runs the 1:1 and has the agenda"},
+	} {
+		event.TenantID, event.OwnerActorID, event.Urgent, event.Grant = acmeTenant, "actor_acme_alice", true, &f.grant
+		if out, err := service.HandleEvent(ctx, event); err != nil || out.Skipped != "" {
+			t.Fatalf("event %s: %+v %v", event.ExternalID, out, err)
+		}
+	}
+	if early := countRows(t, f.env, `SELECT count(*) FROM river_job job
+		JOIN proactive_pending_wakes wake ON wake.id=job.args->>'wake_id'
+		WHERE job.kind='proactive.quiet_wake' AND wake.room_id=$1
+		AND (job.state<>'scheduled' OR job.scheduled_at<$2)`, f.room, started.Add(reminder.EventSettle)); early != 0 {
+		t.Fatalf("%d event wakes may be delivered before the settle time", early)
+	}
+	if _, err := reminder.Deliver(ctx, f.pool, pendingWakeID(t, f.pool, f.room), time.Now().Add(48*time.Hour), reminder.Window); err != nil {
+		t.Fatal(err)
+	}
+	var inputs, runs int
+	if err := f.pool.QueryRow(ctx, `SELECT count(*), count(DISTINCT relation.run_id)
+		FROM proactive_pending_wakes wake
+		JOIN agent_runtime_inputs input ON input.source_message_id=wake.message_id
+		JOIN agent_local_run_inputs relation ON relation.context_key=input.context_key AND relation.input_id=input.input_id
+		WHERE wake.room_id=$1 AND wake.source='event' AND wake.delivered_at IS NOT NULL`, f.room).Scan(&inputs, &runs); err != nil {
+		t.Fatal(err)
+	}
+	if inputs != 2 || runs != 1 {
+		t.Fatalf("event wakes reached AnotherMe as %d inputs in %d Runs", inputs, runs)
 	}
 }
 

@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import createClient, { type Client } from "openapi-fetch";
 import type { paths } from "@linger/wire-contracts/teamhub-agent-api/types";
 import type { TeamHubConfig } from "./config.js";
-import { CliError } from "./errors.js";
+import { CliError, type ErrorCode } from "./errors.js";
+import { mebibytes } from "./input-issues.js";
 import type { CliTiming, TimingFields } from "./timing.js";
 
 /** The TeamHub Agent API, typed by the generated contract `paths`. */
@@ -117,7 +118,10 @@ export function createTeamHubClient(
         record(value) && record(value.error) ? value.error : undefined;
       if (envelope && typeof envelope.code === "string") {
         throw new CliError(
-          envelope.code,
+          // Some routes send UPPER_SNAKE. A code this build does not know
+          // still passes through; it gets the generic template and an exit
+          // code from the HTTP status.
+          envelope.code.toLowerCase() as ErrorCode,
           typeof envelope.message === "string"
             ? envelope.message
             : "TeamHub rejected the request.",
@@ -127,19 +131,20 @@ export function createTeamHubClient(
             http_status: response.status,
             ...(operationId ? { operation_id: operationId } : {}),
           },
+          "remote",
         );
       }
       throw new CliError(
-        response.status === 401
-          ? "unauthorized"
-          : response.status === 403
-            ? "forbidden"
-            : "server_error",
+        statusCodes[response.status] ??
+          (response.status >= 500
+            ? "dependency_unavailable"
+            : "invalid_request"),
         `TeamHub request failed (HTTP ${response.status}).`,
         {
           http_status: response.status,
           ...(operationId ? { operation_id: operationId } : {}),
         },
+        "remote",
       );
     }
     if (operationId && response.status !== 204) {
@@ -184,10 +189,22 @@ async function jsonResponse(response: Response): Promise<Response> {
   });
 }
 
+/** The code of a response without TeamHub's error envelope, such as a proxy's. */
+const statusCodes: Partial<Record<number, ErrorCode>> = {
+  401: "unauthenticated",
+  403: "forbidden",
+  404: "not_found",
+  408: "dependency_unavailable",
+  409: "conflict",
+  413: "payload_too_large",
+  429: "provider_rate_limited",
+  500: "internal_error",
+};
+
 function unknownWriteOutcome(operationId: string): CliError {
   return new CliError(
     "outcome_unknown",
-    "The operation outcome is unknown. Retry with --operation-id set to this Operation ID.",
+    "The operation outcome is unknown. Run the same command again with --operation-id set to this Operation ID: TeamHub returns the original result instead of submitting it twice.",
     { operation_id: operationId },
   );
 }
@@ -267,13 +284,18 @@ export async function readBounded(
   let size = 0;
   try {
     for (;;) {
-      const next = await reader.read();
+      const next = await reader.read().catch(() => {
+        throw new CliError(
+          "connection_failed",
+          "The connection closed before the response was complete.",
+        );
+      });
       if (next.done) return Buffer.concat(chunks, size);
       size += next.value.byteLength;
       if (size > limit)
         throw new CliError(
-          "too_large",
-          "TeamHub response exceeds the size limit.",
+          "invalid_response",
+          `The response is larger than ${mebibytes(limit)}.`,
         );
       chunks.push(next.value);
     }

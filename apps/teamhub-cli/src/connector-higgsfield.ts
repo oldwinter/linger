@@ -14,7 +14,7 @@ import {
   type GenerationProvider,
 } from "./connector-media.js";
 import { cursor, nextCursor } from "./connector-runtime.js";
-import { ConnectorError } from "./errors.js";
+import { CliError } from "./errors.js";
 
 const tool = (name: string) => `HIGGSFIELD_MCP_${name}`;
 const anyObject = { type: "object", additionalProperties: true };
@@ -57,7 +57,7 @@ async function uploadFiles(
   const files = paths.map((local) => {
     const file = runtime.files.find((item) => item.localPath === local);
     if (!file)
-      throw new ConnectorError(
+      throw new CliError(
         "incomplete_response",
         "An input file snapshot is missing.",
       );
@@ -77,7 +77,7 @@ async function uploadFiles(
     ? requested.uploads.map((item) => record(item, "upload target"))
     : [];
   if (uploads.length !== files.length)
-    throw new ConnectorError(
+    throw new CliError(
       "incomplete_response",
       "Higgsfield did not return an upload target for every file.",
     );
@@ -101,15 +101,15 @@ async function uploadFiles(
         },
       );
     } catch (error) {
-      if (error instanceof ConnectorError) throw error;
-      throw new ConnectorError(
+      if (error instanceof CliError) throw error;
+      throw new CliError(
         "file_transfer_failed",
         "A media file could not be uploaded.",
       );
     }
     await response.body?.cancel();
     if (!response.ok)
-      throw new ConnectorError(
+      throw new CliError(
         "file_transfer_failed",
         "Higgsfield storage rejected a media upload.",
       );
@@ -133,7 +133,7 @@ async function uploadFiles(
       ? confirmed.results.map((item) => record(item, "upload confirmation"))
       : [];
     if (!ids.every((mediaId) => rows.some((row) => row.media_id === mediaId)))
-      throw new ConnectorError(
+      throw new CliError(
         "incomplete_response",
         "Higgsfield did not confirm every uploaded file.",
       );
@@ -152,7 +152,7 @@ function jobView(raw: unknown): Json {
     ? jobStates[status]
     : undefined;
   if (!state)
-    throw new ConnectorError(
+    throw new CliError(
       "incomplete_response",
       "Higgsfield returned an unknown job status.",
     );
@@ -179,11 +179,9 @@ async function checkJobs(
         sync: false,
       });
       if (!status.generation)
-        throw new ConnectorError(
-          "not_found",
-          "Higgsfield has no job with this ID.",
-          { job_id: jobId },
-        );
+        throw new CliError("not_found", "Higgsfield has no job with this ID.", {
+          job_id: jobId,
+        });
       return jobView(status.generation);
     }),
   );
@@ -268,12 +266,9 @@ async function modelDetails(
     model_id: input.model,
   });
   if (model.id !== input.model)
-    throw new ConnectorError(
-      "not_found",
-      "Higgsfield has no model with this ID.",
-    );
+    throw new CliError("not_found", "Higgsfield has no model with this ID.");
   if (model.output_type !== input.type)
-    throw new ConnectorError(
+    throw new CliError(
       "invalid_input",
       "This model does not generate the requested media type; select one from --price.",
     );
@@ -300,7 +295,7 @@ async function prices(input: Json, runtime: ConnectorRuntime): Promise<Json> {
       }),
     );
     if (!Array.isArray(raw.items))
-      throw new ConnectorError(
+      throw new CliError(
         "incomplete_response",
         "The model list is incomplete.",
       );
@@ -311,14 +306,14 @@ async function prices(input: Json, runtime: ConnectorRuntime): Promise<Json> {
       token !== "" &&
       typeof token !== "string"
     )
-      throw new ConnectorError(
+      throw new CliError(
         "incomplete_response",
         "The model list has an invalid next-page cursor.",
       );
     const hasMore =
       typeof token === "string" && token.length > 0 && raw.has_more !== false;
     if (raw.has_more === true && !hasMore)
-      throw new ConnectorError(
+      throw new CliError(
         "incomplete_response",
         "The model list has more pages but no cursor.",
       );
@@ -328,7 +323,7 @@ async function prices(input: Json, runtime: ConnectorRuntime): Promise<Json> {
     };
     rows = raw.items.map((row) => record(row));
     if (rows.some((row) => row.output_type !== input.type))
-      throw new ConnectorError(
+      throw new CliError(
         "incomplete_response",
         "The provider returned a model with the wrong output type.",
       );
@@ -374,7 +369,7 @@ async function executeHiggsfield(
       (file) => !/^(?:image|video|audio)\//u.test(file.mimetype),
     )
   )
-    throw new ConnectorError(
+    throw new CliError(
       "invalid_input",
       "Higgsfield reference files must be images, videos or audio.",
     );
@@ -428,7 +423,7 @@ async function executeHiggsfield(
         typeof raw.recovery_tool === "string" ? raw.recovery_tool : undefined,
     });
     if (!Object.keys(rejected).length)
-      throw new ConnectorError(
+      throw new CliError(
         "incomplete_response",
         "Higgsfield returned neither a job nor a refusal; check the account before submitting again.",
       );

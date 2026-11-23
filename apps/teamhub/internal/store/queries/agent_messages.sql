@@ -1,16 +1,16 @@
 -- name: ListAgentHistoryInboxes :many
 WITH candidates AS (
-    SELECT 'room:'||room.id AS inbox_id,'room'::text AS kind FROM rooms room
+    SELECT 'room:'||room.id AS inbox_id,'room'::text AS kind,COALESCE(room.name,'')::text AS name FROM rooms room
     WHERE room.tenant_id=sqlc.arg(tenant_id)::text AND room.parent_room_id IS NULL
-    UNION SELECT 'thread:'||thread.id,'thread' FROM rooms thread
+    UNION SELECT 'thread:'||thread.id,'thread',COALESCE(thread.name,'') FROM rooms thread
     WHERE thread.tenant_id=sqlc.arg(tenant_id)::text AND thread.parent_room_id IS NOT NULL
-    UNION SELECT 'task:'||link.work_item_id,'task' FROM work_item_room_links link
+    UNION SELECT 'task:'||link.work_item_id,'task',COALESCE(task.title,'') FROM work_item_room_links link
     JOIN work_items task ON task.id=link.work_item_id AND task.tenant_id=link.tenant_id AND task.kind='task'
     WHERE link.tenant_id=sqlc.arg(tenant_id)::text AND link.link_type='work'
-    UNION SELECT 'meta:'||inbox.agent_actor_id||':'||inbox.task_id,'meta' FROM task_meta_inboxes inbox WHERE inbox.tenant_id=sqlc.arg(tenant_id)::text
-    UNION SELECT 'taskmeta:'||callback.task_id,'taskmeta' FROM task_meta_callbacks callback WHERE callback.tenant_id=sqlc.arg(tenant_id)::text
+    UNION SELECT 'meta:'||inbox.agent_actor_id||':'||inbox.task_id,'meta',''::text FROM task_meta_inboxes inbox WHERE inbox.tenant_id=sqlc.arg(tenant_id)::text
+    UNION SELECT 'taskmeta:'||callback.task_id,'taskmeta',''::text FROM task_meta_callbacks callback WHERE callback.tenant_id=sqlc.arg(tenant_id)::text
 )
-SELECT inbox_id::text AS inbox_id,kind FROM candidates
+SELECT inbox_id::text AS inbox_id,kind,name FROM candidates
 WHERE actor_can_read_inbox(sqlc.arg(tenant_id)::text,sqlc.arg(actor_id)::text,inbox_id)
 ORDER BY inbox_id;
 

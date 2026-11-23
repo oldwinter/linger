@@ -50,7 +50,9 @@ info:
     one session in one resident thread; the result is the same either way.
     cancel with target model_invoke stops one running call so the scheduler
     can swap it out; the call's executed model_invoke still follows. The
-    service sends it only to a Computer release that decodes it.
+    service sends it only to a Computer release that decodes it. Extended
+    model_invoke outcomes (context_too_long and unsupported) travel only after
+    a runner.welcome whose service_features names model_invoke_outcomes.
     execute with kind
     computer_tool runs native browser actions and retained Task output reads.
     TeamHub resolves the owner, Agent and Task scope; the Computer checks its

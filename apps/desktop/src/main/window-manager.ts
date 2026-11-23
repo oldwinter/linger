@@ -157,6 +157,7 @@ export class WindowManagerModule implements Module {
   #pendingTargetOrigin: string | undefined;
   #showingShellPage: WindowLoadState["showingShellPage"] = "none";
   #loadFailed = false;
+  #loadFailureSeq = 0;
   #loadStartedAt: number | undefined;
   #lastLoadReason: WindowLoadReason | undefined;
   #pendingShow = false;
@@ -444,7 +445,10 @@ export class WindowManagerModule implements Module {
     ) {
       return true;
     }
-    if (serverUrl !== previous) ctx.config.update({ serverUrl });
+    if (serverUrl !== previous) {
+      ctx.config.update({ serverUrl });
+      this.#pushState();
+    }
     if (moved) ctx.bus.emit("server.moved", movedFrom!, serverUrl);
     if (changed) ctx.bus.emit("server.changed", serverUrl);
     setImmediate(() => {
@@ -499,6 +503,7 @@ export class WindowManagerModule implements Module {
       options,
     );
     if (decision.action === "noop" || !decision.targetUrl) return;
+    this.#loadFailureSeq += 1;
     this.#pendingTargetOrigin = new URL(decision.targetUrl).origin;
     this.#showingShellPage = "none";
     this.#loadFailed = false;
@@ -525,6 +530,7 @@ export class WindowManagerModule implements Module {
   }
 
   #loadLocal(mode: "updating" | "starting" | "failed", value: string): void {
+    this.#loadFailureSeq += 1;
     this.#pendingTargetOrigin = undefined;
     this.#showingShellPage = mode === "failed" ? "start-failed" : "starting";
     this.#loadFailed = mode === "failed";
@@ -546,6 +552,7 @@ export class WindowManagerModule implements Module {
   }
 
   #loadOffline(error?: string): void {
+    this.#loadFailureSeq += 1;
     this.#pendingTargetOrigin = undefined;
     this.#showingShellPage = "offline";
     this.#loadFailed = Boolean(error);
@@ -620,6 +627,7 @@ export class WindowManagerModule implements Module {
     contents.on("will-navigate", (event) => event.preventDefault());
     contents.setWindowOpenHandler(() => ({ action: "deny" }));
     contents.on("will-attach-webview", (event) => event.preventDefault());
+    contents.on("did-finish-load", () => this.#pushState());
   }
 
   #guardContent(contents: WebContents): void {
@@ -678,6 +686,10 @@ export class WindowManagerModule implements Module {
     contents.on("did-fail-load", (_event, code, description, url, isMain) => {
       // -3 is an aborted load, usually a navigation replacing another.
       if (!isMain || code === -3 || url.startsWith(OFFLINE_ORIGIN)) return;
+      const serverUrl = this.#serverUrl();
+      // Ignore late failures from an older origin after the server moved or
+      // changed, so they never clobber the active navigation with Starting.
+      if (serverUrl && !sameOrigin(url, serverUrl)) return;
       this.#revealIfPending();
       this.#loadFailed = true;
       this.#pendingTargetOrigin = undefined;
@@ -686,13 +698,19 @@ export class WindowManagerModule implements Module {
         description,
         ...(this.#lastLoadReason ? { reason: this.#lastLoadReason } : {}),
       });
-      const serverUrl = this.#serverUrl();
+      const seq = ++this.#loadFailureSeq;
       const check =
         serverUrl && this.#options.localServerResumable
           ? this.#options.localServerResumable(serverUrl).catch(() => false)
           : Promise.resolve(false);
       void check.then((resumable) => {
-        if (this.#showingShellPage !== "none" || !this.#loadFailed) return;
+        if (
+          seq !== this.#loadFailureSeq ||
+          this.#showingShellPage !== "none" ||
+          !this.#loadFailed ||
+          this.#serverUrl() !== serverUrl
+        )
+          return;
         if (resumable) this.showStarting();
         else this.#loadOffline(description);
       });

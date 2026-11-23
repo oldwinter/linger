@@ -83,6 +83,10 @@
   on and never picks among models. Codex's built-in default may be one the
   account cannot use. A call the provider rejects with `model_not_found` is
   reported as `runtime_incompatible`, not as a transient failure.
+- Codex turn cleanup keeps receiving a process's notifications after its
+  Operation detaches, so a retried stop sees the turn complete. After an
+  invalid-request interrupt rejection the Daemon also accepts an idle status on
+  the same thread. Terminal cleanup and process exit checks still apply.
 
 - Default tests use deterministic providers and real fixture child processes;
   they never call a live model.
@@ -128,7 +132,12 @@
   ordinary Computer tests, fixtures, documentation, and example configuration
   do not require the full installer lifecycle gate. CI runs
   `make check-computer-go` (the daemon's Go unit tests) when `local-daemon/`
-  changes; the rest of `check-computer` stays local. CI does not replace the
+  changes, and `check (computer-go-windows)` builds every daemon package for
+  Windows and tests only `cmd/linger-computer-launcher`, `internal/computercli`,
+  `internal/computerconfig`, `internal/localmodels`, and `internal/process`
+  there; other packages (`internal/uiruntime`, `internal/provider/native`, and
+  so on) are not tested on Windows in CI. The rest of `check-computer` stays
+  local. CI does not replace the
   corresponding local verification.
 - When installer or lifecycle behavior changes, verify it under a temporary
   HOME (`make check-scripts-heavy`). Preserve install, safety-failure, rollback, and release

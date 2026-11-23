@@ -320,7 +320,7 @@ describe("bounded per-subject calendar recovery", () => {
     expect(calls).toHaveBeenCalledTimes(11);
     expect(row(file).pending).toEqual([]);
   });
-  it("fails a task whose Computer stays offline past the wait limit", async () => {
+  it("fails a task whose Computer stays offline for 24 hours", async () => {
     const file = await checkpoint();
     const calls = vi.fn(async () => {
       throw new ModelCallError("computer_offline", COMPUTER_OFFLINE_MESSAGE);
@@ -338,7 +338,10 @@ describe("bounded per-subject calendar recovery", () => {
       attempts: 0,
       offlineSince: start.getTime(),
     });
-    scheduler.runDueTasks(new Date(start.getTime() + 7 * 24 * 3_600_000));
+    scheduler.runDueTasks(new Date(start.getTime() + 24 * 3_600_000 - 300_000));
+    await scheduler.idle();
+    expect(row(file).failed).toEqual([]);
+    scheduler.runDueTasks(new Date(start.getTime() + 24 * 3_600_000));
     await scheduler.idle();
     const saved = row(file);
     expect(saved.failed).toContainEqual(

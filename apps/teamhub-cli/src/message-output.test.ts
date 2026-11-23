@@ -91,6 +91,39 @@ describe("message output", () => {
       }),
     ).toContain("Presentation is queued.");
   });
+  it("renders inbox names when present and keeps compact columns when absent", () => {
+    const withNames = renderMessageRead({
+      mode: "inboxes",
+      inboxes: [
+        { inbox_id: "room:room_1", kind: "room", name: "QA-CrossRoom-Target" },
+        { inbox_id: "meta:actor_a:task_1", kind: "meta" },
+      ],
+    });
+    expect(withNames).toBe(
+      "2 inboxes\n\nINBOX  KIND  NAME\nroom:room_1  room  QA-CrossRoom-Target\nmeta:actor_a:task_1  meta",
+    );
+    const withoutNames = renderMessageRead({
+      mode: "inboxes",
+      inboxes: [{ inbox_id: "room:room_1", kind: "room" }],
+    });
+    expect(withoutNames).toBe("1 inboxes\n\nINBOX  KIND\nroom:room_1  room");
+  });
+  it("escapes newlines and control characters in inbox names so table rows cannot be spoofed", () => {
+    const rendered = renderMessageRead({
+      mode: "inboxes",
+      inboxes: [
+        {
+          inbox_id: "room:room_1",
+          kind: "room",
+          name: "Safe\nroom:room_spoof  room  Fake\r\t\u0000\u001b\u007f",
+        },
+      ],
+    });
+    expect(rendered).toBe(
+      "1 inboxes\n\nINBOX  KIND  NAME\nroom:room_1  room  Safe\\nroom:room_spoof  room  Fake\\r\\t\\u0000\\u001b\\u007f",
+    );
+    expect(rendered.split("\n")).toHaveLength(4);
+  });
   it("does not invent duplicate status and retains complete tree resource identities", () => {
     expect(() => renderMessageDirect({ message_ids: [] })).toThrow(
       "duplicate-request",

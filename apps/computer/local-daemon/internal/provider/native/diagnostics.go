@@ -69,6 +69,13 @@ func processExitDiagnostics(state *os.ProcessState) RuntimeFailureDiagnostics {
 	return RuntimeFailureDiagnostics{}
 }
 
+// CodexErrorDiagnostics maps a Codex error object's codexErrorInfo value:
+// a string is the code; a single-key object names the code and may carry an
+// httpStatusCode.
+func CodexErrorDiagnostics(info json.RawMessage) RuntimeFailureDiagnostics {
+	return codexErrorDiagnostics(info)
+}
+
 // codexErrorDiagnostics maps a Codex error object's codexErrorInfo value:
 // a string is the code; a single-key object names the code and may carry an
 // httpStatusCode.

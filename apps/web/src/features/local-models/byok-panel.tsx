@@ -12,7 +12,7 @@ import {
   normalizeByokPath,
   validByokPath,
 } from "@linger/service-kit/byok-endpoint";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   type CSSProperties,
   type FormEvent,
@@ -47,6 +47,7 @@ import {
   modelSourceRuntimeLabels,
 } from "./local-models-copy";
 import { localModelsMessages as m } from "./local-models.messages";
+import { invalidateOfflineComputer } from "./local-models-queries";
 import type { ModelSourceSwitcher } from "./model-source-panel";
 import {
   type ByokEndpointInput,
@@ -86,6 +87,11 @@ const failureCopy = (error: unknown, t: Translate) =>
     ? byokFailureCopy(error.code, error.message, t)
     : byokFailureCopy(undefined, "", t);
 
+function abortController(ref: { current: AbortController | null }) {
+  ref.current?.abort();
+  ref.current = null;
+}
+
 /**
  * The person's own endpoint, addressed as base URL + path + endpoint. The API
  * key goes to the Computer, which keeps it private; Linger never shows it
@@ -97,15 +103,18 @@ export function ByokPanel({
   status,
   switcher,
   tenantId,
+  visible = true,
 }: {
   computerId: string;
   disabled: boolean;
   status: ModelSourceStatus;
   switcher: ModelSourceSwitcher;
   tenantId: string;
+  visible?: boolean;
 }) {
   const t = useT();
   const { client } = useTeamHubRuntime();
+  const queryClient = useQueryClient();
   const saved = status.byok;
   const savedRuntime = status.mode === "byok" ? status.runtime : "claude";
   const [runtime, setRuntime] = useState<ModelSourceRuntime>(savedRuntime);
@@ -159,13 +168,71 @@ export function ByokPanel({
   const complete = base !== "" && input.model_id !== "" && addressValid;
   const active = status.mode === "byok";
 
+  const modelsAbortRef = useRef<AbortController | null>(null);
+  const testAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(
+    () => () => {
+      abortController(modelsAbortRef);
+      abortController(testAbortRef);
+    },
+    [],
+  );
+
+  function syncOfflineIfNeeded(error: unknown) {
+    if (
+      error instanceof TeamHubError &&
+      error.code === "LOCAL_COMPUTER_OFFLINE"
+    ) {
+      void invalidateOfflineComputer(queryClient, tenantId, computerId);
+    }
+  }
+
   const models = useMutation({
-    mutationFn: (body: ByokEndpointInput) =>
-      listByokModels(client, tenantId, computerId, body),
+    mutationFn: async (body: ByokEndpointInput) => {
+      abortController(modelsAbortRef);
+      const controller = new AbortController();
+      modelsAbortRef.current = controller;
+      try {
+        return await listByokModels(
+          client,
+          tenantId,
+          computerId,
+          body,
+          controller.signal,
+        );
+      } catch (error) {
+        if (!controller.signal.aborted) syncOfflineIfNeeded(error);
+        throw error;
+      } finally {
+        if (modelsAbortRef.current === controller) {
+          modelsAbortRef.current = null;
+        }
+      }
+    },
   });
   const test = useMutation({
-    mutationFn: (body: ByokTestRequest) =>
-      testByokEndpoint(client, tenantId, computerId, body),
+    mutationFn: async (body: ByokTestRequest) => {
+      abortController(testAbortRef);
+      const controller = new AbortController();
+      testAbortRef.current = controller;
+      try {
+        return await testByokEndpoint(
+          client,
+          tenantId,
+          computerId,
+          body,
+          controller.signal,
+        );
+      } catch (error) {
+        if (!controller.signal.aborted) syncOfflineIfNeeded(error);
+        throw error;
+      } finally {
+        if (testAbortRef.current === controller) {
+          testAbortRef.current = null;
+        }
+      }
+    },
   });
   const listed = models.data?.models ?? [];
   const modelOptions = listed.map((model) => ({
@@ -194,16 +261,31 @@ export function ByokPanel({
   // Changing the address or key makes listed models and a test result stale;
   // changing only the endpoint, model or Runtime keeps the listed models.
   function resetTest() {
+    abortController(testAbortRef);
     test.reset();
     setToastShown(false);
   }
   function resetAll() {
+    abortController(modelsAbortRef);
     models.reset();
     resetTest();
   }
+  const abortHiddenProbes = useEffectEvent(() => {
+    abortController(modelsAbortRef);
+    if (models.isPending) models.reset();
+    abortController(testAbortRef);
+    if (test.isPending) test.reset();
+  });
+  useEffect(() => {
+    if (!visible) abortHiddenProbes();
+  }, [visible]);
 
   function save(event: FormEvent) {
     event.preventDefault();
+    abortController(modelsAbortRef);
+    if (models.isPending) models.reset();
+    abortController(testAbortRef);
+    if (test.isPending) test.reset();
     switcher.request({ byok: input, mode: "byok", runtime });
   }
 
@@ -213,10 +295,10 @@ export function ByokPanel({
   return (
     <form
       aria-label={t(m.modeByok)}
-      className="mt-6 rounded-xl border border-border"
+      className="mt-5 rounded-xl border border-border bg-card"
       onSubmit={save}
     >
-      <div className="grid grid-cols-1 gap-4 px-4 py-4">
+      <div className="grid grid-cols-1 gap-5 px-5 py-5">
         <div>
           <p className="mb-1.5 text-sm font-medium text-foreground">
             {t(m.aiRuntime)}
@@ -242,7 +324,7 @@ export function ByokPanel({
           <legend className="mb-1.5 text-sm font-medium text-foreground">
             {t(m.byokApiAddress)}
           </legend>
-          <div className="grid grid-cols-2 gap-x-1.5 gap-y-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
+          <div className="grid grid-cols-[minmax(5.5rem,2fr)_minmax(0,3fr)] gap-x-2 gap-y-2.5 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
             <div className="col-span-2 min-w-0 sm:col-span-1">
               <AddressLabel htmlFor={`${ids}-base`}>
                 {t(m.baseUrl)}
@@ -277,7 +359,7 @@ export function ByokPanel({
                 heading={t(m.byokPathHeading)}
                 menuClassName="-left-px sm:left-auto sm:-right-px"
                 id={`${ids}-path`}
-                inputClassName="font-mono text-[13px] sm:w-(--byok-fit) sm:flex-none"
+                inputClassName="font-mono text-xs sm:w-(--byok-fit) sm:flex-none"
                 inputStyle={fittedWidth(path)}
                 label={t(m.byokPath)}
                 onCommit={() => setPath(normalizeByokPath)}
@@ -311,7 +393,7 @@ export function ByokPanel({
                 heading={t(m.byokEndpointHeading)}
                 menuClassName="-right-px"
                 id={`${ids}-endpoint`}
-                inputClassName="font-mono text-[13px] sm:w-(--byok-fit) sm:flex-none"
+                inputClassName="font-mono text-xs sm:w-(--byok-fit) sm:flex-none"
                 inputStyle={fittedWidth(endpoint ?? runtimeEndpoint)}
                 label={t(m.byokEndpoint)}
                 onCommit={() =>
@@ -344,7 +426,7 @@ export function ByokPanel({
             </div>
           </div>
           <div
-            className="mt-1.5 grid gap-0.5 text-xs text-muted-foreground"
+            className="mt-2 grid gap-1 text-xs text-muted-foreground"
             id={addressHintId}
           >
             <p>{t(m.byokAddressHint)}</p>
@@ -356,7 +438,7 @@ export function ByokPanel({
                   message={
                     format.fromUrl ? m.byokSendsTo : m.byokSendsToRuntimeFormat
                   }
-                  tags={{ url: (text) => <Url>{text}</Url> }}
+                  tags={{ url: (text) => <Url chip>{text}</Url> }}
                   values={{
                     protocol: byokProtocolLabels[format.protocol],
                     runtime: modelSourceRuntimeLabels[runtime],
@@ -403,7 +485,7 @@ export function ByokPanel({
           >
             {t(m.model)}
           </label>
-          <div className="relative flex gap-1.5">
+          <div className="relative flex gap-2">
             <ByokCombobox
               aria-describedby={modelHintId}
               className="min-w-0 flex-1"
@@ -482,7 +564,7 @@ export function ByokPanel({
           </p>
         </div>
       </div>
-      <footer className="flex flex-wrap items-center justify-end gap-2 rounded-b-xl border-t border-border bg-muted/40 px-4 py-3">
+      <footer className="flex flex-wrap items-center justify-end gap-2 rounded-b-xl border-t border-border bg-muted/35 px-5 py-3">
         <Button
           disabled={disabled || !complete}
           loading={switcher.pending?.mode === "byok"}
@@ -514,18 +596,27 @@ function AddressLabel({
   );
 }
 
-function Url({ children }: { children: string }) {
-  return (
-    <span className="font-mono text-[0.95em] [overflow-wrap:anywhere]">
-      {children}
-    </span>
-  );
+function Url({ children, chip = false }: { children: string; chip?: boolean }) {
+  const baseClassName = "font-mono text-xs [overflow-wrap:anywhere]";
+  if (chip) {
+    return (
+      <code
+        className={cn(
+          baseClassName,
+          "rounded-sm bg-muted px-1.5 py-0.5 text-foreground",
+        )}
+      >
+        {children}
+      </code>
+    );
+  }
+  return <span className={baseClassName}>{children}</span>;
 }
 
 /**
- * A test result floating under the Test button. A success fades on its own
- * unless the pointer rests on it; a failure stays until dismissed, a click
- * elsewhere, or a changed input. A click on Test replaces it.
+ * A test result floating above the Test button so it never obscures the form
+ * footer action below. A success fades on its own unless the pointer rests on
+ * it; a failure stays until dismissed, a click elsewhere, or a changed input.
  */
 function TestToast({
   children,
@@ -567,7 +658,7 @@ function TestToast({
   return (
     <div
       className={cn(
-        "absolute right-0 top-full z-40 mt-2 grid w-[min(22rem,100%)] grid-cols-[16px_minmax(0,1fr)_20px] items-start gap-2 rounded-lg bg-primary py-2.5 pl-3 pr-2 text-left text-xs text-primary-foreground/80 shadow-lg before:absolute before:-top-1 before:right-6 before:size-2.5 before:rotate-45 before:rounded-[2px] before:bg-primary before:content-[''] motion-reduce:animate-none",
+        "absolute right-0 bottom-full z-40 mb-2 grid w-[min(22rem,100%)] grid-cols-[16px_minmax(0,1fr)_20px] items-start gap-2 rounded-lg bg-primary py-2.5 pr-2 pl-3 text-left text-xs text-primary-foreground/80 shadow-lg before:absolute before:right-6 before:-bottom-1 before:size-2.5 before:rotate-45 before:bg-primary before:content-[''] motion-reduce:animate-none",
         leaving
           ? "animate-[town-dropdown-out_200ms_ease_both]"
           : "animate-[town-dropdown-in_var(--app-floating-duration)_ease_both]",
@@ -589,9 +680,7 @@ function TestToast({
         size={16}
       />
       <div className="min-w-0">
-        <p className="text-[13px] font-medium text-primary-foreground">
-          {title}
-        </p>
+        <p className="text-sm font-medium text-primary-foreground">{title}</p>
         <p className="mt-0.5 [overflow-wrap:anywhere]">{children}</p>
       </div>
       <button

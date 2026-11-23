@@ -1,6 +1,6 @@
 import type { CommandDefinition } from "./command-definition.js";
 import { assertPositionals } from "./command-input.js";
-import { ConnectorError } from "./errors.js";
+import { CliError } from "./errors.js";
 import {
   connectorDefinition,
   optionalFields,
@@ -69,7 +69,7 @@ export const gmailCanvasCommandDefinitions: readonly CommandDefinition[] = [
       assertPositionals(args, 1);
       const documentId = args.positionals[0]!;
       if (!idPattern.test(documentId))
-        throw new ConnectorError("usage", "Provide a Native Document ID.");
+        throw new CliError("usage", "Provide a Native Document ID.");
       return {
         input: optionalFields({
           document_id: documentId,

@@ -760,21 +760,22 @@ SELECT * FROM agent_local_runs
 WHERE context_key=sqlc.arg(context_key)::text AND status='running'
 LIMIT 1;
 
--- name: NextAgentRunInputOrigins :many
--- Match claim order without locking the Run or returning message bodies.
-WITH next_run AS (
+-- name: QueuedAgentRunInputOrigins :many
+-- Every claimable queued Run, without locking it or returning message bodies:
+-- the Run claimed next serves them all, so it waits as the most urgent.
+WITH queued_run AS (
     SELECT run.run_id FROM agent_local_runs run
     WHERE run.context_key=sqlc.arg(context_key)::text AND run.status='queued'
       AND agent_document_run_claimable(run.run_id,run.context_key)
-    ORDER BY run.created_at, run.run_id LIMIT 1
 )
 SELECT DISTINCT (input.payload ? 'acceptedNotification')::boolean AS notification,
        coalesce(input.payload->'acceptedNotification'->>'inboxId' LIKE 'taskmeta:%', false)::boolean AS task_inbox,
        coalesce(msg.value->>'authorType', '')::text AS author_type,
        coalesce(msg.value->>'messageKind', '')::text AS message_kind,
-       coalesce(msg.value->>'firedRoutine' = 'true', false)::boolean AS fired_routine
-FROM next_run
-JOIN agent_local_run_inputs relation ON relation.run_id=next_run.run_id AND relation.relation='initial'
+       coalesce(msg.value->>'firedRoutine' = 'true', false)::boolean AS fired_routine,
+       coalesce(msg.value->>'humanWaiting' = 'true', false)::boolean AS human_waiting
+FROM queued_run
+JOIN agent_local_run_inputs relation ON relation.run_id=queued_run.run_id AND relation.relation='initial'
 JOIN agent_runtime_inputs input ON input.context_key=relation.context_key AND input.input_id=relation.input_id
 LEFT JOIN LATERAL jsonb_array_elements(input.payload->'acceptedNotification'->'messages') AS msg(value) ON true;
 

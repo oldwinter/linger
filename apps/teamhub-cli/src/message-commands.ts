@@ -1,5 +1,8 @@
 import { teamHubData } from "./http-client.js";
-import { decodeInlineEscapes } from "./content-segments.js";
+import {
+  decodeInlineEscapes,
+  parseActorReferences,
+} from "./content-segments.js";
 import type {
   CommandArguments,
   CommandDefinition,
@@ -18,8 +21,14 @@ import {
   targetFromFlags,
   values,
 } from "./command-input.js";
-import { parseActorReferences } from "./command-mentions.js";
 import { CliError } from "./errors.js";
+import {
+  inputIssue,
+  invalidInput,
+  missingMessage,
+  typeName,
+  unknownFieldMessage,
+} from "./input-issues.js";
 import {
   renderMessageRead,
   renderMessageSearch,
@@ -76,19 +85,47 @@ function id(value: unknown, label: string, max = 256): string {
   if (!idPattern.test(text)) fail(`${label} is not a valid identifier.`);
   return text;
 }
+/**
+ * Checks one JSON object's fields. `path` is where it sits: a flag for a
+ * whole JSON flag value, whose fields are then named relative to it, or a
+ * field path such as questions[0].
+ */
 function strict(
   value: unknown,
   allowed: readonly string[],
   required: readonly string[],
-  label: string,
+  path: string,
 ): Json {
-  if (
-    !record(value) ||
-    Object.keys(value).some((key) => !allowed.includes(key)) ||
-    required.some((key) => !Object.hasOwn(value, key))
-  )
-    fail(`${label} has invalid or unsupported fields.`);
-  return value as Json;
+  if (!record(value))
+    throw invalidInput(`${path} must be one JSON object.`, [
+      inputIssue(
+        path,
+        "invalid_type",
+        `expected object; got ${typeName(value)}.`,
+      ),
+    ]);
+  const field = (key: string) =>
+    path.startsWith("--") ? key : `${path}.${key}`;
+  const issues = [
+    ...required
+      .filter((key) => !Object.hasOwn(value, key))
+      .map((key) => inputIssue(field(key), "missing", missingMessage(false))),
+    ...Object.keys(value)
+      .filter((key) => !allowed.includes(key))
+      .map((key) =>
+        inputIssue(field(key), "unknown_field", unknownFieldMessage(allowed)),
+      ),
+  ];
+  if (issues.length)
+    throw invalidInput(
+      `${path} has missing fields or fields that are not allowed.`,
+      issues,
+    );
+  return value;
+}
+/** The flag a JSON value came from: `--name` or its `--name-file` twin. */
+function jsonFlag(args: CommandArguments, name: string): string {
+  return option(args, `${name}-file`) !== undefined ? `${name}-file` : name;
 }
 function cardTitle(args: CommandArguments): string {
   const title = requiredOption(args, "--title").trim();
@@ -201,7 +238,7 @@ export function validateMessageSegments(value: unknown): Json[] {
           segment,
           ["type", "content"],
           ["type", "content"],
-          "Text segment",
+          `segments[${index}]`,
         );
         string(segment.content, "Text content");
       } else if (type === "reference") {
@@ -209,7 +246,7 @@ export function validateMessageSegments(value: unknown): Json[] {
           segment,
           ["type", "content", "target", "target_type"],
           ["type", "content", "target", "target_type"],
-          "Reference segment",
+          `segments[${index}]`,
         );
         const label = string(segment.content, "Reference label", 120);
         if (
@@ -228,7 +265,7 @@ export function validateMessageSegments(value: unknown): Json[] {
             ? ["type", "content-path", "content", "mode"]
             : ["type", "document_id", "content", "presentation"],
           local ? ["type", "content-path"] : ["type", "document_id", "content"],
-          "Document segment",
+          `segments[${index}]`,
         );
         if (local) {
           resourcePath(segment["content-path"]);
@@ -254,7 +291,7 @@ export function validateMessageSegments(value: unknown): Json[] {
           segment,
           ["type", "title", "content-path", "content"],
           ["type", "title"],
-          "Fragment segment",
+          `segments[${index}]`,
         );
         const title = string(segment.title, "Fragment title", 120);
         if (title !== title.trim() || /[\r\n]/u.test(title))
@@ -289,7 +326,7 @@ async function ordinaryBodies(
     sources.map(async (item) =>
       string(
         item.name === "--file"
-          ? await reader.text(item.value)
+          ? await reader.text(item.value, "--file")
           : decodeInlineEscapes(item.value),
         "Message body",
       ),
@@ -325,7 +362,7 @@ async function normalizeSend(
       await jsonSource(args, reader, "--message", "--message-file"),
       ["segments"],
       ["segments"],
-      "Message",
+      jsonFlag(args, "--message"),
     ).segments;
   else {
     const body = await markdownBodySource(args, reader, false);
@@ -687,7 +724,7 @@ export const messageCommandDefinitions: readonly CommandDefinition[] = [
           await jsonSource(args, reader, "--message", "--message-file"),
           ["messages"],
           ["messages"],
-          "Sequence",
+          jsonFlag(args, "--message"),
         ).messages;
       else {
         const pause = requiredOption(args, "--pause");
@@ -711,7 +748,7 @@ export const messageCommandDefinitions: readonly CommandDefinition[] = [
           value,
           ["content", "pause_before"],
           ["content", "pause_before"],
-          "Sequence bubble",
+          `messages[${index}]`,
         );
         string(bubble.content, "Bubble content");
         if (
@@ -796,7 +833,7 @@ export const messageCommandDefinitions: readonly CommandDefinition[] = [
           ...(thread ? { thread_id: thread.id } : {}),
           title: cardTitle(args),
           questions: askUserQuestions(
-            parseJsonValue(requiredOption(args, "--questions")),
+            parseJsonValue(requiredOption(args, "--questions"), "--questions"),
           ),
         },
       };

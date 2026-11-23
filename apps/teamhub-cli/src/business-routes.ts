@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { components } from "@linger/wire-contracts/teamhub-agent-api/types";
 import { loadAgentCommandSchema } from "./command-schema-loader.js";
-import { ToolExecutionError } from "./domain-support/errors.js";
+import { invalidInput, zodInputIssues } from "./input-issues.js";
 import type { TeamHubApiPostPath } from "./http-client.js";
 
 /**
@@ -92,9 +92,9 @@ export async function encodeAgentCommandBody(
   if (schema) {
     const parsed = schema.input.safeParse(input);
     if (!parsed.success)
-      throw new ToolExecutionError(
-        "invalid_input",
-        "Command input does not match its business schema.",
+      throw invalidInput(
+        "The input does not match this command.",
+        zodInputIssues(parsed.error.issues, input, { schema: schema.input }),
       );
     validated = parsed.data as Record<string, unknown>;
   }

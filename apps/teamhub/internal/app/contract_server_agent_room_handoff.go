@@ -64,7 +64,7 @@ func (a *App) writeAgentRoomHandoffError(c *gin.Context, err error) bool {
 			"Only Another Me hands off, from its direct chat with its Human. In any other Room, work in that Room itself.")
 	case errors.Is(err, agentroomhandoff.ErrRoomUnavailable):
 		a.writeRoomHandoffRefusal(c, teamhubagentapi.AgentApiErrorCodeForbidden, "room_id", "room_unavailable",
-			"The target must be another live Room, not a Thread or this chat, where both you and your Human are members; teamhub message read --list-inboxes lists your Rooms.")
+			"The target must be another live Room, not a Thread or this chat, where both you and your Human are members; run teamhub message read --list-inboxes to find the target Room's room:<room-id> by name.")
 	case errors.Is(err, agentroomhandoff.ErrIdempotencyConflict):
 		a.writeAgentAPIError(c, http.StatusConflict, teamhubagentapi.AgentApiErrorCodeIdempotencyConflict, "Room handoff invocation was reused with different input")
 	case errors.Is(err, agentroomhandoff.ErrUnavailable):

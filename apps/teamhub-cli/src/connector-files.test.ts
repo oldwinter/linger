@@ -52,8 +52,10 @@ describe("connector attachments", () => {
     const cwd = await root();
     await writeFile(path.join(cwd, "report.md"), "report");
     await symlink(path.join(cwd, "report.md"), path.join(cwd, "alias.md"));
-    await expect(validateLocalFiles(["alias.md"], cwd)).rejects.toThrow(
-      /not a directory or symlink/,
-    );
+    await expect(validateLocalFiles(["alias.md"], cwd)).rejects.toMatchObject({
+      details: {
+        issues: [{ message: "alias.md: not an ordinary file." }],
+      },
+    });
   });
 });

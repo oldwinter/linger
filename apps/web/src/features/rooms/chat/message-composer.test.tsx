@@ -2387,3 +2387,163 @@ function stagedReply(
     ...overrides,
   };
 }
+
+describe("MessageComposer history", () => {
+  let roomCount = 0;
+  function historyScope() {
+    roomCount += 1;
+    return {
+      accountId: "account-1",
+      roomId: `history-room-${roomCount}`,
+      tenantId: "tenant-1",
+    };
+  }
+
+  async function sendText(editor: HTMLTextAreaElement, value: string) {
+    fireEvent.change(editor, { target: { value } });
+    await act(async () => {
+      fireEvent.keyDown(editor, { key: "Enter" });
+    });
+    expect(editor).toHaveValue("");
+  }
+
+  function caretAt(editor: HTMLTextAreaElement, offset: number) {
+    editor.setSelectionRange(offset, offset);
+  }
+
+  it("steps through sent messages from an empty draft and back to empty", async () => {
+    render(<MessageComposer historyScope={historyScope()} onSend={vi.fn()} />);
+    const editor = screen.getByLabelText<HTMLTextAreaElement>("Message Room");
+    await sendText(editor, "First message");
+    await sendText(editor, "Second message");
+
+    fireEvent.keyDown(editor, { key: "ArrowUp" });
+    expect(editor).toHaveValue("Second message");
+    expect(screen.getByText("History 2/2")).toBeVisible();
+
+    fireEvent.keyDown(editor, { key: "ArrowUp" });
+    expect(editor).toHaveValue("First message");
+    expect(screen.getByText("History 1/2")).toBeVisible();
+
+    // The oldest message is as far back as history goes.
+    fireEvent.keyDown(editor, { key: "ArrowUp" });
+    expect(editor).toHaveValue("First message");
+
+    fireEvent.keyDown(editor, { key: "ArrowDown" });
+    expect(editor).toHaveValue("Second message");
+    fireEvent.keyDown(editor, { key: "ArrowDown" });
+    expect(editor).toHaveValue("");
+    expect(screen.queryByText(/^History/)).not.toBeInTheDocument();
+  });
+
+  it("never replaces unsent text with a recalled message", async () => {
+    render(<MessageComposer historyScope={historyScope()} onSend={vi.fn()} />);
+    const editor = screen.getByLabelText<HTMLTextAreaElement>("Message Room");
+    await sendText(editor, "Sent");
+
+    fireEvent.change(editor, { target: { value: "Unsent" } });
+    caretAt(editor, 3);
+    fireEvent.keyDown(editor, { key: "ArrowUp" });
+
+    expect(editor).toHaveValue("Unsent");
+    expect(screen.queryByText(/^History/)).not.toBeInTheDocument();
+  });
+
+  it("treats an edited recalled message as an ordinary draft", async () => {
+    render(<MessageComposer historyScope={historyScope()} onSend={vi.fn()} />);
+    const editor = screen.getByLabelText<HTMLTextAreaElement>("Message Room");
+    await sendText(editor, "Recalled");
+
+    fireEvent.keyDown(editor, { key: "ArrowUp" });
+    fireEvent.change(editor, { target: { value: "Recalled, edited" } });
+
+    expect(screen.queryByText(/^History/)).not.toBeInTheDocument();
+    fireEvent.keyDown(editor, { key: "ArrowDown" });
+    expect(editor).toHaveValue("Recalled, edited");
+  });
+
+  it("keeps arrows for the caret inside a multiline recalled message and for an open picker", async () => {
+    const alice = {
+      display_name: "Alice",
+      id: "actor-alice",
+      kind: "human" as const,
+      tenant_id: "tenant-1",
+    };
+    render(
+      <MessageComposer
+        historyScope={historyScope()}
+        mentionOptions={[alice]}
+        onSend={vi.fn()}
+      />,
+    );
+    const editor = screen.getByLabelText<HTMLTextAreaElement>("Message Room");
+    await sendText(editor, "Sent");
+    await sendText(editor, "Line one\nLine two");
+
+    fireEvent.keyDown(editor, { key: "ArrowUp" });
+    expect(editor).toHaveValue("Line one\nLine two");
+    caretAt(editor, "Line one\nLi".length);
+    fireEvent.keyDown(editor, { key: "ArrowUp" });
+    expect(editor).toHaveValue("Line one\nLine two");
+    caretAt(editor, 2);
+    fireEvent.keyDown(editor, { key: "ArrowDown" });
+    expect(editor).toHaveValue("Line one\nLine two");
+    caretAt(editor, 2);
+    fireEvent.keyDown(editor, { key: "ArrowUp" });
+    expect(editor).toHaveValue("Sent");
+
+    fireEvent.change(editor, { target: { selectionStart: 1, value: "@" } });
+    expect(screen.getByRole("option", { name: /Alice/ })).toBeVisible();
+    fireEvent.keyDown(editor, { key: "ArrowUp" });
+    expect(editor).toHaveValue("@");
+
+    fireEvent.change(editor, { target: { value: "" } });
+    fireEvent.keyDown(editor, { key: "ArrowUp", isComposing: true });
+    fireEvent.keyDown(editor, { key: "ArrowUp", shiftKey: true });
+    expect(editor).toHaveValue("");
+  });
+
+  it("sends a recalled message with the Agent it mentioned", async () => {
+    const onSend = vi.fn();
+    const codex = {
+      display_name: "Codex",
+      id: "actor-codex",
+      kind: "agent" as const,
+      tenant_id: "tenant-1",
+    };
+    render(
+      <MessageComposer
+        historyScope={historyScope()}
+        mentionOptions={[codex]}
+        onSend={onSend}
+      />,
+    );
+    const editor = screen.getByLabelText<HTMLTextAreaElement>("Message Room");
+    fireEvent.change(editor, { target: { value: "@Cod" } });
+    fireEvent.click(screen.getByRole("option", { name: /Codex/ }));
+    await act(async () => {
+      fireEvent.keyDown(editor, { key: "Enter" });
+    });
+
+    fireEvent.keyDown(editor, { key: "ArrowUp" });
+    await act(async () => {
+      fireEvent.keyDown(editor, { key: "Enter" });
+    });
+
+    expect(onSend).toHaveBeenCalledTimes(2);
+    expect(onSend).toHaveBeenLastCalledWith({
+      body: "@Codex",
+      files: [],
+      mentions: [codex],
+    });
+  });
+
+  it("keeps no history without a scope", async () => {
+    render(<MessageComposer onSend={vi.fn()} />);
+    const editor = screen.getByLabelText<HTMLTextAreaElement>("Message Room");
+    await sendText(editor, "Not kept");
+
+    fireEvent.keyDown(editor, { key: "ArrowUp" });
+    expect(editor).toHaveValue("");
+  });
+});

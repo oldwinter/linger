@@ -8,9 +8,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/provider/native"
 )
 
 const testAgyProtocolHelperEnv = "LINGER_TEST_AGY_PROTOCOL_HELPER"
@@ -184,6 +187,62 @@ func TestClaudeProtocolProbeClosesInputAfterSplitInitialization(t *testing.T) {
 		`{"type":"control_request","request_id":"linger-computer-doctor","request":{"subtype":"initialize"}}`+"\n", 5*time.Second)
 	if err != nil {
 		t.Fatalf("Claude initialize did not close stdin cleanly: %v", err)
+	}
+}
+
+func TestClaudeProbesDisableNonessentialTrafficWithoutMutatingCallerEnv(t *testing.T) {
+	original := map[string]string{"ANTHROPIC_BASE_URL": "http://127.0.0.1:8080/anthropic"}
+	derived := native.ClaudeEnvironment(original)
+	if derived["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] != "1" {
+		t.Fatalf("native.ClaudeEnvironment() = %+v, want CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1", derived)
+	}
+	if _, mutated := original["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"]; mutated {
+		t.Fatal("native.ClaudeEnvironment mutated caller environment map")
+	}
+	if runtime.GOOS == "windows" {
+		return
+	}
+	root := t.TempDir()
+	claude := filepath.Join(root, "claude")
+	script := `#!/bin/sh
+want="${EXPECTED_NONESSENTIAL:-1}"
+if [ "$CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC" != "$want" ]; then exit 11; fi
+if [ "$1 $2 $3" = "auth status --json" ]; then
+  echo '{"loggedIn":true}'
+  exit 0
+fi
+IFS= read -r _request
+echo '{"type":"control_response","response":{"subtype":"success","request_id":"linger-computer-doctor"}}'
+exit 0
+`
+	if err := os.WriteFile(claude, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	callerEnv := map[string]string{"HOME": root, "PATH": root}
+	outcome := probeClaudeAuthStatus(context.Background(), claude, callerEnv, 5*time.Second)
+	if outcome.Status != "ready" {
+		t.Fatalf("probeClaudeAuthStatus() = %+v, want ready", outcome)
+	}
+	if _, mutated := callerEnv["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"]; mutated {
+		t.Fatal("probeClaudeAuthStatus mutated caller environment map")
+	}
+	if err := probeRuntimeProtocol(context.Background(), "claude", claude, callerEnv, 5*time.Second, ""); err != nil {
+		t.Fatalf("probeRuntimeProtocol(claude) = %v, want nil", err)
+	}
+	if _, mutated := callerEnv["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"]; mutated {
+		t.Fatal("probeRuntimeProtocol mutated caller environment map")
+	}
+	overrideEnv := map[string]string{
+		"HOME": root,
+		"PATH": root,
+		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "0",
+		"EXPECTED_NONESSENTIAL":                    "0",
+	}
+	if outcome := probeClaudeAuthStatus(context.Background(), claude, overrideEnv, 5*time.Second); outcome.Status != "ready" {
+		t.Fatalf("probeClaudeAuthStatus(override) = %+v, want ready", outcome)
+	}
+	if err := probeRuntimeProtocol(context.Background(), "claude", claude, overrideEnv, 5*time.Second, ""); err != nil {
+		t.Fatalf("probeRuntimeProtocol(claude, override) = %v, want nil", err)
 	}
 }
 

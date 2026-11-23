@@ -1,0 +1,216 @@
+name: Build desktop target
+description: Prepare the toolchain, caches, signing material and packaging image, then build and upload one desktop release target.
+
+inputs:
+  target:
+    description: Desktop build target (darwin-arm64, linux-x64, or win32-x64).
+    required: true
+  installer:
+    description: Standalone installer suffix uploaded alongside the platform artifact.
+    required: true
+  docker-image:
+    description: Packaging Docker image name (dmgtool or wintool), or empty when none is needed.
+    default: ""
+  ghcr-token:
+    description: Token used to log in to ghcr.io for pulling prebuilt packaging images.
+    default: ""
+  diagnostics-upload-url:
+    description: Hosted diagnostics receiver URL built into the desktop app.
+    default: ""
+  macos-developer-id-p12-base64:
+    description: Base64-encoded macOS Developer ID Application .p12 certificate.
+    default: ""
+  macos-developer-id-password:
+    description: Password for the macOS Developer ID .p12 certificate.
+    default: ""
+  macos-notary-key-json:
+    description: App Store Connect API key JSON for macOS notarization.
+    default: ""
+  windows-signing-p12-base64:
+    description: Base64-encoded Windows Authenticode .p12 certificate.
+    default: ""
+  windows-signing-password:
+    description: Password for the Windows Authenticode .p12 certificate.
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    # A target's build holds the bundled runtime, its archive and the
+    # package at once; the runner image's SDKs leave too little room.
+    - name: Free disk space
+      shell: bash
+      run: >-
+        sudo bash -c
+        'rm -rf /usr/share/dotnet & rm -rf /usr/local/lib/android & rm -rf /opt/ghc & rm -rf /opt/hostedtoolcache/CodeQL & wait'
+    - id: versions
+      shell: bash
+      run: |
+        echo "node=$(tr -d '[:space:]' <.node-version)" >>"$GITHUB_OUTPUT"
+        go_ver=$(sed -n 's/^toolchain go//p' apps/teamhub/go.mod | head -n 1)
+        [ -n "$go_ver" ] || go_ver=$(sed -n 's/^go //p' apps/teamhub/go.mod | head -n 1)
+        echo "go=$go_ver" >>"$GITHUB_OUTPUT"
+    - uses: actions/cache@v6
+      with:
+        path: ${{ runner.tool_cache }}/node/${{ steps.versions.outputs.node }}
+        key: toolcache-node-${{ runner.os }}-${{ runner.arch }}-${{ steps.versions.outputs.node }}
+    - uses: actions/cache@v6
+      with:
+        path: ${{ runner.tool_cache }}/go/${{ steps.versions.outputs.go }}
+        key: toolcache-go-${{ runner.os }}-${{ runner.arch }}-${{ steps.versions.outputs.go }}
+    - uses: pnpm/action-setup@v6
+    - uses: actions/setup-node@v7
+      with:
+        node-version-file: .node-version
+        cache: pnpm
+    # Reuse main's shared GOMODCACHE (populated by CI's check action) and fall
+    # back to main's go-desktop build cache so fresh desktop-v* tags start with
+    # warm Go modules and cross-compiled stdlib/daemon packages.
+    - uses: actions/setup-go@v7
+      with:
+        go-version-file: apps/teamhub/go.mod
+        cache: false
+    - uses: actions/cache/restore@v6
+      with:
+        path: ~/go/pkg/mod
+        key: gomod-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('apps/teamhub/go.sum', 'apps/computer/local-daemon/go.sum', 'contracts/generated/go/go.sum') }}
+        restore-keys: gomod-${{ runner.os }}-${{ runner.arch }}-
+    - uses: actions/cache@v6
+      with:
+        path: ~/.cache/go-build
+        key: desktop-gobuild-${{ inputs.target }}-${{ steps.versions.outputs.go }}-${{ hashFiles('apps/teamhub/go.sum', 'apps/computer/local-daemon/go.sum', 'contracts/generated/go/go.sum') }}
+        restore-keys: |
+          desktop-gobuild-${{ inputs.target }}-${{ steps.versions.outputs.go }}-
+          go-desktop-${{ runner.os }}-${{ hashFiles('apps/teamhub/go.sum', 'apps/computer/local-daemon/go.sum', 'contracts/generated/go/go.sum') }}-
+    - shell: bash
+      run: pnpm install --frozen-lockfile
+    # Pinned binary downloads reused across releases: Electron, Cua driver,
+    # native PostgreSQL + voice tools, and the pinned Node.js distribution.
+    - uses: actions/cache@v6
+      with:
+        path: |
+          ~/.cache/linger-desktop
+          ~/.cache/linger-computer-tools
+          ${{ env.LINGER_NATIVE_POSTGRES_DIR }}
+          .linger-runtime/node-distributions
+        key: desktop-downloads-${{ inputs.target }}-${{ hashFiles('apps/desktop/package.json', 'apps/desktop/distribution/*.json', 'scripts/local-computer-node-distributions.mjs', 'apps/computer/scripts/bundle-computer-tools.mjs') }}
+        restore-keys: desktop-downloads-${{ inputs.target }}-
+    - name: Log in to GHCR for packaging images
+      if: inputs.docker-image != ''
+      shell: bash
+      env:
+        GHCR_TOKEN: ${{ inputs.ghcr-token }}
+      run: |
+        set -euo pipefail
+        repo_lower="$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
+        echo "DESKTOP_PACKAGING_IMAGE_PREFIX=ghcr.io/$repo_lower/desktop" >>"$GITHUB_ENV"
+        if [ -n "$GHCR_TOKEN" ]; then
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin ||
+            echo "::warning::Could not log in to ghcr.io; packaging will build Docker images locally if pull fails."
+        fi
+    - name: Install rcodesign
+      if: inputs.target == 'darwin-arm64'
+      shell: bash
+      run: |
+        set -euo pipefail
+        name="apple-codesign-$APPLE_CODESIGN_VERSION-x86_64-unknown-linux-musl"
+        curl -fsSL --retry 3 -o "$RUNNER_TEMP/rcodesign.tar.gz" \
+          "https://github.com/indygreg/apple-platform-rs/releases/download/apple-codesign%2F$APPLE_CODESIGN_VERSION/$name.tar.gz"
+        echo "$APPLE_CODESIGN_SHA256  $RUNNER_TEMP/rcodesign.tar.gz" | sha256sum -c -
+        tar -xzf "$RUNNER_TEMP/rcodesign.tar.gz" -C "$RUNNER_TEMP"
+        echo "RCODESIGN=$RUNNER_TEMP/$name/rcodesign" >>"$GITHUB_ENV"
+    - name: Install osslsigncode
+      if: inputs.target == 'win32-x64'
+      shell: bash
+      env:
+        WINDOWS_SIGNING_P12_BASE64: ${{ inputs.windows-signing-p12-base64 }}
+      run: |
+        if [ -z "$WINDOWS_SIGNING_P12_BASE64" ]; then
+          echo "Skipping osslsigncode install: WINDOWS_SIGNING_P12_BASE64 is not set."
+          exit 0
+        fi
+        sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=3 update -q &&
+          sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=3 install -y -q osslsigncode
+    # Optional signing material goes to files only rcodesign, openssl and
+    # osslsigncode read; each is skipped when its secret is empty.
+    - name: Write signing files
+      shell: bash
+      env:
+        MACOS_DEVELOPER_ID_P12_BASE64: ${{ inputs.macos-developer-id-p12-base64 }}
+        MACOS_DEVELOPER_ID_PASSWORD: ${{ inputs.macos-developer-id-password }}
+        MACOS_NOTARY_KEY_JSON: ${{ inputs.macos-notary-key-json }}
+        WINDOWS_SIGNING_P12_BASE64: ${{ inputs.windows-signing-p12-base64 }}
+        WINDOWS_SIGNING_PASSWORD: ${{ inputs.windows-signing-password }}
+        TARGET: ${{ inputs.target }}
+      run: |
+        set -euo pipefail
+        umask 077
+        keys="$RUNNER_TEMP/signing"
+        mkdir -p "$keys"
+        if [ "$TARGET" = darwin-arm64 ] && [ -n "$MACOS_DEVELOPER_ID_P12_BASE64" ]; then
+          base64 -d <<<"$MACOS_DEVELOPER_ID_P12_BASE64" >"$keys/developer-id.p12"
+          printf '%s' "$MACOS_DEVELOPER_ID_PASSWORD" >"$keys/developer-id.password"
+          echo "MACOS_DEVELOPER_ID_P12=$keys/developer-id.p12" >>"$GITHUB_ENV"
+          echo "MACOS_DEVELOPER_ID_PASSWORD_FILE=$keys/developer-id.password" >>"$GITHUB_ENV"
+          if [ -n "$MACOS_NOTARY_KEY_JSON" ]; then
+            printf '%s' "$MACOS_NOTARY_KEY_JSON" >"$keys/notary.json"
+            echo "MACOS_NOTARY_KEY=$keys/notary.json" >>"$GITHUB_ENV"
+          fi
+        fi
+        if [ "$TARGET" = win32-x64 ] && [ -n "$WINDOWS_SIGNING_P12_BASE64" ]; then
+          base64 -d <<<"$WINDOWS_SIGNING_P12_BASE64" >"$keys/authenticode.p12"
+          printf '%s' "$WINDOWS_SIGNING_PASSWORD" >"$keys/authenticode.password"
+          echo "WINDOWS_SIGNING_P12=$keys/authenticode.p12" >>"$GITHUB_ENV"
+          echo "WINDOWS_SIGNING_PASSWORD_FILE=$keys/authenticode.password" >>"$GITHUB_ENV"
+        fi
+    - name: Build and package ${{ inputs.target }}
+      shell: bash
+      env:
+        # The hosted diagnostics receiver this build carries; a secret so
+        # the address stays masked. Without it Send Diagnostics is hidden.
+        LINGER_DIAGNOSTICS_UPLOAD_URL: ${{ inputs.diagnostics-upload-url }}
+      run: scripts/ci/desktop-release.sh build ${{ inputs.target }}
+    - name: Record Windows Setup digest
+      if: inputs.target == 'win32-x64'
+      shell: bash
+      run: |
+        cd "$RELEASE_OUT/assets"
+        sha256sum "Linger-$DESKTOP_VERSION-windows-x64-setup.exe" > windows-setup.sha256
+    - name: Remove signing files
+      if: always()
+      shell: bash
+      run: rm -rf "$RUNNER_TEMP/signing"
+    - uses: actions/upload-artifact@v7
+      if: inputs.target != 'win32-x64'
+      with:
+        name: desktop-${{ inputs.target }}
+        path: ${{ env.RELEASE_OUT }}/assets/
+        if-no-files-found: error
+        compression-level: 0
+        retention-days: 14
+    - uses: actions/upload-artifact@v7
+      if: inputs.target == 'win32-x64'
+      with:
+        name: desktop-win32-x64
+        path: |
+          ${{ env.RELEASE_OUT }}/assets/Linger-${{ env.DESKTOP_VERSION }}-windows-x64-setup.exe
+          ${{ env.RELEASE_OUT }}/assets/windows-setup.sha256
+        if-no-files-found: error
+        compression-level: 0
+        retention-days: 14
+    - uses: actions/upload-artifact@v7
+      if: inputs.target == 'win32-x64'
+      with:
+        name: desktop-win32-x64-portable
+        path: ${{ env.RELEASE_OUT }}/assets/Linger-${{ env.DESKTOP_VERSION }}-windows-x64-portable.zip
+        if-no-files-found: error
+        compression-level: 0
+        retention-days: 14
+    # The installer again on its own, not zipped, so a tester downloads
+    # only the file they run instead of every package for the platform.
+    - uses: actions/upload-artifact@v7
+      with:
+        path: ${{ env.RELEASE_OUT }}/assets/Linger-${{ env.DESKTOP_VERSION }}-${{ inputs.installer }}
+        archive: false
+        if-no-files-found: error
+        retention-days: 14

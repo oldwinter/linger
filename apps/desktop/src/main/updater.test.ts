@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events";
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { ComputerDaemonModule } from "./computer-daemon.js";
 import type { DesktopConfig } from "./config.js";
@@ -235,6 +235,236 @@ describe("UpdaterModule", () => {
     await waitFor(() => updater.state().kind === "ready");
     expect(updater.state()).toEqual({ kind: "ready", version: "0.17.0" });
     await host.stop("quit");
+  });
+
+  it("applies exponential backoff capped at checkIntervalMs and deduplicates repeated update.check_failed warnings", async () => {
+    vi.useFakeTimers();
+    try {
+      const feed = release("0.16.7");
+      let mode: "offline" | "timeout" | "ok" = "offline";
+      const attempts: number[] = [];
+      const failingFetch = (async (url: URL) => {
+        if (url.pathname.endsWith("/manifest.json")) attempts.push(Date.now());
+        if (mode === "offline") throw new TypeError("fetch failed");
+        if (mode === "timeout") throw new Error("timed out");
+        return feed.fetch(url);
+      }) as unknown as typeof globalThis.fetch;
+
+      const root = tempDirectory();
+      const warnings: Array<{
+        event: string;
+        fields?: Record<string, unknown>;
+      }> = [];
+      const updater = new UpdaterModule({
+        version: "0.16.7",
+        platform: "darwin",
+        arch: "arm64",
+        install: { kind: "download" },
+        downloadDirectory: path.join(root, "updates"),
+        restart: async () => {},
+        quit: async () => {},
+        openExternal: async () => {},
+        fetch: failingFetch,
+        publicKey: feed.publicKey,
+        checkDelayMs: 60_000,
+        retryDelayMs: 5 * 60_000,
+        checkIntervalMs: 60 * 60_000,
+      });
+      const host = testHost([
+        stubModule("Config"),
+        stubModule("ComputerDaemon"),
+        updater,
+      ]);
+      const warnSpy = vi
+        .spyOn(host.ctx.log, "warn")
+        .mockImplementation((event, fields) => {
+          warnings.push({ event, fields });
+        });
+      await host.start();
+
+      // 1st failure at +1m -> next retry in 5m.
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(attempts).toHaveLength(1);
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toEqual({
+        event: "update.check_failed",
+        fields: { error: "TypeError: fetch failed", retry_ms: 5 * 60_000 },
+      });
+
+      // 2nd failure at +5m -> next retry in 10m; identical error is deduplicated.
+      await vi.advanceTimersByTimeAsync(5 * 60_000 - 1);
+      expect(attempts).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(attempts).toHaveLength(2);
+      expect(warnings).toHaveLength(1);
+
+      // 3rd failure at +10m -> next retry in 20m; still deduplicated.
+      await vi.advanceTimersByTimeAsync(10 * 60_000 - 1);
+      expect(attempts).toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(attempts).toHaveLength(3);
+      expect(warnings).toHaveLength(1);
+
+      // 4th failure at +20m with a different error -> logs again with suppressed count; next retry 40m.
+      mode = "timeout";
+      await vi.advanceTimersByTimeAsync(20 * 60_000);
+      expect(attempts).toHaveLength(4);
+      expect(warnings).toHaveLength(2);
+      expect(warnings[1]).toEqual({
+        event: "update.check_failed",
+        fields: {
+          error: "Error: timed out",
+          retry_ms: 40 * 60_000,
+          suppressed_failures: 2,
+        },
+      });
+
+      // 5th failure at +40m -> capped at checkIntervalMs (60m).
+      await vi.advanceTimersByTimeAsync(40 * 60_000);
+      expect(attempts).toHaveLength(5);
+      expect(warnings).toHaveLength(2);
+
+      // 6th check at +60m succeeds -> resets backoff and failure dedup state.
+      mode = "ok";
+      await vi.advanceTimersByTimeAsync(60 * 60_000 - 1);
+      expect(attempts).toHaveLength(5);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(attempts).toHaveLength(6);
+      expect(updater.state()).toEqual({ kind: "idle" });
+
+      // Next scheduled check after recovery runs at checkIntervalMs (60m);
+      // if it fails again, it logs and resets backoff to 5m.
+      mode = "offline";
+      await vi.advanceTimersByTimeAsync(60 * 60_000);
+      expect(attempts).toHaveLength(7);
+      expect(warnings).toHaveLength(3);
+      expect(warnings[2]).toEqual({
+        event: "update.check_failed",
+        fields: { error: "TypeError: fetch failed", retry_ms: 5 * 60_000 },
+      });
+
+      warnSpy.mockRestore();
+      await host.stop("quit");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not reschedule or duplicate timers when stop() or stop()/start() races an in-flight check()", async () => {
+    vi.useFakeTimers();
+    try {
+      const feed = release("0.16.7");
+      const gates: Array<() => void> = [];
+      let manifestCalls = 0;
+      const gatedFetch = (async (url: URL) => {
+        if (url.pathname.endsWith("/manifest.json")) {
+          manifestCalls += 1;
+          await new Promise<void>((resolve) => {
+            gates.push(resolve);
+          });
+          throw new TypeError("fetch failed");
+        }
+        return feed.fetch(url);
+      }) as unknown as typeof globalThis.fetch;
+
+      const root = tempDirectory();
+      const updater = new UpdaterModule({
+        version: "0.16.7",
+        platform: "darwin",
+        arch: "arm64",
+        install: { kind: "download" },
+        downloadDirectory: path.join(root, "updates"),
+        restart: async () => {},
+        quit: async () => {},
+        openExternal: async () => {},
+        fetch: gatedFetch,
+        publicKey: feed.publicKey,
+        checkDelayMs: 1_000,
+        retryDelayMs: 5_000,
+        checkIntervalMs: 60_000,
+      });
+      const host = testHost([
+        stubModule("Config"),
+        stubModule("ComputerDaemon"),
+        updater,
+      ]);
+      await host.start();
+
+      // Trigger first scheduled check and leave it in flight.
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(manifestCalls).toBe(1);
+      expect(gates).toHaveLength(1);
+
+      // Stop while check() is in flight, then settle the check; no retry timer should fire.
+      await updater.stop();
+      gates.shift()!();
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(manifestCalls).toBe(1);
+
+      // Restart, kick off another in-flight check, then stop() + start() before it settles.
+      await updater.start(host.ctx);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(manifestCalls).toBe(2);
+      expect(gates).toHaveLength(1);
+
+      await updater.stop();
+      await updater.start(host.ctx);
+      // Settle the stale check from the previous generation: it must not schedule a duplicate timer.
+      gates.shift()!();
+      await vi.advanceTimersByTimeAsync(999);
+      expect(manifestCalls).toBe(2);
+
+      // Only the new generation's single timer fires at +1000ms.
+      await vi.advanceTimersByTimeAsync(1);
+      expect(manifestCalls).toBe(3);
+      gates.shift()!();
+      await updater.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("guards backoff against zero retryDelayMs and large consecutive failure counts", async () => {
+    vi.useFakeTimers();
+    try {
+      const feed = release("0.16.7");
+      const warnings: Array<Record<string, unknown> | undefined> = [];
+      const updater = new UpdaterModule({
+        version: "0.16.7",
+        platform: "darwin",
+        arch: "arm64",
+        install: { kind: "download" },
+        downloadDirectory: path.join(tempDirectory(), "updates"),
+        restart: async () => {},
+        quit: async () => {},
+        openExternal: async () => {},
+        fetch: (async () => {
+          throw new TypeError("offline");
+        }) as unknown as typeof globalThis.fetch,
+        publicKey: feed.publicKey,
+        checkDelayMs: 60_000,
+        retryDelayMs: 0,
+        checkIntervalMs: 60_000,
+      });
+      const host = testHost([
+        stubModule("Config"),
+        stubModule("ComputerDaemon"),
+        updater,
+      ]);
+      const warnSpy = vi
+        .spyOn(host.ctx.log, "warn")
+        .mockImplementation((_event, fields) => {
+          warnings.push(fields);
+        });
+      await host.start();
+      await updater.check();
+      expect(warnings[0]?.retry_ms).toBe(0);
+      expect(Number.isFinite(warnings[0]?.retry_ms)).toBe(true);
+      warnSpy.mockRestore();
+      await host.stop("quit");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("stays idle when the latest release is not newer", async () => {

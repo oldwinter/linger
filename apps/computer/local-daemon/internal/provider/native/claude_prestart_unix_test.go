@@ -196,15 +196,15 @@ func TestClaudePrestartLeavesCompatibleResidentAlone(t *testing.T) {
 func TestClaudePrestartReplacesIncompatibleResident(t *testing.T) {
 	claudeEnableResidency(t, DefaultResidentCap)
 	home := claudeNewResidentHome(t, nil)
-	_, out := home.turn(t, "hello", RunSpec{AssignSessionID: claudeTestSession, AppendPrompt: "prompt"})
+	_, out := home.turn(t, "hello", RunSpec{AssignSessionID: claudeTestSession, SystemPrompt: "prompt"})
 	claudeMustComplete(t, out)
-	pre := home.prestart(t, RunSpec{ResumeID: claudeTestSession, ResumeRequired: true, AppendPrompt: "prompt B"})
+	pre := home.prestart(t, RunSpec{ResumeID: claudeTestSession, ResumeRequired: true, SystemPrompt: "prompt B"})
 	pids := home.pids(t)
 	if !pre.Parked || len(pids) != 2 || !holdsPrestart() {
 		t.Fatalf("pre-start = %+v pids = %v", pre, pids)
 	}
 	claudeAssertGone(t, pids[:1])
-	_, out = home.turn(t, "hello", RunSpec{ResumeID: claudeTestSession, ResumeRequired: true, AppendPrompt: "prompt B"})
+	_, out = home.turn(t, "hello", RunSpec{ResumeID: claudeTestSession, ResumeRequired: true, SystemPrompt: "prompt B"})
 	claudeMustComplete(t, out)
 	if len(home.pids(t)) != 2 || holdsPrestart() {
 		t.Fatalf("pids = %v", home.pids(t))

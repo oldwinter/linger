@@ -637,6 +637,23 @@ describe("TeamHub routes", () => {
     expect(screen.getByRole("button", { name: "Open Messages" })).toBeVisible();
   });
 
+  it("resolves bare /t/:tenantId/dashboard without 404", async () => {
+    const runtime = createTestTeamHubRuntime();
+    const queryClient = testQueryClient();
+    const router = createMemoryRouter(createAppRoutes(queryClient, runtime), {
+      initialEntries: ["/t/tenant-northstar/dashboard"],
+    });
+
+    renderApp(queryClient, runtime, router);
+
+    expect(
+      await screen.findByRole("heading", { name: "Fixture Dashboard" }),
+    ).toBeVisible();
+    expect(router.state.location.pathname).toBe(
+      "/t/tenant-northstar/dashboard",
+    );
+  });
+
   it("preloads the Room chat chunk from /, /t/:tenantId/rooms, and /t/:tenantId/rooms/:roomId loaders", async () => {
     const runtime = createTestTeamHubRuntime();
     const queryClient = testQueryClient();

@@ -1,6 +1,12 @@
 import type { CommandArguments } from "./command-definition.js";
 import { option, values } from "./command-input.js";
-import { ConnectorError as CliError } from "./errors.js";
+import { CliError } from "./errors.js";
+import {
+  echo,
+  flagNotOneOf,
+  flagOutOfRange,
+  invalidFlag,
+} from "./input-issues.js";
 import type { Json } from "./connector-runtime.js";
 
 export const usage = (message: string): never => {
@@ -13,10 +19,16 @@ export function text(value: unknown, label: string, max = 512): string {
     [...value].length > max ||
     /[\r\n\p{Cc}]/u.test(value)
   )
-    usage(
-      `${label} requires a nonempty value of at most ${max} characters without line breaks.`,
+    throw invalidFlag(
+      label,
+      typeof value === "string" && [...value].length > max
+        ? "out_of_range"
+        : "invalid_value",
+      typeof value === "string" && [...value].length > max
+        ? `must be 1 to ${max} characters; got ${[...value].length}.`
+        : `must be nonempty text without line breaks; got ${typeof value === "string" ? echo(value) : "nothing"}.`,
     );
-  return value as string;
+  return value;
 }
 export function number(
   value: string | undefined,
@@ -32,7 +44,7 @@ export function number(
     Number(value) < min ||
     Number(value) > max
   )
-    usage(`${label} must be an integer from ${min} to ${max}.`);
+    throw flagOutOfRange(label, min, max, value);
   return Number(value);
 }
 export function choice(
@@ -42,8 +54,7 @@ export function choice(
   fallback?: string,
 ): string | undefined {
   if (value === undefined) return fallback;
-  if (!allowed.includes(value))
-    usage(`${label} must be ${allowed.join(" / ")}.`);
+  if (!allowed.includes(value)) throw flagNotOneOf(label, allowed, value);
   return value;
 }
 export function email(value: string): string {

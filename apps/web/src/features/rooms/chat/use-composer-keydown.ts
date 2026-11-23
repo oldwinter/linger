@@ -1,6 +1,7 @@
 import type { KeyboardEvent } from "react";
 
 import type { ComposerDraft } from "./use-composer-draft";
+import type { ComposerHistory } from "./use-composer-history";
 import {
   adjacentMentionTab,
   adjacentSelectableIndex,
@@ -13,16 +14,21 @@ import type { ComposerSend } from "./use-composer-send";
 export interface ComposerKeyDownInput {
   clearReplyContext?: () => void;
   draft: ComposerDraft;
+  history: ComposerHistory;
   insertion: ComposerReferenceInsertion;
   picker: ComposerPicker;
   quoteReply: ComposerQuoteReply;
   sending: ComposerSend;
 }
 
-/** Picker navigation and Enter-to-send, deferring to an open IME composition. */
+/**
+ * Picker navigation, sent-message history and Enter-to-send, deferring to an
+ * open IME composition.
+ */
 export function useComposerKeyDown({
   clearReplyContext,
   draft: { isComposing },
+  history: { step },
   insertion: { insertAtPickerItem, insertSkill },
   picker: {
     activeMentionIndex,
@@ -138,6 +144,22 @@ export function useComposerKeyDown({
       event.preventDefault();
       event.stopPropagation();
       clearReplyContext();
+      return;
+    }
+
+    if (
+      (event.key === "ArrowUp" || event.key === "ArrowDown") &&
+      !mentionQuery &&
+      !skillQuery &&
+      !event.altKey &&
+      !event.ctrlKey &&
+      !event.metaKey &&
+      !event.shiftKey &&
+      // Read-only while sending or in Voice Mode.
+      !event.currentTarget.readOnly &&
+      step(event.key === "ArrowUp" ? -1 : 1, event.currentTarget)
+    ) {
+      event.preventDefault();
       return;
     }
 

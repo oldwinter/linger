@@ -162,7 +162,7 @@ func claudeDecodeMarker(data []byte, identity string) (claudeMarker, error) {
 // invalid existing marker is reported and left untouched.
 func claudeWriteMarker(root, identity, prompt string) error {
 	if len(prompt) > claudePromptLimit || !utf8.ValidString(prompt) {
-		return errors.New("Claude system prompt addition is too large or not UTF-8")
+		return errors.New("Claude system prompt is too large or not UTF-8")
 	}
 	if err := claudeCheckMarkerTarget(root, identity); err != nil {
 		return err

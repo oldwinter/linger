@@ -4,7 +4,7 @@ import remarkGfm from "remark-gfm";
 import remarkStringify from "remark-stringify";
 import { unified } from "unified";
 import type { CommandExecutionContext } from "./command-definition.js";
-import { ConnectorError } from "./errors.js";
+import { CliError } from "./errors.js";
 
 /** The same cut TeamHub applies to a page a provider opened. */
 export const maxMarkdownCharacters = 20000;
@@ -67,7 +67,7 @@ const droppedRoles = new Set([
 ]);
 
 const unreadable = (message: string) =>
-  new ConnectorError("page_unreadable", message);
+  new CliError("page_unreadable", message);
 
 /** True for an absolute http or https URL within the contract's bound. */
 export function webURL(value: string): boolean {

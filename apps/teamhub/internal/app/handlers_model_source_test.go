@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -70,6 +71,9 @@ func TestModelSourceRefusalCodesMapRoomErrors(t *testing.T) {
 			t.Fatalf("%s mapped to %q (ok=%v), want %q", computerCode, got, ok, httpapi.ModelSourceErrorCodeLocalModelNoRoom)
 		}
 	}
+	if got := modelSourceRefusalCodes["MODEL_SOURCE_EXPIRED"]; got != httpapi.ModelSourceErrorCodeModelSourceUnconfirmed {
+		t.Fatalf("MODEL_SOURCE_EXPIRED mapped to %q, want %q", got, httpapi.ModelSourceErrorCodeModelSourceUnconfirmed)
+	}
 	if modelSourceErrorMessages[httpapi.ModelSourceErrorCodeLocalModelNoRoom] == "" {
 		t.Fatal("LOCAL_MODEL_NO_ROOM has no message")
 	}
@@ -127,5 +131,61 @@ func TestWriteModelSourceFailureMapsByokGatewayFailedWithComputerDetail(t *testi
 		body.Error.Message != modelSourceErrorMessages[httpapi.ModelSourceErrorCodeModelSourceFailed] ||
 		body.Error.Details != nil {
 		t.Fatalf("unknown refusal: status=%d body=%+v", status, body)
+	}
+}
+
+func TestWriteModelSourceFailureClassifiesTimeoutsCancelsAndRedactsAllowedMessages(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	a := &App{logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+
+	run := func(cancelReq bool, err error) (int, httpapi.ErrorResponse) {
+		t.Helper()
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Set("request_id", "req_model_source_test")
+		reqCtx, cancel := context.WithCancel(context.Background())
+		if cancelReq {
+			cancel()
+		} else {
+			defer cancel()
+		}
+		c.Request = httptest.NewRequest(http.MethodPost, "/model-source", nil).WithContext(reqCtx)
+		a.writeModelSourceFailure(c, "computer_1", "models", err)
+		var body httpapi.ErrorResponse
+		if decErr := json.Unmarshal(w.Body.Bytes(), &body); decErr != nil {
+			t.Fatalf("decode response %q: %v", w.Body.String(), decErr)
+		}
+		return w.Code, body
+	}
+
+	if status, body := run(false, context.DeadlineExceeded); status != http.StatusGatewayTimeout || body.Error.Code != string(httpapi.ModelSourceErrorCodeModelSourceUnconfirmed) {
+		t.Fatalf("deadline exceeded -> %d %+v", status, body)
+	}
+	if status, body := run(true, context.Canceled); status != http.StatusGatewayTimeout || body.Error.Code != string(httpapi.ModelSourceErrorCodeModelSourceUnconfirmed) {
+		t.Fatalf("client cancel -> %d %+v", status, body)
+	}
+	if status, body := run(false, context.Canceled); status != http.StatusServiceUnavailable || body.Error.Code != string(httpapi.ModelSourceErrorCodeModelSourceServiceUnavailable) {
+		t.Fatalf("unexpected backend cancel -> %d %+v", status, body)
+	}
+	if status, body := run(false, &roomagent.ModelSourceError{Code: "MODEL_SOURCE_EXPIRED"}); status != http.StatusGatewayTimeout || body.Error.Code != string(httpapi.ModelSourceErrorCodeModelSourceUnconfirmed) {
+		t.Fatalf("MODEL_SOURCE_EXPIRED -> %d %+v", status, body)
+	}
+	status, body := run(false, &roomagent.ModelSourceError{
+		Code:    "BYOK_GATEWAY_FAILED",
+		Message: `Operation not permitted: '/bin/ps' reading '/home/alice/.local/share/localmodels/state.json', ~/secret.key, and C:\Users\alice\secret.key calling https://user:pass@api.example.com/v1/models?api_key=sk-1234567890abcdef123456 with Bearer tok_secret`,
+	})
+	if status != http.StatusBadGateway || body.Error.Code != string(httpapi.ModelSourceErrorCodeByokGatewayFailed) {
+		t.Fatalf("redacted BYOK_GATEWAY_FAILED -> %d %+v", status, body)
+	}
+	if body.Error.Details == nil || len(*body.Error.Details) != 1 || (*body.Error.Details)[0].Field != "gateway" || (*body.Error.Details)[0].Reason != body.Error.Message {
+		t.Fatalf("expected scrubbed gateway detail, got %+v", body.Error.Details)
+	}
+	for _, leaked := range []string{"/home/alice", "~/secret.key", `C:\Users\alice`, "user:pass", "sk-1234567890abcdef123456", "api_key=", "tok_secret"} {
+		if strings.Contains(body.Error.Message, leaked) {
+			t.Fatalf("BYOK_GATEWAY_FAILED leaked %q in %q", leaked, body.Error.Message)
+		}
+	}
+	if !strings.Contains(body.Error.Message, "'/bin/ps'") {
+		t.Fatalf("BYOK_GATEWAY_FAILED redacted benign binary path '/bin/ps' in %q", body.Error.Message)
 	}
 }

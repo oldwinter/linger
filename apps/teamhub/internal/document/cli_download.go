@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -176,11 +178,12 @@ func (s *Service) downloadLinkFile(ctx context.Context, token string) (AgentFile
 
 func (s *Service) downloadAuthorizedFile(ctx context.Context, tx pgx.Tx, tenantID, documentID, role, format, ifNoneMatch string, reader string) (AgentFileDownload, error) {
 	result := AgentFileDownload{AgentFileEntry: AgentFileEntry{DocumentID: documentID, Role: role}}
+	var title string
 	var native, importing bool
 	var versionID *string
 	err := tx.QueryRow(ctx, `SELECT title,current_version_id,format,format='blocknote' OR EXISTS(SELECT 1 FROM document_bodies WHERE document_id=documents.id),
  native_import_status IS NOT NULL
-  FROM documents WHERE id=$1 AND tenant_id=$2 AND status='active'`, documentID, tenantID).Scan(&result.Name, &versionID, &result.RepresentationFormat, &native, &importing)
+  FROM documents WHERE id=$1 AND tenant_id=$2 AND status='active'`, documentID, tenantID).Scan(&title, &versionID, &result.RepresentationFormat, &native, &importing)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return result, ErrNotFound
 	}
@@ -220,6 +223,9 @@ func (s *Service) downloadAuthorizedFile(ctx context.Context, tx pgx.Tx, tenantI
 	if err != nil {
 		return result, err
 	}
+	if reader == "share" {
+		result.Filename = resolveSharedDownloadFilename(title, result.Filename)
+	}
 	result.Name = result.Filename
 	if err := tx.Commit(ctx); err != nil {
 		return result, err
@@ -252,4 +258,36 @@ func (s *Service) downloadAuthorizedFile(ctx context.Context, tx pgx.Tx, tenantI
 		observeLatestRead(ctx, reader, format, "hit", documentID, result.VersionID)
 	}
 	return result, nil
+}
+
+// resolveSharedDownloadFilename derives the public download filename from the
+// Document's title, keeping the stored representation's extension when the
+// title does not already end in it. Path separators, NUL bytes, and control
+// characters are neutralized so callers receive a valid single-segment name.
+func resolveSharedDownloadFilename(title, storedFilename string) string {
+	clean := func(value string) string {
+		mapped := strings.Map(func(character rune) rune {
+			switch {
+			case character <= 0x1f || character == 0x7f:
+				return ' '
+			case character == '/' || character == '\\':
+				return '-'
+			default:
+				return character
+			}
+		}, value)
+		return strings.Join(strings.Fields(mapped), " ")
+	}
+	storedBase := clean(path.Base(strings.TrimSpace(storedFilename)))
+	name := clean(title)
+	if name == "" || name == "." || name == ".." {
+		name = storedBase
+	}
+	if name == "" || name == "." || name == ".." {
+		name = "document"
+	}
+	if ext := path.Ext(storedBase); ext != "" && ext != "." && ext != storedBase && !strings.EqualFold(path.Ext(name), ext) {
+		name += ext
+	}
+	return SafeSourceFilename(name)
 }

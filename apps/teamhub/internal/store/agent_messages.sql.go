@@ -84,17 +84,17 @@ func (q *Queries) IsAgentReplySourceMessage(ctx context.Context, arg IsAgentRepl
 
 const listAgentHistoryInboxes = `-- name: ListAgentHistoryInboxes :many
 WITH candidates AS (
-    SELECT 'room:'||room.id AS inbox_id,'room'::text AS kind FROM rooms room
+    SELECT 'room:'||room.id AS inbox_id,'room'::text AS kind,COALESCE(room.name,'')::text AS name FROM rooms room
     WHERE room.tenant_id=$1::text AND room.parent_room_id IS NULL
-    UNION SELECT 'thread:'||thread.id,'thread' FROM rooms thread
+    UNION SELECT 'thread:'||thread.id,'thread',COALESCE(thread.name,'') FROM rooms thread
     WHERE thread.tenant_id=$1::text AND thread.parent_room_id IS NOT NULL
-    UNION SELECT 'task:'||link.work_item_id,'task' FROM work_item_room_links link
+    UNION SELECT 'task:'||link.work_item_id,'task',COALESCE(task.title,'') FROM work_item_room_links link
     JOIN work_items task ON task.id=link.work_item_id AND task.tenant_id=link.tenant_id AND task.kind='task'
     WHERE link.tenant_id=$1::text AND link.link_type='work'
-    UNION SELECT 'meta:'||inbox.agent_actor_id||':'||inbox.task_id,'meta' FROM task_meta_inboxes inbox WHERE inbox.tenant_id=$1::text
-    UNION SELECT 'taskmeta:'||callback.task_id,'taskmeta' FROM task_meta_callbacks callback WHERE callback.tenant_id=$1::text
+    UNION SELECT 'meta:'||inbox.agent_actor_id||':'||inbox.task_id,'meta',''::text FROM task_meta_inboxes inbox WHERE inbox.tenant_id=$1::text
+    UNION SELECT 'taskmeta:'||callback.task_id,'taskmeta',''::text FROM task_meta_callbacks callback WHERE callback.tenant_id=$1::text
 )
-SELECT inbox_id::text AS inbox_id,kind FROM candidates
+SELECT inbox_id::text AS inbox_id,kind,name FROM candidates
 WHERE actor_can_read_inbox($1::text,$2::text,inbox_id)
 ORDER BY inbox_id
 `
@@ -107,6 +107,7 @@ type ListAgentHistoryInboxesParams struct {
 type ListAgentHistoryInboxesRow struct {
 	InboxID string `json:"inbox_id"`
 	Kind    string `json:"kind"`
+	Name    string `json:"name"`
 }
 
 func (q *Queries) ListAgentHistoryInboxes(ctx context.Context, arg ListAgentHistoryInboxesParams) ([]ListAgentHistoryInboxesRow, error) {
@@ -118,7 +119,7 @@ func (q *Queries) ListAgentHistoryInboxes(ctx context.Context, arg ListAgentHist
 	items := []ListAgentHistoryInboxesRow{}
 	for rows.Next() {
 		var i ListAgentHistoryInboxesRow
-		if err := rows.Scan(&i.InboxID, &i.Kind); err != nil {
+		if err := rows.Scan(&i.InboxID, &i.Kind, &i.Name); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

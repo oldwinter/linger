@@ -582,10 +582,28 @@ describe("Recording window", () => {
       expect(screen.getByRole("button", { name: "Stop & save" })).toBeVisible();
       expect(
         screen.getByRole("button", { name: "Keep recording" }),
-      ).toBeVisible();
+      ).toHaveFocus();
+      expectStopAsksInPlaceOfControls();
       fireEvent.click(screen.getByRole("button", { name: "Keep recording" }));
       expect(screen.queryByRole("alertdialog")).toBeNull();
       expect(screen.queryByRole("tablist")).toBeNull();
+      expect(voice.leavePage).not.toHaveBeenCalled();
+      expect(
+        screen.getByRole("button", { name: "Stop recording" }),
+      ).toHaveFocus();
+
+      // Escape keeps recording too.
+      fireEvent.click(screen.getByRole("button", { name: "Stop recording" }));
+      fireEvent.keyDown(
+        screen.getByRole("button", { name: "Keep recording" }),
+        {
+          key: "Escape",
+        },
+      );
+      expect(screen.queryByRole("alertdialog")).toBeNull();
+      expect(
+        screen.getByRole("button", { name: "Stop recording" }),
+      ).toHaveFocus();
       expect(voice.leavePage).not.toHaveBeenCalled();
 
       fireEvent.click(screen.getByRole("button", { name: "Stop recording" }));
@@ -609,6 +627,19 @@ describe("Recording window", () => {
     expect(
       screen.getByRole("button", { name: "Stop & save" }).parentElement,
     ).toHaveClass("flex-col");
+    // The card covers the open window; the row keeps its controls behind it.
+    expect(
+      screen.getByRole("alertdialog").closest("header"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Pause recording" }),
+    ).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole("alertdialog"), { key: "Escape" });
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Stop recording" }),
+    ).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "Stop recording" }));
     fireEvent.click(screen.getByRole("button", { name: "Keep recording" }));
     expect(screen.getByRole("tab", { name: "Ask" })).toHaveAttribute(
       "aria-selected",
@@ -679,6 +710,7 @@ describe("Recording window", () => {
       floating.getByRole("button", { name: "Stop & save" }).parentElement,
     ).not.toHaveClass("flex-col");
     expect(floating.getByText("Stop recording?")).toHaveClass("sr-only");
+    expectStopAsksInPlaceOfControls(floating);
     expect(floating.queryByRole("tablist")).toBeNull();
     expect(screen.getByTestId("window-state")).toHaveTextContent("minimized");
     fireEvent.click(floating.getByRole("button", { name: "Keep recording" }));
@@ -1349,4 +1381,22 @@ function clickStop() {
   );
   const confirm = screen.queryByRole("button", { name: "Stop & save" });
   if (confirm) fireEvent.click(confirm);
+}
+
+/**
+ * A minimized window asks in its row in place of Pause and Stop, beside the
+ * timer, instead of drawing the question over them.
+ */
+function expectStopAsksInPlaceOfControls(
+  view: Pick<
+    typeof screen,
+    "getByLabelText" | "getByRole" | "queryByRole"
+  > = screen,
+) {
+  const row = view
+    .getByRole("alertdialog", { name: "Stop recording?" })
+    .closest("header");
+  expect(row?.contains(view.getByLabelText("Recording duration"))).toBe(true);
+  expect(view.queryByRole("button", { name: "Pause recording" })).toBeNull();
+  expect(view.queryByRole("button", { name: "Stop recording" })).toBeNull();
 }

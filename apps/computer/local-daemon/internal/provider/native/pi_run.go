@@ -19,12 +19,13 @@ const piEventBuffer = 256
 // steering belong to this turn only, never to a later turn of the same
 // reused process.
 type piTurn struct {
-	proc    *piProcess
-	id      string
-	reused  bool
-	oneShot bool
-	fence   releaseFence
-	logger  *slog.Logger
+	proc              *piProcess
+	id                string
+	reused            bool
+	oneShot           bool
+	requestedThinking string
+	fence             releaseFence
+	logger            *slog.Logger
 
 	runCtx context.Context
 	cancel context.CancelFunc

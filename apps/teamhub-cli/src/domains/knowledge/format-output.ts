@@ -2,7 +2,7 @@ import {
   personalKnowledgeQueryOutputSchema,
   sessionFactSchema,
 } from "./tools/query.js";
-import { ToolExecutionError } from "../../domain-support/errors.js";
+import { CliError } from "../../errors.js";
 import type {
   PersonalKnowledgeEvidenceReadResponse,
   PersonalKnowledgeQueryResponse,
@@ -285,10 +285,10 @@ function isIntegerBetween(
   );
 }
 
-function unavailable(): ToolExecutionError {
-  return new ToolExecutionError(
-    "personal_knowledge_unavailable",
-    "Personal knowledge is temporarily unavailable",
+function unavailable(): CliError {
+  return new CliError(
+    "invalid_response",
+    "Personal knowledge returned a result this CLI cannot read; run this command again later.",
     { retryable: true },
   );
 }

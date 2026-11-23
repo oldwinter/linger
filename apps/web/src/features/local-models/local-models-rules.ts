@@ -227,14 +227,59 @@ function summarizePools(pools: readonly LocalModelPool[], gpu: boolean) {
   };
 }
 
+function summaryPools(view: LocalModelsView) {
+  const gpus = view.pools.filter((pool) => pool.kind === "gpu");
+  return {
+    gpu: gpus.length > 0,
+    pools: gpus.length ? gpus : view.pools,
+  };
+}
+
 /** What the header adds up: GPU memory when the Computer has GPUs, else its memory. */
 export function memorySummary(view: LocalModelsView) {
-  const gpus = view.pools.filter((pool) => pool.kind === "gpu");
-  const { freeBytes, gpu, totalBytes, usedBytes } = summarizePools(
-    gpus.length ? gpus : view.pools,
-    gpus.length > 0,
-  );
+  const { gpu, pools } = summaryPools(view);
+  const { freeBytes, totalBytes, usedBytes } = summarizePools(pools, gpu);
   return { freeBytes, gpu, totalBytes, usedBytes };
+}
+
+export interface MemorySegment {
+  bytes: number;
+  id: string;
+  name: string;
+}
+
+export interface MemorySegments {
+  componentBytes: number;
+  models: MemorySegment[];
+  otherBytes: number;
+}
+
+/** Breakdown of models, components, and other apps across the same pools `memorySummary` adds up. */
+export function memorySegments(view: LocalModelsView): MemorySegments {
+  const { gpu, pools } = summaryPools(view);
+  const { otherBytes } = summarizePools(pools, gpu);
+  const modelTotals = new Map<string, MemorySegment>();
+  let componentBytes = 0;
+  for (const pool of pools) {
+    for (const holder of pool.holders) {
+      if (holder.bytes <= 0) continue;
+      if (holder.kind === "model") {
+        const prev = modelTotals.get(holder.id);
+        modelTotals.set(holder.id, {
+          bytes: (prev?.bytes ?? 0) + holder.bytes,
+          id: holder.id,
+          name: holder.name,
+        });
+      } else {
+        componentBytes += holder.bytes;
+      }
+    }
+  }
+  return {
+    componentBytes,
+    models: [...modelTotals.values()],
+    otherBytes,
+  };
 }
 
 export interface MemoryGuidance {

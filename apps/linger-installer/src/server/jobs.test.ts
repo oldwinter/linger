@@ -416,6 +416,7 @@ test("local model recovery uses an explicit safe code and retries discard spent 
       message: "Review updated plan",
       details: {
         code: "LOCAL_MODELS_RECOVERY_REQUIRED",
+        causeCode: "STACK_COMPONENT_FAILED",
         reasons: ["binding-unavailable", "INVALID REASON"],
       },
     };
@@ -428,11 +429,30 @@ test("local model recovery uses an explicit safe code and retries discard spent 
   expect(jobs.get(job.id)).toMatchObject({
     state: "waiting_user",
     errorCode: "LOCAL_MODELS_RECOVERY_REQUIRED",
+    errorCauseCode: "STACK_COMPONENT_FAILED",
     errorReasons: ["binding-unavailable"],
   });
   const retry = await jobs.retry(job.id);
   await jobs.wait(retry!.id);
   expect(values[1]).not.toHaveProperty("localModelsApproval");
+});
+test("drops invalid causeCode values from public job snapshots", async () => {
+  const { jobs } = await setup(async () => ({
+    state: "action_required",
+    code: 4,
+    message: "Planner stopped",
+    details: {
+      code: "LOCAL_MODELS_UNAVAILABLE",
+      causeCode: "not valid /path",
+    },
+  }));
+  const job = await jobs.start({ instance: "default" });
+  await jobs.wait(job.id);
+  expect(jobs.get(job.id)).toMatchObject({
+    state: "waiting_user",
+    errorCode: "LOCAL_MODELS_UNAVAILABLE",
+  });
+  expect(jobs.get(job.id)?.errorCauseCode).toBeUndefined();
 });
 test("local model runtime byte and component progress replays after manager reload", async () => {
   const { jobs, dir } = await setup(async (_input, _signal, emit) => {

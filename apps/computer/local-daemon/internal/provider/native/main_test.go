@@ -60,6 +60,12 @@ func claudeCatalogFixture(args []string) int {
 		fmt.Fprintln(os.Stderr, "unexpected argv")
 		return 3
 	}
+	if want := os.Getenv("FIXTURE_WANT_NONESSENTIAL_DISABLED"); want != "" {
+		if got := os.Getenv(claudeDisableNonessentialTrafficKey); got != want {
+			fmt.Fprintf(os.Stderr, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = %q, want %q\n", got, want)
+			return 6
+		}
+	}
 	reader := bufio.NewReader(os.Stdin)
 	line, err := reader.ReadString('\n')
 	if err != nil {

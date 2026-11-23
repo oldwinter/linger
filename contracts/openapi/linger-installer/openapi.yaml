@@ -1126,6 +1126,9 @@ components:
         localModelsPlan:
           $ref: "#/components/schemas/LocalModelsPlan"
         errorCode: *a1
+        errorCauseCode:
+          type: string
+          description: Structured upstream cause code explaining why a local model plan or deployment step failed.
         errorReasons:
           type: array
           items: *a1

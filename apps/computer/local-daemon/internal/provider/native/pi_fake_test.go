@@ -34,6 +34,8 @@ func init() {
 		os.Exit(0)
 	case "catalog":
 		os.Exit(piFakeCatalog())
+	case "invoke-clamp":
+		os.Exit(piFakeInvokeClamp(os.Args[1:]))
 	case "resident":
 		os.Exit(piResidentFake(os.Args[1:]))
 	default:
@@ -45,6 +47,7 @@ type piFakeProcess struct {
 	mode       string
 	sessionDir string
 	sessionID  string
+	thinking   string
 	out        sync.Mutex
 	cleared    bool
 }
@@ -85,13 +88,15 @@ func (f *piFakeProcess) tool(id, name string, isError bool) {
 }
 
 func piFake(mode string, args []string) int {
-	f := &piFakeProcess{mode: mode}
+	f := &piFakeProcess{mode: mode, thinking: "medium"}
 	for i := 0; i+1 < len(args); i++ {
 		switch args[i] {
 		case "--session-dir":
 			f.sessionDir = args[i+1]
 		case "--session-id":
 			f.sessionID = args[i+1]
+		case "--thinking":
+			f.thinking = args[i+1]
 		}
 	}
 	if f.sessionDir == "" || f.sessionID == "" {
@@ -115,6 +120,7 @@ func piFake(mode string, args []string) int {
 			ID      string `json:"id"`
 			Type    string `json:"type"`
 			Message string `json:"message"`
+			Level   string `json:"level"`
 		}
 		if json.Unmarshal(line, &command) != nil {
 			return 22
@@ -127,20 +133,43 @@ func piFake(mode string, args []string) int {
 		}
 		if path := os.Getenv(piFakeLogEnv); path != "" {
 			if log, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600); err == nil {
-				_, _ = log.WriteString(command.Type + "\n")
+				entry := command.Type
+				if command.Level != "" {
+					entry += ":" + command.Level
+				}
+				_, _ = log.WriteString(entry + "\n")
 				_ = log.Close()
 			}
 		}
-		if code := f.handle(command.ID, command.Type, command.Message); code >= 0 {
+		if code := f.handle(command.ID, command.Type, command.Message, command.Level); code >= 0 {
 			return code
 		}
 	}
 }
 
 // handle returns an exit code, or -1 to keep reading.
-func (f *piFakeProcess) handle(id, kind, message string) int {
+func (f *piFakeProcess) handle(id, kind, message, level string) int {
 	switch kind {
 	case "get_state":
+		if f.mode == "clamp-state" {
+			f.reply(id, kind, map[string]any{
+				"sessionId": f.sessionID,
+				"model": map[string]any{
+					"provider":  "localmodels",
+					"id":        "Spark-X2.6-4B-Q8_0",
+					"reasoning": true,
+					// Realistic bifrost_models.py map: "off" is omitted, producing ["none", "low", "high"].
+					"thinkingLevelMap": map[string]any{
+						"minimal": nil,
+						"low":     "low",
+						"medium":  nil,
+						"high":    "high",
+					},
+				},
+				"thinkingLevel": f.thinking,
+			})
+			return -1
+		}
 		f.reply(id, kind, map[string]any{"sessionId": f.sessionID})
 		switch f.mode {
 		case "pressure":
@@ -152,6 +181,9 @@ func (f *piFakeProcess) handle(id, kind, message string) int {
 			time.Sleep(time.Minute)
 			return 0
 		}
+	case "set_thinking_level":
+		f.thinking = level
+		f.reply(id, kind, nil)
 	case "prompt":
 		if path := os.Getenv(piFakeRecordEnv); path != "" {
 			_ = os.WriteFile(path, []byte(message), 0o600)
@@ -239,6 +271,20 @@ func (f *piFakeProcess) act() int {
 		f.tool("call_shared|fc_first", "read", false)
 		f.tool("call_shared|fc_second", "read", false)
 		f.finish()
+	case "clamp-state":
+		if f.thinking != "off" && f.thinking != "low" && f.thinking != "high" {
+			f.assistantEnd("", "error", "Unexpected reasoning effort "+f.thinking)
+			f.send(map[string]any{"type": "agent_end"})
+			f.send(map[string]any{"type": "agent_settled", "aborted": false})
+			return -1
+		}
+		cwd, _ := os.Getwd()
+		header, _ := json.Marshal(map[string]any{"type": "session", "id": f.sessionID, "cwd": cwd})
+		_ = os.WriteFile(filepath.Join(f.sessionDir, "fixture_"+f.sessionID+".jsonl"), append(header, '\n'), 0o600)
+		f.send(map[string]any{"type": "message_start", "message": map[string]any{"role": "assistant"}})
+		f.assistantEnd("effort:"+f.thinking, "stop", "")
+		f.send(map[string]any{"type": "agent_end"})
+		f.send(map[string]any{"type": "agent_settled", "aborted": false})
 	default:
 		f.finish()
 	}
@@ -289,4 +335,98 @@ func piFakeCatalog() int {
 		}
 	}
 	return 0
+}
+
+// piFakeInvokeClamp emulates one-shot InvokePiModel RPC mode with a model
+// whose thinkingLevelMap restricts reasoning to ["low", "high"].
+func piFakeInvokeClamp(args []string) int {
+	if path := os.Getenv(piFakeArgvEnv); path != "" {
+		_ = os.WriteFile(path, []byte(strings.Join(args, "\n")), 0o600)
+	}
+	thinking := "medium"
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "--thinking" {
+			thinking = args[i+1]
+		}
+	}
+	send := func(value any) {
+		encoded, _ := json.Marshal(value)
+		_, _ = os.Stdout.Write(append(encoded, '\n'))
+	}
+	reader := bufio.NewReader(os.Stdin)
+	for {
+		line, err := reader.ReadBytes('\n')
+		if err == io.EOF {
+			return 0
+		}
+		if err != nil {
+			return 23
+		}
+		var command struct {
+			ID    string `json:"id"`
+			Type  string `json:"type"`
+			Level string `json:"level"`
+		}
+		if json.Unmarshal(line, &command) != nil {
+			return 22
+		}
+		if path := os.Getenv(piFakeLogEnv); path != "" {
+			if log, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600); err == nil {
+				entry := command.Type
+				if command.Level != "" {
+					entry += ":" + command.Level
+				}
+				_, _ = log.WriteString(entry + "\n")
+				_ = log.Close()
+			}
+		}
+		switch command.Type {
+		case "get_state":
+			send(map[string]any{
+				"type": "response", "id": command.ID, "command": "get_state", "success": true,
+				"data": map[string]any{
+					"model": map[string]any{
+						"provider":  "localmodels",
+						"id":        "Spark-X2.6-4B-Q8_0",
+						"reasoning": true,
+						"thinkingLevelMap": map[string]any{
+							"minimal": nil,
+							"low":     "low",
+							"medium":  nil,
+							"high":    "high",
+						},
+					},
+					"thinkingLevel": thinking,
+				},
+			})
+		case "set_thinking_level":
+			thinking = command.Level
+			send(map[string]any{"type": "response", "id": command.ID, "command": "set_thinking_level", "success": true})
+		case "prompt":
+			if thinking != "off" && thinking != "low" && thinking != "high" {
+				send(map[string]any{"type": "response", "id": command.ID, "command": "prompt", "success": true, "data": map[string]any{"disposition": "started"}})
+				send(map[string]any{"type": "agent_start"})
+				send(map[string]any{"type": "message_end", "message": map[string]any{
+					"role": "assistant", "model": "localmodels/Spark-X2.6-4B-Q8_0",
+					"stopReason": "error", "errorMessage": "Unexpected reasoning effort " + thinking,
+					"content": []any{},
+				}})
+				send(map[string]any{"type": "agent_end"})
+				send(map[string]any{"type": "agent_settled", "aborted": false})
+				continue
+			}
+			send(map[string]any{"type": "response", "id": command.ID, "command": "prompt", "success": true, "data": map[string]any{"disposition": "started"}})
+			send(map[string]any{"type": "agent_start"})
+			send(map[string]any{"type": "message_start", "message": map[string]any{"role": "assistant"}})
+			send(map[string]any{"type": "message_end", "message": map[string]any{
+				"role": "assistant", "model": "localmodels/Spark-X2.6-4B-Q8_0", "stopReason": "stop",
+				"content": []any{map[string]any{"type": "text", "text": `{"ok":true,"effort":"` + thinking + `"}`}},
+				"usage":   map[string]any{"input": 5, "output": 4, "cacheRead": 0, "cacheWrite": 0},
+			}})
+			send(map[string]any{"type": "agent_end"})
+			send(map[string]any{"type": "agent_settled", "aborted": false})
+		default:
+			return 25
+		}
+	}
 }

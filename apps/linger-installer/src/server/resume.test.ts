@@ -150,6 +150,43 @@ test("reports a BYOK gateway that did not come back on a ready resume", async ()
   ).toMatchObject({ code: 0, state: "ready", details: { byokGateway } });
 });
 
+test("reports a local model library reload failure as localModelsDegraded without blocking resume", async () => {
+  const failed = {
+    code: 1,
+    state: "failed" as const,
+    message: "Could not reload local model qwen3.8-27b:UD-Q4_K_M: Out of VRAM.",
+    details: { code: "LOAD_NO_ROOM" },
+  };
+  const logs: string[] = [];
+  const restoreByok = vi.fn(async () => undefined);
+  expect(
+    await resumeSourceInstance(
+      { ...options, log: (message) => logs.push(message) },
+      {
+        load: async () => instance,
+        engines: native(vi.fn(), true),
+        pending: async () => false,
+        restore: async () => failed,
+        restoreByok,
+      },
+    ),
+  ).toMatchObject({
+    code: 0,
+    state: "ready",
+    details: {
+      origin: "http://localhost:3000",
+      source: "/source",
+      localModelsDegraded: {
+        code: "LOAD_NO_ROOM",
+        message:
+          "Could not reload local model qwen3.8-27b:UD-Q4_K_M: Out of VRAM.",
+      },
+    },
+  });
+  expect(restoreByok).not.toHaveBeenCalled();
+  expect(logs.join("")).toContain("LOAD_NO_ROOM");
+});
+
 test("reports a local model restore that failed without blocking resume", async () => {
   const failed = {
     code: 4,

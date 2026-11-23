@@ -27,7 +27,7 @@ func (r *claudeRuntime) prestart(ctx context.Context, spec RunSpec, resolved, ro
 		mcp: spec.MCPServers, root: root, fence: fence,
 		shape: &claudeShape{
 			execPath: resolved, cwd: spec.Dir, args: shaped,
-			env:        claudeShapeEnv(childEnvironment(r.profile.Env)),
+			env:        claudeShapeEnv(childEnvironment(ClaudeEnvironment(r.profile.Env))),
 			initialize: string(initialize), mcp: mcpShape,
 		},
 	}
@@ -113,7 +113,7 @@ func (r *claudeRuntime) attach(ctx context.Context, p *claudeProcess, spec RunSp
 		p.mu.Lock()
 		session := p.sessionID
 		p.mu.Unlock()
-		if err = claudeWriteMarker(launch.root, session, spec.AppendPrompt); err != nil {
+		if err = claudeWriteMarker(launch.root, session, spec.SystemPrompt); err != nil {
 			return fmt.Errorf("write Claude instruction marker: %w", err)
 		}
 	}

@@ -1,13 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   endpointConcurrency,
+  INTERACTIVE_STALL_MS,
   ModelQueue,
   type ModelEndpoint,
 } from "../../../src/agent/runner-gateway/model-queue.js";
+import { setAgentLogOptions } from "../../../src/agent/observability/agent-log.js";
 import {
   COMPACTION_PRIORITY,
   modelCallPolicies,
   runPriorities,
+  RunPriority,
   type ModelCallKind,
   type ModelLease,
 } from "../../../src/model-tasks.js";
@@ -244,6 +247,134 @@ describe("ModelQueue limit", () => {
     await flush();
     expect(wiki.value).toBeDefined();
     expect(asked).not.toHaveBeenCalled();
+  });
+
+  it("lets every Meta Run take the last place before Tasks and Documents", async () => {
+    const asked = vi.fn();
+    const queue = new ModelQueue(() => fixed(2), Date.now, asked);
+    await queue.acquire(
+      codex,
+      { kind: "task", priority: runPriorities.task, key: "t1" },
+      signal,
+    );
+    const task = track(
+      queue.acquire(
+        codex,
+        { kind: "task", priority: runPriorities.task, key: "t2" },
+        signal,
+      ),
+    );
+    const followUp = track(
+      queue.acquire(
+        codex,
+        { kind: "follow_up", priority: runPriorities.follow_up, key: "f" },
+        signal,
+      ),
+    );
+    await flush();
+    expect(task.value).toBeUndefined();
+    expect(followUp.value).toBeDefined();
+    const routine = track(
+      queue.acquire(
+        codex,
+        { kind: "routine", priority: runPriorities.routine, key: "r" },
+        signal,
+      ),
+    );
+    await flush();
+    expect(routine.value).toBeUndefined();
+    // Waiting Meta work asks for a yield; only a lower Run gives one.
+    expect(asked).toHaveBeenLastCalledWith(codex, runPriorities.routine);
+  });
+
+  it("moves a waiting Run up when its priority rises, in arrival order within it", async () => {
+    const asked = vi.fn();
+    const queue = new ModelQueue(() => fixed(1), Date.now, asked);
+    const holder = await queue.acquire(
+      codex,
+      { kind: "proactive", priority: runPriorities.proactive, key: "p" },
+      signal,
+    );
+    const routine = track(
+      queue.acquire(
+        codex,
+        { kind: "routine", priority: runPriorities.routine, key: "r" },
+        signal,
+      ),
+    );
+    const priority = new RunPriority(runPriorities.follow_up);
+    const followUp = track(
+      queue.acquire(codex, { kind: "follow_up", priority, key: "f" }, signal),
+    );
+    const chat = track(queue.acquire(codex, run("c"), signal));
+    await flush();
+    expect(asked).toHaveBeenLastCalledWith(codex, runPriorities.chat);
+    asked.mockClear();
+
+    priority.raise(runPriorities.chat);
+    expect(asked).toHaveBeenLastCalledWith(codex, runPriorities.chat);
+    holder.release(done);
+    await flush();
+    expect(followUp.value).toBeDefined();
+    expect([routine.value, chat.value]).toEqual([undefined, undefined]);
+    followUp.value!.release(done);
+    await flush();
+    expect(chat.value).toBeDefined();
+    expect(routine.value).toBeUndefined();
+
+    // A raise after admission changes nothing in the queue.
+    priority.raise(0);
+    chat.value!.release(done);
+    await flush();
+    expect(routine.value).toBeDefined();
+  });
+
+  it("logs once who holds the places when interactive work waits too long", async () => {
+    vi.stubEnv("AGENT_LOG_LEVEL", "info");
+    setAgentLogOptions({ format: "json" });
+    const output = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const holders = [{ operation_id: "op-task", yield_blocker: "interaction" }];
+    const queue = new ModelQueue(
+      () => fixed(1),
+      Date.now,
+      () => undefined,
+      () => holders,
+    );
+    try {
+      const task = await queue.acquire(
+        codex,
+        { kind: "task", priority: runPriorities.task, key: "t" },
+        signal,
+      );
+      const priority = new RunPriority(runPriorities.task);
+      const waiting = track(
+        queue.acquire(codex, { kind: "task", priority, key: "w" }, signal),
+      );
+      await vi.advanceTimersByTimeAsync(INTERACTIVE_STALL_MS);
+      const stalls = () =>
+        output.mock.calls
+          .map(([line]) => JSON.parse(String(line)))
+          .filter((entry) => entry.event === "model_queue.interactive_waiting");
+      expect(stalls()).toEqual([]);
+      priority.raise(runPriorities.chat);
+      await vi.advanceTimersByTimeAsync(INTERACTIVE_STALL_MS * 3);
+      expect(stalls()).toEqual([
+        expect.objectContaining({
+          kind: "task",
+          priority: runPriorities.chat,
+          waited_ms: INTERACTIVE_STALL_MS * 2,
+          active: 1,
+          holders,
+        }),
+      ]);
+      task.release(done);
+      await flush();
+      waiting.value!.release(done);
+    } finally {
+      setAgentLogOptions();
+      vi.unstubAllEnvs();
+      output.mockRestore();
+    }
   });
 
   it("tries one more unit while work waits and requests stay as fast", async () => {

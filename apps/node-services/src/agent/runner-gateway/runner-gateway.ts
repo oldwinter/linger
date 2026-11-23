@@ -187,6 +187,11 @@ export class RunnerGateway
         if (!this.#modelInvocation.yieldCall(endpoint, priority))
           this.#operations.yieldFor(endpoint, priority);
       },
+      (endpoint) =>
+        this.#operations.describeHolders(
+          endpoint.computerId,
+          endpoint.runtimeType,
+        ),
     );
     this.#computerTools = new RunnerComputerTools(context, owners);
     this.#localModels = new RunnerLocalModels(context, owners);

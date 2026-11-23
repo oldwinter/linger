@@ -494,3 +494,137 @@ describe("desktop-release.sh publish", () => {
     expect(empty.stderr).toContain("empty");
   });
 });
+
+describe("desktop-release.sh package Docker images", () => {
+  const version = "1.2.3";
+  const dockerfile = "FROM ubuntu:24.04\n";
+  const dockerfileSha = createHash("sha256").update(dockerfile).digest("hex");
+
+  function setupPackage(dockerScript: string) {
+    const root = folder();
+    const bin = folder();
+    const out = folder();
+    const log = join(root, "docker.log");
+    mkdirSync(join(root, "scripts/ci"), { recursive: true });
+    mkdirSync(join(root, "apps/desktop/dist/installer"), { recursive: true });
+    mkdirSync(join(root, "apps/desktop/packaging/mac"), { recursive: true });
+    copyFileSync(script, join(root, "scripts/ci/desktop-release.sh"));
+    writeFileSync(
+      join(root, "apps/desktop/package.json"),
+      `${JSON.stringify({ name: "@linger/desktop", version: "0.0.0" }, null, 2)}\n`,
+    );
+    writeFileSync(
+      join(root, "apps/desktop/packaging/mac/Dockerfile"),
+      dockerfile,
+    );
+    writeFileSync(
+      join(bin, "docker"),
+      `#!/bin/sh\necho "$*" >>"${log}"\n${dockerScript}\n`,
+    );
+    chmodSync(join(bin, "docker"), 0o755);
+    writeFileSync(
+      join(bin, "python3"),
+      [
+        "#!/bin/sh",
+        'out=""',
+        'while [ "$#" -gt 0 ]; do',
+        '  if [ "$1" = --out ]; then out="$2"; shift 2; continue; fi',
+        "  shift",
+        "done",
+        'mkdir -p "$out"',
+        `: >"$out/Linger-${version}-arm64.dmg"`,
+        `: >"$out/Linger-${version}-arm64.app.tar.gz"`,
+        "",
+      ].join("\n"),
+    );
+    chmodSync(join(bin, "python3"), 0o755);
+    return {
+      script: join(root, "scripts/ci/desktop-release.sh"),
+      bin,
+      out,
+      log,
+    };
+  }
+
+  it("reuses a locally cached packaging image when its Dockerfile sha matches", () => {
+    const fixture = setupPackage(
+      `if [ "$1" = image ] && [ "$2" = inspect ]; then echo "${dockerfileSha}"; exit 0; fi\nexit 1`,
+    );
+
+    const result = run(
+      ["package", "darwin-arm64"],
+      {
+        PATH: `${fixture.bin}:${process.env.PATH ?? ""}`,
+        DESKTOP_VERSION: version,
+        RELEASE_OUT: fixture.out,
+        DESKTOP_PACKAGING_IMAGE_PREFIX: "ghcr.io/simplexai-labs/linger/desktop",
+      },
+      fixture.script,
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("reusing cached Docker image dmgtool");
+    const calls = readFileSync(fixture.log, "utf8");
+    expect(calls).not.toContain("pull ");
+    expect(calls).not.toContain("build ");
+  });
+
+  it("pulls and tags the prebuilt GHCR image before building locally", () => {
+    const fixture = setupPackage(
+      [
+        'if [ "$1" = image ] && [ "$2" = inspect ]; then exit 1; fi',
+        'if [ "$1" = pull ] || [ "$1" = tag ]; then exit 0; fi',
+        "exit 1",
+      ].join("\n"),
+    );
+    const remote = `ghcr.io/simplexai-labs/linger/desktop-dmgtool:${dockerfileSha}`;
+
+    const result = run(
+      ["package", "darwin-arm64"],
+      {
+        PATH: `${fixture.bin}:${process.env.PATH ?? ""}`,
+        DESKTOP_VERSION: version,
+        RELEASE_OUT: fixture.out,
+        DESKTOP_PACKAGING_IMAGE_PREFIX:
+          "ghcr.io/simplexai-labs/linger/desktop/",
+      },
+      fixture.script,
+    );
+
+    expect(result.status).toBe(0);
+    const calls = readFileSync(fixture.log, "utf8");
+    expect(calls).toContain(`pull ${remote}`);
+    expect(calls).toContain(`tag ${remote} dmgtool`);
+    expect(calls).not.toContain("build ");
+  });
+
+  it("falls back to a visible docker build when pulling the prebuilt image fails", () => {
+    const fixture = setupPackage(
+      [
+        'if [ "$1" = image ] && [ "$2" = inspect ]; then exit 1; fi',
+        'if [ "$1" = pull ]; then exit 1; fi',
+        'if [ "$1" = build ]; then exit 0; fi',
+        "exit 1",
+      ].join("\n"),
+    );
+
+    const result = run(
+      ["package", "darwin-arm64"],
+      {
+        PATH: `${fixture.bin}:${process.env.PATH ?? ""}`,
+        DESKTOP_VERSION: version,
+        RELEASE_OUT: fixture.out,
+        DESKTOP_PACKAGING_IMAGE_PREFIX: "ghcr.io/simplexai-labs/linger/desktop",
+      },
+      fixture.script,
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toContain("building dmgtool locally");
+    const calls = readFileSync(fixture.log, "utf8");
+    expect(calls).toContain(
+      `build --label linger.dockerfile.sha256=${dockerfileSha} -t dmgtool`,
+    );
+    expect(calls).not.toContain("build -q");
+  });
+});

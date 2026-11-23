@@ -1,4 +1,8 @@
-import { runPriorities, type CapacityPriority } from "../../model-tasks.js";
+import {
+  runPriorities,
+  RunPriority,
+  type CapacityPriority,
+} from "../../model-tasks.js";
 import { displayText } from "@linger/service-kit";
 import {
   OPERATION_OUTCOME_UNKNOWN,
@@ -493,8 +497,7 @@ export class RemoteRuntimeProvider implements AgentProvider {
         },
         signal,
         spec.runContext.executionEpoch,
-        spec.runKind,
-        spec.beforeYieldResume,
+        spec,
       );
       if (spec.runContext.cancellationRequested) {
         await this.#cancel(operation, "Durable user cancellation");
@@ -754,8 +757,11 @@ export class RemoteRuntimeProvider implements AgentProvider {
     request: RunnerOperationTarget["request"],
     signal: AbortSignal = this.#closed.signal,
     executionEpoch?: string,
-    runKind?: RunnerOperationTarget["runKind"],
-    beforeYieldResume?: () => Promise<void>,
+    {
+      runKind,
+      priority = new RunPriority(runPriorities[runKind ?? "chat"]),
+      beforeYieldResume,
+    }: Pick<ExecutionSpec, "runKind" | "priority" | "beforeYieldResume"> = {},
   ): Promise<RunnerOperation> {
     if (this.#closePromise) {
       throw new Error("Remote Codex provider is closed");
@@ -763,7 +769,7 @@ export class RemoteRuntimeProvider implements AgentProvider {
     const permit =
       this.#capacityPermit ??
       (await this.#dispatcher.acquireOperationCapacity?.(
-        { ...this.#target, priority: runPriorities[runKind ?? "chat"] },
+        { ...this.#target, priority },
         signal,
       ));
     try {
@@ -771,6 +777,7 @@ export class RemoteRuntimeProvider implements AgentProvider {
         ...this.#target,
         executionEpoch,
         ...(runKind ? { runKind } : {}),
+        priority,
         ...(beforeYieldResume ? { beforeYieldResume } : {}),
         signal,
         contextViewRef: this.#contextRunResources.currentContextViewRef(),

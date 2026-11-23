@@ -2310,11 +2310,13 @@ export interface components {
       author_type: string;
       message_kind: string;
       fired_routine: boolean;
+      /** @description A Human acted through this hidden Message, by answering a card or asking during a recording, and waits for the Agent's answer. */
+      human_waiting: boolean;
     };
     AgentRuntimeWorkState: {
       has_queued_runs: boolean;
       has_pending_work: boolean;
-      /** @description Distinct scheduling metadata of the oldest claimable Run's initial inputs. */
+      /** @description Distinct scheduling metadata of the initial inputs of every claimable queued Run. The Run claimed next serves them all, so it waits as the most urgent of them. */
       next_run_origins?: components["schemas"]["AgentRunInputOrigin"][];
       /** @description Present on the work-state read. Steers a Message transaction queued for this Context that the Agent Service has not settled, in input order: a targeted Message for the running Run that reads its Inbox, or a native question's answer assigned to the Run that asked it. */
       message_steers?: components["schemas"]["StoredAgentRuntimeInput"][];

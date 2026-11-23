@@ -182,3 +182,13 @@ Agent Service before finishing a turn:
    Codex via their native `Stop` hooks; Pi via a follow-up `prompt` RPC on the
    bound process). Timeout, disconnect, or an invalid decision fails open to
    `allow`.
+
+## Model invocation outcomes
+
+`executed` `model_invoke` reports `context_too_long` (prompt exceeded the
+model's context window) and `unsupported` (the target Runtime does not support
+the requested mode, such as Pi workspace calls) only after `runner.welcome`'s
+`service_features` names `model_invoke_outcomes`
+(`FIRST_MODEL_INVOKE_OUTCOMES_COMPUTER_VERSION`, `0.60.0`); otherwise the
+Daemon downgrades them to `failed` and `runtime_unavailable` for older Agent
+Services.

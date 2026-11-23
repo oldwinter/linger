@@ -7,6 +7,9 @@ import {
   within,
   cleanup,
 } from "@testing-library/react";
+import { sha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex } from "@noble/hashes/utils.js";
+import { requestUrlText } from "@linger/service-kit";
 import { createMemoryRouter } from "react-router";
 import { RouterProvider } from "react-router/dom";
 import { afterEach, expect, it, vi } from "vitest";
@@ -298,3 +301,86 @@ it.each([
   renderPage("viewer", false, error);
   expect(await screen.findByRole("alert")).toHaveTextContent(text);
 });
+
+function encodeBase64Url(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary)
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replaceAll("=", "");
+}
+
+it.each([
+  ["ASCII title via X-Document-Filename", "WIN015-DOC-TITLE.md"],
+  ["UTF-8 CJK title via X-Document-Filename", "\u4e2d\u6587\u6587\u6863.md"],
+])(
+  "displays the real document title in the shared page header for %s",
+  async (_label, title) => {
+    const body = new TextEncoder().encode("# Shared body\n");
+    const contentHeaders: Record<string, string> = {
+      "Content-Type": "text/markdown",
+      "Content-Disposition": `attachment; filename="document.md"; filename*=utf-8''${encodeURIComponent(title)}`,
+      "X-Document-Id": "doc-1",
+      "X-Document-Version-Id": "version-1",
+      "X-Document-Filename": encodeBase64Url(title),
+      "X-Document-Representation-Format": "markdown",
+      "X-Document-Read-Only": "true",
+      "X-Content-Sha256": bytesToHex(sha256(body)),
+    };
+
+    const fetchRequest = vi.fn<typeof fetch>(async (input) => {
+      const url = requestUrlText(input);
+      if (url.endsWith("/v0/session"))
+        return Response.json(
+          { error: { code: "UNAUTHENTICATED", message: "Anonymous" } },
+          { status: 401 },
+        );
+      if (url.endsWith("/v0/shared-documents/resolve"))
+        return Response.json({
+          link_id: "link-1",
+          document_id: "doc-1",
+          tenant_id: "tenant-1",
+          role: "viewer",
+          version: 1,
+        });
+      if (url.endsWith("/v0/shared-documents/content"))
+        return new Response(body, { headers: contentHeaders });
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    const client = createHttpTeamHubClient({
+      baseUrl: "https://web.test/",
+      fetchRequest,
+      onAuthenticationRequired: () => undefined,
+    });
+    const router = createMemoryRouter(
+      [{ path: "/shared-documents", element: <SharedDocumentPage /> }],
+      { initialEntries: [`/shared-documents#${token}`] },
+    );
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <TeamHubRuntimeProvider
+          runtime={{
+            client,
+            runStatuses: { subscribe: () => () => undefined },
+            events: {
+              subscribeRoom: () => () => undefined,
+              subscribeSignals: () => () => undefined,
+            },
+          }}
+        >
+          <RouterProvider router={router} />
+        </TeamHubRuntimeProvider>
+      </QueryClientProvider>,
+    );
+    expect(
+      await screen.findByRole("heading", { level: 1, name: title }),
+    ).toBeVisible();
+    expect(await screen.findByText("# Shared body")).toBeVisible();
+  },
+);

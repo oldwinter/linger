@@ -239,7 +239,8 @@ export type ModelCallErrorKind =
 export type ModelCallRuntimeOutcome =
   | "runtime_unavailable"
   | "auth_required"
-  | "runtime_incompatible";
+  | "runtime_incompatible"
+  | "unsupported";
 
 /** Shared by every offline ModelCallError, so a failure that only survives as
  * a message can still be recognized. */
@@ -392,6 +393,47 @@ const silentLogger: Pick<JsonLogger, "log"> = { log: () => undefined };
 const RESULT_TTL_MS = 60 * 60_000;
 /** Pause before another attempt after a timeout or a failed attempt. */
 const RETRY_DELAY_MS = 5_000;
+/** Background availability circuit breaker bounds per (computerId, runtimeType).
+ * Interactive calls bypass this gate so background failures never starve them. */
+const BACKGROUND_BREAKER_THRESHOLD = 2;
+const BACKGROUND_BREAKER_BASE_MS = 30_000;
+const BACKGROUND_BREAKER_MAX_MS = 30 * 60_000;
+
+function defaultRuntimeModel(
+  models: readonly RuntimeModelInfo[] | undefined,
+): RuntimeModelInfo | undefined {
+  if (!models?.length) return undefined;
+  return (
+    models.find(({ isDefault }) => isDefault) ??
+    (models.length === 1 ? models[0] : undefined)
+  );
+}
+
+function runtimeModelsFingerprint(
+  models: readonly RuntimeModelInfo[] | undefined,
+): string {
+  if (!models?.length) return "";
+  return models
+    .map(
+      (model) =>
+        `${model.id}:${model.isDefault ? 1 : 0}:${model.contextWindow ?? ""}`,
+    )
+    .join("\n");
+}
+
+function isAvailabilityRuntimeFailure(error: ModelCallError): boolean {
+  return (
+    error.kind === "runtime_unavailable" &&
+    error.runtimeOutcome !== "unsupported"
+  );
+}
+
+interface BackgroundBreakerEntry {
+  failures: number;
+  openUntil: number;
+  modelsFingerprint: string;
+  probeInFlight: boolean;
+}
 
 /** Failures another attempt of the same call may not have. */
 const retryableKinds: ReadonlySet<ModelCallErrorKind> = new Set([
@@ -582,6 +624,7 @@ interface ModelCallState {
   >;
   readonly entries: Map<string, Entry>;
   readonly chains: Set<AbortController>;
+  readonly backgroundBreakers: Map<string, BackgroundBreakerEntry>;
   readonly stopped: AbortController;
 }
 
@@ -597,6 +640,7 @@ export function createRuntimeModelCall(
     placementCache: new Map(),
     entries: new Map(),
     chains: new Set(),
+    backgroundBreakers: new Map(),
     stopped: new AbortController(),
   };
   return {
@@ -736,12 +780,72 @@ function resolveTarget(
       ? fallback
       : preferred;
   const models = gateway.runtimeModels(placement.computerId, runtimeType);
-  const model = models?.find(({ isDefault }) => isDefault);
+  const model = defaultRuntimeModel(models);
   return {
     runtimeType,
     offline: models === undefined,
     ...(model ? { model } : {}),
   };
+}
+
+function backgroundBreakerKey(
+  computerId: string,
+  runtimeType: ModelInvoke["runtime_type"],
+): string {
+  return `${computerId}\n${runtimeType}`;
+}
+
+function admitBackgroundCall(
+  state: ModelCallState,
+  key: string,
+  modelsFingerprint: string,
+): { readonly admitted: boolean; readonly claimedProbe: boolean } {
+  const entry = state.backgroundBreakers.get(key);
+  if (!entry) return { admitted: true, claimedProbe: false };
+  if (entry.modelsFingerprint !== modelsFingerprint) {
+    state.backgroundBreakers.delete(key);
+    return { admitted: true, claimedProbe: false };
+  }
+  if (entry.failures < BACKGROUND_BREAKER_THRESHOLD)
+    return { admitted: true, claimedProbe: false };
+  if (state.now() < entry.openUntil || entry.probeInFlight)
+    return { admitted: false, claimedProbe: false };
+  entry.probeInFlight = true;
+  return { admitted: true, claimedProbe: true };
+}
+
+function recordBackgroundBreakerFailure(
+  state: ModelCallState,
+  key: string,
+  modelsFingerprint: string,
+  releaseProbe: boolean,
+): void {
+  const existing = state.backgroundBreakers.get(key);
+  const entry =
+    existing && existing.modelsFingerprint === modelsFingerprint
+      ? existing
+      : {
+          failures: 0,
+          openUntil: 0,
+          modelsFingerprint,
+          probeInFlight: false,
+        };
+  if (releaseProbe) entry.probeInFlight = false;
+  entry.failures += 1;
+  if (entry.failures >= BACKGROUND_BREAKER_THRESHOLD) {
+    const shift = Math.min(entry.failures - BACKGROUND_BREAKER_THRESHOLD, 10);
+    const delay = Math.min(
+      BACKGROUND_BREAKER_BASE_MS * 2 ** shift,
+      BACKGROUND_BREAKER_MAX_MS,
+    );
+    entry.openUntil = state.now() + delay;
+  }
+  state.backgroundBreakers.set(key, entry);
+}
+
+function releaseBackgroundProbe(state: ModelCallState, key: string): void {
+  const entry = state.backgroundBreakers.get(key);
+  if (entry) entry.probeInFlight = false;
 }
 
 /** The session an attempt runs in. A retry gets a fresh one: the session's
@@ -767,10 +871,27 @@ async function invokeAttempt(
   const { call } = entry;
   const signal = entry.controller.signal;
   const { placement, key } = await resolvePlacement(state, call.target, signal);
-  const runtimeType =
-    entry.chain?.runtimeType ??
-    resolveTarget(state.options.gateway, placement).runtimeType;
+  const resolved = resolveTarget(state.options.gateway, placement);
+  const runtimeType = entry.chain?.runtimeType ?? resolved.runtimeType;
+  const runtimeModels = state.options.gateway.runtimeModels(
+    placement.computerId,
+    runtimeType,
+  );
   const policy = modelCallPolicies[call.kind];
+  const breakerKey = backgroundBreakerKey(placement.computerId, runtimeType);
+  const modelsFingerprint = runtimeModelsFingerprint(runtimeModels);
+  let claimedProbe = false;
+  if (!policy.interactive) {
+    const admission = admitBackgroundCall(state, breakerKey, modelsFingerprint);
+    if (!admission.admitted) {
+      throw new ModelCallError(
+        "runtime_unavailable",
+        "Background model invocation is backing off after repeated Runtime unavailability",
+        { runtimeOutcome: "runtime_unavailable" },
+      );
+    }
+    claimedProbe = admission.claimedProbe;
+  }
   const startedAt = state.now();
   const callLog = state.options.callLog;
   callLog?.started({
@@ -826,6 +947,19 @@ async function invokeAttempt(
     });
   } catch (error) {
     yielded = error instanceof ModelCallError && error.kind === "yielded";
+    if (
+      error instanceof ModelCallError &&
+      isAvailabilityRuntimeFailure(error)
+    ) {
+      const wasProbe = claimedProbe;
+      claimedProbe = false;
+      recordBackgroundBreakerFailure(
+        state,
+        breakerKey,
+        modelsFingerprint,
+        wasProbe,
+      );
+    }
     callLog?.finished({
       kind: call.kind,
       key: call.key,
@@ -845,6 +979,8 @@ async function invokeAttempt(
       cause: error,
     });
   } finally {
+    if (claimedProbe && outcome === undefined)
+      releaseBackgroundProbe(state, breakerKey);
     stopBudget?.();
     lease?.release({
       outcome:
@@ -854,6 +990,18 @@ async function invokeAttempt(
     });
   }
   const failure = outcomeFailure(outcome);
+  if (outcome.outcome === "completed") {
+    state.backgroundBreakers.delete(breakerKey);
+  } else if (failure && isAvailabilityRuntimeFailure(failure)) {
+    recordBackgroundBreakerFailure(
+      state,
+      breakerKey,
+      modelsFingerprint,
+      claimedProbe,
+    );
+  } else if (claimedProbe) {
+    releaseBackgroundProbe(state, breakerKey);
+  }
   callLog?.finished({
     kind: call.kind,
     key: call.key,
@@ -1245,10 +1393,16 @@ function outcomeFailure(
     case "runtime_unavailable":
     case "auth_required":
     case "runtime_incompatible":
+    case "unsupported":
       return new ModelCallError(
         "runtime_unavailable",
         `The Local Computer Runtime cannot run model calls (${outcome.outcome})${reason}`,
         { runtimeOutcome: outcome.outcome },
+      );
+    case "context_too_long":
+      return new ModelCallError(
+        "invalid_request",
+        `Model invocation prompt exceeded the model context window${reason}`,
       );
     case "timed_out":
       return new ModelCallError(

@@ -1,6 +1,7 @@
 import type {
   TeamHubLocalComputerPage,
   TeamHubLocalRuntimeType,
+  TeamHubTenantAgent,
 } from "@/features/teamhub/teamhub-types";
 
 import type { Message } from "@/i18n/messages";
@@ -67,19 +68,55 @@ function firstApp(computer: LocalComputer, status: RuntimeStatus) {
 }
 
 /**
+ * Picks which ready runtime represents this Computer in the summary pill:
+ * first the Computer's live active model-source runtime, then the runtime its
+ * Agents actually run on (preferring Another Me, then most-used).
+ */
+export function preferredComputerRuntime(
+  agents: readonly TeamHubTenantAgent[],
+  activeRuntime?: TeamHubLocalRuntimeType,
+): TeamHubLocalRuntimeType | undefined {
+  if (activeRuntime) return activeRuntime;
+  const counts = new Map<TeamHubLocalRuntimeType, number>();
+  let anotherMeRuntime: TeamHubLocalRuntimeType | undefined;
+  for (const agent of agents) {
+    if (agent.runtime.placement?.type !== "local") continue;
+    const runtimeType = agent.runtime.placement.runtime_type;
+    if (!runtimeType) continue;
+    if (agent.agent_type === "anotherme") anotherMeRuntime = runtimeType;
+    counts.set(runtimeType, (counts.get(runtimeType) ?? 0) + 1);
+  }
+  if (anotherMeRuntime) return anotherMeRuntime;
+  let best: TeamHubLocalRuntimeType | undefined;
+  let bestCount = 0;
+  for (const app of appOrder) {
+    const count = counts.get(app) ?? 0;
+    if (count > bestCount) {
+      best = app;
+      bestCount = count;
+    }
+  }
+  return best;
+}
+
+/**
  * One conclusion for the whole Computer: an Agent can run as soon as one AI
  * app is ready, so the other apps never make a ready Computer look broken.
  */
 export function computerReadiness(
   computer: LocalComputer,
   displayStatus: ComputerDisplayStatus,
+  preferredRuntime?: TeamHubLocalRuntimeType,
 ): ComputerReadiness {
   if (displayStatus === "reconnecting") return { kind: "reconnecting" };
   // The Runner Gateway turns away a Computer below the version floor, so it
   // reads offline until the update, which is the step that brings it back.
   if (computer.upgrade_required) return { kind: "update" };
   if (displayStatus === "offline") return { kind: "offline" };
-  const ready = firstApp(computer, "ready");
+  const ready =
+    (preferredRuntime && appStatus(computer, preferredRuntime) === "ready"
+      ? preferredRuntime
+      : undefined) ?? firstApp(computer, "ready");
   if (ready) return { kind: "ready", app: ready };
   const signIn = firstApp(computer, "authentication_required");
   if (signIn) return { kind: "signIn", app: signIn };

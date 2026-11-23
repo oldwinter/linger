@@ -28,6 +28,15 @@ import (
 // proactive wake goes out. AnotherMe's answers to earlier wakes do not count.
 const Window = 3 * time.Minute
 
+// EventSettle holds an outside event's wake before its first delivery
+// attempt. One matter often shows up in several apps at once, a mail and a
+// renamed meeting, and every new item becomes its own event job; delivered
+// separately, the later wake can miss the Run the first one starts and
+// AnotherMe acts on half the facts. Waiting lets the events of the same polls
+// reach the queue, so one delivery sends them together into one Run. Urgent
+// events wait too: a cancellation often comes with a mail explaining it.
+const EventSettle = time.Minute
+
 // Sources of a wake. Every source but Scheduled is proactive: its answer is
 // recorded for the Human's nightly learning.
 const (
@@ -114,7 +123,11 @@ func EnqueueTx(ctx context.Context, tx pgx.Tx, wake Wake) error {
 	if err := store.New(tx).NotifyVoiceLiveRoomAlert(ctx, store.NotifyVoiceLiveRoomAlertParams{RoomID: wake.RoomID, WakeID: id}); err != nil {
 		return err
 	}
-	return jobs.InsertTx(ctx, tx, deliverArgs{WakeID: id}, nil)
+	var opts *river.InsertOpts
+	if wake.Source == SourceEvent {
+		opts = &river.InsertOpts{ScheduledAt: time.Now().Add(EventSettle)}
+	}
+	return jobs.InsertTx(ctx, tx, deliverArgs{WakeID: id}, opts)
 }
 
 type deliverArgs struct {

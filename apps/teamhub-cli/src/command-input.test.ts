@@ -68,12 +68,54 @@ describe("CLI input sources", () => {
   it("keeps direct content literal, including empty content", async () => {
     const readInput = vi.fn(async () => "unexpected");
     const reader = createInputReader({ cwd: "/work", readInput });
-    for (const value of ["", "-", "@file", "./body.md", "  Café déjà vu\n"]) {
+    for (const value of [
+      "",
+      "@file",
+      "./body.md",
+      "  Caf\u00e9 d\u00e9j\u00e0 vu\n",
+    ]) {
       expect(
         await bodySource(parseArguments(["--content", value], flags), reader),
       ).toBe(value);
     }
     expect(readInput).not.toHaveBeenCalled();
+  });
+  it("refuses a lone - on a flag whose file twin reads stdin", () => {
+    expect(() => parseArguments(["--content", "-"], flags)).toThrow(
+      expect.objectContaining({
+        code: "invalid_input",
+        details: {
+          issues: [
+            {
+              path: "--content",
+              code: "invalid_value",
+              message:
+                '"-" would be sent as literal text; to read stdin use --file -.',
+            },
+          ],
+        },
+      }),
+    );
+    expect(() =>
+      parseArguments(["--output=-"], {
+        "--output": { description: "JSON" },
+        "--output-file": { description: "JSON file" },
+      }),
+    ).toThrow(
+      expect.objectContaining({
+        details: {
+          issues: [
+            expect.objectContaining({
+              message:
+                '"-" would be read as literal text; to read stdin use --output-file -.',
+            }),
+          ],
+        },
+      }),
+    );
+    expect(parseArguments(["--file", "-"], flags).options["--file"]).toEqual([
+      "-",
+    ]);
   });
   it("decodes Markdown inline bodies outside code only", async () => {
     const reader = createInputReader({
@@ -167,7 +209,14 @@ describe("CLI input sources", () => {
     await writeFile(path.join(directory, "body"), Buffer.from([0xc3, 0x28]));
     await expect(
       createInputReader({ cwd: directory }).text("body"),
-    ).rejects.toThrow(/UTF-8/);
+    ).rejects.toMatchObject({
+      code: "invalid_input",
+      details: {
+        issues: [
+          { path: "--file", code: "unreadable", message: "body: not UTF-8." },
+        ],
+      },
+    });
   });
   it("reads stdin only once even when called by multiple field readers", async () => {
     const readInput = vi.fn(async () => "body");

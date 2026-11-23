@@ -91,7 +91,9 @@ func CreateManagedGeneration(
 		}
 		// The key only routes coordinator notifications; current registration owns
 		// the business identity independently of any Context residency or Local Run.
-		coordinator, getErr := queries.GetAgentRegistrationForUpdate(ctx, store.GetAgentRegistrationForUpdateParams{
+		// Lock FOR SHARE to serialize with Agent deactivation and updates without
+		// upgrading the caller's AuthenticateInTx FOR SHARE lock to FOR UPDATE.
+		coordinator, getErr := queries.GetActiveAgentRegistrationForAdmission(ctx, store.GetActiveAgentRegistrationForAdmissionParams{
 			ActorID: input.CoordinatorActorID, TenantID: locked.TenantID,
 		})
 		if errors.Is(getErr, pgx.ErrNoRows) {
@@ -100,7 +102,7 @@ func CreateManagedGeneration(
 		if getErr != nil {
 			return CreateManagedGenerationResult{}, getErr
 		}
-		if coordinator.Status != "active" || !coordinator.AgentManagementID.Valid || coordinator.AgentManagementID.String != coordinatorRef.AgentID {
+		if !coordinator.AgentManagementID.Valid || coordinator.AgentManagementID.String != coordinatorRef.AgentID {
 			return CreateManagedGenerationResult{}, ErrConflict
 		}
 	}

@@ -12,6 +12,8 @@ export const wikiTimelineMessages = defineMessages("wikiTimeline", {
   generating: "Wiki is being generated…",
   unavailable: "Timeline is unavailable.",
   graphUnavailable: "Personal Knowledge Graph is unavailable",
+  emptyTimeline:
+    "No timeline yet. Add a source or have a conversation to build your Wiki.",
   retryGraph: "Retry graph",
   hiddenPreferences:
     "This graph cannot display your hidden-file preferences. Refresh the graph to load the current view.",

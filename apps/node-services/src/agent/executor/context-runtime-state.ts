@@ -502,6 +502,8 @@ class TeamHubContextRuntimeState implements ContextRuntimeStatePort {
     // work, and racing notifications retain their own refresh request.
     this.#hasQueuedRuns = false;
     this.#hasPendingWork = true;
+    // The cached kind named the Run just claimed, not what queues after it.
+    this.#queuedKind = undefined;
     return {
       runId: result.run.run_id,
       continuesContext: result.run.continues_context,

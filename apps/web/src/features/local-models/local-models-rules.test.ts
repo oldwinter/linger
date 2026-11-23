@@ -27,6 +27,7 @@ import {
   makesRoom,
   memoryGuidance,
   memoryReclaimable,
+  memorySegments,
   memorySummary,
   modelCapabilities,
   modelEntries,
@@ -110,6 +111,41 @@ describe("local models rules", () => {
       gpu: false,
       totalBytes: gb(51.2),
       usedBytes: gb(14.3),
+    });
+  });
+
+  it("derives memory bar segments from the same pools as memorySummary", () => {
+    const view = labView({
+      pools: [
+        {
+          ...gpuPool(0, 24, [
+            { gb: 10, id: "shared:Q4", name: "Shared Model" },
+            { component: true, gb: 1.5, id: "embed", name: "Embeddings" },
+          ]),
+          used_bytes: gb(15.5),
+        },
+        gpuPool(1, 24, [{ gb: 6, id: "shared:Q4", name: "Shared Model" }]),
+        // System RAM should be excluded when GPUs are present, matching memorySummary.
+        {
+          ...memoryPool("system", 64, [
+            { gb: 8, id: "ram-only:Q4", name: "RAM Model" },
+          ]),
+          used_bytes: gb(20),
+        },
+      ],
+    });
+    expect(memorySegments(view)).toEqual({
+      componentBytes: gb(1.5),
+      models: [{ bytes: gb(16), id: "shared:Q4", name: "Shared Model" }],
+      otherBytes: gb(4),
+    });
+
+    expect(memorySegments(macView())).toEqual({
+      componentBytes: 0,
+      models: [
+        { bytes: gb(14.3), id: "gpt-oss-20b:Q4_K_M", name: "GPT-OSS 20B" },
+      ],
+      otherBytes: 0,
     });
   });
 
