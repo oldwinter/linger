@@ -194,9 +194,9 @@ type Daemon struct {
 	contextDispatchLimit int
 	fatalMu              sync.Mutex
 	fatalErr             error
-	gatewayStateMu sync.RWMutex
-	reconciled     bool
-	gatewayState   string
+	gatewayStateMu       sync.RWMutex
+	reconciled           bool
+	gatewayState         string
 	// welcomedEpochs are the connection epochs this process was welcomed
 	// with, under gatewayStateMu. A start sent on any other epoch was sent to
 	// an earlier Daemon process.
