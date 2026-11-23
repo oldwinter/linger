@@ -39,6 +39,10 @@
   with the Daemon), `internal/platform/privatefs`, `internal/provider`
   discovery, and `internal/linger/control` (control client and the Daemon
   owner record). It never re-implements a Daemon mechanism.
+- `runtime login <type>` opens an installed Runtime on the caller's terminal so
+  the user can sign in to it. It reuses the Daemon's discovery, Runtime
+  environment and launcher handling, so the user signs in to the process the
+  Daemon starts; only `process.PrepareForeground` skips the hidden window.
 - Native provider clients live in `internal/provider/native`; process-tree
   helpers live in `internal/process`; runtime-home helpers live in
   `internal/workspace`. Keep tests next to their implementation.
@@ -66,6 +70,9 @@
 
 ## Runtime And Safety
 
+- On Windows an npm-launched Runtime starts on the Node the bundle ships in
+  `runtime/bin`, so an engine requirement a Runtime declares is independent of
+  the Node installed on the machine; the machine's `PATH` stays the user's.
 - A Pi background model call uses one ephemeral RPC turn with no tools on
   whatever model Pi's profile selects by default, local or remote; the Daemon
   does not check which.
@@ -98,9 +105,11 @@
   floor or when the Agent Service must tell a release that decodes a new
   optional `runner.welcome` field or a new Agent frame from one that rejects
   it (the Daemon decodes frames strictly and closes the connection on an
-  unknown one). The package version is the source for the bundled CLI and Go
-  Daemon `ReleaseVersion`; it is used for display, the floor, and those
-  fields and frames, never to trigger or order upgrades.
+  unknown one), or when the Web must tell a release whose CLI has a new
+  command from one that lacks it. The package version is the source for the
+  bundled CLI and Go Daemon `ReleaseVersion`; it is used for display, the
+  floor, those fields and frames, and those CLI commands, never to trigger or
+  order upgrades.
 - A Daemon can outlive its Agent Service release: a desktop upgrade replaces
   the Daemon while the installed services keep running until the owner
   updates them. A Daemon-to-Agent frame family added within protocol 2 is

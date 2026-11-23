@@ -271,7 +271,10 @@ fi
 			if version == "0.150.1" {
 				expected = "app-server --disable plugins --disable goals --listen stdio:// --config tool_output_token_limit=12000 --config features.memories=false --config features.memory_tool=false --config features.apps=false --config features.image_generation=false"
 			}
-			expected += " --config project_root_markers=[] --config skills.bundled.enabled=false"
+			expected += " --config project_root_markers=[] --config skills.bundled.enabled=false --config features.multi_agent=false --config features.multi_agent_v2=false"
+			if version == "0.150.1" {
+				expected += " --config agents.enabled=false"
+			}
 			environment := map[string]string{"HOME": root, "CODEX_HOME": root, "EXPECTED_ARGS": expected, "LAUNCH_TRACE": trace}
 			outcome := probeRuntime(t.Context(), "codex", executable, environment, 5*time.Second, version)
 			if outcome.Status != "ready" {

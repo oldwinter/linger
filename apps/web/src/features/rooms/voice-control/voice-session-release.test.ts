@@ -12,7 +12,7 @@ import type {
   TeamHubVoiceCapture,
   TeamHubVoiceSession,
 } from "@/features/teamhub/teamhub-types";
-import { releaseVoiceSession } from "./voice-session-release";
+import { releaseVoiceSession, VoiceStopError } from "./voice-session-release";
 
 const session = { id: "voice-old", room_id: "room-old" } as TeamHubVoiceSession;
 const recording = {
@@ -121,6 +121,95 @@ describe("Voice page release", () => {
     const fixture = clientFixture();
     fixture.stop.mockReturnValueOnce(missing());
     await releaseVoiceSession(fixture.client, session, recording);
+    expect(fixture.close).toHaveBeenCalledOnce();
+  });
+
+  it("reports a Stop that keeps failing within about 30 seconds", async () => {
+    vi.useFakeTimers();
+    const fixture = clientFixture();
+    fixture.stop.mockReturnValue(
+      teamHubErrorResponse(503, "UNAVAILABLE", "Unavailable"),
+    );
+    let settled: unknown;
+    void releaseVoiceSession(fixture.client, session, recording).catch(
+      (error: unknown) => (settled = error),
+    );
+    // A blip of a few seconds is not reported.
+    await vi.advanceTimersByTimeAsync(9_000);
+    expect(fixture.stop).toHaveBeenCalledTimes(2);
+    expect(settled).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(21_000);
+    expect(settled).toBeInstanceOf(VoiceStopError);
+    expect(fixture.stop).toHaveBeenCalledTimes(3);
+    expect(fixture.close).not.toHaveBeenCalled();
+  });
+
+  it("reports Stops whose requests hang within about 30 seconds", async () => {
+    vi.useFakeTimers();
+    const fixture = clientFixture();
+    // Stop and the read both wait out the 5 s request timeout.
+    const hang: TestRouteHandler = ({ request }) =>
+      new Promise<never>((_resolve, reject) =>
+        request.signal.addEventListener("abort", () =>
+          reject(request.signal.reason),
+        ),
+      );
+    fixture.stop.mockImplementation(hang);
+    fixture.active.mockImplementation(hang);
+    let settled: unknown;
+    void releaseVoiceSession(fixture.client, session, recording).catch(
+      (error: unknown) => (settled = error),
+    );
+    await vi.advanceTimersByTimeAsync(29_000);
+    expect(fixture.stop).toHaveBeenCalledTimes(3);
+    expect(settled).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(settled).toBeInstanceOf(VoiceStopError);
+    expect(fixture.close).not.toHaveBeenCalled();
+  });
+
+  it("stops without an error once a brief outage passes", async () => {
+    vi.useFakeTimers();
+    const fixture = clientFixture();
+    fixture.stop.mockReturnValueOnce(
+      teamHubErrorResponse(503, "UNAVAILABLE", "Unavailable"),
+    );
+    const pending = releaseVoiceSession(fixture.client, session, recording);
+    await vi.advanceTimersByTimeAsync(5_000);
+    await pending;
+    expect(fixture.stop).toHaveBeenCalledTimes(2);
+    expect(fixture.close).toHaveBeenCalledOnce();
+  });
+
+  it("reports a rejected Stop at once", async () => {
+    vi.useFakeTimers();
+    const fixture = clientFixture();
+    fixture.stop.mockReturnValue(
+      teamHubErrorResponse(403, "FORBIDDEN", "Forbidden"),
+    );
+    const pending = releaseVoiceSession(
+      fixture.client,
+      session,
+      recording,
+    ).catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await pending).toBeInstanceOf(VoiceStopError);
+    expect(fixture.stop).toHaveBeenCalledOnce();
+  });
+
+  it("keeps stopping a Capture it could not read after a failed Stop", async () => {
+    vi.useFakeTimers();
+    const fixture = clientFixture();
+    fixture.stop.mockReturnValueOnce(
+      teamHubErrorResponse(503, "UNAVAILABLE", "Unavailable"),
+    );
+    fixture.active.mockReturnValueOnce(
+      teamHubErrorResponse(503, "UNAVAILABLE", "Unavailable"),
+    );
+    const pending = releaseVoiceSession(fixture.client, session, recording);
+    await vi.runAllTimersAsync();
+    await pending;
+    expect(fixture.stop).toHaveBeenCalledTimes(2);
     expect(fixture.close).toHaveBeenCalledOnce();
   });
 

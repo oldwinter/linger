@@ -16,6 +16,10 @@ import (
 	wire "github.com/simplexai-labs/linger/contracts-go/runnergateway"
 )
 
+// modelInvokeLogReasonLimit keeps a failed call's log line short; the full
+// receipt reason still goes to the Agent Service.
+const modelInvokeLogReasonLimit = 300
+
 // ModelInvoker runs one execute model_invoke on a local Runtime.
 type ModelInvoker interface {
 	Invoke(ctx context.Context, request provider.ModelInvokeRequest) provider.ModelInvokeResult
@@ -258,7 +262,16 @@ func (d *Daemon) sendModelInvoked(ctx context.Context, stream transport.Stream, 
 		payload["reason"] = "Model invocation reply exceeds the Runner Gateway frame limit"
 		encoded = mustJSON(payload)
 	}
-	slog.Info("runner.model.invoke", "phase", result.Outcome, "invoke_id", invokeID, "duration_ms", duration.Milliseconds())
+	attrs := []any{"phase", result.Outcome, "invoke_id", invokeID, "duration_ms", duration.Milliseconds()}
+	// The reason sent above is already redacted, so a diagnostics bundle can
+	// show why a call failed without leaking a credential.
+	if reason, _ := payload["reason"].(string); reason != "" {
+		if runes := []rune(reason); len(runes) > modelInvokeLogReasonLimit {
+			reason = string(runes[:modelInvokeLogReasonLimit])
+		}
+		attrs = append(attrs, "reason", reason)
+	}
+	slog.Info("runner.model.invoke", attrs...)
 	return stream.Send(ctx, protocol.Event{
 		Type: protocol.EventModelInvoked, ProtocolVersion: command.ProtocolVersion, CommandID: command.CommandID,
 		SentAt: time.Now().UTC(), Payload: encoded,

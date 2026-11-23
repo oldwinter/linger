@@ -786,6 +786,14 @@ func captureModel(record store.CaptureSession, epoch store.VoiceMediaEpoch) Capt
 		model.TranscriptRecoveryStatus = record.TranscriptRecoveryStatus.String
 		model.TranscriptRecoveryProgressMS = record.TranscriptRecoveryProgressMs
 		model.TranscriptRecoveryTotalMS = record.TranscriptRecoveryTotalMs.Int64
+		model.TranscriptRecoveryMaxAttempts = transcriptRecoveryFailureBudget
+		// A failed recovery reports the attempts it made; otherwise the
+		// attempt running or due next.
+		model.TranscriptRecoveryAttempt = int64(record.TranscriptRecoveryFailures)
+		if record.TranscriptRecoveryStatus.String != "failed" {
+			model.TranscriptRecoveryAttempt++
+		}
+		model.TranscriptRecoveryAttempt = min(max(model.TranscriptRecoveryAttempt, 1), transcriptRecoveryFailureBudget)
 		if record.TranscriptRecoveryFailureCode.Valid {
 			model.LastFailureCode = record.TranscriptRecoveryFailureCode.String
 		}

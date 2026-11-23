@@ -24,6 +24,90 @@ async function fixture() {
   return root;
 }
 it.skipIf(process.platform !== "win32")(
+  "restores write access to a private directory with a read-only owner rule",
+  { timeout: 30_000 },
+  async () => {
+    const root = await fixture();
+    const script = [
+      "$ErrorActionPreference='Stop'",
+      "$item = Get-Item -LiteralPath ([Console]::In.ReadToEnd())",
+      "$sid = [Security.Principal.WindowsIdentity]::GetCurrent().User",
+      "$acl = [Security.AccessControl.DirectorySecurity]::new()",
+      "$acl.SetAccessRuleProtection($true, $false)",
+      "$acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($sid, 'ReadAndExecute', 'ContainerInherit,ObjectInherit', 'None', 'Allow'))",
+      "$acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new('S-1-5-18'), 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow'))",
+      "$item.SetAccessControl($acl)",
+    ].join("\n");
+    const changed = await runProcess(
+      path.win32.join(
+        process.env.SystemRoot ?? "C:\\Windows",
+        "System32/WindowsPowerShell/v1.0/powershell.exe",
+      ),
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-EncodedCommand",
+        Buffer.from(script, "utf16le").toString("base64"),
+      ],
+      { input: root, timeoutMs: 30_000 },
+    );
+    expect(changed.code, changed.stderr).toBe(0);
+    await expect(
+      windowsPrivatePath(root, "directory"),
+    ).resolves.toBeUndefined();
+    const file = path.join(root, "settings.json");
+    await expect(writeFile(file, "{}")).rejects.toMatchObject({
+      code: expect.stringMatching(/^(EACCES|EPERM)$/),
+    });
+    await windowsPrivatePath(root, "directory", true);
+    await writeFile(file, "{}");
+  },
+);
+it.skipIf(process.platform !== "win32")(
+  "skips the DACL write for an already repaired directory",
+  { timeout: 30_000 },
+  async () => {
+    const root = await fixture();
+    const needsRepair = path.join(root, "needs-repair");
+    await mkdir(needsRepair);
+
+    const writeDacl = "if ($PSVersionTable.PSEdition -eq 'Core')";
+    expect(WINDOWS_PRIVATE_SCRIPT).toContain(writeDacl);
+    // Fail at the persistence boundary after inspecting a real NTFS DACL.
+    const script = WINDOWS_PRIVATE_SCRIPT.replace(
+      writeDacl,
+      "throw 'UNEXPECTED_DACL_WRITE'; " + writeDacl,
+    );
+    const powershell = path.win32.join(
+      process.env.SystemRoot ?? "C:\\Windows",
+      "System32/WindowsPowerShell/v1.0/powershell.exe",
+    );
+    const probe = (directory: string) =>
+      runProcess(
+        powershell,
+        [
+          "-NoProfile",
+          "-NonInteractive",
+          "-EncodedCommand",
+          Buffer.from(script, "utf16le").toString("base64"),
+        ],
+        {
+          input: JSON.stringify({
+            path: directory,
+            kind: "directory",
+            repair: true,
+          }),
+          timeoutMs: 15_000,
+        },
+      );
+    const repaired = await probe(root);
+    expect(repaired.code, repaired.stdout || repaired.stderr).toBe(0);
+    const inherited = await probe(needsRepair);
+    expect(inherited.code).toBe(1);
+    expect(inherited.stdout.trim()).toBe("UNEXPECTED_DACL_WRITE");
+  },
+);
+it.skipIf(process.platform !== "win32")(
   "creates a protected user/SYSTEM DACL and accepts inherited private files",
   async () => {
     const root = await fixture();
@@ -169,7 +253,7 @@ it.skipIf(process.platform !== "win32")(
     const file = path.join(root, "settings.json");
     await writeFile(file, "{}");
     const script =
-      "$ErrorActionPreference='Stop'; $p=[Console]::In.ReadToEnd(); $item=[IO.FileInfo]::new($p); $a=Get-Acl -LiteralPath $p; $a.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new('S-1-1-0'),'Read','Allow')); $item.SetAccessControl($a)";
+      "$ErrorActionPreference='Stop'; $p=[Console]::In.ReadToEnd(); $item=[IO.FileInfo]::new($p); $a=$item.GetAccessControl([Security.AccessControl.AccessControlSections]::Access); $a.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new('S-1-1-0'),'Read','Allow')); $item.SetAccessControl($a)";
     const changed = await runProcess(
       path.win32.join(
         process.env.SystemRoot ?? "C:\\Windows",
@@ -202,7 +286,7 @@ it.skipIf(process.platform !== "win32")(
     await mkdir(child);
     await windowsPrivatePath(child, "directory", true);
     const mutate = async (propagation: "InheritOnly" | "None") => {
-      const script = `$ErrorActionPreference='Stop'; [Console]::InputEncoding=[Text.UTF8Encoding]::new($false); $p=[Console]::In.ReadToEnd(); $item=[IO.DirectoryInfo]::new($p); $a=Get-Acl -LiteralPath $p; $a.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new('S-1-5-11'),'Modify','ContainerInherit,ObjectInherit','${propagation}','Allow')); $item.SetAccessControl($a)`;
+      const script = `$ErrorActionPreference='Stop'; [Console]::InputEncoding=[Text.UTF8Encoding]::new($false); $p=[Console]::In.ReadToEnd(); $item=[IO.DirectoryInfo]::new($p); $a=$item.GetAccessControl([Security.AccessControl.AccessControlSections]::Access); $a.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new('S-1-5-11'),'Modify','ContainerInherit,ObjectInherit','${propagation}','Allow')); $item.SetAccessControl($a)`;
       const changed = await runProcess(
         path.win32.join(
           process.env.SystemRoot ?? "C:\\Windows",

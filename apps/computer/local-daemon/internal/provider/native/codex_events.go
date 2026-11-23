@@ -44,14 +44,6 @@ type codexItem struct {
 	Action         json.RawMessage `json:"action"`
 	// ClientID is the client id of a userMessage, echoing a steer's.
 	ClientID *string `json:"clientId"`
-	// ReceiverThreadIDs and Model describe a collabAgentToolCall.
-	ReceiverThreadIDs []string `json:"receiverThreadIds"`
-	Model             string   `json:"model"`
-}
-
-// codexChild is a sub-agent thread and the collab call that spawned it.
-type codexChild struct {
-	parentCallID, model string
 }
 
 type codexNotification struct {
@@ -114,7 +106,6 @@ func (p *codexProcess) dispatchNotice(method string, params json.RawMessage) {
 		return
 	}
 	if bound := p.boundThread(); n.ThreadID != "" && bound != "" && n.ThreadID != bound {
-		op.childNotice(method, &n)
 		return
 	}
 	turnID := n.TurnID
@@ -165,28 +156,6 @@ func (op *codexOperation) admit(method, turnID, errorTurnID string) bool {
 	return turnID == "" || turnID == op.gateTurn
 }
 
-// childNotice keeps only the model requests of a sub-agent thread this turn
-// spawned; its items belong to the sub-agent, not to the Run.
-func (op *codexOperation) childNotice(method string, n *codexNotification) {
-	op.mu.Lock()
-	child, known := op.children[n.ThreadID]
-	live := op.gateArmed && !op.gateClosed
-	op.mu.Unlock()
-	if !known || !live {
-		return
-	}
-	switch {
-	case method == "thread/tokenUsage/updated":
-		op.observeTokenUsage(n.ThreadID, child, n.TokenUsage)
-	case codexModelOutput(method, n.Item.Type):
-		op.requests.item(n.ThreadID, time.Now())
-	case method == "item/started" && codexToolItem(n.Item.Type):
-		op.requests.call(n.ThreadID)
-	case method == "item/completed" && codexToolItem(n.Item.Type):
-		op.requests.ready(n.ThreadID, time.Now())
-	}
-}
-
 // codexModelOutput reports a notification that shows model output. A tool
 // item starts when its execution starts, which can follow the response (for
 // example after an approval), so only reasoning, messages and plans count.
@@ -210,26 +179,6 @@ func codexToolItem(itemType string) bool {
 	return true
 }
 
-// spawned records the sub-agent threads a spawn call created so their model
-// requests are attributed to it. Other collab calls name existing agents.
-func (op *codexOperation) spawned(item *codexItem) {
-	if item.Tool != "spawnAgent" {
-		return
-	}
-	now := time.Now()
-	for _, thread := range item.ReceiverThreadIDs {
-		op.mu.Lock()
-		_, known := op.children[thread]
-		if !known && thread != "" {
-			op.children[thread] = codexChild{parentCallID: item.ID, model: item.Model}
-		}
-		op.mu.Unlock()
-		if !known && thread != "" {
-			op.requests.begin(thread, now)
-		}
-	}
-}
-
 func (op *codexOperation) project(method string, n *codexNotification) {
 	if codexModelOutput(method, n.Item.Type) {
 		op.requests.item("", time.Now())
@@ -240,7 +189,7 @@ func (op *codexOperation) project(method string, n *codexNotification) {
 	case "turn/completed":
 		op.turnFinished(n)
 	case "thread/tokenUsage/updated":
-		op.observeTokenUsage(n.ThreadID, codexChild{}, n.TokenUsage)
+		op.observeTokenUsage(n.ThreadID, n.TokenUsage)
 	case "error":
 		op.errorNotification(n)
 	case "turn/plan/updated":
@@ -348,9 +297,6 @@ func (op *codexOperation) item(method string, item *codexItem) {
 	}
 	op.activityNote(note)
 	started := method == "item/started"
-	if item.Type == "collabAgentToolCall" {
-		op.spawned(item)
-	}
 	if codexToolItem(item.Type) {
 		if started {
 			op.requests.call("")

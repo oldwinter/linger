@@ -18,8 +18,9 @@ import (
 )
 
 // localModelActionLifetime bounds how long the Computer may take to accept
-// an action; it stays inside the Agent management client's timeout.
-const localModelActionLifetime = 10 * time.Second
+// an action; it matches the Agent Service's 30-second ack budget and stays
+// inside HTTPGateway's local-models client timeout.
+const localModelActionLifetime = 30 * time.Second
 
 var (
 	localModelIDPattern        = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$`)

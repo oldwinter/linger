@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
@@ -64,11 +65,29 @@ func (a *App) writeTenantAgentDirectoryError(c *gin.Context, err error) bool {
 	return a.notFoundOrError(c, "list Tenant Agents", err)
 }
 
+// validAgentName reports whether an Agent or template name fits the contract
+// character bound.
+func validAgentName(name string) bool {
+	name = strings.TrimSpace(name)
+	return name != "" &&
+		utf8.ValidString(name) &&
+		utf8.RuneCountInString(name) <= agentregistry.MaxNameRunes
+}
+
+// validAgentText reports whether an Agent or template name and instructions fit
+// the contract character bounds.
+func validAgentText(name, instructions string) bool {
+	instructions = strings.TrimSpace(instructions)
+	return validAgentName(name) &&
+		instructions != "" &&
+		utf8.ValidString(instructions) &&
+		utf8.RuneCountInString(instructions) <= agentregistry.MaxInstructionsRunes
+}
+
 func (a *App) createTenantAgent(c *gin.Context) {
 	var request httpapi.TenantAgentCreateRequest
 	if err := decodeJSON(c, &request); err != nil ||
-		strings.TrimSpace(request.Name) == "" || len(request.Name) > 120 ||
-		strings.TrimSpace(request.Instructions) == "" || len(request.Instructions) > 50000 ||
+		!validAgentText(request.Name, request.Instructions) ||
 		!agentregistry.ValidAgentRuntimeConfig(request.Runtime) {
 		a.writeError(c, http.StatusBadRequest, "INVALID_REQUEST", "Agent name, instructions, and runtime model are required")
 		return
@@ -164,7 +183,7 @@ func (a *App) updateTenantAgent(c *gin.Context) {
 	}
 	if request.Name != nil {
 		name := strings.TrimSpace(*request.Name)
-		if name == "" || len(name) > 120 {
+		if !validAgentName(name) {
 			a.writeError(c, http.StatusBadRequest, "INVALID_REQUEST", "Agent name is invalid")
 			return
 		}
@@ -178,7 +197,9 @@ func (a *App) updateTenantAgent(c *gin.Context) {
 		}
 		request.Description = &description
 	}
-	if request.Instructions != nil && (strings.TrimSpace(*request.Instructions) == "" || len([]rune(*request.Instructions)) > 50000) {
+	if request.Instructions != nil && (strings.TrimSpace(*request.Instructions) == "" ||
+		!utf8.ValidString(*request.Instructions) ||
+		utf8.RuneCountInString(*request.Instructions) > agentregistry.MaxInstructionsRunes) {
 		a.writeError(c, http.StatusBadRequest, "INVALID_REQUEST", "Agent instructions must contain between 1 and 50000 characters")
 		return
 	}

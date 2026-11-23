@@ -201,8 +201,9 @@ export function createInputReader(dependencies: {
           await handle.close();
         }
       }
+      let decoded: string;
       try {
-        return new TextDecoder("utf-8", {
+        decoded = new TextDecoder("utf-8", {
           fatal: true,
           ignoreBOM: true,
         }).decode(Buffer.concat(chunks));
@@ -212,6 +213,9 @@ export function createInputReader(dependencies: {
           "Input must contain valid UTF-8 text.",
         );
       }
+      // A leading byte-order mark names the encoding; it is not text, and a
+      // JSON value that keeps it fails to parse.
+      return decoded.startsWith("\uFEFF") ? decoded.slice(1) : decoded;
     } catch (error) {
       if (error instanceof CliError) throw error;
       throw new CliError(

@@ -55,7 +55,8 @@ export function downloadStopped(model: LocalModel): boolean {
   return (
     model.state === "failed" &&
     (model.error?.code === "DOWNLOAD_FAILED" ||
-      model.error?.code === "NETWORK_UNAVAILABLE")
+      model.error?.code === "NETWORK_UNAVAILABLE" ||
+      model.error?.code === "DISK_INSUFFICIENT")
   );
 }
 

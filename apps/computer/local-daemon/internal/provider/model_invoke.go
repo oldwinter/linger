@@ -59,13 +59,14 @@ const (
 )
 
 // codexInvokeDisabledFeatures turns off every Codex tool family a one-shot
-// call must not reach: shell and code execution, sub-agents, goals, browsers,
-// computer use, connected apps, plugins, hooks, image tools, tool discovery,
-// Skills and sleeping. Each name is passed as a features.<name>=false config
-// override rather than --disable so older Codex releases ignore features they
-// do not define instead of refusing to start.
+// call must not reach: shell and code execution, goals, browsers, computer
+// use, connected apps, plugins, hooks, image tools, tool discovery, Skills and
+// sleeping. Each name is passed as a features.<name>=false config override
+// rather than --disable so older Codex releases ignore features they do not
+// define instead of refusing to start. native.CodexSubAgentConfig turns off
+// sub-agents.
 var codexInvokeDisabledFeatures = []string{
-	"shell_tool", "unified_exec", "code_mode_host", "multi_agent", "goals",
+	"shell_tool", "unified_exec", "code_mode_host", "goals",
 	"browser_use", "browser_use_external", "browser_use_full_cdp_access",
 	"computer_use", "in_app_browser", "apps", "plugins", "hooks",
 	"image_generation", "view_image", "tool_suggest", "skill_search", "sleep_tool",
@@ -492,7 +493,7 @@ func codexModelInvocation(request ModelInvokeRequest, environment map[string]str
 	lastPath := filepath.Join(root, "last.txt")
 	events := &codexInvokeEvents{}
 	return modelInvocation{
-		args:        codexModelInvokeArgs(request.Mode, request.ReasoningEffort, named, work, schemaPath, lastPath),
+		args:        codexModelInvokeArgs(installed.Version, request.Mode, request.ReasoningEffort, named, work, schemaPath, lastPath),
 		environment: environment,
 		stdout:      events,
 		model:       cmp.Or(named, prepared.Model),
@@ -522,7 +523,7 @@ func codexDefaultModel(configured, catalogDefault string) string {
 // codexModelInvokeArgs builds the codex exec argv; an empty model leaves the
 // choice to config.toml. The prompt is read from stdin, so no positional
 // argument follows the options.
-func codexModelInvokeArgs(mode, effort, model, work, schemaPath, lastPath string) []string {
+func codexModelInvokeArgs(version, mode, effort, model, work, schemaPath, lastPath string) []string {
 	sandbox := "read-only"
 	if mode == ModelInvokeWorkspace {
 		sandbox = "workspace-write"
@@ -548,6 +549,7 @@ func codexModelInvokeArgs(mode, effort, model, work, schemaPath, lastPath string
 		}
 		args = append(args, "-c", "features."+feature+"=false")
 	}
+	args = append(args, native.CodexSubAgentConfig(version)...)
 	if schemaPath != "" {
 		args = append(args, "--output-schema", schemaPath)
 	}

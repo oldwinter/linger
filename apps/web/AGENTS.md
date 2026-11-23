@@ -147,7 +147,11 @@ build:assets` to check the initial JS budget.
   `public/linger-wordmark.svg`, with the proportions of `assets/logo-horizontal.svg`.
 - Switching between Meeting and Voice Mode ends the previous session and
   releases its microphone before the new mode starts. Meeting saving can
-  continue in the background. If browser activation expires during the
+  continue in the background. The sidebar Meeting entry spins only while a
+  Stop or save is under way: a transcript recovery shows its attempt
+  ("Recovering 2/8"), and a Stop that failed three times or a failed recovery
+  shows a red dot and opens the window on its Retry without starting a new
+  recording. If browser activation expires during the
   switch, the new mode opens in the page and can be floated from there.
   During Live, the Meeting entry offers to start a new Meeting even while an
   earlier one is saving. Both in-page voice windows retain a visible, draggable

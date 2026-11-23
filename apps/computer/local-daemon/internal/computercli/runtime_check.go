@@ -48,6 +48,8 @@ func installStep(runtimeType, goos string) string {
 	}
 }
 
+// signInSteps are the native sign-in commands, matching the Web's guidance in
+// apps/web/src/features/local-computer/local-runtime-commands.ts.
 var signInSteps = map[string]string{
 	"codex":  "Run codex login",
 	"claude": "Run claude auth login",
@@ -56,7 +58,26 @@ var signInSteps = map[string]string{
 	"antigravity": "Run agy and sign in with Google, or set GEMINI_API_KEY",
 }
 
-func newRuntimeCheckRow(check runtimeCheck, goos string) runtimeCheckRow {
+// signInStep names the command a user follows to sign a Runtime in. On Windows
+// a bare Runtime command can start on the machine's Node and its PowerShell
+// launcher rather than the bundled Node and native entry the Daemon uses, so
+// the user signs in through the CLI entry. Elsewhere the native command signs
+// in to the same Runtime state and matches the Web's guidance.
+func signInStep(runtimeType, goos, commandName string) string {
+	if goos != "windows" {
+		return signInSteps[runtimeType]
+	}
+	step := "Run " + commandName + " runtime login " + runtimeType
+	switch runtimeType {
+	case "pi":
+		step += ", then /login"
+	case "antigravity":
+		step += ", then sign in with Google, or set GEMINI_API_KEY"
+	}
+	return step
+}
+
+func newRuntimeCheckRow(check runtimeCheck, goos, commandName string) runtimeCheckRow {
 	diagnostic := check.diagnostic
 	name := runtimeNames[diagnostic.Type]
 	row := runtimeCheckRow{Runtime: diagnostic.Type, Name: name, Version: diagnostic.Version}
@@ -76,7 +97,7 @@ func newRuntimeCheckRow(check runtimeCheck, goos string) runtimeCheckRow {
 	case "NOT_INSTALLED":
 		row.NextStep = installStep(diagnostic.Type, goos)
 	case "AUTH_REQUIRED":
-		row.NextStep = signInSteps[diagnostic.Type]
+		row.NextStep = signInStep(diagnostic.Type, goos, commandName)
 	case "INCOMPATIBLE":
 		row.NextStep = "Upgrade " + name
 	default:

@@ -5,6 +5,10 @@ Scripts support existing build, generation, and verification entrypoints.
 ## Common Commands
 
 - `pnpm vitest run --no-file-parallelism scripts/<test-file>`: run one script test.
+- `pnpm dev:windows`: start the host development stack on Windows, which has
+  neither `sh` nor `make`. It runs the steps `pnpm dev` orchestrates.
+- `pnpm computer:release:windows`: build the Local Computer release a Windows
+  checkout serves from `/install/`.
 - `make check-scripts-fast`: run the fast repository script gate with bounded parallelism.
 - `make check-computer-release`: build and install the real Local Computer bundle.
 - `make check-scripts-heavy`: run Local Computer install, package, and release tests.
@@ -19,6 +23,11 @@ Scripts support existing build, generation, and verification entrypoints.
 ## Important Conventions
 
 - Scripts must be idempotent and safe to rerun.
+- Build Local Computer Linux and macOS archives on a Unix host so the tar
+  entries retain executable modes. On Windows, pass `--targets win32-x64`
+  or `--targets win32-arm64` to `prepare-local-computer-release.mjs`.
+- The PowerShell installer loads its built-in cmdlets from the current shell
+  so it works when launched by either Windows PowerShell 5.1 or PowerShell 7.
 - `check-scripts-fast` runs fast-lane files that reference `child_process`
   under `SCRIPT_TEST_PROCESS_TIMEOUT_MS`; pure files keep the 5s Vitest default.
   New process-spawning tests need no per-test timeout for the shared Runner.

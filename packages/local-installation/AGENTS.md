@@ -23,7 +23,11 @@ one that inherits Modify for Authenticated Users does not. The Daemon's
 installer as its code and reason (`windowsPrivateRefusal`), never as its
 words: in the `startFailure` line on stdout when the installer manager cannot
 start, and in the `--user-keys` outcome. The Desktop setup page branches on
-`UNSAFE_PARENT_ACCESS` to say where to install instead.
+`UNSAFE_PARENT_ACCESS` to say where to install instead. Repair skips propagation when the protected
+DACL already grants inheritable FullControl to the owner and SYSTEM on a
+directory, or FullControl to both on a file. Private paths with partial rights
+still receive the full repair. Rewriting a directory DACL propagates to its
+existing children and can time out on a large cache tree.
 
 `atomicPrivate` closes and removes its temporary file on failed writes or
 syncs as well as failed publication. A failed replacement keeps the previous

@@ -2,6 +2,7 @@ import {
   chmodSync,
   mkdtempSync,
   readFileSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
@@ -122,12 +123,13 @@ const setup = (
       throw new Error("unused");
     },
   };
+  const spawn = vi.fn<ComputerDaemonOptions["spawn"]>((configFile, env) => {
+    const child = new FakeChild(configFile, env);
+    children.push(child);
+    return child;
+  });
   const daemon = new ComputerDaemonModule({
-    spawn: (configFile, env) => {
-      const child = new FakeChild(configFile, env);
-      children.push(child);
-      return child;
-    },
+    spawn,
     credentials,
     directory: path.join(directory, "computer"),
     teamhubCliDirectory: "/Applications/Linger.app/teamhub-cli",
@@ -136,7 +138,7 @@ const setup = (
     ...(options.relaunch ? { relaunch: options.relaunch } : {}),
     ...(options.protect ? { protect: options.protect } : {}),
   });
-  return { daemon, ctx, bus, config, children, directory };
+  return { daemon, ctx, bus, config, children, credentials, directory, spawn };
 };
 
 afterEach(() => {
@@ -405,6 +407,144 @@ describe("ComputerDaemonModule", () => {
       vi.advanceTimersByTime(restartDelay(attempt));
     }
     expect(daemon.failure()).toBeUndefined();
+  });
+
+  it("retries after a restart whose launch could not read its credential", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    const { daemon, ctx, bus, children, credentials } = setup();
+    await daemon.start(ctx);
+    expect(children).toHaveLength(1);
+    const read = vi.spyOn(credentials, "read").mockImplementation(() => {
+      throw new Error("EACCES reading credential");
+    });
+    bus.emit("grants.changed");
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(children).toHaveLength(1);
+    expect(daemon.state()).toBe("crashed");
+    expect(ctx.log.warn).toHaveBeenCalledWith(
+      "computer_daemon.launch_failed",
+      expect.objectContaining({ restart_in_ms: restartDelay(1) }),
+    );
+    read.mockRestore();
+    vi.advanceTimersByTime(restartDelay(1));
+    expect(children).toHaveLength(2);
+    children[1]!.status("connected");
+    expect(daemon.state()).toBe("ready");
+  });
+
+  it("reports why launches keep failing without a child", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    const { daemon, ctx, bus, children, credentials } = setup();
+    await daemon.start(ctx);
+    expect(children).toHaveLength(1);
+    vi.spyOn(credentials, "read").mockImplementation(() => {
+      throw new Error("EACCES reading credential");
+    });
+    bus.emit("computer.changed", "computer-1");
+    await new Promise((resolve) => setImmediate(resolve));
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      expect(daemon.failure()).toBeUndefined();
+      vi.advanceTimersByTime(restartDelay(attempt));
+      expect(children).toHaveLength(1);
+    }
+    expect(daemon.failure()).toContain("EACCES");
+  });
+
+  it("shares backoff and the startup failure threshold across spawn errors and exits", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    const { daemon, ctx, children, credentials, directory, spawn } = setup();
+    const logs = path.join(directory, "logs");
+    writeFileSync(logs, "");
+    spawn.mockImplementationOnce(
+      spawnDaemon(process.execPath, path.join(logs, "computer-daemon.log")),
+    );
+    try {
+      await daemon.start(ctx);
+      expect(children).toHaveLength(0);
+      expect(daemon.state()).toBe("crashed");
+      expect(daemon.connection()).toBe("disconnected");
+      expect(daemon.failure()).toBeUndefined();
+      expect(ctx.log.warn).toHaveBeenCalledWith(
+        "computer_daemon.launch_failed",
+        {
+          error: expect.stringContaining(logs),
+          restart_in_ms: restartDelay(1),
+        },
+      );
+      vi.advanceTimersByTime(restartDelay(1));
+      expect(children).toHaveLength(1);
+      children[0]!.exit(1);
+      expect(daemon.failure()).toBeUndefined();
+      expect(ctx.log.warn).toHaveBeenCalledWith("computer_daemon.exited", {
+        code: 1,
+        restart_in_ms: restartDelay(2),
+      });
+
+      const credential = credentials.read()!;
+      credentials.write({ ...credential, token: `${TOKEN}\0` });
+      spawn.mockImplementationOnce(
+        spawnDaemon(
+          process.execPath,
+          path.join(directory, "computer-daemon.log"),
+        ),
+      );
+      vi.advanceTimersByTime(restartDelay(2));
+      expect(children).toHaveLength(1);
+      expect(daemon.state()).toBe("crashed");
+      expect(daemon.failure()).toBe(
+        "Invalid daemon launch argument (ERR_INVALID_ARG_VALUE)",
+      );
+      expect(ctx.log.warn).toHaveBeenCalledWith(
+        "computer_daemon.launch_failed",
+        {
+          error: daemon.failure(),
+          restart_in_ms: restartDelay(3),
+        },
+      );
+      expect(JSON.stringify(vi.mocked(ctx.log.warn).mock.calls)).not.toContain(
+        TOKEN,
+      );
+
+      credentials.write(credential);
+      vi.advanceTimersByTime(restartDelay(3));
+      expect(children).toHaveLength(2);
+      children[1]!.status("connected");
+      expect(daemon.connection()).toBe("online");
+      expect(daemon.failure()).toBeUndefined();
+    } finally {
+      await daemon.stop();
+      rmSync(logs);
+    }
+  });
+
+  it("keeps only the latest backoff across queued restarts", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    const { daemon, ctx, bus, children, credentials } = setup();
+    await daemon.start(ctx);
+    const child = children[0]!;
+    const stop = vi.spyOn(child, "stop").mockImplementation(() => {});
+    bus.emit("grants.changed");
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(stop).toHaveBeenCalledOnce();
+
+    bus.emit("computer.changed", "computer-1");
+    await new Promise((resolve) => setImmediate(resolve));
+    const read = vi.spyOn(credentials, "read").mockImplementation(() => {
+      throw new Error("EACCES reading credential");
+    });
+    child.exit(0);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(daemon.state()).toBe("crashed");
+    expect(vi.getTimerCount()).toBe(1);
+
+    read.mockRestore();
+    vi.advanceTimersByTime(restartDelay(1));
+    expect(children).toHaveLength(1);
+    vi.advanceTimersByTime(restartDelay(2) - restartDelay(1));
+    expect(children).toHaveLength(2);
+    children[1]!.status("connected");
+    expect(daemon.connection()).toBe("online");
   });
 
   it("restarts a crashed daemon with backoff", async () => {

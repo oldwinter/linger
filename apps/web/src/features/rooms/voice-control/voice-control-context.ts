@@ -40,6 +40,18 @@ export function isTranscriptRecoveryPaused(state: VoiceCaptureState) {
   );
 }
 
+/** How much of the recording its transcript recovery has covered, 0–100. */
+export function transcriptRecoveryPercent(capture: TeamHubVoiceCapture) {
+  return Math.min(
+    100,
+    Math.floor(
+      ((capture.transcript_recovery_progress_ms ?? 0) /
+        Math.max(1, capture.transcript_recovery_total_ms ?? 1)) *
+        100,
+    ),
+  );
+}
+
 export interface VoiceTranscriptItem {
   updatedAt?: string;
   captureId?: string;
@@ -73,6 +85,8 @@ export interface VoiceControlContextValue {
   listenerStatus: VoiceListenerStatus;
   microphoneMuted: boolean;
   partialTranscript?: string;
+  /** Present once Stop gave up with the Capture still recording; tries again. */
+  retryStop?(): Promise<void>;
   selectedDeviceId: string;
   setMicrophoneMuted(muted: boolean): Promise<void>;
   selectDevice(deviceId: string): Promise<void>;

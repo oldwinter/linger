@@ -182,14 +182,18 @@ export async function readBodyWithLimit(
   if (!reader) return Buffer.alloc(0);
   const chunks: Buffer[] = [];
   let sizeBytes = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) return Buffer.concat(chunks, sizeBytes);
-    sizeBytes += value.byteLength;
-    if (sizeBytes > maxBytes) {
-      await reader.cancel().catch(() => undefined);
-      return undefined;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) return Buffer.concat(chunks, sizeBytes);
+      sizeBytes += value.byteLength;
+      if (sizeBytes > maxBytes) {
+        await reader.cancel().catch(() => undefined);
+        return undefined;
+      }
+      chunks.push(Buffer.from(value));
     }
-    chunks.push(Buffer.from(value.buffer, value.byteOffset, value.byteLength));
+  } finally {
+    reader.releaseLock();
   }
 }

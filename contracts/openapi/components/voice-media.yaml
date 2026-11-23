@@ -1,4 +1,13 @@
 components:
+  responses:
+    VoiceProviderKeyRefused:
+      description: >-
+        TeamHub or the voice provider refused the key; error.code is one of
+        VoiceProviderKeyErrorCode.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/VoiceProviderKeyErrorResponse"
   schemas:
     VoiceMediaPolicy:
       type: object
@@ -47,6 +56,65 @@ components:
         can_save:
           type: boolean
           description: False when the provider's environment variable is set, no secret encryption key is configured, or voice media is off.
+    VoiceProviderKeyErrorCode:
+      description: >-
+        error.code of a refused voice provider key save. 400: INVALID_REQUEST
+        (malformed request or key); VOICE_KEY_REJECTED (the provider refused
+        the key); VOICE_KEY_NO_BALANCE (the provider account's balance or
+        monthly budget is used up); VOICE_KEY_NO_REALTIME_PERMISSION (the
+        Soniox key may not use realtime transcription). 409:
+        VOICE_KEY_FROM_ENVIRONMENT. 503: VOICE_KEY_STORAGE_UNAVAILABLE,
+        VOICE_MEDIA_OFF, or VOICE_PROVIDER_UNAVAILABLE (the provider could
+        not be reached or did not answer in time).
+      type: string
+      enum:
+        - INVALID_REQUEST
+        - VOICE_KEY_REJECTED
+        - VOICE_KEY_NO_BALANCE
+        - VOICE_KEY_NO_REALTIME_PERMISSION
+        - VOICE_KEY_FROM_ENVIRONMENT
+        - VOICE_KEY_STORAGE_UNAVAILABLE
+        - VOICE_MEDIA_OFF
+        - VOICE_PROVIDER_UNAVAILABLE
+      x-enum-varnames:
+        - VoiceProviderKeyErrorCodeInvalidRequest
+        - VoiceProviderKeyErrorCodeVoiceKeyRejected
+        - VoiceProviderKeyErrorCodeVoiceKeyNoBalance
+        - VoiceProviderKeyErrorCodeVoiceKeyNoRealtimePermission
+        - VoiceProviderKeyErrorCodeVoiceKeyFromEnvironment
+        - VoiceProviderKeyErrorCodeVoiceKeyStorageUnavailable
+        - VoiceProviderKeyErrorCodeVoiceMediaOff
+        - VoiceProviderKeyErrorCodeVoiceProviderUnavailable
+    VoiceProviderKeyError:
+      description: The common error body with error.code narrowed to VoiceProviderKeyErrorCode.
+      type: object
+      additionalProperties: false
+      required: [code, message, request_id]
+      properties:
+        code:
+          $ref: "#/components/schemas/VoiceProviderKeyErrorCode"
+        message:
+          type: string
+          minLength: 1
+          description: Human-readable summary safe to display; clients branch on code, not message.
+        request_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        details:
+          type: array
+          items:
+            $ref: "./common.yaml#/components/schemas/ErrorDetail"
+        retryable:
+          type: boolean
+          default: false
+    VoiceProviderKeyErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          $ref: "#/components/schemas/VoiceProviderKeyError"
     VoiceSessionStatus:
       type: string
       enum: [provisioning, connected, reconnecting, closing, closed]
@@ -339,6 +407,18 @@ components:
           type: integer
           format: int64
           minimum: 1
+        transcript_recovery_attempt:
+          type: integer
+          format: int64
+          minimum: 1
+          description: >-
+            The recovery attempt that is running or due next; once recovery failed, the attempts
+            already made. Present with transcript_recovery_status.
+        transcript_recovery_max_attempts:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Attempts a recovery makes before it fails and waits for the account's retry.
         audio_document_version_id:
           $ref: "./common.yaml#/components/schemas/Id"
         transcript_document_version_id:

@@ -96,11 +96,14 @@ func TestEnsureGatewayMountsTheSavedByokSourceOnlyWhenItsGatewayIsDown(t *testin
 	// The endpoint is back: the next Run mounts the gateway, and the Runtime
 	// paths the tool drops from model-source.json are kept.
 	_ = os.Remove(filepath.Join(ft.state, "source-apply-exit"))
+	// ReadOverlay keeps only host-absolute Runtime paths, so a POSIX literal
+	// would be dropped on Windows.
+	piPath := filepath.Join(t.TempDir(), "harness", "bin", "pi")
 	ft.write("source-apply.json", map[string]any{
 		"schema": modelSourceStatusSchema, "mode": "byok", "runtime": "pi",
 		"runtime_model": "localmodels/localmodels-byok", "gateway_url": stoppedURL,
 		"environment":   map[string]string{"PI_CODING_AGENT_DIR": piProfile},
-		"runtime_paths": map[string]string{"pi": "/opt/harness/bin/pi"},
+		"runtime_paths": map[string]string{"pi": piPath},
 		"byok":          map[string]any{"configured": true, "key_saved": false},
 	})
 	if err := ms.EnsureGateway(t.Context(), "pi"); err != nil {
@@ -109,7 +112,7 @@ func TestEnsureGatewayMountsTheSavedByokSourceOnlyWhenItsGatewayIsDown(t *testin
 	if ran() == "" {
 		t.Fatal("EnsureGateway did not mount the gateway again")
 	}
-	if overlay := ReadOverlay(ft.state); overlay == nil || overlay.RuntimePaths["pi"] != "/opt/harness/bin/pi" {
+	if overlay := ReadOverlay(ft.state); overlay == nil || overlay.RuntimePaths["pi"] != piPath {
 		t.Fatalf("overlay = %+v, want the Runtime paths kept", overlay)
 	}
 }

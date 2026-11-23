@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -119,18 +120,107 @@ func ReadOverlay(stateDir string) *OverlayState {
 	}
 }
 
-func isManagedGatewayProfilePath(stateDir, candidate string) bool {
-	if stateDir == "" || candidate == "" {
-		return false
+func pathWithin(prefix, candidate string) bool {
+	cleanPrefix := filepath.Clean(prefix)
+	cleanCandidate := filepath.Clean(candidate)
+	if runtime.GOOS == "windows" {
+		cleanPrefix = strings.ToLower(cleanPrefix)
+		cleanCandidate = strings.ToLower(cleanCandidate)
 	}
-	cleaned := filepath.Clean(candidate)
-	for _, sub := range []string{"gateway-home", "byok-home"} {
-		prefix := filepath.Clean(filepath.Join(stateDir, sub))
-		if cleaned == prefix || strings.HasPrefix(cleaned, prefix+string(filepath.Separator)) {
+	return cleanCandidate == cleanPrefix || strings.HasPrefix(cleanCandidate, cleanPrefix+string(filepath.Separator))
+}
+
+func hasManagedProfileSuffix(cleaned string, homes ...string) bool {
+	matchHome := func(part string) bool {
+		if runtime.GOOS == "windows" {
+			return slices.ContainsFunc(homes, func(home string) bool { return strings.EqualFold(part, home) })
+		}
+		return slices.Contains(homes, part)
+	}
+	matchSegment := func(part, want string) bool {
+		if runtime.GOOS == "windows" {
+			return strings.EqualFold(part, want)
+		}
+		return part == want
+	}
+	parts := strings.Split(filepath.ToSlash(cleaned), "/")
+	for i := range parts {
+		if !matchSegment(parts[i], "localmodels") {
+			continue
+		}
+		if i+1 < len(parts) && matchHome(parts[i+1]) {
+			return true
+		}
+		if i+2 < len(parts) && matchSegment(parts[i+1], "tools") && matchHome(parts[i+2]) {
 			return true
 		}
 	}
 	return false
+}
+
+func isManagedProfilePath(stateDir, candidate string, homes ...string) bool {
+	if candidate == "" {
+		return false
+	}
+	cleaned := filepath.Clean(candidate)
+	if stateDir != "" {
+		for _, root := range []string{ToolsDirectory(stateDir), stateDir} {
+			if root == "" {
+				continue
+			}
+			for _, sub := range homes {
+				if pathWithin(filepath.Join(root, sub), cleaned) {
+					return true
+				}
+			}
+		}
+	}
+	return hasManagedProfileSuffix(cleaned, homes...)
+}
+
+func envLookup(environment map[string]string, key string) string {
+	if value, ok := environment[key]; ok {
+		return strings.TrimSpace(value)
+	}
+	for k, value := range environment {
+		if strings.EqualFold(k, key) {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+// localGatewayPiProfile resolves the existing managed gateway-home Pi profile
+// shared by both localmodels tool invocations (when model-source.json exists)
+// and local-mode Runtime discovery. It prefers this home's per-home
+// tools/gateway-home over legacy state/gateway-home, and falls back to a legacy
+// managed gateway-home explicitly named in model-source.json (local mode) or
+// the Daemon's base environment without ever adopting byok-home, personal
+// ~/.pi/agent, or another home's global tools dir.
+func localGatewayPiProfile(base map[string]string, stateDir string, overlay *OverlayState) string {
+	candidates := make([]string, 0, 4)
+	if stateDir != "" {
+		if toolsDir := ToolsDirectory(stateDir); toolsDir != "" {
+			candidates = append(candidates, filepath.Join(toolsDir, "gateway-home", ".pi", "agent"))
+		}
+		candidates = append(candidates, filepath.Join(stateDir, "gateway-home", ".pi", "agent"))
+	}
+	if overlay != nil && overlay.Mode == "local" {
+		if configured := strings.TrimSpace(overlay.Environment["PI_CODING_AGENT_DIR"]); configured != "" && filepath.IsAbs(configured) &&
+			isManagedProfilePath(stateDir, configured, "gateway-home") {
+			candidates = append(candidates, filepath.Clean(configured))
+		}
+	}
+	if existing := envLookup(base, "PI_CODING_AGENT_DIR"); existing != "" && filepath.IsAbs(existing) &&
+		isManagedProfilePath(stateDir, existing, "gateway-home") {
+		candidates = append(candidates, filepath.Clean(existing))
+	}
+	for _, candidate := range candidates {
+		if dirExists(candidate) {
+			return candidate
+		}
+	}
+	return ""
 }
 
 // runtimeProfileKeys names the environment variable that selects each
@@ -142,8 +232,11 @@ var runtimeProfileKeys = map[string]string{"codex": "CODEX_HOME", "claude": "CLA
 // BYOK endpoint, rather than its own provider: its profile is one localmodels
 // manages. Such models have no provider-hosted web search.
 func GatewayRuntime(environment map[string]string, stateDir, runtimeType string) bool {
+	if stateDir == "" {
+		return false
+	}
 	key, ok := runtimeProfileKeys[runtimeType]
-	return ok && isManagedGatewayProfilePath(stateDir, environment[key])
+	return ok && isManagedProfilePath(stateDir, envLookup(environment, key), "gateway-home", "byok-home")
 }
 
 // OverlayEnvironment computes the effective Runtime discovery/execution
@@ -156,10 +249,17 @@ func OverlayEnvironment(base map[string]string, stateDir string) map[string]stri
 	}
 	overlay := ReadOverlay(stateDir)
 	if overlay == nil {
+		for key, value := range result {
+			if slices.ContainsFunc(allowedOverlayEnvKeys, func(allowed string) bool { return strings.EqualFold(key, allowed) }) &&
+				isManagedProfilePath(stateDir, value, "byok-home") {
+				delete(result, key)
+			}
+		}
 		return result
 	}
-	for _, key := range allowedOverlayEnvKeys {
-		if isManagedGatewayProfilePath(stateDir, result[key]) {
+	for key, value := range result {
+		if slices.ContainsFunc(allowedOverlayEnvKeys, func(allowed string) bool { return strings.EqualFold(key, allowed) }) &&
+			isManagedProfilePath(stateDir, value, "gateway-home", "byok-home") {
 			delete(result, key)
 		}
 	}
@@ -175,13 +275,14 @@ func OverlayEnvironment(base map[string]string, stateDir string) map[string]stri
 			}
 		}
 		for key, value := range overlay.Environment {
+			if overlay.Mode == "local" && key == "PI_CODING_AGENT_DIR" && isManagedProfilePath(stateDir, value, "byok-home") {
+				continue
+			}
 			result[key] = value
 		}
-		return result
 	}
-	if overlay.Mode == "local" && stateDir != "" {
-		piProfile := filepath.Join(stateDir, "gateway-home", ".pi", "agent")
-		if info, err := os.Stat(piProfile); err == nil && info.IsDir() {
+	if overlay.Mode == "local" {
+		if piProfile := localGatewayPiProfile(base, stateDir, overlay); piProfile != "" {
 			result["PI_CODING_AGENT_DIR"] = piProfile
 		}
 	}

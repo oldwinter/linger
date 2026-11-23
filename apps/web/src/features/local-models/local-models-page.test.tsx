@@ -468,7 +468,11 @@ describe("LocalModelsPage", () => {
     );
   });
 
-  it.each(["DOWNLOAD_FAILED", "NETWORK_UNAVAILABLE"] as const)(
+  it.each([
+    "DOWNLOAD_FAILED",
+    "NETWORK_UNAVAILABLE",
+    "DISK_INSUFFICIENT",
+  ] as const)(
     "resumes a download that stopped with %s instead of loading it",
     async (code) => {
       const fixture = setup([
@@ -482,7 +486,9 @@ describe("LocalModelsPage", () => {
       expect(statusOf("Llama 3.3 70B")).toBe(
         code === "NETWORK_UNAVAILABLE"
           ? "Download stopped · network unavailable"
-          : "Download stopped",
+          : code === "DISK_INSUFFICIENT"
+            ? "Download stopped · not enough disk"
+            : "Download stopped",
       );
       expect(
         screen.queryByRole("button", { name: "Retry Llama 3.3 70B" }),

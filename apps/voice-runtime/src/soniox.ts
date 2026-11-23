@@ -34,6 +34,15 @@ interface SonioxToken {
   speaker?: number | string;
 }
 
+// Soniox's error_code is the HTTP status of the error. These three ask the
+// person to act on their Soniox account, so each has its own failure code.
+// A handshake status is not mapped: a proxy, not Soniox, may have sent it.
+const sonioxAccountFailures: Partial<Record<number, string>> = {
+  401: "asr_auth_rejected",
+  402: "asr_balance_exhausted",
+  403: "asr_permission_denied",
+};
+
 interface SonioxMessage {
   error_code?: number | string;
   tokens?: SonioxToken[];
@@ -327,7 +336,11 @@ export class SonioxASRStream implements ASRStream {
     if (payload.error_code !== undefined && payload.error_code !== null) {
       const message = `Soniox ASR rejected the stream with code ${payload.error_code}`;
       throw /^[0-9]{1,10}$/.test(String(payload.error_code))
-        ? new VoiceFailure(`asr_provider_${payload.error_code}`, message)
+        ? new VoiceFailure(
+            sonioxAccountFailures[Number(payload.error_code)] ??
+              `asr_provider_${payload.error_code}`,
+            message,
+          )
         : new Error(message);
     }
     const processedMs = Math.max(

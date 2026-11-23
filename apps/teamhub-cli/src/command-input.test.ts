@@ -134,6 +134,33 @@ describe("CLI input sources", () => {
       else expect(Buffer.byteLength(await read)).toBe(bytes.length);
     },
   );
+  it("reads a leading UTF-8 BOM as encoding, not as input text", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "teamhub-input-bom-"));
+    directories.push(directory);
+    const bom = Buffer.from([0xef, 0xbb, 0xbf]);
+    await writeFile(
+      path.join(directory, "body.json"),
+      Buffer.concat([bom, Buffer.from('{"a":1}')]),
+    );
+    await writeFile(
+      path.join(directory, "body.md"),
+      Buffer.concat([bom, Buffer.from("# Title\n")]),
+    );
+    await writeFile(
+      path.join(directory, "two-boms.md"),
+      Buffer.concat([bom, bom, Buffer.from("text\n")]),
+    );
+    const reader = createInputReader({ cwd: directory });
+    expect(await reader.json("body.json")).toEqual({ a: 1 });
+    expect(await reader.text("body.md")).toBe("# Title\n");
+    expect(await reader.text("two-boms.md")).toBe("\uFEFFtext\n");
+    expect(
+      await bodySource(
+        parseArguments(["--content", "\uFEFFliteral"], flags),
+        reader,
+      ),
+    ).toBe("\uFEFFliteral");
+  });
   it("rejects malformed UTF-8 instead of silently replacing bytes", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "teamhub-input-"));
     directories.push(directory);

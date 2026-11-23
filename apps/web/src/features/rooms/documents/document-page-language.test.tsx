@@ -1,3 +1,4 @@
+import { useLayoutEffect } from "react";
 import { materializeRoomDocument } from "@linger/document-model";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, within } from "@testing-library/react";
@@ -41,9 +42,18 @@ vi.mock("./room-document-collaboration", async (importOriginal) => {
 });
 
 vi.mock("./room-document-blocknote-editor-loader", () => ({
-  RoomDocumentBlockNoteEditor: () => (
-    <div className="bn-editor">Room BlockNote editor</div>
-  ),
+  RoomDocumentBlockNoteEditor: ({
+    onCanvasTargetChange,
+  }: {
+    onCanvasTargetChange?: (target?: string) => void;
+  }) => {
+    // Like the real editor, report the body's canvas target once mounted.
+    useLayoutEffect(
+      () => onCanvasTargetChange?.(undefined),
+      [onCanvasTargetChange],
+    );
+    return <div className="bn-editor">Room BlockNote editor</div>;
+  },
 }));
 
 function renderDocumentPage(runtime: TeamHubRuntime, documentId: string) {

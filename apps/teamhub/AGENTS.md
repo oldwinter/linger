@@ -236,6 +236,14 @@ Go service owning Human HTTP/SSE, Agent callbacks, and active product state.
   A missing start stays unconfirmed. Keep audio duration and transcript offsets
   on the confirmed timeline, and enqueue an already-requested Stop when the
   initial recorder becomes known, including after restart reconciliation.
+  Every voice job retries a failing step, so give each wait that a person sees
+  a terminal that outlasts a dependency outage. After Stop, a failed
+  reconciliation of an epoch whose recorder sent its terminal receipt spends
+  the epoch's `stop_reconcile_failures` budget with the shared `voiceRetryDelay`
+  backoff; an exhausted budget fails the Capture with that epoch so its voice
+  session can close. Never fail an epoch whose recorder may still write its
+  staging: it keeps its owed stop. A shutdown or not-yet-due deferral spends
+  nothing.
 - Voice: `TEAMHUB_VOICE_MEDIA` (`on` by default) builds the voice media plane
   over LiveKit; `off`, a missing `LINGER_SECRET_SEED`, or missing ffmpeg keep
   voice off (the last two log `voice.media_unavailable`) without stopping
@@ -244,6 +252,11 @@ Go service owning Human HTTP/SSE, Agent callbacks, and active product state.
   environment key over one saved in the product (`voice_provider_keys`, sealed
   with `TEAMHUB_SECRET_ENCRYPTION_KEY`), so a save applies without a restart
   on every replica. A save wakes the Node Services voice workers best effort.
+  Only a save checks a key with its provider, never a use. A Soniox key is
+  also probed on the realtime stream (the start request, no audio, five
+  seconds at most), and Soniox's HTTP status gives a refusal its code
+  (`VOICE_KEY_REJECTED`, `VOICE_KEY_NO_BALANCE`,
+  `VOICE_KEY_NO_REALTIME_PERMISSION`, else `VOICE_PROVIDER_UNAVAILABLE`).
 - Web search: `internal/websearch` runs Agent searches and page reads through
   Tavily, Brave, Firecrawl and You.com with deployment-wide keys in
   `web_search_keys` (sealed with `TEAMHUB_SECRET_ENCRYPTION_KEY`, read at each
@@ -274,7 +287,7 @@ Go service owning Human HTTP/SSE, Agent callbacks, and active product state.
   (`refreshLocalComputerModels`) forwards an empty-model `refresh` command through
   the same owner/online gate, while `POST .../local-models/{modelId}/actions` acts on
   one model (`refresh` stays invalid there). A connected Computer that has not
-  decided within the action's 10 seconds answers 504
+  decided within the action's 30 seconds answers 504
   `LOCAL_MODEL_ACTION_UNCONFIRMED`: it may still act, and the snapshots show
   the outcome. The Computer's refusal codes map to `LocalModelsErrorCode` in
   `internal/app/handlers_local_models.go` (and `LOAD_NO_ROOM` / `MEMORY_INSUFFICIENT`

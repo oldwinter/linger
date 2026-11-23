@@ -1613,7 +1613,7 @@ export interface paths {
     get?: never;
     /**
      * Save the deployment's API key for one voice provider.
-     * @description For deployments without the provider's environment key. TeamHub checks the key with the provider, then stores it encrypted with TEAMHUB_SECRET_ENCRYPTION_KEY. Any signed-in Human may save it; the key is never returned. 400 carries INVALID_REQUEST or VOICE_KEY_REJECTED, 409 VOICE_KEY_FROM_ENVIRONMENT, and 503 VOICE_KEY_STORAGE_UNAVAILABLE, VOICE_PROVIDER_UNAVAILABLE or VOICE_MEDIA_OFF.
+     * @description For deployments without the provider's environment key. TeamHub checks the key with the provider, then stores it encrypted with TEAMHUB_SECRET_ENCRYPTION_KEY. A Soniox key is also probed on the realtime stream (start request, no audio, a few seconds at most), which refuses a key without balance or realtime permission. Any signed-in Human may save it; the key is never returned. error.code is one of VoiceProviderKeyErrorCode.
      */
     put: operations["saveVoiceProviderKey"];
     post?: never;
@@ -6977,6 +6977,32 @@ export interface components {
     SaveVoiceProviderKeyRequest: {
       api_key: string;
     };
+    /**
+     * @description error.code of a refused voice provider key save. 400: INVALID_REQUEST (malformed request or key); VOICE_KEY_REJECTED (the provider refused the key); VOICE_KEY_NO_BALANCE (the provider account's balance or monthly budget is used up); VOICE_KEY_NO_REALTIME_PERMISSION (the Soniox key may not use realtime transcription). 409: VOICE_KEY_FROM_ENVIRONMENT. 503: VOICE_KEY_STORAGE_UNAVAILABLE, VOICE_MEDIA_OFF, or VOICE_PROVIDER_UNAVAILABLE (the provider could not be reached or did not answer in time).
+     * @enum {string}
+     */
+    VoiceProviderKeyErrorCode:
+      | "INVALID_REQUEST"
+      | "VOICE_KEY_REJECTED"
+      | "VOICE_KEY_NO_BALANCE"
+      | "VOICE_KEY_NO_REALTIME_PERMISSION"
+      | "VOICE_KEY_FROM_ENVIRONMENT"
+      | "VOICE_KEY_STORAGE_UNAVAILABLE"
+      | "VOICE_MEDIA_OFF"
+      | "VOICE_PROVIDER_UNAVAILABLE";
+    /** @description The common error body with error.code narrowed to VoiceProviderKeyErrorCode. */
+    VoiceProviderKeyError: {
+      code: components["schemas"]["VoiceProviderKeyErrorCode"];
+      /** @description Human-readable summary safe to display; clients branch on code, not message. */
+      message: string;
+      request_id: string;
+      details?: components["schemas"]["ErrorDetail"][];
+      /** @default false */
+      retryable: boolean;
+    };
+    VoiceProviderKeyErrorResponse: {
+      error: components["schemas"]["VoiceProviderKeyError"];
+    };
     VoiceConnectionCredential: {
       /** Format: uri */
       endpoint: string;
@@ -7058,6 +7084,16 @@ export interface components {
       transcript_recovery_progress_ms?: number;
       /** Format: int64 */
       transcript_recovery_total_ms?: number;
+      /**
+       * Format: int64
+       * @description The recovery attempt that is running or due next; once recovery failed, the attempts already made. Present with transcript_recovery_status.
+       */
+      transcript_recovery_attempt?: number;
+      /**
+       * Format: int64
+       * @description Attempts a recovery makes before it fails and waits for the account's retry.
+       */
+      transcript_recovery_max_attempts?: number;
       audio_document_version_id?: components["schemas"]["Id"];
       transcript_document_version_id?: components["schemas"]["Id"];
       id: components["schemas"]["Id"];
@@ -8942,6 +8978,15 @@ export interface components {
       };
       content: {
         "application/json": components["schemas"]["ErrorResponse"];
+      };
+    };
+    /** @description TeamHub or the voice provider refused the key; error.code is one of VoiceProviderKeyErrorCode. */
+    VoiceProviderKeyRefused: {
+      headers: {
+        [name: string]: unknown;
+      };
+      content: {
+        "application/json": components["schemas"]["VoiceProviderKeyErrorResponse"];
       };
     };
     /** @description Rejected or retryable file operation. Native latest changed throughout bounded rendering retries returns 202 with latest_not_ready, private/no-store and no document bytes. Retry after one second. Other conflicts include current and base version IDs. Service failures and exhausted serialization retries remain unavailable. */
@@ -11715,10 +11760,10 @@ export interface operations {
           "application/json": components["schemas"]["VoiceProviderKeyStatus"];
         };
       };
-      400: components["responses"]["BadRequest"];
+      400: components["responses"]["VoiceProviderKeyRefused"];
       401: components["responses"]["Unauthenticated"];
-      409: components["responses"]["Conflict"];
-      503: components["responses"]["ServiceUnavailable"];
+      409: components["responses"]["VoiceProviderKeyRefused"];
+      503: components["responses"]["VoiceProviderKeyRefused"];
     };
   };
   getVoiceSession: {

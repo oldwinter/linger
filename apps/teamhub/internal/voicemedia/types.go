@@ -60,21 +60,23 @@ type PublisherGrant struct {
 }
 
 type Capture struct {
-	SourceAudioDocumentVersionID string
-	TranscriptRecoveryStatus     string
-	TranscriptRecoveryProgressMS int64
-	TranscriptRecoveryTotalMS    int64
-	AudioDocumentVersionID       string
-	TranscriptDocumentVersionID  string
-	ID                           string
-	VoiceSessionID               string
-	RoomID                       string
-	Status                       string
-	RequestedStartOffsetMS       int64
-	ArchivedThroughMS            *int64
-	GapCount                     int64
-	GapDurationMS                int64
-	LastFailureCode              string
+	SourceAudioDocumentVersionID  string
+	TranscriptRecoveryStatus      string
+	TranscriptRecoveryProgressMS  int64
+	TranscriptRecoveryTotalMS     int64
+	TranscriptRecoveryAttempt     int64
+	TranscriptRecoveryMaxAttempts int64
+	AudioDocumentVersionID        string
+	TranscriptDocumentVersionID   string
+	ID                            string
+	VoiceSessionID                string
+	RoomID                        string
+	Status                        string
+	RequestedStartOffsetMS        int64
+	ArchivedThroughMS             *int64
+	GapCount                      int64
+	GapDurationMS                 int64
+	LastFailureCode               string
 	// QuickNotesState is pending, ready or failed once the completion
 	// Message promised quick notes; QuickNotes holds them when ready.
 	QuickNotesState string

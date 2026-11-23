@@ -3,7 +3,8 @@
 A model serves one more request only by slowing the others, and every agent,
 approval and background job on a computer shares it. One queue per endpoint,
 one runtime on one computer, decides what reaches the model: each unit of work
-waits its turn by priority.
+waits its turn by priority. Codex runs with its sub-agents turned off, because
+their requests would reach the model beside the Run's own without waiting.
 
 | Endpoint                                           | Starts at | Grows to |
 | -------------------------------------------------- | --------- | -------- |

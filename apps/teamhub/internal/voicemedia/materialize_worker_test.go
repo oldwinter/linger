@@ -72,25 +72,13 @@ func TestVoiceMaterializationStopsOnMissingDocumentOrExhaustedBudget(t *testing.
 		want     string
 	}{
 		"missing document first attempt": {err: fmt.Errorf("upload: %w", document.ErrNotFound), attempts: 1, want: "document_not_found"},
-		"transient within budget":        {err: transient, attempts: voiceMaterializationMaxAttempts - 1},
-		"transient budget exhausted":     {err: transient, attempts: voiceMaterializationMaxAttempts, want: "retry_exhausted"},
+		"transient within budget":        {err: transient, attempts: voiceRetryMaxAttempts - 1},
+		"transient budget exhausted":     {err: transient, attempts: voiceRetryMaxAttempts, want: "retry_exhausted"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if got := voiceMaterializationTerminalCode(test.err, test.attempts); got != test.want {
 				t.Fatalf("voiceMaterializationTerminalCode()=%q want=%q", got, test.want)
 			}
 		})
-	}
-}
-
-func TestVoiceMaterializationRetryDelayBacksOffToCap(t *testing.T) {
-	want := []time.Duration{5 * time.Second, 10 * time.Second, 20 * time.Second, 40 * time.Second, 80 * time.Second, 160 * time.Second, 5 * time.Minute, 5 * time.Minute}
-	for index, delay := range want {
-		if got := voiceMaterializationRetryDelay(int32(index + 1)); got != delay {
-			t.Fatalf("attempt %d delay=%s want=%s", index+1, got, delay)
-		}
-	}
-	if got := voiceMaterializationRetryDelay(0); got != voiceMaterializationRetryBase {
-		t.Fatalf("unclaimed delay=%s", got)
 	}
 }

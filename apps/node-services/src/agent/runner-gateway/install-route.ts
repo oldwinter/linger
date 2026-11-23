@@ -44,6 +44,8 @@ const replaceTemplateLines = (
   template: string,
   replacements: ReadonlyMap<string, string>,
 ): string => {
+  // loadComputerRelease reads the templates as LF, and the markers are
+  // matched whole, so the split sees one ending only.
   const lines = template.split("\n");
   for (const [marker, replacement] of replacements) {
     const indexes = lines.flatMap((line, index) =>

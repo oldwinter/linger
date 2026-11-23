@@ -187,6 +187,7 @@ export function VoiceFocusSurface({
   const captureFailed = captureStatus === "failed";
   const standby = voice.listenerStatus === "standby";
   const recoveryFailed = isTranscriptRecoveryPaused(voice.captureState);
+  const stopFailed = Boolean(voice.retryStop);
   const failedState =
     livekit?.captureState.status === "failed"
       ? livekit.captureState
@@ -227,44 +228,60 @@ export function VoiceFocusSurface({
     visibleItems,
   );
   const growing = onTheLine ? unfinished : undefined;
-  const titleMessage = recoveryFailed
-    ? m.titleRecoveryPaused
-    : inputInterrupted
-      ? m.titleInputInterrupted
-      : standby
-        ? m.titleOtherTab
-        : idle
-          ? armTitle(armStatus)
-          : focusTitle(captureStatus);
+  const titleMessage = stopFailed
+    ? m.titleStopFailed
+    : recoveryFailed
+      ? m.titleRecoveryPaused
+      : inputInterrupted
+        ? m.titleInputInterrupted
+        : standby
+          ? m.titleOtherTab
+          : idle
+            ? armTitle(armStatus)
+            : focusTitle(captureStatus);
   const title = t(titleMessage);
-  const subtitleMessage = recoveryFailed
-    ? m.subtitleRecoveryPaused
-    : inputInterrupted
-      ? m.subtitleInputInterrupted
-      : idle
-        ? armSubtitle(armStatus, microphonePermission)
-        : focusSubtitle(captureStatus);
+  const subtitleMessage = stopFailed
+    ? undefined
+    : recoveryFailed
+      ? m.subtitleRecoveryPaused
+      : inputInterrupted
+        ? m.subtitleInputInterrupted
+        : idle
+          ? armSubtitle(armStatus, microphonePermission)
+          : focusSubtitle(captureStatus);
   const subtitle = subtitleMessage && t(subtitleMessage);
   const statusMessage =
     !captureError &&
+    !stopFailed &&
     (inputReconnecting
       ? t(m.statusReconnectingMicrophone)
       : livekit?.transcriptStatus === "recovering"
         ? t(m.statusReconnectingTranscript)
         : livekit?.captureSyncStatus === "recovering"
           ? t(m.statusReconnectingRecording)
-          : transcriptIncomplete
-            ? inputInterrupted
-              ? t(m.statusUnconfirmedAfterStop)
-              : t(m.statusUnconfirmed)
-            : finalizing
-              ? t(m.statusGeneratingFiles)
-              : undefined);
+          : paused && captureActive
+            ? t(m.statusMicrophoneMuted)
+            : transcriptIncomplete
+              ? inputInterrupted
+                ? t(m.statusUnconfirmedAfterStop)
+                : t(m.statusUnconfirmed)
+              : finalizing
+                ? t(m.statusGeneratingFiles)
+                : undefined);
   const surfaceError =
+    (stopFailed ? t(m.stopFailed) : undefined) ??
     actionError ??
     armError ??
     captureError ??
     (autoArming || armStatus === "arming" ? undefined : voice.listenerError);
+  // "Listening…" claims speech is being transcribed right now; a muted,
+  // disconnected or failing microphone or transcript says none is available.
+  const listeningForSpeech =
+    captureActive &&
+    connected &&
+    !paused &&
+    !transcriptIncomplete &&
+    !surfaceError;
   // Stop ends the recording and releases the microphone; saving continues in
   // the background while the window shows its progress.
   const leave = async () => {
@@ -586,6 +603,12 @@ export function VoiceFocusSurface({
                   ? () => void run(reconnect)
                   : undefined
               }
+              onRetryStop={
+                voice.retryStop
+                  ? () =>
+                      void run(() => voice.retryStop?.() ?? Promise.resolve())
+                  : undefined
+              }
               reconnecting={actionPending}
               statusMessage={statusMessage}
               subtitle={subtitle}
@@ -657,9 +680,9 @@ export function VoiceFocusSurface({
                         {t(
                           idle
                             ? m.transcriptPlaceholder
-                            : captureError
-                              ? m.noTranscript
-                              : m.listening,
+                            : listeningForSpeech
+                              ? m.listening
+                              : m.noTranscript,
                         )}
                       </p>
                     ) : null}
@@ -706,6 +729,7 @@ function VoiceFocusNotices({
   gapDurationMs,
   notice,
   onReconnect,
+  onRetryStop,
   reconnecting,
   statusMessage,
   subtitle,
@@ -716,6 +740,7 @@ function VoiceFocusNotices({
   gapDurationMs: number;
   notice?: string;
   onReconnect?: () => void;
+  onRetryStop?: () => void;
   reconnecting: boolean;
   statusMessage: string | false | undefined;
   subtitle?: string;
@@ -776,6 +801,18 @@ function VoiceFocusNotices({
           />
           {surfaceError}
         </p>
+      ) : null}
+      {onRetryStop ? (
+        <div>
+          <Button
+            disabled={reconnecting}
+            onClick={onRetryStop}
+            size="compact"
+            tone="ghost"
+          >
+            {t(m.retryStop)}
+          </Button>
+        </div>
       ) : null}
       {onReconnect ? (
         <div>

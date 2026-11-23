@@ -31,6 +31,7 @@ async function setup(
     roomId?: string;
     runtimeDetails?: ReactNode;
     onSaveName?: (name: string) => Promise<unknown>;
+    onEditIdentity?: () => void;
   } = {},
 ) {
   const {
@@ -40,6 +41,7 @@ async function setup(
     roomId,
     runtimeDetails,
     onSaveName,
+    onEditIdentity,
   } = options;
   const listed = (await readTenantAgents(runtime)).items.find(
     (item) => item.actor.display_name === agentName,
@@ -76,7 +78,9 @@ async function setup(
       <TeamHubRuntimeProvider runtime={runtime}>
         <MemoryRouter>
           <AgentInfoContent
+            canEditIdentity={Boolean(onEditIdentity)}
             canEditName={Boolean(onSaveName)}
+            onEditIdentity={onEditIdentity}
             nameBusy={nameBusy}
             onSaveName={onSaveName}
             tenantId="tenant-northstar"
@@ -305,6 +309,30 @@ describe("Agent Info", () => {
       within(skillsPanel).getByRole("button", { name: "Show fewer" }),
     );
     expect(screen.queryByText("Example skill 5")).not.toBeInTheDocument();
+  });
+
+  it("marks an editable avatar with a pencil badge and a focusable hint", async () => {
+    const onEditIdentity = vi.fn();
+    await setup({ onEditIdentity });
+    const edit = screen.getByRole("button", { name: "Edit avatar" });
+    expect(edit.querySelector("[data-avatar-edit-badge]")).not.toBeNull();
+    const hint = screen.getByRole("tooltip");
+    expect(hint).toHaveTextContent("Edit avatar");
+    // The hint wraps the button and opens on its keyboard focus, not only hover.
+    expect(edit.parentElement).toContainElement(hint);
+    expect(hint.className).toContain("group-has-[:focus-visible]/hint:visible");
+    expect(edit.querySelector("[title]")).toBeNull();
+    fireEvent.click(edit);
+    expect(onEditIdentity).toHaveBeenCalledOnce();
+  });
+
+  it("shows no avatar edit badge without permission", async () => {
+    await setup();
+    expect(
+      screen.queryByRole("button", { name: "Edit avatar" }),
+    ).not.toBeInTheDocument();
+    expect(document.querySelector("[data-avatar-edit-badge]")).toBeNull();
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
   });
 
   it("returns keyboard focus after editing or cancelling the name", async () => {

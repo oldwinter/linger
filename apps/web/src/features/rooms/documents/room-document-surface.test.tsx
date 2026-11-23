@@ -18,6 +18,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import { useLayoutEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defineGlobalProperty } from "@/test/global-properties";
 import { createMemoryRouter, RouterProvider } from "react-router";
@@ -128,6 +129,11 @@ vi.mock("./room-document-blocknote-editor-loader", () => ({
       tryParseMarkdownToBlocks: vi.fn(() => []),
     };
     if (surfaceEditorRef) surfaceEditorRef.current = editor;
+    // Like the real editor, report the body's canvas target once mounted.
+    useLayoutEffect(
+      () => onCanvasTargetChange?.(undefined),
+      [onCanvasTargetChange],
+    );
     return (
       <div
         className="bn-editor"
@@ -306,6 +312,11 @@ describe("Unified Document legacy convergence", () => {
     await screen.findByTestId("document-body");
     fireEvent.click(screen.getByRole("button", { name: "Report mail canvas" }));
     expect(await screen.findByText("Mail", { exact: true })).toBeVisible();
+    const header = window.document.querySelector(
+      "header.room-document-header",
+    ) as HTMLElement;
+    expect(within(header).getByRole("button", { name: "Share" })).toBeVisible();
+    expect(screen.getAllByRole("button", { name: "Share" })).toHaveLength(1);
     expect(
       screen.queryByRole("button", { name: "Document mode" }),
     ).not.toBeInTheDocument();
@@ -364,6 +375,16 @@ describe("Unified Document legacy convergence", () => {
         expect(
           screen.getByText(`By ${document.owner.display_name}`),
         ).toBeVisible();
+        expect(
+          window.document.querySelector("header.room-document-header"),
+        ).toBeNull();
+        const byline = within(
+          screen
+            .getByText(`By ${document.owner.display_name}`)
+            .closest(".room-document-content-lane") as HTMLElement,
+        );
+        expect(byline.getByRole("button", { name: "Share" })).toBeVisible();
+        expect(byline.getByRole("button", { name: "Comments" })).toBeVisible();
         return;
       }
       expect(body).toHaveAttribute("data-knowledge-title", "Casey example");
@@ -396,7 +417,7 @@ describe("Unified Document legacy convergence", () => {
         screen.queryByRole("status", { name: /people in this document/ }),
       ).toBeNull();
       const actions = window.document.querySelector(
-        ".room-document-header-actions",
+        "header.room-document-header .room-document-header-actions",
       );
       expect(actions).not.toBeNull();
       expect(within(actions as HTMLElement).getAllByRole("button")).toEqual([
@@ -2811,10 +2832,13 @@ it.each([
           within(alert).getByRole("button", { name: "Download recovery copy" }),
         ).toBeVisible();
       }
-      const header = window.document.querySelector(".room-document-header");
-      expect(header).not.toBeNull();
+      expect(alert.closest("[data-document-scroll-layout]")).toBeNull();
+      const byline = screen
+        .getByText(`By ${document.owner.display_name}`)
+        .closest(".room-document-content-lane");
+      expect(byline).not.toBeNull();
       expect(
-        within(header as HTMLElement).getByRole("status", {
+        within(byline as HTMLElement).getByRole("status", {
           name: "Document save status",
         }),
       ).toHaveTextContent("Save protocol error");

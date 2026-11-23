@@ -47,6 +47,8 @@ var (
 	ErrStorageMissing      = errors.New("the deployment has no secret encryption key")
 	ErrVoiceOff            = errors.New("voice media is off in this deployment")
 	ErrRejected            = errors.New("the voice provider rejected the API key")
+	ErrNoBalance           = errors.New("the voice provider account has no balance or budget left")
+	ErrNoRealtime          = errors.New("the voice provider API key may not use realtime transcription")
 	ErrProviderUnavailable = errors.New("the voice provider could not be reached")
 )
 
@@ -57,8 +59,9 @@ type Status struct {
 	CanSave bool
 }
 
-// Checker asks a provider whether it accepts key, with one cheap
-// authenticated request. It returns ErrRejected or ErrProviderUnavailable.
+// Checker asks a provider whether it accepts key, with cheap authenticated
+// requests. It returns ErrRejected, ErrNoBalance, ErrNoRealtime or
+// ErrProviderUnavailable.
 type Checker interface {
 	Check(ctx context.Context, provider Provider, key string) error
 }

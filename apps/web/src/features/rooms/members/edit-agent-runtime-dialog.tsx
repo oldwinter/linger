@@ -355,6 +355,7 @@ function RuntimeSetupGuidance({
         role="status"
       >
         <LocalRuntimeAuthenticationGuidance
+          computer={computer}
           computerName={computer.display_name}
           runtimeType={runtime.type}
         />

@@ -14,6 +14,7 @@ import { NavLink, Outlet, useLocation } from "react-router";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useT } from "@/i18n/use-translation";
 
+import { SaveDiagnosticsButton } from "./save-diagnostics-button";
 import { settingsMessages } from "./settings.messages";
 
 /** Settings is a page in the Space shell: its own sections beside the rail. */
@@ -79,6 +80,7 @@ export function SettingsLayout() {
             to="language"
           />
         </nav>
+        <SaveDiagnosticsButton />
       </aside>
       <main className="workspace-content-viewport workspace-scrollbar flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto px-6 py-6 [scrollbar-gutter:stable] md:px-8">
         <Suspense

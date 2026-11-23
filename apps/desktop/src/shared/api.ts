@@ -130,6 +130,11 @@ export interface LingerDesktopApi {
   readonly language: {
     set(language: string): Promise<void>;
   };
+  // The tray's Save Diagnostics…: writes the bundle and shows it in its
+  // folder. Older apps lack it, so the page shows no entry for it there.
+  readonly diagnostics: {
+    save(): Promise<void>;
+  };
   // macOS only.
   readonly permissions?: {
     act(step: DesktopPermissionStep): Promise<void>;
@@ -159,4 +164,5 @@ export const IPC = {
   previewFrameRefused: "preview.frame-refused",
   voiceWindowShowMain: "voice-window.show-main",
   languageSet: "language.set",
+  diagnosticsSave: "diagnostics.save",
 } as const;

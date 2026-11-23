@@ -80,6 +80,11 @@ export interface VoiceControlRefs {
   bindingRef: RefObject<VoiceMicrophoneBinding | undefined>;
 }
 
+export interface VoiceStopFailure {
+  captureId: string;
+  retry(): Promise<void>;
+}
+
 export interface VoiceControlState {
   refs: VoiceControlRefs;
   requests: VoiceRequestScope;
@@ -89,6 +94,9 @@ export interface VoiceControlState {
   captureState: VoiceCaptureState;
   captureSyncStatus: VoiceCaptureSyncStatus;
   setCaptureSyncStatus: Dispatch<SetStateAction<VoiceCaptureSyncStatus>>;
+  /** A Stop that left this Capture recording, with the call that tries again. */
+  stopFailure: VoiceStopFailure | undefined;
+  setStopFailure: Dispatch<SetStateAction<VoiceStopFailure | undefined>>;
   composerMicrophoneActive: boolean;
   setComposerMicrophoneActive: Dispatch<SetStateAction<boolean>>;
   devices: VoiceMicrophoneDevice[];
@@ -178,6 +186,7 @@ export function useVoiceControlState(
   });
   const [captureSyncStatus, setCaptureSyncStatus] =
     useState<VoiceCaptureSyncStatus>("idle");
+  const [stopFailure, setStopFailure] = useState<VoiceStopFailure>();
   const [composerMicrophoneActive, setComposerMicrophoneActive] =
     useState(false);
   const [devices, setDevices] = useState<VoiceMicrophoneDevice[]>([]);
@@ -249,6 +258,8 @@ export function useVoiceControlState(
     captureState,
     captureSyncStatus,
     setCaptureSyncStatus,
+    stopFailure,
+    setStopFailure,
     composerMicrophoneActive,
     setComposerMicrophoneActive,
     devices,

@@ -25,6 +25,31 @@ func TestCaptureProjectionWaitsForTranscriptAndMessageTransaction(t *testing.T) 
 	}
 }
 
+func TestCaptureProjectionReportsTranscriptRecoveryAttempt(t *testing.T) {
+	for _, tc := range []struct {
+		status   string
+		failures int32
+		want     int64
+	}{
+		{"pending", 0, 1},
+		{"running", 1, 2},
+		{"pending", 7, 8},
+		{"failed", 1, 1},
+		{"failed", 8, 8},
+	} {
+		record := store.CaptureSession{
+			Status:                     "recovering",
+			TranscriptRecoveryStatus:   pgtype.Text{String: tc.status, Valid: true},
+			TranscriptRecoveryFailures: tc.failures,
+			TranscriptRecoveryTotalMs:  pgtype.Int8{Int64: 1000, Valid: true},
+		}
+		model := captureModel(record, store.VoiceMediaEpoch{})
+		if model.TranscriptRecoveryAttempt != tc.want || model.TranscriptRecoveryMaxAttempts != transcriptRecoveryFailureBudget {
+			t.Fatalf("%s after %d failures: attempt=%d of %d, want %d of %d", tc.status, tc.failures, model.TranscriptRecoveryAttempt, model.TranscriptRecoveryMaxAttempts, tc.want, transcriptRecoveryFailureBudget)
+		}
+	}
+}
+
 func TestCaptureProjectionPreservesRequestedStartBeforeMediaAlignment(t *testing.T) {
 	for _, requested := range []int64{0, 2000} {
 		record := store.CaptureSession{

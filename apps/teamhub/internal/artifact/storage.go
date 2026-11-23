@@ -290,7 +290,7 @@ func (s *LocalStore) Open(ctx context.Context, key string) (io.ReadCloser, error
 	if err != nil {
 		return nil, err
 	}
-	return os.Open(path)
+	return openObject(path)
 }
 
 // OpenRange reads a bounded byte interval from a local immutable object.

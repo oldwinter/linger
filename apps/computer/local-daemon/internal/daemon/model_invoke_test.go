@@ -1,9 +1,11 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"testing"
@@ -349,5 +351,105 @@ func TestModelInvokeCarriesTheCapAndWhatAStoppedCallStreamed(t *testing.T) {
 	payload := waitForModelInvoked(t, stream, "invoke-1")
 	if payload["outcome"] != "output_limited" || payload["text"] != `{"actions":[{"p` || payload["reason"] != "Model reply exceeded its output limit" || payload["usage"] != nil {
 		t.Fatalf("payload = %v", payload)
+	}
+}
+
+// failingModelInvoker answers every call as failed with a fixed reason.
+type failingModelInvoker struct{ reason string }
+
+func (f failingModelInvoker) Close() {}
+
+func (f failingModelInvoker) Invoke(context.Context, provider.ModelInvokeRequest) provider.ModelInvokeResult {
+	return provider.ModelInvokeResult{Outcome: provider.ModelInvokeFailed, Reason: f.reason}
+}
+
+// modelInvokeLogLines records the runner.model.invoke lines with the given phase.
+func modelInvokeLogLines(t *testing.T) func(phase string) []map[string]any {
+	t.Helper()
+	buffer := &bytes.Buffer{}
+	var mu sync.Mutex
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(lockedWriter{mu: &mu, w: buffer}, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	return func(phase string) []map[string]any {
+		mu.Lock()
+		defer mu.Unlock()
+		var lines []map[string]any
+		for _, line := range strings.Split(strings.TrimSpace(buffer.String()), "\n") {
+			var record map[string]any
+			if json.Unmarshal([]byte(line), &record) == nil && record["msg"] == "runner.model.invoke" && record["phase"] == phase {
+				lines = append(lines, record)
+			}
+		}
+		return lines
+	}
+}
+
+type lockedWriter struct {
+	mu *sync.Mutex
+	w  *bytes.Buffer
+}
+
+func (l lockedWriter) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.w.Write(p)
+}
+
+func TestModelInvokeLogsARedactedTruncatedFailureReason(t *testing.T) {
+	secret := "sk-" + strings.Repeat("A", 40)
+	for name, test := range map[string]struct {
+		reason string
+		check  func(t *testing.T, logged string)
+	}{
+		"readable": {reason: "model_not_found: The model gpt-x does not exist", check: func(t *testing.T, logged string) {
+			if logged != "model_not_found: The model gpt-x does not exist" {
+				t.Fatalf("reason = %q", logged)
+			}
+		}},
+		"credentials": {reason: "upstream 401 with key " + secret + " and Authorization: Bearer fixture-token", check: func(t *testing.T, logged string) {
+			if strings.Contains(logged, secret) || strings.Contains(logged, "fixture-token") || !strings.Contains(logged, "[REDACTED]") {
+				t.Fatalf("reason = %q", logged)
+			}
+		}},
+		"long": {reason: strings.Repeat("é", 400), check: func(t *testing.T, logged string) {
+			if logged != strings.Repeat("é", 300) {
+				t.Fatalf("reason has %d runes", len([]rune(logged)))
+			}
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			lines := modelInvokeLogLines(t)
+			d, stream := modelInvokeFixture(t, failingModelInvoker{reason: test.reason})
+			if err := d.handleModelInvoke(context.Background(), stream, modelInvokeCommand("invoke-failed", nil)); err != nil {
+				t.Fatal(err)
+			}
+			waitForModelInvoked(t, stream, "invoke-failed")
+			failed := lines("failed")
+			if len(failed) != 1 || failed[0]["invoke_id"] != "invoke-failed" {
+				t.Fatalf("log lines = %v", failed)
+			}
+			logged, _ := failed[0]["reason"].(string)
+			test.check(t, logged)
+		})
+	}
+}
+
+func TestModelInvokeLogsNoReasonForACompletedCall(t *testing.T) {
+	lines := modelInvokeLogLines(t)
+	invoker := newFakeModelInvoker()
+	d, stream := modelInvokeFixture(t, invoker)
+	if err := d.handleModelInvoke(context.Background(), stream, modelInvokeCommand("invoke-ok", nil)); err != nil {
+		t.Fatal(err)
+	}
+	<-invoker.started
+	close(invoker.release)
+	waitForModelInvoked(t, stream, "invoke-ok")
+	completed := lines("completed")
+	if len(completed) != 1 {
+		t.Fatalf("log lines = %v", completed)
+	}
+	if _, ok := completed[0]["reason"]; ok {
+		t.Fatalf("completed line has a reason: %v", completed[0])
 	}
 }

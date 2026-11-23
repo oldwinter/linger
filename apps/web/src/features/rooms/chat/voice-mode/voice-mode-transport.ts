@@ -35,6 +35,20 @@ import { VoiceModeDisconnectedError } from "./voice-mode-errors";
 import { translate } from "@/i18n/language";
 import { voiceSessionMessages as m } from "./voice-session.messages";
 
+/**
+ * The person's next step for the Runtime's failure code. A Runtime that
+ * predates the code, or a code without a step of its own, keeps the generic
+ * message.
+ */
+function runtimeFailureMessage(code: string | undefined) {
+  if (code === "asr_auth_rejected") return m.runtimeKeyRejected;
+  if (code === "asr_permission_denied") return m.runtimeKeyNotPermitted;
+  if (code === "asr_balance_exhausted") return m.runtimeBalanceExhausted;
+  if (code?.startsWith("network_") || code === "asr_connect_timeout")
+    return m.runtimeUnreachable;
+  return m.runtimeStopped;
+}
+
 export async function openVoiceMode(input: {
   client: TeamHubClient;
   /** The accepted transcript and turns arrive through the shared event feed. */
@@ -164,7 +178,13 @@ export async function openVoiceMode(input: {
               runtimeIdentity = participant.identity;
             if (participant.identity !== runtimeIdentity) return;
             if (!closed && !stopping && failureForCurrentGeneration) {
-              readinessFailure = new Error(translate(m.runtimeStopped));
+              readinessFailure = new Error(
+                translate(
+                  runtimeFailureMessage(
+                    currentAttributes["linger.voice_dictation_failure_code"],
+                  ),
+                ),
+              );
               input.fail(readinessFailure);
             }
           },

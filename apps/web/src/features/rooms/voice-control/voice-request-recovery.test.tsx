@@ -1222,9 +1222,56 @@ describe("continuous voice pending HTTP diagnosis", () => {
     fireEvent.click(screen.getByRole("button", { name: "Start recording" }));
     await advance();
     clickStop();
-    await advance(6_000);
+    // The hung Stop times out after 5 s; the next is spaced 5 s later.
+    await advance(11_000);
     expect(keys).toHaveLength(2);
     expect(stopsAccepted).toBe(1);
+    expect(screen.getByLabelText("capture-state")).toHaveTextContent(
+      "completed",
+    );
+  });
+
+  it("reports a Stop that failed three times and saves on Retry", async () => {
+    let failStops = true;
+    let stops = 0;
+    const states: string[] = [];
+    await setup((runtime, voice) => {
+      const originalStop = voice(
+        "POST",
+        "/v0/voice-captures/{captureSessionId}/stop",
+      );
+      runtime.server.on(
+        "POST",
+        "/v0/voice-captures/{captureSessionId}/stop",
+        (request) => {
+          stops++;
+          if (failStops)
+            return teamHubErrorResponse(503, "UNAVAILABLE", "Unavailable");
+          return originalStop(request);
+        },
+      );
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Start recording" }));
+    await advance();
+    clickStop();
+    for (let step = 0; step < 40; step++) {
+      await advance(500);
+      states.push(screen.getByLabelText("capture-state").textContent ?? "");
+    }
+    expect(stops).toBe(3);
+    // The finalizing poll reads the recording Capture but keeps it saving.
+    expect(states).not.toContain("recording");
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Stop didn't reach the server after 3 tries",
+    );
+    failStops = false;
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    // A second click while the Retry runs sends no second Stop.
+    const again = screen.queryByRole("button", { name: "Retry" });
+    if (again) fireEvent.click(again);
+    await advance(6_000);
+    expect(stops).toBe(4);
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
     expect(screen.getByLabelText("capture-state")).toHaveTextContent(
       "completed",
     );

@@ -45,7 +45,7 @@ export async function fetchTeamHubDocumentVersionContent(
   }
   if (!response.body) throw new Error("TeamHub content response has no body");
   const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
+  const chunks: Buffer[] = [];
   let size = 0;
   try {
     while (true) {
@@ -54,7 +54,7 @@ export async function fetchTeamHubDocumentVersionContent(
       size += value.byteLength;
       if (size > maxBytes)
         throw new Error("TeamHub content exceeds the supported byte limit");
-      chunks.push(value);
+      chunks.push(Buffer.from(value));
     }
   } finally {
     await reader.cancel();

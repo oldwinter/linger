@@ -1068,6 +1068,78 @@ describe("Model context window", () => {
   });
 });
 
+describe("Model call invocation log", () => {
+  function invokedLines(logger: { log: ReturnType<typeof vi.fn> }) {
+    return logger.log.mock.calls
+      .filter(([, event]) => event === "model_call.invoked")
+      .map(([level, , fields]) => ({
+        level: level as string,
+        fields: fields as Record<string, unknown>,
+      }));
+  }
+
+  it("carries a failed call's reason", async () => {
+    const { modelCall, logger } = setup({
+      placements: [alice],
+      invoke: async () => ({
+        outcome: "failed",
+        reason: "model_not_found: The model gpt-x does not exist",
+        duration_ms: 1,
+      }),
+    });
+    await expect(
+      modelCall.text({ kind: "approval", key: "r", input: "x" }),
+    ).rejects.toThrow(ModelCallError);
+    const [line] = invokedLines(logger);
+    expect(line).toMatchObject({
+      level: "warn",
+      fields: {
+        outcome: "failed",
+        reason:
+          "Model invocation failed: model_not_found: The model gpt-x does not exist",
+      },
+    });
+  });
+
+  it("redacts credentials in the reason and keeps 300 characters", async () => {
+    const secret = `sk-${"A".repeat(40)}`;
+    const { modelCall, logger } = setup({
+      placements: [alice],
+      invoke: async () => ({
+        outcome: "failed",
+        reason: `401 for key ${secret} with Authorization: Bearer fixture-token ${"é".repeat(400)}`,
+        duration_ms: 1,
+      }),
+    });
+    await expect(
+      modelCall.text({ kind: "approval", key: "r", input: "x" }),
+    ).rejects.toThrow(ModelCallError);
+    const reason = String(invokedLines(logger)[0]!.fields.reason);
+    expect(reason).not.toContain(secret);
+    expect(reason).not.toContain("fixture-token");
+    expect(reason).toContain("[Redacted]");
+    expect(Array.from(reason)).toHaveLength(300);
+  });
+
+  it("adds no reason to a completed call", async () => {
+    const { modelCall, logger } = setup({ placements: [alice] });
+    await modelCall.call({ ...ask, input: "x" });
+    const [line] = invokedLines(logger);
+    expect(line!.level).toBe("info");
+    expect(Object.keys(line!.fields).sort()).toEqual([
+      "attempt",
+      "computer_id",
+      "duration_ms",
+      "key",
+      "kind",
+      "mode",
+      "model",
+      "outcome",
+      "runtime_type",
+    ]);
+  });
+});
+
 describe("Runner Gateway model invocation adapter", () => {
   it.each([
     [

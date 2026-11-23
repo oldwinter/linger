@@ -84,3 +84,28 @@ func TestHTTPGatewayMapsLocalModelActionFailures(t *testing.T) {
 		}
 	}
 }
+
+func TestHTTPGatewayLocalModelsClientOverridesShortBaseTimeout(t *testing.T) {
+	if localModelsActionRequestTimeout <= 30*time.Second {
+		t.Fatalf("localModelsActionRequestTimeout = %v, want headroom above 30s action lifetime", localModelsActionRequestTimeout)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(40 * time.Millisecond)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"request_id":"request_1","outcome":"accepted"}`))
+	}))
+	t.Cleanup(server.Close)
+	shortClient := server.Client()
+	shortClient.Timeout = 10 * time.Millisecond
+	gateway, err := NewHTTPGateway(server.URL, "service-secret", shortClient)
+	if err != nil {
+		t.Fatal(err)
+	}
+	refusal, err := gateway.ActOnLocalModels(context.Background(), LocalModelActionCommand{
+		TenantID: "tenant_1", OwnerActorID: "actor_owner", ComputerID: "computer_1", RequestID: "request_1",
+		Action: "load", ModelID: "qwen3-4b:Q4_K_M", ExpiresAt: time.Now().Add(30 * time.Second),
+	})
+	if err != nil || refusal != nil {
+		t.Fatalf("ActOnLocalModels with dedicated timeout failed: refusal=%+v err=%v", refusal, err)
+	}
+}

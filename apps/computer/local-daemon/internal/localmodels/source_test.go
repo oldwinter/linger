@@ -341,7 +341,8 @@ func TestModelSourceReportsUnsupportedWhenToolLacksSourceCommand(t *testing.T) {
 }
 
 func TestGatewayRuntimeFollowsTheManagedProfile(t *testing.T) {
-	state := t.TempDir()
+	root := t.TempDir()
+	state := filepath.Join(root, "runtime", "localmodels", "state")
 	byok := map[string]string{
 		"CODEX_HOME":          filepath.Join(state, "byok-home", ".codex"),
 		"CLAUDE_CONFIG_DIR":   "/home/user/.claude",
@@ -352,8 +353,104 @@ func TestGatewayRuntimeFollowsTheManagedProfile(t *testing.T) {
 			t.Fatalf("GatewayRuntime(%s) = %v", runtimeType, got)
 		}
 	}
+	toolsPi := map[string]string{
+		"PI_CODING_AGENT_DIR": filepath.Join(ToolsDirectory(state), "gateway-home", ".pi", "agent"),
+	}
+	if !GatewayRuntime(toolsPi, state, "pi") {
+		t.Fatalf("GatewayRuntime did not recognize per-home tools/gateway-home: %v", toolsPi)
+	}
+	legacyPi := map[string]string{
+		"PI_CODING_AGENT_DIR": filepath.Join(root, "user-home", ".local", "share", "localmodels", "tools", "gateway-home", ".pi", "agent"),
+	}
+	if !GatewayRuntime(legacyPi, state, "pi") {
+		t.Fatalf("GatewayRuntime did not recognize legacy localmodels/tools/gateway-home: %v", legacyPi)
+	}
 	if GatewayRuntime(byok, "", "codex") {
 		t.Fatal("a Computer without localmodels has no gateway Runtime")
+	}
+}
+
+func TestOverlayEnvironmentDiscoversToolsGatewayHomeAndIsolatesByokInLocalMode(t *testing.T) {
+	root := t.TempDir()
+	stateDir := filepath.Join(root, "runtime", "localmodels", "state")
+	toolsGatewayPi := filepath.Join(ToolsDirectory(stateDir), "gateway-home", ".pi", "agent")
+	byokPi := filepath.Join(stateDir, "byok-home", ".pi", "agent")
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	// Without model-source.json, base environment is preserved unchanged even
+	// after ToolsDirectory(stateDir)/gateway-home/.pi/agent exists, so users
+	// with a personal ~/.pi/agent profile are not switched off it until they
+	// select local mode; a stale byok-home entry is still stripped to match
+	// Tool.commandArgs.
+	base := map[string]string{"HOME": filepath.Join(root, "home")}
+	if got := OverlayEnvironment(base, stateDir); got["PI_CODING_AGENT_DIR"] != "" {
+		t.Fatalf("expected no PI_CODING_AGENT_DIR before gateway-home exists, got %v", got)
+	}
+	if got := OverlayEnvironment(map[string]string{
+		"HOME":                filepath.Join(root, "home"),
+		"PI_CODING_AGENT_DIR": byokPi,
+	}, stateDir); got["PI_CODING_AGENT_DIR"] != "" {
+		t.Fatalf("expected stale byok-home stripped without model-source.json, got %v", got)
+	}
+	if err := os.MkdirAll(toolsGatewayPi, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if got := OverlayEnvironment(base, stateDir); got["PI_CODING_AGENT_DIR"] != "" {
+		t.Fatalf("expected personal Pi profile preserved when model-source.json is absent, got %v", got)
+	}
+
+	// In local mode with empty overlay environment, OverlayEnvironment resolves
+	// ToolsDirectory(stateDir)/gateway-home/.pi/agent.
+	writeModelSourceJSON(t, stateDir, map[string]any{
+		"schema":      modelSourceSchema,
+		"mode":        "local",
+		"runtime":     "pi",
+		"environment": map[string]string{},
+	})
+	if got := OverlayEnvironment(base, stateDir); got["PI_CODING_AGENT_DIR"] != toolsGatewayPi {
+		t.Fatalf("expected tools gateway-home %q in local mode, got %v", toolsGatewayPi, got)
+	}
+
+	// Switching to subscription strips ToolsDirectory(stateDir)/gateway-home.
+	writeModelSourceJSON(t, stateDir, map[string]any{
+		"schema":      modelSourceSchema,
+		"mode":        "subscription",
+		"runtime":     "claude",
+		"environment": map[string]string{},
+	})
+	if got := OverlayEnvironment(map[string]string{
+		"HOME":                filepath.Join(root, "home"),
+		"PI_CODING_AGENT_DIR": toolsGatewayPi,
+	}, stateDir); got["PI_CODING_AGENT_DIR"] != "" {
+		t.Fatalf("expected tools gateway-home stripped in subscription mode, got %v", got)
+	}
+
+	// Local mode rejects a stale byok-home Pi path in model-source.json and
+	// resolves ToolsDirectory(stateDir)/gateway-home/.pi/agent instead.
+	writeModelSourceJSON(t, stateDir, map[string]any{
+		"schema":      modelSourceSchema,
+		"mode":        "local",
+		"runtime":     "pi",
+		"environment": map[string]string{"PI_CODING_AGENT_DIR": byokPi},
+	})
+	if got := OverlayEnvironment(map[string]string{
+		"HOME":                filepath.Join(root, "home"),
+		"PI_CODING_AGENT_DIR": byokPi,
+	}, stateDir); got["PI_CODING_AGENT_DIR"] != toolsGatewayPi {
+		t.Fatalf("expected local mode to replace stale byok-home with %q, got %v", toolsGatewayPi, got)
+	}
+
+	// Even before gateway-home exists, local mode never keeps a stale byok-home Pi dir.
+	if err := os.RemoveAll(filepath.Join(ToolsDirectory(stateDir), "gateway-home")); err != nil {
+		t.Fatal(err)
+	}
+	if got := OverlayEnvironment(map[string]string{
+		"HOME":                filepath.Join(root, "home"),
+		"PI_CODING_AGENT_DIR": byokPi,
+	}, stateDir); got["PI_CODING_AGENT_DIR"] != "" {
+		t.Fatalf("expected stale byok-home dropped in local mode when no gateway-home exists, got %v", got)
 	}
 }
 

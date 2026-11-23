@@ -17,6 +17,14 @@ export const voiceSessionMessages = defineMessages("voiceSession", {
   connectionLost: "Voice connection was lost. Your unsent text is kept.",
   runtimeStopped:
     "Voice Runtime stopped before readiness. Check the configured ASR provider and try again.",
+  runtimeKeyRejected:
+    "Soniox rejected the API key. Replace it in Settings › API keys, then try again.",
+  runtimeKeyNotPermitted:
+    "This Soniox API key cannot use real-time transcription. Replace it in Settings › API keys with one that can, then try again.",
+  runtimeBalanceExhausted:
+    "Your Soniox balance or usage limit is used up. Add credits in the Soniox Console, then try again.",
+  runtimeUnreachable:
+    "Cannot reach the voice service. Check your network or proxy, then try again.",
   recognitionDisconnected:
     "Voice recognition disconnected. Your unsent text is kept.",
   microphoneDisconnectedKept:

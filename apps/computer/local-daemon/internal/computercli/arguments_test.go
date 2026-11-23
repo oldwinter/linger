@@ -121,12 +121,14 @@ func TestRemovedAndUnknownCommandsAreUsageErrors(t *testing.T) {
 }
 
 func TestParsedCommandShapes(t *testing.T) {
-	options := parseOptions{goos: "darwin", environment: map[string]string{}, homeDirectory: "/home/user", hostName: "Host", workingDirectory: "/work", commandName: "linger-computer"}
+	root := t.TempDir()
+	work := filepath.Join(root, "work")
+	options := parseOptions{goos: "darwin", environment: map[string]string{}, homeDirectory: filepath.Join(root, "home"), hostName: "Host", workingDirectory: work, commandName: "linger-computer"}
 	parsed, err := parseArguments([]string{"login", "--enabled-runtime", "pi", "--enabled-runtime", "codex", "--codex-auth", "auth.json", "--name", "Desk"}, options)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(parsed.enabledRuntimes, []string{"pi", "codex"}) || parsed.codexAuthFile != filepath.Join(string(filepath.Separator), "work", "auth.json") || parsed.displayName != "Desk" || parsed.webURL != "http://localhost:3000" {
+	if !reflect.DeepEqual(parsed.enabledRuntimes, []string{"pi", "codex"}) || parsed.codexAuthFile != filepath.Join(work, "auth.json") || parsed.displayName != "Desk" || parsed.webURL != "http://localhost:3000" {
 		t.Fatalf("login=%+v", parsed)
 	}
 	parsed, _ = parseArguments([]string{"login"}, parseOptions{environment: map[string]string{"LINGER_WEB_URL": "https://app.example.test"}, hostName: "Host", workingDirectory: "/work", homeDirectory: "/home/user"})
@@ -138,10 +140,13 @@ func TestParsedCommandShapes(t *testing.T) {
 			t.Fatalf("%v accepted", args)
 		}
 	}
-	parsed, err = parseArguments([]string{"login", "--localmodels-python", "kit/python3", "--localmodels-module-dir", "/kit", "--localmodels-state", "/state", "--localmodels-base-dir", "/models"}, options)
+	module := filepath.Join(root, "kit")
+	state := filepath.Join(root, "state")
+	models := filepath.Join(root, "models")
+	parsed, err = parseArguments([]string{"login", "--localmodels-python", "kit/python3", "--localmodels-module-dir", module, "--localmodels-state", state, "--localmodels-base-dir", models}, options)
 	if err != nil || parsed.localModels == nil || *parsed.localModels != (stagedLocalModels{
-		Python: filepath.Join(string(filepath.Separator), "work", "kit", "python3"), ModuleDirectory: filepath.Join(string(filepath.Separator), "kit"),
-		StateDirectory: filepath.Join(string(filepath.Separator), "state"), BaseDirectory: filepath.Join(string(filepath.Separator), "models"),
+		Python: filepath.Join(work, "kit", "python3"), ModuleDirectory: module,
+		StateDirectory: state, BaseDirectory: models,
 	}) {
 		t.Fatalf("login localmodels=%+v err=%v", parsed.localModels, err)
 	}
@@ -149,7 +154,7 @@ func TestParsedCommandShapes(t *testing.T) {
 		t.Fatal("a partial localmodels tool location was accepted")
 	}
 	parsed, _ = parseArguments([]string{"runtime", "check", "claude-code", "--live", "--pi-path", "bin/pi"}, options)
-	if parsed.name != "runtime-check" || parsed.runtime != "claude" || !parsed.live || parsed.runtimePaths["pi"] != filepath.Join(string(filepath.Separator), "work", "bin", "pi") {
+	if parsed.name != "runtime-check" || parsed.runtime != "claude" || !parsed.live || parsed.runtimePaths["pi"] != filepath.Join(work, "bin", "pi") {
 		t.Fatalf("runtime check=%+v", parsed)
 	}
 	parsed, _ = parseArguments([]string{"daemon", "logs", "--follow"}, options)

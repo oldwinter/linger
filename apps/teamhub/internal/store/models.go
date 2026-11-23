@@ -1908,6 +1908,8 @@ type VoiceMediaEpoch struct {
 	RecorderFailureCode       pgtype.Text        `json:"recorder_failure_code"`
 	RecorderReportedAt        pgtype.Timestamptz `json:"recorder_reported_at"`
 	RestartRetryAt            pgtype.Timestamptz `json:"restart_retry_at"`
+	StopReconcileFailures     int32              `json:"stop_reconcile_failures"`
+	StopReconcileRetryAt      pgtype.Timestamptz `json:"stop_reconcile_retry_at"`
 }
 
 type VoiceProviderKey struct {

@@ -77,8 +77,6 @@ type codexOperation struct {
 	liveUsage   *codexUsage
 	lastUsage   *codexUsage
 	compactions int64
-	// children are the sub-agent threads this turn spawned.
-	children map[string]codexChild
 	// steers holds each steer that waits for Codex to show its user message,
 	// by the client id the steer sent.
 	steers           map[string]chan struct{}
@@ -98,7 +96,7 @@ func newCodexOperation(proc *codexProcess, profile Profile, spec RunSpec, prompt
 		reviewed: spec.CodexPermissionHook != nil && spec.CodexPermissionHook.ReviewPermissions, bridge: spec.HumanInteraction,
 		activity: make(chan string, codexActivityBuffer), terminal: make(chan struct{}),
 		events: make(chan Event, codexEventBuffer), itemsDone: map[string]bool{},
-		children: map[string]codexChild{}, steers: map[string]chan struct{}{}, requests: newModelRequestClock(GranularityItem),
+		steers: map[string]chan struct{}{}, requests: newModelRequestClock(GranularityItem),
 	}
 }
 

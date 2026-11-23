@@ -18,17 +18,47 @@ import (
 )
 
 func TestCodexAppServerArgsGates(t *testing.T) {
-	tail := []string{"--config", "features.memories=false", "--config", "features.memory_tool=false", "--config", "features.apps=false", "--config", "features.image_generation=false", "--config", "project_root_markers=[]", "--config", "skills.bundled.enabled=false"}
+	tail := []string{"--config", "features.memories=false", "--config", "features.memory_tool=false", "--config", "features.apps=false", "--config", "features.image_generation=false", "--config", "project_root_markers=[]", "--config", "skills.bundled.enabled=false",
+		"--config", "features.multi_agent=false", "--config", "features.multi_agent_v2=false"}
+	agentsOff := []string{"--config", "agents.enabled=false"}
 	cases := map[string][]string{
-		"0.100.0":           {"app-server", "--disable", "plugins", "--listen", "stdio://", "x"},
-		"codex-cli 0.128.0": {"app-server", "--disable", "plugins", "--disable", "goals", "--listen", "stdio://", "x"},
-		"0.150.1":           {"app-server", "--disable", "plugins", "--disable", "goals", "--listen", "stdio://", "--config", "tool_output_token_limit=12000", "x"},
-		"garbage":           {"app-server", "--disable", "plugins", "--listen", "stdio://", "x"},
+		"0.100.0":           append([]string{"app-server", "--disable", "plugins", "--listen", "stdio://", "x"}, tail...),
+		"codex-cli 0.128.0": append([]string{"app-server", "--disable", "plugins", "--disable", "goals", "--listen", "stdio://", "x"}, tail...),
+		// Codex before 0.145.0 refuses to start on agents.enabled.
+		"0.144.6":         append([]string{"app-server", "--disable", "plugins", "--disable", "goals", "--listen", "stdio://", "x"}, tail...),
+		"0.145.0-alpha.1": append([]string{"app-server", "--disable", "plugins", "--listen", "stdio://", "x"}, tail...),
+		"0.145.0":         append(append([]string{"app-server", "--disable", "plugins", "--disable", "goals", "--listen", "stdio://", "x"}, tail...), agentsOff...),
+		"0.150.1":         append(append([]string{"app-server", "--disable", "plugins", "--disable", "goals", "--listen", "stdio://", "--config", "tool_output_token_limit=12000", "x"}, tail...), agentsOff...),
+		"garbage":         append([]string{"app-server", "--disable", "plugins", "--listen", "stdio://", "x"}, tail...),
 	}
 	for version, want := range cases {
-		if got := CodexAppServerArgs(version, "x"); !slices.Equal(got, append(want, tail...)) {
+		if got := CodexAppServerArgs(version, "x"); !slices.Equal(got, want) {
 			t.Fatalf("%s: %q", version, got)
 		}
+	}
+}
+
+// User arguments cannot turn sub-agents back on: --enable applies after every
+// --config override, so the adapter strips the names rather than outvoting
+// them.
+func TestCodexExecutionArgsKeepSubAgentsOff(t *testing.T) {
+	spec := RunSpec{
+		ComputerArgs: []string{"--enable", "multi_agent_v2,other", "-c", "agents.enabled=true"},
+		AgentArgs:    []string{"--enable=multi_agent", "-c", "features.multi_agent_v2=true", "-c", "agents.max_threads=8"},
+	}
+	args := codexExecutionArgs(Profile{CodexToolVersion: "0.169.1"}, spec, "", slog.New(slog.DiscardHandler))
+	for _, banned := range []string{"multi_agent_v2,other", "--enable=multi_agent", "agents.enabled=true", "features.multi_agent_v2=true"} {
+		if slices.Contains(args, banned) {
+			t.Fatalf("user override %q survived: %q", banned, args)
+		}
+	}
+	for _, kept := range []string{"other", "agents.max_threads=8"} {
+		if !slices.Contains(args, kept) {
+			t.Fatalf("unrelated %q was dropped: %q", kept, args)
+		}
+	}
+	if !slices.Equal(args[len(args)-6:], []string{"--config", "features.multi_agent=false", "--config", "features.multi_agent_v2=false", "--config", "agents.enabled=false"}) {
+		t.Fatalf("sub-agent overrides are not last: %q", args)
 	}
 }
 

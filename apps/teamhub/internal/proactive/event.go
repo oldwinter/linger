@@ -160,7 +160,7 @@ func (s *Service) HandleEvent(ctx context.Context, event Event) (Outcome, error)
 		return Outcome{}, ErrNoJudge
 	}
 	// The account label lets the Agent tell the Human which mailbox; the
-	// connection ID alone still selects it when the label is gone.
+	// connection ID still selects it when the connection has none.
 	var accountLabel string
 	if event.Grant != nil {
 		var err error
@@ -216,7 +216,7 @@ func (s *Service) HandleEvent(ctx context.Context, event Event) (Outcome, error)
 			instructions += "\n" + reminder.Prompt(reminder.EventTrackOnly, nil)
 		}
 	}
-	err = s.wake(ctx, owner, candidate, eventText(instructions+"\n"+reminder.Prompt(reminder.Arranging, nil), event, accountLabel), outcome.Skipped == "", event)
+	err = s.wake(ctx, owner, candidate, eventText(instructions+"\n"+reminder.Prompt(reminder.Arranging, nil), event, accountLabel, now), outcome.Skipped == "", event)
 	if revoked(err) {
 		outcome.Skipped = "authorization_revoked"
 		return outcome, nil
@@ -286,39 +286,55 @@ func (s *Service) wake(ctx context.Context, owner Owner, candidate Candidate, bo
 	return tx.Commit(ctx)
 }
 
+// eventTimeLayout is how a wake writes every time: local, with its offset, so
+// times in one event compare at a glance.
+const eventTimeLayout = "2006-01-02 15:04 -07:00"
+
 // eventText fences the event and marks it as outside data, never instructions.
-// A granted event names its account so the Agent can select it with
-// --account; accountLabel is empty when the connection has none.
-func eventText(label string, event Event, accountLabel string) string {
-	facts := []string{"source: " + event.Source, "kind: " + event.Kind}
-	if event.State != "" {
-		facts = append(facts, "state: "+event.State)
-	}
-	if event.OccursAt != nil {
-		facts = append(facts, "time: "+event.OccursAt.In(time.Local).Format("2006-01-02 15:04 -07:00"))
-	}
-	// A mandate act names the event by its source and ID.
-	if event.ExternalID != "" {
-		facts = append(facts, "external_id: "+event.ExternalID)
-	}
+// The block opens with the app, the account and Received. The account's label
+// tells the Human which account; its connection ID follows because only the ID
+// selects exactly one connection with --account, while a label such as a
+// Slack workspace name can be shared. Received is when TeamHub took the event
+// up to judge it, right after the listener read it unless judging was retried.
+// The wake then waits until the Room has been quiet for three minutes, longer
+// while the Human is talking with AnotherMe, so the Agent reads it that much
+// later than Received.
+func eventText(label string, event Event, accountLabel string, receivedAt time.Time) string {
+	lines := []string{"App: " + appName(event.Source)}
 	if event.Grant != nil {
+		account := event.Grant.ConnectionID
 		if accountLabel != "" {
-			facts = append(facts, "account: "+accountLabel)
+			note := "connection ID " + event.Grant.ConnectionID
 			// An Outlook label is the Microsoft account's sign-in name, which can
-			// belong to another mail provider; the account value itself stays
-			// exact so it can be passed to --account.
+			// belong to another mail provider.
 			if event.Source == reminder.ListenerOutlook || event.Source == reminder.ListenerOutlookCalendar {
-				facts = append(facts, "account note: Microsoft sign-in name, the mailbox address may differ")
+				note = "Microsoft sign-in name, the mailbox address may differ; " + note
 			}
+			account = accountLabel + " (" + note + ")"
 		}
-		facts = append(facts, "connection: "+event.Grant.ConnectionID)
+		lines = append(lines, "Account: "+account)
 	}
-	text := label + "\n" + strings.Join(facts, "; ") + "\n<event>\n" + strings.TrimSpace(event.Summary) +
-		"\n</event>\n" + reminder.Prompt(reminder.EventData, nil)
+	// A mandate act names the event by its source and external ID.
+	if event.ExternalID != "" {
+		lines = append(lines, "Source: "+event.Source, "External ID: "+event.ExternalID)
+	}
+	lines = append(lines, "Received: "+receivedAt.In(time.Local).Format(eventTimeLayout), strings.TrimSpace(event.Summary))
+	text := label + "\n<event>\n" + strings.Join(lines, "\n") + "\n</event>\n" + reminder.Prompt(reminder.EventData, nil)
 	if event.Herdr != nil && event.Kind == HerdrAgentBlocked {
 		text += "\n" + reminder.Prompt(reminder.HerdrBlocked, map[string]string{
 			"pane_id": event.Herdr.PaneID, "state": strconv.FormatInt(event.Herdr.StateChangeSeq, 10),
 		})
 	}
 	return text
+}
+
+// ManualEventSummary is the block content of an event handed in by hand in
+// place of a connector: what changed, when it happens if it has a time, then
+// what it says.
+func ManualEventSummary(kind string, occursAt *time.Time, text string) string {
+	lines := []string{"Change: " + kind}
+	if occursAt != nil {
+		lines = append(lines, "Time: "+occursAt.In(time.Local).Format(eventTimeLayout))
+	}
+	return strings.Join(append(lines, strings.TrimSpace(text)), "\n")
 }

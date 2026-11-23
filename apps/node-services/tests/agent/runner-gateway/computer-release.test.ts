@@ -8,7 +8,10 @@ import {
   computerTargetRelease,
   loadComputerRelease,
 } from "../../../src/agent/runner-gateway/computer-release.js";
-import { writeComputerRelease } from "./computer-release-fixture.js";
+import {
+  writeComputerRelease,
+  installerTemplate,
+} from "./computer-release-fixture.js";
 
 describe("loadComputerRelease", () => {
   it("returns undefined when the image ships no release", async () => {
@@ -31,6 +34,17 @@ describe("loadComputerRelease", () => {
         },
       },
     });
+  });
+
+  it("reads a template a Windows checkout stored with CRLF as LF", async () => {
+    const { root } = await writeComputerRelease({
+      template: installerTemplate.replace(/\r?\n/gu, "\r\n"),
+    });
+    const loaded = await loadComputerRelease(root);
+    expect(loaded!.installerTemplate).toContain(
+      'web_origin="${LINGER_WEB_URL:-http://localhost:3000}"',
+    );
+    expect(loaded!.installerTemplate).not.toContain("\r");
   });
 
   it("fails startup when a listed archive is missing on disk", async () => {

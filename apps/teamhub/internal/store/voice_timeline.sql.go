@@ -162,7 +162,7 @@ func (q *Queries) FreezeReadyVoiceTranscripts(ctx context.Context) error {
 }
 
 const getLatestRecordedVoiceMediaEpoch = `-- name: GetLatestRecordedVoiceMediaEpoch :one
-SELECT id, voice_session_id, capture_session_id, epoch_index, desired_state, observed_state, provider_egress_id, staging_prefix, playlist_object_key, first_archived_ms, archived_through_ms, segment_count, last_segment_at, final_end_ms, last_failure_code, created_at, updated_at, sealed_at, recorder_state, recorder_started_at, recorder_archived_through_ms, recorder_failure_code, recorder_reported_at, restart_retry_at FROM voice_media_epochs
+SELECT id, voice_session_id, capture_session_id, epoch_index, desired_state, observed_state, provider_egress_id, staging_prefix, playlist_object_key, first_archived_ms, archived_through_ms, segment_count, last_segment_at, final_end_ms, last_failure_code, created_at, updated_at, sealed_at, recorder_state, recorder_started_at, recorder_archived_through_ms, recorder_failure_code, recorder_reported_at, restart_retry_at, stop_reconcile_failures, stop_reconcile_retry_at FROM voice_media_epochs
 WHERE capture_session_id=$1 AND observed_state='available' AND final_end_ms>coalesce(first_archived_ms,0)
 ORDER BY epoch_index DESC LIMIT 1
 `
@@ -195,6 +195,8 @@ func (q *Queries) GetLatestRecordedVoiceMediaEpoch(ctx context.Context, captureS
 		&i.RecorderFailureCode,
 		&i.RecorderReportedAt,
 		&i.RestartRetryAt,
+		&i.StopReconcileFailures,
+		&i.StopReconcileRetryAt,
 	)
 	return i, err
 }

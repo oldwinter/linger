@@ -15,6 +15,7 @@ import {
   type ModelCallResults,
 } from "./model-call-results.js";
 import type { ModelCallLog } from "./model-call-log.js";
+import { redactSensitiveText } from "./sensitive-text.js";
 import { modelCallPolicies, type ModelCallKind } from "./model-tasks.js";
 
 type AnotherMePlacement = components["schemas"]["AnotherMePlacement"];
@@ -360,6 +361,8 @@ const PLACEMENT_TTL_MS = 30_000;
 const MAX_REJECTED_CHARS = 64_000;
 /** Rejection reason text carried into the correction prompt. */
 const MAX_PROBLEM_CHARS = 16_000;
+/** Failure reason text kept on a `model_call.invoked` log line. */
+const LOG_REASON_LIMIT = 300;
 
 // Strict output schemas only constrain shape; a format is a hint to the model.
 const ajv = new Ajv({ strict: false, validateFormats: false });
@@ -873,6 +876,7 @@ async function invokeAttempt(
     model: outcome.model ?? null,
     duration_ms: state.now() - startedAt,
     ...(outcome.usage === undefined ? {} : { usage: outcome.usage }),
+    ...(failure ? { reason: logReason(failure.message) } : {}),
   });
   if (failure) {
     if (signal.aborted) throw signal.reason;
@@ -1265,6 +1269,13 @@ function outcomeFailure(
         `Model invocation ${outcome.outcome}${reason}`,
       );
   }
+}
+
+/** Redacted before truncation, so a cut never leaves part of a credential unmatched. */
+function logReason(message: string): string {
+  return Array.from(redactSensitiveText(message))
+    .slice(0, LOG_REASON_LIMIT)
+    .join("");
 }
 
 function unfence(text: string): string {

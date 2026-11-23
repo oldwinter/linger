@@ -654,6 +654,9 @@ describe("downloadStopped", () => {
       ),
     ).toBe(true);
     expect(
+      downloadStopped(model({ ...base, error: { code: "DISK_INSUFFICIENT" } })),
+    ).toBe(true);
+    expect(
       downloadStopped(
         model({ ...base, error: { code: "ENGINE_START_FAILED" } }),
       ),

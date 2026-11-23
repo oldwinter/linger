@@ -46,6 +46,10 @@ const fixture = async (
     install: vi.fn(async () => {}),
     check: vi.fn(async () => {}),
   };
+  const diagnostics = {
+    ...stubModule("Diagnostics"),
+    save: vi.fn(async () => "/Users/me/Downloads/linger-diagnostics.zip"),
+  };
   const send = vi.fn();
   const windows = {
     ...stubModule("WindowManager"),
@@ -61,6 +65,7 @@ const fixture = async (
       stubModule("Enrollment"),
       stubModule("PowerGuard"),
       stubModule("ComputerDaemon"),
+      diagnostics as never,
       windows as never,
       stubModule("WorkspaceGrants"),
       stubModule("Tray"),
@@ -85,6 +90,7 @@ const fixture = async (
   return {
     host,
     bus,
+    diagnostics,
     language,
     local,
     updater,
@@ -216,6 +222,26 @@ describe("DesktopIpcModule voice window", () => {
       f.invoke(IPC.voiceWindowShowMain, "https://evil.example.com"),
     ).toThrow("Not allowed");
     expect(f.windows.show).toHaveBeenCalledOnce();
+    await f.host.stop("quit");
+  });
+});
+
+describe("DesktopIpcModule diagnostics", () => {
+  it("saves through the tray's save and returns no path to the page", async () => {
+    const f = await fixture();
+    expect(await f.invoke(IPC.diagnosticsSave)).toBeUndefined();
+    expect(f.diagnostics.save).toHaveBeenCalledOnce();
+    expect(() =>
+      f.invoke(IPC.diagnosticsSave, "https://evil.example.com"),
+    ).toThrow("Not allowed");
+    expect(f.diagnostics.save).toHaveBeenCalledOnce();
+    await f.host.stop("quit");
+  });
+
+  it("rejects when saving fails", async () => {
+    const f = await fixture();
+    f.diagnostics.save.mockRejectedValueOnce(new Error("disk full"));
+    await expect(f.invoke(IPC.diagnosticsSave)).rejects.toThrow("disk full");
     await f.host.stop("quit");
   });
 });

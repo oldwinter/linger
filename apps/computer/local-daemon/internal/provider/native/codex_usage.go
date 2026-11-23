@@ -334,7 +334,7 @@ func (p *codexProcess) advanceTotal(thread string, sum int64) bool {
 
 // observeTokenUsage turns a usage report into a model response. Codex
 // repeats a report without a new request, so only a larger total counts.
-func (op *codexOperation) observeTokenUsage(thread string, child codexChild, raw json.RawMessage) {
+func (op *codexOperation) observeTokenUsage(thread string, raw json.RawMessage) {
 	now := time.Now()
 	var usage struct {
 		Total json.RawMessage `json:"total"`
@@ -348,16 +348,11 @@ func (op *codexOperation) observeTokenUsage(thread string, child codexChild, raw
 	if !ok || !hasTotal || !op.proc.advanceTotal(thread, sum) {
 		return
 	}
-	response := ModelResponse{Model: child.model, Usage: last.receipt()}
-	if child.parentCallID != "" {
-		response.Agent, response.ParentCallID = thread, child.parentCallID
-	} else {
-		response.Model = op.spec.Model
-		if response.Model == "" {
-			op.proc.mu.Lock()
-			response.Model = op.proc.threadModel
-			op.proc.mu.Unlock()
-		}
+	response := ModelResponse{Model: op.spec.Model, Usage: last.receipt()}
+	if response.Model == "" {
+		op.proc.mu.Lock()
+		response.Model = op.proc.threadModel
+		op.proc.mu.Unlock()
 	}
 	response = op.requests.respond(response, now)
 	op.emit(Event{Kind: EventModelResponse, ObservedAt: now, Response: &response})

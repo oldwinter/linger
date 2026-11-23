@@ -64,7 +64,7 @@ func (q *Queries) FailLiveKitCaptureCompletion(ctx context.Context, arg FailLive
 }
 
 const getPreviousVoiceMediaEpoch = `-- name: GetPreviousVoiceMediaEpoch :one
-SELECT previous.id, previous.voice_session_id, previous.capture_session_id, previous.epoch_index, previous.desired_state, previous.observed_state, previous.provider_egress_id, previous.staging_prefix, previous.playlist_object_key, previous.first_archived_ms, previous.archived_through_ms, previous.segment_count, previous.last_segment_at, previous.final_end_ms, previous.last_failure_code, previous.created_at, previous.updated_at, previous.sealed_at, previous.recorder_state, previous.recorder_started_at, previous.recorder_archived_through_ms, previous.recorder_failure_code, previous.recorder_reported_at, previous.restart_retry_at FROM voice_media_epochs current
+SELECT previous.id, previous.voice_session_id, previous.capture_session_id, previous.epoch_index, previous.desired_state, previous.observed_state, previous.provider_egress_id, previous.staging_prefix, previous.playlist_object_key, previous.first_archived_ms, previous.archived_through_ms, previous.segment_count, previous.last_segment_at, previous.final_end_ms, previous.last_failure_code, previous.created_at, previous.updated_at, previous.sealed_at, previous.recorder_state, previous.recorder_started_at, previous.recorder_archived_through_ms, previous.recorder_failure_code, previous.recorder_reported_at, previous.restart_retry_at, previous.stop_reconcile_failures, previous.stop_reconcile_retry_at FROM voice_media_epochs current
 JOIN voice_media_epochs previous ON previous.capture_session_id=current.capture_session_id
   AND previous.epoch_index=current.epoch_index-1
 WHERE current.id=$1
@@ -98,6 +98,8 @@ func (q *Queries) GetPreviousVoiceMediaEpoch(ctx context.Context, id string) (Vo
 		&i.RecorderFailureCode,
 		&i.RecorderReportedAt,
 		&i.RestartRetryAt,
+		&i.StopReconcileFailures,
+		&i.StopReconcileRetryAt,
 	)
 	return i, err
 }
@@ -145,7 +147,7 @@ SET observed_state='available',first_archived_ms=$2,archived_through_ms=$2,final
 WHERE epoch.id=$1 AND epoch.desired_state='sealed'
   AND coalesce(epoch.archived_through_ms,0)<=coalesce(epoch.first_archived_ms,0)
   AND NOT EXISTS(SELECT 1 FROM capture_media_ranges span WHERE span.epoch_id=epoch.id AND span.kind='media')
-RETURNING epoch.id, epoch.voice_session_id, epoch.capture_session_id, epoch.epoch_index, epoch.desired_state, epoch.observed_state, epoch.provider_egress_id, epoch.staging_prefix, epoch.playlist_object_key, epoch.first_archived_ms, epoch.archived_through_ms, epoch.segment_count, epoch.last_segment_at, epoch.final_end_ms, epoch.last_failure_code, epoch.created_at, epoch.updated_at, epoch.sealed_at, epoch.recorder_state, epoch.recorder_started_at, epoch.recorder_archived_through_ms, epoch.recorder_failure_code, epoch.recorder_reported_at, epoch.restart_retry_at
+RETURNING epoch.id, epoch.voice_session_id, epoch.capture_session_id, epoch.epoch_index, epoch.desired_state, epoch.observed_state, epoch.provider_egress_id, epoch.staging_prefix, epoch.playlist_object_key, epoch.first_archived_ms, epoch.archived_through_ms, epoch.segment_count, epoch.last_segment_at, epoch.final_end_ms, epoch.last_failure_code, epoch.created_at, epoch.updated_at, epoch.sealed_at, epoch.recorder_state, epoch.recorder_started_at, epoch.recorder_archived_through_ms, epoch.recorder_failure_code, epoch.recorder_reported_at, epoch.restart_retry_at, epoch.stop_reconcile_failures, epoch.stop_reconcile_retry_at
 `
 
 type SealEmptyVoiceMediaEpochParams struct {
@@ -182,6 +184,8 @@ func (q *Queries) SealEmptyVoiceMediaEpoch(ctx context.Context, arg SealEmptyVoi
 		&i.RecorderFailureCode,
 		&i.RecorderReportedAt,
 		&i.RestartRetryAt,
+		&i.StopReconcileFailures,
+		&i.StopReconcileRetryAt,
 	)
 	return i, err
 }

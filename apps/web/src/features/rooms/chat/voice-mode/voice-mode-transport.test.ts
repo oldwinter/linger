@@ -33,6 +33,8 @@ const media = vi.hoisted(() => ({
   unpublish: vi.fn(),
   autoDrain: true,
   failBeforeReady: false,
+  // Absent models a Runtime that predates the failure code attribute.
+  failureCode: undefined as string | undefined,
   hiddenRuntime: false,
   attributes: undefined as undefined | ((...args: unknown[]) => void),
 }));
@@ -74,6 +76,9 @@ vi.mock("livekit-client", () => ({
           {
             "linger.voice_dictation_failure": "transcript_unconfirmed",
             "linger.voice_dictation_failure_generation": "2",
+            ...(media.failureCode === undefined
+              ? {}
+              : { "linger.voice_dictation_failure_code": media.failureCode }),
           },
           this.runtime,
         );
@@ -221,6 +226,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   media.autoDrain = true;
   media.failBeforeReady = false;
+  media.failureCode = undefined;
   media.hiddenRuntime = false;
   vi.stubGlobal("AudioContext", undefined);
 });
@@ -413,6 +419,30 @@ describe("Voice Mode transport boundaries", () => {
     );
     expect(f.routes.closeVoiceSession).toHaveBeenCalledOnce();
   });
+  it.each([
+    ["asr_auth_rejected", "Soniox rejected the API key."],
+    ["asr_permission_denied", "cannot use real-time transcription"],
+    ["asr_balance_exhausted", "Soniox balance or usage limit is used up"],
+    ["network_dns", "Cannot reach the voice service"],
+    ["network_refused", "Cannot reach the voice service"],
+    ["network_tls", "Cannot reach the voice service"],
+    ["asr_connect_timeout", "Cannot reach the voice service"],
+    ["asr_provider_503", "Voice Runtime stopped before readiness"],
+    ["", "Voice Runtime stopped before readiness"],
+  ])(
+    "explains the Runtime failure code %j to the person",
+    async (code, message) => {
+      const f = fixture();
+      media.failBeforeReady = true;
+      media.failureCode = code;
+      f.routes.getVoiceSession.mockReturnValue({
+        id: "chat-session",
+        purpose: "chat_dictation",
+        input_ready_generation: 0,
+      });
+      await expect(openVoiceMode(f.options)).rejects.toThrow(message);
+    },
+  );
   it("starts the transcript feed when Runtime speech arrives before readiness projection", async () => {
     const f = fixture();
     f.routes.getVoiceSession.mockReturnValue({

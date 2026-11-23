@@ -179,10 +179,26 @@ func RouteListenerEvents(ctx context.Context, tx pgx.Tx, record store.RoomRemind
 	return nil
 }
 
+// listenerAppNames are the app names an event wake shows for listened
+// sources; an event handed in by hand shows its source as given.
+var listenerAppNames = map[string]string{
+	reminder.ListenerGmail: "Gmail", reminder.ListenerOutlook: "Outlook Mail",
+	reminder.ListenerGCal: "Google Calendar", reminder.ListenerOutlookCalendar: "Outlook Calendar",
+	reminder.ListenerSlack: "Slack",
+}
+
+func appName(source string) string {
+	if name, ok := listenerAppNames[source]; ok {
+		return name
+	}
+	return source
+}
+
 // EventFromListener names the matter a listened event is about. A mail thread, a
 // calendar event, or a Slack thread is one matter; each new message or change
 // in it is a new state. OccursAt is when the matter happens; a receive time is
-// not one.
+// not one. The summary leads with the IDs the Agent needs to look the event up
+// in its app.
 func EventFromListener(listened reminder.ListenerEvent) (Event, bool) {
 	event := Event{Source: listened.Source, Grant: listened.Grant}
 	switch listened.Source {
@@ -190,11 +206,12 @@ func EventFromListener(listened reminder.ListenerEvent) (Event, bool) {
 		event.Kind = "new_mail"
 		event.ExternalID = firstNonEmpty(listened.ThreadID, listened.MessageID, listened.EventID)
 		event.State = firstNonEmpty(listened.MessageID, listened.EventID)
-		event.Summary = summaryLines([2]string{"From", listened.From}, [2]string{"To", listened.To}, [2]string{"Subject", listened.Subject}, [2]string{"Body", listened.Snippet})
+		event.Summary = lookupSummary([][2]string{{"Message ID", listened.MessageID}, {"Thread ID", listened.ThreadID}, {"Labels", strings.Join(listened.LabelIDs, ", ")}},
+			[2]string{"From", listened.From}, [2]string{"To", listened.To}, [2]string{"Subject", listened.Subject}, [2]string{"Body", listened.Snippet})
 	case reminder.ListenerGCal, reminder.ListenerOutlookCalendar:
 		event.Kind = "calendar_" + listened.EventKind
 		event.ExternalID = firstNonEmpty(listened.MessageID, listened.EventID)
-		event.Summary = summaryLines([2]string{"Event ID", listened.MessageID}, [2]string{"Status", listened.EventKind}, [2]string{"Event", listened.Summary}, [2]string{"Start", listened.Start}, [2]string{"End", listened.End}, [2]string{"Location", listened.Location}, [2]string{"Organizer", listened.Organizer}, [2]string{"Description", listened.Description})
+		event.Summary = summaryLines([2]string{"Change", listened.EventKind}, [2]string{"Event ID", listened.MessageID}, [2]string{"Event", listened.Summary}, [2]string{"Start", calendarText(listened.Start)}, [2]string{"End", calendarText(listened.End)}, [2]string{"Location", listened.Location}, [2]string{"Organizer", listened.Organizer}, [2]string{"Description", listened.Description})
 		// Dedup the evidence, not only the start time or a provider timestamp:
 		// place/instruction changes matter, an otherwise identical revision does not.
 		digest := sha256.Sum256([]byte(event.Summary))
@@ -208,7 +225,8 @@ func EventFromListener(listened reminder.ListenerEvent) (Event, bool) {
 		if listened.Channel != "" {
 			channel = "#" + listened.Channel
 		}
-		event.Summary = summaryLines([2]string{"Channel", channel}, [2]string{"Sender", listened.Sender}, [2]string{"Content", listened.Text})
+		event.Summary = lookupSummary([][2]string{{"Message ID", listened.MessageID}, {"Channel", channel}, {"Channel ID", listened.ChannelID}, {"Thread ID", listened.ThreadID}},
+			[2]string{"Sender", listened.Sender}, [2]string{"Content", listened.Text})
 	default:
 		return Event{}, false
 	}
@@ -225,6 +243,24 @@ func calendarTime(value string) *time.Time {
 		return &at
 	}
 	return nil
+}
+
+// calendarText writes a calendar instant in local time like every wake time;
+// a provider may report it in UTC. An all-day date stays as given.
+func calendarText(value string) string {
+	if at, err := time.Parse(time.RFC3339, value); err == nil {
+		return at.In(time.Local).Format(eventTimeLayout)
+	}
+	return value
+}
+
+// lookupSummary leads an event's content with the IDs to look it up by. IDs
+// alone are not something to judge, so an event without content stays empty.
+func lookupSummary(ids [][2]string, content ...[2]string) string {
+	if summaryLines(content...) == "" {
+		return ""
+	}
+	return summaryLines(append(ids, content...)...)
 }
 
 func summaryLines(parts ...[2]string) string {

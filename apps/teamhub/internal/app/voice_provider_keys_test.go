@@ -184,6 +184,8 @@ func TestSaveVoiceProviderKeyLogsVoiceWorkersNotReady(t *testing.T) {
 
 func TestSaveVoiceProviderKeyErrors(t *testing.T) {
 	rejected := func(context.Context, voicekey.Provider, string) error { return voicekey.ErrRejected }
+	noBalance := func(context.Context, voicekey.Provider, string) error { return voicekey.ErrNoBalance }
+	noRealtime := func(context.Context, voicekey.Provider, string) error { return voicekey.ErrNoRealtime }
 	unreachable := func(context.Context, voicekey.Provider, string) error { return voicekey.ErrProviderUnavailable }
 	box := testSecretBox(t)
 	for _, tc := range []struct {
@@ -197,6 +199,8 @@ func TestSaveVoiceProviderKeyErrors(t *testing.T) {
 		{"malformed body", "soniox", `{"key":"` + testVoiceKey + `"}`, voicekey.Config{Enabled: true, Box: box}, nil, http.StatusBadRequest, "INVALID_REQUEST"},
 		{"blank key", "soniox", `{"api_key":"   "}`, voicekey.Config{Enabled: true, Box: box}, nil, http.StatusBadRequest, "INVALID_REQUEST"},
 		{"rejected", "soniox", `{"api_key":"` + testVoiceKey + `"}`, voicekey.Config{Enabled: true, Box: box}, rejected, http.StatusBadRequest, "VOICE_KEY_REJECTED"},
+		{"no balance", "soniox", `{"api_key":"` + testVoiceKey + `"}`, voicekey.Config{Enabled: true, Box: box}, noBalance, http.StatusBadRequest, "VOICE_KEY_NO_BALANCE"},
+		{"no realtime permission", "soniox", `{"api_key":"` + testVoiceKey + `"}`, voicekey.Config{Enabled: true, Box: box}, noRealtime, http.StatusBadRequest, "VOICE_KEY_NO_REALTIME_PERMISSION"},
 		{"unreachable", "xai", `{"api_key":"` + testVoiceKey + `"}`, voicekey.Config{Enabled: true, Box: box}, unreachable, http.StatusServiceUnavailable, "VOICE_PROVIDER_UNAVAILABLE"},
 		{"environment", "xai", `{"api_key":"` + testVoiceKey + `"}`, voicekey.Config{Enabled: true, Box: box, Environment: map[voicekey.Provider]string{voicekey.XAI: "env-key"}}, nil, http.StatusConflict, "VOICE_KEY_FROM_ENVIRONMENT"},
 		{"no encryption key", "soniox", `{"api_key":"` + testVoiceKey + `"}`, voicekey.Config{Enabled: true}, nil, http.StatusServiceUnavailable, "VOICE_KEY_STORAGE_UNAVAILABLE"},

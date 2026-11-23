@@ -21,6 +21,10 @@ export const voiceKeyMessages = defineMessages("voiceKey", {
     "This server cannot save a {provider} key here. Whoever runs it must set <code>{variable}</code>, or set <code>{storageVariable}</code> so keys can be saved here.",
   invalidKey: "Enter a valid API key.",
   keyRejected: "{provider} rejected this key. Check it and try again.",
+  noBalance:
+    "Your {provider} account is out of balance or reached its monthly budget. Add funds or raise the budget in the {provider} Console, then try again.",
+  noRealtimePermission:
+    "This key cannot use {provider} real-time transcription. Allow it for the key in the {provider} Console, or use another key.",
   keyFromEnvironment:
     "This server sets the {provider} key with {variable}, so it cannot be changed here.",
   storageUnavailable:

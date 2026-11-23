@@ -35,6 +35,9 @@ func defaultDeps() deps {
 		rawTerminal:      rawStdin,
 		checkUserSession: checkUserSession,
 		checkRuntime:     checkRuntime,
+		interruptible: func(ctx context.Context) (context.Context, context.CancelFunc) {
+			return signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+		},
 		diagnoseRuntimes: diagnoseRuntimes,
 		newClient:        newDaemonClient,
 		probeGateway:     probeGatewayNetwork,
@@ -42,7 +45,8 @@ func defaultDeps() deps {
 		inspectHerdr: func(ctx context.Context) (doctorCheck, bool) {
 			return inspectHerdr(ctx, environment)
 		},
-		readLogs: streamComputerLogs,
+		readLogs:       streamComputerLogs,
+		runInteractive: runRuntimeInteractive,
 		startDaemon: func(ctx context.Context, configPath string) error {
 			return startDetachedDaemon(ctx, configPath, environment, commandName)
 		},

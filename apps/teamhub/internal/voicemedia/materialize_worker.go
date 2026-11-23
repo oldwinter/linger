@@ -24,10 +24,6 @@ const materializationTimeout = 30 * time.Minute
 var errTranscriptRecoveryQueued = errors.New("voice transcript recovery queued")
 
 const (
-	voiceMaterializationMaxAttempts = 12
-	voiceMaterializationRetryBase   = 5 * time.Second
-	voiceMaterializationRetryCap    = 5 * time.Minute
-
 	voiceMaterializationFailureDocumentNotFound = "document_not_found"
 	voiceMaterializationFailureRetryExhausted   = "retry_exhausted"
 )
@@ -67,13 +63,13 @@ func (s *Service) materializeStep(ctx context.Context, captureID string) (time.D
 		_ = release(0, true)
 		return time.Second, nil
 	case ctx.Err() != nil:
-		_ = release(voiceMaterializationRetryBase, true)
-		return voiceMaterializationRetryBase, processErr
+		_ = release(voiceRetryBase, true)
+		return voiceRetryBase, processErr
 	}
 	if code := voiceMaterializationTerminalCode(processErr, claim.MaterializeAttempts); code != "" {
 		return settled(s.failMaterialization(context.WithoutCancel(ctx), captureID, code))
 	}
-	delay := voiceMaterializationRetryDelay(claim.MaterializeAttempts)
+	delay := voiceRetryDelay(claim.MaterializeAttempts)
 	_ = release(delay, false)
 	return delay, processErr
 }
@@ -93,17 +89,11 @@ func voiceMaterializationTerminalCode(err error, attempts int32) string {
 	switch {
 	case errors.Is(err, document.ErrNotFound):
 		return voiceMaterializationFailureDocumentNotFound
-	case attempts >= voiceMaterializationMaxAttempts:
+	case attempts >= voiceRetryMaxAttempts:
 		return voiceMaterializationFailureRetryExhausted
 	default:
 		return ""
 	}
-}
-
-// attempts counts the current Claim, so the first failure waits the base delay.
-func voiceMaterializationRetryDelay(attempts int32) time.Duration {
-	delay := voiceMaterializationRetryBase << min(max(attempts-1, 0), 6)
-	return min(delay, voiceMaterializationRetryCap)
 }
 
 func (s *Service) failMaterialization(ctx context.Context, captureID string, failureCode string) error {

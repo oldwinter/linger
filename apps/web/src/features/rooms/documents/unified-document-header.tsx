@@ -60,14 +60,14 @@ import type { UnifiedDocumentPageModel } from "./use-unified-document-page-model
 import { useDocumentCommentsClose } from "./document-comment-draft-guard";
 import { MailCanvasStatus } from "./canvas/canvas-mail-status";
 import { documentPageMessages as m } from "./document-page.messages";
-import {
-  RoomDocumentSaveIndicator,
-  RoomDocumentSessionBanner,
-} from "./unified-document-body";
+import { RoomDocumentSaveIndicator } from "./unified-document-body";
 
 const LINK_COPIED_MS = 1200;
 
 interface UnifiedDocumentPageHeaderProps {
+  /** Only the actions, for the byline row under the page title, which
+      already names the Document. */
+  byline?: boolean;
   documentContentRef: MutableRefObject<HTMLDivElement | null>;
   isWikiPage: boolean;
   model: UnifiedDocumentPageModel;
@@ -75,6 +75,7 @@ interface UnifiedDocumentPageHeaderProps {
 
 /** Wires the page model's actions and presence into the Document header. */
 export function UnifiedDocumentPageHeader({
+  byline = false,
   documentContentRef,
   isWikiPage,
   model,
@@ -100,7 +101,6 @@ export function UnifiedDocumentPageHeader({
     canvasSent,
     isEditing,
     isSharedDocument,
-    resyncSession,
     roomId,
     session,
     sharedTree,
@@ -120,113 +120,102 @@ export function UnifiedDocumentPageHeader({
   const linkCopyState =
     linkCopy?.documentId === documentId ? linkCopy.state : undefined;
   return (
-    <>
-      <UnifiedDocumentHeader
-        sidebar={sidebar}
-        commentsOpen={commentsOpen}
-        document={document}
-        isWikiPage={isWikiPage}
-        duplicatePending={duplicatePending}
-        exportPending={exportPending}
-        canvasSent={canvasSent}
-        mailCanvas={model.canvasTarget === "gmail"}
-        isEditing={isEditing}
-        linkCopyState={linkCopyState}
-        onComments={() => {
-          if (commentsOpen) requestCommentsClose(() => setCommentsOpen(false));
-          else setCommentsOpen(true);
-        }}
-        onCopyLink={() => {
-          window.clearTimeout(linkCopyTimerRef.current);
-          setLinkCopy(undefined);
-          void writeDocumentLinkClipboard({
-            documentId,
-            tenantId,
-            title: document
-              ? documentLogicalTitle(document)
-              : translate(m.document),
-            url: new URL(
-              documentDetailPath({ documentId, tenantId }),
-              window.location.origin,
-            ).toString(),
+    <UnifiedDocumentHeader
+      byline={byline}
+      sidebar={sidebar}
+      commentsOpen={commentsOpen}
+      document={document}
+      isWikiPage={isWikiPage}
+      duplicatePending={duplicatePending}
+      exportPending={exportPending}
+      canvasSent={canvasSent}
+      mailCanvas={model.canvasTarget === "gmail"}
+      isEditing={isEditing}
+      linkCopyState={linkCopyState}
+      onComments={() => {
+        if (commentsOpen) requestCommentsClose(() => setCommentsOpen(false));
+        else setCommentsOpen(true);
+      }}
+      onCopyLink={() => {
+        window.clearTimeout(linkCopyTimerRef.current);
+        setLinkCopy(undefined);
+        void writeDocumentLinkClipboard({
+          documentId,
+          tenantId,
+          title: document
+            ? documentLogicalTitle(document)
+            : translate(m.document),
+          url: new URL(
+            documentDetailPath({ documentId, tenantId }),
+            window.location.origin,
+          ).toString(),
+        })
+          .then(() => {
+            setLinkCopy({ documentId, state: "copied" });
+            linkCopyTimerRef.current = window.setTimeout(
+              () => setLinkCopy(undefined),
+              LINK_COPIED_MS,
+            );
           })
-            .then(() => {
-              setLinkCopy({ documentId, state: "copied" });
-              linkCopyTimerRef.current = window.setTimeout(
-                () => setLinkCopy(undefined),
-                LINK_COPIED_MS,
-              );
-            })
-            .catch(() => setLinkCopy({ documentId, state: "failed" }));
-        }}
-        onDelete={() => setTrashConfirmOpen(true)}
-        onDuplicate={() => void duplicateDocument()}
-        onEditingChange={setIsEditing}
-        onExport={() => void exportDocument()}
-        onHistory={() => setHistoryOpen(true)}
-        onOpenTree={() => setTreeOpen(!treeOpen)}
-        onShare={() => setShareOpen(true)}
-        onToc={() =>
-          setTocOpen((value) => {
-            const next = !value;
-            if (next) {
-              setHeadings(
-                extractRenderedDocumentHeadings(documentContentRef.current),
-              );
-            }
-            return next;
-          })
-        }
-        presence={
-          actor && session ? (
-            roomId ? (
-              <RoomDocumentRoomPresence
-                actorDisplayName={actor.display_name}
-                actorId={actor.id}
-                client={client}
-                roomId={roomId}
-                session={session}
-                showSelf
-                tenantId={tenantId}
-              />
-            ) : (
-              <RoomDocumentPresence
-                awareness={session.awareness}
-                currentActor={{
-                  color: collaborationColor(actor.id),
-                  displayName: actor.display_name,
-                  id: actor.id,
-                }}
-                members={undefined}
-                showSelf
-              />
-            )
-          ) : null
-        }
-        session={session}
-        sharedDocument={isSharedDocument}
-        sharedTreeItems={sharedTree.data?.items ?? []}
-        tocOpen={tocOpen}
-        treeItems={tree.data?.items ?? []}
-        treeOpen={treeOpen}
-        tenantId={tenantId}
-      />
-      {!isWikiPage &&
-      session &&
-      document &&
-      document.format === "blocknote" &&
-      document.representation_format !== "html" ? (
-        <RoomDocumentSessionBanner
-          name={document.title}
-          onRetry={resyncSession}
-          session={session}
-        />
-      ) : null}
-    </>
+          .catch(() => setLinkCopy({ documentId, state: "failed" }));
+      }}
+      onDelete={() => setTrashConfirmOpen(true)}
+      onDuplicate={() => void duplicateDocument()}
+      onEditingChange={setIsEditing}
+      onExport={() => void exportDocument()}
+      onHistory={() => setHistoryOpen(true)}
+      onOpenTree={() => setTreeOpen(!treeOpen)}
+      onShare={() => setShareOpen(true)}
+      onToc={() =>
+        setTocOpen((value) => {
+          const next = !value;
+          if (next) {
+            setHeadings(
+              extractRenderedDocumentHeadings(documentContentRef.current),
+            );
+          }
+          return next;
+        })
+      }
+      presence={
+        actor && session ? (
+          roomId ? (
+            <RoomDocumentRoomPresence
+              actorDisplayName={actor.display_name}
+              actorId={actor.id}
+              client={client}
+              roomId={roomId}
+              session={session}
+              showSelf
+              tenantId={tenantId}
+            />
+          ) : (
+            <RoomDocumentPresence
+              awareness={session.awareness}
+              currentActor={{
+                color: collaborationColor(actor.id),
+                displayName: actor.display_name,
+                id: actor.id,
+              }}
+              members={undefined}
+              showSelf
+            />
+          )
+        ) : null
+      }
+      session={session}
+      sharedDocument={isSharedDocument}
+      sharedTreeItems={sharedTree.data?.items ?? []}
+      tocOpen={tocOpen}
+      treeItems={tree.data?.items ?? []}
+      treeOpen={treeOpen}
+      tenantId={tenantId}
+    />
   );
 }
 
 function UnifiedDocumentHeader({
+  byline,
   sidebar,
   commentsOpen,
   document,
@@ -256,6 +245,7 @@ function UnifiedDocumentHeader({
   treeOpen,
   tenantId,
 }: {
+  byline: boolean;
   sidebar: boolean;
   commentsOpen: boolean;
   document: TeamHubDocument | undefined;
@@ -315,28 +305,189 @@ function UnifiedDocumentHeader({
     document && !isWikiPage && document.capabilities.read ? (
       <RoomDocumentShareAction document={document} tenantId={tenantId} />
     ) : null;
+  const markMomentLink =
+    document &&
+    !isWikiPage &&
+    document.status === "active" &&
+    document.format === "blocknote" &&
+    document.representation_format !== "html" &&
+    document.can_edit_native_content &&
+    document.capabilities.write &&
+    document.draft_capability === "write" ? (
+      <Link
+        className="shrink-0 text-xs text-app-muted underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+        to={markMomentPath(tenantId, document.id)}
+      >
+        Mark this moment
+      </Link>
+    ) : null;
+  const treeButton = !sidebar ? (
+    <>
+      <Button
+        aria-controls={WORKSPACE_TREE_ID}
+        aria-expanded={treeOpen}
+        aria-label={t(m.openLibraryPages)}
+        className="sm:hidden"
+        onClick={onOpenTree}
+        size="icon"
+        title={t(m.libraryPages)}
+        tone="ghost"
+      >
+        <Icon icon={SidebarLeftIcon} />
+      </Button>
+    </>
+  ) : null;
+  const actions = (
+    <>
+      {mailCanvas && session ? (
+        <span className="mr-2 text-xs text-app-muted">
+          <MailCanvasStatus
+            isEditing={isEditing}
+            sent={canvasSent}
+            session={session}
+          />
+        </span>
+      ) : !isWikiPage ? (
+        <>
+          {!byline &&
+          session &&
+          document?.format === "blocknote" &&
+          document.representation_format !== "html" ? (
+            <RoomDocumentSaveIndicator
+              alwaysVisible
+              isEditing={isEditing}
+              session={session}
+            />
+          ) : null}
+          {presence}
+          {linkCopyState === "copied" ? (
+            <span
+              aria-label="Copy link status"
+              className="text-xs leading-4 text-app-muted"
+              role="status"
+            >
+              {t(commonMessages.copied)}
+            </span>
+          ) : linkCopyState === "failed" ? (
+            <span className="text-xs leading-4 text-app-danger" role="alert">
+              Copy failed
+            </span>
+          ) : null}
+        </>
+      ) : null}
+      {document && !isWikiPage ? (
+        <Button
+          aria-label={t(m.share)}
+          size="compactIcon"
+          onClick={onShare}
+          title={t(m.share)}
+          tone="ghost"
+        >
+          <Icon icon={Share08Icon} />
+        </Button>
+      ) : null}
+
+      {!sidebar &&
+      !isWikiPage &&
+      document?.status === "active" &&
+      document.capabilities.read &&
+      document.capabilities.comment ? (
+        <Button
+          aria-label={t(m.comments)}
+          aria-pressed={commentsOpen}
+          onClick={onComments}
+          size="icon"
+          title={t(m.comments)}
+          tone="ghost"
+        >
+          <Icon icon={Comment01Icon} />
+        </Button>
+      ) : null}
+      {!sidebar && !mailCanvas ? (
+        <Button
+          aria-label={t(commonMessages.tableOfContents)}
+          aria-pressed={tocOpen}
+          onClick={onToc}
+          size="icon"
+          title={t(commonMessages.tableOfContents)}
+          tone="ghost"
+        >
+          <Icon icon={TableOfContentsIcon} />
+        </Button>
+      ) : null}
+      {/* A Wiki page stays read-only: Copy link and Send to Room stand
+          alone, and Copy as Markdown and Download share one menu so the
+          action row keeps its size. */}
+      {isWikiPage && document ? (
+        <WikiCopyLink documentId={document.id} tenantId={tenantId} />
+      ) : null}
+      {isWikiPage && document?.capabilities.export ? (
+        <WikiSendToRoom
+          documentId={document.id}
+          tenantId={tenantId}
+          title={documentLogicalTitle(document)}
+          updatedAt={document.updated_at}
+        />
+      ) : null}
+      {isWikiPage && document?.capabilities.export ? (
+        <WikiPageActionsMenu
+          documentId={document.id}
+          exportPending={exportPending}
+          onExport={onExport}
+        />
+      ) : null}
+      {shareAction}
+      {!sidebar ? actionsMenu : null}
+      {!mailCanvas &&
+      !isWikiPage &&
+      session &&
+      document?.format === "blocknote" &&
+      document.representation_format !== "html" ? (
+        <RoomDocumentActions
+          canEdit={
+            document.status === "active" &&
+            document.capabilities.write &&
+            document.can_edit_native_content &&
+            !canvasSent
+          }
+          isEditing={isEditing}
+          onEditingChange={onEditingChange}
+          session={session}
+        />
+      ) : null}
+      {sidebar ? actionsMenu : null}
+    </>
+  );
+  const breadcrumb =
+    !sidebar && document ? (
+      <div className="sr-only">
+        <UnifiedDocumentBreadcrumb
+          alwaysVisible
+          document={document}
+          items={treeItems}
+          sharedDocument={sharedDocument}
+          sharedItems={sharedTreeItems}
+        />
+      </div>
+    ) : null;
+  if (byline) {
+    return (
+      <div className="room-document-header-actions">
+        {breadcrumb}
+        {treeButton}
+        {markMomentLink}
+        {actions}
+        {rename.dialog}
+      </div>
+    );
+  }
   return (
     <header
       className="room-document-header border-b border-app-border/60"
       data-mail-canvas={mailCanvas || undefined}
     >
       <div className="room-document-header-identity">
-        {!sidebar ? (
-          <>
-            <Button
-              aria-controls={WORKSPACE_TREE_ID}
-              aria-expanded={treeOpen}
-              aria-label={t(m.openLibraryPages)}
-              className="sm:hidden"
-              onClick={onOpenTree}
-              size="icon"
-              title={t(m.libraryPages)}
-              tone="ghost"
-            >
-              <Icon icon={SidebarLeftIcon} />
-            </Button>
-          </>
-        ) : null}
+        {treeButton}
         {mailCanvas ? (
           <span className="flex items-center gap-2 text-sm font-medium text-app-ink">
             <Icon icon={Mail01Icon} size={16} />
@@ -347,156 +498,16 @@ function UnifiedDocumentHeader({
             <span className="truncate text-sm font-semibold text-app-ink">
               {documentFileName(document)}
             </span>
-            {!isWikiPage &&
-            document.status === "active" &&
-            document.format === "blocknote" &&
-            document.representation_format !== "html" &&
-            document.can_edit_native_content &&
-            document.capabilities.write &&
-            document.draft_capability === "write" ? (
-              <Link
-                className="shrink-0 text-xs text-app-muted underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
-                to={markMomentPath(tenantId, document.id)}
-              >
-                Mark this moment
-              </Link>
-            ) : null}
+            {markMomentLink}
           </div>
         ) : null}
-        {!sidebar && document ? (
-          <div className="sr-only">
-            <UnifiedDocumentBreadcrumb
-              alwaysVisible
-              document={document}
-              items={treeItems}
-              sharedDocument={sharedDocument}
-              sharedItems={sharedTreeItems}
-            />
-          </div>
-        ) : (
+        {breadcrumb ?? (
           <span className="truncate text-sm font-semibold text-app-ink">
             {sidebar ? "" : t(m.document)}
           </span>
         )}
       </div>
-      <div className="room-document-header-actions">
-        {mailCanvas && session ? (
-          <span className="mr-2 text-xs text-app-muted">
-            <MailCanvasStatus
-              isEditing={isEditing}
-              sent={canvasSent}
-              session={session}
-            />
-          </span>
-        ) : !isWikiPage ? (
-          <>
-            {session &&
-            document?.format === "blocknote" &&
-            document.representation_format !== "html" ? (
-              <RoomDocumentSaveIndicator
-                alwaysVisible
-                isEditing={isEditing}
-                session={session}
-              />
-            ) : null}
-            {presence}
-            {linkCopyState === "copied" ? (
-              <span
-                aria-label="Copy link status"
-                className="text-xs leading-4 text-app-muted"
-                role="status"
-              >
-                {t(commonMessages.copied)}
-              </span>
-            ) : linkCopyState === "failed" ? (
-              <span className="text-xs leading-4 text-app-danger" role="alert">
-                Copy failed
-              </span>
-            ) : null}
-          </>
-        ) : null}
-        {document && !isWikiPage ? (
-          <Button
-            aria-label={t(m.share)}
-            size="compactIcon"
-            onClick={onShare}
-            title={t(m.share)}
-            tone="ghost"
-          >
-            <Icon icon={Share08Icon} />
-          </Button>
-        ) : null}
-
-        {!sidebar &&
-        !isWikiPage &&
-        document?.status === "active" &&
-        document.capabilities.read &&
-        document.capabilities.comment ? (
-          <Button
-            aria-label={t(m.comments)}
-            aria-pressed={commentsOpen}
-            onClick={onComments}
-            size="icon"
-            title={t(m.comments)}
-            tone="ghost"
-          >
-            <Icon icon={Comment01Icon} />
-          </Button>
-        ) : null}
-        {!sidebar && !mailCanvas ? (
-          <Button
-            aria-label={t(commonMessages.tableOfContents)}
-            aria-pressed={tocOpen}
-            onClick={onToc}
-            size="icon"
-            title={t(commonMessages.tableOfContents)}
-            tone="ghost"
-          >
-            <Icon icon={TableOfContentsIcon} />
-          </Button>
-        ) : null}
-        {/* A Wiki page stays read-only: Copy link and Send to Room stand
-            alone, and Copy as Markdown and Download share one menu so the
-            action row keeps its size. */}
-        {isWikiPage && document ? (
-          <WikiCopyLink documentId={document.id} tenantId={tenantId} />
-        ) : null}
-        {isWikiPage && document?.capabilities.export ? (
-          <WikiSendToRoom
-            documentId={document.id}
-            tenantId={tenantId}
-            title={documentLogicalTitle(document)}
-            updatedAt={document.updated_at}
-          />
-        ) : null}
-        {isWikiPage && document?.capabilities.export ? (
-          <WikiPageActionsMenu
-            documentId={document.id}
-            exportPending={exportPending}
-            onExport={onExport}
-          />
-        ) : null}
-        {shareAction}
-        {!sidebar ? actionsMenu : null}
-        {!mailCanvas &&
-        !isWikiPage &&
-        session &&
-        document?.format === "blocknote" &&
-        document.representation_format !== "html" ? (
-          <RoomDocumentActions
-            canEdit={
-              document.status === "active" &&
-              document.capabilities.write &&
-              document.can_edit_native_content &&
-              !canvasSent
-            }
-            isEditing={isEditing}
-            onEditingChange={onEditingChange}
-            session={session}
-          />
-        ) : null}
-        {sidebar ? actionsMenu : null}
-      </div>
+      <div className="room-document-header-actions">{actions}</div>
       {rename.dialog}
     </header>
   );

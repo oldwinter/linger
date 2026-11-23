@@ -139,6 +139,29 @@ func TestSaveRefusals(t *testing.T) {
 	}
 }
 
+// Only a save asks the provider: a key already saved keeps resolving, and a
+// refused replacement leaves it in place.
+func TestSavedKeyIsCheckedOnlyWhenSaved(t *testing.T) {
+	keys := &memoryStore{}
+	box := testBox(t, 1)
+	if err := New(keys, accept, Config{Enabled: true, Box: box}, nil).Save(t.Context(), Soniox, "saved-key"); err != nil {
+		t.Fatal(err)
+	}
+	for _, refusal := range []error{ErrRejected, ErrNoBalance, ErrNoRealtime, ErrProviderUnavailable} {
+		checks := 0
+		service := New(keys, checkerFunc(func(context.Context, Provider, string) error { checks++; return refusal }), Config{Enabled: true, Box: box}, nil)
+		if key, _ := service.Effective(t.Context(), Soniox); key != "saved-key" || checks != 0 {
+			t.Fatalf("Effective = %q after %d checks", key, checks)
+		}
+		if err := service.Save(t.Context(), Soniox, "replacement-key"); !errors.Is(err, refusal) || checks != 1 {
+			t.Fatalf("Save = %v after %d checks, want %v", err, checks, refusal)
+		}
+		if key, _ := service.Effective(t.Context(), Soniox); key != "saved-key" {
+			t.Fatalf("a refused replacement changed the key to %q", key)
+		}
+	}
+}
+
 func TestVoiceOffResolvesNoKey(t *testing.T) {
 	keys := &memoryStore{}
 	box := testBox(t, 1)

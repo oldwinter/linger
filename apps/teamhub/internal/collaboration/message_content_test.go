@@ -2,6 +2,7 @@ package collaboration
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	httpapi "github.com/simplexai-labs/linger/contracts-go/teamhubpublic"
@@ -147,5 +148,35 @@ func TestStoredMeetingNotesReadAndForwardAsText(t *testing.T) {
 		if _, err := storedMessageContent("x", []byte(bad)); err == nil {
 			t.Fatalf("%s accepted", bad)
 		}
+	}
+}
+
+func TestMessageBodyBoundCountsCharacters(t *testing.T) {
+	t.Parallel()
+
+	han := strings.Repeat("\u6c49", MaxMessageLength)
+	request := func(body string) httpapi.MessageCreateRequest {
+		payload, err := json.Marshal(map[string]any{
+			"raw_message": body,
+			"segments":    []map[string]any{{"type": "text", "content": body}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var parsed httpapi.MessageCreateRequest
+		if err := json.Unmarshal(payload, &parsed); err != nil {
+			t.Fatal(err)
+		}
+		return parsed
+	}
+
+	if _, err := NormalizeMessageCreateRequest(request(han)); err != nil {
+		t.Fatalf("a body of %d characters must be valid: %v", MaxMessageLength, err)
+	}
+	if _, err := NormalizeMessageCreateRequest(request(han + "\u6c49")); err == nil {
+		t.Fatal("a body of one character more must be rejected")
+	}
+	if _, err := NormalizeMessageCreateRequest(request(strings.Repeat("t", MaxMessageLength))); err != nil {
+		t.Fatalf("the ASCII bound must stay %d characters: %v", MaxMessageLength, err)
 	}
 }

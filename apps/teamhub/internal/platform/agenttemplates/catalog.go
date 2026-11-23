@@ -13,7 +13,9 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/agentregistry"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/reminder"
 
 	httpapi "github.com/simplexai-labs/linger/contracts-go/teamhubpublic"
@@ -109,11 +111,11 @@ func validate(template *Template, file string) error {
 		return fail("template_id is not a valid identifier")
 	case strings.TrimSuffix(file, ".json") != template.TemplateID:
 		return fail("template_id must equal the file name")
-	case template.Name == "" || len([]rune(template.Name)) > 120:
+	case template.Name == "" || !utf8.ValidString(template.Name) || utf8.RuneCountInString(template.Name) > agentregistry.MaxNameRunes:
 		return fail("name must be 1 to 120 characters")
-	case len([]rune(template.Description)) > 1000:
+	case !utf8.ValidString(template.Description) || utf8.RuneCountInString(template.Description) > agentregistry.MaxDescriptionRunes:
 		return fail("description exceeds 1000 characters")
-	case template.Instructions == "" || len(template.Instructions) > 50000:
+	case template.Instructions == "" || !utf8.ValidString(template.Instructions) || utf8.RuneCountInString(template.Instructions) > agentregistry.MaxInstructionsRunes:
 		return fail("instructions must be 1 to 50000 characters")
 	case template.AvatarKey != "" && !avatarKeyPattern.MatchString(template.AvatarKey):
 		return fail("avatar_key is not a valid avatar selection")

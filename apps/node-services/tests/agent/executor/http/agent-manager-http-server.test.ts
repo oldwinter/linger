@@ -23,7 +23,11 @@ import {
 } from "../../../../src/runtime-model-call.js";
 import { stubModelCall } from "../../../model-call-stub.js";
 import { createTestRunnerGateway } from "../../test-support/runner-gateway.js";
-import { startHttpHost } from "../../../../src/http-host.js";
+import {
+  startHttpHost,
+  type HttpHost,
+  type HttpRoute,
+} from "../../../../src/http-host.js";
 
 interface TestRuntimeSettings {
   type: "codex";
@@ -1112,6 +1116,80 @@ describe("AgentManager HTTP adapter", () => {
       },
     });
   });
+
+  it.each([0, 3])(
+    "retains streamed request chunks when the source reuses a padded buffer at offset %s",
+    async (offset) => {
+      let mounted: HttpRoute | undefined;
+      const httpHost: HttpHost = {
+        server: {} as HttpHost["server"],
+        host: "127.0.0.1",
+        port: 4319,
+        url: "http://127.0.0.1:4319",
+        mount(route) {
+          mounted = route;
+          return () => {
+            mounted = undefined;
+          };
+        },
+        finishStartup() {},
+        async close() {},
+      };
+      const server = createAgentManagerHttpServer({
+        api: new RecordingApi(),
+        serviceToken,
+        httpHost,
+      });
+      servers.push(server);
+      await server.start();
+
+      const payload = new TextEncoder().encode(
+        JSON.stringify({
+          request_id: "req-owned-chunks",
+          run_id: "local-run-1",
+        }),
+      );
+      const chunkSize = 4;
+      const shared = new Uint8Array(offset + chunkSize + 2).fill(0x58);
+      let cursor = 0;
+      const stream = new ReadableStream<Uint8Array>(
+        {
+          pull(controller) {
+            if (cursor >= payload.byteLength) {
+              controller.close();
+              return;
+            }
+            const slice = payload.subarray(cursor, cursor + chunkSize);
+            cursor += slice.byteLength;
+            const view = shared.subarray(offset, offset + slice.byteLength);
+            view.set(slice);
+            controller.enqueue(view);
+          },
+        },
+        { highWaterMark: 0 },
+      );
+      const init: RequestInit & { duplex: "half" } = {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${serviceToken}`,
+          "content-type": "application/json",
+        },
+        body: stream,
+        duplex: "half",
+      };
+      const response = await mounted!.fetch(
+        new Request(
+          "http://127.0.0.1:4319/v1/agent-runs/local-run-1/cancel",
+          init,
+        ),
+      );
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({
+        run_id: "local-run-1",
+        status: "not_found",
+      });
+    },
+  );
 
   it("maps core errors and returns explicit 404 and 405 responses", async () => {
     const api = new RecordingApi();

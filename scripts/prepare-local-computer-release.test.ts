@@ -207,7 +207,10 @@ describe("Local Computer release", () => {
     expect(stdout.trim()).toBe("42");
   }, 120_000);
 
-  it("builds byte-identical, reproducible dependency archives from the same inputs", async () => {
+  it("builds byte-identical, reproducible dependency archives from the same inputs", async ({
+    skip,
+  }) => {
+    if (process.platform === "win32") skip();
     const root = await temporaryDirectory();
     const outputs = [path.join(root, "first"), path.join(root, "second")];
     for (const output of outputs) {
@@ -267,7 +270,10 @@ describe("Local Computer release", () => {
     }
   }, 30_000);
 
-  it("settles every target before failing and publishes no partial archives", async () => {
+  it("settles every target before failing and publishes no partial archives", async ({
+    skip,
+  }) => {
+    if (process.platform === "win32") skip();
     const output = path.join(await temporaryDirectory(), "release");
     const finished: string[] = [];
     await expect(
@@ -299,7 +305,10 @@ describe("Local Computer release", () => {
     await expect(readFile(path.join(output, "release.json"))).rejects.toThrow();
   }, 30_000);
 
-  it("builds the app part against separately built dependency archives", async () => {
+  it("builds the app part against separately built dependency archives", async ({
+    skip,
+  }) => {
+    if (process.platform === "win32") skip();
     const root = await temporaryDirectory();
     const deps = path.join(root, "deps");
     const output = path.join(root, "app");
@@ -344,7 +353,10 @@ describe("Local Computer release", () => {
     ).rejects.toThrow("Expected one dependency archive for darwin-x64");
   }, 30_000);
 
-  it("builds an installable release whose archives and index match the interface", async () => {
+  it("builds an installable release whose archives and index match the interface", async ({
+    skip,
+  }) => {
+    if (process.platform === "win32") skip();
     const root = await temporaryDirectory();
     const output = path.join(root, "release");
     const home = path.join(root, "home");

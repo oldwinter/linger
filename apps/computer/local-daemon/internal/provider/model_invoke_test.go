@@ -48,7 +48,7 @@ func disabledFeatures(args []string) []string {
 }
 
 func TestCodexModelInvokeArgsPinEffortIsolationAndNoPrompt(t *testing.T) {
-	args := codexModelInvokeArgs(ModelInvokeStructured, "low", "", "/tmp/call/work", "/tmp/call/schema.json", "/tmp/call/last.txt")
+	args := codexModelInvokeArgs("0.150.1", ModelInvokeStructured, "low", "", "/tmp/call/work", "/tmp/call/schema.json", "/tmp/call/last.txt")
 	if args[0] != "exec" || !slices.Contains(args, "--skip-git-repo-check") || !slices.Contains(args, "--ephemeral") ||
 		!slices.Contains(args, "--ignore-rules") || argValue(args, "--sandbox") != "read-only" ||
 		argValue(args, "--color") != "never" || argValue(args, "-C") != "/tmp/call/work" ||
@@ -63,26 +63,30 @@ func TestCodexModelInvokeArgsPinEffortIsolationAndNoPrompt(t *testing.T) {
 		t.Fatalf("codex exec must disable features via -c overrides rather than --disable: %q", args)
 	}
 	want := []string{
-		"shell_tool", "unified_exec", "code_mode_host", "multi_agent", "goals",
+		"shell_tool", "unified_exec", "code_mode_host", "goals",
 		"browser_use", "browser_use_external", "browser_use_full_cdp_access",
 		"computer_use", "in_app_browser", "apps", "plugins", "hooks",
 		"image_generation", "view_image", "tool_suggest", "skill_search", "sleep_tool",
+		"multi_agent", "multi_agent_v2",
 	}
 	if got := disabledFeatures(args); !slices.Equal(got, want) {
 		t.Fatalf("disabled features = %q", got)
+	}
+	if !slices.Contains(args, "agents.enabled=false") {
+		t.Fatalf("sub-agents stay on: %q", args)
 	}
 	// Every option takes its value; nothing is left over as a PROMPT argument.
 	if last := args[len(args)-1]; last != "/tmp/call/last.txt" {
 		t.Fatalf("argv ends with %q", last)
 	}
 
-	text := codexModelInvokeArgs(ModelInvokeText, "high", "gpt-account-default", "/w", "", "/l")
+	text := codexModelInvokeArgs("0.150.1", ModelInvokeText, "high", "gpt-account-default", "/w", "", "/l")
 	if slices.Contains(text, "--output-schema") || !slices.Contains(text, `model_reasoning_effort="high"`) ||
 		argValue(text, "-m") != "gpt-account-default" || slices.Contains(args, "-m") {
 		t.Fatalf("text args = %q", text)
 	}
 
-	workspace := codexModelInvokeArgs(ModelInvokeWorkspace, "medium", "", "/w", "", "/l")
+	workspace := codexModelInvokeArgs("0.150.1", ModelInvokeWorkspace, "medium", "", "/w", "", "/l")
 	if argValue(workspace, "--sandbox") != "workspace-write" {
 		t.Fatalf("workspace args = %q", workspace)
 	}

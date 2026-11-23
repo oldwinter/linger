@@ -1733,14 +1733,22 @@ async function performWindowsInstaller(settings, dependencies) {
     : await install(c, installed);
 }
 
+// Under Windows PowerShell 5.1, .NET Framework wraps a redirected stdin in a
+// writer using the console input encoding and flushes its preamble at start,
+// so with a UTF-8 console a BOM arrives before the bootstrap's JSON bytes.
+// JSON.parse rejects it, so strip it before parsing.
+export const parseWindowsInstallerRequest = (source) =>
+  JSON.parse(source.charCodeAt(0) === 0xfeff ? source.slice(1) : source);
+
 if (
   process.argv[1] &&
   pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url
 ) {
   try {
     let source = "";
+    process.stdin.setEncoding("utf8");
     for await (const chunk of process.stdin) source += chunk;
-    await runWindowsInstaller(JSON.parse(source));
+    await runWindowsInstaller(parseWindowsInstallerRequest(source));
   } catch (error) {
     process.stderr.write(`${error.message}\n`);
     process.exitCode = 1;

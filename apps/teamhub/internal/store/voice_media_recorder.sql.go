@@ -12,18 +12,42 @@ import (
 )
 
 const deferVoiceMediaEpochReconcile = `-- name: DeferVoiceMediaEpochReconcile :exec
-UPDATE voice_media_epochs SET updated_at=clock_timestamp() WHERE id=$1
+WITH target AS (
+  SELECT epoch.id,
+         $2::boolean AND capture.status='finalizing'
+           AND epoch.recorder_state IN ('available','failed') AS settling
+  FROM voice_media_epochs epoch
+  JOIN capture_sessions capture ON capture.id=epoch.capture_session_id
+  WHERE epoch.id=$3::text
+)
+UPDATE voice_media_epochs epoch
+SET updated_at=clock_timestamp(),
+    stop_reconcile_failures=epoch.stop_reconcile_failures+target.settling::int,
+    stop_reconcile_retry_at=CASE WHEN target.settling
+      THEN clock_timestamp()+$1::interval
+      ELSE epoch.stop_reconcile_retry_at END
+FROM target
+WHERE epoch.id=target.id
 `
+
+type DeferVoiceMediaEpochReconcileParams struct {
+	RetryDelay pgtype.Interval `json:"retry_delay"`
+	Failed     bool            `json:"failed"`
+	ID         string          `json:"id"`
+}
 
 // A reconciliation that fails moves its epoch to the back of the queue, so
 // one epoch that keeps failing cannot hold every other Capture behind it.
-func (q *Queries) DeferVoiceMediaEpochReconcile(ctx context.Context, id string) error {
-	_, err := q.db.Exec(ctx, deferVoiceMediaEpochReconcile, id)
+// After Stop, a failure to settle a recorder that already sent its terminal
+// receipt also spends the epoch's settle budget and holds the next attempt
+// back by retry_delay; a recorder that may still write spends nothing.
+func (q *Queries) DeferVoiceMediaEpochReconcile(ctx context.Context, arg DeferVoiceMediaEpochReconcileParams) error {
+	_, err := q.db.Exec(ctx, deferVoiceMediaEpochReconcile, arg.RetryDelay, arg.Failed, arg.ID)
 	return err
 }
 
 const getVoiceMediaEpochByStagingPrefix = `-- name: GetVoiceMediaEpochByStagingPrefix :one
-SELECT id, voice_session_id, capture_session_id, epoch_index, desired_state, observed_state, provider_egress_id, staging_prefix, playlist_object_key, first_archived_ms, archived_through_ms, segment_count, last_segment_at, final_end_ms, last_failure_code, created_at, updated_at, sealed_at, recorder_state, recorder_started_at, recorder_archived_through_ms, recorder_failure_code, recorder_reported_at, restart_retry_at FROM voice_media_epochs WHERE staging_prefix=$1
+SELECT id, voice_session_id, capture_session_id, epoch_index, desired_state, observed_state, provider_egress_id, staging_prefix, playlist_object_key, first_archived_ms, archived_through_ms, segment_count, last_segment_at, final_end_ms, last_failure_code, created_at, updated_at, sealed_at, recorder_state, recorder_started_at, recorder_archived_through_ms, recorder_failure_code, recorder_reported_at, restart_retry_at, stop_reconcile_failures, stop_reconcile_retry_at FROM voice_media_epochs WHERE staging_prefix=$1
 `
 
 func (q *Queries) GetVoiceMediaEpochByStagingPrefix(ctx context.Context, stagingPrefix string) (VoiceMediaEpoch, error) {
@@ -54,6 +78,8 @@ func (q *Queries) GetVoiceMediaEpochByStagingPrefix(ctx context.Context, staging
 		&i.RecorderFailureCode,
 		&i.RecorderReportedAt,
 		&i.RestartRetryAt,
+		&i.StopReconcileFailures,
+		&i.StopReconcileRetryAt,
 	)
 	return i, err
 }
@@ -81,7 +107,7 @@ SET recorder_state=$1,
     updated_at=CASE WHEN recorder_state IS DISTINCT FROM $1 THEN clock_timestamp() ELSE updated_at END
 WHERE staging_prefix=$5
   AND (recorder_state IS NULL OR recorder_state='active')
-RETURNING id, voice_session_id, capture_session_id, epoch_index, desired_state, observed_state, provider_egress_id, staging_prefix, playlist_object_key, first_archived_ms, archived_through_ms, segment_count, last_segment_at, final_end_ms, last_failure_code, created_at, updated_at, sealed_at, recorder_state, recorder_started_at, recorder_archived_through_ms, recorder_failure_code, recorder_reported_at, restart_retry_at
+RETURNING id, voice_session_id, capture_session_id, epoch_index, desired_state, observed_state, provider_egress_id, staging_prefix, playlist_object_key, first_archived_ms, archived_through_ms, segment_count, last_segment_at, final_end_ms, last_failure_code, created_at, updated_at, sealed_at, recorder_state, recorder_started_at, recorder_archived_through_ms, recorder_failure_code, recorder_reported_at, restart_retry_at, stop_reconcile_failures, stop_reconcile_retry_at
 `
 
 type ReportVoiceMediaRecorderParams struct {
@@ -128,6 +154,8 @@ func (q *Queries) ReportVoiceMediaRecorder(ctx context.Context, arg ReportVoiceM
 		&i.RecorderFailureCode,
 		&i.RecorderReportedAt,
 		&i.RestartRetryAt,
+		&i.StopReconcileFailures,
+		&i.StopReconcileRetryAt,
 	)
 	return i, err
 }

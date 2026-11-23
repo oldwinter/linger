@@ -1,6 +1,10 @@
 package computerconfig
 
-import "testing"
+import (
+	"fmt"
+	"path/filepath"
+	"testing"
+)
 
 func TestLocalModelsConfigIsOptional(t *testing.T) {
 	config, err := loadConfigFields(t, "")
@@ -13,13 +17,14 @@ func TestLocalModelsConfigIsOptional(t *testing.T) {
 }
 
 func TestLocalModelsConfigReadsToolLocation(t *testing.T) {
-	config, err := loadConfigFields(t, `,"local_models":{"python":"/kit/python/bin/python3","module_directory":"/kit","state_directory":"/home/runtime/localmodels/state","base_directory":"/home/runtime/localmodels/models"}`)
+	root := t.TempDir()
+	want := LocalModels{
+		Python: filepath.Join(root, "kit", "python", "bin", "python3"), ModuleDirectory: filepath.Join(root, "kit"),
+		StateDirectory: filepath.Join(root, "state"), BaseDirectory: filepath.Join(root, "models"),
+	}
+	config, err := loadConfigFields(t, fmt.Sprintf(`,"local_models":{"python":%q,"module_directory":%q,"state_directory":%q,"base_directory":%q}`, want.Python, want.ModuleDirectory, want.StateDirectory, want.BaseDirectory))
 	if err != nil {
 		t.Fatal(err)
-	}
-	want := LocalModels{
-		Python: "/kit/python/bin/python3", ModuleDirectory: "/kit",
-		StateDirectory: "/home/runtime/localmodels/state", BaseDirectory: "/home/runtime/localmodels/models",
 	}
 	if config.LocalModels == nil || *config.LocalModels != want {
 		t.Fatalf("LocalModels = %+v", config.LocalModels)

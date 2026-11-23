@@ -122,10 +122,15 @@ export function parseReleaseArguments(arguments_, environment = process.env) {
   };
 }
 
+export function hasReleaseExecutableMode(mode, hostPlatform) {
+  return hostPlatform === "win32" || (mode & 0o111) !== 0;
+}
+
 export async function prepareLocalComputerRelease(
   arguments_,
   {
     environment = process.env,
+    hostPlatform = process.platform,
     stageNodeRuntime = stagePinnedNodeRuntime,
     stageToolRuntime = (bundle, target) =>
       stageComputerTools(bundle, { target }),
@@ -133,6 +138,15 @@ export async function prepareLocalComputerRelease(
   } = {},
 ) {
   const options = parseReleaseArguments(arguments_, environment);
+  // Unix archives preserve executable mode bits from the staging filesystem.
+  if (
+    hostPlatform === "win32" &&
+    options.targets.some((target) => !windows(target))
+  ) {
+    throw new Error(
+      "Build Linux and macOS releases on a Unix host. On Windows, select --targets win32-x64 or win32-arm64.",
+    );
+  }
   const filesDirectory = path.join(options.output, "files");
   await mkdir(filesDirectory, { recursive: true });
   const temporaryRoot = await mkdtemp(
@@ -142,6 +156,7 @@ export async function prepareLocalComputerRelease(
     if (options.part !== "app") {
       await removeArchives(filesDirectory, "deps");
       await buildDependencyArchives(options.targets, filesDirectory, {
+        hostPlatform,
         stageNodeRuntime,
         stageToolRuntime,
         temporaryRoot,
@@ -163,7 +178,7 @@ export async function prepareLocalComputerRelease(
       options.targets,
       filesDirectory,
       version,
-      { stageGoBinaries, temporaryRoot },
+      { hostPlatform, stageGoBinaries, temporaryRoot },
     );
     const targets = Object.fromEntries(
       options.targets.map((target) => [
@@ -245,7 +260,7 @@ async function allSettledOrThrow(promises) {
 const buildDependencyArchives = async (
   targets,
   filesDirectory,
-  { stageNodeRuntime, stageToolRuntime, temporaryRoot },
+  { hostPlatform, stageNodeRuntime, stageToolRuntime, temporaryRoot },
 ) => {
   if (stageNodeRuntime === stagePinnedNodeRuntime) {
     await Promise.all(targets.map(ensurePinnedNodeRuntimeArchive));
@@ -270,7 +285,7 @@ const buildDependencyArchives = async (
       ]);
       const toolEntries = await validatedComputerToolAssets(bundle, target);
       const runtime = path.join(bundle, nodeEntry(target));
-      if (((await stat(runtime)).mode & 0o111) === 0) {
+      if (!hasReleaseExecutableMode((await stat(runtime)).mode, hostPlatform)) {
         throw new Error("Release Node runtime is not executable.");
       }
       if (target === `${process.platform}-${process.arch}`) {
@@ -302,7 +317,7 @@ const buildApplicationArchives = async (
   targets,
   filesDirectory,
   version,
-  { stageGoBinaries, temporaryRoot },
+  { hostPlatform, stageGoBinaries, temporaryRoot },
 ) => {
   const applicationBundle = path.join(temporaryRoot, "application");
   await buildBundle(applicationBundle);
@@ -321,7 +336,12 @@ const buildApplicationArchives = async (
       await cp(applicationBundle, bundle, { recursive: true });
       await stageGoBinaries(bundle, target, version);
       for (const entry of [daemonEntry(target), cliEntry(target)]) {
-        if (((await stat(path.join(bundle, entry))).mode & 0o111) === 0)
+        if (
+          !hasReleaseExecutableMode(
+            (await stat(path.join(bundle, entry))).mode,
+            hostPlatform,
+          )
+        )
           throw new Error(`Release ${entry} is not executable.`);
       }
       if (target === `${process.platform}-${process.arch}`) {
