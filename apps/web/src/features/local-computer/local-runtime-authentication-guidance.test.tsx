@@ -31,3 +31,24 @@ it.each([
       expect(screen.queryByText("claude auth login")).not.toBeInTheDocument();
   },
 );
+
+it.each([
+  ["0.59.0", "linger-computer-local-3000 runtime login pi"],
+  ["0.58.0", "pi"],
+] as const)(
+  "shows the sign-in command for a Windows Computer at %s",
+  (version, command) => {
+    render(
+      <LocalRuntimeAuthenticationGuidance
+        runtimeType="pi"
+        computerName="example-computer"
+        computer={{
+          computer_id: "c1",
+          platform: "win32",
+          daemon_version: version,
+        }}
+      />,
+    );
+    expect(screen.getByText(command)).toBeVisible();
+  },
+);

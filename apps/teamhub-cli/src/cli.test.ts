@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -47,6 +47,14 @@ async function run(args: string[], response: Response) {
     cwd,
   };
 }
+/** A real working directory with a refs/ folder for output paths. */
+async function workspace(): Promise<string> {
+  const cwd = await mkdtemp(path.join(tmpdir(), "teamhub-cli-syntax-"));
+  roots.push(cwd);
+  await mkdir(path.join(cwd, "refs"));
+  return cwd;
+}
+
 describe("document command syntax", () => {
   it.each([
     ["build", "get"],
@@ -107,9 +115,20 @@ describe("document command syntax", () => {
     ],
     [["docs", "list", "--shared"], "docs/ls", { shared_with_me: true }],
   ] as const)("normalizes %j", async (args, route, input) => {
-    const parsed = await parseDomainCommand(args, { cwd: "/workspace" });
+    // docs get checks that an --output or -o folder exists.
+    const cwd = await workspace();
+    const parsed = await parseDomainCommand(args, { cwd });
     expect(parsed.descriptor.fileRoute).toBe(route);
-    expect(parsed.body.input).toEqual(input);
+    // The table's paths are written against /workspace.
+    const local = (value: unknown) =>
+      typeof value === "string" && path.isAbsolute(value)
+        ? path.join(cwd, path.relative(path.resolve("/workspace"), value))
+        : value;
+    expect(parsed.body.input).toEqual(
+      Object.fromEntries(
+        Object.entries(input).map(([key, value]) => [key, local(value)]),
+      ),
+    );
     expect(parsed.json).toBe(false);
   });
   it.each([
@@ -138,13 +157,14 @@ describe("document command syntax", () => {
   });
   it("accepts a capability URL as an opaque document reference", async () => {
     const url = `https://example.test/shared-documents#doc_link_${"a".repeat(43)}`;
+    const cwd = await workspace();
     const parsed = await parseDomainCommand(
       ["docs", "get", url, "-o", "report.txt"],
-      { cwd: "/workspace" },
+      { cwd },
     );
     expect(parsed.body.input).toEqual({
       name: url,
-      target_path: path.resolve("/workspace/report.txt"),
+      target_path: path.join(cwd, "report.txt"),
     });
   });
 });
@@ -251,9 +271,9 @@ describe("standalone file CLI output", () => {
     ["forbidden", 4],
     ["not_found", 5],
     ["too_large", 2],
-    ["invalid_path", 2],
     ["invalid_input", 2],
-    ["ambiguous_name", 2],
+    // A code this build does not know exits by its HTTP status.
+    ["newer_server_code", 4],
   ] as const)("maps %s to exit %s", async (code, exitCode) => {
     const result = await run(
       ["message", "send", "--attach", "report.md", "--json"],

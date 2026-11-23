@@ -44,7 +44,11 @@ import {
   renderInterruptedRunReminder,
   renderRuntimeContinuationReminder,
 } from "../prompt/inbox-notification.js";
-import { runPriorities, COMPACTION_PRIORITY } from "../../model-tasks.js";
+import {
+  runPriorities,
+  COMPACTION_PRIORITY,
+  RunPriority,
+} from "../../model-tasks.js";
 import { runKind } from "./run-kind.js";
 
 /** The Run's own agent in `agent.model_request`; a sub-agent logs its id. */
@@ -255,6 +259,8 @@ interface ActiveRunIntent {
   readonly resolveProviderReady: (execution: ActiveExecution | null) => void;
   readonly runId: string;
   readonly sourceInboxIds: ReadonlySet<string>;
+  /** Rises to the most urgent input the Context has for this Run to serve. */
+  readonly priority: RunPriority;
 }
 
 /** One claimed Local Run while the Run loop executes it. */
@@ -341,6 +347,9 @@ export class RunLoop {
   readonly #unstartedRequeues = new Set<string>();
   #terminalRecoveryStop = new AbortController();
   #priorityWait?: AbortController;
+  /** A read of the queued input's kind for the active Run's priority. */
+  #queuedPriorityRead?: Promise<void>;
+  #queuedPriorityReadAgain = false;
   #capacityWait = new AbortController();
   #retiredPreparationFailure: { readonly error: unknown } | undefined;
   // Native session compaction; no Run is claimed until it settles.
@@ -545,11 +554,59 @@ export class RunLoop {
     options: { readonly workStateAlreadyFresh?: boolean } = {},
   ): void {
     this.#priorityWait?.abort();
+    this.#raiseForQueuedInput();
     if (!options.workStateAlreadyFresh) this.#workStateRefreshRequested = true;
     this.#maintenance?.abort();
     this.#cancelLoopRetry();
     this.#ensureRunning();
     this.#notifyActivityChanged();
+  }
+
+  /**
+   * A Meta Run serves the Context's queued input after it, so it waits and
+   * runs as the most urgent of that input. One read at a time; a wake during
+   * a read reads once more.
+   */
+  #raiseForQueuedInput(): void {
+    const intent = this.#activeRunIntent;
+    const context = this.#executionContextRef?.kind;
+    if (
+      !intent ||
+      context === "alter_ego" ||
+      context === "document" ||
+      !this.#state.queuedMetaKind ||
+      intent.priority.value <= runPriorities.chat
+    )
+      return;
+    if (this.#queuedPriorityRead) {
+      this.#queuedPriorityReadAgain = true;
+      return;
+    }
+    const read = (async () => {
+      do {
+        this.#queuedPriorityReadAgain = false;
+        const kind = await this.#state.queuedMetaKind!(
+          intent.controller.signal,
+        );
+        intent.priority.raise(runPriorities[kind]);
+      } while (
+        this.#queuedPriorityReadAgain &&
+        this.#activeRunIntent === intent &&
+        intent.priority.value > runPriorities.chat
+      );
+    })()
+      .catch((error: unknown) => {
+        if (!intent.controller.signal.aborted)
+          this.#logger.log("warn", "local_run.queued_priority_read_failed", {
+            runId: intent.runId,
+            error,
+          });
+      })
+      .finally(() => {
+        if (this.#queuedPriorityRead === read)
+          this.#queuedPriorityRead = undefined;
+      });
+    this.#queuedPriorityRead = read;
   }
 
   async requestCancellation(
@@ -582,6 +639,11 @@ export class RunLoop {
     stopSignal: AbortSignal,
     expectedSourceInboxId?: string,
   ): Promise<void> {
+    // Raised before the steer waits for the Provider, so a Run still waiting
+    // for its place waits as what the steer needs.
+    this.#activeRunIntent?.priority.raise(
+      runPriorities[runKind(this.#executionContextRef, messages)],
+    );
     const apply = () =>
       this.#applySteer(groupId, messages, stopSignal, expectedSourceInboxId);
     const operation =
@@ -823,6 +885,11 @@ export class RunLoop {
               intent = this.#createRunIntent(
                 next.runId,
                 provenanceOf(next.messages).sourceInboxIds,
+                new RunPriority(
+                  runPriorities[
+                    runKind(this.#executionContextRef, next.messages)
+                  ],
+                ),
               );
               this.#activeRunIntent = intent;
             }
@@ -838,6 +905,8 @@ export class RunLoop {
           throw new Error("Claimed Local Run has no execution intent");
         if (this.#retiredPreparationFailure) this.#drainRequested = true;
         const executionIntent = intent as ActiveRunIntent;
+        // Input queued before the claim waits behind this Run too.
+        this.#raiseForQueuedInput();
         try {
           this.#onRunClaimed?.(claimed.runId, claimed.messages);
         } catch (error) {
@@ -1196,6 +1265,7 @@ export class RunLoop {
           runContext: execution.runContext,
           acceptedAtMonotonicMs: execution.acceptedAtMonotonicMs,
           runKind: execution.kind,
+          priority: execution.intent.priority,
           ...(this.#onRunBeforeStop
             ? {
                 onStopHook: async (event, signal) => {
@@ -2037,6 +2107,7 @@ export class RunLoop {
   #createRunIntent(
     runId: string,
     sourceInboxIds: readonly string[],
+    priority: RunPriority,
   ): ActiveRunIntent {
     const controller = new AbortController();
     const providerReady = deferred<ActiveExecution | null>();
@@ -2052,6 +2123,7 @@ export class RunLoop {
       resolveProviderReady: providerReady.resolve,
       runId,
       sourceInboxIds: new Set(sourceInboxIds),
+      priority,
     };
     if (this.#stopRequested || this.#pendingCancellationRunIds.has(runId)) {
       controller.abort(

@@ -1,0 +1,61 @@
+name: Desktop packaging images
+
+# Publishes the dmgtool and wintool container images to GHCR tagged by their
+# Dockerfile SHA-256 so desktop-release.yml pulls them in seconds instead of
+# rebuilding from scratch when Actions cache misses or is evicted.
+on:
+  push:
+    branches: [main]
+    paths:
+      - apps/desktop/packaging/mac/Dockerfile
+      - apps/desktop/packaging/win/Dockerfile
+      - .github/workflows/desktop-packaging-images.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: desktop-packaging-images-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: publish (${{ matrix.image }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: dmgtool
+            dir: apps/desktop/packaging/mac
+          - image: wintool
+            dir: apps/desktop/packaging/win
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Build and push image when missing
+        shell: bash
+        env:
+          IMAGE_NAME: ${{ matrix.image }}
+          DOCKER_DIR: ${{ matrix.dir }}
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sha="$(sha256sum "$DOCKER_DIR/Dockerfile" | cut -d' ' -f1)"
+          repo_lower="$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
+          remote="ghcr.io/$repo_lower/desktop-$IMAGE_NAME"
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          if docker manifest inspect "$remote:$sha" >/dev/null 2>&1; then
+            echo "Packaging image $remote:$sha already exists; skipping build."
+            exit 0
+          fi
+          docker build \
+            --label "linger.dockerfile.sha256=$sha" \
+            --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+            -t "$remote:$sha" \
+            "$DOCKER_DIR"
+          docker push "$remote:$sha"

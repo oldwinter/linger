@@ -88,7 +88,7 @@ func (s *Service) Read(ctx context.Context, reader Reader, input ReadInput) (Rea
 				return err
 			}
 			for _, row := range rows {
-				inboxes = append(inboxes, Inbox{InboxID: row.InboxID, Kind: row.Kind})
+				inboxes = append(inboxes, Inbox{InboxID: row.InboxID, Kind: row.Kind, Name: row.Name})
 			}
 			result.Inboxes = &inboxes
 			return nil

@@ -21,6 +21,21 @@ async function readRepositoryFile(path: string): Promise<string> {
   return readFile(new URL(path, repositoryRoot), "utf8");
 }
 
+// Windows installs pnpm as a .cmd shim, which execFile cannot start; cmd.exe
+// runs it with the same arguments. macOS and Linux keep the direct call.
+async function runPnpm(
+  args: string[],
+  options: { cwd?: string | URL; env: NodeJS.ProcessEnv },
+) {
+  if (process.platform === "win32")
+    return execFileAsync(
+      process.env.ComSpec ?? "cmd.exe",
+      ["/d", "/s", "/c", `pnpm ${args.join(" ")}`],
+      options,
+    );
+  return execFileAsync("pnpm", args, options);
+}
+
 async function createPnpmPolicyFixture() {
   const root = await mkdtemp(path.join(tmpdir(), "pnpm-worktree-policy-"));
   const policy = parse(await readRepositoryFile("pnpm-workspace.yaml"));
@@ -64,7 +79,7 @@ describe("active product development commands", () => {
     try {
       const stores = await Promise.all(
         ["a", "b"].map(async (name) => {
-          const { stdout } = await execFileAsync("pnpm", ["store", "path"], {
+          const { stdout } = await runPnpm(["store", "path"], {
             cwd: path.join(root, name),
             env,
           });
@@ -74,7 +89,7 @@ describe("active product development commands", () => {
       expect(stores[0]).toBe(stores[1]);
       expect(stores[0]).toContain("shared-pnpm");
       const ciStore = path.join(root, "ci-store");
-      const { stdout } = await execFileAsync("pnpm", ["store", "path"], {
+      const { stdout } = await runPnpm(["store", "path"], {
         cwd: path.join(root, "a"),
         env: { ...env, PNPM_CONFIG_STORE_DIR: ciStore },
       });
@@ -108,7 +123,7 @@ describe("active product development commands", () => {
           },
         }),
       );
-      const result = await execFileAsync("pnpm", ["run", "probe"], {
+      const result = await runPnpm(["run", "probe"], {
         cwd: directory,
         env,
       }).catch(
@@ -546,45 +561,50 @@ describe("active product development commands", () => {
     expect(scripts["dev:stack:down"]).toBeUndefined();
   });
 
-  it("checks only live service URLs and launches Web after TeamHub readiness", async () => {
-    const { scripts } = JSON.parse(
-      await readRepositoryFile("package.json"),
-    ) as { scripts: Record<string, string> };
-    for (const name of ["dev:web", "dev:check"]) {
-      const { stdout } = await execFileAsync(
-        "/bin/sh",
-        [
-          "-c",
-          `
+  // The script bodies in package.json are POSIX shell, so this case needs a
+  // POSIX shell to run them; dev-windows.test.ts covers the Windows path.
+  it.skipIf(process.platform === "win32")(
+    "checks only live service URLs and launches Web after TeamHub readiness",
+    async () => {
+      const { scripts } = JSON.parse(
+        await readRepositoryFile("package.json"),
+      ) as { scripts: Record<string, string> };
+      for (const name of ["dev:web", "dev:check"]) {
+        const { stdout } = await execFileAsync(
+          "/bin/sh",
+          [
+            "-c",
+            `
 node() { printf 'node %s\\n' "$*"; }
 pnpm() { printf 'pnpm %s\\n' "$*"; }
 curl() { for arg do case "$arg" in http://*|https://*) printf 'curl %s\\n' "$arg"; return 0;; esac; done; return 64; }
 ${scripts[name].replace(/^node scripts\/with-local-env\.mjs -- sh -c '(.*)'$/s, "$1")}`,
-        ],
-        {
-          env: {
-            PATH: process.env.PATH,
-            LOCAL_ENV_FILE: "/dev/null",
-            TEAMHUB_BASE_URL: "http://teamhub.test:8080/",
+          ],
+          {
+            env: {
+              PATH: process.env.PATH,
+              LOCAL_ENV_FILE: "/dev/null",
+              TEAMHUB_BASE_URL: "http://teamhub.test:8080/",
+            },
           },
-        },
-      );
-      if (name.startsWith("dev:web")) {
-        expect(stdout.trim().split("\n")[0]).toBe(
-          "node --import tsx scripts/wait-for-http-services.ts http://teamhub.test:8080/healthz",
         );
-        expect(stdout).toContain("pnpm --filter @linger/web");
-      } else {
-        expect(stdout).toContain("curl http://localhost:8080/healthz");
-        expect(stdout).not.toContain(":4324/");
+        if (name.startsWith("dev:web")) {
+          expect(stdout.trim().split("\n")[0]).toBe(
+            "node --import tsx scripts/wait-for-http-services.ts http://teamhub.test:8080/healthz",
+          );
+          expect(stdout).toContain("pnpm --filter @linger/web");
+        } else {
+          expect(stdout).toContain("curl http://localhost:8080/healthz");
+          expect(stdout).not.toContain(":4324/");
+        }
       }
-    }
-  });
+    },
+  );
 
   it("fails before infrastructure startup when the configured environment file is missing", async () => {
     let failure: unknown;
     try {
-      await execFileAsync("pnpm", ["dev:prepare"], {
+      await runPnpm(["dev:prepare"], {
         cwd: repositoryRoot,
         env: {
           ...process.env,
@@ -603,19 +623,22 @@ ${scripts[name].replace(/^node scripts\/with-local-env\.mjs -- sh -c '(.*)'$/s, 
     );
   });
 
-  it("keeps an inherited Codex home when loading the local environment template", async () => {
-    const result = await execFileAsync(
-      "bash",
-      [
-        "-c",
-        'source "$1"; printf "%s" "$CODEX_HOME"',
+  it.skipIf(process.platform === "win32")(
+    "keeps an inherited Codex home when loading the local environment template",
+    async () => {
+      const result = await execFileAsync(
         "bash",
-        path.join(repositoryRoot.pathname, "scripts/local-defaults.env"),
-      ],
-      { env: { ...process.env, CODEX_HOME: "/fixture/preset-codex" } },
-    );
-    expect(result.stdout).toBe("/fixture/preset-codex");
-  });
+        [
+          "-c",
+          'source "$1"; printf "%s" "$CODEX_HOME"',
+          "bash",
+          path.join(repositoryRoot.pathname, "scripts/local-defaults.env"),
+        ],
+        { env: { ...process.env, CODEX_HOME: "/fixture/preset-codex" } },
+      );
+      expect(result.stdout).toBe("/fixture/preset-codex");
+    },
+  );
 
   it("ships a safe and internally consistent local environment template", async () => {
     const template = parseEnv(await readRepositoryFile(".env.example"));

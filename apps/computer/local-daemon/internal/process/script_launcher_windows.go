@@ -125,16 +125,26 @@ func escapeBatchMeta(value string) string {
 }
 
 // Official npm launchers have fixed entry points. Starting Node directly
-// preserves every argv and stdin byte, including JSON, quotes and newlines.
+// preserves every argv and stdin byte, including JSON, quotes, newlines and an
+// empty value, which the PowerShell launcher Pi installs would otherwise drop.
 func npmEntry(path string, environment []string) (string, string) {
 	base := strings.ToLower(strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)))
-	relative := map[string]string{"codex": "@openai/codex/bin/codex.js", "claude": "@anthropic-ai/claude-code/cli.js"}[base]
+	relative := map[string]string{
+		"codex":  "@openai/codex/bin/codex.js",
+		"claude": "@anthropic-ai/claude-code/cli.js",
+		"pi":     "@earendil-works/pi-coding-agent/dist/bundle/cli.js",
+	}[base]
 	if relative == "" {
 		return "", ""
 	}
 	script := npmPackageEntry(path, relative)
 	if script == "" {
 		return "", ""
+	}
+	if executable, err := os.Executable(); err == nil {
+		if node := bundledNodeExe(executable); node != "" {
+			return node, script
+		}
 	}
 	node := filepath.Join(filepath.Dir(path), "node.exe")
 	if info, err := os.Stat(node); err == nil && info.Mode().IsRegular() {
@@ -145,6 +155,20 @@ func npmEntry(path string, environment []string) (string, string) {
 		return "", ""
 	}
 	return node, script
+}
+
+// bundledNodeExe is the Node binary the install ships beside its executable
+// (<install>/runtime/bin), or "" when the process has no bundle beside it, as
+// under `go run`. An npm launcher starts on it so a machine Node below the
+// engine requirement of the Runtime (Pi needs 22.19) cannot fail the version
+// probe, while PATH keeps the user's own spelling and order for the tools the
+// Runtime runs.
+func bundledNodeExe(executable string) string {
+	directory := filepath.Clean(filepath.Join(filepath.Dir(executable), "..", "runtime", "bin"))
+	if info, err := os.Stat(filepath.Join(directory, "node.exe")); err == nil && info.Mode().IsRegular() {
+		return filepath.Join(directory, "node.exe")
+	}
+	return ""
 }
 
 func npmNativeEntry(path string) string {

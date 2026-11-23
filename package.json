@@ -9,6 +9,8 @@
   },
   "scripts": {
     "dev": "pnpm dev:prepare && concurrently --kill-others-on-fail --names web,teamhub,node-services,livekit \"pnpm dev:web\" \"pnpm dev:teamhub:watch\" \"pnpm dev:node-services\" \"pnpm dev:livekit\"",
+    "dev:windows": "node --import tsx scripts/dev-windows.ts",
+    "computer:release:windows": "node scripts/prepare-local-computer-release.mjs --targets win32-x64 --output .linger-runtime/computer-release",
     "dev:prepare": "node scripts/with-local-env.mjs -- sh -c 'make -C apps/teamhub dev-migrate && node scripts/prepare-local-owner.mjs'",
     "dev:web": "node scripts/with-local-env.mjs -- sh -c 'teamhub=\"${TEAMHUB_BASE_URL:-http://127.0.0.1:8080}\"; node --import tsx scripts/wait-for-http-services.ts \"${teamhub%/}/healthz\" && pnpm --filter @linger/web dev'",
     "dev:teamhub:watch": "node scripts/with-local-env.mjs -- sh -c 'GIN_MODE=release make -C apps/teamhub watch'",

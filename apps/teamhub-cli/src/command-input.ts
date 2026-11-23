@@ -8,6 +8,21 @@ import type {
   NormalizedCommandInput,
 } from "./command-definition.js";
 import { CliError } from "./errors.js";
+import {
+  conflictingFlags,
+  echo,
+  fileFailure,
+  fileSystemError,
+  inputIssue,
+  invalidFlag,
+  invalidInput,
+  jsonSyntaxError,
+  mebibytes,
+  missingFlag,
+  textPosition,
+  unknownFieldMessage,
+  usageError,
+} from "./input-issues.js";
 
 const byteLimit = 5 * 1024 * 1024;
 export function option(
@@ -15,8 +30,7 @@ export function option(
   name: string,
 ): string | undefined {
   const found = args.options[name];
-  if (found && found.length > 1)
-    throw new CliError("usage", `Use ${name} at most once.`);
+  if (found && found.length > 1) throw repeatedFlag(name);
   return found?.[0];
 }
 export function values(
@@ -25,9 +39,23 @@ export function values(
 ): readonly string[] {
   return args.options[name] ?? [];
 }
+/**
+ * The one flag of `flags` that was given. More than one is a conflict;
+ * none is missing unless `required` is false.
+ */
+export function oneOf(
+  args: CommandArguments,
+  flags: readonly string[],
+  required = true,
+): string | undefined {
+  const given = flags.filter((name) => args.options[name] !== undefined);
+  if (given.length > 1) throw conflictingFlags(given);
+  if (!given.length && required) throw missingFlag(flags);
+  return given[0];
+}
 export function requiredOption(args: CommandArguments, name: string): string {
   const value = option(args, name);
-  if (value === undefined) throw new CliError("usage", `Provide ${name}.`);
+  if (value === undefined) throw missingFlag([name]);
   return value;
 }
 export function assertPositionals(
@@ -35,11 +63,35 @@ export function assertPositionals(
   min: number,
   max = min,
 ): void {
-  if (args.positionals.length < min || args.positionals.length > max)
-    throw new CliError(
-      "usage",
-      "Provide the positional arguments shown in this command's help.",
+  const count = args.positionals.length;
+  if (count < min || count > max) {
+    const expected =
+      min === max
+        ? `${min}`
+        : max === Infinity
+          ? `at least ${min}`
+          : `${min} to ${max}`;
+    throw usageError(
+      `This command takes ${expected} positional argument${expected === "1" ? "" : "s"}; got ${count}.`,
+      [
+        inputIssue(
+          "arguments",
+          "out_of_range",
+          `must be ${expected} positional argument${expected === "1" ? "" : "s"}; got ${count}.`,
+        ),
+      ],
     );
+  }
+}
+function repeatedFlag(name: string): CliError {
+  return usageError(`${name} can be given only once.`, [
+    inputIssue(name, "conflict", "give only one value."),
+  ]);
+}
+function stdinTwice(name: string): CliError {
+  return usageError("Only one input may read stdin.", [
+    inputIssue(name, "conflict", "give - to only one file flag."),
+  ]);
 }
 export function parseArguments(
   args: readonly string[],
@@ -66,26 +118,57 @@ export function parseArguments(
       ? definitions[name]
       : undefined;
     if (!definition)
-      throw new CliError(
-        "usage",
-        `Unknown option: ${name}. Run this command with --help.`,
-      );
-    if (options[name] && !definition.repeatable)
-      throw new CliError("usage", `Use ${name} at most once.`);
+      throw usageError(`Unknown flag ${name}.`, [
+        inputIssue(
+          name,
+          "unknown_field",
+          unknownFieldMessage(
+            Object.keys(definitions).filter(
+              (flag) => !["-h", "--help", "--schema"].includes(flag),
+            ),
+          ),
+        ),
+      ]);
+    if (options[name] && !definition.repeatable) throw repeatedFlag(name);
     if (definition.boolean && separator >= 0)
-      throw new CliError("usage", `${name} does not take a value.`);
+      throw usageError(`${name} takes no value.`, [
+        inputIssue(
+          name,
+          "invalid_value",
+          `takes no value; got ${echo(token.slice(separator + 1))}.`,
+        ),
+      ]);
     const value = definition.boolean
       ? "true"
       : separator >= 0
         ? token.slice(separator + 1)
         : args[++index];
     if (value === undefined)
-      throw new CliError("usage", `Provide a value after ${name}.`);
+      throw usageError(`${name} needs a value.`, [
+        inputIssue(name, "missing", "required; give a value after the flag."),
+      ]);
     if (value.includes("\0"))
-      throw new CliError("invalid_input", `${name} cannot contain NUL.`);
+      throw invalidFlag(
+        name,
+        "invalid_value",
+        "must not contain NUL characters.",
+      );
+    // "-" means stdin only where a path is expected. The inline twin of a
+    // file flag takes "-" literally, which nobody means to send.
+    const twin = name === "--content" ? "--file" : `${name}-file`;
+    if (value === "-" && Object.hasOwn(definitions, twin))
+      throw invalidInput(
+        `${name} takes the value itself and does not read stdin.`,
+        [
+          inputIssue(
+            name,
+            "invalid_value",
+            `"-" would be ${name === "--content" ? "sent" : "read"} as literal text; to read stdin use ${twin} -.`,
+          ),
+        ],
+      );
     if (value === "-" && (name === "--file" || name.endsWith("-file"))) {
-      if (stdin)
-        throw new CliError("usage", "Only one input source may read stdin.");
+      if (stdin) throw stdinTwice(name);
       stdin = true;
     }
     (options[name] ??= []).push(value);
@@ -94,34 +177,41 @@ export function parseArguments(
   return { options, positionals, ordered };
 }
 
-export function parseJsonValue(text: string): unknown {
+/**
+ * One JSON value from a flag (`--item`) or a file flag (`--item-file`).
+ * Every failure names that flag, with the line and column for syntax.
+ */
+export function parseJsonValue(text: string, flag = "input"): unknown {
   if (Buffer.byteLength(text) > byteLimit)
-    throw new CliError("invalid_input", "JSON input must not exceed 5 MiB.");
-  let result: unknown;
-  try {
-    result = JSON.parse(text);
-  } catch {
-    throw new CliError("invalid_input", "Provide one valid JSON value.");
-  }
-  // JSON.parse discards duplicate properties. Inspect the validated token stream
-  // separately so escaped aliases cannot silently replace an earlier value.
+    throw invalidFlag(
+      flag,
+      "out_of_range",
+      `must be at most ${mebibytes(byteLimit)} of JSON; got ${mebibytes(Buffer.byteLength(text))}.`,
+    );
+  const syntax = jsonSyntaxError(text);
+  if (syntax)
+    throw invalidInput(`${flag} is not valid JSON.`, [
+      inputIssue(
+        flag,
+        "invalid_json",
+        `line ${syntax.line}, column ${syntax.column}: ${syntax.reason}.`,
+      ),
+    ]);
+  const result: unknown = JSON.parse(text);
+  // JSON.parse keeps the last of duplicate properties. Inspect the token
+  // stream so an escaped alias cannot silently replace an earlier value.
   const stack: { keys?: Set<string>; expectingKey: boolean }[] = [];
   const tokens = text.matchAll(
     /"(?:\\.|[^"\\])*"|[{}[\],:]|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null/gu,
   );
   for (const match of tokens) {
     const token = match[0];
-    if (token === "{" || token === "[") {
-      if (stack.length >= 100)
-        throw new CliError(
-          "invalid_input",
-          "JSON nesting must not exceed 100 levels.",
-        );
+    if (token === "{" || token === "[")
       stack.push({
         ...(token === "{" ? { keys: new Set<string>() } : {}),
         expectingKey: token === "{",
       });
-    } else if (token === "}" || token === "]") stack.pop();
+    else if (token === "}" || token === "]") stack.pop();
     else {
       const frame = stack.at(-1);
       if (!frame?.keys) continue;
@@ -129,11 +219,16 @@ export function parseJsonValue(text: string): unknown {
       else if (token === ":") frame.expectingKey = false;
       else if (frame.expectingKey && token.startsWith('"')) {
         const key = JSON.parse(token) as string;
-        if (frame.keys.has(key))
-          throw new CliError(
-            "invalid_input",
-            "JSON objects cannot contain duplicate keys.",
-          );
+        if (frame.keys.has(key)) {
+          const { line, column } = textPosition(text, match.index);
+          throw invalidInput(`${flag} has a duplicate key.`, [
+            inputIssue(
+              flag,
+              "invalid_json",
+              `line ${line}, column ${column}: duplicate key ${echo(key)}.`,
+            ),
+          ]);
+        }
         frame.keys.add(key);
       }
     }
@@ -150,23 +245,30 @@ export function createInputReader(dependencies: {
     dependencies.localPath ??
     ((source: string) => path.resolve(dependencies.cwd, source));
   let stdinRead = false;
-  const text = async (source: string): Promise<string> => {
+  // `source` is the path as the caller wrote it; every failure names it and
+  // the flag that gave it.
+  const text = async (source: string, flag = "--file"): Promise<string> => {
+    const label = source === "-" ? "stdin" : source;
+    const unreadable = (reason: string) =>
+      invalidInput(`The ${flag} path could not be read.`, [
+        inputIssue(flag, "unreadable", `${label}: ${reason}.`),
+      ]);
     if (!source || source.includes("\0"))
-      throw new CliError(
-        "invalid_input",
-        "Provide a valid input file path or - for stdin.",
+      throw invalidFlag(
+        flag,
+        "invalid_value",
+        `expected a file path or - for stdin; got ${echo(source)}.`,
       );
     if (source === "-") {
-      if (stdinRead)
-        throw new CliError("usage", "Only one input source may read stdin.");
+      if (stdinRead) throw stdinTwice(flag);
       stdinRead = true;
     }
     const filename = source === "-" ? "-" : localPath(source);
+    const tooLarge = () => unreadable(`larger than ${mebibytes(byteLimit)}`);
     try {
       if (dependencies.readInput) {
         const result = await dependencies.readInput(filename);
-        if (Buffer.byteLength(result) > byteLimit)
-          throw new CliError("invalid_input", "Input must not exceed 5 MiB.");
+        if (Buffer.byteLength(result) > byteLimit) throw tooLarge();
         return result;
       }
       let handle;
@@ -174,11 +276,9 @@ export function createInputReader(dependencies: {
         handle = await open(filename, "r");
         try {
           const stat = await handle.stat();
-          if (!stat.isFile() || stat.size > byteLimit)
-            throw new CliError(
-              "invalid_input",
-              "Input must be a regular file of at most 5 MiB.",
-            );
+          if (stat.isDirectory()) throw unreadable("is a directory");
+          if (!stat.isFile()) throw unreadable("not an ordinary file");
+          if (stat.size > byteLimit) throw tooLarge();
         } catch (error) {
           await handle.close();
           throw error;
@@ -191,8 +291,7 @@ export function createInputReader(dependencies: {
         for await (const part of stream) {
           const chunk = Buffer.isBuffer(part) ? part : Buffer.from(part);
           size += chunk.length;
-          if (size > byteLimit)
-            throw new CliError("invalid_input", "Input must not exceed 5 MiB.");
+          if (size > byteLimit) throw tooLarge();
           chunks.push(chunk);
         }
       } finally {
@@ -201,30 +300,30 @@ export function createInputReader(dependencies: {
           await handle.close();
         }
       }
+      let decoded: string;
       try {
-        return new TextDecoder("utf-8", {
+        decoded = new TextDecoder("utf-8", {
           fatal: true,
           ignoreBOM: true,
         }).decode(Buffer.concat(chunks));
       } catch {
-        throw new CliError(
-          "invalid_input",
-          "Input must contain valid UTF-8 text.",
-        );
+        throw unreadable("not UTF-8");
       }
+      // A leading byte-order mark names the encoding; it is not text, and a
+      // JSON value that keeps it fails to parse.
+      return decoded.startsWith("\uFEFF") ? decoded.slice(1) : decoded;
     } catch (error) {
       if (error instanceof CliError) throw error;
-      throw new CliError(
-        "invalid_input",
-        "Could not read the input file or stdin.",
-      );
+      if (fileSystemError(error)) throw fileFailure(error, flag, label);
+      throw unreadable("could not be read");
     }
   };
   return {
     cwd: dependencies.cwd,
     localPath,
     text,
-    json: async (source) => parseJsonValue(await text(source)),
+    json: async (source, flag = "--file") =>
+      parseJsonValue(await text(source, flag), flag),
   };
 }
 
@@ -237,14 +336,10 @@ export async function bodySource(
   const content = option(args, inlineFlag);
   const file = option(args, fileFlag);
   if (content !== undefined && file !== undefined)
-    throw new CliError(
-      "usage",
-      `Choose ${inlineFlag} or ${fileFlag}, not both.`,
-    );
+    throw conflictingFlags([inlineFlag, fileFlag]);
   if (content !== undefined) return content;
-  if (file !== undefined) return reader.text(file);
-  if (required)
-    throw new CliError("usage", `Provide ${inlineFlag} or ${fileFlag}.`);
+  if (file !== undefined) return reader.text(file, fileFlag);
+  if (required) throw missingFlag([inlineFlag, fileFlag]);
   return undefined;
 }
 /** Markdown bodies decode \n, \t and \\ in inline --content outside code; files stay literal. */
@@ -268,14 +363,11 @@ export async function jsonSource(
   const inline = option(args, inlineFlag);
   const file = option(args, fileFlag);
   if (inline !== undefined && file !== undefined)
-    throw new CliError(
-      "usage",
-      `Choose ${inlineFlag} or ${fileFlag}, not both.`,
-    );
+    throw conflictingFlags([inlineFlag, fileFlag]);
   return inline !== undefined
-    ? parseJsonValue(inline)
+    ? parseJsonValue(inline, inlineFlag)
     : file !== undefined
-      ? reader.json(file)
+      ? reader.json(file, fileFlag)
       : undefined;
 }
 export function targetFromFlags(
@@ -287,10 +379,7 @@ export function targetFromFlags(
     return id === undefined ? [] : [{ type, id }];
   });
   if (found.length > 1)
-    throw new CliError(
-      "usage",
-      `Choose only one target: ${allowedTypes.map((type) => `--${type}`).join(", ")}.`,
-    );
+    throw conflictingFlags(found.map(({ type }) => `--${type}`));
   const target = found[0];
   if (!target) return {};
   if (
@@ -298,9 +387,10 @@ export function targetFromFlags(
     (target.type !== "inbox" &&
       /^(?:room|thread|task|meta|taskmeta):/u.test(target.id))
   )
-    throw new CliError(
-      "usage",
-      `Provide a bare resource ID after --${target.type}.`,
+    throw invalidFlag(
+      `--${target.type}`,
+      "invalid_format",
+      `expected a bare resource ID without a room:, thread: or task: prefix; got ${echo(target.id)}.`,
     );
   // A target names a resource inside the configured caller Context; it never
   // replaces that Context.

@@ -18,17 +18,47 @@ import (
 )
 
 func TestCodexAppServerArgsGates(t *testing.T) {
-	tail := []string{"--config", "features.memories=false", "--config", "features.memory_tool=false", "--config", "features.apps=false", "--config", "features.image_generation=false", "--config", "project_root_markers=[]", "--config", "skills.bundled.enabled=false"}
+	tail := []string{"--config", "features.memories=false", "--config", "features.memory_tool=false", "--config", "features.apps=false", "--config", "features.image_generation=false", "--config", "project_root_markers=[]", "--config", "skills.bundled.enabled=false",
+		"--config", "features.multi_agent=false", "--config", "features.multi_agent_v2=false"}
+	agentsOff := []string{"--config", "agents.enabled=false"}
 	cases := map[string][]string{
-		"0.100.0":           {"app-server", "--disable", "plugins", "--listen", "stdio://", "x"},
-		"codex-cli 0.128.0": {"app-server", "--disable", "plugins", "--disable", "goals", "--listen", "stdio://", "x"},
-		"0.150.1":           {"app-server", "--disable", "plugins", "--disable", "goals", "--listen", "stdio://", "--config", "tool_output_token_limit=12000", "x"},
-		"garbage":           {"app-server", "--disable", "plugins", "--listen", "stdio://", "x"},
+		"0.100.0":           append([]string{"app-server", "--disable", "plugins", "--listen", "stdio://", "x"}, tail...),
+		"codex-cli 0.128.0": append([]string{"app-server", "--disable", "plugins", "--disable", "goals", "--listen", "stdio://", "x"}, tail...),
+		// Codex before 0.145.0 refuses to start on agents.enabled.
+		"0.144.6":         append([]string{"app-server", "--disable", "plugins", "--disable", "goals", "--listen", "stdio://", "x"}, tail...),
+		"0.145.0-alpha.1": append([]string{"app-server", "--disable", "plugins", "--listen", "stdio://", "x"}, tail...),
+		"0.145.0":         append(append([]string{"app-server", "--disable", "plugins", "--disable", "goals", "--listen", "stdio://", "x"}, tail...), agentsOff...),
+		"0.150.1":         append(append([]string{"app-server", "--disable", "plugins", "--disable", "goals", "--listen", "stdio://", "--config", "tool_output_token_limit=12000", "x"}, tail...), agentsOff...),
+		"garbage":         append([]string{"app-server", "--disable", "plugins", "--listen", "stdio://", "x"}, tail...),
 	}
 	for version, want := range cases {
-		if got := CodexAppServerArgs(version, "x"); !slices.Equal(got, append(want, tail...)) {
+		if got := CodexAppServerArgs(version, "x"); !slices.Equal(got, want) {
 			t.Fatalf("%s: %q", version, got)
 		}
+	}
+}
+
+// User arguments cannot turn sub-agents back on: --enable applies after every
+// --config override, so the adapter strips the names rather than outvoting
+// them.
+func TestCodexExecutionArgsKeepSubAgentsOff(t *testing.T) {
+	spec := RunSpec{
+		ComputerArgs: []string{"--enable", "multi_agent_v2,other", "-c", "agents.enabled=true"},
+		AgentArgs:    []string{"--enable=multi_agent", "-c", "features.multi_agent_v2=true", "-c", "agents.max_threads=8"},
+	}
+	args := codexExecutionArgs(Profile{CodexToolVersion: "0.169.1"}, spec, "", slog.New(slog.DiscardHandler))
+	for _, banned := range []string{"multi_agent_v2,other", "--enable=multi_agent", "agents.enabled=true", "features.multi_agent_v2=true"} {
+		if slices.Contains(args, banned) {
+			t.Fatalf("user override %q survived: %q", banned, args)
+		}
+	}
+	for _, kept := range []string{"other", "agents.max_threads=8"} {
+		if !slices.Contains(args, kept) {
+			t.Fatalf("unrelated %q was dropped: %q", kept, args)
+		}
+	}
+	if !slices.Equal(args[len(args)-6:], []string{"--config", "features.multi_agent=false", "--config", "features.multi_agent_v2=false", "--config", "agents.enabled=false"}) {
+		t.Fatalf("sub-agent overrides are not last: %q", args)
 	}
 }
 
@@ -410,6 +440,72 @@ func TestCodexLateTurnStartAckFeedsCleanup(t *testing.T) {
 }
 
 func TestCodexCleanupTerminatesOnlyCurrentTurnTerminals(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		rejection  *codexRPCError
+		threadRead string
+		completeOn string
+		wantError  bool
+	}{
+		{name: "completion notification"},
+		{
+			name:       "completion before rejection",
+			rejection:  &codexRPCError{Code: -32600, Message: "interrupt rejected"},
+			completeOn: "turn/interrupt",
+		},
+		{
+			name:       "completion while thread read is held",
+			rejection:  &codexRPCError{Code: -32600, Message: "interrupt rejected"},
+			completeOn: "thread/read",
+		},
+		{
+			name:       "already idle",
+			rejection:  &codexRPCError{Code: -32600, Message: "interrupt rejected"},
+			threadRead: `{"thread":{"id":"thread-1","status":{"type":"idle"}}}`,
+		},
+		{
+			name:       "different active turn",
+			rejection:  &codexRPCError{Code: -32600, Message: "expected active turn id turn-2 but found turn-3"},
+			threadRead: `{"thread":{"id":"thread-1","status":{"type":"active","activeFlags":[]}}}`,
+			wantError:  true,
+		},
+		{
+			name:       "different thread",
+			rejection:  &codexRPCError{Code: -32600, Message: "no active turn to interrupt"},
+			threadRead: `{"thread":{"id":"thread-9","status":{"type":"idle"}}}`,
+			wantError:  true,
+		},
+		{
+			name:       "missing status",
+			rejection:  &codexRPCError{Code: -32600, Message: "no active turn to interrupt"},
+			threadRead: `{"thread":{"id":"thread-1"}}`,
+			wantError:  true,
+		},
+		{
+			name:       "malformed status",
+			rejection:  &codexRPCError{Code: -32600, Message: "no active turn to interrupt"},
+			threadRead: `{"thread":{"id":"thread-1","status":{"type":true}}}`,
+			wantError:  true,
+		},
+		{
+			name:      "server error",
+			rejection: &codexRPCError{Code: -32603, Message: "no active turn to interrupt"},
+			wantError: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			testCodexCleanupCurrentTurnTerminals(t, tc.rejection, tc.threadRead, tc.completeOn, tc.wantError)
+		})
+	}
+}
+
+func testCodexCleanupCurrentTurnTerminals(t *testing.T, rejection *codexRPCError, threadRead, completeOn string, wantError bool) {
+	t.Helper()
+	// An expected failure runs the whole budget; a success returns early.
+	if wantError {
+		previous := codexCleanupBudget.set(500 * time.Millisecond)
+		t.Cleanup(func() { codexCleanupBudget.set(previous) })
+	}
 	transport, requests, replies := codexPipeTransport(t)
 	proc := &codexProcess{transport: transport}
 	proc.trackTurnStart("thread-1")
@@ -417,7 +513,10 @@ func TestCodexCleanupTerminatesOnlyCurrentTurnTerminals(t *testing.T) {
 	proc.trackNotification("item/started", "thread-1", "turn-2", codexItem{ID: "cmd-a", Type: "commandExecution"})
 	proc.trackNotification("item/started", "thread-1", "turn-1", codexItem{ID: "cmd-old", Type: "commandExecution"})
 	cleanup := make(chan error, 1)
-	go func() { cleanup <- proc.cleanupTurn() }()
+	go func() {
+		cleanup <- proc.cleanupTurn()
+		_ = requests.Close()
+	}()
 	decoder := json.NewDecoder(requests)
 	var terminated []string
 	lists := 0
@@ -428,18 +527,48 @@ func TestCodexCleanupTerminatesOnlyCurrentTurnTerminals(t *testing.T) {
 			Params map[string]any `json:"params"`
 		}
 		if err := decoder.Decode(&request); err != nil {
-			t.Fatal(err)
+			cleanupErr := <-cleanup
+			var rpcErr *codexRPCError
+			if !wantError || !errors.As(cleanupErr, &rpcErr) || *rpcErr != *rejection {
+				t.Fatalf("cleanup stopped before checking terminals: %v", cleanupErr)
+			}
+			return
 		}
 		reply := func(result string) {
 			_, _ = io.WriteString(replies, `{"id":`+jsonNumber(request.ID)+`,"result":`+result+`}`+"\n")
 		}
 		switch request.Method {
 		case "turn/interrupt":
-			reply(`{}`)
+			if request.Params["threadId"] != "thread-1" || request.Params["turnId"] != "turn-2" {
+				t.Fatalf("unexpected interrupt: %v", request.Params)
+			}
 			// An item that started while the interrupt raced still counts.
 			proc.trackNotification("item/started", "thread-1", "turn-2", codexItem{ID: "cmd-b", Type: "commandExecution"})
+			if completeOn == request.Method {
+				proc.trackNotification("turn/completed", "thread-1", "turn-2", codexItem{})
+			}
+			if rejection != nil {
+				_, _ = fmt.Fprintf(replies, `{"id":%d,"error":{"code":%d,"message":%q}}`+"\n", request.ID, rejection.Code, rejection.Message)
+				continue
+			}
+			reply(`{}`)
 			proc.trackNotification("turn/completed", "thread-1", "turn-2", codexItem{})
+		case "thread/read":
+			if request.Params["threadId"] != "thread-1" || (threadRead == "" && completeOn != request.Method) {
+				t.Fatalf("unexpected thread read: %v", request.Params)
+			}
+			if completeOn == request.Method {
+				proc.trackNotification("turn/completed", "thread-1", "turn-2", codexItem{})
+				continue
+			}
+			reply(threadRead)
 		case "thread/backgroundTerminals/list":
+			if wantError {
+				t.Fatal("cleanup inspected terminals while the interrupt outcome was unconfirmed")
+			}
+			if pending := transport.inflight(); pending != 1 {
+				t.Fatalf("pending requests during terminal cleanup = %d, want 1", pending)
+			}
 			lists++
 			switch {
 			case len(terminated) >= 2:
@@ -528,5 +657,65 @@ func TestCodexExecutionArgsDisableWebSearchLast(t *testing.T) {
 	process := &codexProcess{withoutWebTools: false}
 	if fields := codexMismatch(Profile{}, spec, "")(process); !slices.Contains(fields, "web_tools") {
 		t.Fatalf("a process with web search served a gateway Operation: %v", fields)
+	}
+}
+
+func TestCodexDetachedNoticesFeedTracker(t *testing.T) {
+	proc := &codexProcess{}
+	proc.trackTurnStart("thread-1")
+	proc.dispatchNotice("turn/started", json.RawMessage(`{"threadId":"thread-1","turn":{"id":"turn-2"}}`))
+	if got := proc.trackerSnapshot().turnID; got != "turn-2" {
+		t.Fatalf("turnID = %q", got)
+	}
+	proc.dispatchNotice("item/started", json.RawMessage(`{"threadId":"thread-1","turnId":"turn-2","item":{"id":"cmd-a","type":"commandExecution"}}`))
+	if commands := proc.turnCommands("turn-2"); !commands["cmd-a"] {
+		t.Fatalf("commands = %v", commands)
+	}
+	proc.dispatchNotice("turn/completed", json.RawMessage(`not json`))
+	proc.dispatchNotice("turn/completed", json.RawMessage(`{"threadId":`))
+	proc.dispatchNotice("codex/event/task_complete", json.RawMessage(`{"threadId":"thread-1","turn":{"id":"turn-2"}}`))
+	proc.dispatchNotice("turn/completed", json.RawMessage(`{"threadId":"thread-9","turn":{"id":"turn-2"}}`))
+	proc.dispatchNotice("turn/completed", json.RawMessage(`{"threadId":"thread-1","turn":{"id":"turn-9"}}`))
+	if proc.trackerSnapshot().completed {
+		t.Fatal("an unrelated notification completed the tracked turn")
+	}
+	proc.dispatchNotice("turn/completed", json.RawMessage(`{"threadId":"thread-1","turn":{"id":"turn-2"}}`))
+	if !proc.trackerSnapshot().completed {
+		t.Fatal("tracked turn completion was dropped")
+	}
+}
+
+func TestCodexDetachedStopRetrySeesCompletion(t *testing.T) {
+	transport, requests, replies := codexPipeTransport(t)
+	proc := &codexProcess{transport: transport}
+	proc.trackTurnStart("thread-1")
+	proc.trackTurnAck(codexReply{result: json.RawMessage(`{"turn":{"id":"turn-2"}}`)})
+	cleanup := make(chan error, 1)
+	go func() {
+		cleanup <- proc.cleanupTurn()
+		_ = requests.Close()
+	}()
+	decoder := json.NewDecoder(requests)
+	for {
+		var request struct {
+			ID     int    `json:"id"`
+			Method string `json:"method"`
+		}
+		if err := decoder.Decode(&request); err != nil {
+			break
+		}
+		if request.Method != "turn/interrupt" {
+			t.Fatalf("unexpected request %q", request.Method)
+		}
+		_, _ = io.WriteString(replies, `{"id":`+jsonNumber(request.ID)+`,"result":{}}`+"\n")
+		proc.dispatchNotice("turn/completed", json.RawMessage(`{"threadId":"thread-1","turn":{"id":"turn-2","status":"interrupted"}}`))
+	}
+	select {
+	case err := <-cleanup:
+		if err != nil {
+			t.Fatalf("cleanup = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cleanup did not see the completion")
 	}
 }

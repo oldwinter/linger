@@ -31,7 +31,20 @@ const (
 	jobErrorWait = 5 * time.Second
 	// noJobTimeout leaves a job's deadline to its step.
 	noJobTimeout time.Duration = -1
+	// Work that can outlast a dependency outage backs off from voiceRetryBase,
+	// doubling up to voiceRetryCap, and ends after voiceRetryMaxAttempts
+	// failures: about half an hour.
+	voiceRetryMaxAttempts = 12
+	voiceRetryBase        = 5 * time.Second
+	voiceRetryCap         = 5 * time.Minute
 )
+
+// voiceRetryDelay is the wait after the failure that made attempts, so the
+// first failure waits the base delay.
+func voiceRetryDelay(attempts int32) time.Duration {
+	delay := voiceRetryBase << min(max(attempts-1, 0), 6)
+	return min(delay, voiceRetryCap)
+}
 
 // Voice jobs run on their own queues, which exist only in a TeamHub that
 // registers voice workers, so a TeamHub without voice polls none of them.

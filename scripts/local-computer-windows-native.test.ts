@@ -646,7 +646,11 @@ await runWindowsInstaller(settings,{platform});
               path.join(output, "linger-computer.ps1"),
             ],
             {
-              env: { ...process.env, LINGER_COMPUTER_DATA_DIR: dataRoot },
+              env: {
+                ...process.env,
+                LINGER_COMPUTER_DATA_DIR: dataRoot,
+                LINGER_COMPUTER_BIN_DIR: path.join(dataRoot, "bin"),
+              },
               timeout: watchdog(30_000),
             },
           ),

@@ -8,6 +8,7 @@ export const composerMessages = defineMessages("composer", {
   messagePeer: "Message {name}",
   sendMessage: "Send message",
   lengthCount: "{count} / {limit}",
+  historyPosition: "History {index}/{total}",
   messageTooLong: "Message must be {limit} characters or fewer.",
   messageNotSent: "Message could not be sent",
   listSeparator: ", ",

@@ -107,7 +107,10 @@ Go service owning Human HTTP/SSE, Agent callbacks, and active product state.
   `teamhub room handoff`): TeamHub posts a hidden `agent_runtime` message,
   authored by the Human and mentioning the AnotherMe, in another live Room
   where both are members, and it wakes the AnotherMe's Context there, which
-  then speaks for itself. Only a Run whose inputs carry a message the Human
+  then speaks for itself. `teamhub message read --list-inboxes` returns each
+  authorized Room's display `name` alongside `inbox_id` so AnotherMe can
+  resolve a natural-language Room name to `room:<room-id>` before handing off.
+  Only a Run whose inputs carry a message the Human
   wrote, or a card they decided, in the direct chat may hand off
   (`X-TeamHub-Run-Id`); proactive wakes, Routines and Task callbacks may not,
   because they often carry outside content. A refusal names its reason in an
@@ -236,6 +239,14 @@ Go service owning Human HTTP/SSE, Agent callbacks, and active product state.
   A missing start stays unconfirmed. Keep audio duration and transcript offsets
   on the confirmed timeline, and enqueue an already-requested Stop when the
   initial recorder becomes known, including after restart reconciliation.
+  Every voice job retries a failing step, so give each wait that a person sees
+  a terminal that outlasts a dependency outage. After Stop, a failed
+  reconciliation of an epoch whose recorder sent its terminal receipt spends
+  the epoch's `stop_reconcile_failures` budget with the shared `voiceRetryDelay`
+  backoff; an exhausted budget fails the Capture with that epoch so its voice
+  session can close. Never fail an epoch whose recorder may still write its
+  staging: it keeps its owed stop. A shutdown or not-yet-due deferral spends
+  nothing.
 - Voice: `TEAMHUB_VOICE_MEDIA` (`on` by default) builds the voice media plane
   over LiveKit; `off`, a missing `LINGER_SECRET_SEED`, or missing ffmpeg keep
   voice off (the last two log `voice.media_unavailable`) without stopping
@@ -244,6 +255,11 @@ Go service owning Human HTTP/SSE, Agent callbacks, and active product state.
   environment key over one saved in the product (`voice_provider_keys`, sealed
   with `TEAMHUB_SECRET_ENCRYPTION_KEY`), so a save applies without a restart
   on every replica. A save wakes the Node Services voice workers best effort.
+  Only a save checks a key with its provider, never a use. A Soniox key is
+  also probed on the realtime stream (the start request, no audio, five
+  seconds at most), and Soniox's HTTP status gives a refusal its code
+  (`VOICE_KEY_REJECTED`, `VOICE_KEY_NO_BALANCE`,
+  `VOICE_KEY_NO_REALTIME_PERMISSION`, else `VOICE_PROVIDER_UNAVAILABLE`).
 - Web search: `internal/websearch` runs Agent searches and page reads through
   Tavily, Brave, Firecrawl and You.com with deployment-wide keys in
   `web_search_keys` (sealed with `TEAMHUB_SECRET_ENCRYPTION_KEY`, read at each
@@ -274,7 +290,7 @@ Go service owning Human HTTP/SSE, Agent callbacks, and active product state.
   (`refreshLocalComputerModels`) forwards an empty-model `refresh` command through
   the same owner/online gate, while `POST .../local-models/{modelId}/actions` acts on
   one model (`refresh` stays invalid there). A connected Computer that has not
-  decided within the action's 10 seconds answers 504
+  decided within the action's 30 seconds answers 504
   `LOCAL_MODEL_ACTION_UNCONFIRMED`: it may still act, and the snapshots show
   the outcome. The Computer's refusal codes map to `LocalModelsErrorCode` in
   `internal/app/handlers_local_models.go` (and `LOAD_NO_ROOM` / `MEMORY_INSUFFICIENT`
@@ -285,9 +301,19 @@ Go service owning Human HTTP/SSE, Agent callbacks, and active product state.
   (`internal/app/handlers_model_source.go`); TeamHub never stores a BYOK key.
   A switch checks for running work, runs `apply` on the Computer, then moves
   the owner's Agents on it in one transaction
-  (`agentregistry.SwitchComputerRuntime`). Work found before `apply` refuses
-  the switch with `AGENT_HAS_ACTIVE_RUNS` unless the owner sent
-  `force_terminate`; work that starts during `apply` keeps only its Agent
-  behind, answered with the same code after the others moved.
+  (`agentregistry.SwitchComputerRuntime`). Both `apply` and the Agent switch run
+  under a context detached from the HTTP client's cancellation (bounded by
+  `modelSourceApplyLifetime`, 190 s) so navigating away mid-switch cannot leave
+  the Computer switched while TeamHub Agents remain on the old Runtime model.
+  TeamHub rejects invalid `apply` statuses (empty `runtime_model` or mismatched
+  `mode`) before updating Agents. Work found before `apply` refuses the switch
+  with `AGENT_HAS_ACTIVE_RUNS` unless the owner sent `force_terminate`; work
+  that starts during `apply` keeps only its Agent behind, answered with the same
+  code after the others moved. Allowlisted BYOK endpoint refusals and
+  `BYOK_GATEWAY_FAILED` forward Computer messages scrubbed of credentials, URL
+  query strings/userinfo, and user-home paths (`safeComputerMessage`), unmapped
+  refusals return generic `MODEL_SOURCE_FAILED` (HTTP 502), and timeouts,
+  `MODEL_SOURCE_EXPIRED`, or client disconnects return `MODEL_SOURCE_UNCONFIRMED`
+  (HTTP 504).
 - Do not add write-only audit, event, or provenance tables. A new audit table
   needs a named product or compliance reader in the same pull request.

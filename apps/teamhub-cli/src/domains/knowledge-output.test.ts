@@ -82,8 +82,8 @@ describe("Knowledge output parsing", () => {
         returned,
       ),
     ).rejects.toMatchObject({
-      code: "personal_knowledge_unavailable",
-      retryable: true,
+      code: "invalid_response",
+      details: { retryable: true },
     });
   });
 
@@ -99,8 +99,8 @@ describe("Knowledge output parsing", () => {
       await expect(
         query({ query: "question" }, returned),
       ).rejects.toMatchObject({
-        code: "personal_knowledge_unavailable",
-        retryable: true,
+        code: "invalid_response",
+        details: { retryable: true },
       });
   });
 

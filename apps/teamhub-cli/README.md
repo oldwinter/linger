@@ -12,7 +12,7 @@ teamhub docs update --schema
 
 ## Common operations
 
-Pass a body directly with `--content`, or read UTF-8 with `--file <path>`; `--file -` reads stdin, such as a quoted heredoc (`<<'EOF'`), which keeps `$` and backticks as typed. `docs update --command str_replace` and `docs comment replace` drop the line break that ends a file or heredoc, since their text replaces a run of text in place. `--json` returns business JSON.
+Pass a body directly with `--content`, or read UTF-8 with `--file <path>`; `--file -` reads stdin, such as a quoted heredoc (`<<'EOF'`), which keeps `$` and backticks as typed. A byte-order mark at the start of a file or stdin names the encoding rather than the text, so `--file` and `--file -` read it correctly, including JSON inputs. `docs update --command str_replace` and `docs comment replace` drop the line break that ends a file or heredoc, since their text replaces a run of text in place. `--json` returns business JSON.
 
 ```bash
 teamhub message read --json
@@ -31,6 +31,26 @@ teamhub room collaborate --file ./team.md --json
 Messages go to the configured Room or Task by default; `--thread <thread-id>` picks a Thread in that Room, and `--alterego <task-id>` and `--meta <task-id>` are for permitted private collaboration. `message read --inbox` accepts `room:`, `thread:`, `task:`, `meta:` and `taskmeta:` addresses, so another authorized Room is read with `--inbox room:<room-id>`; a Meta reads a Task's public messages with `--inbox task:<task-id>`. Publishing files and submitting the message are one atomic operation. For complex ordered resources use `--message` or `--message-file` with an object holding the full `segments` array; private targets accept no uploads, media or segments. A structured mention in a message is written `[@name](user:actor_id)` or `[@name](agent:actor_id)`; a plain `@name` mentions no one.
 
 `room collaborate` publishes the Room's `team.md` and `room protocol` reads the current one. A Room where none has been published yet, the normal state of a new Room, is not an error: `room protocol` prints that no protocol has been published, and `--json` returns `published: false` with `revision: 0`.
+
+## Errors
+
+A failure goes to stderr as `teamhub: <code>: <message>`, followed by `Command:` and `Target:` or `Context:` lines and one `Issue: <path>: <issue-code>: <message>` line per problem. `--json` prints the same content as `{"error": {"code", "message", "command", "target", "details"}}`, with the problems in `details.issues`. An input failure lists every problem at once (up to 10, then a count of the rest), each naming where it is (a flag, a field path inside a JSON flag such as `due_text`, or a file), what is wrong, and what is expected, so one corrected run is enough. `--help` lists the fields of a JSON flag such as `--item`: whether each is required or may be null, its type or values, and its limits.
+
+The CLI shows the messages it writes itself as written. TeamHub's and connected applications' own wording is never shown: a TeamHub failure prints its code's fixed explanation, the field issues TeamHub returned, and its `Request ID:`. A malformed command line also prints the command's `Usage:` lines, an unknown flag lists the allowed ones, and an unknown subcommand lists the commands of its group.
+
+The code says what kind of failure it is, and the exit status what to do next:
+
+| Exit | Meaning                                     | Codes                                                                                                                                         |
+| ---- | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2    | Fix the command or its input.               | `usage`, `invalid_input`, `configuration_error`, `target_ambiguous`, `account_ambiguous`, TeamHub's `invalid_request` and other input codes   |
+| 3    | The current state conflicts; read it again. | `conflict`, `version_conflict`, `idempotency_conflict`, `tracking_item_conflict`, limits such as `task_limit_reached`                         |
+| 4    | Not authorized, or waiting for the user.    | `unauthenticated`, `forbidden`, `authorization_required`, `provider_key_required`, `search_key_requested`                                     |
+| 5    | Not found or not visible.                   | `not_found`, `tracking_item_not_found`, `connection_not_found`, `tool_not_found`                                                              |
+| 1    | Anything else.                              | `connection_failed` (nothing was sent), `outcome_unknown` (a write may have happened), `internal_error` (a CLI bug), `dependency_unavailable` |
+
+After `outcome_unknown`, run the same command again with the printed `--operation-id`; TeamHub returns the original result instead of writing twice. A Tracking Item write has no Operation ID: rerun `add` with the same `idempotency_key`, or run `tracking-items list` and compare the revision before repeating `update` or `done`.
+
+`-` reads stdin only where a path is expected (`--file -`, `--item-file -`). The inline twin of such a flag, for example `--content` or `--item`, rejects a lone `-` with `invalid_input` instead of sending it as text.
 
 ## Documents and recovery
 
@@ -87,5 +107,6 @@ teamhub web connect tavily
 
 - `web search <query>` runs on Tavily, Brave Search, Firecrawl, Exa, You.com or DuckDuckGo (`--backend`), with `--limit 1-20`, `--recency day|week|month|year` and repeatable `--site <domain>`; DuckDuckGo takes at most 10 results and one site. Without `--backend` it uses the default backend the user chose, else the first backend with a key in that order, else DuckDuckGo, which needs no key and blocks searches that come too often. You.com also works without a key when named, with limited, lower quality results. Results carry title, URL, snippet and an optional date, never the backend.
 - `web open <url>` fetches the page from this computer by default (`--backend direct`) and converts its main content to Markdown; `--backend tavily|firecrawl|exa|you` reads it through the provider instead, which helps with pages that need JavaScript or block plain requests. The Markdown is cut at 20,000 characters with `truncated: true`, and `--output <file>` saves it to a new file and never overwrites one.
+  Relative links and images use the page's first `<base href>` when it resolves to an HTTP(S) URL; otherwise they use the final page URL.
 - `web list` shows each backend's commands, filters, readiness and live quota; `web connect <backend>` posts a key card unless that backend is ready.
 - A backend never falls back to another one. When the requested backend, or the default one, has no key, a rejected key or no keyless searches left, TeamHub posts a key card in the chat and the command exits 4 with `search_key_requested`, the backend and the card in `details`. The Agent ends its turn: a key saved from the card reruns the request and wakes the Agent with its results. A used-up quota (`search_quota_exhausted`) or rate limit (`provider_rate_limited`) lists `ready_backends` to choose from.

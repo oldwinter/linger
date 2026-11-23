@@ -186,9 +186,10 @@ export type SetupLocalModelsCheck =
   | {
       readonly state: "checked";
       readonly eligible: boolean;
-      // The model fits the hardware, but other programs hold the memory it
-      // needs now (the tool's "blocked-now"); it is shown on hold until a
-      // new check finds that memory.
+      // The hardware can run a local model, but a temporary blocker prevents
+      // installing right now (the tool's "blocked-now", e.g. memory held by
+      // other programs, gateway port in use, or harness unavailable); shown on
+      // hold until a new check clears it.
       readonly blockedNow?: true;
       // While blocked now: memory free now and what the plan needs.
       readonly freeMemory?: SetupMemory;
@@ -196,7 +197,7 @@ export type SetupLocalModelsCheck =
       readonly diskFreeBytes: number | null;
       readonly gpu?: string;
       // The inference model to deploy, with what it needs; when eligible or
-      // on hold for free memory.
+      // when a blocked-now report also included a plan.
       readonly model?: {
         readonly name: string;
         readonly downloadBytes: number | null;

@@ -11,6 +11,7 @@ export const navigationMessages = defineMessages("navigation", {
   messages: "Messages",
   library: "Library",
   wiki: "Wiki",
+  dashboard: "Dashboard",
   connectors: "Connectors",
   openNavigation: "Open Room navigation",
   closeNavigation: "Close Room navigation",

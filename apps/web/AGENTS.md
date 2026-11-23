@@ -95,8 +95,12 @@ build:assets` to check the initial JS budget.
   Make room filters stale unloaded IDs out of `unload_first`, lists what else
   holds the pool (components, and other apps from `used_bytes` no holder
   accounts for) when unloading models cannot free enough, and says a model
-  cannot fit only when it needs more than the pool's total. A Computer's detail
-  on the Computers page links here and reads no model state itself.
+  cannot fit only when it needs more than the pool's total. Opening the page or
+  reconnecting an offline Computer auto-refreshes `model-source` and triggers a
+  fresh `POST .../local-models` memory snapshot for the owner, while
+  `LOCAL_COMPUTER_OFFLINE` disables BYOK edits immediately. A Computer's detail
+  on the Computers page links here, reads `model-source` for its active runtime
+  pill, and reads no local model library state itself.
 - `src/i18n`: the interface languages (English and Simplified Chinese).
   `messages.ts` re-exports the React-free core from
   `@linger/service-kit/messages`, which the desktop shell shares,
@@ -147,7 +151,11 @@ build:assets` to check the initial JS budget.
   `public/linger-wordmark.svg`, with the proportions of `assets/logo-horizontal.svg`.
 - Switching between Meeting and Voice Mode ends the previous session and
   releases its microphone before the new mode starts. Meeting saving can
-  continue in the background. If browser activation expires during the
+  continue in the background. The sidebar Meeting entry spins only while a
+  Stop or save is under way: a transcript recovery shows its attempt
+  ("Recovering 2/8"), and a Stop that failed three times or a failed recovery
+  shows a red dot and opens the window on its Retry without starting a new
+  recording. If browser activation expires during the
   switch, the new mode opens in the page and can be floated from there.
   During Live, the Meeting entry offers to start a new Meeting even while an
   earlier one is saving. Both in-page voice windows retain a visible, draggable
@@ -186,8 +194,10 @@ build:assets` to check the initial JS budget.
   window placement remains under browser control. Stop preserves the current
   recording view and window dimensions. A minimized window, in the page
   (including the desktop app) or picture-in-picture, shows the confirmation
-  actions side by side within its control row, so they stay on screen wherever
-  the row sits; an open window keeps the vertical confirmation card.
+  actions side by side within its control row in place of Pause and Stop, so
+  they stay on screen wherever the row sits and never draw over the controls;
+  the timer stays beside them while it fits. An open window keeps the vertical
+  confirmation card. Escape or Keep recording returns focus to Stop.
 - Recording and Voice Mode distinguish the native window's close action from
   back to tab through the shared PiP return detection. Back to tab keeps the
   session running in the page and exposes a Float action; close ends it.
@@ -267,6 +277,14 @@ build:assets` to check the initial JS budget.
 - Input hints use `--app-placeholder` / `text-app-placeholder` across native
   fields, chat composers, select prompts, and editable empty states. Keep
   entered text and adjacent labels on their own text tokens.
+- The Room and Thread composers keep the last 50 sent messages of up to
+  2,000 characters per draft scope in this browser's `localStorage`
+  (`room-drafts.ts`); a full quota drops older entries, and local sign-out
+  clears them with the drafts. From an empty draft, ArrowUp on the first line
+  and ArrowDown on the last line step through them, with a `History n/N`
+  label, unless a picker is open or an input method is composing; unsent text
+  is never replaced. Stepping past the newest message empties the composer;
+  editing a recalled message makes it the draft.
 - Room avatar stacks give each tile an opaque surface behind the member's
   portrait or initials so overlapping members never show through one another.
 - Compose conditional class names with `cn` from `src/lib/cn.ts`.

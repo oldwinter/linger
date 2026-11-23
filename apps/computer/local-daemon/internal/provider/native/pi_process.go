@@ -335,10 +335,12 @@ func (p *piProcess) sessionState(ctx context.Context) (piState, error) {
 }
 
 type piState struct {
-	SessionID           string `json:"sessionId"`
-	IsStreaming         bool   `json:"isStreaming"`
-	IsCompacting        bool   `json:"isCompacting"`
-	PendingMessageCount int    `json:"pendingMessageCount"`
+	SessionID           string         `json:"sessionId"`
+	IsStreaming         bool           `json:"isStreaming"`
+	IsCompacting        bool           `json:"isCompacting"`
+	PendingMessageCount int            `json:"pendingMessageCount"`
+	Model               piCatalogModel `json:"model"`
+	ThinkingLevel       string         `json:"thinkingLevel"`
 }
 
 // probeIdle proves the process can take a new prompt: same session, no

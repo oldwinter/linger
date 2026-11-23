@@ -7,6 +7,12 @@ import { isRecord } from "@linger/service-kit";
 
 const roomComposerDraftPrefix = "linger.room-composer-draft:";
 const composerDraftFormat = "linger-composer-draft-v3";
+const roomComposerHistoryPrefix = "linger.room-composer-history:";
+const composerHistoryFormat = "linger-composer-history-v1";
+const composerHistoryLimit = 50;
+// Pasted logs and documents stay out of history, so a scope holds at most
+// about 100K characters and history cannot crowd drafts out of storage.
+const composerHistoryEntryMaxLength = 2_000;
 
 export interface RoomDraftScope {
   accountId: string;
@@ -18,6 +24,15 @@ export interface RoomDraftScope {
 export interface RoomComposerDraft {
   voiceMaterials?: VoiceDocumentSelection[];
   documentContexts: RoomComposerDocumentContext[];
+  body: string;
+  documentReferences: RoomComposerDocumentReference[];
+  mentions: TeamHubActorRef[];
+  skillReferences: TeamHubMessageSkillReference[];
+}
+
+/** A sent message the composer can bring back: its text and the references
+ * it carried, without attachments, voice materials or Document contexts. */
+export interface RoomComposerHistoryEntry {
   body: string;
   documentReferences: RoomComposerDocumentReference[];
   mentions: TeamHubActorRef[];
@@ -109,7 +124,10 @@ export function clearRoomDrafts() {
     for (let index = storage.length - 1; index >= 0; index -= 1) {
       const key = storage.key(index);
 
-      if (key?.startsWith(roomComposerDraftPrefix)) {
+      if (
+        key?.startsWith(roomComposerDraftPrefix) ||
+        key?.startsWith(roomComposerHistoryPrefix)
+      ) {
         storage.removeItem(key);
       }
     }
@@ -138,6 +156,43 @@ export function draftStorageEntries(): [string, string][] {
       if (value !== null) entries.push([key, value]);
     }
     return entries;
+  } catch {
+    return [];
+  }
+}
+
+/** Sent messages in this scope, oldest first. */
+export function readRoomComposerHistory(
+  scope: RoomDraftScope,
+): RoomComposerHistoryEntry[] {
+  try {
+    const stored = resolveLocalStorage()?.getItem(
+      roomScopeKey(roomComposerHistoryPrefix, scope),
+    );
+    if (!stored) return [];
+    const candidate: unknown = JSON.parse(stored);
+    if (!isRecord(candidate) || candidate.format !== composerHistoryFormat) {
+      return [];
+    }
+    return Array.isArray(candidate.entries)
+      ? candidate.entries.flatMap((entry: unknown) => {
+          if (!isRecord(entry) || typeof entry.body !== "string") return [];
+          return [
+            {
+              body: entry.body,
+              documentReferences: Array.isArray(entry.documentReferences)
+                ? entry.documentReferences.filter(isDocumentReference)
+                : [],
+              mentions: Array.isArray(entry.mentions)
+                ? entry.mentions.filter(isActorReference)
+                : [],
+              skillReferences: Array.isArray(entry.skillReferences)
+                ? entry.skillReferences.filter(isSkillReference)
+                : [],
+            },
+          ];
+        })
+      : [];
   } catch {
     return [];
   }
@@ -175,14 +230,47 @@ export function roomsWithDrafts(
   return roomIds;
 }
 
+/**
+ * Records a sent message. Repeating the latest one, or a message longer than
+ * history keeps, adds nothing.
+ */
+export function appendRoomComposerHistory(
+  scope: RoomDraftScope,
+  entry: RoomComposerHistoryEntry,
+) {
+  if (!entry.body.trim() || entry.body.length > composerHistoryEntryMaxLength) {
+    return;
+  }
+  const entries = readRoomComposerHistory(scope);
+  if (entries.at(-1)?.body === entry.body) return;
+  let kept = [...entries, entry].slice(-composerHistoryLimit);
+  while (kept.length) {
+    try {
+      resolveLocalStorage()?.setItem(
+        roomScopeKey(roomComposerHistoryPrefix, scope),
+        JSON.stringify({ entries: kept, format: composerHistoryFormat }),
+      );
+      return;
+    } catch {
+      // A full storage quota drops the older half rather than the new
+      // message; without browser storage the composer has no history.
+      kept = kept.slice(Math.ceil(kept.length / 2));
+    }
+  }
+}
+
 function roomComposerDraftKey(scope: RoomDraftScope) {
+  return roomScopeKey(roomComposerDraftPrefix, scope);
+}
+
+function roomScopeKey(prefix: string, scope: RoomDraftScope) {
   const segments = [scope.accountId, scope.tenantId, scope.roomId];
 
   if (scope.threadId) {
     segments.push(scope.threadId);
   }
 
-  return `${roomComposerDraftPrefix}${segments.map(encodeURIComponent).join(":")}`;
+  return `${prefix}${segments.map(encodeURIComponent).join(":")}`;
 }
 
 function resolveLocalStorage() {

@@ -32,6 +32,9 @@ whitelist function that uses the resulting schema.
 | 00884            | 00888        | allow_antigravity_local_runtime           |
 | 00885            | 00889        | web_search                                |
 | 00886            | 00890        | outlook_calendar_listener                 |
+| 00887            | 00891        | direct_chat_mentions_its_agent            |
+| 00888            | 00892        | voice_stop_reconcile_failures             |
+| 00889            | 00893        | message_human_waiting                     |
 
 This sequence supports an empty database and an existing fork database,
 including one at version `00869`. Goose records numeric versions without a

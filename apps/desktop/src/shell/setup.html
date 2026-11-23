@@ -3817,6 +3817,10 @@
           // GPU memory free instead.
           case "gpu-ownership-unknown":
             return t("reasonGpuOwnership");
+          case "gateway-port-in-use":
+            return t("reasonGatewayPortInUse");
+          case "harness-unavailable":
+            return t("reasonHarnessUnavailable");
           case "facts-unavailable":
             return t("reasonFacts");
           case "cuda-driver-update-required": {
@@ -3844,7 +3848,11 @@
           case "plan-unavailable":
             return t(held ? "reasonPlanHeld" : "reasonPlanUnavailable");
           default:
-            return t(held ? "reasonHeld" : "reasonUnavailable");
+            return held
+              ? freeMemory
+                ? t("reasonHeld")
+                : t("reasonHeldGeneric")
+              : t("reasonUnavailable");
         }
       };
       const reasonsText = (models, held) =>
@@ -3858,9 +3866,43 @@
       const RECHECKABLE_REASONS = new Set([
         "cuda-driver-update-required",
         "cuda-driver-version-unknown",
+        "gateway-port-in-use",
+        "harness-unavailable",
       ]);
-      // The held card's short line: what is free against what is needed.
+      const CUDA_DRIVER_CODES = new Set([
+        "cuda-driver-update-required",
+        "cuda-driver-version-unknown",
+      ]);
+      const MEMORY_HELD_CODES = new Set([
+        "gpu-memory-required",
+        "free-memory-required",
+        "gpu-sharing-required",
+        "plan-unavailable",
+      ]);
+      const cudaDriverHeld = (models) =>
+        Boolean(
+          models.reasons?.some((reason) => CUDA_DRIVER_CODES.has(reason.code)),
+        );
+      const memoryHeld = (models) =>
+        models.freeMemory != null ||
+        Boolean(
+          models.reasons?.some((reason) => MEMORY_HELD_CODES.has(reason.code)),
+        );
+      // The held card's short line: what blocks local models right now.
       const heldLine = (models) => {
+        if (
+          models.reasons?.some(
+            (reason) => reason.code === "gateway-port-in-use",
+          )
+        )
+          return t("heldGatewayPort");
+        if (
+          models.reasons?.some(
+            (reason) => reason.code === "harness-unavailable",
+          )
+        )
+          return t("heldHarnessUnavailable");
+        if (cudaDriverHeld(models)) return t("heldCudaDriver");
         const gpu = models.reasons?.find(
           (reason) =>
             reason.code === "gpu-memory-required" &&
@@ -3886,9 +3928,9 @@
         const free = ram?.freeBytes ?? models.freeMemory?.ramAvailableBytes;
         const needed =
           ram?.requiredBytes ?? models.freeMemory?.ramRequiredBytes;
-        return free != null && needed != null
-          ? t("heldMemory", { free: size(free), needed: size(needed) })
-          : t("heldClose");
+        if (free != null && needed != null)
+          return t("heldMemory", { free: size(free), needed: size(needed) });
+        return memoryHeld(models) ? t("heldClose") : t("heldResolve");
       };
 
       const renderLocal = (busy) => {
@@ -3906,10 +3948,12 @@
         const models = local.localModels;
         const model =
           models.state === "checked" && models.eligible && models.model;
-        // The model fits the hardware, but other programs hold the memory it
-        // needs now: shown, not offered, until a new check finds that memory.
-        const held =
-          models.state === "checked" && models.blockedNow && models.model;
+        // The computer is temporarily blocked from running a local model now
+        // (for example memory in use, outdated NVIDIA driver, gateway port in
+        // use, or harness unavailable): shown on hold until a new check clears
+        // it.
+        const held = models.state === "checked" && !!models.blockedNow;
+        const heldModel = held && models.model;
         plan.localModel = plan.source === "local" && !!model;
         const custom = !isDefaultPlan(local);
         // Quick Install waits for the check, so it installs what it shows.
@@ -3987,10 +4031,20 @@
                   .filter(Boolean)
                   .join(" · ")
               : held
-                ? t("heldWhy", {
-                    reasons: reasonsText(models, true),
-                    plan: named(plan),
-                  })
+                ? cudaDriverHeld(models)
+                  ? t("heldWhyCudaDriver", {
+                      reasons: reasonsText(models, true),
+                      plan: named(plan),
+                    })
+                  : memoryHeld(models)
+                    ? t("heldWhy", {
+                        reasons: reasonsText(models, true),
+                        plan: named(plan),
+                      })
+                    : t("heldWhyGeneric", {
+                        reasons: reasonsText(models, true),
+                        plan: named(plan),
+                      })
                 : (models.state === "checked" && !models.eligible) ||
                     models.state === "unavailable"
                   ? unavailableText
@@ -4018,7 +4072,7 @@
           remove.textContent = t(removing ? "keep" : "remove");
         }
         $("keys-note").textContent = t("keysNote");
-        const shown = model || held;
+        const shown = model || heldModel;
         const inklingRecommended = Boolean(
           recommended.localModel && model?.featuredInkling,
         );
@@ -4097,6 +4151,12 @@
             .join(" · ");
           $("local-model").setAttribute("aria-checked", String(!!model));
           $("local-model").disabled = busy || !model;
+        } else if (held) {
+          $("local-sub").textContent = heldLine(models);
+          $("local-model-name").textContent = t("localOnHold");
+          $("local-model-needs").textContent = reasonsText(models, true);
+          $("local-model").setAttribute("aria-checked", "false");
+          $("local-model").disabled = true;
         } else if (settled) {
           $("local-sub").textContent = t("localRuns");
           $("local-model-name").textContent = t("localNotAvailable");

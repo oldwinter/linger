@@ -97,26 +97,22 @@ export function createTeamHubDocumentLinks(
             });
             const documentId = response.headers.get("X-Document-Id");
             const versionId = response.headers.get("X-Document-Version-Id");
-            const encodedName = response.headers.get("X-Document-Filename");
+            const filename = decodeDocumentFilename(
+              response.headers.get("X-Document-Filename"),
+            );
             const representationFormat = response.headers.get(
               "X-Document-Representation-Format",
             );
             if (
               documentId !== access.document_id ||
               !versionId ||
-              !encodedName ||
+              !filename ||
               !representationFormat ||
               content.sha256 !== response.headers.get("X-Content-Sha256")
             )
               throw new Error(
                 translate(teamHubExtrasMessages.sharedFileIntegrityFailed),
               );
-            const filename = new TextDecoder().decode(
-              Uint8Array.from(
-                atob(encodedName.replaceAll("-", "+").replaceAll("_", "/")),
-                (character) => character.charCodeAt(0),
-              ),
-            );
             return {
               ...content,
               documentId,
@@ -133,4 +129,18 @@ export function createTeamHubDocumentLinks(
       );
     },
   };
+}
+
+function decodeDocumentFilename(encoded: string | null): string | null {
+  if (!encoded) return null;
+  try {
+    const bytes = Uint8Array.from(
+      atob(encoded.replaceAll("-", "+").replaceAll("_", "/")),
+      (character) => character.charCodeAt(0),
+    );
+    const decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    return decoded.length > 0 ? decoded : null;
+  } catch {
+    return null;
+  }
 }

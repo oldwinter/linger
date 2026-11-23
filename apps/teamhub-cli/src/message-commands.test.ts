@@ -412,7 +412,10 @@ describe("message ask-user", () => {
   it.each([
     [[], "--questions must be a JSON array of 1 to 20 questions."],
     [JSON.stringify([radio]), "not a string of encoded JSON"],
-    [[{ prompt: "Why?" }], "questions[0] has invalid or unsupported fields."],
+    [
+      [{ prompt: "Why?" }],
+      "questions[0] has missing fields or fields that are not allowed.",
+    ],
     [[{ ...radio, options: [] }], "questions[0].options must list 1 to 20"],
     [
       [{ question: "Anything else?" }],
@@ -432,6 +435,25 @@ describe("message ask-user", () => {
       await expect(ask(questions)).rejects.toThrow(message);
     },
   );
+  it("lists each missing and each unknown question field", async () => {
+    await expect(ask([{ prompt: "Why?" }])).rejects.toMatchObject({
+      code: "invalid_input",
+      details: {
+        issues: [
+          {
+            path: "questions[0].question",
+            code: "missing",
+            message: "required.",
+          },
+          {
+            path: "questions[0].prompt",
+            code: "unknown_field",
+            message: "not allowed. Allowed: question, options, multiple.",
+          },
+        ],
+      },
+    });
+  });
   it("is refused before any request in a Task", () => {
     expect(command("ask-user").unavailableInTask).toContain("final reply");
   });
@@ -472,9 +494,13 @@ describe("message card", () => {
     });
   });
   it("takes a bare Thread ID", async () => {
-    await expect(card([["--thread", "thread:thread_one"]])).rejects.toThrow(
-      "Provide a bare resource ID after --thread.",
-    );
+    await expect(
+      card([["--thread", "thread:thread_one"]]),
+    ).rejects.toMatchObject({
+      details: {
+        issues: [{ path: "--thread", code: "invalid_format" }],
+      },
+    });
   });
   it("marks a Personal Profile delivery with --kind profile", async () => {
     const normalized = await card([["--kind", "profile"]]);

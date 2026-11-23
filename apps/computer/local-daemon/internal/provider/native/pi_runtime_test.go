@@ -499,15 +499,14 @@ func TestPiLaunchArguments(t *testing.T) {
 		t.Fatal(err)
 	}
 	mcp := json.RawMessage(`{"mcpServers":{"computer":{"type":"http","url":"http://127.0.0.1:9/mcp"}}}`)
-	_, outcome := piCollect(t, h.start(t.Context(), "go", RunSpec{AssignSessionID: "args-session", Model: "fixture/model", Effort: "none", Title: "Title", AppendPrompt: "be brief", MCPServers: mcp}))
+	_, outcome := piCollect(t, h.start(t.Context(), "go", RunSpec{AssignSessionID: "args-session", Model: "fixture/model", Effort: "none", Title: "Title", SystemPrompt: "be brief", MCPServers: mcp}))
 	if outcome.Status != statusCompleted || !outcome.ExitConfirmed {
 		t.Fatalf("outcome = %+v", outcome)
 	}
 	data, _ := os.ReadFile(argv)
 	sessionDir := filepath.Join(h.root, "args-session")
-	want := append([]string{"--mode", "rpc", "--session-dir", sessionDir, "--session-id", "args-session"}, PiRPCResourceArgs()...)
+	want := append([]string{"--mode", "rpc", "--session-dir", sessionDir, "--session-id", "args-session"}, PiRPCResourceArgs(filepath.Join(sessionDir, piInstructionsName))...)
 	want = append(want, "--model", "fixture/model", "--thinking", "off", "--name", "Title",
-		"--append-system-prompt", filepath.Join(sessionDir, piInstructionsName),
 		"--skill", filepath.Join(h.dir, ".agents", "skills"), "--extension", extension, "--tools", piBaseTools+",mcp__*")
 	if got := strings.Split(string(data), "\n"); strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("argv\n got %q\nwant %q", got, want)
@@ -641,11 +640,11 @@ func TestPiSessionValidation(t *testing.T) {
 }
 
 func TestPiResourceArgsAreFresh(t *testing.T) {
-	first := PiRPCResourceArgs()
+	first := PiRPCResourceArgs("")
 	first[0] = "changed"
 	_ = append(first, "--extra")
-	if got := PiRPCResourceArgs(); len(got) != 8 || got[0] != "--no-extensions" || got[5] != "--no-approve" ||
-		got[6] != "--system-prompt" || got[7] != "" {
+	if got := PiRPCResourceArgs("prompt.md"); len(got) != 10 || got[0] != "--no-extensions" || got[5] != "--no-approve" ||
+		got[6] != "--system-prompt" || got[7] != "prompt.md" || got[8] != "--append-system-prompt" || got[9] != "" {
 		t.Fatalf("args = %v", got)
 	}
 }

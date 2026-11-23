@@ -475,6 +475,7 @@ export function QuickCreateLocalAgentDialog({
         {loginComputer && loginRuntime ? (
           <div className="text-xs text-app-muted" role="status">
             <LocalRuntimeAuthenticationGuidance
+              computer={loginComputer}
               computerName={loginComputer.display_name}
               runtimeType={loginRuntime.type}
             />

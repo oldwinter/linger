@@ -4,7 +4,12 @@ import {
   Download04Icon,
 } from "@hugeicons/core-free-icons";
 import type { QueryClient } from "@tanstack/react-query";
-import { useEffect, useSyncExternalStore, type MutableRefObject } from "react";
+import {
+  useEffect,
+  useSyncExternalStore,
+  type MutableRefObject,
+  type ReactNode,
+} from "react";
 import { Link } from "react-router";
 import type * as Y from "yjs";
 
@@ -38,6 +43,8 @@ import { hasUnsavedRoomDocumentChanges } from "./room-document-local-copies";
 import type { UnifiedDocumentPageModel } from "./use-unified-document-page-model";
 
 interface UnifiedDocumentBodyProps {
+  /** The Document actions, shown at the end of the byline row. */
+  bylineActions?: ReactNode;
   documentContentRef: MutableRefObject<HTMLDivElement | null>;
   isWikiPage: boolean;
   knowledgeTitle: string | undefined;
@@ -50,6 +57,7 @@ interface UnifiedDocumentBodyProps {
  * Version preview, the collaborative editor, or the loading skeleton.
  */
 export function UnifiedDocumentBody({
+  bylineActions,
   documentContentRef,
   isWikiPage,
   knowledgeTitle,
@@ -129,6 +137,7 @@ export function UnifiedDocumentBody({
       ) : session && document && actor ? (
         <UnifiedDocumentEditorLayout
           actorId={actor.id}
+          bylineActions={bylineActions}
           document={document}
           isWikiPage={isWikiPage}
           knowledgeTitle={knowledgeTitle}
@@ -161,6 +170,7 @@ export function UnifiedDocumentBody({
 
 interface UnifiedDocumentEditorLayoutProps {
   actorId: string;
+  bylineActions: ReactNode;
   document: TeamHubDocument;
   isWikiPage: boolean;
   knowledgeTitle: string | undefined;
@@ -170,6 +180,7 @@ interface UnifiedDocumentEditorLayoutProps {
 
 function UnifiedDocumentEditorLayout({
   actorId,
+  bylineActions,
   document,
   isWikiPage,
   knowledgeTitle,
@@ -220,6 +231,13 @@ function UnifiedDocumentEditorLayout({
       {knowledgeTitle === undefined && !mailCanvas ? (
         <div className="room-document-content-lane mx-auto mb-8 flex min-h-8 flex-wrap items-center gap-2 text-sm text-app-muted">
           <span>{t(m.byOwner, { name: document.owner.display_name })}</span>
+          <span aria-hidden="true">·</span>
+          <RoomDocumentSaveIndicator
+            alwaysVisible
+            isEditing={isEditing}
+            session={session}
+          />
+          {bylineActions}
         </div>
       ) : null}
       <ActiveRoomDocumentEditor

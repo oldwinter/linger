@@ -58,6 +58,37 @@ func TestLocalStoreWritesImmutableOpaqueObjects(t *testing.T) {
 	}
 }
 
+// Compensating cleanup deletes an object the database no longer references while
+// a download may still be reading it, so the delete must not wait for readers.
+func TestLocalStoreDeletesAnObjectWhileAReaderIsOpen(t *testing.T) {
+	store, err := NewLocalStore(t.TempDir(), 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := []byte("artifact content")
+	object, err := store.Put(t.Context(), bytes.NewReader(content))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, err := store.Open(t.Context(), object.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+
+	if err := store.Delete(t.Context(), object.Key); err != nil {
+		t.Fatalf("delete while a reader is open: %v", err)
+	}
+	if _, err := store.Open(t.Context(), object.Key); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("open deleted object err=%v, want not exist", err)
+	}
+	// A reader that was already open keeps the bytes it started to read.
+	got, err := io.ReadAll(reader)
+	if err != nil || !bytes.Equal(got, content) {
+		t.Fatalf("read after delete=%q err=%v", got, err)
+	}
+}
+
 func TestLocalStoreRejectsOversizeAndUnsafeKeys(t *testing.T) {
 	root := t.TempDir()
 	store, err := NewLocalStore(root, 4)

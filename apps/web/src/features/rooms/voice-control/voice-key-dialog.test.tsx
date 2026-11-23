@@ -221,6 +221,16 @@ describe("VoiceKeyDialog", () => {
       "Soniox rejected this key. Check it and try again.",
     ],
     [
+      "VOICE_KEY_NO_BALANCE",
+      400,
+      "Your Soniox account is out of balance or reached its monthly budget. Add funds or raise the budget in the Soniox Console, then try again.",
+    ],
+    [
+      "VOICE_KEY_NO_REALTIME_PERMISSION",
+      400,
+      "This key cannot use Soniox real-time transcription. Allow it for the key in the Soniox Console, or use another key.",
+    ],
+    [
       "VOICE_PROVIDER_UNAVAILABLE",
       503,
       "Could not reach Soniox to check the key. Try again in a moment.",

@@ -1,4 +1,12 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  readFile,
+  readdir,
+  readlink,
+  rm,
+  writeFile,
+} from "node:fs/promises";
+import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawn, execFileSync } from "node:child_process";
@@ -609,3 +617,126 @@ test("reports a configuration change only for a running recorded process", async
     await nativeConfigurationChanged({ ...options, settings: "second" }),
   ).toBe(false);
 });
+
+(process.platform === "linux" ? test : test.skip)(
+  "detached native supervisor and service do not inherit a parent listening TCP socket FD",
+  async (context) => {
+    const { expect } = context;
+    const root = await fixture(context);
+    const server = net.createServer();
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    const address = server.address();
+    if (!address || typeof address === "string")
+      throw new Error("Expected TCP address");
+    const port = address.port;
+    const listenFd = (server as unknown as { _handle?: { fd?: number } })
+      ._handle?.fd;
+    expect(typeof listenFd).toBe("number");
+    const socketInode = await readlink(`/proc/self/fd/${listenFd}`);
+
+    const app = fileURLToPath(
+      new URL("../../../apps/linger-installer/", import.meta.url),
+    );
+    const { build } = createRequire(path.join(app, "package.json"))(
+      "esbuild",
+    ) as { build: (options: Record<string, unknown>) => Promise<void> };
+    const entry = path.join(root, "launch-with-socket.entry.mjs");
+    const launcher = path.join(root, "launch-with-socket.mjs");
+    const nativeProcessModule = fileURLToPath(
+      new URL("./native-process.ts", import.meta.url),
+    );
+    await writeFile(
+      entry,
+      `
+        import { writeFileSync } from "node:fs";
+        import { startNativeProcess } from ${JSON.stringify(nativeProcessModule)};
+        const state = await startNativeProcess({
+          root: ${JSON.stringify(root)},
+          name: "web",
+          executable: process.execPath,
+          args: ["-e", "require('node:fs').writeFileSync('service.pid', String(process.pid)); setInterval(() => {}, 1000);"],
+          cwd: ${JSON.stringify(root)},
+          env: process.env,
+        });
+        writeFileSync(${JSON.stringify(path.join(root, "supervisor.pid"))}, String(state.pid));
+      `,
+    );
+    for (const [source, outfile] of [
+      [entry, launcher],
+      [
+        fileURLToPath(new URL("./native-process-worker.mjs", import.meta.url)),
+        path.join(root, "native-process-worker.mjs"),
+      ],
+    ])
+      await build({
+        entryPoints: [source],
+        outfile,
+        bundle: true,
+        platform: "node",
+        format: "esm",
+        target: "node26",
+      });
+
+    const stdio: Array<"ignore" | "pipe" | number> = [
+      "ignore",
+      "ignore",
+      "pipe",
+    ];
+    while (stdio.length < 68) stdio.push("ignore");
+    stdio[5] = listenFd!;
+    stdio[67] = listenFd!;
+
+    let stderr = "";
+    const parent = spawn(process.execPath, [launcher], { stdio });
+    parent.stderr?.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    });
+    expect(
+      await new Promise<number | null>((resolve) =>
+        parent.once("close", resolve),
+      ),
+      stderr,
+    ).toBe(0);
+
+    // Close the original listener in this test process while the detached
+    // supervisor and service remain alive.
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+
+    await expect
+      .poll(async () =>
+        readFile(path.join(root, "service.pid"), "utf8").catch(() => ""),
+      )
+      .toMatch(/^\d+$/);
+    const supervisorPid = Number(
+      await readFile(path.join(root, "supervisor.pid"), "utf8"),
+    );
+    const servicePid = Number(
+      await readFile(path.join(root, "service.pid"), "utf8"),
+    );
+    expect((await inspectNativeProcess(root, "web")).running).toBe(true);
+
+    // Neither the detached supervisor nor the service child may hold the
+    // parent's listening socket inode on any FD.
+    for (const pid of [supervisorPid, servicePid]) {
+      const fds = await readdir(`/proc/${pid}/fd`);
+      const targets = await Promise.all(
+        fds.map((fd) => readlink(`/proc/${pid}/fd/${fd}`).catch(() => "")),
+      );
+      expect(targets).not.toContain(socketInode);
+    }
+
+    // Rebinding the exact same port immediately proves no detached process
+    // kept the listening socket alive.
+    const rebound = net.createServer();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        rebound.once("error", reject);
+        rebound.listen(port, "127.0.0.1", () => resolve());
+      });
+    } finally {
+      await new Promise<void>((resolve) => rebound.close(() => resolve()));
+    }
+  },
+);

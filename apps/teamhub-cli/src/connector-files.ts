@@ -9,7 +9,15 @@ import {
   syncHostDirectory,
 } from "./files/host-file-system.js";
 import type { CommandExecutionContext } from "./command-definition.js";
-import { ConnectorError as CliError } from "./errors.js";
+import { CliError } from "./errors.js";
+import {
+  echo,
+  fileFailure,
+  fileSystemError,
+  inputIssue,
+  invalidInput,
+  mebibytes,
+} from "./input-issues.js";
 import { readBounded } from "./http-client.js";
 
 export interface ConnectorFile {
@@ -25,30 +33,46 @@ export async function validateLocalFiles(
   files: readonly string[],
   cwd: string,
   maximum = maximumFileBytes,
+  flag = "--attach",
 ): Promise<string[]> {
   if (files.length > 20)
-    throw new CliError("usage", "At most 20 files are allowed.");
+    throw invalidInput(`Too many files for ${flag}.`, [
+      inputIssue(
+        flag,
+        "out_of_range",
+        `must have at most 20 items; got ${files.length}.`,
+      ),
+    ]);
+  const unreadable = (source: string, reason: string) =>
+    invalidInput(`The ${flag} path could not be read.`, [
+      inputIssue(flag, "unreadable", `${source}: ${reason}.`),
+    ]);
   const paths: string[] = [];
   for (const source of files) {
     if (!source.trim() || source === "-" || /[\r\n\p{Cc}]/u.test(source))
-      throw new CliError("usage", "Provide an ordinary local file path.");
+      throw invalidInput(`${flag} needs an ordinary local file path.`, [
+        inputIssue(
+          flag,
+          "invalid_value",
+          `expected a local file path, not stdin or a line break; got ${echo(source)}.`,
+        ),
+      ]);
     const filename = path.resolve(cwd, source);
     let stat;
     try {
       stat = await lstat(filename);
-    } catch {
-      throw new CliError("invalid_path", "An input file is unavailable.");
+    } catch (error) {
+      throw fileSystemError(error)
+        ? fileFailure(error, flag, source)
+        : unreadable(source, "not found");
     }
     if (!stat.isFile() || stat.isSymbolicLink())
-      throw new CliError(
-        "invalid_path",
-        "Input must be an ordinary file, not a directory or symlink.",
+      throw unreadable(
+        source,
+        stat.isDirectory() ? "is a directory" : "not an ordinary file",
       );
     if (stat.size > maximum)
-      throw new CliError(
-        "too_large",
-        "An input file exceeds this command's byte limit.",
-      );
+      throw unreadable(source, `larger than ${mebibytes(maximum)}`);
     // Task playgrounds are projected through directory symlinks. Resolve only
     // the parent, as message resources do: the leaf stays an ordinary file and
     // the later reads pin the canonical directory.
@@ -56,12 +80,14 @@ export async function validateLocalFiles(
     try {
       parent = await realpath(path.dirname(filename));
     } catch {
-      throw new CliError("invalid_path", "An input file is unavailable.");
+      throw unreadable(source, "not found");
     }
     paths.push(path.join(parent, path.basename(filename)));
   }
   if (new Set(paths).size !== paths.length)
-    throw new CliError("usage", "The same file cannot be included twice.");
+    throw invalidInput(`${flag} names the same file twice.`, [
+      inputIssue(flag, "conflict", "give each file only once."),
+    ]);
   return paths;
 }
 /** Hash each local file once; the upload later rereads and verifies it. */
@@ -97,10 +123,13 @@ export async function readConnectorFile(
     new AbortController().signal,
   );
   if (snapshot.sha256 !== file.sha256 || snapshot.sizeBytes !== file.sizeBytes)
-    throw new CliError(
-      "invalid_path",
-      "An input file changed while the command was running.",
-    );
+    throw invalidInput("An input file changed while the command was running.", [
+      inputIssue(
+        "file",
+        "unreadable",
+        `${file.name}: changed while it was read.`,
+      ),
+    ]);
   return snapshot.content;
 }
 // Only storage/provider domains used by the fixed bindings are eligible. Never
@@ -153,22 +182,29 @@ export function connectorTransferURL(value: unknown): string {
 export async function assertNewOutput(
   filename: string,
   cwd: string,
+  flag = "--output",
 ): Promise<string> {
   if (!filename || filename === "-" || /[\r\n\p{Cc}]/u.test(filename))
-    throw new CliError(
-      "usage",
-      "Provide a local output path, not stdin/stdout.",
-    );
+    throw invalidInput(`${flag} needs a local file path.`, [
+      inputIssue(
+        flag,
+        "invalid_value",
+        `expected a local file path, not stdout or a line break; got ${echo(filename)}.`,
+      ),
+    ]);
   const output = path.resolve(cwd, filename);
   const existing = await lstat(output).catch((e: NodeJS.ErrnoException) => {
     if (e.code === "ENOENT") return null;
     throw e;
   });
   if (existing)
-    throw new CliError(
-      "invalid_path",
-      "The output path already exists; choose another path.",
-    );
+    throw invalidInput(`The ${flag} file already exists.`, [
+      inputIssue(
+        flag,
+        "unwritable",
+        `${filename}: already exists; choose a new path.`,
+      ),
+    ]);
   return output;
 }
 export async function saveConnectorBytes(
@@ -178,8 +214,8 @@ export async function saveConnectorBytes(
 ): Promise<{ path: string; sizeBytes: number; sha256: string }> {
   if (bytes.length > maximumFileBytes)
     throw new CliError(
-      "too_large",
-      "The downloaded file exceeds the byte limit.",
+      "file_transfer_failed",
+      `The downloaded file is larger than ${mebibytes(maximumFileBytes)}.`,
     );
   const output = await assertNewOutput(filename, context.cwd);
   // Saving into a folder that does not exist yet, such as a conversation's

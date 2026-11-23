@@ -57,7 +57,7 @@ func claudeCatalog(ctx context.Context, inv Invocation) (ModelList, error) {
 		"request":    map[string]any{"subtype": "initialize"},
 	}
 	var advertised []json.RawMessage
-	err := exchangeCatalog(ctx, inv, claudeCatalogArgs, []any{request}, func(frame []byte, _ func(...any) error) (bool, error) {
+	err := exchangeCatalog(ctx, claudeInvocation(inv), claudeCatalogArgs, []any{request}, func(frame []byte, _ func(...any) error) (bool, error) {
 		reply, ours := claudeCatalogReplyFrame(frame)
 		if !ours {
 			return false, nil

@@ -1,8 +1,11 @@
 import type { components } from "@linger/wire-contracts/teamhub-public/types";
-import { queryOptions } from "@tanstack/react-query";
+import { queryOptions, type QueryClient } from "@tanstack/react-query";
 
+import { localComputersQueryKey } from "@/features/local-computer/local-computer-queries";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
+
+import { modelSourceQueryKey } from "./model-source-queries";
 
 type Schemas = components["schemas"];
 export type LocalModelsView = Schemas["LocalModelsView"];
@@ -28,6 +31,25 @@ export function localModelsQueryKey(tenantId: string, computerId: string) {
   return [...tenantLocalModelsQueryKey(tenantId), computerId] as const;
 }
 
+/** Invalidates the Computer's inventory, library, and model-source queries after an offline refusal. */
+export function invalidateOfflineComputer(
+  queryClient: QueryClient,
+  tenantId: string,
+  computerId: string,
+) {
+  return Promise.all([
+    queryClient.invalidateQueries({
+      queryKey: localComputersQueryKey(tenantId),
+    }),
+    queryClient.invalidateQueries({
+      queryKey: localModelsQueryKey(tenantId, computerId),
+    }),
+    queryClient.invalidateQueries({
+      queryKey: modelSourceQueryKey(tenantId, computerId),
+    }),
+  ]);
+}
+
 /**
  * One Computer's model library as it last reported it. A local-models hint
  * with the Computer ID refreshes it while a download or load runs.
@@ -46,6 +68,8 @@ export function localModelsQueryOptions(
         }),
       ),
     queryKey: localModelsQueryKey(tenantId, computerId),
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
     retry: false,
   });
 }

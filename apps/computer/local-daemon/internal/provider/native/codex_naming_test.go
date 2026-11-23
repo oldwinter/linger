@@ -92,7 +92,7 @@ func TestCodexResumeKeepsName(t *testing.T) {
 		t.Fatalf("reuse = %+v", out)
 	}
 	// A changed instruction rebinds through thread/resume.
-	spec.AppendPrompt = "be brief"
+	spec.SystemPrompt = "be brief"
 	if out, _ := codexDrain(t, rt, "three", spec); out.Status != statusCompleted || fake.count("thread/resume") != 1 {
 		t.Fatalf("resume = %+v methods = %v", out, fake.methods())
 	}

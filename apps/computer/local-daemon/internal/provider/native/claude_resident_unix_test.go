@@ -157,7 +157,7 @@ func TestClaudeResidentIncompatibleTurnSpawnsFresh(t *testing.T) {
 	front := `{"mcpServers":{"a":{"type":"http","url":"http://127.0.0.1:1/a"}}}`
 	for name, second := range map[string]RunSpec{
 		"model":     {ResumeID: claudeTestSession, Model: "other"},
-		"prompt":    {ResumeID: claudeTestSession, AppendPrompt: "other"},
+		"prompt":    {ResumeID: claudeTestSession, SystemPrompt: "other"},
 		"resume id": {ResumeID: "87654321-4321-4321-8321-210987654321"},
 		"assign":    {AssignSessionID: "87654321-4321-4321-8321-210987654321"},
 	} {
@@ -220,7 +220,7 @@ func TestClaudeResidentMismatchLogNamesFieldsOnly(t *testing.T) {
 	home := claudeNewResidentHome(t, nil)
 	home.turn(t, "hello", RunSpec{})
 	home.profile.Env["EXTRA_SECRET"] = "value-that-must-not-leak"
-	home.turn(t, "hello", RunSpec{AppendPrompt: "secret prompt", AgentArgs: []string{"--verbose-extra"}, AssignSessionID: "87654321-4321-4321-8321-210987654321"})
+	home.turn(t, "hello", RunSpec{SystemPrompt: "secret prompt", AgentArgs: []string{"--verbose-extra"}, AssignSessionID: "87654321-4321-4321-8321-210987654321"})
 	records := home.logs.await(t, "claude resident recycled", 1)
 	if got := records[0].attrs["mismatch"]; got != "args,env,initialize,create_session,session" {
 		t.Fatalf("mismatch = %q", got)

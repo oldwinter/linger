@@ -5,6 +5,7 @@ import { lstat, open, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { CliError } from "./errors.js";
+import { echo, inputIssue, invalidInput } from "./input-issues.js";
 import type { CliTiming } from "./timing.js";
 
 export interface TeamHubConfig {
@@ -33,10 +34,13 @@ export function createLocalPathResolver(cwd: string, env: NodeJS.ProcessEnv) {
     if (!distro || !source.startsWith("/") || source.startsWith("//"))
       return path.resolve(relativeTo, source);
     const invalidPath = () =>
-      new CliError(
-        "invalid_path",
-        "Could not resolve the local WSL file path.",
-      );
+      invalidInput("A local path could not be translated for Windows.", [
+        inputIssue(
+          "file",
+          "unreadable",
+          `${echo(source)}: not a path wslpath can translate.`,
+        ),
+      ]);
     if (/[:\\\p{Cc}]/u.test(source)) throw invalidPath();
     const normalized = path.posix.normalize(source);
     const parent = path.posix.dirname(normalized);

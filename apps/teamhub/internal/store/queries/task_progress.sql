@@ -19,7 +19,8 @@ ORDER BY progress.local_run_id,progress.event_ordinal;
 
 -- name: ListCoordinatorActiveTasks :many
 -- The Tasks one Meta Context coordinates that are still at work, oldest
--- first, with the latest Run of each that has started.
+-- first, with the latest Run of each that has started. A quiet Task, which
+-- the Room does not show, gets no progress update either.
 SELECT item.id AS task_id,item.title,coalesce(run.run_id,'')::text AS run_id
 FROM work_items item
 JOIN task_execution_generations generation
@@ -36,6 +37,7 @@ WHERE item.tenant_id=sqlc.arg(tenant_id)::text
   AND item.kind='task'
   AND item.archived_at IS NULL
   AND item.task_execution_status IN ('running','waiting_for_approval')
+  AND NOT item.quiet
   AND generation.coordinator_context_key=sqlc.arg(coordinator_context_key)::text
 ORDER BY item.created_at,item.id;
 

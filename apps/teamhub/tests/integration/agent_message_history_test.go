@@ -238,6 +238,145 @@ func TestAgentMessageHistoryRechecksAuthority(t *testing.T) {
 	}
 }
 
+func TestAgentMessageHistoryListsAuthorizedInboxNames(t *testing.T) {
+	allowParallelIntegrationTest(t)
+	env, alice, credential, roomID := newAgentCLIIdentity(t)
+
+	// Create an unauthorized Room the Agent must never see in its inbox list.
+	unauthorizedRoom := createPrivateRoom(t, env, alice, "Unauthorized Secret Room", "list-inboxes-unauth")
+
+	// Create a named Thread under the authorized Room.
+	insertHistoryFixture(t, env, roomID, "list_inboxes_thread_root", "conversation", "Thread root for inbox list")
+	code, _, body := env.request(alice, http.MethodPost, "/v0/rooms/"+roomID+"/messages/list_inboxes_thread_root/thread", map[string]any{}, "list-inboxes-thread")
+	if code != http.StatusCreated && code != http.StatusOK {
+		t.Fatalf("create Thread: %d %s", code, body)
+	}
+	var thread struct {
+		Room struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"room"`
+	}
+	decode(t, body, &thread)
+	if thread.Room.Name == "" {
+		if _, err := env.pool.Exec(t.Context(), `UPDATE rooms SET name=$1 WHERE id=$2 AND tenant_id=$3`, "Inbox List Thread", thread.Room.ID, acmeTenant); err != nil {
+			t.Fatal(err)
+		}
+		thread.Room.Name = "Inbox List Thread"
+	}
+
+	// Create a managed Task (giving meta:<actor>:<task>) and bind it to an
+	// authorized Work Room (giving task:<task>) plus a coordinator callback
+	// (giving taskmeta:<task>).
+	task := createManagedTaskFixture(t, env, roomID, "list-inboxes")
+	workRoom := createPrivateRoom(t, env, alice, "Task Work Room", "list-inboxes-work")
+	if code, body := putRoomMember(t, env, alice, workRoom, "actor_acme_official", "member"); code != http.StatusOK {
+		t.Fatalf("add work Room member: %d %s", code, body)
+	}
+	createTaskWorkRoomLink(t, env, task.ID, workRoom)
+	metaContextKey := `["meta","` + acmeOfficialAgentManagementID + `","room","` + roomID + `"]`
+	if _, err := env.pool.Exec(t.Context(), `
+		INSERT INTO agent_execution_contexts(context_key,tenant_id,agent_actor_id,agent_management_id,context_kind,target_residency,room_id,membership_epoch_id)
+		SELECT $1,tenant_id,actor_id,$2,'meta','suspended',room_id,membership_epoch_id
+		FROM active_room_members WHERE room_id=$3 AND actor_id='actor_acme_official'
+		ON CONFLICT (context_key) DO NOTHING
+	`, metaContextKey, acmeOfficialAgentManagementID, roomID); err != nil {
+		t.Fatal(err)
+	}
+	callbackTaskID := "task_list_inboxes_callback"
+	tx, err := env.pool.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(t.Context())
+	if _, err := tx.Exec(t.Context(), `
+		INSERT INTO work_items(id,tenant_id,number,kind,title,created_by_actor_id,updated_by_actor_id,state,task_execution_generation,task_execution_status,task_execution_revision,task_desired_control,task_control_revision,task_control_settled_revision,task_execution_updated_at,task_next_reconcile_at,task_lease_generation)
+		VALUES($1,$2,98766,'task','Callback Task','actor_acme_alice','actor_acme_alice','in_progress',1,'idle',1,'run',0,0,now(),now(),0)
+	`, callbackTaskID, acmeTenant); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(t.Context(), `
+		INSERT INTO task_execution_generations(task_id,tenant_id,generation,result_agent_actor_id,spec,spec_hash,coordinator_actor_id,coordinator_context_key)
+		VALUES($1,$2,1,'actor_acme_official','{}',decode(repeat('00',32),'hex'),'actor_acme_official',$3)
+	`, callbackTaskID, acmeTenant, metaContextKey); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(t.Context(), `
+		INSERT INTO task_execution_participants(task_id,tenant_id,generation,actor_id,agent_management_id,execution_context_ref)
+		VALUES($1,$2,1,'actor_acme_official',$3,jsonb_build_object('kind','alter_ego','agentId',$3::text,'taskId',$1::text))
+	`, callbackTaskID, acmeTenant, acmeOfficialAgentManagementID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(t.Context(), `
+		INSERT INTO task_meta_callbacks(task_id,tenant_id,generation,coordinator_actor_id,coordinator_context_key)
+		VALUES($1,$2,1,'actor_acme_official',$3)
+	`, callbackTaskID, acmeTenant, metaContextKey); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	code, _, body = taskWorkerJSONRequest(t, env, http.MethodPost, "/api/agent/v1/messages/read", credential.AccessToken, map[string]any{"list_inboxes": true})
+	if code != http.StatusOK {
+		t.Fatalf("list_inboxes failed: %d %s", code, body)
+	}
+	var response struct {
+		Mode    string           `json:"mode"`
+		Inboxes []map[string]any `json:"inboxes"`
+	}
+	decode(t, body, &response)
+	if response.Mode != "inboxes" {
+		t.Fatalf("mode=%q want inboxes (%s)", response.Mode, body)
+	}
+	byID := make(map[string]map[string]any, len(response.Inboxes))
+	for _, item := range response.Inboxes {
+		id, _ := item["inbox_id"].(string)
+		byID[id] = item
+	}
+
+	if _, leaked := byID["room:"+unauthorizedRoom]; leaked {
+		t.Fatalf("unauthorized Room %s leaked in list_inboxes: %s", unauthorizedRoom, body)
+	}
+
+	expectNamed := []struct {
+		id, kind, name string
+	}{
+		{"room:" + roomID, "room", "Independent Agent CLI"},
+		{"room:" + workRoom, "room", "Task Work Room"},
+		{"thread:" + thread.Room.ID, "thread", thread.Room.Name},
+		{"task:" + task.ID, "task", "Schema Task list-inboxes"},
+	}
+	for _, want := range expectNamed {
+		item, ok := byID[want.id]
+		if !ok {
+			t.Fatalf("missing authorized inbox %s in %s", want.id, body)
+		}
+		if item["kind"] != want.kind || item["name"] != want.name {
+			t.Errorf("inbox %s = %v, want kind=%q name=%q", want.id, item, want.kind, want.name)
+		}
+	}
+
+	expectUnnamed := []struct {
+		id, kind string
+	}{
+		{"meta:actor_acme_official:" + task.ID, "meta"},
+		{"taskmeta:" + callbackTaskID, "taskmeta"},
+	}
+	for _, want := range expectUnnamed {
+		item, ok := byID[want.id]
+		if !ok {
+			t.Fatalf("missing authorized inbox %s in %s", want.id, body)
+		}
+		if item["kind"] != want.kind {
+			t.Errorf("inbox %s kind=%v, want %q", want.id, item["kind"], want.kind)
+		}
+		if _, hasName := item["name"]; hasName {
+			t.Errorf("inbox %s should omit name field, got %v", want.id, item)
+		}
+	}
+}
+
 func historyCursorSnapshot(t *testing.T, env *testEnv) string {
 	t.Helper()
 	var snapshot string

@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/agentruntimestate"
@@ -178,8 +179,15 @@ func (a *App) exchangeLocalComputerEnrollment(c *gin.Context) {
 	})
 }
 
+// localComputerDisplayNameRunes is the Computer name bound, in characters:
+// the setup page bounds the same field with maxLength, and a CJK name of 120
+// characters is 360 bytes and still fits.
+const localComputerDisplayNameRunes = 120
+
 func validLocalComputerEnrollmentCreate(request httpapi.LocalComputerEnrollmentCreateRequest) bool {
-	return strings.TrimSpace(request.DisplayName) != "" && len(request.DisplayName) <= 120 &&
+	return strings.TrimSpace(request.DisplayName) != "" &&
+		utf8.ValidString(request.DisplayName) &&
+		utf8.RuneCountInString(request.DisplayName) <= localComputerDisplayNameRunes &&
 		(request.ComputerId == nil || localComputerIDPattern.MatchString(*request.ComputerId)) &&
 		(request.DaemonId == nil || localComputerPKCEPattern.MatchString(*request.DaemonId)) &&
 		localComputerPKCEPattern.MatchString(request.CodeChallenge) && validLocalComputerRedirect(request.RedirectUri)

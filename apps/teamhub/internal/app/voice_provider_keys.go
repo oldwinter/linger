@@ -18,23 +18,27 @@ func (a *App) saveVoiceProviderKey(c *gin.Context) {
 	provider := voicekey.Provider(c.Param("provider"))
 	var request httpapi.SaveVoiceProviderKeyRequest
 	if !provider.Valid() || decodeJSON(c, &request) != nil {
-		a.writeError(c, http.StatusBadRequest, "INVALID_REQUEST", "Voice provider key request is invalid")
+		a.writeError(c, http.StatusBadRequest, string(httpapi.VoiceProviderKeyErrorCodeInvalidRequest), "Voice provider key request is invalid")
 		return
 	}
 	err := a.voiceKeys.Save(c.Request.Context(), provider, request.ApiKey)
 	switch {
 	case errors.Is(err, voicekey.ErrInvalid):
-		a.writeError(c, http.StatusBadRequest, "INVALID_REQUEST", "Voice provider API key is invalid")
+		a.writeError(c, http.StatusBadRequest, string(httpapi.VoiceProviderKeyErrorCodeInvalidRequest), "Voice provider API key is invalid")
 	case errors.Is(err, voicekey.ErrRejected):
-		a.writeError(c, http.StatusBadRequest, "VOICE_KEY_REJECTED", "The voice provider rejected this API key")
+		a.writeError(c, http.StatusBadRequest, string(httpapi.VoiceProviderKeyErrorCodeVoiceKeyRejected), "The voice provider rejected this API key")
+	case errors.Is(err, voicekey.ErrNoBalance):
+		a.writeError(c, http.StatusBadRequest, string(httpapi.VoiceProviderKeyErrorCodeVoiceKeyNoBalance), "The voice provider account has no balance or budget left")
+	case errors.Is(err, voicekey.ErrNoRealtime):
+		a.writeError(c, http.StatusBadRequest, string(httpapi.VoiceProviderKeyErrorCodeVoiceKeyNoRealtimePermission), "This API key may not use the voice provider's realtime transcription")
 	case errors.Is(err, voicekey.ErrFromEnvironment):
-		a.writeError(c, http.StatusConflict, "VOICE_KEY_FROM_ENVIRONMENT", "This deployment sets this voice provider's API key")
+		a.writeError(c, http.StatusConflict, string(httpapi.VoiceProviderKeyErrorCodeVoiceKeyFromEnvironment), "This deployment sets this voice provider's API key")
 	case errors.Is(err, voicekey.ErrVoiceOff):
-		a.writeError(c, http.StatusServiceUnavailable, "VOICE_MEDIA_OFF", "Voice is off in this deployment")
+		a.writeError(c, http.StatusServiceUnavailable, string(httpapi.VoiceProviderKeyErrorCodeVoiceMediaOff), "Voice is off in this deployment")
 	case errors.Is(err, voicekey.ErrStorageMissing):
-		a.writeError(c, http.StatusServiceUnavailable, "VOICE_KEY_STORAGE_UNAVAILABLE", "This deployment cannot store a voice provider API key")
+		a.writeError(c, http.StatusServiceUnavailable, string(httpapi.VoiceProviderKeyErrorCodeVoiceKeyStorageUnavailable), "This deployment cannot store a voice provider API key")
 	case errors.Is(err, voicekey.ErrProviderUnavailable):
-		a.writeError(c, http.StatusServiceUnavailable, "VOICE_PROVIDER_UNAVAILABLE", "The voice provider could not be reached; try again")
+		a.writeError(c, http.StatusServiceUnavailable, string(httpapi.VoiceProviderKeyErrorCodeVoiceProviderUnavailable), "The voice provider could not be reached; try again")
 	case err != nil:
 		a.internalError(c, "save voice provider key", err)
 	default:

@@ -1,5 +1,5 @@
 import { PlugSocketIcon } from "@hugeicons/core-free-icons";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 
 import { Icon } from "@/components/ui/icon";
 import { useT } from "@/i18n/use-translation";
@@ -8,10 +8,16 @@ import { cn } from "@/lib/cn";
 import { connectorMessages as m } from "./connectors.messages";
 
 const SIZES = {
-  md: { image: "size-6", icon: 20 },
-  sm: { image: "size-3", icon: 12 },
-  profile: { image: "size-4", icon: 15 },
+  md: { icon: 20, image: "size-6", text: "text-xs" },
+  profile: { icon: 15, image: "size-4", text: "text-[10px]" },
+  sm: { icon: 12, image: "size-3", text: "text-[9px]" },
 } as const;
+
+function appMonogram(name: string) {
+  const trimmed = name.trim();
+  if (!trimmed) return "";
+  return trimmed.charAt(0).toUpperCase();
+}
 
 export function AppLogo({
   name,
@@ -22,31 +28,22 @@ export function AppLogo({
   size?: keyof typeof SIZES;
   url?: string;
 }) {
-  const t = useT();
-  const [failedUrl, setFailedUrl] = useState<string>();
   const [loadedUrl, setLoadedUrl] = useState<string>();
-  const imgRef = useRef<HTMLImageElement>(null);
-  const showImage = Boolean(url) && failedUrl !== url;
-  const loaded = Boolean(url) && loadedUrl === url;
+  const [failedUrl, setFailedUrl] = useState<string>();
+  const t = useT();
+  const isLoaded = Boolean(url && loadedUrl === url);
+  const showImage = Boolean(url && failedUrl !== url);
+  const monogram = size === "sm" ? "" : appMonogram(name);
 
-  useEffect(() => {
-    const node = imgRef.current;
-    if (url && node?.complete && node.naturalWidth > 0) {
-      setLoadedUrl(url);
-    }
-  }, [url]);
-
-  if (!showImage || !url) {
-    return (
-      <span
-        aria-label={t(m.appIcon, { name })}
-        className="inline-flex items-center justify-center text-muted-foreground"
-        role="img"
-      >
-        <Icon icon={PlugSocketIcon} size={SIZES[size].icon} />
-      </span>
-    );
-  }
+  // A cached image may already be complete before React attaches onLoad.
+  const handleImageRef = useCallback(
+    (node: HTMLImageElement | null) => {
+      if (!node || !url || !node.complete) return;
+      if (node.naturalWidth > 0) setLoadedUrl(url);
+      else setFailedUrl(url);
+    },
+    [url],
+  );
 
   return (
     <span
@@ -55,28 +52,49 @@ export function AppLogo({
         SIZES[size].image,
       )}
     >
-      {!loaded ? (
+      {!isLoaded ? (
         <span
-          aria-hidden="true"
-          className="inline-flex items-center justify-center text-muted-foreground/60"
-          data-logo-fallback="loading"
+          aria-label={t(m.appIcon, { name })}
+          className={cn(
+            "inline-flex size-full items-center justify-center text-muted-foreground",
+            monogram && "rounded-md bg-muted font-semibold leading-none",
+          )}
+          data-logo-fallback={showImage ? "loading" : undefined}
+          role="img"
         >
-          <Icon icon={PlugSocketIcon} size={SIZES[size].icon} />
+          {monogram ? (
+            <span aria-hidden="true" className={SIZES[size].text}>
+              {monogram}
+            </span>
+          ) : (
+            <Icon icon={PlugSocketIcon} size={SIZES[size].icon} />
+          )}
         </span>
       ) : null}
-      <img
-        alt=""
-        className={cn(
-          SIZES[size].image,
-          "object-contain transition-opacity duration-150 motion-reduce:transition-none",
-          loaded ? "opacity-100" : "absolute inset-0 opacity-0",
-        )}
-        onError={() => setFailedUrl(url)}
-        onLoad={() => setLoadedUrl(url)}
-        ref={imgRef}
-        referrerPolicy="no-referrer"
-        src={url}
-      />
+      {showImage ? (
+        <img
+          alt=""
+          className={cn(
+            SIZES[size].image,
+            "object-contain",
+            isLoaded
+              ? "opacity-100"
+              : "pointer-events-none absolute inset-0 opacity-0",
+          )}
+          decoding="async"
+          onError={() => setFailedUrl(url)}
+          onLoad={(event) => {
+            if (event.currentTarget.naturalWidth > 0) {
+              setLoadedUrl(url);
+            } else {
+              setFailedUrl(url);
+            }
+          }}
+          ref={handleImageRef}
+          referrerPolicy="no-referrer"
+          src={url}
+        />
+      ) : null}
     </span>
   );
 }

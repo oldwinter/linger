@@ -1,15 +1,55 @@
-import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
+import {
+  atomicPrivate,
+  composeProject,
+  instanceRoot,
+  privateDirectory,
+} from "@linger/local-installation/instance";
 import { describe, expect, it, vi } from "vitest";
 
 import { NODE_RUNTIME_VERSION } from "../../../../scripts/local-computer-node-distributions.mjs";
 import { ConfigStore } from "./config.js";
-import { LocalServerModule } from "./local-server.js";
+import {
+  LocalServerModule,
+  LocalServerUnverifiedError,
+  type LocalServerIdentity,
+} from "./local-server.js";
 import { EventBus, ModuleHost } from "./modules.js";
 import { stubModule, tempDirectory } from "./test-support.js";
 
-function setupResumeFixture(installerScript: string) {
+async function writeDesktopInstance(home: string, port: number): Promise<void> {
+  const root = instanceRoot({ name: "desktop", home });
+  await privateDirectory(root);
+  await atomicPrivate(
+    path.join(root, "instance.json"),
+    JSON.stringify({
+      schemaVersion: 1,
+      name: "desktop",
+      mode: "source-native",
+      root,
+      project: composeProject(root, "desktop"),
+      origin: `http://localhost:${port}`,
+      port,
+      releaseDir: "/source",
+      computerConfig: path.join(root, "computer", "config.json"),
+      computerExecutable: "linger-computer",
+    }) + "\n",
+  );
+}
+
+function setupResumeFixture(
+  installerScript: string,
+  options: {
+    fetch?: typeof fetch;
+    serverIdentity?: (
+      home: string,
+      origin: string,
+    ) => Promise<LocalServerIdentity>;
+    proveServer?: (server: LocalServerIdentity) => Promise<void>;
+  } = {},
+) {
   const root = tempDirectory();
   const home = path.join(root, "home");
   const installerDirectory = path.join(root, "installer");
@@ -55,9 +95,15 @@ function setupResumeFixture(installerScript: string) {
     arch: "x64",
     pollMs: 10,
     signIn: async () => {},
-    fetch: (async () => {
-      throw new Error("offline");
-    }) as typeof fetch,
+    ...(options.serverIdentity
+      ? { serverIdentity: options.serverIdentity }
+      : {}),
+    ...(options.proveServer ? { proveServer: options.proveServer } : {}),
+    fetch:
+      options.fetch ??
+      ((async () => {
+        throw new Error("offline");
+      }) as typeof fetch),
   });
 
   const host = new ModuleHost(
@@ -245,6 +291,209 @@ describe("LocalServerModule resume coordination", () => {
       JSON.stringify({ home: f.home, origin: "http://localhost:3000" }),
     );
     await expect(f.module.resumable("http://localhost:3000")).resolves.toBe(
+      false,
+    );
+    await f.host.stop("quit");
+  });
+
+  it("completes cold reopen onto a new port even when a detached grandchild keeps stdout open", async () => {
+    const f = setupResumeFixture(`
+      const { spawn } = require("node:child_process");
+      const { writeFileSync } = require("node:fs");
+      const path = require("node:path");
+      // Keep the write end of stdout open after the installer exits, as a
+      // detached service on Windows can when inheriting pipe handles.
+      const holder = spawn(process.execPath, ["-e", "setTimeout(() => {}, 30000)"], {
+        detached: true,
+        stdio: ["ignore", 1, "ignore"],
+      });
+      holder.unref();
+      writeFileSync(path.join(process.env.LINGER_HOME, "holder.pid"), String(holder.pid));
+      process.stdout.write(JSON.stringify({
+        code: 0,
+        details: { origin: "http://localhost:63009" },
+      }) + "\\n", () => process.exit(0));
+    `);
+
+    try {
+      await f.host.start();
+      await vi.waitFor(() => expect(f.module.status().phase).toBe("ready"), {
+        timeout: 5_000,
+      });
+      expect(f.setServer).toHaveBeenCalledWith(
+        "http://localhost:63009",
+        "http://localhost:3000",
+        { reason: "resume_ready" },
+      );
+      const saved = JSON.parse(
+        readFileSync(path.join(f.home, "desktop", "local-server.json"), "utf8"),
+      ) as { origin: string };
+      expect(saved.origin).toBe("http://localhost:63009");
+      await expect(f.module.isStarting("http://localhost:63009")).resolves.toBe(
+        false,
+      );
+    } finally {
+      await f.host.stop("quit");
+      const pidFile = path.join(f.home, "holder.pid");
+      try {
+        process.kill(Number(readFileSync(pidFile, "utf8")), "SIGKILL");
+      } catch {
+        // Already exited.
+      }
+    }
+  });
+
+  it("parses the installer outcome line even when a detached grandchild writes trailing non-JSON output", async () => {
+    const f = setupResumeFixture(`
+      const { spawn } = require("node:child_process");
+      const { writeFileSync } = require("node:fs");
+      const path = require("node:path");
+      // Emit the installer outcome JSON, then have a detached grandchild write
+      // both plain text and non-outcome JSON log lines while holding stdout open.
+      const holder = spawn(
+        process.execPath,
+        [
+          "-e",
+          "process.stdout.write('service started\\n'); process.stdout.write(JSON.stringify({ level: 'info', msg: 'ready' }) + '\\n'); setTimeout(() => {}, 30000);",
+        ],
+        {
+          detached: true,
+          stdio: ["ignore", 1, "ignore"],
+        },
+      );
+      holder.unref();
+      writeFileSync(path.join(process.env.LINGER_HOME, "holder.pid"), String(holder.pid));
+      process.stdout.write(JSON.stringify({
+        code: 0,
+        details: { origin: "http://localhost:63010" },
+      }) + "\\n");
+      setTimeout(() => process.exit(0), 60);
+    `);
+
+    try {
+      await f.host.start();
+      await vi.waitFor(() => expect(f.module.status().phase).toBe("ready"), {
+        timeout: 5_000,
+      });
+      expect(f.setServer).toHaveBeenCalledWith(
+        "http://localhost:63010",
+        "http://localhost:3000",
+        { reason: "resume_ready" },
+      );
+    } finally {
+      await f.host.stop("quit");
+      const pidFile = path.join(f.home, "holder.pid");
+      try {
+        process.kill(Number(readFileSync(pidFile, "utf8")), "SIGKILL");
+      } catch {
+        // Already exited.
+      }
+    }
+  });
+
+  it("adopts a verified live moved port from instance.json before showing Starting", async () => {
+    const proved: LocalServerIdentity[] = [];
+    const f = setupResumeFixture(
+      `
+        setTimeout(() => {
+          process.stdout.write(JSON.stringify({ code: 0, details: { origin: "http://localhost:63009" } }) + "\\n");
+        }, 40);
+      `,
+      {
+        serverIdentity: async (_home, origin) => ({
+          origin,
+          teamhub: "http://127.0.0.1:8080",
+          key: new Uint8Array([1, 2, 3]),
+        }),
+        proveServer: async (server) => {
+          proved.push(server);
+        },
+        fetch: (async (input: string | URL | Request) => {
+          const url = String(input);
+          if (url === "http://localhost:63009")
+            return new Response(null, { status: 200 });
+          throw new Error("connection refused");
+        }) as typeof fetch,
+      },
+    );
+    await writeDesktopInstance(f.home, 63009);
+
+    await f.host.start();
+    await vi.waitFor(() => expect(f.module.status().phase).toBe("ready"));
+    expect(proved).toEqual([
+      expect.objectContaining({ origin: "http://localhost:63009" }),
+    ]);
+    expect(f.showStarting).not.toHaveBeenCalled();
+    expect(f.setServer).toHaveBeenNthCalledWith(
+      1,
+      "http://localhost:63009",
+      "http://localhost:3000",
+      { reason: "port_moved" },
+    );
+    expect(f.setServer).toHaveBeenNthCalledWith(
+      2,
+      "http://localhost:63009",
+      "http://localhost:63009",
+      { reason: "resume_ready" },
+    );
+    await f.host.stop("quit");
+  });
+
+  it("does not adopt a moved port on the fast path when server identity verification fails", async () => {
+    const f = setupResumeFixture(
+      `
+        setTimeout(() => {
+          process.stdout.write(JSON.stringify({ code: 0, details: { origin: "http://localhost:63011" } }) + "\\n");
+        }, 40);
+      `,
+      {
+        serverIdentity: async (_home, origin) => ({
+          origin,
+          teamhub: "http://127.0.0.1:8080",
+          key: new Uint8Array([1, 2, 3]),
+        }),
+        proveServer: async () => {
+          throw new LocalServerUnverifiedError("proof_mismatch");
+        },
+        fetch: (async (input: string | URL | Request) => {
+          const url = String(input);
+          // Unrelated server answers 200 on the moved port.
+          if (url === "http://localhost:63009")
+            return new Response(null, { status: 200 });
+          throw new Error("connection refused");
+        }) as typeof fetch,
+      },
+    );
+    await writeDesktopInstance(f.home, 63009);
+
+    await f.host.start();
+    await vi.waitFor(() => expect(f.module.status().phase).toBe("ready"));
+    expect(f.showStarting).toHaveBeenCalledOnce();
+    expect(f.setServer).toHaveBeenCalledExactlyOnceWith(
+      "http://localhost:63011",
+      "http://localhost:3000",
+      { reason: "resume_ready" },
+    );
+    await f.host.stop("quit");
+  });
+
+  it("reports isStarting() true only while resuming and false once settled", async () => {
+    const f = setupResumeFixture(`
+      setTimeout(() => {
+        process.stdout.write(JSON.stringify({ code: 0, details: { origin: "http://localhost:3000" } }) + "\\n");
+      }, 60);
+    `);
+
+    // Before start(), a valid matching record signals boot is about to resume.
+    await expect(f.module.isStarting("http://localhost:3000")).resolves.toBe(
+      true,
+    );
+    await f.host.start();
+    await expect(f.module.isStarting("http://localhost:3000")).resolves.toBe(
+      true,
+    );
+    await vi.waitFor(() => expect(f.module.status().phase).toBe("ready"));
+    await expect(f.module.isStarting("http://localhost:3000")).resolves.toBe(
       false,
     );
     await f.host.stop("quit");

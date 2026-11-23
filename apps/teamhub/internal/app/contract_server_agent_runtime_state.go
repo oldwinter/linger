@@ -424,7 +424,7 @@ func (a *App) getAgentRuntimeWorkState(c *gin.Context) {
 	if a.writeAgentRuntimeStateError(c, "get Runtime pending work", err) {
 		return
 	}
-	rows, err := a.agentRuntimeState.NextRunInputOrigins(c.Request.Context(), params.ContextKey)
+	rows, err := a.agentRuntimeState.QueuedRunInputOrigins(c.Request.Context(), params.ContextKey)
 	if a.writeAgentRuntimeStateError(c, "get Runtime queued Runs", err) {
 		return
 	}
@@ -440,7 +440,7 @@ func (a *App) getAgentRuntimeWorkState(c *gin.Context) {
 	for _, row := range rows {
 		origins = append(origins, teamhubinternal.AgentRunInputOrigin{
 			Notification: row.Notification, TaskInbox: row.TaskInbox, AuthorType: row.AuthorType,
-			MessageKind: row.MessageKind, FiredRoutine: row.FiredRoutine,
+			MessageKind: row.MessageKind, FiredRoutine: row.FiredRoutine, HumanWaiting: row.HumanWaiting,
 		})
 	}
 	c.JSON(http.StatusOK, teamhubinternal.AgentRuntimeWorkState{

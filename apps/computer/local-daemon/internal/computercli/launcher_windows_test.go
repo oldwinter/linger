@@ -23,6 +23,11 @@ const (
 
 func TestDetachedDaemonSurvivesSessionJobClose(t *testing.T) {
 	runDetachedJobHelper(t)
+	// The daemon must leave every Job above it, which a Job that forbids
+	// breakaway refuses, as GitHub Actions Windows runners' Job does.
+	if !jobAllowsBreakaway() {
+		t.Skip("the test process's Job forbids breakaway, so no daemon below it can leave its Jobs")
+	}
 	session := startInSessionJob(t, windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE|windows.JOB_OBJECT_LIMIT_BREAKAWAY_OK)
 	session.closeJob(t)
 	if state, err := windows.WaitForSingleObject(session.child, 1000); err != nil || state != uint32(windows.WAIT_TIMEOUT) {
@@ -66,6 +71,17 @@ func runDetachedJobHelper(t *testing.T) {
 	}
 }
 
+// jobAllowsBreakaway reports whether this test process is outside any Job or
+// in one whose children may break away.
+func jobAllowsBreakaway() bool {
+	var limits windows.JOBOBJECT_BASIC_LIMIT_INFORMATION
+	// A null handle names the calling process's Job; outside any Job the query fails.
+	if err := windows.QueryInformationJobObject(0, windows.JobObjectBasicLimitInformation, uintptr(unsafe.Pointer(&limits)), uint32(unsafe.Sizeof(limits)), nil); err != nil {
+		return true
+	}
+	return limits.LimitFlags&(windows.JOB_OBJECT_LIMIT_BREAKAWAY_OK|windows.JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK) != 0
+}
+
 // sessionJob is a session helper in its own Job and the daemon it started
 // detached.
 type sessionJob struct {
@@ -96,7 +112,12 @@ func startInSessionJob(t *testing.T, limitFlags uint32) *sessionJob {
 	parent := exec.Command(os.Args[0], "-test.run=^"+t.Name()+"$")
 	parent.Env = append(os.Environ(), detachedJobHelperKey+"=parent", detachedJobReadyKey+"="+ready)
 	// Establish an owned session Job before the helper can spawn its daemon.
-	parent.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_SUSPENDED | windows.CREATE_BREAKAWAY_FROM_JOB | windows.CREATE_NO_WINDOW}
+	// Where this process's Job forbids breakaway, the session Job nests in it.
+	flags := uint32(windows.CREATE_SUSPENDED | windows.CREATE_NO_WINDOW)
+	if jobAllowsBreakaway() {
+		flags |= windows.CREATE_BREAKAWAY_FROM_JOB
+	}
+	parent.SysProcAttr = &syscall.SysProcAttr{CreationFlags: flags}
 	if err := parent.Start(); err != nil {
 		t.Fatal(err)
 	}

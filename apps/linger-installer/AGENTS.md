@@ -66,18 +66,20 @@ localmodels installed without extension support) remains. Only a plan the
 person approved is ever applied, and a stack still not ready ends
 `LOCAL_MODELS_RECOVERY_REQUIRED` with the binding's reason codes in
 `details.reasons` (exposed on jobs as `errorReasons`) and any upstream stack
-guard code in `details.causeCode`. When the services already run, a
-local-models setup whose Computer still uses the local model source
-(`model-source.json` says `local` or does not exist yet) has its stack checked
-once (`restoreLocalModels`), since a quit stops the models but not the
-services: a stack that is not ready gets the same restore, then becomes the
-model source again; if that restore fails or throws (or a same-checkout cold
-resume cannot prepare the local model stack), the failure is logged and
-reported in the ready outcome's `details.localModelsDegraded` without failing
-the resume, so the person can still reach the workspace and the Models page.
-Resource-choice mismatches omit stale binding reason codes so Quick Install
-still triggers a replan. Both same-version resume (`restoreLocalModels`) and
-version upgrades from the saved setup choice leave the stack stopped when
+guard or plan error code in `details.causeCode` (exposed on jobs as
+`errorCauseCode`). When the services already run, a setup whose
+Computer uses the local model source (`model-source.json` says `local`, or does
+not exist yet on a `local-models` setup) has its stack and saved library model
+checked (`restoreLocalModels`), since a quit stops the models but not the
+services: a stack that is not ready gets the same restore, an unloaded saved
+`localmodels-library/` model is reloaded, and the local source is applied again;
+if that restore fails or throws (or a same-checkout cold resume cannot prepare
+the local model stack or reload its saved library model), the failure is logged
+and reported in the ready outcome's `details.localModelsDegraded` without
+failing the resume, so the person can still reach the workspace and the Models
+page. Resource-choice mismatches omit stale binding reason codes so Quick
+Install still triggers a replan. Both same-version resume (`restoreLocalModels`)
+and version upgrades from the saved setup choice leave the stack stopped when
 `model-source.json` was switched to `subscription` or `byok`; a saved BYOK
 source gets its Bifrost gateway mounted again from the saved configuration
 unless it already answers (`restoreByokSource`), and a failure is logged and

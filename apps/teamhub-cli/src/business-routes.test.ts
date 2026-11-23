@@ -36,8 +36,8 @@ describe("command dependency initialization", () => {
         messages: ["Source: &#xe200;cite&#xe202;turn1search0&#xe201;"],
       }),
     ).rejects.toMatchObject({
-      code: "unsupported_message_citation",
-      details: { sent: false },
+      code: "invalid_input",
+      details: { issues: [{ path: "content", code: "invalid_value" }] },
     });
     expect(dependencyLoads).toEqual({ citations: 1, creation: 0 });
   });

@@ -202,6 +202,100 @@ class MacSigningTest(unittest.TestCase):
         self.assertIn("Contents/Resources/cli/computer-tools/cua/CuaDriver.app",
                       args[args.index("--exclude") + 1])
 
+    def test_npm_scope_paths_name_each_architecture(self):
+        app = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, app)
+        modules = os.path.join(app, "Contents", "Resources", "node_modules")
+        thin = os.path.join(modules, "@img", "sharp", "sharp.node")
+        fat = os.path.join(modules, "@cua", "driver")
+        plain = os.path.join(modules, "canvas", "skia.node")
+        for path, data in ((thin, MACHO), (fat, b"\xca\xfe\xba\xbe\0\0\0\2" + b"\0" * 24), (plain, MACHO)):
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "wb") as out:
+                out.write(data)
+        args = self.mac.Signing("rcodesign", "id.p12", "id.password").app_args(app)
+        flags = [args[i + 1] for i, arg in enumerate(args) if arg == "--code-signature-flags"]
+        self.assertEqual(flags, [
+            "Contents/Resources/node_modules/@cua/driver@0:runtime",
+            "Contents/Resources/node_modules/@cua/driver@1:runtime",
+            "Contents/Resources/node_modules/@img/sharp/sharp.node@0:runtime",
+            "Contents/Resources/node_modules/canvas/skia.node:runtime",
+        ])
+
+    @staticmethod
+    def signed_macho(flags, cms):
+        """A thin Mach-O with one LC_CODE_SIGNATURE: a CodeDirectory with flags
+        and a CMS blob of cms bytes."""
+        be = lambda value: value.to_bytes(4, "big")  # noqa: E731
+        directory = be(0xFADE0C02) + be(16) + be(0x20400) + be(flags)
+        blob = be(0xFADE0B01) + be(8 + len(cms)) + cms
+        superblob = be(0xFADE0CC0) + be(28 + len(directory) + len(blob)) + be(2) \
+            + be(0) + be(28) + be(0x10000) + be(28 + len(directory)) + directory + blob
+        command = (0x1D).to_bytes(4, "little") + (16).to_bytes(4, "little") \
+            + (48).to_bytes(4, "little") + len(superblob).to_bytes(4, "little")
+        header = b"\xcf\xfa\xed\xfe" + b"\0" * 12 + (1).to_bytes(4, "little") + b"\0" * 12
+        return header + command + superblob
+
+    def test_developer_id_signature_needs_a_certificate_and_the_hardened_runtime(self):
+        self.assertTrue(self.mac.developer_id_signed(self.signed_macho(0x10000, b"cms")))
+        self.assertFalse(self.mac.developer_id_signed(self.signed_macho(0x10002, b"")))  # linker ad-hoc
+        self.assertFalse(self.mac.developer_id_signed(self.signed_macho(0, b"cms")))  # no hardened runtime
+        self.assertFalse(self.mac.developer_id_signed(MACHO))  # no signature at all
+
+    def test_bundled_archives_without_developer_id_stop_the_build(self):
+        app = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, app)
+        native = os.path.join(app, self.mac.NATIVE)
+        os.makedirs(native)
+
+        def archive(name, data):
+            with tarfile.open(os.path.join(native, name), "w:gz") as tar:
+                for member, body in (("./bin/tool", data), ("./README", b"text")):
+                    info = tarfile.TarInfo(member)
+                    info.size = len(body)
+                    tar.addfile(info, io.BytesIO(body))
+
+        archive("signed.tar.gz", self.signed_macho(0x10000, b"cms"))
+        self.mac.check_bundled_archives(app)
+        archive("ad-hoc.tar.gz", self.signed_macho(0x10002, b""))
+        with self.assertRaises(SystemExit) as stopped:
+            self.mac.check_bundled_archives(app)
+        self.assertIn("ad-hoc.tar.gz holds 1 Mach-O files", str(stopped.exception))
+
+    def test_signing_an_archive_replaces_only_unsigned_macho_members(self):
+        spec = importlib.util.spec_from_file_location(
+            "sign_native_archives", os.path.join(HERE, "mac", "sign_native_archives.py"))
+        signer = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(signer)
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root)
+        source = os.path.join(root, "in.tar.gz")
+        signed = self.signed_macho(0x10000, b"cms")
+        with tarfile.open(source, "w:gz") as tar:
+            for name, body in (("./bin/ffmpeg", MACHO), ("./bin/done", signed), ("./LICENSE", b"text")):
+                info = tarfile.TarInfo(name)
+                info.size, info.mode = len(body), 0o755
+                tar.addfile(info, io.BytesIO(body))
+            link = tarfile.TarInfo("./bin/ff")
+            link.type, link.linkname = tarfile.SYMTYPE, "ffmpeg"
+            tar.addfile(link)
+        calls = []
+
+        def sign(name, data):
+            calls.append(name)
+            return signed
+
+        output = os.path.join(root, "out.tar.gz")
+        signer.sign_archive(source, output, sign)
+        self.assertEqual(calls, ["./bin/ffmpeg"])
+        with tarfile.open(output) as tar:
+            members = {member.name: member for member in tar}
+            self.assertEqual(tar.extractfile("./bin/ffmpeg").read(), signed)
+            self.assertEqual(members["./bin/ffmpeg"].mode, 0o755)
+            self.assertEqual(tar.extractfile("./LICENSE").read(), b"text")
+            self.assertEqual(members["./bin/ff"].linkname, "ffmpeg")
+        self.assertEqual(self.mac.unsigned_archive_files(output), [])
+
 
 class ArchiveHelperTest(unittest.TestCase):
     def setUp(self):

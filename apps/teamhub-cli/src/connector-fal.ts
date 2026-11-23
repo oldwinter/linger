@@ -15,7 +15,7 @@ import {
   saveRemoteFiles,
   type GenerationProvider,
 } from "./connector-media.js";
-import { ConnectorError } from "./errors.js";
+import { CliError } from "./errors.js";
 import { readBounded } from "./http-client.js";
 
 const anyObject = { type: "object", additionalProperties: true };
@@ -77,7 +77,7 @@ function outputType(entry: Json): string | undefined {
 }
 function assertOutputType(entry: Json, type: unknown): void {
   if (outputType(entry) !== type)
-    throw new ConnectorError(
+    throw new CliError(
       "invalid_input",
       "This model does not generate the requested media type; select one from --price.",
     );
@@ -107,7 +107,7 @@ async function prices(input: Json, runtime: ConnectorRuntime): Promise<Json> {
       category < 0 ||
       category >= categories.length
     )
-      throw new ConnectorError(
+      throw new CliError(
         "usage",
         "The price-list cursor has an invalid category.",
       );
@@ -125,7 +125,7 @@ async function prices(input: Json, runtime: ConnectorRuntime): Promise<Json> {
       typeof raw.has_more !== "boolean" ||
       (raw.has_more && typeof raw.next_cursor !== "string")
     )
-      throw new ConnectorError(
+      throw new CliError(
         "incomplete_response",
         "The model list or its next-page cursor is incomplete.",
       );
@@ -154,10 +154,7 @@ async function prices(input: Json, runtime: ConnectorRuntime): Promise<Json> {
     ? await runtime.call("FAL_AI_GET_PRICING", { endpoint_id: ids })
     : { prices: [] };
   if (!Array.isArray(pricing.prices))
-    throw new ConnectorError(
-      "incomplete_response",
-      "The price list is incomplete.",
-    );
+    throw new CliError("incomplete_response", "The price list is incomplete.");
   const rows = pricing.prices.map((item) => record(item));
   let missingPrice = false;
   const models = entries.map((entry) => {
@@ -220,7 +217,7 @@ async function executeFal(
     for (const [name, paths] of byField) {
       const declared = resolveRef(properties[name], schemas.components);
       if (paths.length > 1 && declared.type !== "array")
-        throw new ConnectorError(
+        throw new CliError(
           "invalid_input",
           `Only an array field takes several --file values; ${name} takes one.`,
         );
@@ -229,7 +226,7 @@ async function executeFal(
     }
     for (const name of Object.keys(body))
       if (!Object.hasOwn(properties, name))
-        throw new ConnectorError(
+        throw new CliError(
           "invalid_input",
           `This model has no input field ${name}; run teamhub ${type}-gen --provider fal --price --model ${model}.`,
         );
@@ -238,18 +235,18 @@ async function executeFal(
       : [];
     const missing = required.filter((name) => !Object.hasOwn(body, name));
     if (missing.length)
-      throw new ConnectorError(
+      throw new CliError(
         "invalid_input",
         `This model requires ${missing.join(", ")}; run teamhub ${type}-gen --provider fal --price --model ${model}.`,
       );
     for (const [name, item] of Object.entries(body))
       if (!(await matchesSchema(record(properties[name]), schemas, item)))
-        throw new ConnectorError(
+        throw new CliError(
           "invalid_input",
           `${name} does not accept this value; run teamhub ${type}-gen --provider fal --price --model ${model} for its type and allowed values.`,
         );
     if (!(await matchesSchema(schemas.input, schemas, body)))
-      throw new ConnectorError(
+      throw new CliError(
         "invalid_input",
         `The input does not satisfy this model's schema; run teamhub ${type}-gen --provider fal --price --model ${model}.`,
       );
@@ -262,7 +259,7 @@ async function executeFal(
     for (const local of paths) {
       const file = runtime.files.find((item) => item.localPath === local);
       if (!file)
-        throw new ConnectorError(
+        throw new CliError(
           "incomplete_response",
           "An input file snapshot is missing.",
         );
@@ -332,7 +329,7 @@ async function checkRequest(
   });
   const state = queueStatus(status.status);
   if (state === undefined)
-    throw new ConnectorError(
+    throw new CliError(
       "incomplete_response",
       "fal returned an unknown request status.",
     );
@@ -439,7 +436,7 @@ async function modelEntry(runtime: ConnectorRuntime, model: string) {
       ),
     );
   } catch {
-    throw new ConnectorError(
+    throw new CliError(
       "provider_unavailable",
       "fal's model catalog could not be read; try again later.",
       { retryable: true },
@@ -449,7 +446,7 @@ async function modelEntry(runtime: ConnectorRuntime, model: string) {
     .map((item) => record(item))
     .filter((item) => item.endpoint_id === model);
   if (found.length !== 1)
-    throw new ConnectorError("not_found", "fal has no model with this ID.");
+    throw new CliError("not_found", "fal has no model with this ID.");
   return found[0]!;
 }
 

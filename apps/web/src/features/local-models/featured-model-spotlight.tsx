@@ -7,6 +7,7 @@ import type { ReactNode } from "react";
 
 import { Icon } from "@/components/ui/icon";
 import { useT } from "@/i18n/use-translation";
+import { cn } from "@/lib/cn";
 
 import { localModelsMessages as m } from "./local-models.messages";
 
@@ -25,11 +26,16 @@ export function FeaturedModelSpotlight({ children }: { children?: ReactNode }) {
   return (
     <section
       aria-label={t(m.featuredSpotlightRegion)}
-      className="rounded-xl border border-[var(--app-card-info-border)] bg-[var(--app-card-info-surface)] p-3.5"
+      className="overflow-hidden rounded-xl border border-border bg-card shadow-outline"
       data-featured-spotlight="inkling-2-mini"
       data-in-catalog={hasEntry ? "true" : "false"}
     >
-      <div className="flex flex-col gap-2.5 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+      <div
+        className={cn(
+          "flex flex-col gap-2.5 bg-[var(--app-card-info-surface)] px-4 py-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4",
+          hasEntry && "border-b border-border/80",
+        )}
+      >
         <div className="flex min-w-0 flex-1 items-start gap-3">
           {!hasEntry ? (
             <span
@@ -41,7 +47,7 @@ export function FeaturedModelSpotlight({ children }: { children?: ReactNode }) {
           ) : null}
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-1.5 text-xs">
-              <span className="rounded-full bg-[var(--app-mention-surface)] px-2 py-0.5 text-2xs font-semibold tracking-wide text-app-info uppercase">
+              <span className="inline-flex h-5 items-center rounded-sm bg-[var(--app-mention-surface)] px-1.5 text-2xs font-semibold tracking-wide text-app-info uppercase">
                 {t(m.featuredNew)}
               </span>
               <span className="font-medium text-app-info">
@@ -49,7 +55,7 @@ export function FeaturedModelSpotlight({ children }: { children?: ReactNode }) {
               </span>
             </div>
             {!hasEntry ? (
-              <h2 className="mt-1 text-base font-semibold text-foreground">
+              <h2 className="mt-1.5 text-base font-semibold text-foreground">
                 {INKLING_TITLE}
               </h2>
             ) : null}
@@ -57,15 +63,15 @@ export function FeaturedModelSpotlight({ children }: { children?: ReactNode }) {
               {t(m.featuredInklingSummary)}
             </p>
             {!hasEntry ? (
-              <p className="mt-1 text-xs text-muted-foreground">
+              <p className="mt-1.5 text-xs text-muted-foreground">
                 {t(m.featuredNotInCatalog)}
               </p>
             ) : null}
           </div>
         </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1.5 text-xs sm:pt-0.5">
+        <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 text-xs sm:pt-0.5">
           <a
-            className="inline-flex items-center gap-1 font-medium text-foreground underline decoration-border-hover underline-offset-2 transition-colors hover:text-app-info hover:decoration-app-info"
+            className="inline-flex items-center gap-1 font-medium text-muted-foreground transition-colors duration-150 hover:text-app-info focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
             href={INKLING_2_MINI_ANNOUNCEMENT_URL}
             rel="noopener noreferrer"
             target="_blank"
@@ -74,7 +80,7 @@ export function FeaturedModelSpotlight({ children }: { children?: ReactNode }) {
             <Icon className="shrink-0" icon={LinkSquare02Icon} size={14} />
           </a>
           <a
-            className="inline-flex items-center gap-1 font-medium text-foreground underline decoration-border-hover underline-offset-2 transition-colors hover:text-app-info hover:decoration-app-info"
+            className="inline-flex items-center gap-1 font-medium text-muted-foreground transition-colors duration-150 hover:text-app-info focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
             href={INKLING_2_MINI_HF_URL}
             rel="noopener noreferrer"
             target="_blank"
@@ -84,7 +90,7 @@ export function FeaturedModelSpotlight({ children }: { children?: ReactNode }) {
           </a>
         </div>
       </div>
-      {children ? <div className="mt-3">{children}</div> : null}
+      {children ? <div>{children}</div> : null}
     </section>
   );
 }

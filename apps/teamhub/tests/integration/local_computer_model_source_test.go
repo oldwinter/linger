@@ -26,7 +26,8 @@ type modelSourceComputers struct {
 	status  nodeservicesinternal.ModelSourceStatus
 	// duringApply runs while the Computer switches, before TeamHub moves
 	// the Agents.
-	duringApply func()
+	duringApply    func()
+	duringApplyCtx func(context.Context)
 }
 
 func (c *modelSourceComputers) LocalComputerModelSource(_ context.Context, _ roomagent.ModelSourceTarget) (nodeservicesinternal.ModelSourceStatus, error) {
@@ -35,12 +36,15 @@ func (c *modelSourceComputers) LocalComputerModelSource(_ context.Context, _ roo
 	return c.status, nil
 }
 
-func (c *modelSourceComputers) ApplyLocalComputerModelSource(_ context.Context, _ roomagent.ModelSourceTarget, command nodeservicesinternal.ModelSourceApplyCommand) (nodeservicesinternal.ModelSourceStatus, error) {
+func (c *modelSourceComputers) ApplyLocalComputerModelSource(ctx context.Context, _ roomagent.ModelSourceTarget, command nodeservicesinternal.ModelSourceApplyCommand) (nodeservicesinternal.ModelSourceStatus, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.applied = append(c.applied, command)
 	if c.duringApply != nil {
 		c.duringApply()
+	}
+	if c.duringApplyCtx != nil {
+		c.duringApplyCtx(ctx)
 	}
 	return c.status, nil
 }
@@ -309,5 +313,77 @@ func TestLocalComputerModelSourceWorkStartedDuringSwitchKeepsOnlyItsAgent(t *tes
 	}
 	if !moved(worker) {
 		t.Fatal("the forced retry did not move Worker")
+	}
+}
+
+// TestLocalComputerModelSourceDetachesFromClientCancelAndRejectsInvalidStatus
+// verifies that a client disconnecting mid-apply does not cancel the in-flight
+// switch or its Agent reconciliation, and that an invalid returned mode or
+// empty runtime_model is rejected before Agents move.
+func TestLocalComputerModelSourceDetachesFromClientCancelAndRejectsInvalidStatus(t *testing.T) {
+	allowParallelIntegrationTest(t)
+	management := &runStoppingAgentManagement{recordingAgentManagement: &recordingAgentManagement{}}
+	localModel := "localmodels-library/localmodels-lib-qwen3-8-27b/Qwen3.8-27B-UD-Q4_K_M"
+	computers := &modelSourceComputers{status: nodeservicesinternal.ModelSourceStatus{
+		Mode: "byok", Runtime: "pi", RuntimeModel: "localmodels/localmodels-byok",
+	}}
+	env, alice := newModelSourceEnv(t, management, computers)
+	base := "/v0/tenants/" + acmeTenant + "/local-computers/" + fixtureComputerID + "/model-source"
+
+	status, _, body := env.request(alice, http.MethodPost, "/v0/tenants/"+acmeTenant+"/agents", map[string]any{"name": "SwitchAgent", "instructions": "Keep work", "runtime": fixtureRuntime("codex-default")}, "detach-create-agent")
+	if status != http.StatusCreated {
+		t.Fatalf("create agent: %d %s", status, body)
+	}
+	var agent tenantAgentUpdateView
+	decode(t, body, &agent)
+
+	// 1. Mismatched mode or empty runtime_model returns MODEL_SOURCE_FAILED (502)
+	// and leaves the Agent untouched.
+	for _, invalidStatus := range []nodeservicesinternal.ModelSourceStatus{
+		{Mode: "byok", Runtime: "pi", RuntimeModel: "localmodels/localmodels-byok"},
+		{Mode: "local", Runtime: "pi", RuntimeModel: ""},
+	} {
+		computers.status = invalidStatus
+		status, _, body = env.request(alice, http.MethodPost, base, map[string]any{"mode": "local", "runtime": "pi"}, "")
+		if status != http.StatusBadGateway || !containsJSONText(body, "MODEL_SOURCE_FAILED") {
+			t.Fatalf("invalid status %+v -> %d %s", invalidStatus, status, body)
+		}
+		if countRows(t, env, `SELECT count(*) FROM agent_registrations WHERE actor_id=$1 AND local_runtime_type='codex' AND runtime_model='codex-default'`, agent.Actor.ID) != 1 {
+			t.Fatalf("agent moved despite invalid status %+v", invalidStatus)
+		}
+	}
+
+	// 2. Client canceling mid-apply still finishes Apply and moves the Agent.
+	computers.status = nodeservicesinternal.ModelSourceStatus{
+		Mode: "local", Runtime: "pi", RuntimeModel: localModel,
+	}
+	reqCtx, cancelReq := context.WithCancel(t.Context())
+	defer cancelReq()
+	applyCtxErrCh := make(chan error, 1)
+	computers.duringApplyCtx = func(ctx context.Context) {
+		cancelReq()
+		time.Sleep(50 * time.Millisecond)
+		applyCtxErrCh <- ctx.Err()
+	}
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, env.server.URL+base, strings.NewReader(`{"mode":"local","runtime":"pi"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if resp, err := alice.Do(req); err == nil {
+		_ = resp.Body.Close()
+	}
+	if applyCtxErr := <-applyCtxErrCh; applyCtxErr != nil {
+		t.Fatalf("apply context was canceled with client disconnect: %v", applyCtxErr)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if countRows(t, env, `SELECT count(*) FROM agent_registrations WHERE actor_id=$1 AND local_runtime_type='pi' AND runtime_model=$2`, agent.Actor.ID, localModel) == 1 {
+			break
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	if countRows(t, env, `SELECT count(*) FROM agent_registrations WHERE actor_id=$1 AND local_runtime_type='pi' AND runtime_model=$2`, agent.Actor.ID, localModel) != 1 {
+		t.Fatal("agent was not reconciled after client disconnected mid-switch")
 	}
 }

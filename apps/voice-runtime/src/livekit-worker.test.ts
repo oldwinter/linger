@@ -47,6 +47,23 @@ describe("VoiceTrackWorker identities", () => {
   });
 
   it.each([
+    ["ENOTFOUND", "network_dns"],
+    ["EAI_AGAIN", "network_dns"],
+    ["ECONNREFUSED", "network_refused"],
+    ["EPROTO", "network_tls"],
+    ["ERR_SSL_WRONG_VERSION_NUMBER", "network_tls"],
+    ["ERR_TLS_CERT_ALTNAME_INVALID", "network_tls"],
+    ["CERT_HAS_EXPIRED", "network_tls"],
+    ["SELF_SIGNED_CERT_IN_CHAIN", "network_tls"],
+    ["UNABLE_TO_VERIFY_LEAF_SIGNATURE", "network_tls"],
+    ["EACCES", "unknown"],
+  ])("reports the network error code %s as %s", (code, expected) => {
+    expect(
+      voiceTrackFailureCode(Object.assign(new Error("connect"), { code })),
+    ).toBe(expected);
+  });
+
+  it.each([
     "Soniox ASR stream is closed",
     "ASR final overlaps with an accepted final",
     "Soniox ASR rejected the stream with code 401",

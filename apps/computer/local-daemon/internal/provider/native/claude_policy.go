@@ -150,12 +150,15 @@ func claudeSettings(contextWindow int) string {
 	// The project setting source loads the Context's own Skills, but it also
 	// loads every CLAUDE.md and AGENTS.md from the workspace up to the root,
 	// which reaches the user's home. Agent instructions come only from the
-	// appended system prompt, so no CLAUDE.md is read.
+	// system prompt, so no CLAUDE.md is read. An empty attribution stops
+	// Claude from telling the model to sign commits and PRs as Claude Code,
+	// which is wrong for an Agent and for any non-Claude model.
 	settingsEnv := map[string]string{"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1", "CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1"}
 	settings := map[string]any{
 		"disableBundledSkills": true, "syncClaudeAiSkills": false, "syncClaudeAiPlugins": false,
 		"disableAgentView": true, "disableRemoteControl": true, "autoMemoryEnabled": false,
 		"cleanupPeriodDays": 36500, "autoCompactWindow": 200000, "env": settingsEnv,
+		"attribution": map[string]string{"commit": "", "pr": ""},
 	}
 	if contextWindow > 0 {
 		// Claude takes a model it does not know for a 200k one and a [1m]
@@ -226,9 +229,19 @@ func claudeBuildArgv(logger *slog.Logger, spec RunSpec) (shaped, launch []string
 }
 
 // claudeInitializeFrame is the first frame of every spawned process. Its
-// exact bytes are part of the resident shape.
+// exact bytes are part of the resident shape. systemPrompt replaces Claude
+// Code's own prompt, which describes a Claude coding assistant and lists
+// Claude model IDs, so a non-Claude model would take it for its identity.
+// Claude still sends its one-line SDK preamble ahead of it. The prompt ends
+// with the working directory, as Pi's does: Claude 2.1.322 also sends it in
+// a separate environment message, but an older supported release may give
+// it only inside the prompt this replaces.
 func claudeInitializeFrame(spec RunSpec) []byte {
 	skills := append([]string{}, spec.ClaudePolicy.SkillNames...)
+	systemPrompt := spec.SystemPrompt
+	if spec.Dir != "" {
+		systemPrompt = strings.TrimSpace(systemPrompt + "\n\nCurrent working directory: " + spec.Dir)
+	}
 	encoded, _ := json.Marshal(map[string]any{
 		"type":       "control_request",
 		"request_id": claudeInitializeRequestID,
@@ -241,7 +254,7 @@ func claudeInitializeFrame(spec RunSpec) []byte {
 				"PostToolUseFailure": []any{map[string]any{"hookCallbackIds": []string{claudeSteerHookID}}},
 				"Stop":               []any{map[string]any{"hookCallbackIds": []string{claudeStopHookID}}},
 			},
-			"appendSystemPrompt":   spec.AppendPrompt,
+			"systemPrompt":         systemPrompt,
 			"systemPromptSnapshot": false,
 		},
 	})

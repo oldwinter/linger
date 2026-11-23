@@ -16,7 +16,7 @@ UPDATE voice_media_epochs
 SET provider_egress_id=$2,observed_state='active',first_archived_ms=$3,
     archived_through_ms=$3,last_failure_code=NULL,updated_at=clock_timestamp()
 WHERE id=$1 AND observed_state IN ('requested','unknown')
-RETURNING id, voice_session_id, capture_session_id, epoch_index, desired_state, observed_state, provider_egress_id, staging_prefix, playlist_object_key, first_archived_ms, archived_through_ms, segment_count, last_segment_at, final_end_ms, last_failure_code, created_at, updated_at, sealed_at, recorder_state, recorder_started_at, recorder_archived_through_ms, recorder_failure_code, recorder_reported_at, restart_retry_at
+RETURNING id, voice_session_id, capture_session_id, epoch_index, desired_state, observed_state, provider_egress_id, staging_prefix, playlist_object_key, first_archived_ms, archived_through_ms, segment_count, last_segment_at, final_end_ms, last_failure_code, created_at, updated_at, sealed_at, recorder_state, recorder_started_at, recorder_archived_through_ms, recorder_failure_code, recorder_reported_at, restart_retry_at, stop_reconcile_failures, stop_reconcile_retry_at
 `
 
 type ActivateVoiceMediaEpochParams struct {
@@ -53,6 +53,8 @@ func (q *Queries) ActivateVoiceMediaEpoch(ctx context.Context, arg ActivateVoice
 		&i.RecorderFailureCode,
 		&i.RecorderReportedAt,
 		&i.RestartRetryAt,
+		&i.StopReconcileFailures,
+		&i.StopReconcileRetryAt,
 	)
 	return i, err
 }
@@ -101,7 +103,7 @@ SET provider_egress_id=coalesce(provider_egress_id,$2),observed_state=$3,
     archived_through_ms=greatest(coalesce(archived_through_ms,0),$4),
     last_failure_code=NULL,updated_at=clock_timestamp()
 WHERE id=$1 AND observed_state IN ('requested','active','sealing','unknown')
-RETURNING id, voice_session_id, capture_session_id, epoch_index, desired_state, observed_state, provider_egress_id, staging_prefix, playlist_object_key, first_archived_ms, archived_through_ms, segment_count, last_segment_at, final_end_ms, last_failure_code, created_at, updated_at, sealed_at, recorder_state, recorder_started_at, recorder_archived_through_ms, recorder_failure_code, recorder_reported_at, restart_retry_at
+RETURNING id, voice_session_id, capture_session_id, epoch_index, desired_state, observed_state, provider_egress_id, staging_prefix, playlist_object_key, first_archived_ms, archived_through_ms, segment_count, last_segment_at, final_end_ms, last_failure_code, created_at, updated_at, sealed_at, recorder_state, recorder_started_at, recorder_archived_through_ms, recorder_failure_code, recorder_reported_at, restart_retry_at, stop_reconcile_failures, stop_reconcile_retry_at
 `
 
 type AdvanceVoiceMediaEpochObservationParams struct {
@@ -144,6 +146,8 @@ func (q *Queries) AdvanceVoiceMediaEpochObservation(ctx context.Context, arg Adv
 		&i.RecorderFailureCode,
 		&i.RecorderReportedAt,
 		&i.RestartRetryAt,
+		&i.StopReconcileFailures,
+		&i.StopReconcileRetryAt,
 	)
 	return i, err
 }
@@ -611,7 +615,7 @@ INSERT INTO voice_media_epochs(
   $1::text,$2::text,$3::text,
   $4::integer,'active','requested',$5::text
 )
-RETURNING id, voice_session_id, capture_session_id, epoch_index, desired_state, observed_state, provider_egress_id, staging_prefix, playlist_object_key, first_archived_ms, archived_through_ms, segment_count, last_segment_at, final_end_ms, last_failure_code, created_at, updated_at, sealed_at, recorder_state, recorder_started_at, recorder_archived_through_ms, recorder_failure_code, recorder_reported_at, restart_retry_at
+RETURNING id, voice_session_id, capture_session_id, epoch_index, desired_state, observed_state, provider_egress_id, staging_prefix, playlist_object_key, first_archived_ms, archived_through_ms, segment_count, last_segment_at, final_end_ms, last_failure_code, created_at, updated_at, sealed_at, recorder_state, recorder_started_at, recorder_archived_through_ms, recorder_failure_code, recorder_reported_at, restart_retry_at, stop_reconcile_failures, stop_reconcile_retry_at
 `
 
 type CreateVoiceMediaEpochParams struct {
@@ -656,6 +660,8 @@ func (q *Queries) CreateVoiceMediaEpoch(ctx context.Context, arg CreateVoiceMedi
 		&i.RecorderFailureCode,
 		&i.RecorderReportedAt,
 		&i.RestartRetryAt,
+		&i.StopReconcileFailures,
+		&i.StopReconcileRetryAt,
 	)
 	return i, err
 }
@@ -940,6 +946,45 @@ func (q *Queries) FailLiveKitCaptureTranscriptFinalization(ctx context.Context, 
 		&i.HiddenAt,
 		&i.QuickNotesState,
 		&i.QuickNotes,
+	)
+	return i, err
+}
+
+const failUnsettledVoiceCapture = `-- name: FailUnsettledVoiceCapture :one
+WITH failed_epoch AS (
+  UPDATE voice_media_epochs epoch
+  SET desired_state='sealed',observed_state='failed',last_failure_code='stop_unsettled',
+      updated_at=clock_timestamp()
+  WHERE epoch.id=$1::text AND epoch.recorder_state IN ('available','failed')
+    AND epoch.observed_state IN ('requested','active','sealing','unknown')
+    AND EXISTS (SELECT 1 FROM capture_sessions capture
+      WHERE capture.id=epoch.capture_session_id AND capture.status='finalizing')
+  RETURNING epoch.capture_session_id
+)
+UPDATE capture_sessions capture SET status='failed',updated_at=clock_timestamp()
+FROM failed_epoch
+WHERE capture.id=failed_epoch.capture_session_id AND capture.status='finalizing'
+RETURNING capture.id,capture.tenant_id,capture.room_id,capture.created_by_actor_id
+`
+
+type FailUnsettledVoiceCaptureRow struct {
+	ID               string `json:"id"`
+	TenantID         string `json:"tenant_id"`
+	RoomID           string `json:"room_id"`
+	CreatedByActorID string `json:"created_by_actor_id"`
+}
+
+// Ends a stopped Capture with its epoch that used up its settle budget, so
+// its voice session can close. Only an epoch whose recorder sent its terminal
+// receipt qualifies: nothing writes its staging or owes it a stop any more.
+func (q *Queries) FailUnsettledVoiceCapture(ctx context.Context, epochID string) (FailUnsettledVoiceCaptureRow, error) {
+	row := q.db.QueryRow(ctx, failUnsettledVoiceCapture, epochID)
+	var i FailUnsettledVoiceCaptureRow
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.RoomID,
+		&i.CreatedByActorID,
 	)
 	return i, err
 }
@@ -1303,7 +1348,7 @@ func (q *Queries) GetFinalCaptureMediaOutput(ctx context.Context, captureSession
 }
 
 const getLatestVoiceMediaEpochForCapture = `-- name: GetLatestVoiceMediaEpochForCapture :one
-SELECT id, voice_session_id, capture_session_id, epoch_index, desired_state, observed_state, provider_egress_id, staging_prefix, playlist_object_key, first_archived_ms, archived_through_ms, segment_count, last_segment_at, final_end_ms, last_failure_code, created_at, updated_at, sealed_at, recorder_state, recorder_started_at, recorder_archived_through_ms, recorder_failure_code, recorder_reported_at, restart_retry_at FROM voice_media_epochs
+SELECT id, voice_session_id, capture_session_id, epoch_index, desired_state, observed_state, provider_egress_id, staging_prefix, playlist_object_key, first_archived_ms, archived_through_ms, segment_count, last_segment_at, final_end_ms, last_failure_code, created_at, updated_at, sealed_at, recorder_state, recorder_started_at, recorder_archived_through_ms, recorder_failure_code, recorder_reported_at, restart_retry_at, stop_reconcile_failures, stop_reconcile_retry_at FROM voice_media_epochs
 WHERE capture_session_id=$1
 ORDER BY epoch_index DESC
 LIMIT 1
@@ -1337,14 +1382,16 @@ func (q *Queries) GetLatestVoiceMediaEpochForCapture(ctx context.Context, captur
 		&i.RecorderFailureCode,
 		&i.RecorderReportedAt,
 		&i.RestartRetryAt,
+		&i.StopReconcileFailures,
+		&i.StopReconcileRetryAt,
 	)
 	return i, err
 }
 
 const getOwedVoiceMediaStop = `-- name: GetOwedVoiceMediaStop :one
-SELECT epoch.id, epoch.voice_session_id, epoch.capture_session_id, epoch.epoch_index, epoch.desired_state, epoch.observed_state, epoch.provider_egress_id, epoch.staging_prefix, epoch.playlist_object_key, epoch.first_archived_ms, epoch.archived_through_ms, epoch.segment_count, epoch.last_segment_at, epoch.final_end_ms, epoch.last_failure_code, epoch.created_at, epoch.updated_at, epoch.sealed_at, epoch.recorder_state, epoch.recorder_started_at, epoch.recorder_archived_through_ms, epoch.recorder_failure_code, epoch.recorder_reported_at, epoch.restart_retry_at FROM capture_sessions capture
+SELECT epoch.id, epoch.voice_session_id, epoch.capture_session_id, epoch.epoch_index, epoch.desired_state, epoch.observed_state, epoch.provider_egress_id, epoch.staging_prefix, epoch.playlist_object_key, epoch.first_archived_ms, epoch.archived_through_ms, epoch.segment_count, epoch.last_segment_at, epoch.final_end_ms, epoch.last_failure_code, epoch.created_at, epoch.updated_at, epoch.sealed_at, epoch.recorder_state, epoch.recorder_started_at, epoch.recorder_archived_through_ms, epoch.recorder_failure_code, epoch.recorder_reported_at, epoch.restart_retry_at, epoch.stop_reconcile_failures, epoch.stop_reconcile_retry_at FROM capture_sessions capture
 JOIN LATERAL (
-  SELECT id, voice_session_id, capture_session_id, epoch_index, desired_state, observed_state, provider_egress_id, staging_prefix, playlist_object_key, first_archived_ms, archived_through_ms, segment_count, last_segment_at, final_end_ms, last_failure_code, created_at, updated_at, sealed_at, recorder_state, recorder_started_at, recorder_archived_through_ms, recorder_failure_code, recorder_reported_at, restart_retry_at FROM voice_media_epochs WHERE capture_session_id=capture.id
+  SELECT id, voice_session_id, capture_session_id, epoch_index, desired_state, observed_state, provider_egress_id, staging_prefix, playlist_object_key, first_archived_ms, archived_through_ms, segment_count, last_segment_at, final_end_ms, last_failure_code, created_at, updated_at, sealed_at, recorder_state, recorder_started_at, recorder_archived_through_ms, recorder_failure_code, recorder_reported_at, restart_retry_at, stop_reconcile_failures, stop_reconcile_retry_at FROM voice_media_epochs WHERE capture_session_id=capture.id
   ORDER BY epoch_index DESC LIMIT 1
 ) epoch ON true
 WHERE capture.id=$1 AND capture.status='finalizing' AND capture.stop_requested_at IS NOT NULL
@@ -1382,6 +1429,8 @@ func (q *Queries) GetOwedVoiceMediaStop(ctx context.Context, id string) (VoiceMe
 		&i.RecorderFailureCode,
 		&i.RecorderReportedAt,
 		&i.RestartRetryAt,
+		&i.StopReconcileFailures,
+		&i.StopReconcileRetryAt,
 	)
 	return i, err
 }
@@ -1435,7 +1484,7 @@ func (q *Queries) GetPendingLiveKitCaptureCompletion(ctx context.Context, id str
 }
 
 const getVoiceMediaEpoch = `-- name: GetVoiceMediaEpoch :one
-SELECT id, voice_session_id, capture_session_id, epoch_index, desired_state, observed_state, provider_egress_id, staging_prefix, playlist_object_key, first_archived_ms, archived_through_ms, segment_count, last_segment_at, final_end_ms, last_failure_code, created_at, updated_at, sealed_at, recorder_state, recorder_started_at, recorder_archived_through_ms, recorder_failure_code, recorder_reported_at, restart_retry_at FROM voice_media_epochs WHERE id=$1
+SELECT id, voice_session_id, capture_session_id, epoch_index, desired_state, observed_state, provider_egress_id, staging_prefix, playlist_object_key, first_archived_ms, archived_through_ms, segment_count, last_segment_at, final_end_ms, last_failure_code, created_at, updated_at, sealed_at, recorder_state, recorder_started_at, recorder_archived_through_ms, recorder_failure_code, recorder_reported_at, restart_retry_at, stop_reconcile_failures, stop_reconcile_retry_at FROM voice_media_epochs WHERE id=$1
 `
 
 func (q *Queries) GetVoiceMediaEpoch(ctx context.Context, id string) (VoiceMediaEpoch, error) {
@@ -1466,6 +1515,8 @@ func (q *Queries) GetVoiceMediaEpoch(ctx context.Context, id string) (VoiceMedia
 		&i.RecorderFailureCode,
 		&i.RecorderReportedAt,
 		&i.RestartRetryAt,
+		&i.StopReconcileFailures,
+		&i.StopReconcileRetryAt,
 	)
 	return i, err
 }
@@ -1853,7 +1904,7 @@ func (q *Queries) ListUnfinishedVoiceWork(ctx context.Context) ([]ListUnfinished
 }
 
 const listVoiceMediaEpochsForCapture = `-- name: ListVoiceMediaEpochsForCapture :many
-SELECT id, voice_session_id, capture_session_id, epoch_index, desired_state, observed_state, provider_egress_id, staging_prefix, playlist_object_key, first_archived_ms, archived_through_ms, segment_count, last_segment_at, final_end_ms, last_failure_code, created_at, updated_at, sealed_at, recorder_state, recorder_started_at, recorder_archived_through_ms, recorder_failure_code, recorder_reported_at, restart_retry_at FROM voice_media_epochs
+SELECT id, voice_session_id, capture_session_id, epoch_index, desired_state, observed_state, provider_egress_id, staging_prefix, playlist_object_key, first_archived_ms, archived_through_ms, segment_count, last_segment_at, final_end_ms, last_failure_code, created_at, updated_at, sealed_at, recorder_state, recorder_started_at, recorder_archived_through_ms, recorder_failure_code, recorder_reported_at, restart_retry_at, stop_reconcile_failures, stop_reconcile_retry_at FROM voice_media_epochs
 WHERE capture_session_id=$1
 ORDER BY epoch_index,id
 `
@@ -1892,6 +1943,8 @@ func (q *Queries) ListVoiceMediaEpochsForCapture(ctx context.Context, captureSes
 			&i.RecorderFailureCode,
 			&i.RecorderReportedAt,
 			&i.RestartRetryAt,
+			&i.StopReconcileFailures,
+			&i.StopReconcileRetryAt,
 		); err != nil {
 			return nil, err
 		}
@@ -1904,7 +1957,7 @@ func (q *Queries) ListVoiceMediaEpochsForCapture(ctx context.Context, captureSes
 }
 
 const listVoiceMediaEpochsForReconcile = `-- name: ListVoiceMediaEpochsForReconcile :many
-SELECT epoch.id, epoch.voice_session_id, epoch.capture_session_id, epoch.epoch_index, epoch.desired_state, epoch.observed_state, epoch.provider_egress_id, epoch.staging_prefix, epoch.playlist_object_key, epoch.first_archived_ms, epoch.archived_through_ms, epoch.segment_count, epoch.last_segment_at, epoch.final_end_ms, epoch.last_failure_code, epoch.created_at, epoch.updated_at, epoch.sealed_at, epoch.recorder_state, epoch.recorder_started_at, epoch.recorder_archived_through_ms, epoch.recorder_failure_code, epoch.recorder_reported_at, epoch.restart_retry_at,voice.provider_room_name,voice.participant_identity,
+SELECT epoch.id, epoch.voice_session_id, epoch.capture_session_id, epoch.epoch_index, epoch.desired_state, epoch.observed_state, epoch.provider_egress_id, epoch.staging_prefix, epoch.playlist_object_key, epoch.first_archived_ms, epoch.archived_through_ms, epoch.segment_count, epoch.last_segment_at, epoch.final_end_ms, epoch.last_failure_code, epoch.created_at, epoch.updated_at, epoch.sealed_at, epoch.recorder_state, epoch.recorder_started_at, epoch.recorder_archived_through_ms, epoch.recorder_failure_code, epoch.recorder_reported_at, epoch.restart_retry_at, epoch.stop_reconcile_failures, epoch.stop_reconcile_retry_at,voice.provider_room_name,voice.participant_identity,
        capture.status AS capture_status,actor.account_id,capture.stop_requested_at
 FROM voice_media_epochs epoch
 JOIN voice_sessions voice ON voice.id=epoch.voice_session_id
@@ -1918,6 +1971,7 @@ WHERE epoch.capture_session_id=$1::text
   AND epoch.updated_at < clock_timestamp()-interval '2 seconds'
   AND (epoch.epoch_index=0 OR epoch.first_archived_ms IS NOT NULL
        OR epoch.restart_retry_at IS NULL OR epoch.restart_retry_at<=clock_timestamp())
+  AND (epoch.stop_reconcile_retry_at IS NULL OR epoch.stop_reconcile_retry_at<=clock_timestamp())
 ORDER BY epoch.updated_at,epoch.id
 LIMIT 1
 `
@@ -1947,6 +2001,8 @@ type ListVoiceMediaEpochsForReconcileRow struct {
 	RecorderFailureCode       pgtype.Text        `json:"recorder_failure_code"`
 	RecorderReportedAt        pgtype.Timestamptz `json:"recorder_reported_at"`
 	RestartRetryAt            pgtype.Timestamptz `json:"restart_retry_at"`
+	StopReconcileFailures     int32              `json:"stop_reconcile_failures"`
+	StopReconcileRetryAt      pgtype.Timestamptz `json:"stop_reconcile_retry_at"`
 	ProviderRoomName          string             `json:"provider_room_name"`
 	ParticipantIdentity       string             `json:"participant_identity"`
 	CaptureStatus             string             `json:"capture_status"`
@@ -1988,6 +2044,8 @@ func (q *Queries) ListVoiceMediaEpochsForReconcile(ctx context.Context, captureS
 			&i.RecorderFailureCode,
 			&i.RecorderReportedAt,
 			&i.RestartRetryAt,
+			&i.StopReconcileFailures,
+			&i.StopReconcileRetryAt,
 			&i.ProviderRoomName,
 			&i.ParticipantIdentity,
 			&i.CaptureStatus,
@@ -2157,7 +2215,7 @@ const markVoiceMediaEpochFailed = `-- name: MarkVoiceMediaEpochFailed :one
 UPDATE voice_media_epochs
 SET observed_state='failed',last_failure_code=$2,updated_at=clock_timestamp()
 WHERE id=$1 AND observed_state IN ('requested','active','sealing','unknown')
-RETURNING id, voice_session_id, capture_session_id, epoch_index, desired_state, observed_state, provider_egress_id, staging_prefix, playlist_object_key, first_archived_ms, archived_through_ms, segment_count, last_segment_at, final_end_ms, last_failure_code, created_at, updated_at, sealed_at, recorder_state, recorder_started_at, recorder_archived_through_ms, recorder_failure_code, recorder_reported_at, restart_retry_at
+RETURNING id, voice_session_id, capture_session_id, epoch_index, desired_state, observed_state, provider_egress_id, staging_prefix, playlist_object_key, first_archived_ms, archived_through_ms, segment_count, last_segment_at, final_end_ms, last_failure_code, created_at, updated_at, sealed_at, recorder_state, recorder_started_at, recorder_archived_through_ms, recorder_failure_code, recorder_reported_at, restart_retry_at, stop_reconcile_failures, stop_reconcile_retry_at
 `
 
 type MarkVoiceMediaEpochFailedParams struct {
@@ -2193,6 +2251,8 @@ func (q *Queries) MarkVoiceMediaEpochFailed(ctx context.Context, arg MarkVoiceMe
 		&i.RecorderFailureCode,
 		&i.RecorderReportedAt,
 		&i.RestartRetryAt,
+		&i.StopReconcileFailures,
+		&i.StopReconcileRetryAt,
 	)
 	return i, err
 }
@@ -2201,7 +2261,7 @@ const markVoiceMediaEpochUnknown = `-- name: MarkVoiceMediaEpochUnknown :one
 UPDATE voice_media_epochs
 SET observed_state='unknown',last_failure_code=$2,updated_at=clock_timestamp()
 WHERE id=$1 AND observed_state IN ('requested','active','sealing','unknown')
-RETURNING id, voice_session_id, capture_session_id, epoch_index, desired_state, observed_state, provider_egress_id, staging_prefix, playlist_object_key, first_archived_ms, archived_through_ms, segment_count, last_segment_at, final_end_ms, last_failure_code, created_at, updated_at, sealed_at, recorder_state, recorder_started_at, recorder_archived_through_ms, recorder_failure_code, recorder_reported_at, restart_retry_at
+RETURNING id, voice_session_id, capture_session_id, epoch_index, desired_state, observed_state, provider_egress_id, staging_prefix, playlist_object_key, first_archived_ms, archived_through_ms, segment_count, last_segment_at, final_end_ms, last_failure_code, created_at, updated_at, sealed_at, recorder_state, recorder_started_at, recorder_archived_through_ms, recorder_failure_code, recorder_reported_at, restart_retry_at, stop_reconcile_failures, stop_reconcile_retry_at
 `
 
 type MarkVoiceMediaEpochUnknownParams struct {
@@ -2237,6 +2297,8 @@ func (q *Queries) MarkVoiceMediaEpochUnknown(ctx context.Context, arg MarkVoiceM
 		&i.RecorderFailureCode,
 		&i.RecorderReportedAt,
 		&i.RestartRetryAt,
+		&i.StopReconcileFailures,
+		&i.StopReconcileRetryAt,
 	)
 	return i, err
 }
@@ -2319,7 +2381,7 @@ SET segment_count=greatest(segment_count,$1::bigint),
     END,
     updated_at=clock_timestamp()
 WHERE id=$2::text AND observed_state IN ('requested','active','sealing','unknown')
-RETURNING id, voice_session_id, capture_session_id, epoch_index, desired_state, observed_state, provider_egress_id, staging_prefix, playlist_object_key, first_archived_ms, archived_through_ms, segment_count, last_segment_at, final_end_ms, last_failure_code, created_at, updated_at, sealed_at, recorder_state, recorder_started_at, recorder_archived_through_ms, recorder_failure_code, recorder_reported_at, restart_retry_at
+RETURNING id, voice_session_id, capture_session_id, epoch_index, desired_state, observed_state, provider_egress_id, staging_prefix, playlist_object_key, first_archived_ms, archived_through_ms, segment_count, last_segment_at, final_end_ms, last_failure_code, created_at, updated_at, sealed_at, recorder_state, recorder_started_at, recorder_archived_through_ms, recorder_failure_code, recorder_reported_at, restart_retry_at, stop_reconcile_failures, stop_reconcile_retry_at
 `
 
 type ObserveVoiceMediaSegmentProgressParams struct {
@@ -2355,6 +2417,8 @@ func (q *Queries) ObserveVoiceMediaSegmentProgress(ctx context.Context, arg Obse
 		&i.RecorderFailureCode,
 		&i.RecorderReportedAt,
 		&i.RestartRetryAt,
+		&i.StopReconcileFailures,
+		&i.StopReconcileRetryAt,
 	)
 	return i, err
 }
@@ -2438,7 +2502,7 @@ UPDATE voice_media_epochs
 SET desired_state='sealed',observed_state=CASE WHEN observed_state='active' THEN 'sealing' ELSE observed_state END,
     updated_at=clock_timestamp()
 WHERE id=$1 AND desired_state='active' AND observed_state IN ('requested','active','sealing','unknown')
-RETURNING id, voice_session_id, capture_session_id, epoch_index, desired_state, observed_state, provider_egress_id, staging_prefix, playlist_object_key, first_archived_ms, archived_through_ms, segment_count, last_segment_at, final_end_ms, last_failure_code, created_at, updated_at, sealed_at, recorder_state, recorder_started_at, recorder_archived_through_ms, recorder_failure_code, recorder_reported_at, restart_retry_at
+RETURNING id, voice_session_id, capture_session_id, epoch_index, desired_state, observed_state, provider_egress_id, staging_prefix, playlist_object_key, first_archived_ms, archived_through_ms, segment_count, last_segment_at, final_end_ms, last_failure_code, created_at, updated_at, sealed_at, recorder_state, recorder_started_at, recorder_archived_through_ms, recorder_failure_code, recorder_reported_at, restart_retry_at, stop_reconcile_failures, stop_reconcile_retry_at
 `
 
 func (q *Queries) RequestSealVoiceMediaEpoch(ctx context.Context, id string) (VoiceMediaEpoch, error) {
@@ -2469,6 +2533,8 @@ func (q *Queries) RequestSealVoiceMediaEpoch(ctx context.Context, id string) (Vo
 		&i.RecorderFailureCode,
 		&i.RecorderReportedAt,
 		&i.RestartRetryAt,
+		&i.StopReconcileFailures,
+		&i.StopReconcileRetryAt,
 	)
 	return i, err
 }
@@ -2577,7 +2643,7 @@ UPDATE voice_media_epochs
 SET desired_state='sealed',observed_state='available',playlist_object_key=$2,
     archived_through_ms=$3,final_end_ms=$3,sealed_at=clock_timestamp(),updated_at=clock_timestamp()
 WHERE id=$1 AND observed_state IN ('requested','active','sealing','unknown')
-RETURNING id, voice_session_id, capture_session_id, epoch_index, desired_state, observed_state, provider_egress_id, staging_prefix, playlist_object_key, first_archived_ms, archived_through_ms, segment_count, last_segment_at, final_end_ms, last_failure_code, created_at, updated_at, sealed_at, recorder_state, recorder_started_at, recorder_archived_through_ms, recorder_failure_code, recorder_reported_at, restart_retry_at
+RETURNING id, voice_session_id, capture_session_id, epoch_index, desired_state, observed_state, provider_egress_id, staging_prefix, playlist_object_key, first_archived_ms, archived_through_ms, segment_count, last_segment_at, final_end_ms, last_failure_code, created_at, updated_at, sealed_at, recorder_state, recorder_started_at, recorder_archived_through_ms, recorder_failure_code, recorder_reported_at, restart_retry_at, stop_reconcile_failures, stop_reconcile_retry_at
 `
 
 type SealVoiceMediaEpochParams struct {
@@ -2614,6 +2680,8 @@ func (q *Queries) SealVoiceMediaEpoch(ctx context.Context, arg SealVoiceMediaEpo
 		&i.RecorderFailureCode,
 		&i.RecorderReportedAt,
 		&i.RestartRetryAt,
+		&i.StopReconcileFailures,
+		&i.StopReconcileRetryAt,
 	)
 	return i, err
 }
@@ -2626,7 +2694,7 @@ WHERE id=$1
   AND observed_state IN ('requested','active','sealing','unknown','available')
   AND $4::bigint > coalesce(first_archived_ms,0)
   AND $4::bigint <= $3::bigint
-RETURNING id, voice_session_id, capture_session_id, epoch_index, desired_state, observed_state, provider_egress_id, staging_prefix, playlist_object_key, first_archived_ms, archived_through_ms, segment_count, last_segment_at, final_end_ms, last_failure_code, created_at, updated_at, sealed_at, recorder_state, recorder_started_at, recorder_archived_through_ms, recorder_failure_code, recorder_reported_at, restart_retry_at
+RETURNING id, voice_session_id, capture_session_id, epoch_index, desired_state, observed_state, provider_egress_id, staging_prefix, playlist_object_key, first_archived_ms, archived_through_ms, segment_count, last_segment_at, final_end_ms, last_failure_code, created_at, updated_at, sealed_at, recorder_state, recorder_started_at, recorder_archived_through_ms, recorder_failure_code, recorder_reported_at, restart_retry_at, stop_reconcile_failures, stop_reconcile_retry_at
 `
 
 type SealVoiceMediaEpochAtBoundaryParams struct {
@@ -2669,6 +2737,8 @@ func (q *Queries) SealVoiceMediaEpochAtBoundary(ctx context.Context, arg SealVoi
 		&i.RecorderFailureCode,
 		&i.RecorderReportedAt,
 		&i.RestartRetryAt,
+		&i.StopReconcileFailures,
+		&i.StopReconcileRetryAt,
 	)
 	return i, err
 }
@@ -2806,7 +2876,8 @@ func (q *Queries) VoiceCaptureBelongsToAuthSession(ctx context.Context, arg Voic
 
 const voiceEpochReconciliationDueIn = `-- name: VoiceEpochReconciliationDueIn :one
 SELECT coalesce(extract(epoch FROM min(greatest(epoch.updated_at+interval '2 seconds',
-    CASE WHEN epoch.epoch_index>0 AND epoch.first_archived_ms IS NULL THEN epoch.restart_retry_at END
+    CASE WHEN epoch.epoch_index>0 AND epoch.first_archived_ms IS NULL THEN epoch.restart_retry_at END,
+    epoch.stop_reconcile_retry_at
     ))-clock_timestamp()),'Infinity')::float8 AS wait_seconds
 FROM voice_media_epochs epoch
 JOIN capture_sessions capture ON capture.id=epoch.capture_session_id
@@ -2819,7 +2890,8 @@ WHERE epoch.capture_session_id=$1
 `
 
 // Seconds until ListVoiceMediaEpochsForReconcile returns one of the Capture's
-// epochs; a recovery epoch also waits out its delayed recorder restart.
+// epochs; a recovery epoch also waits out its delayed recorder restart, and
+// an epoch that failed to settle after Stop its backoff.
 func (q *Queries) VoiceEpochReconciliationDueIn(ctx context.Context, captureSessionID string) (float64, error) {
 	row := q.db.QueryRow(ctx, voiceEpochReconciliationDueIn, captureSessionID)
 	var wait_seconds float64

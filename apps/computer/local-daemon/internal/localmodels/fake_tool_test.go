@@ -67,6 +67,11 @@ func runFakeTool(args []string) int {
 	_, _ = fmt.Fprintf(log, "%s|PYTHONPATH=%s|cwd=%s|PI_CODING_AGENT_DIR=%s\n", strings.Join(args[5:], " "), os.Getenv("PYTHONPATH"), workingDirectory(), os.Getenv("PI_CODING_AGENT_DIR"))
 	_ = log.Close()
 	if verb == "status" {
+		waitGate := filepath.Join(state, "status-wait")
+		if _, err := os.Stat(waitGate); err == nil {
+			_ = os.WriteFile(filepath.Join(state, "status-entered"), []byte("1"), 0o600)
+			waitForGateRemoval(waitGate, 30*time.Second)
+		}
 		if code, err := os.ReadFile(filepath.Join(state, "status-exit")); err == nil {
 			var exit int
 			_, _ = fmt.Sscan(string(code), &exit)

@@ -43,3 +43,5 @@ __pycache__/
 
 # Local go build output of the Daemon package
 /apps/computer/local-daemon/cmd/linger-computer-daemon/linger-computer-daemon
+
+.idea/

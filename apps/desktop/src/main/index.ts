@@ -52,6 +52,7 @@ import { PowerGuardModule, type PowerApi } from "./power-guard.js";
 import { QuickNoteModule } from "./quick-note.js";
 import { SetupWindowModule } from "./setup-window.js";
 import { loginShellEnvironment, withLoginShell } from "./shell-env.js";
+import { markStartMenuShortcut } from "./start-menu-shortcut.js";
 import { StatusModule } from "./status.js";
 import { SystemPermissions } from "./system-permissions.js";
 import { TrayModule } from "./tray.js";
@@ -122,7 +123,20 @@ async function main(): Promise<void> {
       user_data: userDataMove.userData,
       ...(userDataMove.setAside ? { set_aside: userDataMove.setAside } : {}),
     });
-  if (process.platform === "win32" && app.isPackaged) markStartMenuShortcut();
+  if (process.platform === "win32" && app.isPackaged)
+    markStartMenuShortcut({
+      appData: app.getPath("appData"),
+      execPath: process.execPath,
+      appUserModelId: APP_USER_MODEL_ID,
+      env: process.env,
+      readShortcutLink: (shortcut) => shell.readShortcutLink(shortcut),
+      writeShortcutLink: (shortcut, operation, options) =>
+        shell.writeShortcutLink(shortcut, operation, options),
+      onWriteError: (error) =>
+        log.warn("desktop.start_menu_shortcut_failed", {
+          error: error instanceof Error ? error.message : String(error),
+        }),
+    });
   const background = process.argv.includes("--background");
   const envServer = parseServerUrl(process.env.LINGER_SERVER_URL ?? "");
   const config = new ConfigStore(
@@ -189,7 +203,7 @@ async function main(): Promise<void> {
     preload: path.join(here, "../preload/index.cjs"),
     shellPreload: path.join(here, "../preload/shell.cjs"),
     background: background || needsSetup,
-    localServerResumable: (url) => localServer.resumable(url),
+    localServerResumable: (url) => localServer.isStarting(url),
   });
   const setup = new SetupWindowModule({
     preload: path.join(here, "../preload/setup.cjs"),
@@ -416,18 +430,6 @@ async function main(): Promise<void> {
     );
     app.exit(1);
   }
-}
-
-function markStartMenuShortcut(): void {
-  const shortcut = path.join(
-    app.getPath("appData"),
-    "Microsoft/Windows/Start Menu/Programs/Linger.lnk",
-  );
-  if (existsSync(shortcut))
-    shell.writeShortcutLink(shortcut, "update", {
-      target: process.execPath,
-      appUserModelId: APP_USER_MODEL_ID,
-    });
 }
 
 // LINGER_COMPUTER_DAEMON overrides the daemon for development. Packaged

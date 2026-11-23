@@ -3,16 +3,20 @@ import { RichMessage, useT } from "@/i18n/use-translation";
 
 import { appNames } from "./computer-readiness";
 import { computerSetupMessages } from "./computer-setup.messages";
-import { loginCommands } from "./local-runtime-commands";
+import { useDesktopComputer } from "./desktop-computer";
+import { type SignInComputer, signInCommand } from "./local-runtime-commands";
 
 export function LocalRuntimeAuthenticationGuidance({
   runtimeType,
   computerName,
+  computer,
 }: {
   runtimeType: TeamHubLocalRuntimeType;
   computerName: string;
+  computer?: SignInComputer;
 }) {
   const t = useT();
+  const desktop = useDesktopComputer();
   const app = appNames[runtimeType];
   return (
     <>
@@ -25,7 +29,7 @@ export function LocalRuntimeAuthenticationGuidance({
           tags={{ code: (text) => <code className="font-mono">{text}</code> }}
           values={{
             app,
-            command: loginCommands[runtimeType],
+            command: signInCommand(runtimeType, computer, desktop),
             computer: computerName,
           }}
         />

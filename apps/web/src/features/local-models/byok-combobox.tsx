@@ -240,7 +240,7 @@ export function ByokCombobox({
               role="option"
               tabIndex={-1}
             >
-              <span className="block truncate font-mono text-[13px]">
+              <span className="block truncate font-mono text-xs">
                 {option.value || "-"}
               </span>
               {option.detail ? (

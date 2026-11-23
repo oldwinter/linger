@@ -3,10 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { defineGlobalProperty } from "@/test/global-properties";
 
 import {
+  appendRoomComposerHistory,
   clearRoomDrafts,
   draftStorageEntries,
   hasRoomDrafts,
   readRoomComposerDraft,
+  readRoomComposerHistory,
   roomsWithDrafts,
   subscribeRoomComposerDrafts,
   writeRoomComposerDraft,
@@ -69,13 +71,15 @@ describe("Room drafts", () => {
     expect(listener).toHaveBeenCalledTimes(2);
   });
 
-  it("clears only Room drafts during local sign-out", () => {
+  it("clears only Room drafts and sent history during local sign-out", () => {
     writeRoomComposerDraft(firstRoom, textDraft("private draft"));
+    appendRoomComposerHistory(firstRoom, historyEntry("private message"));
     window.localStorage.setItem("unrelated", "keep");
 
     clearRoomDrafts();
 
     expect(readRoomComposerDraft(firstRoom).body).toBe("");
+    expect(readRoomComposerHistory(firstRoom)).toEqual([]);
     expect(window.localStorage.getItem("unrelated")).toBe("keep");
   });
 
@@ -89,6 +93,54 @@ describe("Room drafts", () => {
     clearRoomDrafts();
 
     expect(hasRoomDrafts()).toBe(false);
+  });
+
+  it("keeps the last 50 sent messages per Room and Thread without repeating the latest", () => {
+    const thread = { ...firstRoom, threadId: "message-1" };
+    for (let index = 1; index <= 51; index += 1) {
+      appendRoomComposerHistory(firstRoom, historyEntry(`message ${index}`));
+    }
+    appendRoomComposerHistory(firstRoom, historyEntry("message 51"));
+    appendRoomComposerHistory(firstRoom, historyEntry("  "));
+    appendRoomComposerHistory(thread, historyEntry("Thread reply"));
+
+    const bodies = readRoomComposerHistory(firstRoom).map(({ body }) => body);
+    expect(bodies).toHaveLength(50);
+    expect(bodies[0]).toBe("message 2");
+    expect(bodies.at(-1)).toBe("message 51");
+    expect(readRoomComposerHistory(thread)).toEqual([
+      historyEntry("Thread reply"),
+    ]);
+    expect(readRoomComposerHistory({ ...firstRoom, roomId: "room-2" })).toEqual(
+      [],
+    );
+  });
+
+  it("leaves long messages out of history and drops older entries when storage is full", () => {
+    appendRoomComposerHistory(firstRoom, historyEntry("x".repeat(2_001)));
+    expect(readRoomComposerHistory(firstRoom)).toEqual([]);
+
+    for (let index = 1; index <= 8; index += 1) {
+      appendRoomComposerHistory(firstRoom, historyEntry(`message ${index}`));
+    }
+    const storage = window.localStorage;
+    const setItem = storage.setItem.bind(storage);
+    const full = vi
+      .spyOn(storage, "setItem")
+      .mockImplementation((key, value) => {
+        // Room for only a handful of entries is left.
+        if (value.length > 400) {
+          throw new DOMException("Quota exceeded", "QuotaExceededError");
+        }
+        setItem(key, value);
+      });
+
+    appendRoomComposerHistory(firstRoom, historyEntry("newest"));
+    full.mockRestore();
+
+    const bodies = readRoomComposerHistory(firstRoom).map(({ body }) => body);
+    expect(bodies.at(-1)).toBe("newest");
+    expect(bodies.length).toBeLessThan(9);
   });
 
   it("round-trips structured Composer references", () => {
@@ -332,6 +384,10 @@ function textDraft(body: string) {
     mentions: [],
     skillReferences: [],
   };
+}
+
+function historyEntry(body: string) {
+  return { body, documentReferences: [], mentions: [], skillReferences: [] };
 }
 
 function createTestStorage(): Storage {

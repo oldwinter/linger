@@ -587,7 +587,7 @@ func (e Executor) Start(ctx context.Context, spec OperationSpec, emit EmitFunc) 
 			ContextWindow:         spec.ContextWindow,
 			WithoutNativeWebTools: spec.WithoutNativeWebTools,
 			Title:                 spec.ThreadName,
-			AppendPrompt:          spec.SystemPrompt,
+			SystemPrompt:          spec.SystemPrompt,
 			BaseInstructions:      spec.BaseInstructions,
 			DeveloperInstructions: spec.DeveloperInstructions,
 			ExposeTurnStarted:     spec.OperationKind == "run.start",

@@ -13,6 +13,7 @@ import {
   unavailableMentionsError,
   TEAMHUB_MESSAGE_MAX_LENGTH,
 } from "./use-composer-draft";
+import type { ComposerHistory } from "./use-composer-history";
 import type { ComposerPicker } from "./use-composer-picker";
 import type { ComposerVoiceState } from "./use-composer-voice";
 import { withVoiceMaterials } from "./voice-mode/voice-material-composition";
@@ -22,6 +23,7 @@ export interface ComposerSendInput {
   attachments: ComposerAttachments;
   disabled: boolean;
   draft: ComposerDraft;
+  history: ComposerHistory;
   onSend: (composition: MessageComposition) => Promise<void> | void;
   onStageAttachment?: MessageComposerProps["onStageAttachment"];
   picker: ComposerPicker;
@@ -53,6 +55,7 @@ export function useComposerSend({
     submitting,
     updateBody,
   },
+  history,
   onSend,
   onStageAttachment,
   picker: { applyMentionQuery, setSkillQuery },
@@ -140,6 +143,12 @@ export function useComposerSend({
         withVoiceMaterials(value, materials, reservedVoiceTokens()),
       );
       if (result) await result;
+      history.record({
+        body: normalized,
+        documentReferences,
+        mentions,
+        skillReferences,
+      });
       // Selected material belongs to the one message it was sent with.
       for (const material of materials) voiceMaterials?.remove(material.id);
       setDocumentContexts([]);

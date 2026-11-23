@@ -95,6 +95,9 @@ describe("Web app route contract", () => {
       createTestTeamHubRuntime(),
     );
     expect(
+      matchRoutes(routes, "/t/tenant-a/dashboard")?.at(-1)?.route.path,
+    ).toBe("dashboard");
+    expect(
       matchRoutes(routes, "/t/tenant-a/dashboard/work-item-a")?.at(-1)?.route
         .path,
     ).toBe("dashboard/:workItemId");

@@ -51,15 +51,9 @@ func codexItemNotice(method, thread, turn string, item map[string]any) map[strin
 	return map[string]any{"method": method, "params": map[string]any{"threadId": thread, "turnId": turn, "item": item}}
 }
 
-// Every native response yields exactly one record, including a sub-agent's;
-// a repeated usage snapshot is not a new request.
+// Every native response yields exactly one record; a repeated usage snapshot
+// is not a new request, and another thread's notifications are not the Run's.
 func TestCodexModelResponses(t *testing.T) {
-	collab := map[string]any{"id": "collab-1", "type": "collabAgentToolCall", "tool": "spawnAgent", "status": "inProgress",
-		"senderThreadId": "$THREAD", "receiverThreadIds": []string{}, "model": "sub-model", "agentsStates": map[string]any{}}
-	spawnedChild := map[string]any{"id": "collab-1", "type": "collabAgentToolCall", "tool": "spawnAgent", "status": "completed",
-		"senderThreadId": "$THREAD", "receiverThreadIds": []string{"child-1"}, "model": "sub-model", "agentsStates": map[string]any{}}
-	waitCall := map[string]any{"id": "wait-1", "type": "collabAgentToolCall", "tool": "wait", "status": "completed",
-		"senderThreadId": "$THREAD", "receiverThreadIds": []string{"child-1"}, "agentsStates": map[string]any{}}
 	items := []map[string]any{
 		codexItemNotice("item/started", "$THREAD", "$TURN", map[string]any{"id": "r1", "type": "reasoning", "summary": []string{}, "content": []string{}}),
 		// Codex reports a response's usage after it ran that response's calls.
@@ -67,15 +61,8 @@ func TestCodexModelResponses(t *testing.T) {
 		codexItemNotice("item/completed", "$THREAD", "$TURN", map[string]any{"id": "c1", "type": "commandExecution", "command": "ls", "status": "completed", "aggregatedOutput": "x", "exitCode": 0}),
 		codexTokenUsage("$THREAD", "$TURN", 100, 100),
 		codexTokenUsage("$THREAD", "$TURN", 100, 100),
-		codexItemNotice("item/started", "$THREAD", "$TURN", collab),
-		codexItemNotice("item/completed", "$THREAD", "$TURN", spawnedChild),
-		codexItemNotice("item/started", "child-1", "child-turn", map[string]any{"id": "child-msg", "type": "agentMessage", "text": ""}),
-		codexTokenUsage("child-1", "child-turn", 30, 30),
-		codexItemNotice("item/started", "child-1", "child-turn", map[string]any{"id": "child-cmd", "type": "commandExecution", "command": "ls", "status": "inProgress"}),
-		codexItemNotice("item/completed", "child-1", "child-turn", map[string]any{"id": "child-cmd", "type": "commandExecution", "command": "ls", "status": "completed", "exitCode": 0}),
-		codexItemNotice("item/started", "child-1", "child-turn", map[string]any{"id": "child-r", "type": "reasoning", "summary": []string{}, "content": []string{}}),
-		codexTokenUsage("child-1", "child-turn", 45, 15),
-		codexItemNotice("item/completed", "$THREAD", "$TURN", waitCall),
+		codexItemNotice("item/started", "other-thread", "other-turn", map[string]any{"id": "other-msg", "type": "agentMessage", "text": ""}),
+		codexTokenUsage("other-thread", "other-turn", 30, 30),
 		codexAgentMessage("m1", "answer", nil),
 		codexTokenUsage("$THREAD", "$TURN", 150, 50),
 	}
@@ -96,28 +83,17 @@ func TestCodexModelResponses(t *testing.T) {
 		t.Fatalf("outcome = %+v", out)
 	}
 	responses := modelResponses(events)
-	if len(responses) != 4 {
+	if len(responses) != 2 {
 		t.Fatalf("responses = %+v", responses)
 	}
-	main, child := []ModelResponse{}, []ModelResponse{}
 	for _, response := range responses {
-		if response.Granularity != GranularityItem {
-			t.Fatalf("granularity = %+v", response)
+		if response.Granularity != GranularityItem || response.Agent != "" || response.Model != "main-model" || response.FirstItemAt.IsZero() {
+			t.Fatalf("response = %+v", response)
 		}
 		requireRequestTimes(t, response, time.Now())
-		if response.Agent == "" {
-			main = append(main, response)
-		} else {
-			child = append(child, response)
-		}
 	}
-	if len(main) != 2 || main[0].Usage.Input != 99 || main[1].Usage.Input != 49 || main[0].Model != "main-model" || main[0].FirstItemAt.IsZero() ||
-		main[1].FirstItemAt.IsZero() || main[1].StartedAt.Before(toolResultAt(t, events, "c1")) {
-		t.Fatalf("main responses = %+v", main)
-	}
-	if len(child) != 2 || child[0].Agent != "child-1" || child[0].ParentCallID != "collab-1" || child[0].Model != "sub-model" || child[0].Usage.Input != 29 ||
-		child[0].FirstItemAt.IsZero() || child[1].ParentCallID != "collab-1" || child[1].Usage.Input != 14 || child[1].StartedAt.Before(child[0].StartedAt) {
-		t.Fatalf("child responses = %+v", child)
+	if responses[0].Usage.Input != 99 || responses[1].Usage.Input != 49 || responses[1].StartedAt.Before(toolResultAt(t, events, "c1")) {
+		t.Fatalf("responses = %+v", responses)
 	}
 	spec.ResumeID = "thread-1"
 	if _, events = codexDrain(t, runtime, "again", spec); len(modelResponses(events)) != 1 || modelResponses(events)[0].Usage.Input != 19 {

@@ -441,6 +441,7 @@ describe("TeamHub Context Runtime state", () => {
       message_kind: "agent_runtime",
       author_type: "agent",
       fired_routine: true,
+      human_waiting: false,
     };
     const origins = [routine];
     const getWorkState = vi.fn(async () => ({

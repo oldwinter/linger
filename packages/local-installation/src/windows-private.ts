@@ -84,18 +84,30 @@ const WINDOWS_PRIVATE_CHECK_BODY = String.raw`  $item = Get-Item -LiteralPath $r
     $parent = $parent.Parent
   }
   if ($request.repair) {
-    $acl = if ($item.PSIsContainer) { [Security.AccessControl.DirectorySecurity]::new() } else { [Security.AccessControl.FileSecurity]::new() }
-    $acl.SetAccessRuleProtection($true, $false)
-    foreach ($principal in @($sid, [Security.Principal.SecurityIdentifier]::new($system))) {
-      $rule = if ($item.PSIsContainer) {
-        [Security.AccessControl.FileSystemAccessRule]::new($principal, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
-      } else { [Security.AccessControl.FileSystemAccessRule]::new($principal, 'FullControl', 'Allow') }
-      $acl.AddAccessRule($rule)
+    # Only the DACL that repair would install can skip propagation. Compare
+    # the rules because Windows may add flags to the persisted descriptor.
+    $inheritance = if ($item.PSIsContainer) { 'ContainerInherit, ObjectInherit' } else { 'None' }
+    $rules = @($acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]))
+    $fullControl = @($rules | Where-Object {
+      !$_.IsInherited -and $_.AccessControlType -eq 'Allow' -and $_.FileSystemRights -eq 'FullControl' -and
+      $_.InheritanceFlags -eq $inheritance -and $_.PropagationFlags -eq 'None'
+    } | ForEach-Object { $_.IdentityReference.Value })
+    $alreadyRepaired = $acl.AreAccessRulesProtected -and $rules.Count -eq 2 -and
+      $fullControl -contains $sid.Value -and $fullControl -contains $system
+    if (!$alreadyRepaired) {
+      $acl = if ($item.PSIsContainer) { [Security.AccessControl.DirectorySecurity]::new() } else { [Security.AccessControl.FileSecurity]::new() }
+      $acl.SetAccessRuleProtection($true, $false)
+      foreach ($principal in @($sid, [Security.Principal.SecurityIdentifier]::new($system))) {
+        $rule = if ($item.PSIsContainer) {
+          [Security.AccessControl.FileSystemAccessRule]::new($principal, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
+        } else { [Security.AccessControl.FileSystemAccessRule]::new($principal, 'FullControl', 'Allow') }
+        $acl.AddAccessRule($rule)
+      }
+      # DACL-only persistence avoids Set-Acl's SACL privilege requirement.
+      $null = $acl.GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::Access)
+      if ($PSVersionTable.PSEdition -eq 'Core') { [IO.FileSystemAclExtensions]::SetAccessControl($item, $acl) } else { $item.SetAccessControl($acl) }
+      $acl = Get-Acl -LiteralPath $item.FullName
     }
-    # DACL-only persistence avoids Set-Acl's SACL privilege requirement.
-    $null = $acl.GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::Access)
-    if ($PSVersionTable.PSEdition -eq 'Core') { [IO.FileSystemAclExtensions]::SetAccessControl($item, $acl) } else { $item.SetAccessControl($acl) }
-    $acl = Get-Acl -LiteralPath $item.FullName
   }
   if ($request.kind -eq 'directory' -and !$acl.AreAccessRulesProtected) { throw 'INHERITED_ACCESS' }
   $currentAllowed = $false

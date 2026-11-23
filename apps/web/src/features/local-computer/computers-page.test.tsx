@@ -575,6 +575,59 @@ describe("ComputersPage", () => {
       }),
     );
   });
+
+  it("shows the active BYOK model-source runtime pill instead of defaulting to Claude Code", async () => {
+    const fixture = await authenticatedFixture();
+    const multiRuntime = replacementComputerInventory();
+    multiRuntime.items[0]!.runtimes = [
+      { models: [], status: "ready", type: "claude" },
+      { models: [], status: "ready", type: "codex" },
+      { models: [], status: "ready", type: "pi" },
+    ];
+    fixture.seed.localComputers = multiRuntime.items;
+    fixture.server.on(
+      "GET",
+      "/v0/tenants/{tenantId}/local-computers/{computerId}/model-source",
+      ({ params }) =>
+        Response.json({
+          computer_id: params.computerId,
+          online: true,
+          status: {
+            byok: {
+              base_url: "http://127.0.0.1:18100",
+              configured: true,
+              endpoint: "/chat/completions",
+              key_saved: true,
+              model_id: "Spark-X2.6-4B-Q8_0",
+              path: "/v1",
+              protocol: "openai-chat",
+            },
+            mode: "byok",
+            runtime: "pi",
+            runtime_model: "localmodels-byok",
+          },
+          viewer_is_owner: true,
+        }),
+    );
+
+    await renderPage(fixture);
+
+    const detail = await screen.findByRole("region", {
+      name: "New Build Mac details",
+    });
+    expect(
+      await within(detail).findByText("Agents use Pi here"),
+    ).toBeInTheDocument();
+    expect(
+      within(detail).queryByText("Agents use Claude Code here"),
+    ).not.toBeInTheDocument();
+    expect(
+      fixture.server.requestsTo(
+        "GET",
+        "/v0/tenants/{tenantId}/local-computers/{computerId}/local-models",
+      ),
+    ).toHaveLength(0);
+  });
 });
 
 async function authenticatedFixture() {

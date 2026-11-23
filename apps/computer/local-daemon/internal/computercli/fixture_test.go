@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -127,6 +128,7 @@ func newFixture(t *testing.T) *fixture {
 		stdin: strings.NewReader(""), stdout: &f.stdout, stderr: &f.stderr,
 		rawTerminal:      func() (func(), bool, error) { return nil, false, nil },
 		checkUserSession: func() error { return nil },
+		interruptible:    func(ctx context.Context) (context.Context, context.CancelFunc) { return context.WithCancel(ctx) },
 		checkRuntime: func(_ context.Context, runtimeType string, request runtimeRequest) (runtimeCheck, error) {
 			f.diagnoseInputs = append(f.diagnoseInputs, request.configuredPaths)
 			for _, diagnostic := range runtimeFixtures(request.configuredPaths) {
@@ -158,6 +160,7 @@ func newFixture(t *testing.T) *fixture {
 			_, err := io.WriteString(output, "redacted log\n")
 			return err
 		},
+		runInteractive: func(*exec.Cmd) (int, error) { return 0, nil },
 		setup: func(_ context.Context, options setupOptions) (setupResult, error) {
 			f.setupOptions = append(f.setupOptions, options)
 			return setupResult{computerID: "computer-local", configPath: options.configPath, tenantID: "tenant-acme"}, nil
@@ -196,8 +199,12 @@ func (f *fixture) writeConfig(extra map[string]any) {
 }
 
 func (f *fixture) run(args ...string) int {
+	return f.runContext(context.Background(), args...)
+}
+
+func (f *fixture) runContext(ctx context.Context, args ...string) int {
 	f.deps.stdin = strings.NewReader(f.stdin)
-	return Run(context.Background(), args, f.deps)
+	return Run(ctx, args, f.deps)
 }
 
 func (f *fixture) clear() {

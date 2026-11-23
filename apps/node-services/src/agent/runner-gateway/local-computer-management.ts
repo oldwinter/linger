@@ -56,6 +56,10 @@ export const FIRST_STOP_HOOK_COMPUTER_VERSION = "0.57.0";
 // feature and gates extended local-model availability reasons, refusal codes,
 // and debug-mode metadata behind it.
 export const FIRST_LOCAL_MODELS_DIAGNOSTICS_COMPUTER_VERSION = "0.58.0";
+// The first release that understands the `model_invoke_outcomes` welcome
+// feature and emits `context_too_long` and `unsupported` on executed
+// `model_invoke`.
+export const FIRST_MODEL_INVOKE_OUTCOMES_COMPUTER_VERSION = "0.60.0";
 
 const COMPUTER_RELEASE_VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 

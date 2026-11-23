@@ -19,11 +19,12 @@ import {
   stackProgress,
   withLocalModelsLock,
 } from "./local-models.js";
+import { lastJsonObject } from "./byok-source.js";
 import { writeSetupChoice } from "./setup-selection.js";
 import { runProcess } from "./process.js";
 import { runLocalmodels } from "./localmodels-tool.js";
 import { expectPrivate } from "./test-support/private.js";
-import type { Instance } from "./instance.js";
+import { INSTANCE_BUSY, type Instance } from "./instance.js";
 const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(
@@ -194,6 +195,29 @@ test("reports why the planner refused and logs its output", async () => {
   });
   expect(events.join("\n")).toContain("localmodels stack plan exited with");
 });
+test("preserves structured stack-plan causeCode when the planner cannot reach the Hub", async () => {
+  const f = await fixture();
+  f.call.mockImplementation(async () => ({
+    code: 2,
+    stdout: `${JSON.stringify({
+      schema: "localmodels.stack-plan-error/v1",
+      event: "error",
+      code: "HUB_UNREACHABLE",
+      hosts: ["huggingface.co", "hf-mirror.com"],
+    })}\n`,
+    stderr: "stack: cannot reach hf-mirror.com to look up the model files\n",
+  }));
+  const result = await prepareLocalModels(f.instance, f.options, {
+    localmodels: f.call,
+  });
+  expect(result).toMatchObject({
+    details: {
+      code: "LOCAL_MODELS_UNAVAILABLE",
+      causeCode: "HUB_UNREACHABLE",
+    },
+    message: expect.stringContaining("cannot reach hf-mirror.com"),
+  });
+});
 test("never records a successful binding when apply fails", async () => {
   const f = await fixture();
   await prepareLocalModels(f.instance, f.options, { localmodels: f.call });
@@ -234,8 +258,35 @@ test("reports why a deployment stopped, from output that is not captured", async
   expect(result).toMatchObject({
     details: { code: "LOCAL_MODELS_RECOVERY_REQUIRED" },
     message:
-      "Local model installation or verification did not finish: stack: port 8080 is held by another program Existing resources were preserved.",
+      "Local model installation or verification did not finish: stack: port 8080 is held by another program. Existing resources were preserved.",
   });
+});
+test("normalizes refused() punctuation across missing periods, trailing periods, and empty causes", async () => {
+  for (const [stderr, want] of [
+    [
+      "stack: port 8080 is held by another program\n",
+      "The upstream planner could not create a local model plan: stack: port 8080 is held by another program. Existing resources were preserved.",
+    ],
+    [
+      "stack: no verified LLM fits this computer.\n",
+      "The upstream planner could not create a local model plan: stack: no verified LLM fits this computer. Existing resources were preserved.",
+    ],
+    [
+      "",
+      "The upstream planner could not create a local model plan. Existing resources were preserved.",
+    ],
+  ] as const) {
+    const f = await fixture();
+    f.call.mockImplementation(async () => ({ code: 2, stdout: "", stderr }));
+    const result = await prepareLocalModels(f.instance, f.options, {
+      localmodels: f.call,
+    });
+    expect(result).toMatchObject({
+      details: { code: "LOCAL_MODELS_UNAVAILABLE" },
+      message: want,
+    });
+    expect(result?.message).not.toContain("..");
+  }
 });
 test("forwards actual split JSONL byte counters but never raw output", async () => {
   const f = await fixture();
@@ -624,6 +675,34 @@ test("a stack still not ready after applying the approved plan again asks for re
     ),
   ).toEqual(f.ready);
 });
+test("normalizes terminal punctuation when binding verification fails with a sentence ending in a period", async () => {
+  const f = await fixture();
+  await prepareLocalModels(f.instance, f.options, { localmodels: f.call });
+  f.binding.ready = false;
+  f.binding.pi = null as never;
+  f.binding.reasons = [
+    {
+      code: "binding-unavailable",
+      message:
+        "Pi's configuration or this computer's state cannot be read safely. Restore the existing install and try again.",
+    },
+  ] as never;
+  const result = await prepareLocalModels(
+    f.instance,
+    { ...f.options, localModelsApproval: f.id },
+    { localmodels: f.call },
+  );
+  expect(result).toMatchObject({
+    state: "action_required",
+    details: {
+      code: "LOCAL_MODELS_RECOVERY_REQUIRED",
+      reasons: ["binding-unavailable"],
+    },
+    message:
+      "The upstream tool could not verify the local stack binding: Pi's configuration or this computer's state cannot be read safely. Restore the existing install and try again. Existing resources were preserved.",
+  });
+  expect(result?.message).not.toContain("..");
+});
 test("a failed re-apply of the approved plan reports the upstream cause", async () => {
   const f = await deployedThenNotReady("deployment-unavailable");
   const original = f.call.getMockImplementation()!;
@@ -755,13 +834,486 @@ test.each([undefined, "local"])(
     ]);
   },
 );
-test("a ready local stack costs one binding check", async () => {
+test("a ready local stack with no saved runtimeModel costs one binding check and never loads an arbitrary idle model", async () => {
+  for (const mode of [undefined, "local"] as const) {
+    const f = await stoppedLocalSetup(mode);
+    Object.assign(f.binding, f.ready);
+    const original = f.call.getMockImplementation()!;
+    f.call.mockImplementation(async (...a) => {
+      if (a[1][0] === "library" && a[1][1] === "status") {
+        return {
+          code: 0,
+          stdout: JSON.stringify({
+            schema: "localmodels.library-status/v1",
+            models: [
+              {
+                id: "unrequested:Q4_K_M",
+                state: "idle",
+                pi_model: "localmodels-library/unrequested/Unrequested",
+              },
+            ],
+          }),
+          stderr: "",
+        };
+      }
+      return original(...a);
+    });
+    expect(
+      await restoreLocalModels(f.instance, f.options, { localmodels: f.call }),
+    ).toBeUndefined();
+    expect(commands(f)).toEqual(["setup binding"]);
+  }
+});
+test("a ready local stack with a loaded saved library model costs only binding and library status checks", async () => {
   const f = await stoppedLocalSetup("local");
   Object.assign(f.binding, f.ready);
+  const targetPiModel =
+    "localmodels-library/localmodels-lib-qwen3-8-27b-ud-q4-k-m/Qwen3.8-27B-UD-Q4_K_M";
+  await writeFile(
+    path.join(f.home, "runtime/localmodels/state/model-source.json"),
+    JSON.stringify({
+      schema: "localmodels.model-source/v1",
+      mode: "local",
+      runtime: "pi",
+      runtime_model: targetPiModel,
+      model_label: "Qwen3.8 27B",
+      gateway_url: "http://127.0.0.1:18480",
+      environment: {},
+    }),
+    { mode: 0o600 },
+  );
+  const original = f.call.getMockImplementation()!;
+  f.call.mockImplementation(async (...a) => {
+    if (a[1][0] === "library" && a[1][1] === "status") {
+      return {
+        code: 0,
+        stdout: JSON.stringify({
+          schema: "localmodels.library-status/v1",
+          models: [
+            {
+              id: "qwen3.8-27b:UD-Q4_K_M",
+              state: "loaded",
+              pi_model: targetPiModel,
+            },
+          ],
+        }),
+        stderr: "",
+      };
+    }
+    return original(...a);
+  });
   expect(
     await restoreLocalModels(f.instance, f.options, { localmodels: f.call }),
   ).toBeUndefined();
-  expect(commands(f)).toEqual(["setup binding"]);
+  expect(commands(f)).toEqual(["setup binding", "library status"]);
+});
+test("reloads an unloaded library model after quit even when setup binding reports ready", async () => {
+  const f = await stoppedLocalSetup("local");
+  Object.assign(f.binding, f.ready);
+  const targetPiModel =
+    "localmodels-library/localmodels-lib-qwen3-8-27b-ud-q4-k-m/Qwen3.8-27B-UD-Q4_K_M";
+  await writeFile(
+    path.join(f.home, "runtime/localmodels/state/model-source.json"),
+    JSON.stringify({
+      schema: "localmodels.model-source/v1",
+      mode: "local",
+      runtime: "pi",
+      runtime_model: targetPiModel,
+      model_label: "Qwen3.8 27B",
+      gateway_url: "http://127.0.0.1:18480",
+      environment: {},
+    }),
+    { mode: 0o600 },
+  );
+  const original = f.call.getMockImplementation()!;
+  f.call.mockImplementation(async (...a) => {
+    if (a[1][0] === "library" && a[1][1] === "status") {
+      return {
+        code: 0,
+        stdout: JSON.stringify({
+          schema: "localmodels.library-status/v1",
+          models: [
+            {
+              id: "qwen3.6-35b-a3b:UD-IQ4_XS",
+              state: "idle",
+              pi_model: "localmodels-library/other/Qwen3.6",
+            },
+            {
+              id: "qwen3.8-27b:UD-Q4_K_M",
+              state: "idle",
+              pi_model: targetPiModel,
+            },
+          ],
+        }),
+        stderr: "",
+      };
+    }
+    if (a[1][0] === "library" && a[1][1] === "load") {
+      return { code: 0, stdout: "", stderr: "" };
+    }
+    if (a[1][0] === "source" && a[1][1] === "apply") {
+      return {
+        code: 0,
+        stdout: JSON.stringify({
+          schema: "localmodels.model-source-status/v1",
+          mode: "local",
+          runtime: "pi",
+          runtime_model: targetPiModel,
+        }),
+        stderr: "",
+      };
+    }
+    return original(...a);
+  });
+  expect(
+    await restoreLocalModels(f.instance, f.options, { localmodels: f.call }),
+  ).toBeUndefined();
+  expect(commands(f)).toEqual([
+    "setup binding",
+    "library status",
+    "library load",
+    "source apply",
+  ]);
+  expect(f.call.mock.calls[2]![1].slice(0, 3)).toEqual([
+    "library",
+    "load",
+    "qwen3.8-27b:UD-Q4_K_M",
+  ]);
+  expect(f.call.mock.calls[3]![1].slice(0, 8)).toEqual([
+    "source",
+    "apply",
+    "--mode",
+    "local",
+    "--runtime",
+    "pi",
+    "--model",
+    "qwen3.8-27b:UD-Q4_K_M",
+  ]);
+});
+test("restores a switched-to-local model source even when initial setup choice was not local-models and no plan exists", async () => {
+  const f = await fixture();
+  await writeSetupChoice(f.instance, "claude");
+  const state = path.join(f.home, "runtime/localmodels/state");
+  await mkdir(state, { recursive: true });
+  await writeFile(
+    path.join(state, "model-source.json"),
+    JSON.stringify({
+      schema: "localmodels.model-source/v1",
+      mode: "local",
+      runtime: "pi",
+      runtime_model:
+        "localmodels-library/localmodels-lib-qwen3-8-27b-ud-q4-k-m/Qwen3.8-27B-UD-Q4_K_M",
+      model_label: null,
+      gateway_url: null,
+      environment: {},
+    }),
+    { mode: 0o600 },
+  );
+  f.call.mockImplementation(async (...a) => {
+    if (a[1][0] === "library" && a[1][1] === "status") {
+      return {
+        code: 0,
+        stdout: JSON.stringify({
+          schema: "localmodels.library-status/v1",
+          models: [
+            {
+              id: "qwen3.8-27b:UD-Q4_K_M",
+              state: "idle",
+              pi_model:
+                "localmodels-library/localmodels-lib-qwen3-8-27b-ud-q4-k-m/Qwen3.8-27B-UD-Q4_K_M",
+            },
+          ],
+        }),
+        stderr: "",
+      };
+    }
+    return { code: 0, stdout: "{}", stderr: "" };
+  });
+  expect(
+    await restoreLocalModels(f.instance, f.options, { localmodels: f.call }),
+  ).toBeUndefined();
+  expect(commands(f)).toEqual([
+    "library status",
+    "library load",
+    "source apply",
+  ]);
+});
+test("reports library-model reload failure as a clean degraded outcome with no raw JSON", async () => {
+  const f = await stoppedLocalSetup("local");
+  Object.assign(f.binding, f.ready);
+  const targetPiModel =
+    "localmodels-library/localmodels-lib-qwen3-8-27b-ud-q4-k-m/Qwen3.8-27B-UD-Q4_K_M";
+  await writeFile(
+    path.join(f.home, "runtime/localmodels/state/model-source.json"),
+    JSON.stringify({
+      schema: "localmodels.model-source/v1",
+      mode: "local",
+      runtime: "pi",
+      runtime_model: targetPiModel,
+      model_label: "Qwen3.8 27B",
+      gateway_url: "http://127.0.0.1:18480",
+      environment: {},
+    }),
+    { mode: 0o600 },
+  );
+  const original = f.call.getMockImplementation()!;
+  f.call.mockImplementation(async (...a) => {
+    if (a[1][0] === "library" && a[1][1] === "status") {
+      return {
+        code: 0,
+        stdout: JSON.stringify({
+          schema: "localmodels.library-status/v1",
+          models: [
+            {
+              id: "qwen3.8-27b:UD-Q4_K_M",
+              state: "idle",
+              pi_model: targetPiModel,
+            },
+          ],
+        }),
+        stderr: "",
+      };
+    }
+    if (a[1][0] === "library" && a[1][1] === "load") {
+      // Emit final JSONL error without a trailing newline to prove buffer flush.
+      a[2]?.onOutput?.(
+        JSON.stringify({
+          event: "error",
+          code: "GATEWAY_REGISTRATION_FAILED",
+          detail: "Gateway did not answer.",
+        }),
+      );
+      return { code: 1, stdout: "", stderr: "" };
+    }
+    return original(...a);
+  });
+  const outcome = await restoreLocalModels(f.instance, f.options, {
+    localmodels: f.call,
+  });
+  expect(outcome).toMatchObject({
+    code: 1,
+    state: "failed",
+    message:
+      "Could not reload local model qwen3.8-27b:UD-Q4_K_M: Gateway did not answer.",
+    details: { code: "GATEWAY_REGISTRATION_FAILED" },
+  });
+  expect(localModelsDegradedFromOutcome(outcome!)).toEqual({
+    code: "GATEWAY_REGISTRATION_FAILED",
+    message:
+      "Could not reload local model qwen3.8-27b:UD-Q4_K_M: Gateway did not answer.",
+  });
+  expect(outcome?.message).not.toContain("..");
+  expect(outcome?.message).not.toContain("{");
+  expect(commands(f)).not.toContain("source apply");
+  // Uses idleTimeoutMs instead of a short hard wall-clock timeoutMs.
+  const loadCall = f.call.mock.calls.find(
+    ([, args]) => args[0] === "library" && args[1] === "load",
+  );
+  expect(loadCall?.[2]).toMatchObject({ idleTimeoutMs: 240_000 });
+  expect(loadCall?.[2]?.timeoutMs).toBeUndefined();
+});
+test("checks whether the saved library model itself is loaded even when a plan model is loaded, and holds lock across load and apply", async () => {
+  const f = await stoppedLocalSetup("local");
+  const targetPiModel =
+    "localmodels-library/localmodels-lib-qwen3-8-27b-ud-q4-k-m/Qwen3.8-27B-UD-Q4_K_M";
+  await writeFile(
+    path.join(f.home, "runtime/localmodels/state/model-source.json"),
+    JSON.stringify({
+      schema: "localmodels.model-source/v1",
+      mode: "local",
+      runtime: "pi",
+      runtime_model: targetPiModel,
+      model_label: "Qwen3.8 27B",
+      gateway_url: "http://127.0.0.1:18480",
+      environment: {},
+    }),
+    { mode: 0o600 },
+  );
+  const original = f.call.getMockImplementation()!;
+  let lockHeldDuringApply = false;
+  f.call.mockImplementation(async (...a) => {
+    if (a[1][0] === "library" && a[1][1] === "status") {
+      return {
+        code: 0,
+        stdout: JSON.stringify({
+          schema: "localmodels.library-status/v1",
+          models: [
+            {
+              id: "plan-model:Q4_K_M",
+              state: "loaded",
+              pi_model: "localmodels/plan-model",
+            },
+            {
+              id: "qwen3.8-27b:UD-Q4_K_M",
+              state: "idle",
+              pi_model: targetPiModel,
+            },
+          ],
+        }),
+        stderr: "",
+      };
+    }
+    if (a[1][0] === "library" && a[1][1] === "load") {
+      return { code: 0, stdout: "", stderr: "" };
+    }
+    if (a[1][0] === "source" && a[1][1] === "apply") {
+      try {
+        await withLocalModelsLock(f.home, async () => {});
+      } catch (err) {
+        if ((err as { code?: unknown }).code === INSTANCE_BUSY)
+          lockHeldDuringApply = true;
+      }
+      return { code: 0, stdout: "{}", stderr: "" };
+    }
+    return original(...a);
+  });
+  expect(
+    await restoreLocalModels(f.instance, f.options, { localmodels: f.call }),
+  ).toBeUndefined();
+  expect(commands(f)).toContain("library load");
+  expect(commands(f).at(-1)).toBe("source apply");
+  expect(lockHeldDuringApply).toBe(true);
+});
+test("handles postHeld lock timeout explicitly without falling through to source apply", async () => {
+  const f = await stoppedLocalSetup("local");
+  const targetPiModel =
+    "localmodels-library/localmodels-lib-qwen3-8-27b-ud-q4-k-m/Qwen3.8-27B-UD-Q4_K_M";
+  await writeFile(
+    path.join(f.home, "runtime/localmodels/state/model-source.json"),
+    JSON.stringify({
+      schema: "localmodels.model-source/v1",
+      mode: "local",
+      runtime: "pi",
+      runtime_model: targetPiModel,
+      model_label: "Qwen3.8 27B",
+      gateway_url: "http://127.0.0.1:18480",
+      environment: {},
+    }),
+    { mode: 0o600 },
+  );
+  let lockAttempts = 0;
+  const outcome = await restoreLocalModels(f.instance, f.options, {
+    localmodels: f.call,
+    lockWaitMs: 15,
+    lockRetryMs: 3,
+    withLock: (home, callback) => {
+      lockAttempts += 1;
+      if (lockAttempts >= 2) {
+        const busy = new Error("busy") as Error & { code: string };
+        busy.code = INSTANCE_BUSY;
+        return Promise.reject(busy);
+      }
+      return withLocalModelsLock(home, callback);
+    },
+  });
+  expect(outcome).toMatchObject({
+    code: 4,
+    state: "action_required",
+    details: { code: "LOCAL_MODELS_BUSY" },
+  });
+  expect(localModelsDegradedFromOutcome(outcome!)).toMatchObject({
+    code: "LOCAL_MODELS_BUSY",
+  });
+  expect(commands(f)).not.toContain("source apply");
+});
+test("treats loading models as active and does not fall back to idleModels[0] when saved runtimeModel is missing", async () => {
+  const f = await stoppedLocalSetup("local");
+  Object.assign(f.binding, f.ready);
+  const targetPiModel =
+    "localmodels-library/localmodels-lib-qwen3-8-27b-ud-q4-k-m/Qwen3.8-27B-UD-Q4_K_M";
+  await writeFile(
+    path.join(f.home, "runtime/localmodels/state/model-source.json"),
+    JSON.stringify({
+      schema: "localmodels.model-source/v1",
+      mode: "local",
+      runtime: "pi",
+      runtime_model: targetPiModel,
+      model_label: null,
+      gateway_url: null,
+      environment: {},
+    }),
+    { mode: 0o600 },
+  );
+  const original = f.call.getMockImplementation()!;
+  f.call.mockImplementation(async (...a) => {
+    if (a[1][0] === "library" && a[1][1] === "status") {
+      return {
+        code: 0,
+        stdout: JSON.stringify({
+          schema: "localmodels.library-status/v1",
+          models: [
+            { id: "qwen3.8-27b:UD-Q4_K_M", state: "loading" },
+            { id: "other:Q4_K_M", state: "idle" },
+          ],
+        }),
+        stderr: "",
+      };
+    }
+    return original(...a);
+  });
+  expect(
+    await restoreLocalModels(f.instance, f.options, { localmodels: f.call }),
+  ).toBeUndefined();
+  expect(commands(f)).toEqual(["setup binding", "library status"]);
+
+  // Saved runtimeModel that is not among idle models must not load idleModels[0].
+  await writeFile(
+    path.join(f.home, "runtime/localmodels/state/model-source.json"),
+    JSON.stringify({
+      schema: "localmodels.model-source/v1",
+      mode: "local",
+      runtime: "pi",
+      runtime_model: "localmodels-library/removed-model/Removed",
+      model_label: null,
+      gateway_url: null,
+      environment: {},
+    }),
+    { mode: 0o600 },
+  );
+  f.call.mockClear();
+  f.call.mockImplementation(async (...a) => {
+    if (a[1][0] === "library" && a[1][1] === "status") {
+      return {
+        code: 0,
+        stdout: JSON.stringify({
+          schema: "localmodels.library-status/v1",
+          models: [
+            {
+              id: "other:Q4_K_M",
+              state: "idle",
+              pi_model: "localmodels-library/other/Other",
+            },
+          ],
+        }),
+        stderr: "",
+      };
+    }
+    return original(...a);
+  });
+  expect(
+    await restoreLocalModels(f.instance, f.options, { localmodels: f.call }),
+  ).toBeUndefined();
+  expect(commands(f)).toEqual(["setup binding", "library status"]);
+});
+test("lastJsonObject parses indent=1 multi-line JSON after JSONL progress lines", () => {
+  const stdout = [
+    '{"kind":"stage","stage":"download","state":"connecting"}',
+    '{"kind":"progress","unit":"bytes","completed":10,"total":20}',
+    JSON.stringify(
+      {
+        code: "MODEL_SOURCE_FAILED",
+        message: 'Failed with } and "{escaped}" in output.',
+        nested: { ok: false },
+      },
+      null,
+      1,
+    ),
+  ].join("\n");
+  expect(lastJsonObject(stdout)).toEqual({
+    code: "MODEL_SOURCE_FAILED",
+    message: 'Failed with } and "{escaped}" in output.',
+    nested: { ok: false },
+  });
 });
 test.each(["subscription", "byok"])(
   "a model source switched to %s keeps the local stack stopped",

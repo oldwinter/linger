@@ -20,7 +20,7 @@ import {
   type ConnectorRuntime,
   type Json,
 } from "./connector-runtime.js";
-import { CliError, ConnectorError } from "./errors.js";
+import { CliError } from "./errors.js";
 import { displayText } from "./display-text.js";
 const descriptions = {
   me: "Read the profile of the connected GitHub account.",
@@ -299,7 +299,7 @@ function login(value: unknown): string | undefined {
 function rows(raw: Json, key: string): Json[] {
   const list = raw[key];
   if (!Array.isArray(list))
-    throw new ConnectorError(
+    throw new CliError(
       "incomplete_response",
       `The GitHub response has no ${key} list.`,
     );
@@ -417,7 +417,7 @@ async function executeGitHub(
     };
     const page = cursor(input.cursor, fp).page ?? 1;
     if (!Number.isSafeInteger(page) || Number(page) < 1)
-      throw new ConnectorError(
+      throw new CliError(
         "cursor_mismatch",
         "Use the returned cursor with the same account and filters.",
       );
@@ -451,7 +451,7 @@ async function executeGitHub(
       response_detail: "full",
     });
     if (typeof raw.total_count !== "number")
-      throw new ConnectorError(
+      throw new CliError(
         "incomplete_response",
         "The search result is incomplete.",
       );
@@ -491,7 +491,7 @@ async function executeGitHub(
   if (action === "create-issue") {
     const repository = await runtime.call("GITHUB_GET_A_REPOSITORY", where);
     if (repository.has_issues === false)
-      throw new ConnectorError(
+      throw new CliError(
         "unsupported_combination",
         "Issues are disabled in this repository.",
         { operation_rejected: true },
@@ -585,7 +585,7 @@ async function executeGitHub(
 }
 function githubReadme(raw: Json): Json {
   if (raw.encoding !== "base64" || typeof raw.content !== "string")
-    throw new ConnectorError(
+    throw new CliError(
       "incomplete_response",
       "The README content is unavailable.",
     );

@@ -36,6 +36,15 @@ var ErrCodexModelSessionBusy = errors.New("Codex model session is busy")
 // MaxOutputChars and was interrupted; the answer carries what it streamed.
 var ErrCodexModelOutputLimit = errors.New("Codex model reply exceeded its output limit")
 
+// CodexModelFailureError carries the structured Codex error diagnostics
+// reported on a failed session turn alongside its message.
+type CodexModelFailureError struct {
+	Message     string
+	Diagnostics RuntimeFailureDiagnostics
+}
+
+func (e *CodexModelFailureError) Error() string { return e.Message }
+
 // codexModelPartialBytes bounds the streamed text kept for a call that stops
 // early, so its receipt stays far below the frame limit.
 const codexModelPartialBytes = 256 << 10
@@ -494,15 +503,16 @@ func (s *codexModelServer) decline(id json.RawMessage, method string, _ json.Raw
 
 // codexModelTurn collects one turn's final message, usage, and failure.
 type codexModelTurn struct {
-	mu        sync.Mutex
-	text      string
-	usage     codexUsage
-	failure   string
-	done      chan struct{}
-	closed    bool
-	started   time.Time
-	lastEvent string
-	lastAt    time.Time
+	mu          sync.Mutex
+	text        string
+	usage       codexUsage
+	failure     string
+	diagnostics RuntimeFailureDiagnostics
+	done        chan struct{}
+	closed      bool
+	started     time.Time
+	lastEvent   string
+	lastAt      time.Time
 	// maxChars, streamed and overflow cap the reply; streamedText keeps its
 	// first codexModelPartialBytes for a call that stops early. blankRun
 	// counts the whitespace the reply has streamed since its last other
@@ -580,6 +590,9 @@ func (t *codexModelTurn) observe(method string, n *codexNotification) {
 	case "error":
 		if n.Error != nil && n.Error.Message != "" && !n.WillRetry {
 			t.failure = n.Error.Message
+			if diag := codexErrorDiagnostics(n.Error.CodexErrorInfo); !diag.empty() {
+				t.diagnostics = diag
+			}
 		}
 		// Codex retries a dropped stream or a rate limit itself; the turn
 		// is quiet meanwhile, so each retry is logged.
@@ -588,10 +601,17 @@ func (t *codexModelTurn) observe(method string, n *codexNotification) {
 				"message", firstRunes(sanitizeDiagnostic(n.Error.Message), 300))
 		}
 	case "turn/completed":
-		if n.Turn.Status != "completed" && t.failure == "" {
-			t.failure = "Codex turn " + n.Turn.Status
-			if n.Turn.Error != nil && n.Turn.Error.Message != "" {
-				t.failure = n.Turn.Error.Message
+		if n.Turn.Status != "completed" {
+			if n.Turn.Error != nil {
+				if diag := codexErrorDiagnostics(n.Turn.Error.CodexErrorInfo); !diag.empty() {
+					t.diagnostics = diag
+				}
+			}
+			if t.failure == "" {
+				t.failure = "Codex turn " + n.Turn.Status
+				if n.Turn.Error != nil && n.Turn.Error.Message != "" {
+					t.failure = n.Turn.Error.Message
+				}
 			}
 		}
 		if !t.closed {
@@ -605,6 +625,9 @@ func (t *codexModelTurn) result() (CodexModelAnswer, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.failure != "" {
+		if !t.diagnostics.empty() {
+			return CodexModelAnswer{}, &CodexModelFailureError{Message: t.failure, Diagnostics: t.diagnostics}
+		}
 		return CodexModelAnswer{}, errors.New(t.failure)
 	}
 	if strings.TrimSpace(t.text) == "" {

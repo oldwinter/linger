@@ -23,6 +23,9 @@ func TestAgentInboxMessageDisposition(t *testing.T) {
 	const mention = `[{"type":"reference","target_type":"agent","target":"actor_acme_official","content":"@A"}]`
 	if _, err := env.pool.Exec(t.Context(), `
 INSERT INTO rooms(id,tenant_id,name,created_by_actor_id) VALUES('room_disposition_thread','tenant_acme','Disposition thread','actor_acme_alice');
+INSERT INTO rooms(id,tenant_id,name,created_by_actor_id,direct_human_actor_id,direct_agent_actor_id)
+ VALUES('room_disposition_direct','tenant_acme','Disposition direct','actor_acme_alice','actor_acme_alice','actor_acme_official');
+INSERT INTO rooms(id,tenant_id,name,created_by_actor_id) VALUES('room_disposition_direct_thread','tenant_acme','Disposition direct thread','actor_acme_alice');
 INSERT INTO messages(id,tenant_id,room_id,author_actor_id,body,segments,message_kind,card_context_message_id)
 SELECT id,'tenant_acme',room,author,'body','[{"type":"text","content":"body"}]',kind,card FROM (VALUES
  ('d-plain','room_runtime_inbox','actor_acme_alice','conversation',NULL),
@@ -40,14 +43,22 @@ SELECT id,'tenant_acme','room_runtime_inbox','actor_acme_alice','decision','[{"t
 UPDATE rooms SET parent_room_id='room_runtime_inbox',root_message_id='d-plain'
  WHERE id='room_disposition_thread' AND tenant_id='tenant_acme';
 INSERT INTO messages(id,tenant_id,room_id,author_actor_id,body,segments) VALUES
+ ('d-direct-plain','tenant_acme','room_disposition_direct','actor_acme_alice','body','[{"type":"text","content":"body"}]'),
+ ('d-direct-own','tenant_acme','room_disposition_direct','actor_acme_official','body','[{"type":"text","content":"body"}]');
+INSERT INTO messages(id,tenant_id,room_id,author_actor_id,body,segments,card_context_message_id) VALUES
+ ('d-direct-decision','tenant_acme','room_disposition_direct','actor_acme_alice','decision','[{"type":"text","content":"decision"}]','d-direct-own');
+UPDATE rooms SET parent_room_id='room_disposition_direct',root_message_id='d-direct-plain'
+ WHERE id='room_disposition_direct_thread' AND tenant_id='tenant_acme';
+INSERT INTO messages(id,tenant_id,room_id,author_actor_id,body,segments) VALUES
  ('d-thread-plain','tenant_acme','room_disposition_thread','actor_acme_alice','body','[{"type":"text","content":"body"}]'),
- ('d-thread-mention','tenant_acme','room_disposition_thread','actor_acme_alice','body','[{"type":"text","content":"body"}]');
+ ('d-thread-mention','tenant_acme','room_disposition_thread','actor_acme_alice','body','[{"type":"text","content":"body"}]'),
+ ('d-direct-thread-plain','tenant_acme','room_disposition_direct_thread','actor_acme_alice','body','[{"type":"text","content":"body"}]');
 INSERT INTO room_events(event_id,tenant_id,room_id,room_seq,event_type,actor_id,resource_id,payload)
 SELECT message.id||'-created',message.tenant_id,message.room_id,
  room.next_room_seq+row_number() OVER (PARTITION BY message.room_id ORDER BY message.id),'message.created',message.author_actor_id,message.id,'{}'
 FROM messages message JOIN rooms room ON room.id=message.room_id WHERE message.id LIKE 'd-%';
 UPDATE rooms room SET next_room_seq=(SELECT max(event.room_seq) FROM room_events event WHERE event.room_id=room.id)
-WHERE room.id IN ('room_runtime_inbox','room_disposition_thread');
+WHERE room.id IN ('room_runtime_inbox','room_disposition_thread','room_disposition_direct','room_disposition_direct_thread');
 UPDATE messages message SET room_seq=event.room_seq,mentioned_actor_ids=ARRAY['actor_acme_official']
 FROM room_events event
 WHERE event.resource_id=message.id AND event.room_id=message.room_id
@@ -78,6 +89,7 @@ INSERT INTO task_meta_callback_messages(id,task_id,tenant_id,generation,meta_seq
 		mentioned                           bool
 	}
 	room, thread := "room:"+testRuntimeInboxRoom, "thread:room_disposition_thread"
+	direct, directThread := "room:room_disposition_direct", "thread:room_disposition_direct_thread"
 	check := func(t *testing.T, cases []dispositionCase) {
 		t.Helper()
 		for _, c := range cases {
@@ -113,6 +125,10 @@ INSERT INTO task_meta_callback_messages(id,task_id,tenant_id,generation,meta_seq
 		{"a mention without a Context", "", "", "d-mention", "notify", true},
 		{"an unmentioned Thread message", env.contextKey, thread, "d-thread-plain", "skip", false},
 		{"a Thread mention", env.contextKey, thread, "d-thread-mention", "notify", true},
+		{"a Human's message in a direct chat mentions its Agent without an @", env.contextKey, direct, "d-direct-plain", "notify", true},
+		{"a Human's message in a direct chat's Thread mentions its Agent", env.contextKey, directThread, "d-direct-thread-plain", "notify", true},
+		{"the Agent's own message in its direct chat is skipped", env.contextKey, direct, "d-direct-own", "skip", false},
+		{"a Human's decision result in a direct chat is not a mention", env.contextKey, direct, "d-direct-decision", "skip", false},
 		{"private Meta reaches the alter ego", alter.Context.ContextKey, "meta:actor_acme_official:" + taskID, "d-meta", "notify", true},
 		{"private Meta never reaches a Room Context", env.contextKey, "meta:actor_acme_official:" + taskID, "d-meta", "skip", true},
 		{"a Task callback notifies its coordinator", env.contextKey, "taskmeta:" + taskID, "d-callback", "notify", true},
@@ -165,5 +181,8 @@ INSERT INTO task_meta_callback_messages(id,task_id,tenant_id,generation,meta_seq
 		{"AnotherMe skips an unmentioned Thread message", env.contextKey, thread, "d-thread-plain", "skip", false},
 		{"AnotherMe hears a Thread mention", env.contextKey, thread, "d-thread-mention", "notify", true},
 		{"AnotherMe hears a mention", env.contextKey, room, "d-mention", "notify", true},
+		{"AnotherMe's Human in its direct chat is a mention", env.contextKey, direct, "d-direct-plain", "notify", true},
+		{"AnotherMe hears its Human in a direct chat's Thread", env.contextKey, directThread, "d-direct-thread-plain", "notify", true},
+		{"AnotherMe skips a decision result in its direct chat", env.contextKey, direct, "d-direct-decision", "skip", false},
 	})
 }

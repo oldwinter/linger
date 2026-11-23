@@ -3,6 +3,7 @@ import type { JobContext } from "@livekit/agents";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ASRStream } from "./asr.js";
 import { ASREventQueue } from "./event-queue.js";
+import { VoiceFailure } from "./voice-failure.js";
 
 const rtc = vi.hoisted(() => {
   class Track {
@@ -358,47 +359,58 @@ describe("dictation worker boundary", () => {
     }
   });
 
-  it("publishes a fatal generation-scoped signal and does not retry or falsely acknowledge an unconfirmed turn", async () => {
-    const test = await harness();
-    try {
-      test.sources[0]!.finalizeError = new Error(
-        "provider disconnected before final",
-      );
-      test.room.emit(
-        "data",
-        payload("manual-failed"),
-        undefined,
-        0,
-        dictationCommitTopic,
-      );
-      await vi.waitFor(() =>
-        expect(test.attributes).toHaveBeenCalledWith({
-          "linger.voice_dictation_failure": "transcript_unconfirmed",
-          "linger.voice_dictation_failure_generation": "1",
-        }),
-      );
-      const sameGeneration = new rtc.Track();
-      test.room.emit(
-        "subscribed",
-        sameGeneration,
-        { source: 1 },
-        test.participant,
-      );
-      await Promise.resolve();
-      expect(test.provider.open).toHaveBeenCalledOnce();
-      expect(
-        test.observations.some(
-          (event) =>
-            event.kind === "turn_finalized" || event.kind === "track_ended",
-        ),
-      ).toBe(false);
-      sameGeneration.closeAudioStreams();
-    } finally {
-      test.stop();
-      await test.shutdown();
-    }
-    expect(test.failedShutdown).toHaveBeenCalled();
-  });
+  it.each([
+    [new Error("provider disconnected before final"), "unknown"],
+    [
+      new VoiceFailure(
+        "asr_balance_exhausted",
+        "Soniox ASR rejected the stream with code 402",
+      ),
+      "asr_balance_exhausted",
+    ],
+  ])(
+    "publishes a fatal generation-scoped signal with its failure code (%s) and does not retry or falsely acknowledge an unconfirmed turn",
+    async (failure, failureCode) => {
+      const test = await harness();
+      try {
+        test.sources[0]!.finalizeError = failure;
+        test.room.emit(
+          "data",
+          payload("manual-failed"),
+          undefined,
+          0,
+          dictationCommitTopic,
+        );
+        await vi.waitFor(() =>
+          expect(test.attributes).toHaveBeenCalledWith({
+            "linger.voice_dictation_failure": "transcript_unconfirmed",
+            "linger.voice_dictation_failure_code": failureCode,
+            "linger.voice_dictation_failure_generation": "1",
+          }),
+        );
+        const sameGeneration = new rtc.Track();
+        test.room.emit(
+          "subscribed",
+          sameGeneration,
+          { source: 1 },
+          test.participant,
+        );
+        await Promise.resolve();
+        expect(test.provider.open).toHaveBeenCalledOnce();
+        expect(
+          test.observations.some(
+            (event) =>
+              event.kind === "turn_finalized" || event.kind === "track_ended",
+          ),
+        ).toBe(false);
+        sameGeneration.closeAudioStreams();
+      } finally {
+        test.stop();
+        await test.shutdown();
+      }
+      expect(test.failedShutdown).toHaveBeenCalled();
+    },
+  );
 
   it("finalizes a manual boundary only after the audio received before it", async () => {
     const test = await harness();

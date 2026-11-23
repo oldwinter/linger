@@ -1177,6 +1177,7 @@ type Message struct {
 	FiredRoutineID          pgtype.Text        `json:"fired_routine_id"`
 	FiredRoutineInstruction pgtype.Text        `json:"fired_routine_instruction"`
 	CardKind                pgtype.Text        `json:"card_kind"`
+	HumanWaiting            bool               `json:"human_waiting"`
 }
 
 type MessageCard struct {
@@ -1908,6 +1909,8 @@ type VoiceMediaEpoch struct {
 	RecorderFailureCode       pgtype.Text        `json:"recorder_failure_code"`
 	RecorderReportedAt        pgtype.Timestamptz `json:"recorder_reported_at"`
 	RestartRetryAt            pgtype.Timestamptz `json:"restart_retry_at"`
+	StopReconcileFailures     int32              `json:"stop_reconcile_failures"`
+	StopReconcileRetryAt      pgtype.Timestamptz `json:"stop_reconcile_retry_at"`
 }
 
 type VoiceProviderKey struct {

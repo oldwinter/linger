@@ -26,6 +26,7 @@ export interface BusEvents {
   "grants.changed": [];
   // The shell's language changed; menus, the tray and shell pages redraw.
   "language.changed": [language: Language];
+  "local-server.busy": [busy: boolean];
   "local-server.changed": [];
   // Forget the installation the window used and set this computer up again.
   "local-server.reset": [];

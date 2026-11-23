@@ -127,14 +127,17 @@ func TestDaemonEnsuresTheModelGatewayBeforeARun(t *testing.T) {
 }
 
 // A model call on a gateway that cannot be mounted again never reaches the
-// Runtime, and its receipt names the tool's code without calling the
-// Computer offline.
+// Runtime, and its receipt names the tool's code. An endpoint or network the
+// tool could not reach makes the call unavailable, so the caller waits for
+// the Computer instead of spending attempts.
 func TestModelInvokeReportsAModelGatewayThatCannotStart(t *testing.T) {
 	for _, tc := range []struct {
 		code, outcome string
 	}{
-		{"BYOK_UNREACHABLE", "runtime_unavailable"},
+		{"BYOK_UNREACHABLE", "unavailable"},
+		{"NETWORK_UNAVAILABLE", "unavailable"},
 		{"BYOK_AUTH_FAILED", "auth_required"},
+		{"GATEWAY_START_FAILED", "runtime_unavailable"},
 	} {
 		t.Run(tc.code, func(t *testing.T) {
 			invoker := newFakeModelInvoker()

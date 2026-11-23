@@ -39,8 +39,7 @@ func (a *App) publishAgentTemplate(c *gin.Context) {
 	}
 	request.Name = strings.TrimSpace(request.Name)
 	request.Instructions = strings.TrimSpace(request.Instructions)
-	if request.Name == "" || len([]rune(request.Name)) > 120 ||
-		request.Instructions == "" || len(request.Instructions) > 50000 {
+	if !validAgentText(request.Name, request.Instructions) {
 		a.writeError(c, http.StatusBadRequest, "INVALID_REQUEST", "Agent template name and instructions are required")
 		return
 	}

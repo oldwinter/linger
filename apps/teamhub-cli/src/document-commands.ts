@@ -12,9 +12,19 @@ import {
   markdownBodySource,
   option,
   requiredOption,
+  oneOf,
 } from "./command-input.js";
+import { stat } from "node:fs/promises";
+import path from "node:path";
 import { CliError } from "./errors.js";
-import { parseActorReferences } from "./command-mentions.js";
+import {
+  conflictingFlags,
+  fileFailure,
+  fileSystemError,
+  inputIssue,
+  invalidInput,
+} from "./input-issues.js";
+import { parseActorReferences } from "./content-segments.js";
 import { displayText } from "./display-text.js";
 
 const bodyOptions = {
@@ -281,7 +291,10 @@ export const documentCommandDefinitions: readonly CommandDefinition[] = [
     defaultTarget: "room-or-task",
     usage: ["--title <text> (--content <text> | --file <path|->) [flags]"],
     options: {
-      "--title": { description: "Required Document title, 1-255 characters." },
+      "--title": {
+        description:
+          "Required Document title, 1-255 characters. It is the page heading, so start the body with its content, not a heading repeating the title.",
+      },
       ...bodyOptions,
     },
     examples: [
@@ -398,7 +411,7 @@ export const documentCommandDefinitions: readonly CommandDefinition[] = [
       const output = option(args, "--output");
       const shortOutput = option(args, "-o");
       if (output !== undefined && shortOutput !== undefined)
-        throw new CliError("usage", "Choose --output or -o, not both.");
+        throw conflictingFlags(["--output", "-o"]);
       const format = option(args, "--format");
       if (
         format !== undefined &&
@@ -412,10 +425,30 @@ export const documentCommandDefinitions: readonly CommandDefinition[] = [
         filename.split(/[/\\]/u).includes("..")
       )
         throw inputError("Provide a local output file path.");
+      const targetPath = reader.localPath(filename);
+      // A missing output folder is the caller's to fix, before any request.
+      const flag =
+        output !== undefined
+          ? "--output"
+          : shortOutput !== undefined
+            ? "-o"
+            : "";
+      const folder = path.dirname(filename);
+      const parent = flag
+        ? await stat(path.dirname(targetPath)).catch((error: unknown) => {
+            if (fileSystemError(error))
+              throw fileFailure(error, flag, folder, true);
+            throw error;
+          })
+        : undefined;
+      if (parent && !parent.isDirectory())
+        throw invalidInput(`The ${flag} path could not be written.`, [
+          inputIssue(flag, "unwritable", `${folder}: not a directory.`),
+        ]);
       return {
         input: {
           name,
-          target_path: reader.localPath(filename),
+          target_path: targetPath,
           ...(format === undefined ? {} : { format }),
           ...(option(args, "--raw") === undefined ? {} : { raw: true }),
         },
@@ -715,9 +748,11 @@ export const documentCommandDefinitions: readonly CommandDefinition[] = [
         option(args, "--segments") !== undefined ||
         option(args, "--segments-file") !== undefined;
       if (ordinary === structured)
-        throw new CliError(
-          "usage",
-          "Choose one body source: --content, --file, --segments or --segments-file.",
+        oneOf(
+          args,
+          ordinary
+            ? ["--content", "--segments", "--segments-file"]
+            : ["--content", "--file", "--segments", "--segments-file"],
         );
       const segments = ordinary
         ? parseActorReferences(

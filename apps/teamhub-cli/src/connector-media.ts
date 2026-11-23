@@ -20,7 +20,8 @@ import {
   rootSchema,
   str,
 } from "./connector-schemas.js";
-import { CliError, ConnectorError } from "./errors.js";
+import { CliError } from "./errors.js";
+import { invalidFlag } from "./input-issues.js";
 
 // Shared by the generative media connectors (fal, Higgsfield): model
 // parameters given as flags, continuing a provider job, and saving its
@@ -195,9 +196,10 @@ export async function saveRemoteFiles(
     await mkdir(path.dirname(output), { recursive: true, mode: 0o700 })
       .then(() => mkdir(output, { mode: 0o700 }))
       .catch(() => {
-        throw new ConnectorError(
-          "invalid_path",
-          "The output directory could not be created; choose a new path.",
+        throw invalidFlag(
+          "--output",
+          "unwritable",
+          `${output}: the directory could not be created; choose a new path.`,
         );
       });
   const saved: Json[] = [];
@@ -225,7 +227,7 @@ export async function saveRemoteFiles(
       );
     } catch (error) {
       if (!saved.length) throw error;
-      throw new ConnectorError(
+      throw new CliError(
         "file_transfer_failed",
         "Some result files were saved; use --job with a new --output path to retry the download.",
         {

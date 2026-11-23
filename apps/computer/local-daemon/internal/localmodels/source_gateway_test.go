@@ -96,11 +96,14 @@ func TestEnsureGatewayMountsTheSavedByokSourceOnlyWhenItsGatewayIsDown(t *testin
 	// The endpoint is back: the next Run mounts the gateway, and the Runtime
 	// paths the tool drops from model-source.json are kept.
 	_ = os.Remove(filepath.Join(ft.state, "source-apply-exit"))
+	// ReadOverlay keeps only host-absolute Runtime paths, so a POSIX literal
+	// would be dropped on Windows.
+	piPath := filepath.Join(t.TempDir(), "harness", "bin", "pi")
 	ft.write("source-apply.json", map[string]any{
 		"schema": modelSourceStatusSchema, "mode": "byok", "runtime": "pi",
 		"runtime_model": "localmodels/localmodels-byok", "gateway_url": stoppedURL,
 		"environment":   map[string]string{"PI_CODING_AGENT_DIR": piProfile},
-		"runtime_paths": map[string]string{"pi": "/opt/harness/bin/pi"},
+		"runtime_paths": map[string]string{"pi": piPath},
 		"byok":          map[string]any{"configured": true, "key_saved": false},
 	})
 	if err := ms.EnsureGateway(t.Context(), "pi"); err != nil {
@@ -109,7 +112,7 @@ func TestEnsureGatewayMountsTheSavedByokSourceOnlyWhenItsGatewayIsDown(t *testin
 	if ran() == "" {
 		t.Fatal("EnsureGateway did not mount the gateway again")
 	}
-	if overlay := ReadOverlay(ft.state); overlay == nil || overlay.RuntimePaths["pi"] != "/opt/harness/bin/pi" {
+	if overlay := ReadOverlay(ft.state); overlay == nil || overlay.RuntimePaths["pi"] != piPath {
 		t.Fatalf("overlay = %+v, want the Runtime paths kept", overlay)
 	}
 }
@@ -178,5 +181,40 @@ func TestEnsureGatewaySharesARemountThatFailedWhileWaiting(t *testing.T) {
 	calls, _ = os.ReadFile(filepath.Join(ft.state, "source-calls.log"))
 	if n := strings.Count(string(calls), "apply --mode byok"); n != 2 {
 		t.Fatalf("remounts = %d, want 2", n)
+	}
+}
+
+// GatewayMode names the managed gateway only for a Runtime whose profile the
+// saved local or BYOK source manages; a Runtime on its own provider, or a
+// subscription source, reaches no gateway.
+func TestGatewayModeNamesTheGatewayARuntimeReaches(t *testing.T) {
+	ft := newFakeTool(t)
+	ms := NewModelSource(ModelSourceOptions{
+		Tool:         &ft.tool,
+		Environment:  map[string]string{"LOCALMODELS_FAKE_TOOL": "1"},
+		JobDirectory: filepath.Join(t.TempDir(), "jobs"),
+		NodePath:     "/usr/local/bin/node",
+	})
+	if got := ms.GatewayMode("pi"); got != "" {
+		t.Fatalf("mode without a saved source = %q, want empty", got)
+	}
+	for _, tc := range []struct {
+		mode, home, runtime, want string
+	}{
+		{"byok", "byok-home", "pi", "byok"},
+		{"local", "gateway-home", "pi", "local"},
+		{"byok", "byok-home", "codex", ""},
+		{"subscription", "byok-home", "pi", ""},
+	} {
+		t.Run(tc.mode+"/"+tc.runtime, func(t *testing.T) {
+			writeModelSourceJSON(t, ft.state, map[string]any{
+				"schema": modelSourceSchema, "mode": tc.mode, "runtime": "pi",
+				"runtime_model": "localmodels/localmodels-byok", "gateway_url": "http://127.0.0.1:43120",
+				"environment": map[string]string{"PI_CODING_AGENT_DIR": filepath.Join(ft.state, tc.home, ".pi", "agent")},
+			})
+			if got := ms.GatewayMode(tc.runtime); got != tc.want {
+				t.Fatalf("mode = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }

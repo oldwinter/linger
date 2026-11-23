@@ -10,6 +10,10 @@ import (
 	"github.com/simplexai-labs/linger/contracts-go/nodeservicesinternal"
 )
 
+// localModelsActionRequestTimeout covers the Gateway's 30-second budget for a
+// local-models action acknowledgement, with transport headroom.
+const localModelsActionRequestTimeout = 35 * time.Second
+
 // Errors of a local-models action besides the Computer's own refusals.
 var (
 	// ErrLocalModelsUnsupported: the connected Computer has not reported a
@@ -56,7 +60,7 @@ func (g *HTTPGateway) ActOnLocalModels(ctx context.Context, command LocalModelAc
 		unloadFirst := append([]string(nil), command.UnloadFirst...)
 		request.UnloadFirst = &unloadFirst
 	}
-	response, err := g.client.ActOnLocalComputerModelsWithResponse(ctx, command.TenantID, command.OwnerActorID, command.ComputerID, request)
+	response, err := g.localModelsClient.ActOnLocalComputerModelsWithResponse(ctx, command.TenantID, command.OwnerActorID, command.ComputerID, request)
 	if err != nil {
 		return nil, fmt.Errorf("local-models %s: %w", command.Action, err)
 	}

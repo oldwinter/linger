@@ -31,7 +31,7 @@ func TestClaudeAssignedSessionBecomesResumeAndRefreshesInstructions(t *testing.T
 	for i, prompt := range []string{"prompt A", "prompt B"} {
 		dir := t.TempDir()
 		profile := claudeFramesProfile(t, "frames", []string{result}, map[string]string{"CLAUDE_FAKE_DIR": dir, claudeSessionRoot: root})
-		_, outcome := claudeFinish(t, claudeStart(t, profile, "hello", RunSpec{AssignSessionID: claudeTestSession, AppendPrompt: prompt}), 10*time.Second)
+		_, outcome := claudeFinish(t, claudeStart(t, profile, "hello", RunSpec{AssignSessionID: claudeTestSession, SystemPrompt: prompt}), 10*time.Second)
 		if outcome.Status != statusCompleted {
 			t.Fatalf("run %d = %+v", i, outcome)
 		}
@@ -48,11 +48,11 @@ func TestClaudeAssignedSessionBecomesResumeAndRefreshesInstructions(t *testing.T
 		initLine, _ := os.ReadFile(filepath.Join(dir, "init"))
 		var frame struct {
 			Request struct {
-				AppendSystemPrompt   string `json:"appendSystemPrompt"`
+				SystemPrompt         string `json:"systemPrompt"`
 				SystemPromptSnapshot *bool  `json:"systemPromptSnapshot"`
 			} `json:"request"`
 		}
-		if json.Unmarshal(initLine, &frame) != nil || frame.Request.AppendSystemPrompt != prompt || frame.Request.SystemPromptSnapshot == nil || *frame.Request.SystemPromptSnapshot {
+		if json.Unmarshal(initLine, &frame) != nil || frame.Request.SystemPrompt != prompt || frame.Request.SystemPromptSnapshot == nil || *frame.Request.SystemPromptSnapshot {
 			t.Fatalf("run %d initialize = %s", i, initLine)
 		}
 		if marker, err := claudeReadMarker(root, claudeTestSession); err != nil || marker.prompt != prompt {

@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/secretbox"
 	httpapi "github.com/simplexai-labs/linger/contracts-go/teamhubpublic"
@@ -186,7 +187,7 @@ func (content MessageContent) appendAttachment(filename, documentID string) (Mes
 	}
 	content.segments = append(content.segments, segment)
 	content.rawMessage += filename
-	if len(content.rawMessage) > MaxMessageLength || len(content.segments) > maxMessageSegments {
+	if !withinMessageLength(content.rawMessage) || len(content.segments) > maxMessageSegments {
 		return MessageContent{}, errors.New("attachment content exceeds message limits")
 	}
 	encoded, err := json.Marshal(content.segments)
@@ -241,8 +242,15 @@ func forwardedMessageContent(rawMessage string, encoded []byte) (MessageContent,
 	return content, nil
 }
 
+// withinMessageLength reports whether a Message text fits MaxMessageLength,
+// counted in characters as the constant documents: a CJK body of 50000
+// characters is 150000 bytes and still fits.
+func withinMessageLength(value string) bool {
+	return utf8.RuneCountInString(value) <= MaxMessageLength
+}
+
 func validateMessageContent(rawMessage string, segments []httpapi.MessageSegment) (MessageContent, error) {
-	if strings.TrimSpace(rawMessage) == "" || len(rawMessage) > MaxMessageLength {
+	if strings.TrimSpace(rawMessage) == "" || !withinMessageLength(rawMessage) {
 		return MessageContent{}, errors.New("raw_message is invalid")
 	}
 	if len(segments) == 0 || len(segments) > maxMessageSegments {
@@ -251,13 +259,15 @@ func validateMessageContent(rawMessage string, segments []httpapi.MessageSegment
 
 	var reconstructed strings.Builder
 	reconstructed.Grow(len(rawMessage))
+	reconstructedRunes := 0
 	for _, segment := range segments {
 		content, err := validateMessageSegment(segment)
 		if err != nil {
 			return MessageContent{}, err
 		}
 		reconstructed.WriteString(content)
-		if reconstructed.Len() > MaxMessageLength {
+		reconstructedRunes += utf8.RuneCountInString(content)
+		if reconstructedRunes > MaxMessageLength {
 			return MessageContent{}, errors.New("segment content exceeds message length")
 		}
 	}
@@ -283,19 +293,19 @@ func validateMessageSegment(segment httpapi.MessageSegment) (string, error) {
 	switch discriminator {
 	case "text":
 		var value httpapi.TextSegment
-		if err := decodeStrictJSON(bytes.NewReader(encoded), &value, "segment must contain one JSON object"); err != nil || value.Type != "text" || value.Content == "" || len(value.Content) > MaxMessageLength {
+		if err := decodeStrictJSON(bytes.NewReader(encoded), &value, "segment must contain one JSON object"); err != nil || value.Type != "text" || value.Content == "" || !withinMessageLength(value.Content) {
 			return "", errors.New("text segment is invalid")
 		}
 		return value.Content, nil
 	case "reference":
 		var value httpapi.ReferenceSegment
-		if err := decodeStrictJSON(bytes.NewReader(encoded), &value, "segment must contain one JSON object"); err != nil || value.Type != "reference" || value.Content == "" || len(value.Content) > MaxMessageLength || !messageSegmentIDPattern.MatchString(value.Target) || !value.TargetType.Valid() {
+		if err := decodeStrictJSON(bytes.NewReader(encoded), &value, "segment must contain one JSON object"); err != nil || value.Type != "reference" || value.Content == "" || !withinMessageLength(value.Content) || !messageSegmentIDPattern.MatchString(value.Target) || !value.TargetType.Valid() {
 			return "", errors.New("reference segment is invalid")
 		}
 		return value.Content, nil
 	case "file":
 		var value httpapi.FileSegment
-		if err := decodeStrictJSON(bytes.NewReader(encoded), &value, "segment must contain one JSON object"); err != nil || value.Type != "file" || value.Content == "" || len(value.Content) > MaxMessageLength || !messageSegmentIDPattern.MatchString(value.DocumentId) || !messageSegmentIDPattern.MatchString(value.DocumentVersionId) {
+		if err := decodeStrictJSON(bytes.NewReader(encoded), &value, "segment must contain one JSON object"); err != nil || value.Type != "file" || value.Content == "" || !withinMessageLength(value.Content) || !messageSegmentIDPattern.MatchString(value.DocumentId) || !messageSegmentIDPattern.MatchString(value.DocumentVersionId) {
 			return "", errors.New("file segment is invalid")
 		}
 		return value.Content, nil
@@ -308,14 +318,14 @@ func validateMessageSegment(segment httpapi.MessageSegment) (string, error) {
 	case "meeting_notes":
 		var value httpapi.MeetingNotesSegment
 		if err := decodeStrictJSON(bytes.NewReader(encoded), &value, "segment must contain one JSON object"); err != nil ||
-			value.Type != "meeting_notes" || value.Content == "" || len(value.Content) > MaxMessageLength ||
+			value.Type != "meeting_notes" || value.Content == "" || !withinMessageLength(value.Content) ||
 			!messageSegmentIDPattern.MatchString(value.CaptureId) {
 			return "", errors.New("meeting notes segment is invalid")
 		}
 		return value.Content, nil
 	case "document":
 		var value httpapi.DocumentSegment
-		if err := decodeStrictJSON(bytes.NewReader(encoded), &value, "segment must contain one JSON object"); err != nil || value.Type != "document" || value.Content == "" || len(value.Content) > MaxMessageLength || !messageSegmentIDPattern.MatchString(value.DocumentId) || value.Presentation != nil && !value.Presentation.Valid() {
+		if err := decodeStrictJSON(bytes.NewReader(encoded), &value, "segment must contain one JSON object"); err != nil || value.Type != "document" || value.Content == "" || !withinMessageLength(value.Content) || !messageSegmentIDPattern.MatchString(value.DocumentId) || value.Presentation != nil && !value.Presentation.Valid() {
 			return "", errors.New("document segment is invalid")
 		}
 		return value.Content, nil
@@ -328,7 +338,7 @@ func validateMessageSegment(segment httpapi.MessageSegment) (string, error) {
 	case "artifact_tree":
 		var value httpapi.ArtifactTreeSegment
 		if err := decodeStrictJSON(bytes.NewReader(encoded), &value, "segment must contain one JSON object"); err != nil ||
-			value.Type != "artifact_tree" || value.Content == "" || len(value.Content) > MaxMessageLength ||
+			value.Type != "artifact_tree" || value.Content == "" || !withinMessageLength(value.Content) ||
 			!messageSegmentIDPattern.MatchString(value.PublicationGroupId) ||
 			strings.TrimSpace(value.RootPath) == "" || len(value.RootPath) > 1024 ||
 			value.FileCount < 1 || value.FileCount > 64 ||

@@ -12,6 +12,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -44,6 +45,10 @@ func main() {
 			fail(fmt.Errorf("--occurs-at: %w", err))
 		}
 		event.OccursAt = &value
+	}
+	// A blank summary stays blank so the event is still rejected as incomplete.
+	if strings.TrimSpace(event.Summary) != "" {
+		event.Summary = proactive.ManualEventSummary(event.Kind, event.OccursAt, event.Summary)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()

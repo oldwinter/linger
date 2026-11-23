@@ -246,8 +246,8 @@ func TestVoiceLiveTurnsAreWithheldFromAgentsAndRepliesSavedOnce(t *testing.T) {
 	// during the call only while its app grant is still valid. Both stale
 	// records below lack a grant and must not leak event contents.
 	for _, wake := range []struct{ id, source, body string }{
-		{"pwake_notify", "event", reminder.Prompt(reminder.EventData, nil) + "\nsource: slack\n<event>\nLisa asks about the quote\n</event>"},
-		{"pwake_track", "event", reminder.Prompt(reminder.EventTrackOnly, nil) + "\nsource: slack\n<event>\nSmall talk in the group\n</event>"},
+		{"pwake_notify", "event", reminder.Prompt(reminder.EventData, nil) + "\n<event>\nApp: Slack\nLisa asks about the quote\n</event>"},
+		{"pwake_track", "event", reminder.Prompt(reminder.EventTrackOnly, nil) + "\n<event>\nApp: Slack\nSmall talk in the group\n</event>"},
 	} {
 		if _, err := env.pool.Exec(t.Context(), `INSERT INTO proactive_pending_wakes(id,tenant_id,room_id,author_actor_id,agent_actor_id,body,source,connection_grant)
 			VALUES($1,'tenant_acme',$2,'actor_acme_alice','actor_acme_official',$3,$4,'null')`, wake.id, roomID, wake.body, wake.source); err != nil {

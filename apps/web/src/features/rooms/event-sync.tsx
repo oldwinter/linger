@@ -16,6 +16,7 @@ import {
   localModelsQueryKey,
   tenantLocalModelsQueryKey,
 } from "@/features/local-models/local-models-queries";
+import { tenantModelSourceQueryKey } from "@/features/local-models/model-source-queries";
 import { teamHubDocumentsQueryKey } from "@/features/teamhub/document-queries";
 import type { TeamHubEventSignal } from "@/features/teamhub/event-transport";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
@@ -161,17 +162,22 @@ async function applyInvalidation(
       ]);
       return;
     case "agents":
-    case "computers":
+    case "computers": {
+      const queries: QueryKey[] = [
+        localComputersQueryKey(tenantId),
+        tenantLocalModelsQueryKey(tenantId),
+      ];
+      if (hint.resource === "computers") {
+        queries.push(tenantModelSourceQueryKey(tenantId));
+      }
       await Promise.all([
         refreshAgentStatus(queryClient, tenantId),
         // A Local models view carries its Computer's connection and the
-        // Agents that use each model.
-        refreshActiveQueries(queryClient, [
-          localComputersQueryKey(tenantId),
-          tenantLocalModelsQueryKey(tenantId),
-        ]),
+        // Agents that use each model; only computer hints affect model-source.
+        refreshActiveQueries(queryClient, queries),
       ]);
       return;
+    }
     case "local-models":
       await refreshActiveQueries(queryClient, [
         localModelsQueryKey(tenantId, hint.id),

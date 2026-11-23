@@ -157,3 +157,15 @@ func TestUnfinishedVoiceJob(t *testing.T) {
 		t.Fatal("unfinishedVoiceJob accepted an unknown kind")
 	}
 }
+
+func TestVoiceRetryDelayBacksOffToCap(t *testing.T) {
+	want := []time.Duration{5 * time.Second, 10 * time.Second, 20 * time.Second, 40 * time.Second, 80 * time.Second, 160 * time.Second, 5 * time.Minute, 5 * time.Minute}
+	for index, delay := range want {
+		if got := voiceRetryDelay(int32(index + 1)); got != delay {
+			t.Fatalf("attempt %d delay=%s want=%s", index+1, got, delay)
+		}
+	}
+	if got := voiceRetryDelay(0); got != voiceRetryBase {
+		t.Fatalf("unclaimed delay=%s", got)
+	}
+}

@@ -129,30 +129,29 @@ func (t Tool) command(environment map[string]string, action Action) *exec.Cmd {
 // commandArgs builds one tool invocation the way the installer runs it: the
 // sealed kit on PYTHONPATH and as the working directory, no user site
 // packages, no bytecode writes into the sealed kit, forced UTF-8 mode so Python
-// never falls back to a legacy Windows ANSI code page, and PI_CODING_AGENT_DIR
-// resolved through OverlayEnvironment and workspace.PiSourceEnvironment so
-// localmodels reads and writes the same Pi profile the Daemon probes and runs.
+// never falls back to a legacy Windows ANSI code page, per-home isolated
+// LOCALMODELS_* directories and Bifrost address, and PI_CODING_AGENT_DIR aligned
+// with the Pi profile the Daemon discovers. When model-source.json exists
+// (byok, subscription, or local), PI_CODING_AGENT_DIR is isolated through the
+// shared localGatewayPiProfile helper (omitted when no managed gateway-home
+// exists yet so localmodels writes into this home's tools/gateway-home/.pi/agent
+// without colliding with byok-home or personal ~/.pi/agent). When no
+// model-source.json exists yet, it follows workspace.PiSourceEnvironment on the
+// base environment (stripping any stale byok-home) so tool writes and Runtime
+// discovery stay on the same profile.
 func (t Tool) commandArgs(environment map[string]string, args []string) *exec.Cmd {
 	cmd := exec.Command(t.Python, args...)
 	cmd.Dir = t.ModuleDirectory
-	cleaned := make(map[string]string, len(environment))
+	effective := make(map[string]string, len(environment)+10)
 	for key, value := range environment {
 		switch strings.ToUpper(key) {
 		case "PYTHONHOME", "PYTHONSTARTUP", "PYTHONINSPECT", "PYTHONPATH",
 			"PYTHONUTF8", "PYTHONIOENCODING",
-			"LOCALMODELS_STATE", "LOCALMODELS_TOOLS_DIR", "LOCALMODELS_BIFROST_DIR", "LOCALMODELS_BIFROST_ADDR":
-			continue
-		case "PI_CODING_AGENT_DIR":
-			if trimmed := strings.TrimSpace(value); trimmed != "" {
-				cleaned["PI_CODING_AGENT_DIR"] = trimmed
-			}
+			"LOCALMODELS_STATE", "LOCALMODELS_TOOLS_DIR", "LOCALMODELS_BIFROST_DIR", "LOCALMODELS_BIFROST_ADDR",
+			"PI_CODING_AGENT_DIR":
 			continue
 		}
-		cleaned[key] = value
-	}
-	effective := OverlayEnvironment(cleaned, t.StateDirectory)
-	if piEnv, err := workspace.PiSourceEnvironment(effective); err == nil && piEnv["PI_CODING_AGENT_DIR"] != "" {
-		effective["PI_CODING_AGENT_DIR"] = piEnv["PI_CODING_AGENT_DIR"]
+		effective[key] = value
 	}
 	effective["PYTHONPATH"] = t.ModuleDirectory
 	effective["LOCALMODELS_STATE"] = t.StateDirectory
@@ -167,6 +166,25 @@ func (t Tool) commandArgs(environment map[string]string, args []string) *exec.Cm
 			toolsDir,
 			!isReadOnlyOrStopSubcommand(args),
 		)
+	}
+	if overlay := ReadOverlay(t.StateDirectory); overlay == nil {
+		baseForPi := make(map[string]string, len(environment))
+		for key, value := range environment {
+			if strings.EqualFold(key, "PI_CODING_AGENT_DIR") {
+				trimmed := strings.TrimSpace(value)
+				if trimmed == "" || isManagedProfilePath(t.StateDirectory, trimmed, "byok-home") {
+					continue
+				}
+				baseForPi["PI_CODING_AGENT_DIR"] = trimmed
+				continue
+			}
+			baseForPi[key] = value
+		}
+		if piEnv, err := workspace.PiSourceEnvironment(baseForPi); err == nil && piEnv["PI_CODING_AGENT_DIR"] != "" {
+			effective["PI_CODING_AGENT_DIR"] = piEnv["PI_CODING_AGENT_DIR"]
+		}
+	} else if piProfile := localGatewayPiProfile(environment, t.StateDirectory, overlay); piProfile != "" {
+		effective["PI_CODING_AGENT_DIR"] = piProfile
 	}
 	effective["PYTHONNOUSERSITE"] = "1"
 	effective["PYTHONDONTWRITEBYTECODE"] = "1"

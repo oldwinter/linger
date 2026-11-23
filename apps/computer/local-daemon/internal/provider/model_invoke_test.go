@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/provider/native"
 )
 
 func TestModelInvokeTimeoutAllowsWikiRefreshDeadline(t *testing.T) {
@@ -48,7 +50,7 @@ func disabledFeatures(args []string) []string {
 }
 
 func TestCodexModelInvokeArgsPinEffortIsolationAndNoPrompt(t *testing.T) {
-	args := codexModelInvokeArgs(ModelInvokeStructured, "low", "", "/tmp/call/work", "/tmp/call/schema.json", "/tmp/call/last.txt")
+	args := codexModelInvokeArgs("0.150.1", ModelInvokeStructured, "low", "", "/tmp/call/work", "/tmp/call/schema.json", "/tmp/call/last.txt")
 	if args[0] != "exec" || !slices.Contains(args, "--skip-git-repo-check") || !slices.Contains(args, "--ephemeral") ||
 		!slices.Contains(args, "--ignore-rules") || argValue(args, "--sandbox") != "read-only" ||
 		argValue(args, "--color") != "never" || argValue(args, "-C") != "/tmp/call/work" ||
@@ -63,26 +65,30 @@ func TestCodexModelInvokeArgsPinEffortIsolationAndNoPrompt(t *testing.T) {
 		t.Fatalf("codex exec must disable features via -c overrides rather than --disable: %q", args)
 	}
 	want := []string{
-		"shell_tool", "unified_exec", "code_mode_host", "multi_agent", "goals",
+		"shell_tool", "unified_exec", "code_mode_host", "goals",
 		"browser_use", "browser_use_external", "browser_use_full_cdp_access",
 		"computer_use", "in_app_browser", "apps", "plugins", "hooks",
 		"image_generation", "view_image", "tool_suggest", "skill_search", "sleep_tool",
+		"multi_agent", "multi_agent_v2",
 	}
 	if got := disabledFeatures(args); !slices.Equal(got, want) {
 		t.Fatalf("disabled features = %q", got)
+	}
+	if !slices.Contains(args, "agents.enabled=false") {
+		t.Fatalf("sub-agents stay on: %q", args)
 	}
 	// Every option takes its value; nothing is left over as a PROMPT argument.
 	if last := args[len(args)-1]; last != "/tmp/call/last.txt" {
 		t.Fatalf("argv ends with %q", last)
 	}
 
-	text := codexModelInvokeArgs(ModelInvokeText, "high", "gpt-account-default", "/w", "", "/l")
+	text := codexModelInvokeArgs("0.150.1", ModelInvokeText, "high", "gpt-account-default", "/w", "", "/l")
 	if slices.Contains(text, "--output-schema") || !slices.Contains(text, `model_reasoning_effort="high"`) ||
 		argValue(text, "-m") != "gpt-account-default" || slices.Contains(args, "-m") {
 		t.Fatalf("text args = %q", text)
 	}
 
-	workspace := codexModelInvokeArgs(ModelInvokeWorkspace, "medium", "", "/w", "", "/l")
+	workspace := codexModelInvokeArgs("0.150.1", ModelInvokeWorkspace, "medium", "", "/w", "", "/l")
 	if argValue(workspace, "--sandbox") != "workspace-write" {
 		t.Fatalf("workspace args = %q", workspace)
 	}
@@ -159,6 +165,23 @@ func TestClaudeModelInvokeArgsDisableToolsAndCustomizations(t *testing.T) {
 	if argValue(workspace, "--tools") != "Read,Write,Edit,Glob,Grep" || !slices.Contains(workspace, "--restricted") ||
 		argValue(workspace, "--permission-mode") != "acceptEdits" {
 		t.Fatalf("workspace args = %q", workspace)
+	}
+
+	noneArgs := claudeModelInvokeArgs(ModelInvokeText, "none", nil)
+	if slices.Contains(noneArgs, "--effort") || argValue(noneArgs, "--thinking") != "disabled" {
+		t.Fatalf("none args = %q; want --thinking disabled without --effort", noneArgs)
+	}
+
+	emptyArgs := claudeModelInvokeArgs(ModelInvokeText, "", nil)
+	if slices.Contains(emptyArgs, "--effort") || slices.Contains(emptyArgs, "--thinking") {
+		t.Fatalf("empty effort args = %q; want neither --effort nor --thinking", emptyArgs)
+	}
+
+	codexEmpty := codexModelInvokeArgs("", ModelInvokeText, "", "", "/w", "", "/l")
+	for _, arg := range codexEmpty {
+		if strings.HasPrefix(arg, "model_reasoning_effort=") {
+			t.Fatalf("codex empty effort included reasoning override: %q", codexEmpty)
+		}
 	}
 }
 
@@ -305,6 +328,9 @@ func TestModelInvokerClassifiesFailures(t *testing.T) {
 		// so it is not reported as a transient failure.
 		{event: modelNotFoundEvent, outcome: ModelInvokeRuntimeIncompatible},
 		{stderr: "Error: stream disconnected before completion\n", outcome: ModelInvokeFailed},
+		{event: `{"type":"turn.failed","error":{"message":"context window exceeded","codexErrorInfo":"contextWindowExceeded"}}`, outcome: ModelInvokeContextTooLong},
+		{event: `{"type":"turn.failed","error":{"message":"{\"error\":{\"type\":\"exceed_context_size_error\",\"message\":\"request exceeds context\"}}"}}`, outcome: ModelInvokeContextTooLong},
+		{event: `{"type":"turn.failed","error":{"message":"upstream unavailable","codexErrorInfo":{"internalServerError":{"httpStatusCode":503}}}}`, outcome: ModelInvokeRuntimeUnavailable},
 	} {
 		fixture := newCodexInvokeFixture(t, func(_ context.Context, command *exec.Cmd) error {
 			_, _ = io.WriteString(command.Stderr, test.stderr)
@@ -317,6 +343,15 @@ func TestModelInvokerClassifiesFailures(t *testing.T) {
 		if result.Outcome != test.outcome || result.Reason == "" {
 			t.Fatalf("%q: result = %+v", test.stderr+test.event, result)
 		}
+	}
+
+	// Claude structured terminal_reason=prompt_too_long maps to context_too_long
+	// without matching error prose.
+	claudePromptTooLong := classifyModelInvokeFailureWithDiagnostics(
+		context.Background(), context.Background(), "claude", errors.New("exit status 1"), "", "Prompt is too long", "context_too_long", native.RuntimeFailureDiagnostics{},
+	)
+	if claudePromptTooLong.Outcome != ModelInvokeContextTooLong {
+		t.Fatalf("claude prompt_too_long = %+v", claudePromptTooLong)
 	}
 }
 
@@ -539,5 +574,70 @@ func TestCodexInvokeSandboxConfigKeepsWindowsUnelevated(t *testing.T) {
 	}
 	if args := codexInvokeSandboxConfig("darwin"); args != nil {
 		t.Fatalf("darwin args = %q", args)
+	}
+}
+
+func TestClaudeModelInvokeDisablesNonessentialTrafficAndPreservesOverride(t *testing.T) {
+	home := t.TempDir()
+	claudeDir := filepath.Join(home, ".claude")
+	if err := os.MkdirAll(claudeDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(claudeDir, ".credentials.json"), []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, test := range []struct {
+		name     string
+		override string
+		want     string
+	}{
+		{name: "default", want: "1"},
+		{name: "caller override", override: "0", want: "0"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			callerEnv := map[string]string{
+				"HOME":              home,
+				"CLAUDE_CONFIG_DIR": claudeDir,
+				"PATH":              "/usr/bin",
+			}
+			if test.override != "" {
+				callerEnv["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = test.override
+			}
+			var observed string
+			invoker := ModelInvoker{
+				TempBase: filepath.Join(t.TempDir(), "operation-tmp"),
+				Lookup: func(_ context.Context, runtimeType string) (ModelInvokeRuntime, bool, error) {
+					if runtimeType != "claude" {
+						return ModelInvokeRuntime{}, false, nil
+					}
+					return ModelInvokeRuntime{
+						ExecutablePath: "/fixture/claude",
+						Version:        "2.1.309",
+						Environment:    callerEnv,
+					}, true, nil
+				},
+				Run: func(_ context.Context, command *exec.Cmd) error {
+					observed = environmentMap(command)["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"]
+					_, _ = io.WriteString(command.Stdout, `{"type":"result","is_error":false,"result":"OK"}`)
+					return nil
+				},
+			}
+			result := invoker.Invoke(context.Background(), ModelInvokeRequest{
+				RuntimeType:     "claude",
+				Mode:            ModelInvokeText,
+				ReasoningEffort: "low",
+				Input:           "hello",
+				Timeout:         time.Minute,
+			})
+			if result.Outcome != ModelInvokeCompleted || observed != test.want {
+				t.Fatalf("outcome = %+v, observed = %q, want %q", result, observed, test.want)
+			}
+			if test.override == "" {
+				if _, mutated := callerEnv["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"]; mutated {
+					t.Fatal("claudeModelInvocation mutated caller environment map")
+				}
+			}
+		})
 	}
 }

@@ -1,11 +1,15 @@
 package integration_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/agentcredential"
 )
@@ -216,4 +220,255 @@ func TestDelegatedRunningTasksAreCappedPerAgent(t *testing.T) {
 	if got := countRows(t, env, `SELECT count(*) FROM work_items WHERE kind='task' AND created_by_actor_id='actor_acme_official'`); got != 10 {
 		t.Fatalf("running Tasks=%d want=10", got)
 	}
+}
+
+func postAgentTaskJSON(
+	env *testEnv,
+	path, bearer string,
+	payload any,
+	extraHeaders ...http.Header,
+) (int, []byte, error) {
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return 0, nil, err
+	}
+	request, err := http.NewRequest(http.MethodPost, env.server.URL+path, bytes.NewReader(encoded))
+	if err != nil {
+		return 0, nil, err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	if bearer != "" {
+		request.Header.Set("Authorization", "Bearer "+bearer)
+	}
+	for _, headers := range extraHeaders {
+		for name, values := range headers {
+			for _, value := range values {
+				request.Header.Add(name, value)
+			}
+		}
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		return response.StatusCode, nil, err
+	}
+	return response.StatusCode, body, nil
+}
+
+func postDelegatedTaskErr(
+	env *testEnv,
+	issued agentcredential.Issued,
+	invocation, name, requirement string,
+	headers ...http.Header,
+) (int, []byte, error) {
+	return postAgentTaskJSON(env, "/api/agent/v1/tasks", issued.AccessToken,
+		map[string]any{"invocation_id": mcpCreationInvocationID(invocation), "name": name, "requirement": requirement},
+		headers...)
+}
+
+func postTaskCommandErr(
+	env *testEnv,
+	issued agentcredential.Issued,
+	command string,
+	body map[string]any,
+	headers ...http.Header,
+) (int, []byte, error) {
+	return postAgentTaskJSON(env, "/api/agent/v1/tasks/"+command, issued.AccessToken, body, headers...)
+}
+
+func TestConcurrentTaskDelegationHasNoDeadlock(t *testing.T) {
+	allowParallelIntegrationTest(t)
+	env, _, issued, roomID := newAgentCLIIdentity(t)
+
+	t.Run("shared registration lock plus delegation advisory lock never deadlocks", func(t *testing.T) {
+		tx, err := env.pool.Begin(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback(t.Context())
+
+		var txPID int32
+		if err := tx.QueryRow(t.Context(), `SELECT pg_backend_pid()`).Scan(&txPID); err != nil {
+			t.Fatalf("read shared-lock backend pid: %v", err)
+		}
+
+		var active string
+		if err := tx.QueryRow(
+			t.Context(),
+			`SELECT status FROM agent_registrations WHERE actor_id='actor_acme_official' AND tenant_id=$1 FOR SHARE`,
+			acmeTenant,
+		).Scan(&active); err != nil {
+			t.Fatalf("acquire shared registration lock: %v", err)
+		}
+
+		type createOutcome struct {
+			code int
+			body []byte
+			err  error
+		}
+		done := make(chan createOutcome, 1)
+		go func() {
+			code, body, reqErr := postDelegatedTaskErr(
+				env, issued, "delegate-lock-order", "Lock order probe", "Must not deadlock with shared registration lock.",
+				taskDelegationRoomContext(roomID),
+			)
+			done <- createOutcome{code: code, body: body, err: reqErr}
+		}()
+
+		// Wait deterministically until the Create request either finishes under
+		// the concurrent FOR SHARE lock or holds the per-Agent advisory lock /
+		// blocks on a lock held by this transaction.
+		ticker := time.NewTicker(5 * time.Millisecond)
+		defer ticker.Stop()
+		deadline := time.NewTimer(10 * time.Second)
+		defer deadline.Stop()
+
+		var outcome createOutcome
+		var completedEarly bool
+		for readyToLock := false; !completedEarly && !readyToLock; {
+			select {
+			case outcome = <-done:
+				completedEarly = true
+			case <-deadline.C:
+				t.Fatal("timed out waiting for delegation request to complete or acquire/wait on locks")
+			case <-ticker.C:
+				if err := env.pool.QueryRow(t.Context(), `
+					SELECT EXISTS (
+						SELECT 1
+						FROM pg_locks l
+						JOIN pg_stat_activity a ON a.pid = l.pid
+						WHERE a.datname = current_database()
+						  AND l.pid <> $1
+						  AND l.locktype = 'advisory'
+						  AND l.granted
+						  AND l.objsubid = 1
+						  AND ((l.classid::bigint << 32) | l.objid::bigint) = hashtextextended($2, 0)
+					) OR EXISTS (
+						SELECT 1
+						FROM pg_stat_activity a
+						WHERE a.datname = current_database()
+						  AND a.pid <> $1
+						  AND a.wait_event_type = 'Lock'
+						  AND $1 = ANY(pg_blocking_pids(a.pid))
+					)`,
+					txPID, "task-delegation|actor_acme_official",
+				).Scan(&readyToLock); err != nil {
+					t.Fatalf("poll postgres lock state: %v", err)
+				}
+			}
+		}
+
+		// Mirror a concurrent delegation waiting for the same per-Agent advisory lock
+		// while holding FOR SHARE on agent_registrations.
+		if _, err := tx.Exec(
+			t.Context(),
+			`SELECT pg_advisory_xact_lock(hashtextextended('task-delegation|actor_acme_official', 0))`,
+		); err != nil {
+			t.Fatalf("acquire advisory lock after shared registration lock: %v", err)
+		}
+		if err := tx.Commit(t.Context()); err != nil {
+			t.Fatalf("commit shared-lock transaction: %v", err)
+		}
+
+		if !completedEarly {
+			select {
+			case outcome = <-done:
+			case <-time.After(30 * time.Second):
+				t.Fatal("delegation request timed out")
+			}
+		}
+		if outcome.err != nil {
+			t.Fatalf("delegation request under concurrent shared registration lock failed: %v", outcome.err)
+		}
+		if outcome.code != http.StatusOK {
+			t.Fatalf("delegation under concurrent shared registration lock=%d %s", outcome.code, outcome.body)
+		}
+	})
+
+	t.Run("parallel creates and wakes for the same Agent complete without deadlock", func(t *testing.T) {
+		// Seed one stopped Task to exercise concurrent Task wake (Send -> checkRunningCap) alongside Creates.
+		stopped := createDelegatedTask(t, env, issued, "delegate-burst-seed", "Seed task", "Seed task to stop and wake.", roomID)
+		if code, body := postTaskCommand(t, env, issued, "stop", map[string]any{
+			"invocation_id": mcpCreationInvocationID("delegate-burst-stop"), "task_id": stopped.TaskID,
+		}, taskDelegationRoomContext(roomID)); code != http.StatusOK {
+			t.Fatalf("stop seed task=%d %s", code, body)
+		}
+
+		const concurrentCreates = 6
+		start := make(chan struct{})
+		var ready sync.WaitGroup
+		ready.Add(concurrentCreates + 1)
+		var wait sync.WaitGroup
+		wait.Add(concurrentCreates + 1)
+
+		type result struct {
+			name   string
+			code   int
+			body   []byte
+			taskID string
+			err    error
+		}
+		results := make(chan result, concurrentCreates+1)
+
+		for index := range concurrentCreates {
+			go func(index int) {
+				defer wait.Done()
+				ready.Done()
+				<-start
+				code, body, reqErr := postDelegatedTaskErr(
+					env, issued,
+					fmt.Sprintf("delegate-burst-%d", index),
+					fmt.Sprintf("Burst task %d", index),
+					"Run concurrently without deadlock.",
+					taskDelegationRoomContext(roomID),
+				)
+				var parsed delegatedTaskResponse
+				if reqErr == nil {
+					_ = json.Unmarshal(body, &parsed)
+				}
+				results <- result{name: fmt.Sprintf("create-%d", index), code: code, body: body, taskID: parsed.TaskID, err: reqErr}
+			}(index)
+		}
+
+		go func() {
+			defer wait.Done()
+			ready.Done()
+			<-start
+			code, body, reqErr := postTaskCommandErr(env, issued, "send", map[string]any{
+				"invocation_id": mcpCreationInvocationID("delegate-burst-wake"),
+				"task_id":       stopped.TaskID,
+				"message":       "Wake alongside concurrent creates.",
+				"steer":         false,
+			}, taskDelegationRoomContext(roomID))
+			results <- result{name: "wake", code: code, body: body, taskID: stopped.TaskID, err: reqErr}
+		}()
+
+		ready.Wait()
+		close(start)
+		wait.Wait()
+		close(results)
+
+		createdIDs := map[string]struct{}{}
+		for item := range results {
+			if item.err != nil {
+				t.Fatalf("%s request failed: %v", item.name, item.err)
+			}
+			if item.code != http.StatusOK {
+				t.Fatalf("%s failed: status=%d body=%s", item.name, item.code, item.body)
+			}
+			if strings.HasPrefix(item.name, "create-") {
+				if item.taskID == "" {
+					t.Fatalf("%s returned empty task_id: %s", item.name, item.body)
+				}
+				createdIDs[item.taskID] = struct{}{}
+			}
+		}
+		if len(createdIDs) != concurrentCreates {
+			t.Fatalf("distinct created tasks=%d want=%d", len(createdIDs), concurrentCreates)
+		}
+	})
 }

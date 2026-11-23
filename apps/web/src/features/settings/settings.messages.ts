@@ -17,4 +17,6 @@ export const settingsMessages = defineMessages("settings", {
     "Saved on this device. Text written by Agents and other people stays as they wrote it.",
   languageUnavailable:
     "That language could not be loaded. Check your connection and try again.",
+  saveDiagnostics: "Save diagnostics…",
+  saveDiagnosticsFailed: "Diagnostics could not be saved. Try again.",
 });

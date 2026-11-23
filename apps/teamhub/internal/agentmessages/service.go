@@ -27,9 +27,12 @@ type Service struct{ pool *pgxpool.Pool }
 func New(pool *pgxpool.Pool) *Service { return &Service{pool: pool} }
 
 type Reader struct{ TenantID, ActorID string }
+
+// Inbox identifies one authorized message history inbox and its optional display name.
 type Inbox struct {
 	InboxID string `json:"inbox_id"`
 	Kind    string `json:"kind"`
+	Name    string `json:"name,omitempty"`
 }
 type Resource struct {
 	DocumentID string `json:"document_id"`

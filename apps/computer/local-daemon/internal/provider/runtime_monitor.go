@@ -21,7 +21,11 @@ type RuntimeMonitorOptions struct {
 	OnChanged             func(DiscoveryResult) error
 	OnError               func(error)
 	Discover              func(context.Context, DiscoveryOptions) (DiscoveryResult, error)
-	FullRefreshAllowed    func() bool
+	// Shape projects each DiscoveryResult after full discovery or
+	// authentication refresh (for example applying a persisted BYOK catalog
+	// overlay) before diffing against current diagnostics or publishing.
+	Shape              func(DiscoveryResult) DiscoveryResult
+	FullRefreshAllowed func() bool
 	// RuntimeBusy reports an active operation. A running operation proves its
 	// Runtime works, so an inconclusive auth probe then keeps the ready state.
 	RuntimeBusy func() bool
@@ -73,6 +77,9 @@ func MonitorRuntimeDiagnostics(ctx context.Context, options RuntimeMonitorOption
 			(options.FullRefreshAllowed == nil || options.FullRefreshAllowed()) {
 			next, err = discover(ctx, activeDiscovery)
 			if err == nil {
+				if options.Shape != nil {
+					next = options.Shape(next)
+				}
 				requested = false
 				prevEnv = maps.Clone(activeDiscovery.Environment)
 				prevPaths = maps.Clone(activeDiscovery.ConfiguredPaths)
@@ -86,6 +93,9 @@ func MonitorRuntimeDiagnostics(ctx context.Context, options RuntimeMonitorOption
 		} else {
 			next, err = refreshRuntimeAuthentication(ctx, current, activeDiscovery, tick%options.FullRefreshEveryTicks == 0)
 			if err == nil {
+				if options.Shape != nil {
+					next = options.Shape(next)
+				}
 				if options.RuntimeBusy != nil && options.RuntimeBusy() {
 					next = retainReadyRuntimesDuringInconclusiveProbes(current, next)
 				}
@@ -135,7 +145,7 @@ func retainReadyRuntimesDuringTransientFailures(current, next DiscoveryResult, f
 			delete(failures, diagnostics[index].Type)
 		}
 	}
-	return DiscoveryResult{Diagnostics: diagnostics, Installations: installationsFromDiagnostics(diagnostics)}
+	return DiscoveryResult{Diagnostics: diagnostics, Installations: InstallationsFromDiagnostics(diagnostics)}
 }
 
 // retainReadyRuntimesDuringInconclusiveProbes keeps a ready Runtime ready
@@ -155,7 +165,7 @@ func retainReadyRuntimesDuringInconclusiveProbes(current, next DiscoveryResult) 
 	if !changed {
 		return next
 	}
-	return DiscoveryResult{Diagnostics: diagnostics, Installations: installationsFromDiagnostics(diagnostics)}
+	return DiscoveryResult{Diagnostics: diagnostics, Installations: InstallationsFromDiagnostics(diagnostics)}
 }
 
 func findRuntimeDiagnostic(diagnostics []RuntimeDiagnostic, runtimeType string) *RuntimeDiagnostic {
@@ -214,8 +224,12 @@ func refreshRuntimeAuthentication(ctx context.Context, current DiscoveryResult, 
 			diagnostic.Error = &DiagnosticError{Code: outcome.Code, Message: outcome.Message}
 		}
 		if (diagnostic.Type == "pi" || diagnostic.Type == "antigravity") && diagnostic.Status == "ready" {
+			previousModels := diagnostic.Models
 			catalogCtx, cancel := context.WithTimeout(ctx, boundedAuthTimeout(options.Timeout))
 			diagnostic.Models, diagnostic.ModelCatalogError = probedRuntimeModels(catalogCtx, diagnostic.Type, diagnostic.ExecutablePath, environment, outcome)
+			if diagnostic.ModelCatalogError == "" {
+				carryOrResolveModelLinks(catalogCtx, diagnostic.Type, environment, previousModels, diagnostic.Models)
+			}
 			cancel()
 			if diagnostic.ModelCatalogError != "" {
 				diagnostic.Status, diagnostic.authProbeFailed = "error", false
@@ -224,7 +238,35 @@ func refreshRuntimeAuthentication(ctx context.Context, current DiscoveryResult, 
 		}
 		diagnostics[index] = diagnostic
 	}
-	return DiscoveryResult{Diagnostics: diagnostics, Installations: installationsFromDiagnostics(diagnostics)}, nil
+	return DiscoveryResult{Diagnostics: diagnostics, Installations: InstallationsFromDiagnostics(diagnostics)}, nil
+}
+
+// carryOrResolveModelLinks reuses Link and ContextWindow from previousModels by
+// ID so steady-state authentication refreshes do not re-query a gateway's
+// /models endpoint every tick, while newly observed models (such as after
+// recovering from authentication_required) still resolve their link and window.
+func carryOrResolveModelLinks(ctx context.Context, kind string, environment map[string]string, previousModels, models []RuntimeModel) {
+	known := make(map[string]RuntimeModel, len(previousModels))
+	for _, model := range previousModels {
+		if model.Link != "" {
+			known[model.ID] = model
+		}
+	}
+	var getModelLink func(RuntimeModel) modelLink
+	for i := range models {
+		if prev, ok := known[models[i].ID]; ok {
+			models[i].Link = prev.Link
+			if prev.ContextWindow > 0 {
+				models[i].ContextWindow = prev.ContextWindow
+			}
+			continue
+		}
+		if getModelLink == nil {
+			getModelLink = newGetModelLink(ctx, kind, environment)
+		}
+		link := getModelLink(models[i])
+		models[i].Link, models[i].ContextWindow = link.link, link.window
+	}
 }
 
 func refreshAuthenticationProbe(ctx context.Context, diagnostic RuntimeDiagnostic, environment map[string]string, options DiscoveryOptions) runtimeProbeOutcome {
@@ -257,7 +299,9 @@ func runtimeExecutablesChanged(diagnostics []RuntimeDiagnostic) bool {
 	return false
 }
 
-func installationsFromDiagnostics(diagnostics []RuntimeDiagnostic) map[string]RuntimeDiagnostic {
+// InstallationsFromDiagnostics indexes ready and authentication-required
+// Runtimes with a resolved executable path by Runtime type.
+func InstallationsFromDiagnostics(diagnostics []RuntimeDiagnostic) map[string]RuntimeDiagnostic {
 	installations := make(map[string]RuntimeDiagnostic)
 	for _, diagnostic := range diagnostics {
 		if diagnostic.ExecutablePath != "" && (diagnostic.Status == "ready" || diagnostic.Status == "authentication_required") {

@@ -13,6 +13,7 @@ import { LANGUAGES } from "../i18n/language.js";
 import type { ComputerDaemonModule } from "./computer-daemon.js";
 import type { WorkspaceGrant } from "./config.js";
 import { ConnectorOAuth } from "./connector-oauth.js";
+import type { DiagnosticsModule } from "./diagnostics.js";
 import type { EnrollmentModule } from "./enrollment.js";
 import type { LanguageModule } from "./language.js";
 import type { LocalServerModule } from "./local-server.js";
@@ -83,6 +84,7 @@ export class DesktopIpcModule implements Module {
     "LocalServer",
     "PowerGuard",
     "ComputerDaemon",
+    "Diagnostics",
     "WindowManager",
     "WorkspaceGrants",
     "Tray",
@@ -117,6 +119,7 @@ export class DesktopIpcModule implements Module {
     const localServer = ctx.get<LocalServerModule>("LocalServer");
     const updater = ctx.get<UpdaterModule>("Updater");
     const language = ctx.get<LanguageModule>("Language");
+    const diagnostics = ctx.get<DiagnosticsModule>("Diagnostics");
 
     const oauth = new ConnectorOAuth();
     ipcMain.handle(IPC.connectorOAuthPrepare, (event: IpcMainInvokeEvent) => {
@@ -232,6 +235,15 @@ export class DesktopIpcModule implements Module {
     // The language picked in the page's Settings, for the shell's own text.
     handle(IPC.languageSet, (tag) => {
       language.choose(languageInput.parse(tag));
+    });
+    // The same save as the tray's; the page learns only whether it worked.
+    handle(IPC.diagnosticsSave, async () => {
+      try {
+        await diagnostics.save();
+      } catch (error) {
+        ctx.log.warn("ipc.diagnostics_failed", { error: String(error) });
+        throw error;
+      }
     });
     handle(IPC.updateState, () => updateView(updater.state()));
     handle(IPC.updateInstall, () => updater.install());

@@ -663,7 +663,7 @@ describe("mail attachment downloads", () => {
       "--output",
       ".",
     ]);
-    expect(result.error.error.code).toBe("invalid_path");
+    expect(result.error.error.code).toBe("invalid_input");
     expect(
       f.calls.filter((x) => x.body.tool_slug === "GMAIL_GET_ATTACHMENT"),
     ).toHaveLength(0);
@@ -691,10 +691,11 @@ describe("mail attachment downloads", () => {
     },
   );
   it("requires an attachment ID for duplicate Outlook names", async () => {
+    const ids = ["AAMkAGI2THVSAAABEgAQAC/+x1=", "AAMkAGI2THVSAAABEgAQAD+y2="];
     const f = await fixture("outlook", (slug) => {
       if (slug === "OUTLOOK_LIST_OUTLOOK_ATTACHMENTS")
         return {
-          value: ["a", "b"].map((id) => ({
+          value: ids.map((id) => ({
             id,
             name: "Propuesta ñ.pdf",
             "@odata.type": "#microsoft.graph.fileAttachment",
@@ -714,7 +715,7 @@ describe("mail attachment downloads", () => {
       "file.pdf",
     ]);
     expect(result.error.error.code).toBe("target_ambiguous");
-    expect(result.error.error.details.issues).toHaveLength(2);
+    expect(result.error.error.details.candidates).toEqual(ids);
   });
   it("reports saved paths on a partial batch failure without publishing corrupt bytes", async () => {
     const f = await fixture(
@@ -2082,8 +2083,11 @@ describe("generative media connectors", () => {
         ...flags,
         path.join("locked", "a", "clip.mp4"),
       ]);
-      expect(failed.code).toBe(1);
-      expect(failed.error.error.code).toBe("local_failure");
+      expect(failed.code).toBe(2);
+      expect(failed.error.error).toMatchObject({
+        code: "invalid_input",
+        details: { issues: [{ path: "--output", code: "unwritable" }] },
+      });
     },
   );
 });

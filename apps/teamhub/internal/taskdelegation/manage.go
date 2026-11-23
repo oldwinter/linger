@@ -154,7 +154,7 @@ func (s *Service) Send(
 	if err != nil {
 		return ChangeResult{}, err
 	}
-	return s.change(ctx, token, sendTaskTool, input.InvocationID, input.TaskID, requestHash,
+	return s.change(ctx, token, sendTaskTool, input.InvocationID, input.TaskID, requestHash, true,
 		func(tx pgx.Tx, queries *store.Queries, authorization agentauth.Authorization) (ChangeResult, error) {
 			status, err := queries.LockTaskExecutionSnapshot(ctx, input.TaskID)
 			if err != nil {
@@ -194,7 +194,7 @@ func (s *Service) Stop(
 	if err != nil {
 		return ChangeResult{}, err
 	}
-	return s.change(ctx, token, stopTaskTool, invocationID, taskID, requestHash,
+	return s.change(ctx, token, stopTaskTool, invocationID, taskID, requestHash, false,
 		func(tx pgx.Tx, queries *store.Queries, authorization agentauth.Authorization) (ChangeResult, error) {
 			revision, err := StopTask(ctx, tx, queries, authorization.TenantID, taskID, authorization.AgentActorID)
 			if err != nil {
@@ -262,19 +262,42 @@ func (s *Service) change(
 	token string,
 	tool, invocationID, taskID string,
 	requestHash []byte,
+	lockDelegation bool,
 	apply func(pgx.Tx, *store.Queries, agentauth.Authorization) (ChangeResult, error),
 ) (ChangeResult, error) {
 	if s == nil || s.pool == nil || s.contexts == nil {
 		return ChangeResult{}, ErrUnavailable
+	}
+	var lockedAgentActorID string
+	if lockDelegation {
+		preflight, err := s.contexts.Authorize(ctx, token, tool)
+		if err != nil {
+			return ChangeResult{}, err
+		}
+		if preflight.Target.Kind != "room" || preflight.RoomID == "" || preflight.ParticipantTaskID != "" {
+			return ChangeResult{}, ErrForbidden
+		}
+		lockedAgentActorID = preflight.AgentActorID
 	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return ChangeResult{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	queries := store.New(tx)
+	if lockedAgentActorID != "" {
+		// Take the per-Agent delegation lock before AuthorizeInTx and row locks
+		// so wakes share the same lock order as Task creation.
+		if err := queries.AcquireAdvisoryTransactionLock(ctx, "task-delegation|"+lockedAgentActorID); err != nil {
+			return ChangeResult{}, err
+		}
+	}
 	authorization, err := s.authorizeRoomMeta(ctx, tx, token, tool)
 	if err != nil {
 		return ChangeResult{}, err
+	}
+	if lockedAgentActorID != "" && authorization.AgentActorID != lockedAgentActorID {
+		return ChangeResult{}, ErrForbidden
 	}
 	receipt, replay, err := agentauth.LookupReceipt(ctx, tx, authorization.Principal, tool, invocationID, requestHash)
 	if errors.Is(err, agentauth.ErrReceiptConflict) {
@@ -293,7 +316,6 @@ func (s *Service) change(
 		}
 		return ChangeResult{TaskID: stored.TaskID, Status: stored.Status, Delivery: stored.Delivery, Replay: true}, nil
 	}
-	queries := store.New(tx)
 	if _, err := coordinatedTask(ctx, queries, authorization, taskID); err != nil {
 		return ChangeResult{}, err
 	}
@@ -348,12 +370,10 @@ func coordinatedTask(
 	return task, err
 }
 
-// checkRunningCap counts and changes running Tasks under one per-Agent lock
-// so concurrent creates and wakes respect MaxRunningTasks.
+// checkRunningCap enforces MaxRunningTasks for an Agent. Callers must already
+// hold the per-Agent "task-delegation|<agentActorID>" advisory transaction lock
+// acquired before row locks.
 func checkRunningCap(ctx context.Context, queries *store.Queries, authorization agentauth.Authorization) error {
-	if err := queries.AcquireAdvisoryTransactionLock(ctx, "task-delegation|"+authorization.AgentActorID); err != nil {
-		return err
-	}
 	running, err := queries.CountRunningDelegatedTasksForAgent(ctx, store.CountRunningDelegatedTasksForAgentParams{
 		TenantID: authorization.TenantID, AgentActorID: authorization.AgentActorID,
 	})

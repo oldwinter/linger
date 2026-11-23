@@ -18,6 +18,11 @@ if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT -or [Environment
     throw 'Local Computer requires native Windows 10 or Windows 11.'
 }
 if (-not [Environment]::Is64BitOperatingSystem) { throw 'Local Computer requires a 64-bit Windows system.' }
+# Bind the bootstrap to the current shell's built-in cmdlets when a parent
+# running another PowerShell edition supplies its module path.
+foreach ($module in @('Microsoft.PowerShell.Management', 'Microsoft.PowerShell.Security', 'Microsoft.PowerShell.Utility')) {
+    Import-Module (Join-Path $PSHOME ("Modules\$module\$module.psd1")) -Scope Local -ErrorAction Stop
+}
 $LingerArchitecture = $env:PROCESSOR_ARCHITEW6432
 if (-not $LingerArchitecture) { $LingerArchitecture = $env:PROCESSOR_ARCHITECTURE }
 switch ($LingerArchitecture.ToUpperInvariant()) {

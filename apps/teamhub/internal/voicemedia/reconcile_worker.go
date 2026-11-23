@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -241,9 +242,21 @@ func (s *Service) reconcileCaptureEpoch(ctx context.Context, captureID string) (
 		return false, err
 	}
 	row := rows[0]
+	if row.CaptureStatus == "finalizing" && row.StopReconcileFailures >= voiceRetryMaxAttempts {
+		// Until the Capture ends, its voice session stays closing and the
+		// recording stays finishing on screen.
+		ended, err := s.failUnsettledCapture(ctx, row)
+		if ended || err != nil {
+			return true, err
+		}
+	}
 	defer func() {
 		if err != nil {
-			_ = s.queries.DeferVoiceMediaEpochReconcile(context.WithoutCancel(ctx), row.ID)
+			// A shutdown's cancellation says nothing about the recorder.
+			_ = s.queries.DeferVoiceMediaEpochReconcile(context.WithoutCancel(ctx), store.DeferVoiceMediaEpochReconcileParams{
+				ID: row.ID, Failed: ctx.Err() == nil,
+				RetryDelay: durationInterval(voiceRetryDelay(row.StopReconcileFailures + 1)),
+			})
 		}
 	}()
 	if row.EpochIndex > 0 && !row.FirstArchivedMs.Valid {
@@ -254,7 +267,7 @@ func (s *Service) reconcileCaptureEpoch(ctx context.Context, captureID string) (
 		err = s.resumeRecoveryEpochStart(ctx, epoch, row.ProviderRoomName, row.AccountID)
 		if errors.Is(err, errVoiceEpochRecoveryDeferred) {
 			// Not due yet: look again after the usual reconcile interval.
-			return false, s.queries.DeferVoiceMediaEpochReconcile(ctx, row.ID)
+			return false, s.queries.DeferVoiceMediaEpochReconcile(ctx, store.DeferVoiceMediaEpochReconcileParams{ID: row.ID})
 		}
 		return true, err
 	}
@@ -399,6 +412,42 @@ func (s *Service) reconcileCaptureEpoch(ctx context.Context, captureID string) (
 	default:
 		return true, nil
 	}
+}
+
+// failUnsettledCapture fails a stopped Capture together with its epoch that
+// used up its settle budget. It reports false, leaving the epoch to ordinary
+// reconciliation, when the epoch does not qualify.
+func (s *Service) failUnsettledCapture(ctx context.Context, row store.ListVoiceMediaEpochsForReconcileRow) (bool, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(ctx)
+	queries := s.queries.WithTx(tx)
+	if _, err = queries.LockVoiceSession(ctx, row.VoiceSessionID); err != nil {
+		return false, err
+	}
+	failed, err := queries.FailUnsettledVoiceCapture(ctx, row.ID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	err = roomevent.AppendCaptureSessionChanged(ctx, queries, failed.TenantID, failed.RoomID, failed.CreatedByActorID, failed.ID, "failed")
+	// A Room under deletion accepts no events but must still end the Capture.
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return false, err
+	}
+	if err = enqueue(ctx, tx, StagingCleanupArgs{CaptureSessionID: failed.ID}); err != nil {
+		return false, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return false, err
+	}
+	slog.ErrorContext(ctx, "voice.capture_stop_unsettled", "capture_session_id", failed.ID, "epoch_id", row.ID,
+		"recorder_state", row.RecorderState.String, "last_failure_code", row.LastFailureCode.String)
+	return true, nil
 }
 
 func voiceMediaFinalizingWithoutEgressExpired(

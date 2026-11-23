@@ -17,6 +17,7 @@ import (
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/store"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/taskdelegation"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/taskexecution"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/tenantmembership"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/typedcard"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/voicelive"
 	"github.com/simplexai-labs/linger/contracts-go/teamhubinternal"
@@ -200,13 +201,19 @@ func (s *Service) startVoiceLiveTask(ctx context.Context, session voicelive.Sess
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return "", err
 	}
-	if _, err := queries.LockActiveRoomForMutation(ctx, session.RoomID); errors.Is(err, pgx.ErrNoRows) {
-		return voicelive.ErrorOutput("room_unavailable"), nil
-	} else if err != nil {
+	// Take per-Agent advisory locks before the room-mutation fence: Work Room
+	// creation takes tenantmembership.LockAgent, and Room deletion takes it
+	// before room-mutation.
+	if err := tenantmembership.LockAgent(ctx, queries, session.Agent.ID); err != nil {
 		return "", err
 	}
 	// Counted under the per-Agent lock Task creation uses, so the cap holds.
 	if err := queries.AcquireAdvisoryTransactionLock(ctx, "task-delegation|"+session.Agent.ID); err != nil {
+		return "", err
+	}
+	if _, err := queries.LockActiveRoomForMutation(ctx, session.RoomID); errors.Is(err, pgx.ErrNoRows) {
+		return voicelive.ErrorOutput("room_unavailable"), nil
+	} else if err != nil {
 		return "", err
 	}
 	running, err := queries.CountRunningDelegatedTasksForAgent(ctx, store.CountRunningDelegatedTasksForAgentParams{

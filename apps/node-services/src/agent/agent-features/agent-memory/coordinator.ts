@@ -50,17 +50,22 @@ const SOURCE_CATEGORIES: ReadonlySet<RuntimeHistoryRecord["category"]> =
 // A longer string, typically a file or page a tool returned, keeps its head.
 const MAX_SOURCE_TEXT = 4_000;
 // A stage's input, instructions included, takes half of the Agent model's
-// context window at about three UTF-8 bytes per token. The other half holds
-// the Runtime's own prompt, the output and reasoning, below the Runtime's
-// automatic compaction. The fixed limits cap every window and apply alone
-// when the window is unknown.
+// context window. Runtimes that report no window (such as Codex) or a large
+// window keep the three-bytes-per-token estimate and fixed ceilings; runtimes
+// reporting a constrained window (<= 128K tokens, such as 65K local models)
+// use a conservative 1.5 UTF-8 bytes-per-token estimate so dense non-ASCII
+// and JSON transcripts fit below the window on the first attempt.
 const WINDOW_INPUT_SHARE = 0.5;
 const BYTES_PER_TOKEN = 3;
+const CONSTRAINED_BYTES_PER_TOKEN = 1.5;
+const CONSTRAINED_CONTEXT_WINDOW = 131_072;
 const MAX_INPUT_BYTES = 400_000;
 const MAX_EXTRACTION_RECORD_BYTES = 250_000;
 const MAX_MEMORY_BYTES = 200_000;
+const MIN_ADAPTIVE_INPUT_BYTES = 4_096;
+const MAX_SHRINK_STEPS_PER_PASS = 4;
 
-interface MemoryBudget {
+export interface MemoryBudget {
   /** One stage's input, instructions included. */
   readonly input: number;
   /** The Memory a consolidation may produce: at most half of its input, so
@@ -68,15 +73,49 @@ interface MemoryBudget {
   readonly memory: number;
 }
 
-function memoryBudget(contextWindow: number | undefined): MemoryBudget {
-  const input =
+export function memoryBudget(
+  contextWindow: number | undefined,
+  adaptiveInputBytes?: number,
+): MemoryBudget {
+  const bytesPerToken =
+    contextWindow !== undefined && contextWindow <= CONSTRAINED_CONTEXT_WINDOW
+      ? CONSTRAINED_BYTES_PER_TOKEN
+      : BYTES_PER_TOKEN;
+  const windowInput =
     contextWindow === undefined
       ? MAX_INPUT_BYTES
       : Math.min(
           MAX_INPUT_BYTES,
-          Math.floor(contextWindow * WINDOW_INPUT_SHARE * BYTES_PER_TOKEN),
+          Math.floor(contextWindow * WINDOW_INPUT_SHARE * bytesPerToken),
         );
-  return { input, memory: Math.min(MAX_MEMORY_BYTES, Math.floor(input / 2)) };
+  const input =
+    adaptiveInputBytes === undefined
+      ? windowInput
+      : Math.max(
+          MIN_ADAPTIVE_INPUT_BYTES,
+          Math.min(windowInput, adaptiveInputBytes),
+        );
+  return {
+    input,
+    memory: Math.min(MAX_MEMORY_BYTES, Math.floor(windowInput / 2)),
+  };
+}
+
+/**
+ * Preserves existing persisted memory when an Agent already holds more memory
+ * than a tighter window budget allows (for example after switching to a
+ * smaller local model), preventing forced deletion or repeated validation errors.
+ */
+function consolidationMemoryLimit(
+  budgetMemory: number,
+  existingMemory: string,
+): number {
+  const existingBytes = bytes(existingMemory);
+  if (existingBytes <= budgetMemory) return budgetMemory;
+  return Math.min(
+    MAX_MEMORY_BYTES,
+    existingBytes + Math.max(16_384, Math.floor(budgetMemory / 2)),
+  );
 }
 
 function bytes(value: string): number {
@@ -89,17 +128,330 @@ function bytes(value: string): number {
  */
 type PassMode = "resume" | "extract" | "consolidate";
 
-function clip(value: RuntimeHistoryJsonValue): RuntimeHistoryJsonValue {
+function clip(
+  value: RuntimeHistoryJsonValue,
+  maxText = MAX_SOURCE_TEXT,
+): RuntimeHistoryJsonValue {
   if (typeof value === "string")
-    return value.length > MAX_SOURCE_TEXT
-      ? `${value.slice(0, MAX_SOURCE_TEXT)}… [${value.length - MAX_SOURCE_TEXT} characters omitted]`
+    return value.length > maxText
+      ? `${value.slice(0, maxText)}… [${value.length - maxText} characters omitted]`
       : value;
-  if (Array.isArray(value)) return value.map(clip);
+  if (Array.isArray(value)) return value.map((item) => clip(item, maxText));
   if (value && typeof value === "object")
     return Object.fromEntries(
-      Object.entries(value).map(([key, item]) => [key, clip(item)]),
+      Object.entries(value).map(([key, item]) => [key, clip(item, maxText)]),
     );
   return value;
+}
+
+function clipStringToBytes(value: string, maxBytes: number): string {
+  if (maxBytes <= 0) return "";
+  if (bytes(value) <= maxBytes) return value;
+  const suffix = "… [omitted]";
+  const suffixBytes = bytes(suffix);
+  if (maxBytes <= suffixBytes) return "";
+  const budget = maxBytes - suffixBytes;
+  let low = 0;
+  let high = value.length;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (bytes(value.slice(0, mid)) <= budget) low = mid;
+    else high = mid - 1;
+  }
+  let end = low;
+  if (end > 0) {
+    const lastCode = value.charCodeAt(end - 1);
+    if (lastCode >= 0xd800 && lastCode <= 0xdbff) end -= 1;
+  }
+  return `${value.slice(0, end)}${suffix}`;
+}
+
+/**
+ * Fits a string so its JSON-encoded representation (`JSON.stringify(value)`)
+ * uses at most `maxJsonBytes`.
+ */
+function clipJsonStringToBytes(value: string, maxJsonBytes: number): string {
+  if (maxJsonBytes <= 2) return "";
+  if (bytes(JSON.stringify(value)) <= maxJsonBytes) return value;
+  let bound = Math.max(0, maxJsonBytes - 2);
+  let candidate = clipStringToBytes(value, bound);
+  while (
+    candidate.length > 0 &&
+    bytes(JSON.stringify(candidate)) > maxJsonBytes
+  ) {
+    bound = Math.floor(bound * 0.75);
+    candidate = clipStringToBytes(value, bound);
+  }
+  return candidate;
+}
+
+const MEMORY_SECTION_HEADING = /^## +(.*\S)\s*$/u;
+const MEMORY_FENCE = /^ {0,3}(`{3,}|~{3,})/u;
+const MEMORY_OMITTED_MARKER =
+  "[earlier memory sections omitted to fit context budget]\n\n";
+
+/**
+ * Trims markdown memory to fit within `maxJsonBytes` (as a JSON string),
+ * preserving the most recent `## ` sections when possible.
+ */
+function clipMemoryToJsonBytes(memory: string, maxJsonBytes: number): string {
+  if (maxJsonBytes <= 2) return "";
+  if (bytes(JSON.stringify(memory)) <= maxJsonBytes) return memory;
+  const sections: string[][] = [];
+  let fence: string | undefined;
+  for (const line of memory.split("\n")) {
+    const marker = MEMORY_FENCE.exec(line)?.[1];
+    if (marker && (!fence || marker.startsWith(fence)))
+      fence = fence ? undefined : marker;
+    const isHeading = !fence && !marker && MEMORY_SECTION_HEADING.test(line);
+    if (isHeading) sections.push([line]);
+    else if (sections.length > 0) sections.at(-1)!.push(line);
+  }
+  if (sections.length > 1) {
+    const kept: string[] = [];
+    for (let i = sections.length - 1; i >= 0; i -= 1) {
+      const candidate =
+        MEMORY_OMITTED_MARKER + [sections[i]!.join("\n"), ...kept].join("\n");
+      if (bytes(JSON.stringify(candidate)) > maxJsonBytes) break;
+      kept.unshift(sections[i]!.join("\n"));
+    }
+    if (kept.length > 0) {
+      return MEMORY_OMITTED_MARKER + kept.join("\n");
+    }
+  }
+  return clipJsonStringToBytes(memory, maxJsonBytes);
+}
+
+interface PreviousMemory {
+  summary: string;
+  memory: string;
+}
+
+/**
+ * Trims `previous.summary` and `previous.memory` so `JSON.stringify(result)`
+ * fits within `maxBytes`.
+ */
+function fitPreviousMemory(
+  previous: PreviousMemory,
+  maxBytes: number,
+): PreviousMemory {
+  if (bytes(JSON.stringify(previous)) <= maxBytes) return previous;
+  const emptyShell = bytes(JSON.stringify({ summary: "", memory: "" }));
+  if (maxBytes <= emptyShell) return { summary: "", memory: "" };
+  const contentBudget = maxBytes - emptyShell;
+  const summaryBudget = Math.min(
+    bytes(JSON.stringify(previous.summary)),
+    Math.max(2, Math.floor(contentBudget / 4) + 2),
+  );
+  const summary = clipJsonStringToBytes(previous.summary, summaryBudget);
+  const usedBySummary = bytes(JSON.stringify(summary)) - 2;
+  const memoryJsonBudget = Math.max(2, contentBudget - usedBySummary + 2);
+  const memory = clipMemoryToJsonBytes(previous.memory, memoryJsonBudget);
+  return { summary, memory };
+}
+
+/**
+ * Progressively clips a single history record's text fields until its
+ * serialized JSON fits within maxBytes, or returns undefined if even the
+ * record skeleton exceeds maxBytes.
+ */
+function fitRecordToBytes(
+  record: RuntimeHistoryRecord,
+  maxBytes: number,
+): RuntimeHistoryRecord | undefined {
+  if (maxBytes <= 0) return undefined;
+  if (bytes(JSON.stringify(record)) <= maxBytes) return record;
+  for (const limit of [2_000, 1_000, 500, 250, 128, 64, 0]) {
+    const candidate: RuntimeHistoryRecord = {
+      ...record,
+      nativeRecord: clip(
+        record.nativeRecord,
+        limit,
+      ) as RuntimeHistoryRecord["nativeRecord"],
+    };
+    if (bytes(JSON.stringify(candidate)) <= maxBytes) return candidate;
+  }
+  return undefined;
+}
+
+function isHighSurrogate(code: number): boolean {
+  return code >= 0xd800 && code <= 0xdbff;
+}
+
+function isLowSurrogate(code: number): boolean {
+  return code >= 0xdc00 && code <= 0xdfff;
+}
+
+function snapBeforeSurrogate(value: string, index: number): number {
+  if (index <= 0 || index >= value.length) return index;
+  return isHighSurrogate(value.charCodeAt(index - 1)) &&
+    isLowSurrogate(value.charCodeAt(index))
+    ? index - 1
+    : index;
+}
+
+interface RawMemorySplit {
+  readonly head: string;
+  readonly remaining: string;
+}
+
+/**
+ * Splits `value` into a head prefix whose JSON representation fits within
+ * `maxJsonBytes` and the unconsumed tail for the next consolidation. Prefers
+ * paragraph (`\n\n`) and line (`\n`) boundaries without breaking UTF-16
+ * surrogate pairs, and returns an empty head and tail when not even one code
+ * point fits so consolidation still terminates.
+ */
+function splitRawMemoryToJsonBytes(
+  value: string,
+  maxJsonBytes: number,
+): RawMemorySplit {
+  if (bytes(JSON.stringify(value)) <= maxJsonBytes) {
+    return { head: value, remaining: "" };
+  }
+  if (maxJsonBytes <= 2) {
+    return { head: "", remaining: "" };
+  }
+  let low = 0;
+  let high = value.length;
+  while (low < high) {
+    let mid = Math.ceil((low + high) / 2);
+    let step = 1;
+    if (
+      mid > 0 &&
+      mid < value.length &&
+      isHighSurrogate(value.charCodeAt(mid - 1)) &&
+      isLowSurrogate(value.charCodeAt(mid))
+    ) {
+      if (mid - 1 > low) {
+        mid -= 1;
+      } else {
+        mid += 1;
+        step = 2;
+      }
+    }
+    if (bytes(JSON.stringify(value.slice(0, mid))) <= maxJsonBytes) {
+      low = mid;
+    } else {
+      high = snapBeforeSurrogate(value, mid - step);
+    }
+  }
+  const maxEnd = low;
+  if (maxEnd <= 0) {
+    return { head: "", remaining: "" };
+  }
+  const minBoundary = Math.max(1, Math.floor(maxEnd / 2));
+  let end = maxEnd;
+  if (!value.startsWith("\n\n", maxEnd)) {
+    const paraIdx = maxEnd >= 2 ? value.lastIndexOf("\n\n", maxEnd - 2) : -1;
+    if (paraIdx >= minBoundary) {
+      end = paraIdx;
+    } else if (!value.startsWith("\n", maxEnd)) {
+      const lineIdx = value.lastIndexOf("\n", maxEnd - 1);
+      if (lineIdx >= minBoundary) {
+        end =
+          lineIdx > 1 && value.charCodeAt(lineIdx - 1) === 0x0d
+            ? lineIdx - 1
+            : lineIdx;
+      }
+    }
+  }
+  if (
+    end === maxEnd &&
+    end > 1 &&
+    value.charCodeAt(end - 1) === 0x0d &&
+    value.charCodeAt(end) === 0x0a
+  ) {
+    end -= 1;
+  }
+  return {
+    head: value.slice(0, end),
+    remaining: value.slice(end).trimStart(),
+  };
+}
+
+interface ConsolidateExtraction {
+  key: string;
+  context_key: string;
+  summary: string;
+  raw_memory: string;
+}
+
+interface FittedExtraction {
+  readonly extraction: ConsolidateExtraction;
+  readonly clipped: boolean;
+  readonly beforeBytes: number;
+  readonly afterBytes: number;
+  readonly remainingBytes: number;
+}
+
+function fitExtractionToBytes(
+  extraction: ConsolidateExtraction,
+  maxBytes: number,
+): FittedExtraction {
+  const beforeBytes = bytes(JSON.stringify(extraction));
+  if (beforeBytes <= maxBytes) {
+    return {
+      extraction,
+      clipped: false,
+      beforeBytes,
+      afterBytes: beforeBytes,
+      remainingBytes: 0,
+    };
+  }
+  const emptyShell = bytes(
+    JSON.stringify({ ...extraction, summary: "", raw_memory: "" }),
+  );
+  if (maxBytes <= emptyShell) {
+    const fitted: ConsolidateExtraction = {
+      ...extraction,
+      summary: "",
+      raw_memory: "",
+    };
+    return {
+      extraction: fitted,
+      clipped: true,
+      beforeBytes,
+      afterBytes: emptyShell,
+      remainingBytes: 0,
+    };
+  }
+  const contentBudget = maxBytes - emptyShell;
+  const summaryBudget = Math.min(
+    bytes(JSON.stringify(extraction.summary)),
+    Math.max(2, Math.floor(contentBudget / 3) + 2),
+  );
+  const summary = clipJsonStringToBytes(extraction.summary, summaryBudget);
+  const usedBySummary = bytes(JSON.stringify(summary)) - 2;
+  const rawMemoryBudget = Math.max(2, contentBudget - usedBySummary + 2);
+  const split = splitRawMemoryToJsonBytes(
+    extraction.raw_memory,
+    rawMemoryBudget,
+  );
+  const fitted: ConsolidateExtraction = {
+    ...extraction,
+    summary,
+    raw_memory: split.head,
+  };
+  return {
+    extraction: fitted,
+    clipped: true,
+    beforeBytes,
+    afterBytes: bytes(JSON.stringify(fitted)),
+    remainingBytes: bytes(split.remaining),
+  };
+}
+
+interface AdaptiveInputCap {
+  readonly bytes: number;
+  readonly window: number | undefined;
+}
+
+interface BuiltExtractBatch {
+  readonly sourceKey: string;
+  readonly threadId: string;
+  readonly firstOrdinal: number;
+  readonly recordCount: number;
 }
 
 /**
@@ -122,6 +474,10 @@ export class AgentMemoryCoordinator {
   readonly #stop = new AbortController();
   readonly #running = new Map<string, Promise<void>>();
   readonly #backoff = new Map<string, { until: number; failures: number }>();
+  // Learned per-Agent input byte ceiling after a confirmed invalid_request
+  // context-overflow failure. Reset when contextWindow changes and gradually
+  // relaxed after clean passes without shrinks.
+  readonly #adaptiveInputBytes = new Map<string, AdaptiveInputCap>();
   // Meta Context input positions an Agent was last fully caught up to. A
   // scan skips the Agent until one of them receives new input.
   readonly #settled = new Map<string, string>();
@@ -306,11 +662,23 @@ export class AgentMemoryCoordinator {
     // Looked up once per pass, and only when a stage is built or run. An
     // offline Computer fails the pass as the model call would, so no stage
     // is sized without the window.
-    let budget: MemoryBudget | undefined;
-    const budgetOf = async () =>
-      (budget ??= memoryBudget(
-        await this.options.modelCall.contextWindow?.({ placement }, signal),
-      ));
+    let resolvedWindow: { readonly value: number | undefined } | undefined;
+    const budgetOf = async (): Promise<MemoryBudget> => {
+      resolvedWindow ??= {
+        value: await this.options.modelCall.contextWindow?.(
+          { placement },
+          signal,
+        ),
+      };
+      const adaptive = this.#adaptiveInputBytes.get(agentId);
+      if (adaptive && adaptive.window !== resolvedWindow.value) {
+        this.#adaptiveInputBytes.delete(agentId);
+      }
+      return memoryBudget(
+        resolvedWindow.value,
+        this.#adaptiveInputBytes.get(agentId)?.bytes,
+      );
+    };
     let document = await memory.read(agentId, signal);
     // Candidates found waiting after a restart start their idle period now.
     if (
@@ -322,6 +690,26 @@ export class AgentMemoryCoordinator {
     // Computer is skipped. Pending stages and consolidation need no Computer.
     const readable = this.options.canReadHistory?.(computerId, runtime) ?? true;
     let settled = true;
+    let completedStages = 0;
+    let hadInvalidRequestShrink = false;
+    let shrinkSteps = 0;
+    let rebuildStage: "extract" | "consolidate" | undefined;
+    let builtInPass = false;
+    let lastBuiltExtract: BuiltExtractBatch | undefined;
+    let maxRecordsInBatch: number | undefined;
+    const relaxAdaptiveCap = (): void => {
+      if (completedStages === 0 || hadInvalidRequestShrink) return;
+      const adaptive = this.#adaptiveInputBytes.get(agentId);
+      if (!adaptive) return;
+      const baseInput = memoryBudget(adaptive.window).input;
+      const nextBytes = adaptive.bytes * 2;
+      if (nextBytes >= baseInput) this.#adaptiveInputBytes.delete(agentId);
+      else
+        this.#adaptiveInputBytes.set(agentId, {
+          bytes: nextBytes,
+          window: adaptive.window,
+        });
+    };
     // The newest record of each Context when this pass first read it. Records
     // written while the pass runs wait for the next one, so a busy
     // conversation cannot keep one pass going.
@@ -329,7 +717,10 @@ export class AgentMemoryCoordinator {
     for (;;) {
       if (!document.pending) {
         // A pending stage always resumes; new work waits until it is due.
-        if (mode === "resume") return settled;
+        if (mode === "resume" && rebuildStage === undefined) {
+          relaxAdaptiveCap();
+          return settled;
+        }
         if (!readable) settled = false;
         const waiting = Object.entries(document.sessions).filter(
           ([, session]) => session.raw_memory,
@@ -341,9 +732,12 @@ export class AgentMemoryCoordinator {
             0,
           ) > MAX_WAITING_CANDIDATE_BYTES;
         let extracting = false;
-        for (const context of full || !readable
-          ? []
-          : await runtimeState.listContexts(agentId, signal)) {
+        const shouldExtract =
+          readable &&
+          (rebuildStage === "extract" || (rebuildStage === undefined && !full));
+        for (const context of shouldExtract
+          ? await runtimeState.listContexts(agentId, signal)
+          : []) {
           if (context.ref.kind !== "meta" || context.terminal_reason) continue;
           // No input yet means no history to read.
           if (context.next_input_sequence === "0") continue;
@@ -425,34 +819,80 @@ export class AgentMemoryCoordinator {
             )
           )
             continue;
-          // The records share the input with the instructions and the
+          // The records share the input with the instructions, schema, and the
           // previous summary.
+          const currentBudget = await budgetOf();
+          const extractOverhead =
+            bytes(memoryInstructions("extract", currentBudget.memory)) +
+            bytes(JSON.stringify(memoryOutputSchema("extract")));
+          const available = Math.max(0, currentBudget.input - extractOverhead);
+          const clippedPrevious =
+            previous === undefined
+              ? null
+              : clipStringToBytes(previous, Math.floor(available / 3));
+          const wrapperBytes = bytes(
+            JSON.stringify({
+              source_context: context.context_key,
+              previous: clippedPrevious,
+              records: [],
+            }),
+          );
           const room = Math.min(
             MAX_EXTRACTION_RECORD_BYTES,
-            (await budgetOf()).input -
-              bytes(memoryInstructions("extract", (await budgetOf()).memory)) -
-              bytes(
-                JSON.stringify({
-                  source_context: context.context_key,
-                  previous: previous ?? null,
-                  records: [],
-                }),
-              ),
+            Math.max(0, available - wrapperBytes),
           );
           const batch: RuntimeHistoryRecord[] = [];
           let size = 0;
           for (const record of records) {
-            const recordBytes = bytes(JSON.stringify(record));
+            if (
+              maxRecordsInBatch !== undefined &&
+              batch.length >= maxRecordsInBatch
+            )
+              break;
+            const recordBytes =
+              bytes(JSON.stringify(record)) + (batch.length ? 1 : 0);
             if (size + recordBytes > room) break;
             batch.push(record);
             size += recordBytes;
           }
-          if (!batch.length)
-            throw new Error("Memory history record exceeds extraction budget");
+          if (!batch.length) {
+            const fitted = fitRecordToBytes(records[0]!, room);
+            if (fitted) batch.push(fitted);
+          }
+          if (!batch.length) {
+            const skipped = records[0]!;
+            this.options.logger.log(
+              "warn",
+              "agent_memory.record_skipped_oversized",
+              {
+                agentId,
+                source_key: sourceKey,
+                ordinal: skipped.ordinal,
+                room_bytes: room,
+              },
+            );
+            document = await memory.commit(
+              agentId,
+              {
+                ...document,
+                cursors: {
+                  ...document.cursors,
+                  [sourceKey]: {
+                    thread_id: page.snapshot.threadId,
+                    through: skipped.ordinal,
+                  },
+                },
+              },
+              signal,
+            );
+            maxRecordsInBatch = undefined;
+            extracting = true;
+            break;
+          }
           const last = batch.at(-1)!.ordinal;
           const prompt = JSON.stringify({
             source_context: context.context_key,
-            previous: previous ?? null,
+            previous: clippedPrevious,
             records: batch,
           });
           document = await memory.commit(
@@ -469,22 +909,62 @@ export class AgentMemoryCoordinator {
             },
             signal,
           );
+          builtInPass = true;
+          lastBuiltExtract = {
+            sourceKey,
+            threadId: page.snapshot.threadId,
+            firstOrdinal: batch[0]!.ordinal,
+            recordCount: batch.length,
+          };
+          rebuildStage = undefined;
           extracting = true;
           break;
         }
         if (!extracting) {
           // Every consolidation clears the candidates it took, so this ends.
-          if (!waiting.length || (!full && mode !== "consolidate"))
+          if (
+            !waiting.length ||
+            (rebuildStage !== "consolidate" && !full && mode !== "consolidate")
+          ) {
+            relaxAdaptiveCap();
             return settled;
-          const previousMemory = {
-            summary: document.summary,
-            memory: document.memory,
-          };
+          }
+          const currentBudget = await budgetOf();
+          const memoryLimit = consolidationMemoryLimit(
+            currentBudget.memory,
+            document.memory,
+          );
           const memorySections = memorySectionHeadings(document.memory);
+          const consolidateOverhead =
+            bytes(memoryInstructions("consolidate", memoryLimit)) +
+            bytes(JSON.stringify(memoryOutputSchema("consolidate")));
+          const available = Math.max(
+            0,
+            currentBudget.input - consolidateOverhead,
+          );
+          const shellWithoutPrev = bytes(
+            JSON.stringify({
+              previous: { summary: "", memory: "" },
+              memory_sections: memorySections,
+              extractions: [],
+            }),
+          );
+          const emptyPrevBytes = bytes(
+            JSON.stringify({ summary: "", memory: "" }),
+          );
+          const previousBudget = Math.max(
+            emptyPrevBytes,
+            Math.floor(
+              (Math.max(0, available - shellWithoutPrev + emptyPrevBytes) * 2) /
+                3,
+            ),
+          );
+          const previousMemory = fitPreviousMemory(
+            { summary: document.summary, memory: document.memory },
+            previousBudget,
+          );
           let size =
-            bytes(
-              memoryInstructions("consolidate", (await budgetOf()).memory),
-            ) +
+            consolidateOverhead +
             bytes(
               JSON.stringify({
                 previous: previousMemory,
@@ -494,31 +974,56 @@ export class AgentMemoryCoordinator {
             );
           // Sessions least recently extracted go first. Those that do not fit
           // wait for the next consolidation of this pass. A consolidation
-          // always takes at least one session, so a small window never
-          // blocks the candidates.
-          const extractions: {
-            key: string;
-            context_key: string;
-            summary: string;
-            raw_memory: string;
-          }[] = [];
+          // always takes at least one session; when a sole extraction exceeds
+          // the current input budget, its raw_memory is sliced to fit and the
+          // unconsumed tail stays in the session for the next consolidation.
+          const extractions: ConsolidateExtraction[] = [];
           for (const [key, session] of waiting.sort(
             ([, a], [, b]) => a.updated_revision - b.updated_revision,
           )) {
-            const extraction = {
+            let extraction: ConsolidateExtraction = {
               key,
               context_key: session.context_key,
               summary: session.summary,
               raw_memory: session.raw_memory,
             };
-            const extractionBytes = bytes(JSON.stringify(extraction));
+            const extractionBytes =
+              bytes(JSON.stringify(extraction)) + (extractions.length ? 1 : 0);
             if (
               extractions.length &&
-              size + extractionBytes > (await budgetOf()).input
+              size + extractionBytes > currentBudget.input
             )
               break;
+            let clipped = false;
+            if (
+              !extractions.length &&
+              size + extractionBytes > currentBudget.input
+            ) {
+              const fitted = fitExtractionToBytes(
+                extraction,
+                Math.max(0, currentBudget.input - size),
+              );
+              extraction = fitted.extraction;
+              clipped = fitted.clipped;
+              if (fitted.clipped) {
+                this.options.logger.log(
+                  "warn",
+                  "agent_memory.extraction_clipped",
+                  {
+                    agentId,
+                    session_id: key,
+                    before_bytes: fitted.beforeBytes,
+                    after_bytes: fitted.afterBytes,
+                    remaining_bytes: fitted.remainingBytes,
+                  },
+                );
+              }
+            }
             extractions.push(extraction);
-            size += extractionBytes;
+            size +=
+              bytes(JSON.stringify(extraction)) +
+              (extractions.length > 1 ? 1 : 0);
+            if (clipped) break;
           }
           const prompt = JSON.stringify({
             previous: previousMemory,
@@ -530,6 +1035,9 @@ export class AgentMemoryCoordinator {
             { ...document, pending: { stage: "consolidate", prompt } },
             signal,
           );
+          builtInPass = true;
+          lastBuiltExtract = undefined;
+          rebuildStage = undefined;
         }
       }
       // Each pending stage runs to publication. The persisted pending stage is
@@ -547,10 +1055,41 @@ export class AgentMemoryCoordinator {
         let output: Record<string, unknown>;
         let consolidated: string;
         const { stage } = pending;
-        const memoryLimit = (await budgetOf()).memory;
+        const currentBudget = await budgetOf();
+        const previous = document.memory;
+        const memoryLimit =
+          stage === "consolidate"
+            ? consolidationMemoryLimit(currentBudget.memory, previous)
+            : currentBudget.memory;
+        const instructions = memoryInstructions(stage, memoryLimit);
+        const outputSchema = memoryOutputSchema(stage);
+        // Drop and rebuild an oversized checkpoint persisted before a tighter
+        // budget or model switch through the single stage builder.
+        const maxPromptBytes = Math.max(
+          0,
+          currentBudget.input -
+            bytes(instructions) -
+            bytes(JSON.stringify(outputSchema)),
+        );
+        if (
+          !builtInPass &&
+          bytes(pending.prompt) > maxPromptBytes &&
+          (stage === "consolidate" || readable)
+        ) {
+          const { pending: _dropped, ...rest } = document;
+          this.options.logger.log("info", "agent_memory.batch_shrunk", {
+            agentId,
+            stage,
+            before_bytes: bytes(pending.prompt),
+            target_input_bytes: currentBudget.input,
+            reason: "budget",
+          });
+          document = await memory.commit(agentId, rest, signal);
+          rebuildStage = stage;
+          break;
+        }
         // Throws what the output schema cannot express; a consolidation
         // returns the memory its edits produce.
-        const previous = document.memory;
         const checked = (candidate: Record<string, unknown>): string => {
           if (stage === "extract") {
             outputText(candidate, "session_summary", 32_000);
@@ -568,10 +1107,10 @@ export class AgentMemoryCoordinator {
             kind: "agent_memory",
             key: `agent-memory:${agentId}:${stage}`,
             placement,
-            instructions: memoryInstructions(stage, memoryLimit),
+            instructions,
             input: pending.prompt,
             schemaName: `memory_${stage}`,
-            outputSchema: memoryOutputSchema(stage),
+            outputSchema,
             timeoutMs: STAGE_TIMEOUT_MS[stage],
             // The call corrects an output these checks reject, so a stage
             // fails only past its kind's attempts.
@@ -589,15 +1128,143 @@ export class AgentMemoryCoordinator {
           }));
           consolidated = checked(output);
         } catch (error) {
+          if (
+            error instanceof ModelCallError &&
+            error.kind === "invalid_request"
+          ) {
+            const promptBytes = bytes(pending.prompt);
+            const totalSentBytes =
+              bytes(instructions) +
+              bytes(JSON.stringify(outputSchema)) +
+              promptBytes;
+            const currentCap = currentBudget.input;
+            const nextCap = Math.max(
+              MIN_ADAPTIVE_INPUT_BYTES,
+              Math.min(
+                currentCap - 1,
+                Math.floor(Math.min(currentCap, totalSentBytes) / 2),
+              ),
+            );
+            const canRebuild = stage === "consolidate" || readable;
+            hadInvalidRequestShrink = true;
+            if (canRebuild && nextCap < currentCap) {
+              this.#adaptiveInputBytes.set(agentId, {
+                bytes: nextCap,
+                window: resolvedWindow?.value,
+              });
+              const { pending: _dropped, ...rest } = document;
+              this.options.logger.log("warn", "agent_memory.batch_shrunk", {
+                agentId,
+                stage,
+                before_bytes: promptBytes,
+                target_input_bytes: nextCap,
+                reason: error.kind,
+              });
+              document = await memory.commit(agentId, rest, signal);
+              builtInPass = false;
+              lastBuiltExtract = undefined;
+              if (shrinkSteps < MAX_SHRINK_STEPS_PER_PASS) {
+                shrinkSteps += 1;
+                rebuildStage = stage;
+                break;
+              }
+              throw error;
+            }
+            if (
+              canRebuild &&
+              stage === "extract" &&
+              lastBuiltExtract &&
+              lastBuiltExtract.recordCount > 1 &&
+              shrinkSteps < MAX_SHRINK_STEPS_PER_PASS
+            ) {
+              shrinkSteps += 1;
+              maxRecordsInBatch = Math.max(
+                1,
+                Math.floor(lastBuiltExtract.recordCount / 2),
+              );
+              const { pending: _dropped, ...rest } = document;
+              this.options.logger.log("warn", "agent_memory.batch_shrunk", {
+                agentId,
+                stage,
+                before_bytes: promptBytes,
+                target_input_bytes: currentCap,
+                reason: error.kind,
+              });
+              document = await memory.commit(agentId, rest, signal);
+              builtInPass = false;
+              lastBuiltExtract = undefined;
+              rebuildStage = "extract";
+              break;
+            }
+            if (
+              canRebuild &&
+              !builtInPass &&
+              shrinkSteps < MAX_SHRINK_STEPS_PER_PASS
+            ) {
+              shrinkSteps += 1;
+              this.#adaptiveInputBytes.set(agentId, {
+                bytes: nextCap,
+                window: resolvedWindow?.value,
+              });
+              const { pending: _dropped, ...rest } = document;
+              document = await memory.commit(agentId, rest, signal);
+              rebuildStage = stage;
+              break;
+            }
+            if (
+              stage === "extract" &&
+              lastBuiltExtract &&
+              lastBuiltExtract.recordCount === 1
+            ) {
+              const { pending: _dropped, ...rest } = document;
+              this.options.logger.log(
+                "warn",
+                "agent_memory.record_skipped_oversized",
+                {
+                  agentId,
+                  source_key: lastBuiltExtract.sourceKey,
+                  ordinal: lastBuiltExtract.firstOrdinal,
+                  prompt_bytes: promptBytes,
+                },
+              );
+              document = await memory.commit(
+                agentId,
+                {
+                  ...rest,
+                  cursors: {
+                    ...document.cursors,
+                    [lastBuiltExtract.sourceKey]: {
+                      thread_id: lastBuiltExtract.threadId,
+                      through: lastBuiltExtract.firstOrdinal,
+                    },
+                  },
+                },
+                signal,
+              );
+              builtInPass = false;
+              lastBuiltExtract = undefined;
+              maxRecordsInBatch = undefined;
+              rebuildStage = "extract";
+              break;
+            }
+            await memory.commit(
+              agentId,
+              { ...document, pending: { ...pending, attempt: attempt + 1 } },
+              signal,
+            );
+            throw error;
+          }
           // Only an output the model produced, or a Runtime that ran out of
           // time producing one, counts against the attempt budget; an offline
-          // Computer or a missing Runtime backs off instead. Either way the
-          // stage backs off, so it never holds the model back to back.
+          // Computer, a missing Runtime, or a generic failure backs off instead.
+          // Either way the stage backs off, so it never holds the model back to back.
           if (
             !(error instanceof InvalidMemoryOutputError) &&
             !(
               error instanceof ModelCallError &&
-              (error.kind === "invalid_output" || error.kind === "timed_out")
+              (error.kind === "invalid_output" ||
+                error.kind === "timed_out" ||
+                error.kind === "output_limited")
             )
           )
             throw error;
@@ -608,6 +1275,11 @@ export class AgentMemoryCoordinator {
           );
           throw error;
         }
+        shrinkSteps = 0;
+        builtInPass = false;
+        lastBuiltExtract = undefined;
+        maxRecordsInBatch = undefined;
+        completedStages += 1;
         const { pending: _, ...published } = document;
         if (pending.stage === "extract") {
           const { source_key: key, thread_id, through } = pending;
@@ -657,12 +1329,22 @@ export class AgentMemoryCoordinator {
           continue;
         }
         const { extractions } = JSON.parse(pending.prompt) as {
-          extractions: readonly { key: string }[];
+          extractions: readonly { key: string; raw_memory?: string }[];
         };
         const sessions = { ...document.sessions };
-        for (const { key } of extractions)
-          if (sessions[key])
-            sessions[key] = { ...sessions[key], raw_memory: "" };
+        for (const { key, raw_memory: sent } of extractions) {
+          const session = sessions[key];
+          if (!session) continue;
+          const waiting = session.raw_memory;
+          const remaining =
+            typeof sent === "string" &&
+            sent.length > 0 &&
+            sent.length < waiting.length &&
+            waiting.startsWith(sent)
+              ? waiting.slice(sent.length).trimStart()
+              : "";
+          sessions[key] = { ...session, raw_memory: remaining };
+        }
         document = await memory.commit(
           agentId,
           {

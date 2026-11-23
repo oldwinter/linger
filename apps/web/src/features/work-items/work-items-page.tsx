@@ -1,4 +1,3 @@
-import { dateTimeFormat } from "@/lib/date-format";
 import { isShortcutKeyEvent } from "@/lib/keyboard-shortcut";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -24,7 +23,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type RefCallback,
 } from "react";
-import { Link, useParams, useSearchParams } from "react-router";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
 import { Button, buttonClassName } from "@/components/ui/button";
 import { Select, SelectItem } from "@/components/ui/select";
@@ -83,7 +82,9 @@ import {
   tenantWorkItemTargetQueryOptions,
   tenantWorkItemsDashboardQueryOptions,
 } from "./work-item-queries";
-import { dashboardWorkItemPath } from "./work-item-routes";
+import { WorkItemDetailDrawer } from "./work-item-detail-drawer";
+import { formatWorkItemDate } from "./work-item-format";
+import { dashboardPath, dashboardWorkItemPath } from "./work-item-routes";
 import { workItemStoryPath } from "./work-item-story";
 import { createWorkItemRoomFilterModel } from "./work-item-room-filter";
 import { WorkItemSelectionCopyLinks } from "./work-item-selection-copy";
@@ -139,6 +140,7 @@ const sortLabels: Record<WorkItemDashboardSort, string> = {
 
 export function WorkItemsPage() {
   const { client } = useTeamHubRuntime();
+  const navigate = useNavigate();
   const params = useParams();
   const tenantId = requireRoomRouteParam(params.tenantId, "Tenant");
   const focusedWorkItemId = params.workItemId;
@@ -171,6 +173,16 @@ export function WorkItemsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const filters = createWorkItemDashboardFilters(searchParams);
   const sort = createWorkItemDashboardSort(searchParams.get("sort"));
+  const dashboardSearch = workItemDashboardSortSearch(
+    workItemDashboardFiltersSearch(filters),
+    sort,
+  );
+  const closeDetail = useCallback(() => {
+    void navigate({
+      pathname: dashboardPath(tenantId),
+      search: dashboardSearch,
+    });
+  }, [dashboardSearch, navigate, tenantId]);
   const day = useLocalDay();
   const identityQuery = useQuery(teamHubIdentityQueryOptions(client));
   const currentActorId = identityQuery.data
@@ -196,11 +208,15 @@ export function WorkItemsPage() {
   });
   const roomsQuery = useQuery(tenantRoomsQueryOptions(client, tenantId));
 
+  const hasFocusedInBoard = Boolean(
+    focusedWorkItemId &&
+    workItemsQuery.data?.items.some((item) => item.id === focusedWorkItemId),
+  );
   if (
     workItemsQuery.isPending ||
     identityQuery.isPending ||
     roomsQuery.isPending ||
-    (focusedWorkItemId && focusedWorkItemQuery.isPending)
+    (focusedWorkItemId && !hasFocusedInBoard && focusedWorkItemQuery.isPending)
   ) {
     return <WorkItemsLoading />;
   }
@@ -233,6 +249,9 @@ export function WorkItemsPage() {
   const rooms = roomsQuery.data;
   if (!data || !rooms) return <WorkItemsLoading />;
   const items = mergeFocusedWorkItem(data.items, focusedWorkItemQuery.data);
+  const focusedWorkItem = focusedWorkItemId
+    ? items.find((item) => item.id === focusedWorkItemId)
+    : undefined;
 
   function updateFilters(next: WorkItemDashboardFilters) {
     setSearchParams(
@@ -258,8 +277,10 @@ export function WorkItemsPage() {
       duplicateItem={duplicateItem}
       filters={filters}
       focusedCardRef={focusedCardRef}
+      focusedWorkItem={focusedWorkItem}
       focusedWorkItemId={focusedWorkItemId}
       items={items}
+      onCloseDetail={closeDetail}
       onCloseDuplicate={() => setDuplicateItem(undefined)}
       onClosePeek={() => setPeekWorkItem(undefined)}
       onDuplicate={setDuplicateItem}
@@ -280,8 +301,10 @@ function WorkItemsLoadedView({
   duplicateItem,
   filters,
   focusedCardRef,
+  focusedWorkItem,
   focusedWorkItemId,
   items,
+  onCloseDetail,
   onCloseDuplicate,
   onClosePeek,
   onDuplicate,
@@ -298,8 +321,10 @@ function WorkItemsLoadedView({
   duplicateItem?: TeamHubWorkItem;
   filters: WorkItemDashboardFilters;
   focusedCardRef: RefCallback<HTMLAnchorElement>;
+  focusedWorkItem?: TeamHubWorkItem;
   focusedWorkItemId?: string;
   items: TeamHubWorkItem[];
+  onCloseDetail: () => void;
   onCloseDuplicate: () => void;
   onClosePeek: () => void;
   onDuplicate: (item: TeamHubWorkItem) => void;
@@ -545,66 +570,82 @@ function WorkItemsLoadedView({
         ) : null}
       </header>
 
-      {filtersHideBoard ? (
-        <section
-          aria-label="No matching items"
-          className="flex min-h-0 flex-1 items-center justify-center px-6 py-12 text-center"
-        >
-          <div>
-            <h2 className="text-sm font-semibold text-app-ink">
-              No matching items
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {filters.text.trim()
-                ? "Only Work Item titles are searched. Try adjusting or clearing your filters."
-                : "No Work Items match the active filters."}
-            </p>
-            <Button
-              className="mt-4"
-              onClick={() =>
-                onUpdateFilters(clearWorkItemDashboardFilters(filters))
-              }
-              size="compact"
-              tone="secondary"
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          {filtersHideBoard ? (
+            <section
+              aria-label="No matching items"
+              className="flex min-h-0 flex-1 items-center justify-center px-6 py-12 text-center"
             >
-              Clear filters
-            </Button>
-          </div>
-        </section>
-      ) : items.length || showFilterBar ? (
-        <WorkItemBoard
-          closedExpanded={closedExpanded}
-          focusedCardRef={focusedCardRef}
-          focusedWorkItemId={focusedWorkItemId}
-          onDuplicate={onDuplicate}
-          onPeek={onPeek}
-          onSetClosedExpanded={setClosedExpanded}
-          originRoomLabel={roomFilter.originLabel}
-          search={dashboardSearch}
-          sections={boardSections}
-          selection={selection}
-          shownItems={shownItems}
-          tenantId={tenantId}
-        />
-      ) : (
-        <section className="flex min-h-0 flex-1 items-center justify-center px-6 py-12 text-center">
-          <div>
-            <span className="mx-auto flex size-10 items-center justify-center rounded-md bg-muted text-muted-foreground">
-              <Icon icon={CheckListIcon} size={16} />
-            </span>
-            <h2 className="mt-3 text-sm font-semibold text-app-ink">
-              {t(m.noWorkItems)}
-            </h2>
-            <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-              Track issues and Agent tasks across your Rooms. Create your first
-              issue to get started.
-            </p>
-            <div className="mt-4 flex justify-center">
-              <WorkItemCreateAction rooms={rooms} tenantId={tenantId} />
-            </div>
-          </div>
-        </section>
-      )}
+              <div>
+                <h2 className="text-sm font-semibold text-app-ink">
+                  No matching items
+                </h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {filters.text.trim()
+                    ? "Only Work Item titles are searched. Try adjusting or clearing your filters."
+                    : "No Work Items match the active filters."}
+                </p>
+                <Button
+                  className="mt-4"
+                  onClick={() =>
+                    onUpdateFilters(clearWorkItemDashboardFilters(filters))
+                  }
+                  size="compact"
+                  tone="secondary"
+                >
+                  Clear filters
+                </Button>
+              </div>
+            </section>
+          ) : items.length || showFilterBar ? (
+            <WorkItemBoard
+              closedExpanded={closedExpanded}
+              focusedCardRef={focusedCardRef}
+              focusedWorkItemId={focusedWorkItemId}
+              onDuplicate={onDuplicate}
+              onPeek={onPeek}
+              onSetClosedExpanded={setClosedExpanded}
+              originRoomLabel={roomFilter.originLabel}
+              search={dashboardSearch}
+              sections={boardSections}
+              selection={selection}
+              shownItems={shownItems}
+              tenantId={tenantId}
+            />
+          ) : (
+            <section className="flex min-h-0 flex-1 items-center justify-center px-6 py-12 text-center">
+              <div>
+                <span className="mx-auto flex size-10 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                  <Icon icon={CheckListIcon} size={16} />
+                </span>
+                <h2 className="mt-3 text-sm font-semibold text-app-ink">
+                  {t(m.noWorkItems)}
+                </h2>
+                <p className="mt-1 max-w-sm text-sm text-muted-foreground">
+                  Track issues and Agent tasks across your Rooms. Create your
+                  first issue to get started.
+                </p>
+                <div className="mt-4 flex justify-center">
+                  <WorkItemCreateAction rooms={rooms} tenantId={tenantId} />
+                </div>
+              </div>
+            </section>
+          )}
+        </div>
+        {focusedWorkItem ? (
+          <WorkItemDetailDrawer
+            item={focusedWorkItem}
+            onClose={onCloseDetail}
+            originRoomLabel={roomFilter.originLabel(focusedWorkItem)}
+            rooms={rooms}
+            statusBadge={
+              <WorkItemStatus status={dashboardColumnFor(focusedWorkItem)} />
+            }
+            tenantId={tenantId}
+          />
+        ) : null}
+      </div>
 
       {peekWorkItem ? (
         <WorkItemPeek
@@ -1182,7 +1223,7 @@ function WorkItemColumn({
                     </span>
                   </span>
                   <time className="shrink-0" dateTime={item.updated_at}>
-                    {formatDashboardDate(item.updated_at, locale)}
+                    {formatWorkItemDate(item.updated_at, locale)}
                   </time>
                 </span>
               </Link>
@@ -1273,11 +1314,4 @@ function dashboardColumnFor(item: TeamHubWorkItem): DashboardColumn["id"] {
   if (item.state === "open") return "todo";
   if (item.state === "in_progress") return "in-progress";
   return item.resolution === "completed" ? "done" : "closed";
-}
-
-function formatDashboardDate(value: string, locale: string) {
-  return dateTimeFormat(
-    { day: "numeric", month: "short", timeZone: "UTC", year: "numeric" },
-    locale,
-  ).format(new Date(value));
 }

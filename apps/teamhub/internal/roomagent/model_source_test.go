@@ -104,3 +104,36 @@ func TestHTTPGatewayListsByokModelsFromTheComputer(t *testing.T) {
 		t.Fatalf("list=%+v err=%v", list, err)
 	}
 }
+
+func TestHTTPGatewayPropagatesCancelOnByokModelsProbe(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(started)
+		select {
+		case <-r.Context().Done():
+		case <-release:
+		}
+	}))
+	t.Cleanup(func() {
+		close(release)
+		server.Close()
+	})
+	gateway, err := NewHTTPGateway(server.URL, "service-secret", server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		<-started
+		cancel()
+	}()
+	_, err = gateway.ListLocalComputerByokModels(ctx,
+		ModelSourceTarget{TenantID: "tenant_1", OwnerActorID: "actor_owner", ComputerID: "computer_1"},
+		nodeservicesinternal.ByokEndpointInput{
+			BaseUrl: "https://api.example.com", Path: "/v1", Endpoint: "/chat/completions", Protocol: "openai-chat",
+		})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+}

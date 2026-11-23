@@ -7,7 +7,13 @@ import type {
 } from "@linger/wire-contracts/runner-gateway/types";
 import { isRecord } from "@linger/service-kit";
 import { isDeepStrictEqual } from "node:util";
-import { admissionLimit, runPriorities, softLimit } from "../../model-tasks.js";
+import {
+  admissionLimit,
+  INTERACTIVE_PRIORITY,
+  runPriorities,
+  RunPriority,
+  softLimit,
+} from "../../model-tasks.js";
 import { logAgentEvent } from "../observability/agent-log.js";
 import {
   FIRST_STOP_HOOK_COMPUTER_VERSION,
@@ -15,7 +21,7 @@ import {
   LocalComputerOfflineError,
   resolveOperationModel,
 } from "./local-computer-management.js";
-import type { ModelEndpoint } from "./model-queue.js";
+import { INTERACTIVE_STALL_MS, type ModelEndpoint } from "./model-queue.js";
 import { isServingConnection } from "./runner-connections.js";
 import type {
   CapacitySignal,
@@ -133,12 +139,48 @@ export class RunnerOperations {
     signal: AbortSignal,
   ): Promise<RunnerCapacityPermit> {
     const source = target.priority ?? runPriorities.chat;
+    const known = typeof source === "number" || source instanceof RunPriority;
     const waiter = {
       ...target,
-      queuedAt:
-        typeof source === "number" ? performance.now() : source.queuedAt,
-      rank: typeof source === "number" ? source : undefined,
+      queuedAt: known ? performance.now() : source.queuedAt,
+      rank:
+        typeof source === "number"
+          ? source
+          : source instanceof RunPriority
+            ? source.value
+            : undefined,
     };
+    const unsubscribe =
+      source instanceof RunPriority
+        ? source.onRaise(() => {
+            waiter.rank = source.value;
+            this.wakeCapacityWaiters();
+          })
+        : undefined;
+    const waitStartedAt = Date.now();
+    let stall: ReturnType<typeof setTimeout> | undefined;
+    const watchStall = () => {
+      stall = setTimeout(() => {
+        if (waiter.rank === undefined || waiter.rank > INTERACTIVE_PRIORITY)
+          return watchStall();
+        logAgentEvent("warn", "runner.capacity.interactive_waiting", {
+          computer_id: target.runnerId,
+          execution_context_key: target.executionContextKey,
+          priority: waiter.rank,
+          waited_ms: Date.now() - waitStartedAt,
+          capacity:
+            this.owners.connections().getConnection(target.runnerId)?.hello
+              .capacity ?? null,
+          reservations: [...this.#capacityReservations.values()].filter(
+            (item) => item.target.runnerId === target.runnerId,
+          ).length,
+          holders: this.describeHolders(target.runnerId),
+        });
+      }, INTERACTIVE_STALL_MS);
+      stall.unref?.();
+    };
+    if (typeof source !== "number" || source <= INTERACTIVE_PRIORITY)
+      watchStall();
     this.#capacityWaiters.add(waiter);
     try {
       for (;;) {
@@ -184,7 +226,7 @@ export class RunnerOperations {
         if (
           hard !== undefined &&
           waiter.rank === undefined &&
-          typeof source !== "number" &&
+          !known &&
           (occupied.length >= soft || peers.length > 1)
         ) {
           waiter.rank = await source.resolve();
@@ -216,12 +258,14 @@ export class RunnerOperations {
         if (
           first === waiter &&
           waiter.rank !== undefined &&
-          rank <= runPriorities.chat
+          rank <= INTERACTIVE_PRIORITY
         )
           yieldLowerRun(active, rank);
         await waitForCapacityChange(changed, signal);
       }
     } finally {
+      clearTimeout(stall);
+      unsubscribe?.();
       this.#capacityWaiters.delete(waiter);
       // A leaving waiter may have held the FIFO position others wait behind.
       this.wakeCapacityWaiters();
@@ -232,10 +276,12 @@ export class RunnerOperations {
     target: RunnerOperationTarget,
   ): Promise<RunnerOperation> {
     // Readiness is checked once, after any capacity wait.
-    const priority = runPriorities[target.runKind ?? "chat"];
+    const priority =
+      target.priority ??
+      new RunPriority(runPriorities[target.runKind ?? "chat"]);
     let permit = target.capacityPermit;
     // The durable claim may select a different Run than the scheduling hint.
-    if (permit?.reservedForChat && priority > runPriorities.chat) {
+    if (permit?.reservedForChat && priority.value > INTERACTIVE_PRIORITY) {
       permit.release();
       permit = undefined;
     }
@@ -276,7 +322,11 @@ export class RunnerOperations {
             "Operation capacity reservation is no longer valid",
           );
         }
-        return await this.#startReservedOperation(target, permit.id, lease);
+        return await this.#startReservedOperation(
+          { ...target, priority },
+          permit.id,
+          lease,
+        );
       } catch (error) {
         lease.release({ outcome: "not_sent" });
         throw error;
@@ -284,6 +334,27 @@ export class RunnerOperations {
     } finally {
       permit.release();
     }
+  }
+
+  /** The running Operations on a Computer, or one of its Runtimes, and why
+   * each cannot yield, for the log of a stalled interactive wait. */
+  describeHolders(
+    computerId: string,
+    runtimeType?: string,
+  ): Record<string, unknown>[] {
+    return this.activeOperations(computerId)
+      .filter(
+        (operation) =>
+          runtimeType === undefined ||
+          operation.start.runtime_type === runtimeType,
+      )
+      .map((operation) => ({
+        operation_id: operation.start.operation_id,
+        execution_context_key: operation.start.execution_context_key,
+        runtime_type: operation.start.runtime_type,
+        priority: operation.priority,
+        yield_blocker: operation.yieldBlocker ?? null,
+      }));
   }
 
   /** Interactive work waiting on the endpoint swaps out a lower Run there. */

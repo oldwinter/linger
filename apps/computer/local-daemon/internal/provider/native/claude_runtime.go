@@ -120,7 +120,7 @@ func (r *claudeRuntime) Start(ctx context.Context, prompt string, spec RunSpec) 
 	if eligible {
 		launch.shape = &claudeShape{
 			execPath: resolved, cwd: spec.Dir, args: shaped,
-			env:        claudeShapeEnv(childEnvironment(r.profile.Env)),
+			env:        claudeShapeEnv(childEnvironment(ClaudeEnvironment(r.profile.Env))),
 			initialize: string(launch.initialize), mcp: mcpShape,
 		}
 	}
@@ -191,7 +191,7 @@ func (r *claudeRuntime) launchProcess(spec RunSpec, launch claudeLaunch, front *
 			}
 		}
 	}
-	cmd := ownedCommand(context.Background(), profileInvocation(launch.resolved, nil, r.profile.Env), argv...)
+	cmd := ownedCommand(context.Background(), profileInvocation(launch.resolved, nil, ClaudeEnvironment(r.profile.Env)), argv...)
 	cmd.Dir = spec.Dir
 	pipes, err := claudeOpenPipes()
 	if err != nil {
@@ -239,7 +239,7 @@ func (r *claudeRuntime) spawn(callerCtx, runCtx context.Context, runCancel conte
 	spec.Readiness.spawned()
 	spec.Readiness.session(spec.ResumeID != "")
 	if launch.identity != "" && launch.root != "" {
-		if err := claudeWriteMarker(launch.root, launch.identity, spec.AppendPrompt); err != nil {
+		if err := claudeWriteMarker(launch.root, launch.identity, spec.SystemPrompt); err != nil {
 			return nil, claudeAbandonSpawn(proc, fmt.Errorf("write Claude instruction marker: %w", err))
 		}
 	}

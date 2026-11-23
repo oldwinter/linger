@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseActorReferences } from "./command-mentions.js";
+import { parseActorReferences } from "./content-segments.js";
 
 describe("ordinary body Actor references", () => {
   it("preserves raw Markdown, Unicode and mention order", () => {

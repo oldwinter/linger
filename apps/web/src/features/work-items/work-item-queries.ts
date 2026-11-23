@@ -1,3 +1,4 @@
+import type { components } from "@linger/wire-contracts/teamhub-public/types";
 import {
   keepPreviousData,
   queryOptions,
@@ -8,9 +9,9 @@ import {
 import { collectTeamHubCursorPages } from "@/features/teamhub/teamhub-cursor-pages";
 import { TeamHubError } from "@/features/teamhub/teamhub-error";
 import {
+  idempotencyHeader,
   teamHubData,
   teamHubDone,
-  idempotencyHeader,
 } from "@/features/teamhub/teamhub-api";
 import {
   createTeamHubIdempotencyKey,
@@ -26,6 +27,8 @@ import {
   type WorkItemDashboardFilters,
 } from "./work-item-dashboard-filters";
 import { workItemsMessages as m } from "./work-items.messages";
+
+export type TeamHubWorkItemComment = components["schemas"]["WorkItemComment"];
 
 export function tenantWorkItemTargetQueryKey(
   tenantId: string,
@@ -495,4 +498,25 @@ export function tenantWorkItemsDashboardQueryOptions(
     refetchOnWindowFocus: true,
     staleTime: 0,
   });
+}
+
+export function createWorkItemComment(
+  client: Pick<TeamHubClient, "api">,
+  workItemId: string,
+  body: string,
+  idempotencyKey: string,
+) {
+  const content = body.trim();
+  return teamHubData(
+    client.api.POST("/v0/work-items/{workItemId}/comments", {
+      body: {
+        body: content,
+        segments: [{ content, type: "text" }],
+      },
+      params: {
+        header: idempotencyHeader(idempotencyKey),
+        path: { workItemId },
+      },
+    }),
+  );
 }

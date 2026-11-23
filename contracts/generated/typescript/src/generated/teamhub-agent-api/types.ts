@@ -1719,6 +1719,7 @@ export interface components {
       inbox_id: string;
       /** @enum {string} */
       kind: "room" | "thread" | "task" | "meta" | "taskmeta";
+      name?: string;
     };
     AgentMessageReadResponse: {
       /** @enum {string} */

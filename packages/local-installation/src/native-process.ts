@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
 import { atomicPrivate, privateDirectory, readPrivate } from "./instance.js";
+import { linuxNodeFdHygieneArgs } from "./native-process-fds.js";
 import { runProcess, windowsTreeTermination } from "./process.js";
 import {
   darwinBirthInCLocale,
@@ -338,20 +339,24 @@ export async function startNativeProcess(
       "Native process supervisor is missing from this installation.",
     );
   }
-  const child = spawn(process.execPath, [fileURLToPath(worker), job], {
-    cwd: options.cwd,
-    env: {
-      [leaseKey]: lease,
-      PATH: process.env.PATH,
-      // Windows processes cannot load system libraries without it.
-      ...(process.platform === "win32"
-        ? { SystemRoot: process.env.SystemRoot }
-        : {}),
+  const child = spawn(
+    process.execPath,
+    [...linuxNodeFdHygieneArgs(), fileURLToPath(worker), job],
+    {
+      cwd: options.cwd,
+      env: {
+        [leaseKey]: lease,
+        PATH: process.env.PATH,
+        // Windows processes cannot load system libraries without it.
+        ...(process.platform === "win32"
+          ? { SystemRoot: process.env.SystemRoot }
+          : {}),
+      },
+      detached: true,
+      windowsHide: true,
+      stdio: ["ignore", "ignore", "ignore", "ipc"],
     },
-    detached: true,
-    windowsHide: true,
-    stdio: ["ignore", "ignore", "ignore", "ipc"],
-  });
+  );
   let birth: string | undefined;
   try {
     await new Promise<void>((resolve, reject) => {

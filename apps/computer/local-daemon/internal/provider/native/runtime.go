@@ -102,7 +102,7 @@ type RunSpec struct {
 	WarmMCP               bool
 	MCPReady              func(context.Context) error
 	Title                 string
-	AppendPrompt          string
+	SystemPrompt          string
 	BaseInstructions      *string
 	DeveloperInstructions *string
 	ComputerArgs          []string

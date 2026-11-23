@@ -128,7 +128,7 @@ describe("teamhub web search", () => {
     expect(await f.run(["web", "search", "q", "--json"])).toBe(4);
     const failure = JSON.parse(f.errors.join("")).error;
     expect(failure).toEqual({
-      code: "SEARCH_KEY_REQUESTED",
+      code: "search_key_requested",
       message:
         "Waiting for the user to add a Tavily API key; a card asking for it is in the chat. End your turn: the card's result wakes you with the results or what to run next. If the user declines, don't retry.",
       command: "web search",

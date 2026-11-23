@@ -21,13 +21,18 @@ const modelSourceTestPath =
 const modelSourceModelsPath =
   "/v0/tenants/{tenantId}/local-computers/{computerId}/model-source/models";
 
+export function tenantModelSourceQueryKey(tenantId: string) {
+  return ["teamhub", tenantId, "model-source"] as const;
+}
+
 export function modelSourceQueryKey(tenantId: string, computerId: string) {
-  return ["teamhub", tenantId, "model-source", computerId] as const;
+  return [...tenantModelSourceQueryKey(tenantId), computerId] as const;
 }
 
 /**
  * Where one Computer's Agents get their model. Reading it asks the Computer,
- * so it is not refetched on local-models hints, only after a switch.
+ * so it is not refetched on local-models hints, only on mount, reconnect,
+ * computer changes, or after a switch.
  */
 export function modelSourceQueryOptions(
   client: TeamHubClient,
@@ -43,6 +48,8 @@ export function modelSourceQueryOptions(
         }),
       ),
     queryKey: modelSourceQueryKey(tenantId, computerId),
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
     retry: false,
     staleTime: 60_000,
   });
@@ -69,11 +76,13 @@ export function testByokEndpoint(
   tenantId: string,
   computerId: string,
   body: ByokTestRequest,
+  signal?: AbortSignal,
 ) {
   return teamHubData(
     client.api.POST(modelSourceTestPath, {
       body,
       params: { path: { computerId, tenantId } },
+      signal,
     }),
   );
 }
@@ -87,11 +96,13 @@ export function listByokModels(
   tenantId: string,
   computerId: string,
   body: ByokEndpointInput,
+  signal?: AbortSignal,
 ) {
   return teamHubData(
     client.api.POST(modelSourceModelsPath, {
       body,
       params: { path: { computerId, tenantId } },
+      signal,
     }),
   );
 }

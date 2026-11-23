@@ -75,6 +75,10 @@ function describeSaveError(
       return t(m.invalidKey);
     case "VOICE_KEY_REJECTED":
       return t(m.keyRejected, { provider: name });
+    case "VOICE_KEY_NO_BALANCE":
+      return t(m.noBalance, { provider: name });
+    case "VOICE_KEY_NO_REALTIME_PERMISSION":
+      return t(m.noRealtimePermission, { provider: name });
     case "VOICE_KEY_FROM_ENVIRONMENT":
       return t(m.keyFromEnvironment, {
         provider: name,

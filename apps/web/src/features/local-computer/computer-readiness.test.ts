@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import type { TeamHubLocalComputerPage } from "@/features/teamhub/teamhub-types";
+import type {
+  TeamHubLocalComputerPage,
+  TeamHubTenantAgent,
+} from "@/features/teamhub/teamhub-types";
 
-import { computerReadiness } from "./computer-readiness";
+import {
+  computerReadiness,
+  preferredComputerRuntime,
+} from "./computer-readiness";
 
 type LocalComputer = TeamHubLocalComputerPage["items"][number];
 
@@ -91,5 +97,61 @@ describe("computerReadiness", () => {
     expect(
       computerReadiness(computer([], { status: "offline" }), "offline"),
     ).toEqual({ kind: "offline" });
+  });
+
+  it("prefers the Computer's active model-source runtime when multiple AI apps are ready", () => {
+    const multiReady = computer([
+      { models: [], status: "ready", type: "claude" },
+      { models: [], status: "ready", type: "codex" },
+      { models: [], status: "ready", type: "pi" },
+    ]);
+    expect(computerReadiness(multiReady, "online")).toEqual({
+      app: "claude",
+      kind: "ready",
+    });
+    expect(computerReadiness(multiReady, "online", "pi")).toEqual({
+      app: "pi",
+      kind: "ready",
+    });
+    expect(
+      computerReadiness(
+        computer([
+          { models: [], status: "ready", type: "claude" },
+          { models: [], status: "not_installed", type: "pi" },
+        ]),
+        "online",
+        "pi",
+      ),
+    ).toEqual({ app: "claude", kind: "ready" });
+  });
+
+  it("resolves preferredComputerRuntime from model-source first, then Another Me and local Agents", () => {
+    const agent = (
+      runtimeType: "claude" | "codex" | "pi",
+      agentType: "anotherme" | "general" = "general",
+    ) =>
+      ({
+        agent_type: agentType,
+        runtime: {
+          model: "localmodels-byok",
+          placement: {
+            computer_id: "computer-a",
+            runtime_type: runtimeType,
+            type: "local",
+            workspace_grant_id: "grant-1",
+          },
+        },
+      }) as TeamHubTenantAgent;
+
+    expect(
+      preferredComputerRuntime([agent("claude"), agent("claude")], "pi"),
+    ).toBe("pi");
+    expect(
+      preferredComputerRuntime([agent("claude"), agent("pi", "anotherme")]),
+    ).toBe("pi");
+    expect(
+      preferredComputerRuntime([agent("claude"), agent("pi"), agent("pi")]),
+    ).toBe("pi");
+    expect(preferredComputerRuntime([])).toBeUndefined();
   });
 });

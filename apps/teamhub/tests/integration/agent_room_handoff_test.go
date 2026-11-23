@@ -121,7 +121,7 @@ func TestAgentRoomHandoffWakesAnotherMeInItsHumansRoom(t *testing.T) {
 	var author string
 	var mentioned []string
 	var text string
-	if err := env.pool.QueryRow(t.Context(), `SELECT author_actor_id,mentioned_actor_ids,body FROM messages WHERE id=$1 AND room_id=$2 AND message_kind='agent_runtime'`,
+	if err := env.pool.QueryRow(t.Context(), `SELECT author_actor_id,mentioned_actor_ids,body FROM messages WHERE id=$1 AND room_id=$2 AND message_kind='agent_runtime' AND human_waiting`,
 		first["handoff_id"], roomID).Scan(&author, &mentioned, &text); err != nil {
 		t.Fatalf("read handoff: %v", err)
 	}

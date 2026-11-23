@@ -14,18 +14,19 @@ var errPiNoModels = errors.New("Pi returned no available models")
 
 // PiRPCResourceArgs is the resource policy shared by managed execution,
 // managed catalog discovery and the protocol probe. It returns a new slice.
-// An empty --system-prompt keeps Pi's built-in prompt: without it, Pi
-// replaces that prompt with the user's own SYSTEM.md from its agent folder.
-func PiRPCResourceArgs() []string {
-	return []string{"--no-extensions", "--no-mcp", "--no-skills", "--no-prompt-templates", "--no-context-files", "--no-approve", "--system-prompt", ""}
+// systemPrompt, a file path or text, replaces Pi's built-in prompt, which
+// describes a coding assistant, lists its tools and points at Pi's own docs.
+// An empty one keeps the built-in prompt. Both prompt flags are passed even
+// when empty: without them, Pi reads the user's SYSTEM.md and
+// APPEND_SYSTEM.md from its agent folder.
+func PiRPCResourceArgs(systemPrompt string) []string {
+	return []string{"--no-extensions", "--no-mcp", "--no-skills", "--no-prompt-templates", "--no-context-files", "--no-approve",
+		"--system-prompt", systemPrompt, "--append-system-prompt", ""}
 }
 
 type piCatalogState struct {
-	Model struct {
-		ID       string `json:"id"`
-		Provider string `json:"provider"`
-	} `json:"model"`
-	ThinkingLevel string `json:"thinkingLevel"`
+	Model         piCatalogModel `json:"model"`
+	ThinkingLevel string         `json:"thinkingLevel"`
 }
 
 type piCatalogModel struct {
@@ -56,7 +57,7 @@ func DiscoverPiModels(ctx context.Context, invocation Invocation) (ModelList, er
 		return ModelList{}, err
 	}
 	invocation.Program = program
-	args := append([]string{"--mode", "rpc", "--no-session"}, PiRPCResourceArgs()...)
+	args := append([]string{"--mode", "rpc", "--no-session"}, PiRPCResourceArgs("")...)
 	requests := []any{
 		map[string]string{"id": "linger-state", "type": "get_state"},
 		map[string]string{"id": "linger-models", "type": "get_available_models"},
@@ -171,17 +172,5 @@ func piEffortSupport(levels map[string]json.RawMessage, defaultLevel string) *Ef
 		}
 		efforts.add(level.value, "")
 	}
-	support := efforts.support(defaultLevel)
-	if support == nil {
-		return nil
-	}
-	for i := range support.Options {
-		if support.Options[i].Value == "off" {
-			support.Options[i].Value = "none"
-		}
-	}
-	if support.Default == "off" {
-		support.Default = "none"
-	}
-	return support
+	return finalizeEffortSupport(efforts, defaultLevel)
 }

@@ -99,10 +99,22 @@ Options:
 `,
 	"runtime": `Usage:
   linger-computer runtime check [codex|claude|pi|antigravity] [options]
+  linger-computer runtime login <codex|claude|pi|antigravity> [options]
 
 Commands:
   check                        Check Codex, Claude Code, Pi, and Antigravity on this computer
+  login                        Open one of them here so you can sign in to it
 `,
+	"runtime login": `Usage:
+  linger-computer runtime login <codex|claude|pi|antigravity> [options]
+
+Open a runtime on this terminal so you can sign in to it, for example enter
+/login in Pi. The runtime starts the way the daemon starts it: its native entry
+point and, on Windows, the Node runtime this Computer ships rather than the
+Node on your PATH. When the runtime exits, this command checks it again.
+
+Options:
+` + runtimePathOptions + "\n" + configOption + "\n",
 	"runtime check": `Usage:
   linger-computer runtime check [codex|claude|pi|antigravity] [options]
 
@@ -150,6 +162,7 @@ Commands:
   daemon status                Show the connection and runtime summary
   daemon logs [-f]             Show daemon logs
   runtime check [name]         Check Codex, Claude Code, Pi, and Antigravity
+  runtime login <name>         Open a runtime here to sign in to it
   doctor                       Check installation, connection, and runtimes
   version                      Show the CLI version
 

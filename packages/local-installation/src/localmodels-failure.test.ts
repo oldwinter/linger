@@ -1,6 +1,8 @@
 import { expect, it } from "vitest";
 import {
+  formatLocalmodelsFailureMessage,
   localmodelsFailure,
+  normalizeFailurePunctuation,
   redactLocalmodelsOutput,
 } from "./localmodels-failure.js";
 
@@ -235,4 +237,76 @@ it("turns a pretty-printed localmodels.stack-up/v1 failure report into a redacte
   expect(failure.cause).toContain("spark-x2.6-1.7b-18100:");
   expect(failure.cause).not.toContain("sk-ant-0123456789abcdefghij");
   expect(failure.cause).not.toContain('"schema"');
+});
+
+it("extracts structured causeCode from localmodels.stack-plan-error/v1 while keeping redacted stderr cause", () => {
+  const failure = localmodelsFailure(["stack", "plan", "--json"], {
+    code: 2,
+    stdout: `${JSON.stringify({
+      schema: "localmodels.stack-plan-error/v1",
+      event: "error",
+      code: "HUB_UNREACHABLE",
+      hosts: ["huggingface.co", "hf-mirror.com"],
+    })}\n`,
+    stderr:
+      "stack: cannot reach huggingface.co (timed out) or hf-mirror.com (SSL EOF) to look up the model files\n",
+  });
+  expect(failure).toMatchObject({
+    code: "HUB_UNREACHABLE",
+    causeCode: "HUB_UNREACHABLE",
+    cause:
+      "stack: cannot reach huggingface.co (timed out) or hf-mirror.com (SSL EOF) to look up the model files",
+  });
+  expect(failure.log.join("")).toContain("HUB_UNREACHABLE");
+});
+
+it("collapses accidental double periods while preserving ellipses", () => {
+  expect(
+    normalizeFailurePunctuation(
+      "  Restore the existing install and try again.. Existing resources were preserved.  ",
+    ),
+  ).toBe(
+    "Restore the existing install and try again. Existing resources were preserved.",
+  );
+  expect(normalizeFailurePunctuation("Waiting...")).toBe("Waiting...");
+  expect(normalizeFailurePunctuation("Failed..")).toBe("Failed.");
+});
+
+it("joins failure messages with single terminal punctuation and redacts secrets", () => {
+  expect(
+    formatLocalmodelsFailureMessage(
+      "The upstream tool could not verify the local stack binding",
+      "Pi's configuration or this computer's state cannot be read safely. Restore the existing install and try again.",
+      "Existing resources were preserved.",
+    ),
+  ).toBe(
+    "The upstream tool could not verify the local stack binding: Pi's configuration or this computer's state cannot be read safely. Restore the existing install and try again. Existing resources were preserved.",
+  );
+  expect(
+    formatLocalmodelsFailureMessage(
+      "The upstream tool could not verify the local stack binding.",
+      "upstream text",
+      "Existing resources were preserved.",
+    ),
+  ).toBe(
+    "The upstream tool could not verify the local stack binding: upstream text. Existing resources were preserved.",
+  );
+  expect(
+    formatLocalmodelsFailureMessage(
+      "The upstream tool could not verify the local stack binding",
+      undefined,
+      "Existing resources were preserved.",
+    ),
+  ).toBe(
+    "The upstream tool could not verify the local stack binding. Existing resources were preserved.",
+  );
+  expect(
+    formatLocalmodelsFailureMessage(
+      "The upstream tool could not verify the local stack binding",
+      "Restore the existing install and try again.. Bearer secret-token-123",
+      "Existing resources were preserved.",
+    ),
+  ).toBe(
+    "The upstream tool could not verify the local stack binding: Restore the existing install and try again. Bearer [REDACTED]. Existing resources were preserved.",
+  );
 });

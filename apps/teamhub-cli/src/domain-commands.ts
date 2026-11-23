@@ -7,6 +7,7 @@ import { slackCommandDefinitions } from "./connector-slack.js";
 import type {
   CommandDefinition,
   CommandArguments,
+  CommandOption,
   CommandTarget,
 } from "./command-definition.js";
 import {
@@ -62,6 +63,34 @@ export function findCommand(
     .find(({ command }) =>
       command.every((part, index) => args[index] === part),
     );
+}
+/** An unknown command, listing the commands of the group it starts with. */
+export function unknownCommand(args: readonly string[]): CliError {
+  const end = args.findIndex((arg) => arg.startsWith("-"));
+  const words = args.slice(0, end < 0 ? args.length : end);
+  for (let depth = words.length; depth > 0; depth--) {
+    const group = words.slice(0, depth);
+    const next = [
+      ...new Set(
+        commandDefinitions
+          .filter(
+            ({ command }) =>
+              command.length > depth &&
+              group.every((part, index) => command[index] === part),
+          )
+          .map(({ command }) => command[depth]!),
+      ),
+    ];
+    if (next.length)
+      return new CliError("usage", `Unknown command "${words.join(" ")}".`, {
+        group: group.join(" "),
+        commands: next,
+      });
+  }
+  return new CliError(
+    "usage",
+    `Unknown command "${words.join(" ")}". Run teamhub --help for the command list.`,
+  );
 }
 export function isDomainCommand(args: readonly string[]): boolean {
   return findCommand(args) !== undefined;
@@ -216,6 +245,37 @@ export function domainHelp(prefix: readonly string[] = []): string {
       .join("\n\n") + "\n"
   );
 }
+/** Help for a prefix. One command's help also lists its JSON flags' fields. */
+export async function helpText(prefix: readonly string[]): Promise<string> {
+  const help = domainHelp(prefix);
+  const item = commandDefinitions.find(
+    ({ command }) =>
+      command.length === prefix.length &&
+      command.every((part, index) => prefix[index] === part),
+  );
+  const flags = item
+    ? Object.entries(item.options).filter(
+        ([, value]) => value.json !== undefined,
+      )
+    : [];
+  if (!help || !item || !flags.length) return help;
+  const [{ input_schema }, { jsonFieldLines }] = await Promise.all([
+    commandSchema(item),
+    import("./command-help-fields.js"),
+  ]);
+  const sections = flags.flatMap(([name, value]) => {
+    const lines = jsonFieldLines(input_schema, value.json!);
+    const twin = `${name}-file`;
+    return lines.length
+      ? [
+          "",
+          `JSON fields of ${name}${Object.hasOwn(item.options, twin) ? ` and ${twin}` : ""}:`,
+          ...lines,
+        ]
+      : [];
+  });
+  return sections.length ? `${help.trimEnd()}\n${sections.join("\n")}\n` : help;
+}
 export async function parseDomainCommand(
   args: readonly string[],
   dependencies: {
@@ -227,8 +287,7 @@ export async function parseDomainCommand(
   },
 ): Promise<DomainCommand> {
   const selected = findCommand(args);
-  if (!selected)
-    throw new CliError("usage", "Unknown command. Run teamhub --help.");
+  if (!selected) throw unknownCommand(args);
   const parsed = parseArguments(
     args.slice(selected.command.length),
     commandOptions(selected),
@@ -280,19 +339,29 @@ export async function parseDomainCommand(
     },
   };
 }
-function englishSchema(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(englishSchema);
-  if (value && typeof value === "object")
-    return Object.fromEntries(
-      Object.entries(value)
-        .filter(
-          ([key, item]) =>
-            key !== "description" ||
+/**
+ * The schema as callers read it: English descriptions only, no pattern where
+ * a format already names the shape, and required before properties so a
+ * truncated read still shows which fields are required.
+ */
+function presentedSchema(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(presentedSchema);
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value)
+      .filter(
+        ([key, item]) =>
+          (key !== "description" ||
             typeof item !== "string" ||
-            !/\p{Script=Han}/u.test(item),
-        )
-        .map(([key, item]) => [key, englishSchema(item)]),
-    );
+            !/\p{Script=Han}/u.test(item)) &&
+          (key !== "pattern" || !("format" in value)),
+      )
+      .map(([key, item]) => [key, presentedSchema(item)] as const);
+    const properties = entries.findIndex(([key]) => key === "properties");
+    const required = entries.findIndex(([key]) => key === "required");
+    if (properties >= 0 && required > properties)
+      entries.splice(properties, 0, ...entries.splice(required, 1));
+    return Object.fromEntries(entries);
+  }
   return value;
 }
 /**
@@ -321,14 +390,21 @@ export async function commandSchema(
     command: item.command,
     description: item.description,
     read_only: item.readOnly,
-    input_schema: englishSchema(item.inputSchema ?? publicSchemas.input_schema),
-    output_schema: englishSchema(
+    input_schema: presentedSchema(
+      item.inputSchema ?? publicSchemas.input_schema,
+    ),
+    output_schema: presentedSchema(
       item.outputSchema ?? publicSchemas.output_schema,
     ),
     cli: {
       usage: item.usage,
       arguments: item.arguments ?? [],
-      options: commandOptions(item),
+      // `json` only tells help which flag carries the JSON fields.
+      options: Object.fromEntries(
+        Object.entries(
+          commandOptions(item) as Record<string, CommandOption>,
+        ).map(([name, { json: _json, ...option }]) => [name, option]),
+      ),
       notes: item.notes ?? [],
     },
   };

@@ -4,7 +4,7 @@ import remarkGfm from "remark-gfm";
 import remarkStringify from "remark-stringify";
 import { unified } from "unified";
 import type { CommandExecutionContext } from "./command-definition.js";
-import { ConnectorError } from "./errors.js";
+import { CliError } from "./errors.js";
 
 /** The same cut TeamHub applies to a page a provider opened. */
 export const maxMarkdownCharacters = 20000;
@@ -67,7 +67,7 @@ const droppedRoles = new Set([
 ]);
 
 const unreadable = (message: string) =>
-  new ConnectorError("page_unreadable", message);
+  new CliError("page_unreadable", message);
 
 /** True for an absolute http or https URL within the contract's bound. */
 export function webURL(value: string): boolean {
@@ -199,6 +199,11 @@ export async function htmlToMarkdown(
   pageURL: string,
 ): Promise<{ title?: string; markdown: string }> {
   const tree = unified().use(rehypeParse).parse(html) as unknown as HastNode;
+  const baseHref = findAll(tree, "base").find(
+    (node) => typeof node.properties?.href === "string",
+  )?.properties?.href;
+  const baseURL =
+    typeof baseHref === "string" ? resolve(baseHref, pageURL) : undefined;
   const title = plainText(textOf(find(tree, "title")))
     .slice(0, maxTitleCharacters)
     .trim();
@@ -210,7 +215,11 @@ export async function htmlToMarkdown(
     articles[0] ??
     find(tree, "body") ??
     tree;
-  prune(content, content.tagName === "body" || content === tree, pageURL);
+  prune(
+    content,
+    content.tagName === "body" || content === tree,
+    baseURL && webURL(baseURL) ? baseURL : pageURL,
+  );
   const root = { type: "root", children: [content] };
   const mdast = await unified()
     .use(rehypeRemark)

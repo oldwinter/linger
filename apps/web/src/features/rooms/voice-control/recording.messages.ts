@@ -54,6 +54,7 @@ export const recordingMessages = defineMessages("recording", {
 
   // What the recording is doing, as the window's title.
   titleRecoveryPaused: "Recording saved. Transcript recovery paused",
+  titleStopFailed: "Recording not stopped",
   titleInputInterrupted: "Recording input was interrupted",
   titleOtherTab: "Recording is continuing in another tab",
   titleListening: "I’m listening to the meeting...",
@@ -84,6 +85,8 @@ export const recordingMessages = defineMessages("recording", {
     "Reconnecting transcript updates; saved text will sync after reconnection",
   statusReconnectingRecording:
     "Reconnecting recording status; waiting for server confirmation",
+  statusMicrophoneMuted:
+    "Microphone muted. Your voice is not recorded until you resume.",
   statusUnconfirmedAfterStop:
     "Some transcript segments are unconfirmed. Recovery will be attempted after stopping.",
   statusUnconfirmed:
@@ -97,6 +100,10 @@ export const recordingMessages = defineMessages("recording", {
     "Transcript recovery is paused. Please retry. You can start a new recording.",
   recoveringBody:
     "Recovering transcript {progress}%. It will appear in this Room when complete. You can start a new recording.",
+  recoveringAttempt: "Attempt {attempt} of {max}",
+  stopFailed:
+    "Stop didn't reach the server after 3 tries, so the recording isn't saved yet. Retry to stop and save it.",
+  retryStop: "Retry",
   downloadOriginal: "Download original recording",
   retryTranscription: "Retry transcription",
   downloadUnavailable: "Original recording download is temporarily unavailable",

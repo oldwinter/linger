@@ -123,3 +123,24 @@ describe("transcript recovery request lifecycle", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
+
+describe("transcript recovery progress", () => {
+  it("shows the attempt beside the progress while recovering", () => {
+    render(
+      <VoiceRecoveryPanel
+        capture={{
+          ...capture(),
+          transcript_recovery_status: "running",
+          transcript_recovery_progress_ms: 250,
+          transcript_recovery_total_ms: 1000,
+          transcript_recovery_attempt: 3,
+          transcript_recovery_max_attempts: 8,
+        }}
+      />,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Recovering transcript 25%",
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("Attempt 3 of 8");
+  });
+});

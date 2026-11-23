@@ -451,7 +451,7 @@ function ComputerPickerPopup({
               className={cn(
                 "inline-flex h-7 items-center justify-center gap-1 rounded-md px-1.5 text-xs transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none",
                 active
-                  ? "bg-background font-medium text-foreground shadow-xs"
+                  ? "bg-card font-medium text-foreground shadow-outline"
                   : "text-muted-foreground hover:text-foreground",
               )}
               key={item.key}
@@ -463,7 +463,7 @@ function ComputerPickerPopup({
             >
               {item.dot ? <StatusDot tone={item.dot} /> : null}
               <span className="truncate">{item.label}</span>
-              <span className="tabular-nums text-[11px] opacity-70">
+              <span className="tabular-nums text-2xs opacity-70">
                 {item.count}
               </span>
             </button>
@@ -513,14 +513,14 @@ function ComputerPickerPopup({
       ) : showGroups ? (
         <>
           <p
-            className="px-2 pt-1 pb-1 text-[11px] font-medium text-muted-foreground"
+            className="px-2 pt-1 pb-1 text-xs font-medium text-muted-foreground"
             role="presentation"
           >
             {t(m.computerGroupOnline)}
           </p>
           {onlineFiltered.map(renderOption)}
           <p
-            className="mt-1 border-t border-border px-2 pt-2 pb-1 text-[11px] font-medium text-muted-foreground"
+            className="mt-1 border-t border-border px-2 pt-2 pb-1 text-xs font-medium text-muted-foreground"
             role="presentation"
           >
             {t(m.computerGroupOffline)}

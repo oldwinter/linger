@@ -591,7 +591,7 @@ describe("Soniox streaming", () => {
     try {
       expect(result).toBeInstanceOf(VoiceFailure);
       expect(result).toMatchObject({
-        code: "asr_provider_401",
+        code: "asr_auth_rejected",
         recoverable: false,
         message: "Soniox ASR rejected the stream with code 401",
       });
@@ -604,6 +604,9 @@ describe("Soniox streaming", () => {
   });
 
   it.each([
+    [401, "asr_auth_rejected"],
+    [402, "asr_balance_exhausted"],
+    [403, "asr_permission_denied"],
     [503, "asr_provider_503"],
     ["503x", "unknown"],
     [-1, "unknown"],
@@ -659,6 +662,37 @@ describe("Soniox streaming", () => {
       expect(voiceTrackFailureCode(result)).toBe("asr_http_401");
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it("reports a connection that never reaches Soniox by its network cause", async () => {
+    const closed = new WebSocketServer({ port: 0, host: "127.0.0.1" });
+    const closedPort = await listen(closed);
+    await new Promise<void>((resolve) => closed.close(() => resolve()));
+    // A plain WebSocket server answers a TLS ClientHello with HTTP bytes.
+    const plain = new WebSocketServer({ port: 0, host: "127.0.0.1" });
+    const plainPort = await listen(plain);
+    const connectFailure = (webSocketUrl: string) =>
+      SonioxASRStream.connect(
+        { apiKey: "test", model: "stt-rt-v6", webSocketUrl },
+        new AbortController().signal,
+      ).then(
+        () => "connected",
+        (error: unknown) => voiceTrackFailureCode(error),
+      );
+    try {
+      await expect(
+        connectFailure(`ws://127.0.0.1:${closedPort}`),
+      ).resolves.toBe("network_refused");
+      await expect(
+        connectFailure(`wss://127.0.0.1:${plainPort}`),
+      ).resolves.toBe("network_tls");
+      // The reserved .invalid domain never resolves.
+      await expect(
+        connectFailure("wss://soniox.invalid/transcribe-websocket"),
+      ).resolves.toBe("network_dns");
+    } finally {
+      await new Promise<void>((resolve) => plain.close(() => resolve()));
     }
   });
 

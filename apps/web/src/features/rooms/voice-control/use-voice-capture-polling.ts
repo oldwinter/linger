@@ -66,7 +66,12 @@ export function useVoiceCapturePolling(
             refs.captureRef.current?.id !== captureId
           )
             return;
-          if (!refs.eventStreamLiveRef.current || resync) setCapture(capture);
+          // A stopped Capture never records again: a recording read means
+          // its Stop has not landed yet, so it stays shown as saving.
+          const stopPending =
+            capture.status === "starting" || capture.status === "recording";
+          if ((!refs.eventStreamLiveRef.current || resync) && !stopPending)
+            setCapture(capture);
           if (resync) refs.captureResyncRef.current = false;
           consecutiveFailures = 0;
           if (capture.status === "finalized" || capture.status === "failed")

@@ -63,7 +63,8 @@ func TestEmptyJobWaitsForDescendantTeardown(t *testing.T) {
 	defer Release(cmd)
 	var pid int
 	for deadline := time.Now().Add(15 * time.Second); ; time.Sleep(10 * time.Millisecond) {
-		if data, err := os.ReadFile(marker); err == nil {
+		// os.WriteFile creates the marker before it writes the PID.
+		if data, err := os.ReadFile(marker); err == nil && len(data) > 0 {
 			pid, err = strconv.Atoi(string(data))
 			if err != nil {
 				t.Fatal(err)

@@ -50,6 +50,8 @@ export interface RunnerModelInvokeRequest {
   readonly maxOutputChars?: ModelInvoke["max_output_chars"];
   readonly callLease?: ModelLease;
   readonly queue: ModelWork & {
+    /** A one-shot call's priority is its kind's and never changes. */
+    readonly priority: number;
     /** The Run Operation an approval reviews. While that Operation holds its
      * place on the same endpoint, the approval runs in it: the Run waits for
      * the verdict, so queuing behind it would never end. */

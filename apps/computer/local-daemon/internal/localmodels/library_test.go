@@ -703,3 +703,51 @@ func TestAFailedLoadKeepsTheGatewayCauseOnItsRow(t *testing.T) {
 		return model.Error != nil && model.Error.Cause == "" && model.Error.Path == ""
 	})
 }
+
+func TestDownloadPublishesDownloadingBeforeSlowPhaseStatusReturns(t *testing.T) {
+	fake := newFakeTool(t)
+	fake.write("status.json", status(model(testModel, "absent")))
+	lines := []fakeLine{
+		{Line: progressLine(testModel, "download", 0, 1000)},
+		{Line: progressLine(testModel, "download", 500, 1000), WaitFile: "download-hold"},
+		{Line: resultLine(testModel)},
+	}
+	loaded, _ := json.Marshal(status(model(testModel, "loaded")))
+	fake.script("download", fakeScript{Lines: lines, StatusAfter: loaded})
+	record := &recorder{}
+	library := newLibrary(t, fake, record, 50*time.Millisecond)
+	library.Refresh(context.Background())
+
+	statusGate := filepath.Join(fake.state, "status-wait")
+	downloadGate := filepath.Join(fake.state, "download-hold")
+	if err := os.WriteFile(statusGate, []byte("1"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(downloadGate, []byte("1"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Remove(statusGate)
+		_ = os.Remove(downloadGate)
+	})
+
+	if refusal, answered := library.Act(context.Background(), Action{Name: ActionDownload, Model: testModel}, soon()); refusal != nil || !answered {
+		t.Fatalf("download refusal = %+v, answered = %v", refusal, answered)
+	}
+	waitFor(t, "status read to enter gate", func() bool {
+		_, err := os.Stat(filepath.Join(fake.state, "status-entered"))
+		return err == nil
+	})
+	// While library status is still blocked, the downloading state is already published.
+	waitFor(t, "immediate downloading snapshot", func() bool {
+		got := modelState(record.last(), testModel)
+		return got != nil && got.State == "downloading" && got.Download != nil && got.Download.TotalBytes == 1000
+	})
+
+	_ = os.Remove(statusGate)
+	_ = os.Remove(downloadGate)
+	waitFor(t, "the loaded snapshot", func() bool {
+		got := modelState(record.last(), testModel)
+		return got != nil && got.State == "loaded"
+	})
+}

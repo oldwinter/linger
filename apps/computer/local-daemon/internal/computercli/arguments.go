@@ -186,6 +186,20 @@ func parseArguments(rawArgs []string, options parseOptions) (command, error) {
 		}
 		parsed.name = "runtime-check"
 		return parsed, nil
+	case "runtime login":
+		if parsed.runtimePaths, err = removeRuntimePaths(&args, options); err != nil {
+			return command{}, err
+		}
+		if len(args) != 1 {
+			return command{}, newError(categoryUsage, "runtime login requires one runtime: codex, claude, pi, or antigravity")
+		}
+		runtime, ok := runtimeAliases[args[0]]
+		if !ok {
+			return command{}, newError(categoryUsage, fmt.Sprintf("Unknown runtime: %s. Use codex, claude, pi, or antigravity.", args[0]))
+		}
+		parsed.name, parsed.runtime = "runtime-login", runtime
+		return parsed, nil
+
 	case "daemon logs":
 		follow, err := removeFlag(&args, "-f")
 		if err != nil {

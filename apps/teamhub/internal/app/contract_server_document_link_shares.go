@@ -22,6 +22,10 @@ func (a *App) downloadSharedDocument(c *gin.Context) {
 	if a.writeAgentCLIFileError(c, err) {
 		return
 	}
+	a.writeSharedDocumentContent(c, result)
+}
+
+func (a *App) writeSharedDocumentContent(c *gin.Context, result document.AgentFileDownload) {
 	c.Header("X-Document-Id", result.DocumentID)
 	c.Header("X-Document-Version-Id", result.VersionID)
 	c.Header("X-Document-Read-Only", strconv.FormatBool(result.ReadOnly))

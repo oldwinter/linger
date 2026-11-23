@@ -78,7 +78,8 @@ export class ReplyDelivery {
 
 /**
  * Whether TeamHub queued this input for a Human's Message that mentioned this
- * Agent. A direct chat mentions its Agent too. Room talk the Agent only reads
+ * Agent. TeamHub counts a Human's Message in a direct chat as mentioning its
+ * Agent, with or without an @. Room talk the Agent only reads
  * along with, a Routine wake, a Task callback and another Agent's Message may
  * rightly go unanswered.
  */

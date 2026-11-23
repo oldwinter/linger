@@ -15,10 +15,7 @@ func InvokePiModel(ctx context.Context, profile Profile, dir, instructionsFile, 
 	if err != nil {
 		return Outcome{}, "", err
 	}
-	args := append([]string{"--mode", "rpc", "--no-session", "--no-tools"}, PiRPCResourceArgs()...)
-	if instructionsFile != "" {
-		args = append(args, "--append-system-prompt", instructionsFile)
-	}
+	args := append([]string{"--mode", "rpc", "--no-session", "--no-tools"}, PiRPCResourceArgs(instructionsFile)...)
 	if thinking != "" {
 		args = append(args, "--thinking", thinking)
 	}
@@ -44,11 +41,18 @@ func InvokePiModel(ctx context.Context, profile Profile, dir, instructionsFile, 
 
 	probeCtx, cancelProbe := context.WithTimeout(ctx, piStartupBudget)
 	state, err := proc.call(probeCtx, "get_state", nil, nil)
-	cancelProbe()
 	var catalog piCatalogState
 	if err != nil || json.Unmarshal(state.Data, &catalog) != nil {
+		cancelProbe()
 		return Outcome{}, "", errors.New("Pi background model state could not be read")
 	}
+	if clamped, ok := piStateThinkingLevel(catalog, thinking); ok {
+		if _, err := proc.call(probeCtx, "set_thinking_level", map[string]any{"level": clamped}, nil); err != nil {
+			cancelProbe()
+			return Outcome{}, "", errors.New("Pi background thinking level could not be applied")
+		}
+	}
+	cancelProbe()
 	model := ""
 	if catalog.Model.ID != "" {
 		model = catalog.Model.Provider + "/" + catalog.Model.ID

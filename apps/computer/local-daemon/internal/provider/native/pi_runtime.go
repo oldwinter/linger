@@ -21,6 +21,10 @@ type piRuntime struct{ profile Profile }
 
 func newPiRuntime(profile Profile) Runtime { return &piRuntime{profile: profile} }
 
+// ErrPiUnsupportedEffort reports that a requested reasoning effort is outside
+// Pi's supported --thinking vocabulary.
+var ErrPiUnsupportedEffort = errors.New("Pi reasoning effort is unsupported")
+
 // piThinkingLevel maps a product effort to Pi's --thinking value. An empty
 // effort leaves Pi's own level in place.
 func piThinkingLevel(effort string) (string, error) {
@@ -32,7 +36,7 @@ func piThinkingLevel(effort string) (string, error) {
 	case "off", "minimal", "low", "medium", "high", "xhigh", "max":
 		return effort, nil
 	}
-	return "", fmt.Errorf("Pi reasoning effort %q is unsupported", effort)
+	return "", fmt.Errorf("%w: %q", ErrPiUnsupportedEffort, effort)
 }
 
 // piLaunchPlan is everything Start resolved before it takes or spawns a
@@ -176,9 +180,9 @@ func (p *piRuntime) spawn(ctx context.Context, plan piLaunchPlan, lock *os.File)
 	}()
 	spec := plan.spec
 	instructions := ""
-	if spec.AppendPrompt != "" {
+	if spec.SystemPrompt != "" {
 		instructions = filepath.Join(plan.sessionDir, piInstructionsName)
-		if err := piWritePrivate(instructions, []byte(spec.AppendPrompt)); err != nil {
+		if err := piWritePrivate(instructions, []byte(spec.SystemPrompt)); err != nil {
 			return nil, fmt.Errorf("Pi instructions could not be written: %w", err)
 		}
 	}
@@ -242,6 +246,7 @@ func (p *piRuntime) spawn(ctx context.Context, plan piLaunchPlan, lock *os.File)
 
 	runCtx, cancel := budgetContext(ctx, spec.Budget)
 	turn := newPiTurn(runCtx, cancel, proc, false, plan.fence, p.profile.Logger)
+	turn.requestedThinking = plan.thinking
 	turn.readiness = plan.spec.Readiness
 	turn.reviewer, turn.dir = spec.PermissionReviewer, spec.Dir
 	turn.stopHook = plan.spec.StopHook
@@ -259,7 +264,11 @@ func (p *piRuntime) spawn(ctx context.Context, plan piLaunchPlan, lock *os.File)
 // instruction path, or empty when there are none.
 func (p *piRuntime) args(plan piLaunchPlan, instructions string, wired bool) []string {
 	spec := plan.spec
-	args := append([]string{"--mode", "rpc"}, PiRPCResourceArgs()...)
+	prompt := ""
+	if spec.SystemPrompt != "" {
+		prompt = instructions
+	}
+	args := append([]string{"--mode", "rpc"}, PiRPCResourceArgs(prompt)...)
 	if spec.Model != "" && spec.Model != piDefaultModel {
 		args = append(args, "--model", spec.Model)
 	}
@@ -268,9 +277,6 @@ func (p *piRuntime) args(plan piLaunchPlan, instructions string, wired bool) []s
 	}
 	if spec.Title != "" {
 		args = append(args, "--name", spec.Title)
-	}
-	if spec.AppendPrompt != "" {
-		args = append(args, "--append-system-prompt", instructions)
 	}
 	if skills := filepath.Join(spec.Dir, ".agents", "skills"); spec.Dir != "" {
 		if info, err := os.Stat(skills); err == nil && info.IsDir() {

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -147,7 +148,7 @@ func availabilityWithLocalRuntimeStatus(
 // NormalizeAgentDescription trims a description and reports whether it fits the Unicode rune limit.
 func NormalizeAgentDescription(description string) (string, bool) {
 	description = strings.TrimSpace(description)
-	return description, len([]rune(description)) <= 1000
+	return description, utf8.ValidString(description) && utf8.RuneCountInString(description) <= MaxDescriptionRunes
 }
 
 // AgentPlacementTargetUnavailableMessage explains a refused placement. The

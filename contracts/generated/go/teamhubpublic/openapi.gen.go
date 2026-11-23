@@ -4283,6 +4283,42 @@ func (e VoiceProvider) Valid() bool {
 	}
 }
 
+// Defines values for VoiceProviderKeyErrorCode.
+const (
+	VoiceProviderKeyErrorCodeInvalidRequest               VoiceProviderKeyErrorCode = "INVALID_REQUEST"
+	VoiceProviderKeyErrorCodeVoiceKeyFromEnvironment      VoiceProviderKeyErrorCode = "VOICE_KEY_FROM_ENVIRONMENT"
+	VoiceProviderKeyErrorCodeVoiceKeyNoBalance            VoiceProviderKeyErrorCode = "VOICE_KEY_NO_BALANCE"
+	VoiceProviderKeyErrorCodeVoiceKeyNoRealtimePermission VoiceProviderKeyErrorCode = "VOICE_KEY_NO_REALTIME_PERMISSION"
+	VoiceProviderKeyErrorCodeVoiceKeyRejected             VoiceProviderKeyErrorCode = "VOICE_KEY_REJECTED"
+	VoiceProviderKeyErrorCodeVoiceKeyStorageUnavailable   VoiceProviderKeyErrorCode = "VOICE_KEY_STORAGE_UNAVAILABLE"
+	VoiceProviderKeyErrorCodeVoiceMediaOff                VoiceProviderKeyErrorCode = "VOICE_MEDIA_OFF"
+	VoiceProviderKeyErrorCodeVoiceProviderUnavailable     VoiceProviderKeyErrorCode = "VOICE_PROVIDER_UNAVAILABLE"
+)
+
+// Valid indicates whether the value is a known member of the VoiceProviderKeyErrorCode enum.
+func (e VoiceProviderKeyErrorCode) Valid() bool {
+	switch e {
+	case VoiceProviderKeyErrorCodeInvalidRequest:
+		return true
+	case VoiceProviderKeyErrorCodeVoiceKeyFromEnvironment:
+		return true
+	case VoiceProviderKeyErrorCodeVoiceKeyNoBalance:
+		return true
+	case VoiceProviderKeyErrorCodeVoiceKeyNoRealtimePermission:
+		return true
+	case VoiceProviderKeyErrorCodeVoiceKeyRejected:
+		return true
+	case VoiceProviderKeyErrorCodeVoiceKeyStorageUnavailable:
+		return true
+	case VoiceProviderKeyErrorCodeVoiceMediaOff:
+		return true
+	case VoiceProviderKeyErrorCodeVoiceProviderUnavailable:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for VoiceProviderKeyStatusSource.
 const (
 	Environment VoiceProviderKeyStatusSource = "environment"
@@ -9866,10 +9902,16 @@ type VoiceCapture struct {
 	Status                       VoiceCaptureStatus `json:"status"`
 
 	// TranscriptDocumentVersionId Opaque, case-sensitive identifier. Clients must not infer type or time from it.
-	TranscriptDocumentVersionId  *Id                                   `json:"transcript_document_version_id,omitempty"`
-	TranscriptRecoveryProgressMs *int64                                `json:"transcript_recovery_progress_ms,omitempty"`
-	TranscriptRecoveryStatus     *VoiceCaptureTranscriptRecoveryStatus `json:"transcript_recovery_status,omitempty"`
-	TranscriptRecoveryTotalMs    *int64                                `json:"transcript_recovery_total_ms,omitempty"`
+	TranscriptDocumentVersionId *Id `json:"transcript_document_version_id,omitempty"`
+
+	// TranscriptRecoveryAttempt The recovery attempt that is running or due next; once recovery failed, the attempts already made. Present with transcript_recovery_status.
+	TranscriptRecoveryAttempt *int64 `json:"transcript_recovery_attempt,omitempty"`
+
+	// TranscriptRecoveryMaxAttempts Attempts a recovery makes before it fails and waits for the account's retry.
+	TranscriptRecoveryMaxAttempts *int64                                `json:"transcript_recovery_max_attempts,omitempty"`
+	TranscriptRecoveryProgressMs  *int64                                `json:"transcript_recovery_progress_ms,omitempty"`
+	TranscriptRecoveryStatus      *VoiceCaptureTranscriptRecoveryStatus `json:"transcript_recovery_status,omitempty"`
+	TranscriptRecoveryTotalMs     *int64                                `json:"transcript_recovery_total_ms,omitempty"`
 
 	// UpdatedAt UTC timestamp in RFC 3339 format with an explicit offset.
 	UpdatedAt Timestamp `json:"updated_at"`
@@ -10025,6 +10067,27 @@ type VoiceMediaPolicy struct {
 
 // VoiceProvider defines model for VoiceProvider.
 type VoiceProvider string
+
+// VoiceProviderKeyError The common error body with error.code narrowed to VoiceProviderKeyErrorCode.
+type VoiceProviderKeyError struct {
+	// Code error.code of a refused voice provider key save. 400: INVALID_REQUEST (malformed request or key); VOICE_KEY_REJECTED (the provider refused the key); VOICE_KEY_NO_BALANCE (the provider account's balance or monthly budget is used up); VOICE_KEY_NO_REALTIME_PERMISSION (the Soniox key may not use realtime transcription). 409: VOICE_KEY_FROM_ENVIRONMENT. 503: VOICE_KEY_STORAGE_UNAVAILABLE, VOICE_MEDIA_OFF, or VOICE_PROVIDER_UNAVAILABLE (the provider could not be reached or did not answer in time).
+	Code    VoiceProviderKeyErrorCode `json:"code"`
+	Details *[]ErrorDetail            `json:"details,omitempty"`
+
+	// Message Human-readable summary safe to display; clients branch on code, not message.
+	Message   string `json:"message"`
+	RequestId string `json:"request_id"`
+	Retryable *bool  `json:"retryable,omitempty"`
+}
+
+// VoiceProviderKeyErrorCode error.code of a refused voice provider key save. 400: INVALID_REQUEST (malformed request or key); VOICE_KEY_REJECTED (the provider refused the key); VOICE_KEY_NO_BALANCE (the provider account's balance or monthly budget is used up); VOICE_KEY_NO_REALTIME_PERMISSION (the Soniox key may not use realtime transcription). 409: VOICE_KEY_FROM_ENVIRONMENT. 503: VOICE_KEY_STORAGE_UNAVAILABLE, VOICE_MEDIA_OFF, or VOICE_PROVIDER_UNAVAILABLE (the provider could not be reached or did not answer in time).
+type VoiceProviderKeyErrorCode string
+
+// VoiceProviderKeyErrorResponse defines model for VoiceProviderKeyErrorResponse.
+type VoiceProviderKeyErrorResponse struct {
+	// Error The common error body with error.code narrowed to VoiceProviderKeyErrorCode.
+	Error VoiceProviderKeyError `json:"error"`
+}
 
 // VoiceProviderKeyStatus defines model for VoiceProviderKeyStatus.
 type VoiceProviderKeyStatus struct {
@@ -10660,6 +10723,9 @@ type TooManyRequests = ErrorResponse
 
 // Unauthenticated defines model for Unauthenticated.
 type Unauthenticated = ErrorResponse
+
+// VoiceProviderKeyRefused defines model for VoiceProviderKeyRefused.
+type VoiceProviderKeyRefused = VoiceProviderKeyErrorResponse
 
 // sessionCookieContextKey is the context key for sessionCookie security scheme
 type sessionCookieContextKey string

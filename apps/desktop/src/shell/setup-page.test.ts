@@ -386,6 +386,100 @@ describe("setup page Quick Install recommendation", () => {
     );
   });
 
+  it("holds local models without a plan for gateway-port-in-use and harness-unavailable and offers Check again", async () => {
+    for (const [code, expectWhy, expectSub] of [
+      [
+        "gateway-port-in-use",
+        "Another program is using the port Linger's local model gateway needs. Close the program using that port.",
+        "On hold: free the gateway port, then Check again.",
+      ],
+      [
+        "harness-unavailable",
+        "The Pi runtime required for local models isn't ready right now. Check your connection or permissions.",
+        "On hold: prepare the Pi runtime, then Check again.",
+      ],
+    ] as const) {
+      const blockedWithoutPlan: SetupLocalModelsCheck = {
+        state: "checked",
+        eligible: false,
+        blockedNow: true,
+        memoryBytes: 64 * GB,
+        diskFreeBytes: 400 * GB,
+        reasons: [reason({ code })],
+        recommendation: "codex",
+      };
+      const { run } = await openPage(welcome(blockedWithoutPlan), "welcome");
+      expect($("plan-why").textContent).toBe(
+        `Local model on hold. ${expectWhy} Quick Install sets up Codex now, or choose Check again once the issue is resolved.`,
+      );
+      expect($("plan-why").textContent).not.toContain("memory is free");
+      expect($("local-recheck").hidden).toBe(false);
+      $("local-customize").click();
+      document
+        .querySelector<HTMLButtonElement>(
+          '[data-plan="source"] [data-value="local"]',
+        )!
+        .click();
+      expect($("local-model").hidden).toBe(false);
+      expect($("local-model-name").textContent).toBe("Local model on hold");
+      expect($("local-model-needs").textContent).toBe(expectWhy);
+      expect($("local-sub").textContent).toBe(expectSub);
+      expect(($("local-model") as HTMLButtonElement).disabled).toBe(true);
+      $("local-recheck").click();
+      await vi.waitFor(() =>
+        expect(run).toHaveBeenCalledWith({ op: "local.recheck" }),
+      );
+      expect(document.body.textContent).not.toContain(TOOL_WORDS);
+    }
+  });
+
+  it("holds local models without a plan for blocked-now CUDA driver blockers without duplicating Check again", async () => {
+    const blockedCuda: SetupLocalModelsCheck = {
+      state: "checked",
+      eligible: false,
+      blockedNow: true,
+      memoryBytes: 64 * GB,
+      diskFreeBytes: 400 * GB,
+      reasons: [
+        reason({
+          code: "cuda-driver-update-required",
+          detectedCudaVersion: "12.1",
+          requiredCudaVersion: "12.4",
+          driverVersion: "535.98",
+        }),
+      ],
+      recommendation: "codex",
+    };
+    const { run } = await openPage(welcome(blockedCuda), "welcome");
+    expect($("plan-why").textContent).toBe(
+      "Local model on hold. Your NVIDIA driver supports CUDA 12.1, but local models require CUDA 12.4 or newer. Update your NVIDIA driver, then choose Check again. Quick Install sets up Codex now.",
+    );
+    expect(
+      $("plan-why").textContent?.match(/choose Check again/g),
+    ).toHaveLength(1);
+    expect($("local-recheck").hidden).toBe(false);
+    $("local-customize").click();
+    document
+      .querySelector<HTMLButtonElement>(
+        '[data-plan="source"] [data-value="local"]',
+      )!
+      .click();
+    expect($("local-model").hidden).toBe(false);
+    expect($("local-model-name").textContent).toBe("Local model on hold");
+    expect($("local-sub").textContent).toBe(
+      "On hold: update your NVIDIA driver, then Check again.",
+    );
+    expect($("local-model-needs").textContent).toBe(
+      "Your NVIDIA driver supports CUDA 12.1, but local models require CUDA 12.4 or newer. Update your NVIDIA driver, then choose Check again.",
+    );
+    expect(($("local-model") as HTMLButtonElement).disabled).toBe(true);
+    $("local-recheck").click();
+    await vi.waitFor(() =>
+      expect(run).toHaveBeenCalledWith({ op: "local.recheck" }),
+    );
+    expect(document.body.textContent).not.toContain(TOOL_WORDS);
+  });
+
   it("words every localmodels reason by its code, never the tool's message", async () => {
     const cases: [SetupLocalModelsCheck, string][] = [
       [

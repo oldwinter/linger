@@ -64,6 +64,47 @@ describe("TeamHub content access", () => {
     );
   });
 
+  it.each([0, 3])(
+    "retains streamed response chunks when the source reuses a padded buffer at offset %s",
+    async (offset) => {
+      const payload = new TextEncoder().encode("# from TeamHub stream");
+      const chunkSize = 4;
+      const shared = new Uint8Array(offset + chunkSize + 2).fill(0x58);
+      let cursor = 0;
+      const stream = new ReadableStream<Uint8Array>(
+        {
+          pull(controller) {
+            if (cursor >= payload.byteLength) {
+              controller.close();
+              return;
+            }
+            const slice = payload.subarray(cursor, cursor + chunkSize);
+            cursor += slice.byteLength;
+            const view = shared.subarray(offset, offset + slice.byteLength);
+            view.set(slice);
+            controller.enqueue(view);
+          },
+        },
+        { highWaterMark: 0 },
+      );
+      const access = {
+        baseUrl: "http://teamhub",
+        token: "test",
+        fetch: vi.fn(async () => new Response(stream, { status: 200 })),
+      };
+
+      const content = await fetchTeamHubDocumentVersionContent(
+        access,
+        "tenant",
+        "version",
+        payload.byteLength,
+      );
+      expect(Buffer.from(content).toString("utf8")).toBe(
+        "# from TeamHub stream",
+      );
+    },
+  );
+
   it("surfaces non-success responses without falling back to local paths", async () => {
     const access = teamHubContentAccess({
       TEAMHUB_BASE_URL: "http://teamhub",

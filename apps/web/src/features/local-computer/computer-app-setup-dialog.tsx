@@ -21,7 +21,8 @@ import { Hint } from "./computer-hint";
 import { appNames, appOrder, appStatus } from "./computer-readiness";
 import { CopyValueButton } from "./computer-setup-instructions";
 import { computersMessages } from "./computers.messages";
-import { installCommand, loginCommands } from "./local-runtime-commands";
+import { useDesktopComputer } from "./desktop-computer";
+import { installCommand, signInCommand } from "./local-runtime-commands";
 
 type LocalComputer = TeamHubLocalComputerPage["items"][number];
 
@@ -45,6 +46,7 @@ export function AppSetupDialog({
   onClose: () => void;
 }) {
   const t = useT();
+  const desktop = useDesktopComputer();
   const [app, setApp] = useState(initialApp);
   const [waiting, setWaiting] = useState(false);
   const status = appStatus(computer, app);
@@ -70,7 +72,7 @@ export function AppSetupDialog({
     return () => window.clearTimeout(timer);
   }, [ready, readyWhenShown]);
 
-  const login = loginCommands[app];
+  const login = signInCommand(app, computer, desktop);
   const install = installCommand(app, computer.platform);
   const current = ready ? null : installed ? "signIn" : "install";
 

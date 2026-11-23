@@ -130,31 +130,12 @@ func codexGatewayEndpoint(environment map[string]string) (gatewayEndpoint, bool)
 	if home == "" {
 		return gatewayEndpoint{}, false
 	}
-	data, err := readRuntimeConfig(filepath.Join(home, "config.toml"))
-	if err != nil {
+	config, ok := readCodexConfig(home)
+	if !ok {
 		return gatewayEndpoint{}, false
 	}
-	var config struct {
-		ModelProvider string `toml:"model_provider"`
-		Profile       string `toml:"profile"`
-		Profiles      map[string]struct {
-			ModelProvider string `toml:"model_provider"`
-		} `toml:"profiles"`
-		ModelProviders map[string]struct {
-			BaseURL     string `toml:"base_url"`
-			EnvKey      string `toml:"env_key"`
-			BearerToken string `toml:"experimental_bearer_token"`
-		} `toml:"model_providers"`
-	}
-	if toml.Unmarshal(data, &config) != nil {
-		return gatewayEndpoint{}, false
-	}
-	name := config.ModelProvider
-	if profile, ok := config.Profiles[config.Profile]; config.Profile != "" && ok && profile.ModelProvider != "" {
-		name = profile.ModelProvider
-	}
-	provider, ok := config.ModelProviders[name]
-	if !ok || strings.TrimSpace(provider.BaseURL) == "" {
+	provider, ok := config.activeCustomProvider()
+	if !ok {
 		return gatewayEndpoint{}, false
 	}
 	token := provider.BearerToken
@@ -162,6 +143,51 @@ func codexGatewayEndpoint(environment map[string]string) (gatewayEndpoint, bool)
 		token = environment[provider.EnvKey]
 	}
 	return gatewayEndpoint{baseURL: provider.BaseURL, token: token}, true
+}
+
+// codexConfig is the part of a Codex config.toml that chooses the provider a
+// call reaches and the URLs of its built-in OpenAI provider.
+type codexConfig struct {
+	ModelProvider string `toml:"model_provider"`
+	Profile       string `toml:"profile"`
+	Profiles      map[string]struct {
+		ModelProvider string `toml:"model_provider"`
+	} `toml:"profiles"`
+	ModelProviders map[string]codexProvider `toml:"model_providers"`
+	ChatGPTBaseURL string                   `toml:"chatgpt_base_url"`
+	OpenAIBaseURL  string                   `toml:"openai_base_url"`
+}
+
+type codexProvider struct {
+	BaseURL     string `toml:"base_url"`
+	EnvKey      string `toml:"env_key"`
+	BearerToken string `toml:"experimental_bearer_token"`
+}
+
+func readCodexConfig(home string) (codexConfig, bool) {
+	data, err := readRuntimeConfig(filepath.Join(home, "config.toml"))
+	if err != nil {
+		return codexConfig{}, false
+	}
+	var config codexConfig
+	if toml.Unmarshal(data, &config) != nil {
+		return codexConfig{}, false
+	}
+	return config, true
+}
+
+// activeCustomProvider is the model_providers entry the active profile, or
+// the top-level model_provider, selects, when it names a base URL.
+func (c codexConfig) activeCustomProvider() (codexProvider, bool) {
+	name := c.ModelProvider
+	if profile, ok := c.Profiles[c.Profile]; c.Profile != "" && ok && profile.ModelProvider != "" {
+		name = profile.ModelProvider
+	}
+	provider, ok := c.ModelProviders[name]
+	if !ok || strings.TrimSpace(provider.BaseURL) == "" {
+		return codexProvider{}, false
+	}
+	return provider, true
 }
 
 // claudeGatewayEndpoint reads Claude's API link: ANTHROPIC_BASE_URL and a key

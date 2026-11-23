@@ -2,3 +2,12 @@ patches/*.patch -whitespace
 
 # The test runner must be able to strip the hashbang when importing this script.
 scripts/local-computer-node-distributions.mjs text eol=lf
+# dev-windows.ts imports localEnvironment from this script in tests, so the
+# hashbang strip needs LF here too.
+scripts/with-local-env.mjs text eol=lf
+
+# The installer templates are matched line by line when they are rendered.
+scripts/install-linger-computer.sh text eol=lf
+scripts/uninstall-linger-computer.sh text eol=lf
+scripts/install-linger-computer.ps1 text eol=lf
+scripts/uninstall-linger-computer.ps1 text eol=lf

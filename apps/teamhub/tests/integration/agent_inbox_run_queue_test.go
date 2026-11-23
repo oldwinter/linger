@@ -96,18 +96,19 @@ func TestInboxMessagesQueueRunsInTheirTransaction(t *testing.T) {
 	}
 }
 
-// An Inbox input names each Message's kind and whether a Routine fired it, so
-// the Agent Service can tell a Routine from a proactive wake.
+// An Inbox input names each Message's kind, whether a Routine fired it and
+// whether a Human waits on it, so the Agent Service can tell a Routine from a
+// proactive wake and a Human's card answer from both.
 func TestInboxInputNamesWhatQueuedIt(t *testing.T) {
 	allowParallelIntegrationTest(t)
 	env := newRuntimeStateTestEnv(t)
-	payload := func(messageID string, firedRoutine bool) json.RawMessage {
+	payload := func(messageID string, firedRoutine, humanWaiting bool) json.RawMessage {
 		t.Helper()
 		if _, err := env.pool.Exec(t.Context(), `
-			INSERT INTO messages(id,tenant_id,room_id,author_actor_id,body,segments,message_kind,fired_routine_id,fired_routine_instruction)
+			INSERT INTO messages(id,tenant_id,room_id,author_actor_id,body,segments,message_kind,fired_routine_id,fired_routine_instruction,human_waiting)
 			VALUES($1,'tenant_acme',$2,'actor_acme_alice','wake','[{"type":"text","content":"wake"}]'::jsonb,'agent_runtime',
-				CASE WHEN $3 THEN 'routine-1' END,CASE WHEN $3 THEN 'check in' END)`,
-			messageID, testRuntimeInboxRoom, firedRoutine); err != nil {
+				CASE WHEN $3 THEN 'routine-1' END,CASE WHEN $3 THEN 'check in' END,$4)`,
+			messageID, testRuntimeInboxRoom, firedRoutine, humanWaiting); err != nil {
 			t.Fatal(err)
 		}
 		var payload json.RawMessage
@@ -124,20 +125,29 @@ func TestInboxInputNamesWhatQueuedIt(t *testing.T) {
 			Messages []struct {
 				MessageKind  string `json:"messageKind"`
 				FiredRoutine *bool  `json:"firedRoutine"`
+				HumanWaiting *bool  `json:"humanWaiting"`
 			} `json:"messages"`
 		} `json:"acceptedNotification"`
 	}
 	for _, test := range []struct {
-		messageID    string
-		firedRoutine bool
-	}{{"wake-routine", true}, {"wake-proactive", false}} {
+		messageID                  string
+		firedRoutine, humanWaiting bool
+	}{{"wake-routine", true, false}, {"wake-proactive", false, false}, {"wake-card-answer", false, true}} {
 		var got origin
-		raw := payload(test.messageID, test.firedRoutine)
+		raw := payload(test.messageID, test.firedRoutine, test.humanWaiting)
 		if err := json.Unmarshal(raw, &got); err != nil || len(got.Accepted.Messages) != 1 ||
 			got.Accepted.Messages[0].MessageKind != "agent_runtime" ||
-			(got.Accepted.Messages[0].FiredRoutine != nil) != test.firedRoutine {
+			(got.Accepted.Messages[0].FiredRoutine != nil) != test.firedRoutine ||
+			(got.Accepted.Messages[0].HumanWaiting != nil) != test.humanWaiting {
 			t.Fatalf("%s payload=%s err=%v", test.messageID, raw, err)
 		}
+	}
+	// Only a hidden agent_runtime Message carries the flag.
+	if _, err := env.pool.Exec(t.Context(), `
+		INSERT INTO messages(id,tenant_id,room_id,author_actor_id,body,segments,message_kind,human_waiting)
+		VALUES('chat-waiting','tenant_acme',$1,'actor_acme_alice','hi','[{"type":"text","content":"hi"}]'::jsonb,'conversation',true)`,
+		testRuntimeInboxRoom); err == nil {
+		t.Fatal("a conversation Message carried human_waiting")
 	}
 }
 

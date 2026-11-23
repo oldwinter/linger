@@ -22,6 +22,12 @@ import (
 // live processes of Runs a switch ended.
 const modelSourceRunStopLifetime = 10 * time.Second
 
+// modelSourceApplyLifetime bounds an in-flight model-source switch and the
+// Agent registration reconciliation that follows it. Detached from the client
+// request so navigating away mid-switch cannot leave the Computer switched
+// while TeamHub Agents remain stuck on the old Runtime model.
+const modelSourceApplyLifetime = 190 * time.Second
+
 // modelSourceRefusalCodes maps the Computer's and Agent Service's refusals a
 // Human can act on to their public code; any other is MODEL_SOURCE_FAILED.
 var modelSourceRefusalCodes = map[string]httpapi.ModelSourceErrorCode{
@@ -39,6 +45,7 @@ var modelSourceRefusalCodes = map[string]httpapi.ModelSourceErrorCode{
 	"BYOK_UPSTREAM_REJECTED":   httpapi.ModelSourceErrorCodeByokUpstreamRejected,
 	"BYOK_GATEWAY_FAILED":      httpapi.ModelSourceErrorCodeByokGatewayFailed,
 	"MODEL_SOURCE_TIMEOUT":     httpapi.ModelSourceErrorCodeModelSourceUnconfirmed,
+	"MODEL_SOURCE_EXPIRED":     httpapi.ModelSourceErrorCodeModelSourceUnconfirmed,
 	"BYOK_CHECK_TIMEOUT":       httpapi.ModelSourceErrorCodeModelSourceUnconfirmed,
 }
 
@@ -166,14 +173,16 @@ func (a *App) switchLocalComputerModelSource(c *gin.Context) {
 		a.internalError(c, "encode model source switch", err)
 		return
 	}
-	status, err := management.ApplyLocalComputerModelSource(c.Request.Context(), modelSourceTarget(computer), command)
+	applyCtx, cancelApply := context.WithTimeout(context.WithoutCancel(c.Request.Context()), modelSourceApplyLifetime)
+	defer cancelApply()
+	status, err := management.ApplyLocalComputerModelSource(applyCtx, modelSourceTarget(computer), command)
 	if err != nil {
 		a.writeModelSourceFailure(c, computer.ComputerID, "apply", err)
 		return
 	}
 	public, err := publicModelSourceStatus(status)
-	if err != nil || status.RuntimeModel == "" {
-		a.logger.Warn("model_source.status_invalid", "computer_id", computer.ComputerID)
+	if err != nil || status.RuntimeModel == "" || public.Mode != request.Mode {
+		a.logger.Warn("model_source.status_invalid", "computer_id", computer.ComputerID, "requested_mode", request.Mode, "returned_mode", public.Mode, "runtime", status.Runtime)
 		a.writeModelSourceError(c, httpapi.ModelSourceErrorCodeModelSourceFailed)
 		return
 	}
@@ -181,7 +190,7 @@ func (a *App) switchLocalComputerModelSource(c *gin.Context) {
 	if status.ReasoningEffort != nil {
 		effort = string(*status.ReasoningEffort)
 	}
-	result, err := a.agents.SwitchComputerRuntime(c.Request.Context(), agentregistry.ComputerRuntimeSwitch{
+	result, err := a.agents.SwitchComputerRuntime(applyCtx, agentregistry.ComputerRuntimeSwitch{
 		TenantID: tenantID, OwnerActorID: viewerID, ComputerID: computer.ComputerID,
 		RuntimeType: string(status.Runtime), Model: status.RuntimeModel, ReasoningEffort: effort,
 		TerminateWork: terminate,
@@ -365,6 +374,12 @@ func (a *App) writeModelSourceFailure(c *gin.Context, computerID, action string,
 		a.writeError(c, http.StatusNotFound, "LOCAL_COMPUTER_NOT_FOUND", "Local Computer was not found")
 	case errors.Is(err, roomagent.ErrLocalComputerOffline):
 		a.writeModelSourceError(c, httpapi.ModelSourceErrorCodeLocalComputerOffline)
+	case errors.Is(err, context.DeadlineExceeded):
+		a.logger.Warn("model_source.timeout", "computer_id", computerID, "action", action)
+		a.writeModelSourceError(c, httpapi.ModelSourceErrorCodeModelSourceUnconfirmed)
+	case errors.Is(err, context.Canceled) && c.Request != nil && c.Request.Context().Err() != nil:
+		a.logger.Info("model_source.canceled", "computer_id", computerID, "action", action)
+		a.writeModelSourceError(c, httpapi.ModelSourceErrorCodeModelSourceUnconfirmed)
 	case errors.As(err, &refusal):
 		code, known := modelSourceRefusalCodes[refusal.Code]
 		if !known {
@@ -375,11 +390,11 @@ func (a *App) writeModelSourceFailure(c *gin.Context, computerID, action string,
 		}
 		message := modelSourceErrorMessages[code]
 		var details []httpapi.ErrorDetail
-		trimmed := strings.TrimSpace(refusal.Message)
-		if modelSourceComputerMessageCodes[code] && trimmed != "" && len(trimmed) <= maxComputerMessageLength {
-			message = trimmed
+		safeMessage := safeComputerMessage(refusal.Message)
+		if modelSourceComputerMessageCodes[code] && safeMessage != "" {
+			message = safeMessage
 			if code == httpapi.ModelSourceErrorCodeByokGatewayFailed {
-				details = []httpapi.ErrorDetail{{Field: "gateway", Reason: trimmed}}
+				details = []httpapi.ErrorDetail{{Field: "gateway", Reason: safeMessage}}
 			}
 		}
 		a.writeModelSourceErrorDetails(c, code, message, details)
@@ -387,6 +402,47 @@ func (a *App) writeModelSourceFailure(c *gin.Context, computerID, action string,
 		a.logger.Error("model_source.failed", "computer_id", computerID, "action", action, "error", err)
 		a.writeModelSourceError(c, httpapi.ModelSourceErrorCodeModelSourceServiceUnavailable)
 	}
+}
+
+var (
+	computerMessageURLQueryPattern     = regexp.MustCompile(`(?i)(\b[a-z][a-z0-9+.-]*://[^\s?#"'\)\]}]+)\?[^\s"'<>)\]}]*`)
+	computerMessageURLUserinfoPattern  = regexp.MustCompile(`(?i)(\b[a-z][a-z0-9+.-]*://)[^\s/@"'<>]+:[^\s/@"'<>]*@`)
+	computerMessageBearerPattern       = regexp.MustCompile(`(?i)\b(Bearer|Basic)\s+[^\s,;\"'<>)\]}]+`)
+	computerMessageTokenPattern        = regexp.MustCompile(`\b(?:(?:sk|pk|rk)-[A-Za-z0-9_-]{16,}|(?:gh[pousr]|glpat)[-_][A-Za-z0-9_-]{16,}|github_pat_[A-Za-z0-9_-]{20,}|AIza[A-Za-z0-9_-]{35}|AKIA[A-Z0-9]{16})\b`)
+	computerMessageSecretAssignPattern = regexp.MustCompile(`(?i)\b(api[_-]?key|access[_-]?token|auth[_-]?token|refresh[_-]?token|secret|password|passwd|authorization)\b(\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;\"'<>)\]}]+)`)
+	computerMessageWinHomeSingleQuoted = regexp.MustCompile(`(?i)'(?:\\\\\?\\)?[A-Z]:(?:\\|/)Users(?:\\|/)[^']*'`)
+	computerMessageWinHomeDoubleQuoted = regexp.MustCompile(`(?i)"(?:\\\\\?\\)?[A-Z]:(?:\\|/)Users(?:\\|/)[^"]*"`)
+	computerMessageWinHomePathPattern  = regexp.MustCompile(`(?i)(^|[\s"'(\[=,:])(?:\\\\\?\\)?[A-Z]:(?:\\|/)Users(?:\\|/)[^\s"'<>)\]}]+`)
+	computerMessageUnixHomeSingleQuote = regexp.MustCompile(`'/(?:home|Users|root)/[^']*'`)
+	computerMessageUnixHomeDoubleQuote = regexp.MustCompile(`"/(?:home|Users|root)/[^"]*"`)
+	computerMessageUnixHomePathPattern = regexp.MustCompile(`(^|[\s"'(\[=,:])/(?:home|Users|root)/[^\s"'<>)\]}]+`)
+	computerMessageHomeRelSingleQuoted = regexp.MustCompile(`'~[/\\][^']*'`)
+	computerMessageHomeRelDoubleQuoted = regexp.MustCompile(`"~[/\\][^"]*"`)
+	computerMessageHomeRelPathPattern  = regexp.MustCompile(`(^|[\s"'(\[=,:])~[/\\][^\s"'<>)\]}]+`)
+)
+
+// safeComputerMessage removes secrets, URL query strings/userinfo, and
+// user-home paths while preserving benign system binary paths such as /bin/ps.
+func safeComputerMessage(message string) string {
+	scrubbed := computerMessageURLQueryPattern.ReplaceAllString(message, "${1}?[REDACTED]")
+	scrubbed = computerMessageURLUserinfoPattern.ReplaceAllString(scrubbed, "${1}[REDACTED]@")
+	scrubbed = computerMessageBearerPattern.ReplaceAllString(scrubbed, "${1} [REDACTED]")
+	scrubbed = computerMessageSecretAssignPattern.ReplaceAllString(scrubbed, "${1}${2}[REDACTED]")
+	scrubbed = computerMessageTokenPattern.ReplaceAllString(scrubbed, "[REDACTED]")
+	scrubbed = computerMessageWinHomeSingleQuoted.ReplaceAllString(scrubbed, "'[REDACTED PATH]'")
+	scrubbed = computerMessageWinHomeDoubleQuoted.ReplaceAllString(scrubbed, `"[REDACTED PATH]"`)
+	scrubbed = computerMessageWinHomePathPattern.ReplaceAllString(scrubbed, "${1}[REDACTED PATH]")
+	scrubbed = computerMessageUnixHomeSingleQuote.ReplaceAllString(scrubbed, "'[REDACTED PATH]'")
+	scrubbed = computerMessageUnixHomeDoubleQuote.ReplaceAllString(scrubbed, `"[REDACTED PATH]"`)
+	scrubbed = computerMessageUnixHomePathPattern.ReplaceAllString(scrubbed, "${1}[REDACTED PATH]")
+	scrubbed = computerMessageHomeRelSingleQuoted.ReplaceAllString(scrubbed, "'[REDACTED PATH]'")
+	scrubbed = computerMessageHomeRelDoubleQuoted.ReplaceAllString(scrubbed, `"[REDACTED PATH]"`)
+	scrubbed = computerMessageHomeRelPathPattern.ReplaceAllString(scrubbed, "${1}[REDACTED PATH]")
+	cleaned := strings.Join(strings.Fields(scrubbed), " ")
+	if cleaned == "" || len(cleaned) > maxComputerMessageLength {
+		return ""
+	}
+	return cleaned
 }
 
 func (a *App) writeModelSourceError(c *gin.Context, code httpapi.ModelSourceErrorCode) {

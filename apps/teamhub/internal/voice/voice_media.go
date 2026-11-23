@@ -82,6 +82,8 @@ func VoiceCaptureModel(value voicemedia.Capture) httpapi.VoiceCapture {
 		model.TranscriptRecoveryStatus = &status
 		model.TranscriptRecoveryProgressMs = &value.TranscriptRecoveryProgressMS
 		model.TranscriptRecoveryTotalMs = &value.TranscriptRecoveryTotalMS
+		model.TranscriptRecoveryAttempt = &value.TranscriptRecoveryAttempt
+		model.TranscriptRecoveryMaxAttempts = &value.TranscriptRecoveryMaxAttempts
 	}
 	return model
 }

@@ -268,7 +268,7 @@ function WikiOverview({
   const { preview, refreshing } = refresh;
   const navigate = useNavigate();
   const collections = useWikiCollectionPages(tenantId);
-  const nodes = useWikiGraphNodes(tenantId);
+  const nodes = useWikiGraphNodes(tenantId, refresh.hasPublishedWiki);
   const reports = usePeriodReports(tenantId, "daily");
   const previews = useMemo(() => wikiPreviewPages(preview), [preview]);
   const featured = useWikiLiveFocus(previews);

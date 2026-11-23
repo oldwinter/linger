@@ -126,6 +126,10 @@ export class UpdaterModule implements Module {
   #staged: { path: string; pkg: UpdatePackage } | undefined;
   #timer: NodeJS.Timeout | undefined;
   #checking: Promise<void> | undefined;
+  #generation = 0;
+  #consecutiveCheckFailures = 0;
+  #lastCheckFailure: string | undefined;
+  #suppressedCheckFailures = 0;
   readonly #announced = new Set<string>();
   readonly #unsubscribe: (() => void)[] = [];
 
@@ -135,17 +139,23 @@ export class UpdaterModule implements Module {
 
   async start(ctx: ModuleContext): Promise<void> {
     this.#ctx = ctx;
+    const generation = ++this.#generation;
+    clearTimeout(this.#timer);
+    this.#timer = undefined;
     if (!this.#options.install) return;
     void this.#cleanup();
     const schedule = (delay: number): void => {
+      if (this.#generation !== generation) return;
       this.#timer = setTimeout(() => {
-        void this.check().finally(() =>
+        if (this.#generation !== generation) return;
+        void this.check().finally(() => {
+          if (this.#generation !== generation) return;
           schedule(
             this.#state.kind === "failed"
-              ? (this.#options.retryDelayMs ?? RETRY_DELAY_MS)
+              ? this.#nextRetryDelayMs()
               : (this.#options.checkIntervalMs ?? CHECK_INTERVAL_MS),
-          ),
-        );
+          );
+        });
       }, delay);
       this.#timer.unref?.();
     };
@@ -153,7 +163,9 @@ export class UpdaterModule implements Module {
   }
 
   async stop(): Promise<void> {
+    this.#generation += 1;
     clearTimeout(this.#timer);
+    this.#timer = undefined;
     for (const off of this.#unsubscribe.splice(0)) off();
   }
 
@@ -227,6 +239,7 @@ export class UpdaterModule implements Module {
       // The newest release was published without a manifest: nothing to
       // offer until one is.
       if (!bytes || !signature) {
+        this.#clearCheckFailures();
         ctx.log.info("update.no_manifest", { feed });
         this.#setState({ kind: "idle" });
         return;
@@ -245,11 +258,13 @@ export class UpdaterModule implements Module {
         compareVersions(manifest.version, this.#options.version) <= 0 ||
         !pkg
       ) {
+        this.#clearCheckFailures();
         this.#setState({ kind: "idle" });
         return;
       }
       const version = manifest.version;
       if (install.kind === "download") {
+        this.#clearCheckFailures();
         ctx.log.info("update.available", { version });
         this.#announce({
           kind: "available",
@@ -266,10 +281,11 @@ export class UpdaterModule implements Module {
           ? { path: await this.#extract(file, version), pkg }
           : { path: file, pkg };
       if (install.kind === "app-bundle") await rm(file, { force: true });
+      this.#clearCheckFailures();
       ctx.log.info("update.ready", { version });
       this.#announce({ kind: "ready", version });
     } catch (error) {
-      this.#fail("update.check_failed", error);
+      this.#failCheck(error);
     }
   }
 
@@ -423,6 +439,51 @@ export class UpdaterModule implements Module {
     if (this.#announced.has(state.version)) return;
     this.#announced.add(state.version);
     this.#options.announce?.(state);
+  }
+
+  #nextRetryDelayMs(): number {
+    const base = this.#options.retryDelayMs ?? RETRY_DELAY_MS;
+    const cap = Math.max(
+      0,
+      base,
+      this.#options.checkIntervalMs ?? CHECK_INTERVAL_MS,
+    );
+    if (base <= 0) return 0;
+    const exponent = Math.min(
+      Math.max(0, this.#consecutiveCheckFailures - 1),
+      30,
+    );
+    return Math.min(base * 2 ** exponent, cap);
+  }
+
+  #clearCheckFailures(): void {
+    this.#consecutiveCheckFailures = 0;
+    this.#lastCheckFailure = undefined;
+    this.#suppressedCheckFailures = 0;
+  }
+
+  // Deduplicates repeated identical check errors so an offline or blocked
+  // environment does not flood desktop logs across backoff retries.
+  #failCheck(error: unknown): void {
+    const message =
+      error instanceof UpdateError || error instanceof ManifestError
+        ? error.message
+        : String(error);
+    this.#consecutiveCheckFailures += 1;
+    if (message !== this.#lastCheckFailure) {
+      this.#ctx!.log.warn("update.check_failed", {
+        error: message,
+        retry_ms: this.#nextRetryDelayMs(),
+        ...(this.#suppressedCheckFailures > 0
+          ? { suppressed_failures: this.#suppressedCheckFailures }
+          : {}),
+      });
+      this.#lastCheckFailure = message;
+      this.#suppressedCheckFailures = 0;
+    } else {
+      this.#suppressedCheckFailures += 1;
+    }
+    this.#setState({ kind: "failed", error: message });
   }
 
   #fail(event: string, error: unknown): void {

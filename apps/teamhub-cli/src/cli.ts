@@ -12,7 +12,8 @@ import {
   operationHeaders,
   teamHubData,
 } from "./http-client.js";
-import { CliError } from "./errors.js";
+import { CliError, type ErrorCode } from "./errors.js";
+import { fileFailure, fileSystemError } from "./input-issues.js";
 import type {
   NormalizedCommandInput,
   CommandTarget,
@@ -25,9 +26,10 @@ import {
 import type { CliTiming } from "./timing.js";
 import {
   commandSchema,
-  domainHelp,
   findCommand,
+  helpText,
   parseDomainCommand,
+  unknownCommand,
 } from "./domain-commands.js";
 
 interface CliDependencies {
@@ -38,10 +40,6 @@ interface CliDependencies {
   readonly stdout: (text: string) => void | Promise<void>;
   readonly stderr: (text: string) => void;
   readonly timing?: CliTiming;
-}
-
-function record(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 // These failures prove an external write was not dispatched. Provider
@@ -64,7 +62,6 @@ function isConnectedAppRejection(error: unknown): boolean {
         "agent_credential_invalid",
         "forbidden",
         "unauthenticated",
-        "unauthorized",
       ].includes(error.code))
   );
 }
@@ -86,7 +83,50 @@ function externalOutcomeUnknown(error: unknown, operationId: string): CliError {
       operation_id: operationId,
       retryable: false,
     },
-    true,
+  );
+}
+
+/** Codes of the local file layers that keep their meaning in this CLI. */
+const fileLayerCodes = new Set<string>([
+  "state_unavailable",
+  "invalid_response",
+  "version_conflict",
+]);
+const fileLayers = new Set([
+  "TeamHubFileError",
+  "ContextRuntimeFileError",
+  "ContextSkillFolderPackError",
+]);
+
+/**
+ * The CliError of any failure. A local file layer's reason is this CLI's own
+ * text; a bad local file is invalid_input. Anything else is a CLI bug, or,
+ * after a write was handed off, an outcome the caller has to check.
+ */
+function unexpectedFailure(error: unknown, operationId?: string): CliError {
+  if (error instanceof CliError) return error;
+  if (fileSystemError(error)) return fileFailure(error);
+  if (
+    error instanceof Error &&
+    fileLayers.has(error.name) &&
+    "code" in error &&
+    typeof error.code === "string"
+  )
+    return new CliError(
+      fileLayerCodes.has(error.code)
+        ? (error.code as ErrorCode)
+        : "invalid_input",
+      error.message,
+    );
+  if (operationId)
+    return new CliError(
+      "outcome_unknown",
+      "The operation outcome is unknown. Run the same command again with --operation-id set to this Operation ID: TeamHub returns the original result instead of submitting it twice.",
+      { operation_id: operationId },
+    );
+  return new CliError(
+    "internal_error",
+    "The command failed unexpectedly on this computer; this is a CLI bug.",
   );
 }
 
@@ -97,7 +137,9 @@ export async function runCli(
   let json = args.includes("--json");
   let selected = findCommand(args);
   let target: CommandTarget | undefined;
-  let remote = false;
+  // The Operation ID of a write handed to its executor: from then on a
+  // failure this CLI cannot explain may follow a completed write.
+  let dispatched: string | undefined;
   try {
     if (
       !args.length ||
@@ -105,37 +147,46 @@ export async function runCli(
       (["--help", "-h"].includes(args[0]!) && args.length === 1)
     ) {
       const prefix = args[0] === "help" ? args.slice(1) : [];
-      const help = domainHelp(prefix);
-      if (!help)
-        throw new CliError("usage", "Unknown command. Run teamhub --help.");
+      const help = await helpText(prefix);
+      if (!help) throw unknownCommand(prefix);
       await dependencies.stdout(help);
       return 0;
     }
     if (!selected && args.at(-1) === "--help") {
-      const help = domainHelp(args.slice(0, -1));
+      const help = await helpText(args.slice(0, -1));
       if (help) {
         await dependencies.stdout(help);
         return 0;
       }
     }
     if (!selected && args.every((value) => !value.startsWith("-"))) {
-      const help = domainHelp(args);
+      const help = await helpText(args);
       if (help) {
         await dependencies.stdout(help);
         return 0;
       }
     }
-    let command = await parseDomainCommand(args, {
-      ...dependencies,
-      syntaxOnly: true,
-      beforeNormalize: (value) => {
-        target = value;
-      },
-    });
+    const localPath = createLocalPathResolver(
+      dependencies.cwd,
+      dependencies.env,
+    );
+    // The whole input is checked before configuration is read, so a caller
+    // without a configured Context still learns every field to fix.
+    const parse = () =>
+      parseDomainCommand(args, {
+        ...dependencies,
+        localPath,
+        beforeNormalize: (value) => {
+          target = value;
+        },
+      });
+    const command = await (dependencies.timing
+      ? dependencies.timing.measure("command_dependencies", parse)
+      : parse());
     selected = command.descriptor;
     json = command.json;
     if (command.route === "help") {
-      await dependencies.stdout(domainHelp(selected.command));
+      await dependencies.stdout(await helpText(selected.command));
       return 0;
     }
     if (command.route === "schema") {
@@ -154,7 +205,7 @@ export async function runCli(
         )
       : loadConfig(dependencies.env));
     if (selected.unavailableInTask && configured.scope?.kind === "task")
-      throw new CliError("forbidden", selected.unavailableInTask, {}, true);
+      throw new CliError("forbidden", selected.unavailableInTask);
     const stateRoot =
       dependencies.env.TEAMHUB_STATE_ROOT ??
       configurationDirectory(dependencies.env);
@@ -170,30 +221,9 @@ export async function runCli(
         "configuration_error",
         "TEAMHUB_STATE_ROOT must be an absolute directory without control characters.",
       );
-    const localPath = createLocalPathResolver(
-      dependencies.cwd,
-      dependencies.env,
-    );
     const normalize = async (): Promise<
       NormalizedCommandInput & { operationId?: string }
     > => {
-      command = await (dependencies.timing
-        ? dependencies.timing.measure("command_dependencies", () =>
-            parseDomainCommand(args, {
-              ...dependencies,
-              localPath,
-              beforeNormalize: (value) => {
-                target = value;
-              },
-            }),
-          )
-        : parseDomainCommand(args, {
-            ...dependencies,
-            localPath,
-            beforeNormalize: (value) => {
-              target = value;
-            },
-          }));
       let input = { ...(command.body.input as Record<string, unknown>) };
       target = command.target;
       const independentRead =
@@ -240,7 +270,6 @@ export async function runCli(
       // every request and is never added as an implicit collection filter.
       if (!scope) scope = configured.scope;
       if (selected!.prepare) {
-        remote = true;
         input = await selected!.prepare(input, {
           client: createTeamHubClient(
             { ...configured, scope: scope as TeamHubConfig["scope"] },
@@ -287,7 +316,6 @@ export async function runCli(
       };
       if (selected!.fileRoute) {
         const { executeFileCommand } = await import("./file-executor.js");
-        remote = true;
         await executeFileCommand(
           { route: selected!.fileRoute, body: input },
           client,
@@ -311,7 +339,6 @@ export async function runCli(
         ? await routes.encodeAgentCommandBody(toolName, input, operationId)
         : undefined;
       const execute = async (): Promise<Record<string, unknown>> => {
-        remote = true;
         if (selected!.execute)
           return selected!.execute(input, {
             client,
@@ -326,8 +353,8 @@ export async function runCli(
         const endpoint = routes!.routesByToolName[toolName];
         if (!endpoint)
           throw new CliError(
-            "unsupported_command",
-            "This command's business endpoint is unavailable.",
+            "internal_error",
+            "This command has no TeamHub endpoint in this CLI build.",
           );
         const result = await teamHubData(
           client.api.POST(endpoint, {
@@ -342,6 +369,7 @@ export async function runCli(
         (selected!.allowUnknownReplay ?? toolName !== "execute_app_tool") ===
           false;
       let result: Record<string, unknown>;
+      dispatched = operationId;
       try {
         result = await execute();
       } catch (error) {
@@ -353,25 +381,20 @@ export async function runCli(
     };
     return await dispatch(await normalize());
   } catch (error) {
-    const failure =
-      error instanceof CliError
-        ? error
-        : error instanceof Error &&
-            "code" in error &&
-            typeof error.code === "string"
-          ? new CliError(
-              error.code,
-              error.message,
-              "details" in error && record(error.details) ? error.details : {},
-            )
-          : new CliError(
-              "connection_failed",
-              "Could not complete the TeamHub operation.",
-            );
+    const failure = unexpectedFailure(error, dispatched);
     const formatted = formatCommandError(failure, {
       command: selected?.command.join(" "),
       target,
-      remote,
+      // A malformed command line shows how the command is written.
+      ...(failure.code === "usage" && selected
+        ? {
+            usage: selected.usage.map((line) =>
+              line.startsWith("teamhub ")
+                ? line
+                : `teamhub ${selected!.command.join(" ")} ${line}`,
+            ),
+          }
+        : {}),
     });
     dependencies.stderr(
       (json

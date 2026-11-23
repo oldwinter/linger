@@ -168,7 +168,7 @@ func inspectClaude(ctx context.Context, request Request) (Page, error) {
 	if !matched {
 		return Page{}, fail("transcript_session_mismatch")
 	}
-	// The Local Claude Session marker freezes the append prompt on first use.
+	// The Local Claude Session marker freezes the system prompt on first use.
 	// Only expose it when both marker and native transcript own this Session.
 	if instructions.Status == "unavailable" {
 		markerFile, markerErr := root.Open(filepath.Join("sessions", request.ThreadID+".json"))

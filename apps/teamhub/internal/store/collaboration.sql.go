@@ -59,10 +59,11 @@ func (q *Queries) CountRoomOwners(ctx context.Context, roomID string) (int64, er
 
 const createMessage = `-- name: CreateMessage :one
 INSERT INTO messages(id, tenant_id, room_id, author_actor_id, body, segments, card_context_message_id, message_kind, local_run_id, notice, card_title, card_kind, created_at,
-                     reply_to_message_id, context_message_ids, attachments, fired_routine_id, fired_routine_instruction)
+                     reply_to_message_id, context_message_ids, attachments, fired_routine_id, fired_routine_instruction, human_waiting)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, clock_timestamp(),
         $13, coalesce($14::text[],'{}'),
-        coalesce($15::jsonb,'[]'::jsonb), $16, $17)
+        coalesce($15::jsonb,'[]'::jsonb), $16, $17,
+        $18::boolean)
 RETURNING id, tenant_id, room_id, author_actor_id, body, segments,
           card_context_message_id, message_kind, created_at, local_run_id, card_title
 `
@@ -85,6 +86,7 @@ type CreateMessageParams struct {
 	Attachments             []byte      `json:"attachments"`
 	FiredRoutineID          pgtype.Text `json:"fired_routine_id"`
 	FiredRoutineInstruction pgtype.Text `json:"fired_routine_instruction"`
+	HumanWaiting            bool        `json:"human_waiting"`
 }
 
 type CreateMessageRow struct {
@@ -122,6 +124,7 @@ func (q *Queries) CreateMessage(ctx context.Context, arg CreateMessageParams) (C
 		arg.Attachments,
 		arg.FiredRoutineID,
 		arg.FiredRoutineInstruction,
+		arg.HumanWaiting,
 	)
 	var i CreateMessageRow
 	err := row.Scan(

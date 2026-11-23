@@ -150,7 +150,7 @@ func TestRecordingAskRequestIsHandedToAnotherMe(t *testing.T) {
 	// The recorder's hidden Message wakes Another Me in the Direct Room; the
 	// Meta, not TeamHub, decides on and creates the Task.
 	if countRows(t, env, `SELECT count(*) FROM messages WHERE id=$1 AND room_id=$2
-		AND message_kind='agent_runtime' AND author_actor_id='actor_acme_alice'
+		AND message_kind='agent_runtime' AND author_actor_id='actor_acme_alice' AND human_waiting
 		AND segments::text LIKE '%actor_acme_official%'
 		AND body LIKE '%“Help me draft the launch email and send it to Lena”%Please handle this as a background Task.%'`,
 		*sent.SentMessageId, direct.roomID) != 1 {

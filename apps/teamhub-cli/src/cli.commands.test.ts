@@ -147,7 +147,7 @@ describe("integrated CLI business requests and outcomes", () => {
       const output = f.stderr.join("");
       if (json)
         expect(JSON.parse(output).error).toMatchObject({
-          code: "ambiguous_name",
+          code: "target_ambiguous",
           details: { candidates: ["document_first", "document_second"] },
         });
       else
@@ -706,7 +706,7 @@ describe("caller Context comes only from config.json", () => {
       const flag = argv.find((value) => ["--room", "--task"].includes(value));
       expect(JSON.parse(f.stderr.join("")).error).toMatchObject({
         code: "usage",
-        message: `Unknown option: ${flag}. Run this command with --help.`,
+        message: `Unknown flag ${flag}.`,
       });
       expect(f.readInput).not.toHaveBeenCalled();
       expect(f.fetcher).not.toHaveBeenCalled();
@@ -801,5 +801,27 @@ describe("caller Context comes only from config.json", () => {
       kind: null,
       id: null,
     });
+  });
+  it("guides room handoff callers to resolve Room names via message read --list-inboxes", async () => {
+    const f = fixture({ kind: "room", id: "room_direct" });
+    expect(
+      await runCli(
+        [
+          "room",
+          "handoff",
+          "--inbox",
+          "QA-CrossRoom-Target",
+          "--content",
+          "Start the checklist.",
+          "--json",
+        ],
+        f.dependencies,
+      ),
+    ).toBe(2);
+    expect(JSON.parse(f.stderr.join("")).error).toMatchObject({
+      code: "invalid_input",
+      message: expect.stringContaining("teamhub message read --list-inboxes"),
+    });
+    expect(f.fetcher).not.toHaveBeenCalled();
   });
 });

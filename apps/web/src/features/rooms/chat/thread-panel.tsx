@@ -472,6 +472,7 @@ function ThreadPanelContent({
           }
           attachmentEnabled={Boolean(threadRoomId)}
           disabled={!threadRoomId}
+          historyScope={draftScope}
           initialMentions={initialDraft.mentions}
           initialValue={initialDraft.body}
           mentionOptions={mentionOptions}

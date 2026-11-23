@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/provider/native"
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/provider/redact"
 )
 
@@ -58,7 +59,11 @@ func checkLive(ctx context.Context, diagnostic RuntimeDiagnostic, environment ma
 		// also accepts a Gemini API key.
 		stdout, err = antigravityLiveReply(ctx, diagnostic.ExecutablePath, environment, timeout)
 	} else {
-		stdout, stderr, err = runBoundedProbeExchange(ctx, diagnostic.ExecutablePath, liveCheckArgs[diagnostic.Type], environment, "", timeout, nil)
+		probeEnv := environment
+		if diagnostic.Type == "claude" {
+			probeEnv = native.ClaudeEnvironment(environment)
+		}
+		stdout, stderr, err = runBoundedProbeExchange(ctx, diagnostic.ExecutablePath, liveCheckArgs[diagnostic.Type], probeEnv, "", timeout, nil)
 	}
 	check := LiveCheck{DurationMS: time.Since(started).Milliseconds(), Reply: truncateRunes(redact.Text(strings.TrimSpace(stdout)), 200)}
 	switch {

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -38,14 +39,19 @@ type deps struct {
 
 	checkUserSession func() error
 	checkRuntime     func(ctx context.Context, runtimeType string, request runtimeRequest) (runtimeCheck, error)
+	// interruptible derives a context that an interrupt arriving after the
+	// call cancels.
+	interruptible    func(ctx context.Context) (context.Context, context.CancelFunc)
 	diagnoseRuntimes func(ctx context.Context, configuredPaths, environment map[string]string, enabled []string) ([]runtimeDiagnostic, error)
 	newClient        func(stateDirectory string) controlClient
 	inspectDaemon    func(ctx context.Context, stateDirectory string) doctorCheck
 	probeGateway     func(ctx context.Context, gatewayURL string) doctorCheck
 	productRuntime   func() doctorCheck
 	// inspectHerdr reports herdr when it is installed; ok is false without it.
-	inspectHerdr          func(ctx context.Context) (check doctorCheck, ok bool)
-	readLogs              func(ctx context.Context, request logRequest, output io.Writer) error
+	inspectHerdr func(ctx context.Context) (check doctorCheck, ok bool)
+	readLogs     func(ctx context.Context, request logRequest, output io.Writer) error
+	// runInteractive runs a Runtime on the CLI's terminal for sign-in.
+	runInteractive        func(cmd *exec.Cmd) (int, error)
 	setup                 func(ctx context.Context, options setupOptions) (setupResult, error)
 	startDaemon           func(ctx context.Context, configPath string) error
 	confirmDaemonStopped  func(ctx context.Context, configPath string) (bool, error)
@@ -104,6 +110,8 @@ func (c *cli) execute(ctx context.Context, parsed command) (int, error) {
 		return c.executeAuthStatus(parsed)
 	case "runtime-check":
 		return c.executeRuntimeCheck(ctx, parsed)
+	case "runtime-login":
+		return c.executeRuntimeLogin(ctx, parsed)
 	case "daemon-start", "daemon-restart":
 		if parsed.name == "daemon-restart" {
 			if _, err := c.stopDaemon(ctx, parsed.configPath, false); err != nil {
@@ -350,22 +358,11 @@ func (c *cli) executeAuthStatus(parsed command) (int, error) {
 }
 
 func (c *cli) executeRuntimeCheck(ctx context.Context, parsed command) (int, error) {
-	// Login is optional: a saved config only supplies configured paths.
-	configured, err := fileExists(parsed.configPath)
+	request, err := c.runtimeRequest(parsed)
 	if err != nil {
 		return 0, err
 	}
-	configuredPaths := parsed.runtimePaths
-	environment := c.deps.environment
-	if configured {
-		config := inspectComputerConfig(parsed.configPath, c.deps.environment, c.command)
-		if configuredPaths == nil {
-			configuredPaths = config.runtimePaths
-		}
-		if config.codexHome != "" {
-			environment = withVariable(environment, "CODEX_HOME", config.codexHome)
-		}
-	}
+	request.live = parsed.live
 	types := runtimeTypes
 	if parsed.runtime != "" {
 		types = []string{parsed.runtime}
@@ -385,8 +382,8 @@ func (c *cli) executeRuntimeCheck(ctx context.Context, parsed command) (int, err
 	var workers sync.WaitGroup
 	for index, runtimeType := range types {
 		workers.Go(func() {
-			check, err := c.deps.checkRuntime(ctx, runtimeType, runtimeRequest{configuredPaths: configuredPaths, environment: environment, live: parsed.live})
-			row := newRuntimeCheckRow(check, c.deps.goos)
+			check, err := c.deps.checkRuntime(ctx, runtimeType, request)
+			row := newRuntimeCheckRow(check, c.deps.goos, c.command)
 			if err != nil {
 				row = runtimeCheckRow{Runtime: runtimeType, Name: runtimeNames[runtimeType], Status: "ERROR", NextStep: "Fix the error below, then check again", Detail: err.Error()}
 			}

@@ -23,7 +23,11 @@ one that inherits Modify for Authenticated Users does not. The Daemon's
 installer as its code and reason (`windowsPrivateRefusal`), never as its
 words: in the `startFailure` line on stdout when the installer manager cannot
 start, and in the `--user-keys` outcome. The Desktop setup page branches on
-`UNSAFE_PARENT_ACCESS` to say where to install instead.
+`UNSAFE_PARENT_ACCESS` to say where to install instead. Repair skips propagation when the protected
+DACL already grants inheritable FullControl to the owner and SYSTEM on a
+directory, or FullControl to both on a file. Private paths with partial rights
+still receive the full repair. Rewriting a directory DACL propagates to its
+existing children and can time out on a large cache tree.
 
 `atomicPrivate` closes and removes its temporary file on failed writes or
 syncs as well as failed publication. A failed replacement keeps the previous
@@ -203,18 +207,29 @@ kits under `<home>/tools/localmodels/<sha256>` stay on disk so existing
 deployments' launchers remain runnable) and falls back to `stack apply` only
 when `stack up` fails or the binding still needs repair (such as
 `pi-extensions-unavailable`). Structured `localmodels.stack-error/v1`,
-`stack apply` result, and `localmodels.stack-up/v1` failures are translated to
+`localmodels.stack-plan-error/v1`, `stack apply` result, and
+`localmodels.stack-up/v1` failures are translated to
 redacted human-readable messages with their `causeCode` in `details.causeCode`,
 and an unreviewable saved plan returns `LOCAL_MODELS_RECOVERY_REQUIRED` with
 `STACK_PLAN_INVALID`. `restoreLocalModels` (`local-models.ts`) brings back a
-local-models setup's stack while its services keep running, such as after
-the desktop's quit stopped it, only while that source is `local` or not
-saved yet: a ready stack costs one `setup binding` check, a stopped one gets
-the same restore (`stack up`, falling back to `stack apply`) and the local
-source set again. Deployments,
-that check and the quit-time stop share one lock per home
+local model source's stack and unloaded library model while its services keep
+running (and on cold resume when `model-source.json` says `local`), such as
+after the desktop's quit stopped them, whenever the active model source is
+`local` (or not saved yet on a `local-models` setup): when a saved
+`runtime_model` is recorded, a ready binding checks `library status` so a
+quit-time `library unload` reloads that saved model and re-applies the local
+source under the same lock (never guessing an arbitrary idle model when no
+`runtime_model` is saved), while a stopped plan gets the same restore (`stack up`,
+falling back to `stack apply`), verifies whether a saved
+`localmodels-library/` model is loaded, and sets the local source again. Library-model reload failures return a failure outcome that warm
+and cold resume surface in `details.localModelsDegraded` so startup stays usable
+and the person can still reach the Models page. On cold resume, a saved `local`
+source preserves local mode and prepares its runtime instead of letting an older
+`setup-choice.json` overwrite `model-source.json` back to `subscription`.
+Deployments, that check and the quit-time stop share one lock per home
 (`withLocalModelsLock`); the check waits up to 180 s for it, past the stop's
-150 s hard exit, then asks to try again.
+150 s hard exit, then reports `LOCAL_MODELS_RECOVERY_REQUIRED` (or
+`LOCAL_MODELS_BUSY` when restoring a library model without a stack plan).
 `restoreByokSource` (`local-models.ts`) brings back a saved BYOK source's
 Bifrost gateway on every resume (warm, or a restart from the saved choice,
 which then prepares the saved runtime and no other source). Under the same
@@ -235,7 +250,11 @@ after the process closes; later output is not delivered to a failed callback.
 
 Each native service runs under a detached supervisor
 (`native-process-worker.mjs`) whose record holds its PID, birth and an
-unguessable lease. POSIX finds the service's processes by process group and
+unguessable lease. On Linux, the supervisor and spawned installer Node
+processes (`linuxNodeFdHygieneArgs` in `native-process-fds.ts`) close inherited
+non-`O_CLOEXEC` descriptors and listening TCP or Unix sockets >= 3 (keeping the
+active IPC channel) so detached services cannot hold parent Electron sockets
+open after quit. POSIX finds the service's processes by process group and
 the lease in their environment. Windows has neither: the lease is in the
 supervisor's command line (its job file name) and the tree follows parent
 links (`windowsLeaseTree`), which break when a parent dies first. So on

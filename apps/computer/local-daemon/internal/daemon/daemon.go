@@ -132,12 +132,15 @@ type Daemon struct {
 	// localModelsDiagnostics holds whether the current Agent Service declared
 	// serviceFeatureLocalModelsDiagnostics in its welcome.
 	localModelsDiagnostics atomic.Bool
-	welcomeSeen            bool
-	prewarmOnce            sync.Once
-	welcomedAt             time.Time
-	daemonID               string
-	activeMu               sync.Mutex
-	admissionMu            sync.Mutex
+	// modelInvokeOutcomes holds whether the current Agent Service declared
+	// serviceFeatureModelInvokeOutcomes in its welcome.
+	modelInvokeOutcomes atomic.Bool
+	welcomeSeen         bool
+	prewarmOnce         sync.Once
+	welcomedAt          time.Time
+	daemonID            string
+	activeMu            sync.Mutex
+	admissionMu         sync.Mutex
 	// authorityRevision counts, under admissionMu, the commands that can change
 	// what an accepted Operation may start with: Registration snapshots, Agent
 	// Runner commands and Context commands. A start whose revision is unchanged
@@ -159,6 +162,9 @@ type Daemon struct {
 	modelInvokes       map[string]*modelInvoke
 	localModels        LocalModelLibrary
 	modelSource        ModelSourceManager
+	// dialNetwork opens and closes one connection for the reachability check
+	// after a failed model call; nil dials for real.
+	dialNetwork func(ctx context.Context, network, address string) error
 	// localModelsMu orders runner.local_models sends with their revision.
 	localModelsMu       sync.Mutex
 	localModelsRevision uint64
@@ -194,9 +200,9 @@ type Daemon struct {
 	contextDispatchLimit int
 	fatalMu              sync.Mutex
 	fatalErr             error
-	gatewayStateMu sync.RWMutex
-	reconciled     bool
-	gatewayState   string
+	gatewayStateMu       sync.RWMutex
+	reconciled           bool
+	gatewayState         string
 	// welcomedEpochs are the connection epochs this process was welcomed
 	// with, under gatewayStateMu. A start sent on any other epoch was sent to
 	// an earlier Daemon process.

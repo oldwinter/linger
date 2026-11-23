@@ -15,11 +15,31 @@ const (
 	// codexSteerClientIDVersion is the oldest Codex verified to echo a
 	// steer's clientUserMessageId on the user message it applies.
 	codexSteerClientIDVersion = "0.166.0"
+	// codexAgentsSwitchVersion is the first release that reads
+	// agents.enabled. Earlier releases parse every [agents] key as a role
+	// and refuse to start on a boolean.
+	codexAgentsSwitchVersion = "0.145.0"
 )
 
 // codexUnmanagedFeatures are the feature names the adapter always keeps
 // disabled; user overrides of them are dropped.
-var codexUnmanagedFeatures = map[string]bool{"goals": true, "memories": true, "memory_tool": true, "apps": true, "image_generation": true}
+var codexUnmanagedFeatures = map[string]bool{
+	"goals": true, "memories": true, "memory_tool": true, "apps": true, "image_generation": true,
+	"multi_agent": true, "multi_agent_v2": true,
+}
+
+// CodexSubAgentConfig turns Codex sub-agents off. Their model requests run
+// beside the Run's own, outside the model queue that admits the Run.
+// features.multi_agent removes the V1 tools a model without a catalog entry
+// gets. A catalog entry can select a sub-agent version itself, and only
+// agents.enabled=false removes those tools, unless multi_agent_v2 is on.
+func CodexSubAgentConfig(version string) []string {
+	args := []string{"--config", "features.multi_agent=false", "--config", "features.multi_agent_v2=false"}
+	if stableCodexAtLeast(version, codexAgentsSwitchVersion) {
+		args = append(args, "--config", "agents.enabled=false")
+	}
+	return args
+}
 
 // CodexAppServerArgs is the app-server argv shared by execution, the
 // protocol probe and model catalog. The trailing feature overrides
@@ -40,7 +60,7 @@ func CodexAppServerArgs(version string, launchArgs ...string) []string {
 	// before 0.114 ignores the unknown key. Images are generated through the
 	// user's connected account with teamhub image-gen, so Codex's own image
 	// tool stays off.
-	return append(args,
+	args = append(args,
 		"--config", "features.memories=false",
 		"--config", "features.memory_tool=false",
 		"--config", "features.apps=false",
@@ -48,6 +68,7 @@ func CodexAppServerArgs(version string, launchArgs ...string) []string {
 		"--config", "project_root_markers=[]",
 		"--config", "skills.bundled.enabled=false",
 	)
+	return append(args, CodexSubAgentConfig(version)...)
 }
 
 // NormalizeCodexLaunchArgs filters Computer args (extra) and Agent args
@@ -105,12 +126,16 @@ func codexExecutionArgs(profile Profile, spec RunSpec, home string, logger *slog
 	return args
 }
 
-// codexStripFeatureArgs drops overrides of unmanaged features and removes
-// their names from --enable/--disable lists.
+// codexStripFeatureArgs drops overrides of unmanaged features and of
+// agents.enabled, and removes unmanaged names from --enable/--disable lists,
+// which Codex applies after every --config override.
 func codexStripFeatureArgs(logger *slog.Logger, list []string) []string {
 	list = codexDropOverrides(logger, list, func(path []string) bool {
 		if len(path) == 1 {
 			return path[0] == "features"
+		}
+		if len(path) == 2 && path[0] == "agents" && path[1] == "enabled" {
+			return true
 		}
 		return len(path) == 2 && path[0] == "features" && codexUnmanagedFeatures[path[1]]
 	})

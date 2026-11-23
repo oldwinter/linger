@@ -7,7 +7,7 @@ import type {
   CommandDefinition,
   CommandExecutionContext,
 } from "./command-definition.js";
-import { assertPositionals, option } from "./command-input.js";
+import { assertPositionals, oneOf, option } from "./command-input.js";
 import { CliError } from "./errors.js";
 import { displayText } from "./display-text.js";
 
@@ -275,13 +275,9 @@ export const documentImageCommandDefinitions: readonly CommandDefinition[] = [
     outputSchema: putOutputSchema,
     async normalize(args, reader) {
       assertPositionals(args, 2);
+      oneOf(args, ["--after", "--replace"]);
       const after = option(args, "--after");
       const replace = option(args, "--replace");
-      if ((after === undefined) === (replace === undefined))
-        throw new CliError(
-          "usage",
-          "Provide exactly one of --after or --replace.",
-        );
       const caption = option(args, "--caption");
       if (
         caption !== undefined &&

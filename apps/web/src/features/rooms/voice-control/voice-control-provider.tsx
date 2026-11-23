@@ -56,6 +56,7 @@ function useVoiceControlProviderValue(
     microphoneMuted,
     partialTranscript,
     selectedDeviceId,
+    stopFailure,
     targetAgentName,
     targetRoomId,
     transcriptItems,
@@ -124,6 +125,13 @@ function useVoiceControlProviderValue(
 
   const currentCapture =
     "capture" in captureState ? captureState.capture : undefined;
+  // Stale once the Capture changed or TeamHub reported it stopped.
+  const retryStop =
+    stopFailure?.captureId === currentCapture?.id &&
+    (currentCapture?.status === "starting" ||
+      currentCapture?.status === "recording")
+      ? stopFailure?.retry
+      : undefined;
   const visibleTranscriptItems = useMemo(() => {
     if (captureState.status === "completed") return [];
     return transcriptItems.filter((item) =>
@@ -155,6 +163,7 @@ function useVoiceControlProviderValue(
       microphoneMuted,
       partialTranscript:
         captureState.status === "completed" ? undefined : partialTranscript,
+      retryStop,
       selectedDeviceId,
       selectDevice,
       selectTargetRoom,
@@ -185,6 +194,7 @@ function useVoiceControlProviderValue(
       listenerStatus,
       microphoneMuted,
       partialTranscript,
+      retryStop,
       selectedDeviceId,
       selectDevice,
       selectTargetRoom,

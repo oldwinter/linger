@@ -1,11 +1,13 @@
 import {
   useMutation,
+  useQuery,
   useQueryClient,
   useSuspenseQuery,
 } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 
+import { modelSourceQueryOptions } from "@/features/local-models/model-source-queries";
 import {
   tenantRoomsQueryOptions,
   tenantAgentAvailabilityQueryOptions,
@@ -122,6 +124,14 @@ export function ComputersPage() {
           agent.runtime.placement.computer_id === selectedComputer.computer_id,
       )
     : [];
+  const modelSource = useQuery({
+    ...modelSourceQueryOptions(
+      client,
+      tenantId,
+      selectedComputer?.computer_id ?? "",
+    ),
+    enabled: Boolean(selectedComputer && selectedComputer.status === "online"),
+  });
   const removeAgents = removeComputer
     ? agents.items.filter(
         (agent) =>
@@ -263,6 +273,7 @@ export function ComputersPage() {
             <NoComputers onConnect={openSetup} />
           ) : selectedComputer ? (
             <ComputerDetail
+              activeRuntime={modelSource.data?.status?.runtime}
               agentAvailabilities={agentAvailabilities}
               agents={selectedAgents}
               browserConnection={(variant) => (

@@ -145,6 +145,7 @@ export function LocalRuntimeFields({
           <LocalRuntimeAuthenticationGuidance
             runtimeType={selection.runtimeDiagnostic.type}
             computerName={selection.computer.display_name}
+            computer={selection.computer}
           />
         </div>
       ) : null}

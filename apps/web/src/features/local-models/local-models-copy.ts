@@ -482,6 +482,9 @@ export function modelSourceFailureCopy(
       ? t(m.sourceByokGatewayFailedDetail, { detail })
       : t(m.sourceByokGatewayFailed);
   }
+  if (error?.code === "MODEL_SOURCE_UNCONFIRMED") {
+    return modelSourceErrorCopy(error.code, t);
+  }
   return byokFailureCopy(error?.code, error?.message ?? "", t);
 }
 
@@ -491,6 +494,9 @@ export function byokFailureCopy(
   message: string,
   t: Translate,
 ) {
+  if (code === "MODEL_SOURCE_UNCONFIRMED") {
+    return t(m.sourceByokProbeUnconfirmed);
+  }
   return code && byokEndpointRefusals.has(code) && message
     ? message
     : modelSourceErrorCopy(code, t);

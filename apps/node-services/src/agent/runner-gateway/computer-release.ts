@@ -49,6 +49,15 @@ export interface ComputerRelease {
 }
 
 /**
+ * Templates are matched line by line when the installers are rendered, and
+ * `.gitattributes` declares them LF while a working tree still holds whatever
+ * ending it was written with; reading them as LF keeps the markers whole on
+ * every checkout and keeps the shell script bash-readable.
+ */
+const readTemplate = async (file: string): Promise<string> =>
+  (await readFile(file, "utf8")).replace(/\r\n/gu, "\n");
+
+/**
  * Loads the release once at startup. A missing `release.json` means this
  * process ships no Computer release. `release.json` comes from this image's
  * own build, so it is trusted; a listed archive missing from `files/` means
@@ -81,21 +90,17 @@ export async function loadComputerRelease(
     root,
     version,
     targets,
-    installerTemplate: await readFile(
+    installerTemplate: await readTemplate(
       path.join(root, "linger-computer.sh"),
-      "utf8",
     ),
-    uninstallerTemplate: await readFile(
+    uninstallerTemplate: await readTemplate(
       path.join(root, "uninstall-linger-computer.sh"),
-      "utf8",
     ),
-    windowsInstallerTemplate: await readFile(
+    windowsInstallerTemplate: await readTemplate(
       path.join(root, "linger-computer.ps1"),
-      "utf8",
     ),
-    windowsUninstallerTemplate: await readFile(
+    windowsUninstallerTemplate: await readTemplate(
       path.join(root, "uninstall-linger-computer.ps1"),
-      "utf8",
     ),
   };
 }

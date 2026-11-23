@@ -224,12 +224,69 @@ function endpointFailure(
   return Object.assign(new Error(message), { code });
 }
 
-function parseToolJson(stdout: string): Record<string, unknown> | undefined {
-  try {
-    return JSON.parse(stdout) as Record<string, unknown>;
-  } catch {
-    return undefined;
+/**
+ * Extracts the final top-level JSON object from stdout, handling sequential
+ * mixes of JSONL progress lines and pretty-printed multi-line JSON objects.
+ */
+export function lastJsonObject(
+  stdout: string,
+): Record<string, unknown> | undefined {
+  let last: Record<string, unknown> | undefined;
+  let depth = 0;
+  let start = -1;
+  let inString = false;
+  let escaped = false;
+  let retries = 0;
+  for (let i = 0; i < stdout.length; i += 1) {
+    const ch = stdout[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      if (depth > 0) inString = true;
+      continue;
+    }
+    if (ch === "{") {
+      if (depth === 0) start = i;
+      depth += 1;
+    } else if (ch === "}" && depth > 0) {
+      depth -= 1;
+      if (depth === 0 && start >= 0) {
+        try {
+          const parsed = JSON.parse(stdout.slice(start, i + 1)) as unknown;
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            last = parsed as Record<string, unknown>;
+          }
+        } catch {
+          if (retries < 64) {
+            retries += 1;
+            i = start;
+          }
+        }
+        start = -1;
+      }
+    }
+    if (i === stdout.length - 1 && depth > 0 && start >= 0 && retries < 64) {
+      retries += 1;
+      i = start;
+      depth = 0;
+      start = -1;
+      inString = false;
+      escaped = false;
+    }
   }
+  return last;
+}
+
+function parseToolJson(stdout: string): Record<string, unknown> | undefined {
+  return lastJsonObject(stdout);
 }
 
 /** Sends one request to the endpoint's address from this computer. */
@@ -328,6 +385,7 @@ function applySource(
   runtime: NativeRuntime,
   options: {
     signal: AbortSignal;
+    model?: string;
     timeoutMs?: number;
     idleTimeoutMs?: number;
     input?: string;
@@ -344,6 +402,7 @@ function applySource(
       mode,
       "--runtime",
       runtime,
+      ...(options.model ? ["--model", options.model] : []),
       "--base-dir",
       localmodelsBaseDirectory(home),
       "--harness-root",
@@ -367,6 +426,8 @@ function applySource(
   );
 }
 
+const SOURCE_ERROR_CODE_PATTERN = /^[A-Z][A-Z0-9_]{0,63}$/;
+
 function sourceApplyFailure(
   stdout: string,
   message: string,
@@ -374,15 +435,14 @@ function sourceApplyFailure(
 ): InstallOutcome {
   let detail = message;
   let detailCode = code;
-  try {
-    const errDoc = JSON.parse(stdout) as { message?: unknown; code?: unknown };
-    if (typeof errDoc.message === "string" && errDoc.message)
-      detail = errDoc.message;
-    if (typeof errDoc.code === "string" && errDoc.code)
-      detailCode = errDoc.code;
-  } catch {
-    /* Non-JSON tool output stays private. */
-  }
+  const errDoc = lastJsonObject(stdout);
+  if (typeof errDoc?.message === "string" && errDoc.message)
+    detail = errDoc.message;
+  if (
+    typeof errDoc?.code === "string" &&
+    SOURCE_ERROR_CODE_PATTERN.test(errDoc.code)
+  )
+    detailCode = errDoc.code;
   return {
     code: 1,
     state: "failed",
@@ -513,7 +573,11 @@ export async function applyNativeSource(
   home: string,
   mode: "local" | "subscription",
   runtime: NativeRuntime,
-  options: { signal: AbortSignal; onEvent?: (event: InstallerEvent) => void },
+  options: {
+    signal: AbortSignal;
+    model?: string;
+    onEvent?: (event: InstallerEvent) => void;
+  },
   dependencies: { localmodels?: typeof runLocalmodels } = {},
 ): Promise<InstallOutcome | undefined> {
   const result = await applySource(
@@ -523,6 +587,7 @@ export async function applyNativeSource(
     {
       signal: options.signal,
       idleTimeoutMs: SOURCE_APPLY_IDLE_TIMEOUT_MS,
+      ...(options.model ? { model: options.model } : {}),
       ...(options.onEvent ? { onEvent: options.onEvent } : {}),
     },
     dependencies.localmodels ?? runLocalmodels,

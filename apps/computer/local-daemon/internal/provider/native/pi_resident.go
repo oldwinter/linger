@@ -72,7 +72,7 @@ func piShapeFor(program string, args []string, profile Profile, spec RunSpec, mc
 	if err != nil {
 		return nil, err
 	}
-	prompt := sha256.Sum256([]byte(spec.AppendPrompt))
+	prompt := sha256.Sum256([]byte(spec.SystemPrompt))
 	return &piShape{
 		execPath:        program,
 		cwd:             spec.Dir,

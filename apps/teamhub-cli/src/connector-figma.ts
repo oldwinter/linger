@@ -24,7 +24,7 @@ import {
   connectorTransferURL,
   saveConnectorDownload,
 } from "./connector-files.js";
-import { ConnectorError as CliError } from "./errors.js";
+import { CliError } from "./errors.js";
 import { displayText } from "./display-text.js";
 const descriptions = {
   read: "Read a shallow design-file tree or a single node.",

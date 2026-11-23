@@ -37,9 +37,11 @@ describe.each(deliveries)("$name message citations", ({ send }) => {
     "rejects raw citations before any publication: %s",
     async (body) => {
       await expect(send(body)).rejects.toMatchObject({
-        code: "unsupported_message_citation",
+        code: "invalid_input",
         message: expect.stringContaining("No messages were sent"),
-        details: { sent: false },
+        details: {
+          issues: [expect.objectContaining({ code: "invalid_value" })],
+        },
       });
       await expect(
         send("[Source](https://example.com/source)"),
@@ -67,7 +69,7 @@ describe.each(deliveries)("$name message citations", ({ send }) => {
     "&#xE200;cite\uE202turn1search0\uE201",
   ])("rejects prose and Markdown-decoded markers: %s", async (body) => {
     await expect(send(body)).rejects.toMatchObject({
-      code: "unsupported_message_citation",
+      code: "invalid_input",
     });
   });
 });

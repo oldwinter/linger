@@ -279,14 +279,17 @@ WHERE epoch.capture_session_id=sqlc.arg(capture_session_id)::text
   AND epoch.updated_at < clock_timestamp()-interval '2 seconds'
   AND (epoch.epoch_index=0 OR epoch.first_archived_ms IS NOT NULL
        OR epoch.restart_retry_at IS NULL OR epoch.restart_retry_at<=clock_timestamp())
+  AND (epoch.stop_reconcile_retry_at IS NULL OR epoch.stop_reconcile_retry_at<=clock_timestamp())
 ORDER BY epoch.updated_at,epoch.id
 LIMIT 1;
 
 -- name: VoiceEpochReconciliationDueIn :one
 -- Seconds until ListVoiceMediaEpochsForReconcile returns one of the Capture's
--- epochs; a recovery epoch also waits out its delayed recorder restart.
+-- epochs; a recovery epoch also waits out its delayed recorder restart, and
+-- an epoch that failed to settle after Stop its backoff.
 SELECT coalesce(extract(epoch FROM min(greatest(epoch.updated_at+interval '2 seconds',
-    CASE WHEN epoch.epoch_index>0 AND epoch.first_archived_ms IS NULL THEN epoch.restart_retry_at END
+    CASE WHEN epoch.epoch_index>0 AND epoch.first_archived_ms IS NULL THEN epoch.restart_retry_at END,
+    epoch.stop_reconcile_retry_at
     ))-clock_timestamp()),'Infinity')::float8 AS wait_seconds
 FROM voice_media_epochs epoch
 JOIN capture_sessions capture ON capture.id=epoch.capture_session_id
@@ -336,6 +339,25 @@ WITH target AS MATERIALIZED (
 UPDATE voice_sessions voice SET status='closing',last_failure_code='egress_failed_without_media',updated_at=clock_timestamp()
 FROM failed_capture WHERE voice.id=failed_capture.voice_session_id
   AND voice.status IN ('provisioning','connected','reconnecting');
+
+-- name: FailUnsettledVoiceCapture :one
+-- Ends a stopped Capture with its epoch that used up its settle budget, so
+-- its voice session can close. Only an epoch whose recorder sent its terminal
+-- receipt qualifies: nothing writes its staging or owes it a stop any more.
+WITH failed_epoch AS (
+  UPDATE voice_media_epochs epoch
+  SET desired_state='sealed',observed_state='failed',last_failure_code='stop_unsettled',
+      updated_at=clock_timestamp()
+  WHERE epoch.id=sqlc.arg(epoch_id)::text AND epoch.recorder_state IN ('available','failed')
+    AND epoch.observed_state IN ('requested','active','sealing','unknown')
+    AND EXISTS (SELECT 1 FROM capture_sessions capture
+      WHERE capture.id=epoch.capture_session_id AND capture.status='finalizing')
+  RETURNING epoch.capture_session_id
+)
+UPDATE capture_sessions capture SET status='failed',updated_at=clock_timestamp()
+FROM failed_epoch
+WHERE capture.id=failed_epoch.capture_session_id AND capture.status='finalizing'
+RETURNING capture.id,capture.tenant_id,capture.room_id,capture.created_by_actor_id;
 
 -- name: RequestSealVoiceMediaEpoch :one
 UPDATE voice_media_epochs

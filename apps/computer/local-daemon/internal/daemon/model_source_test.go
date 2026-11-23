@@ -12,10 +12,11 @@ import (
 )
 
 type fakeModelSourceManager struct {
-	deadline  time.Time
-	lastApply localmodels.ModelSourceApply
-	applyErr  error
-	calls     int
+	deadline    time.Time
+	lastApply   localmodels.ModelSourceApply
+	applyErr    error
+	calls       int
+	gatewayMode string
 }
 
 func (f *fakeModelSourceManager) Status(ctx context.Context) (wire.ModelSourceStatus, error) {
@@ -66,6 +67,8 @@ func (f *fakeModelSourceManager) Apply(ctx context.Context, apply localmodels.Mo
 }
 
 func (f *fakeModelSourceManager) EnsureGateway(context.Context, string) error { return nil }
+
+func (f *fakeModelSourceManager) GatewayMode(string) string { return f.gatewayMode }
 
 func TestHandleModelSourceCommandValidatesOwnerExpiryAndActions(t *testing.T) {
 	manager := &fakeModelSourceManager{}

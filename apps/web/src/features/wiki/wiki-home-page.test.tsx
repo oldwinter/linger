@@ -407,3 +407,41 @@ function calendarShift(day: string, delta: number): string {
     .toISOString()
     .slice(0, 10);
 }
+
+it("does not request the personal wiki graph before a Wiki generation is published", async () => {
+  const runtime = createTestTeamHubRuntime();
+  serveWikiDocuments(runtime).mockResolvedValue({
+    items: [],
+    page: { has_more: false },
+  });
+  serveWikiStatus(runtime).mockResolvedValue({
+    created_at: "2026-08-23T00:00:00.000Z",
+    id: "wiki-tenant-northstar",
+    owner_actor_id: "actor-human",
+    published_generation: 0,
+    state: "idle",
+    tenant_id: "tenant-northstar",
+    updated_at: "2026-08-23T00:00:00.000Z",
+  });
+  const getGraph = vi.spyOn(
+    runtime.client,
+    "getPersonalKnowledgeGraphVisualization",
+  );
+  const router = createMemoryRouter(
+    [{ path: "/t/:tenantId/library/wiki", element: <WikiHomePage /> }],
+    { initialEntries: ["/t/tenant-northstar/library/wiki?tab=wiki"] },
+  );
+  render(
+    <QueryClientProvider
+      client={
+        new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      }
+    >
+      <TeamHubRuntimeProvider runtime={runtime}>
+        <RouterProvider router={router} />
+      </TeamHubRuntimeProvider>
+    </QueryClientProvider>,
+  );
+  expect(await screen.findByText("No projects yet.")).toBeVisible();
+  expect(getGraph).not.toHaveBeenCalled();
+});

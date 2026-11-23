@@ -97,13 +97,27 @@ describe("business command recovery options", () => {
       const argv = [...definition.command, "--operation-id", "read_fixture"];
       await expect(
         parseDomainCommand(argv, { cwd: "/work", syntaxOnly: true }),
-      ).rejects.toThrow("Unknown option: --operation-id.");
+      ).rejects.toThrow("Unknown flag --operation-id.");
       await rejectedBeforeIO(argv);
     },
   );
   it.each(
     businessCommandDefinitions.filter(
-      (item) => !item.readOnly && !item.fileRoute,
+      (item) => item.command[0] === "tracking-items" && !item.readOnly,
+    ),
+  )(
+    "does not offer an Operation ID TeamHub ignores for $command",
+    (definition) => {
+      expect(definition.operationId).toBe(false);
+      expect(domainHelp(definition.command)).not.toContain("--operation-id");
+    },
+  );
+  it.each(
+    businessCommandDefinitions.filter(
+      (item) =>
+        !item.readOnly &&
+        !item.fileRoute &&
+        item.command[0] !== "tracking-items",
     ),
   )("retains operation identity for writing $command", async (definition) => {
     expect(definition.operationId).toBe(true);
@@ -610,13 +624,24 @@ describe("owner profile commands", () => {
     });
     await expect(
       write.normalize(args({ "--content": "# Owner" }), reader),
-    ).rejects.toThrow("Provide one valid JSON value.");
+    ).rejects.toMatchObject({
+      code: "invalid_input",
+      details: {
+        issues: [
+          {
+            path: "--content",
+            code: "invalid_json",
+            message: "line 1, column 1: expected a value.",
+          },
+        ],
+      },
+    });
     await expect(
       write.normalize(
         args({ "--content": inline, "--file": "profile.json" }),
         reader,
       ),
-    ).rejects.toThrow("not both");
+    ).rejects.toThrow("--content, --file cannot be used together.");
     await expect(
       write.normalize(
         args({
@@ -632,7 +657,7 @@ describe("owner profile commands", () => {
   it("updates only the given Account fields and requires one", async () => {
     const update = command("account-profile update");
     await expect(update.normalize(args(), reader)).rejects.toThrow(
-      "Provide --name, --bio or --organization.",
+      "One of --name, --bio, --organization is required.",
     );
     expect(
       (await update.normalize(args({ "--bio": "Builds things." }), reader))

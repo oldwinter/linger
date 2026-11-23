@@ -149,7 +149,7 @@ describe("Room navigation", () => {
       within(primary)
         .getAllByRole("link")
         .map((link) => link.getAttribute("aria-label")),
-    ).toEqual(["Messages", "Dashboard", "Library", "Wiki", "Connectors"]);
+    ).toEqual(["Messages", "Library", "Wiki", "Dashboard", "Connectors"]);
     expect(
       within(navigation).getByRole("button", { name: "Pocket Notes" }),
     ).toBeVisible();
@@ -235,7 +235,7 @@ describe("Room navigation", () => {
         links.map((link) =>
           link.querySelector(".primary-navigation-label")?.textContent?.trim(),
         ),
-      ).toEqual(["Messages", "Dashboard", "Library", "Wiki", "Connectors"]);
+      ).toEqual(["Messages", "Library", "Wiki", "Dashboard", "Connectors"]);
       const toolbar = await screen.findByRole("toolbar", {
         name: "Message actions",
       });
@@ -389,9 +389,9 @@ describe("Room navigation", () => {
     ).toHaveLength(5);
     for (const label of [
       "Messages",
-      "Dashboard",
       "Library",
       "Wiki",
+      "Dashboard",
       "Connectors",
     ]) {
       expect(
@@ -538,6 +538,23 @@ describe("Room navigation", () => {
       }
     },
   );
+
+  it("links to the Work Items Dashboard from the primary navigation rail", async () => {
+    const fixture = await navigationFixture();
+
+    renderNavigation(fixture, new QueryClient());
+
+    const dashboardLink = screen.getByRole("link", { name: "Dashboard" });
+    expect(dashboardLink).toHaveAttribute(
+      "href",
+      `/t/${fixture.tenant.id}/dashboard`,
+    );
+    fireEvent.click(dashboardLink);
+    expect(dashboardLink).toHaveAttribute("aria-current", "page");
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      `/t/${fixture.tenant.id}/dashboard`,
+    );
+  });
 });
 
 async function navigationFixture() {
@@ -598,6 +615,7 @@ function renderNavigation(
             />
             <Route element={navigation} path="/t/:tenantId/library/*" />
             <Route element={navigation} path="/t/:tenantId/wiki-preview" />
+            <Route element={navigation} path="/t/:tenantId/dashboard/*" />
             <Route element={navigation} path="/t/:tenantId/work-items/*" />
             <Route element={navigation} path="/t/:tenantId/apps" />
             <Route element={navigation} path="/t/:tenantId/computers" />

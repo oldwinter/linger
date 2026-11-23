@@ -49,6 +49,19 @@ func TestTaskProgressReadsTheTasksAMetaCoordinates(t *testing.T) {
 		task.Status != teamhubinternal.TaskProgressRunning || task.PendingApprovals != 0 || task.LastReportAt != nil || task.LatestStep != nil {
 		t.Fatalf("new Task=%s", body)
 	}
+	// A quiet Task, which the Room does not show, has no progress to report.
+	for _, quiet := range []bool{true, false} {
+		if _, err := env.pool.Exec(t.Context(), `UPDATE work_items SET quiet=$2 WHERE id=$1`, created.TaskID, quiet); err != nil {
+			t.Fatal(err)
+		}
+		want := 1
+		if quiet {
+			want = 0
+		}
+		if _, snapshot, body := readTaskProgress(t, env, roomID); len(snapshot.Tasks) != want {
+			t.Fatalf("quiet=%t Tasks=%s", quiet, body)
+		}
+	}
 
 	// The newest step of the Task's latest Run is its latest step.
 	alterEgo, err := agentruntimestate.New(env.pool).EnsureContext(t.Context(), agentruntimestate.EnsureContextInput{
