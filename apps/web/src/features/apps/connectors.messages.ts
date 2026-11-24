@@ -147,6 +147,37 @@ export const connectorMessages = defineMessages("connectors", {
   authorizationComplete: "Authorization complete",
   canCloseWindow: "You can close this window.",
 
+  // Steps when the Feishu app behind lark-cli lacks the mail permissions
+  feishuScopesTitle:
+    "The Feishu app your lark-cli uses needs mail permissions first",
+  feishuScopesStepOpen:
+    "Open the app's permissions page in the Feishu developer console.",
+  feishuScopesOpenConsole: "Open permissions page",
+  feishuScopesStepAdd: "Add these as user permissions:",
+  feishuScopesList: "Mail permissions to add",
+  feishuScopesStepPublish:
+    "Create a new version and publish it. Your admin may need to approve it.",
+
+  // Steps when the Computer that runs Another Me cannot connect Feishu Mail
+  feishuCliMissingTitle:
+    "lark-cli is not installed on the Computer that runs your Another Me",
+  feishuCliMissingStepInstall:
+    "On that Computer, open a terminal and install lark-cli:",
+  feishuCliNotSetUpTitle:
+    "lark-cli on the Computer that runs your Another Me is not set up yet",
+  feishuCliNotSetUpStepRun:
+    "On that Computer, open a terminal and run this. It prints a link: open it in a browser to finish.",
+  feishuComputerOfflineTitle:
+    "The Computer that runs your Another Me is offline",
+  feishuComputerOfflineStepOpen:
+    "On that Computer, open Linger and make sure you are signed in.",
+  feishuComputerUnavailableTitle:
+    "The Computer that runs your Another Me could not check lark-cli",
+  feishuComputerUnavailableStepCheck:
+    "Make sure Linger on that Computer is online and up to date.",
+
+  feishuCheckAgain: "Check again",
+
   // Web search backends, beside the app groups. Backend names, descriptions
   // and free tier text come from TeamHub.
   filterWebSearch: "Web search",

@@ -3,6 +3,7 @@ package voicelive
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"regexp"
 	"slices"
@@ -280,6 +281,22 @@ func TestInstructionsNameTheRoomAndNeverRefuseBackgroundWork(t *testing.T) {
 	}
 }
 
+// Bare status words ("Sent.") made the live voice sound cold; the persona
+// keeps replies short without teaching them, as Voice Runtime's tone rule does.
+func TestInstructionsKeepRepliesWarmNotBare(t *testing.T) {
+	text := Instructions("A", "R", UserMemory{})
+	for _, want := range []string{"Short is never bare", "React first", "with I as its subject"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("the persona misses %q", want)
+		}
+	}
+	for _, bare := range []string{"→ “Sent.”", "is a whole answer", "No reason, no remark", "without forcing a pronoun"} {
+		if strings.Contains(text, bare) {
+			t.Fatalf("the persona teaches bare replies: %q", bare)
+		}
+	}
+}
+
 func TestInstructionsCarryTheUsersMemory(t *testing.T) {
 	if strings.Contains(Instructions("A", "R", UserMemory{}), "About the User") {
 		t.Fatal("no memory, no section")
@@ -290,7 +307,36 @@ func TestInstructionsCarryTheUsersMemory(t *testing.T) {
 			t.Fatalf("instructions miss %q", want)
 		}
 	}
-	if strings.Count(text, "\U0001F332") > 1200 {
-		t.Fatal("the memory is bounded")
+	if strings.Count(text, "\U0001F332") != 2000 {
+		t.Fatal("the whole memory.md is given, as ordinary Agent runs get it")
+	}
+}
+
+func TestKnownAddressesKeepOwnFirstAndTenRecentOthers(t *testing.T) {
+	own := []string{"bo@example.com", "BO@example.com", "# Bo\n- Reach me at bo.work@example.org (work).\n- mailto:nobody is not an address"}
+	sent := []string{"amy@example.com, bo@example.com", "", "Amy@Example.com; not-an-address"}
+	for i := 0; i < 12; i++ {
+		sent = append(sent, fmt.Sprintf("p%d@example.net", i))
+	}
+	mine, recent := KnownAddresses(own, sent)
+	if strings.Join(mine, ",") != "bo@example.com,bo.work@example.org" {
+		t.Fatalf("own=%v", mine)
+	}
+	// The user's own address and a repeat in another case are not recipients,
+	// and only the ten newest distinct ones are kept.
+	if len(recent) != 10 || recent[0] != "amy@example.com" || recent[9] != "p8@example.net" {
+		t.Fatalf("recent=%v", recent)
+	}
+}
+
+func TestInstructionsListTheAddressesTheUserUses(t *testing.T) {
+	text := Instructions("A", "R", UserMemory{OwnAddresses: []string{"bo@example.com"}, SentTo: []string{"amy@example.com"}})
+	for _, want := range []string{"## About the User", "Their own email addresses: bo@example.com", "recently sent email to from here, newest first: amy@example.com"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("instructions miss %q", want)
+		}
+	}
+	if strings.Contains(Instructions("A", "R", UserMemory{Name: "Bo"}), "email addresses") {
+		t.Fatal("no addresses, no address lines")
 	}
 }

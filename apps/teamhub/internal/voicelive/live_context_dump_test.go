@@ -36,7 +36,11 @@ func TestDumpLiveContext(t *testing.T) {
 - Lead with the conclusion, then the details [2026-10-20]
 
 ## Milestones
-None recorded.`}
+None recorded.`,
+		// As TeamHub lists them: the login and Gmail, then recent recipients.
+		OwnAddresses: []string{"zheng@northwind.io"},
+		SentTo:       []string{"lisa.chen@northwind.io", "tony.wu@gmail.com", "markc1018@gmail.com"},
+	}
 	encoded, err := json.MarshalIndent(map[string]any{"instructions": Instructions("Jarvis", "Weekly product sync", memory), "tools": tools}, "", " ")
 	if err != nil {
 		t.Fatal(err)

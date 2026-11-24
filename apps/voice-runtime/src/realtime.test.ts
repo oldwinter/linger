@@ -53,6 +53,13 @@ describe("realtime session rules", () => {
       "changes only that text, never the language you speak",
     );
     expect(rules).toContain("\n- LENGTH: ");
+    // Warmth sits beside the length it must fit in, so brevity never wins alone.
+    expect(rules.indexOf("\n- TONE: ")).toBeGreaterThan(
+      rules.indexOf("\n- LENGTH: "),
+    );
+    expect(rules).toContain("Short is never bare");
+    // The words before a tool react and say the plan, never a progress label.
+    expect(rules).toContain("Never open with a progress label");
     expect(rules.indexOf("## Conversation Flow")).toBeLessThan(
       rules.indexOf("## CRITICAL INSTRUCTIONS"),
     );

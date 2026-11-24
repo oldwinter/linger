@@ -2,6 +2,7 @@ import { isCanonicalBase64 } from "./base64.js";
 import { timingSafeEqual } from "node:crypto";
 
 import {
+  characterCount,
   ROOM_DOCUMENT_MAX_REFERENCES,
   type RoomDocumentSemanticBlock,
   type RoomDocumentSemanticOperation,
@@ -593,8 +594,8 @@ function isSemanticOperation(value: unknown): boolean {
         hasOnlyKeys(value, ["kind", "thread_id", "replacement"]) &&
         isID(value.thread_id) &&
         typeof value.replacement === "string" &&
-        value.replacement.length >= 1 &&
-        value.replacement.length <= 50_000
+        characterCount(value.replacement) >= 1 &&
+        characterCount(value.replacement) <= 50_000
       );
     default:
       return false;
@@ -689,7 +690,13 @@ function isID(value: unknown): value is string {
 }
 
 function isTitle(value: unknown): value is string {
-  return typeof value === "string" && value.length >= 1 && value.length <= 255;
+  // The contract's maxLength is in characters, so a title of 255 astral
+  // characters is 255, not the 510 UTF-16 units it occupies.
+  return (
+    typeof value === "string" &&
+    characterCount(value) >= 1 &&
+    characterCount(value) <= 255
+  );
 }
 
 function hasOnlyKeys(value: Record<string, unknown>, keys: string[]): boolean {

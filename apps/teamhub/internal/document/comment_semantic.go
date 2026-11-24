@@ -14,6 +14,21 @@ import (
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/agentcredential"
 )
 
+// MaxCommentReplacementCharacters bounds a replaced comment text in
+// characters, the unit the contract states as maxLength: a CJK text of 50000
+// characters is 150000 bytes and still fits.
+const MaxCommentReplacementCharacters = 50000
+
+// ValidCommentReplacement reports whether a replacement is one to 50000
+// characters of valid UTF-8.
+func ValidCommentReplacement(value string) bool {
+	if !utf8.ValidString(value) {
+		return false
+	}
+	count := utf8.RuneCountInString(value)
+	return count >= 1 && count <= MaxCommentReplacementCharacters
+}
+
 type CommentTextReplacementResult struct {
 	SemanticMutationResult
 	CurrentMarkdown       []byte
@@ -36,7 +51,7 @@ func (s *Service) ApplyCommentTextReplacement(
 	input ApplyCommentTextReplacementInput,
 ) (CommentTextReplacementResult, error) {
 	if s == nil || s.pool == nil || input.Principal == nil || input.DocumentID == "" || input.ThreadID == "" ||
-		input.SourceInvocationID == "" || len(input.Replacement) < 1 || len(input.Replacement) > 50000 {
+		input.SourceInvocationID == "" || !ValidCommentReplacement(input.Replacement) {
 		return CommentTextReplacementResult{}, ErrInvalidInput
 	}
 	var authorized bool

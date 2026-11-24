@@ -1,4 +1,5 @@
-import { beforeEach, expect, test, vi } from "vitest";
+import { performance } from "node:perf_hooks";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { Instance } from "@linger/local-installation/instance";
 import type { RuntimeDescriptor } from "@linger/local-installation/managed-runtimes";
 
@@ -31,7 +32,13 @@ import { readSetupChoice } from "@linger/local-installation/setup-selection";
 import { readByokEnvironment } from "@linger/local-installation/byok-source";
 import { localModelsEnvironment } from "@linger/local-installation/local-models";
 import { managedRuntimeEnvironment } from "@linger/local-installation/managed-codex";
-import { instanceRuntime } from "./instance-runtime.js";
+import { localmodelsComputerTool } from "@linger/local-installation/localmodels-computer";
+import {
+  formatRuntimeLookupTimings,
+  RUNTIME_LOOKUP_TIMINGS_EVENT,
+  instanceRuntime,
+  type RuntimeLookupTimings,
+} from "./instance-runtime.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -45,6 +52,10 @@ beforeEach(() => {
   vi.mocked(managedRuntimeEnvironment).mockResolvedValue({
     LINGER_PI_PATH: "/probed/pi",
   });
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 test("reuses inspected runtime descriptors without re-probing managedRuntimeEnvironment", async () => {
@@ -81,4 +92,35 @@ test("falls back to managedRuntimeEnvironment when no descriptors are supplied",
     "/home",
     "/home/instances/local",
   );
+});
+
+test("reports separate stage timings for a runtime lookup", async () => {
+  const timings: RuntimeLookupTimings[] = [];
+  // instanceRuntime reads the clock once at the start, twice per timed
+  // stage, and once for the total. Script it so the assertions are exact
+  // and independent of the test host's scheduler.
+  const now = vi.spyOn(performance, "now");
+  for (const value of [0, 0, 4, 4, 6, 6, 6, 6, 11, 11, 13, 13, 22, 25])
+    now.mockReturnValueOnce(value);
+  vi.mocked(localmodelsComputerTool).mockResolvedValue(undefined as never);
+
+  await instanceRuntime("/home", "local", {
+    onTimings: (value) => timings.push(value),
+  });
+
+  expect(timings).toEqual([
+    { config: 6, runtime: 5, localModels: 2, tool: 9, total: 25 },
+  ]);
+});
+
+test("formats runtime lookup timings as one JSON line", () => {
+  const timings = { config: 1, runtime: 2, localModels: 3, tool: 4, total: 10 };
+  const line = formatRuntimeLookupTimings("desk\ntop", timings);
+  expect(line.endsWith("\n")).toBe(true);
+  expect(line.slice(0, -1)).not.toContain("\n");
+  expect(JSON.parse(line)).toEqual({
+    event: RUNTIME_LOOKUP_TIMINGS_EVENT,
+    instance: "desk\ntop",
+    timings,
+  });
 });

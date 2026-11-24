@@ -10,6 +10,7 @@ import { composerMessages } from "./composer.messages";
 import { MessageForwardDialog } from "./message-forward-dialog";
 import { RoomReadStateSync } from "./room-read-state-sync";
 import { AnotherMeIntro } from "./another-me-intro";
+import { AnotherMeBackgroundFailureBanner } from "./another-me-background-failure-banner";
 import { MessageVoiceSelectionControl } from "./voice-mode/message-voice-selection-control";
 import { anotherMeQueryOptions } from "../room-queries";
 import { AnotherMeMirrorProvider } from "./another-me-mirror";
@@ -90,6 +91,11 @@ export function RoomChatImpl() {
           testId="room-chat-file-drop-target"
           title={t(composerMessages.dropFilesTitle)}
         >
+          <AnotherMeBackgroundFailureBanner
+            client={client}
+            roomId={roomId}
+            tenantId={tenantId}
+          />
           <RoomChatTimelineSection
             actions={actions}
             data={data}

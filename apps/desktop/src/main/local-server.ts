@@ -82,6 +82,7 @@ import {
 } from "./navigation.js";
 import { humanTenant, type EnrollmentModule } from "./enrollment.js";
 import { compareVersions } from "./update-manifest.js";
+import { systemProxy } from "./system-proxy.js";
 import type { WindowManagerModule } from "./window-manager.js";
 import {
   installerKeyChanges,
@@ -385,6 +386,9 @@ export interface LocalServerOptions {
   readonly rename?: (from: string, to: string) => Promise<void>;
   // The glibc of this Linux computer; the running one's by default.
   readonly glibcVersion?: string;
+  // Chromium's proxy for a URL (session.resolveProxy); without it the
+  // services get no system proxy.
+  readonly resolveProxy?: (url: string) => Promise<string>;
 }
 
 // The starter Room the server makes for a new owner, with their Agents.
@@ -1244,7 +1248,7 @@ export class LocalServerModule implements Module {
       for (;;) {
         const nextChoice = job.signInRequired
           ? await this.#timed("await_signin", () =>
-              this.#awaitSignIn(installer, signal),
+              this.#awaitSignIn(installer, signal, job.setupChoice),
             )
           : undefined;
         if (!nextChoice) break;
@@ -1275,8 +1279,10 @@ export class LocalServerModule implements Module {
         .prewarmAssets(job.origin);
       // The desktop's Computer runs the runtime this installer set up, with
       // its profile, rather than whatever its PATH finds.
-      const runtime = await this.#timed("installer_runtime", () =>
-        installer.runtime(signal),
+      const runtime = await this.#timed("installer_runtime", async () =>
+        job.runtime && !job.signInRequired
+          ? job.runtime
+          : installer.runtime(signal),
       );
       const preferredRuntime = setupRuntime(runtime.setupChoice);
       this.#ctx?.config.update({
@@ -1386,9 +1392,12 @@ export class LocalServerModule implements Module {
   async #awaitSignIn(
     installer: InstallerApi,
     signal: AbortSignal,
+    setupChoice?: string,
   ): Promise<LocalRuntime | { readonly byok: SetupByokConfig } | undefined> {
     const runtime =
-      setupRuntime((await installer.runtime(signal)).setupChoice) ?? "pi";
+      setupRuntime(setupChoice) ??
+      setupRuntime((await installer.runtime(signal)).setupChoice) ??
+      "pi";
     this.#signInInstaller = installer;
     this.#switchTo = undefined;
     this.#switchByok = undefined;
@@ -2339,6 +2348,18 @@ export class LocalServerModule implements Module {
     });
   }
 
+  // The system proxy for the installer runs that start the services, which
+  // pass it to TeamHub and node-services only. Logged without its address.
+  async #systemProxyEnv(): Promise<Record<string, string>> {
+    const startedAt = Date.now();
+    const proxy = await systemProxy(process.env, this.#options.resolveProxy);
+    this.#ctx?.log.info("local_server.system_proxy", {
+      source: proxy.source,
+      ms: Date.now() - startedAt,
+    });
+    return proxy.env;
+  }
+
   // Saves the provider keys with the installer, before it installs; the keys go
   // over stdin, never in arguments or logs.
   async #saveKeys(
@@ -2401,6 +2422,7 @@ export class LocalServerModule implements Module {
     repo: string,
     signal: AbortSignal,
   ): Promise<InstallerApi> {
+    const proxyEnv = await this.#systemProxyEnv();
     const child = spawn(
       node,
       [
@@ -2420,7 +2442,7 @@ export class LocalServerModule implements Module {
         // A detached Windows process otherwise opens its own console window.
         windowsHide: true,
         stdio: ["ignore", "pipe", "pipe"],
-        env: { ...process.env, LINGER_HOME: home },
+        env: { ...process.env, ...proxyEnv, LINGER_HOME: home },
       },
     );
     const log = this.#ctx?.log;
@@ -2430,7 +2452,17 @@ export class LocalServerModule implements Module {
     child.stderr.on("data", (chunk: Buffer) => {
       const text = chunk.toString("utf8");
       reason = text.trim().slice(0, 1500) || reason;
-      log?.warn("local_server.installer_stderr", { line: text.slice(0, 1500) });
+    });
+    // By line, so a timing event split across chunks still parses.
+    createInterface({ input: child.stderr }).on("line", (line) => {
+      if (!line.trim()) return;
+      const event = installerTimingEvent(line);
+      if (event)
+        log?.info("local_server.installer_runtime_timings", { ...event });
+      else
+        log?.warn("local_server.installer_stderr", {
+          line: line.slice(0, 1500),
+        });
     });
     const origin = await new Promise<string>((resolve, reject) => {
       let output = "";
@@ -2803,6 +2835,9 @@ export class LocalServerModule implements Module {
     onStage?: (stage: string) => void,
   ): Promise<{ source?: string; origin?: string }> {
     await this.#adoptSourceKeys(record.home);
+    // Resolved while the Node runtime is checked, so a slow PAC script does
+    // not add to the start.
+    const proxyEnv = this.#systemProxyEnv();
     onStage?.("ensure_node");
     const nodeStartedAt = Date.now();
     const node = await this.#ensureNode(signal);
@@ -2810,6 +2845,11 @@ export class LocalServerModule implements Module {
       stage: "ensure_node",
       ms: Date.now() - nodeStartedAt,
     });
+    const env = {
+      ...process.env,
+      ...(await proxyEnv),
+      LINGER_HOME: record.home,
+    };
     onStage?.("installer_resume");
     const resumeStartedAt = Date.now();
     const outcome = await new Promise<ResumeOutcome>((resolve, reject) => {
@@ -2832,7 +2872,7 @@ export class LocalServerModule implements Module {
           // The pinned Node is a console program; without this Windows
           // opens a console window for it.
           windowsHide: true,
-          env: { ...process.env, LINGER_HOME: record.home },
+          env,
           signal,
         },
       );
@@ -2891,6 +2931,14 @@ export class LocalServerModule implements Module {
       stage: "installer_resume",
       ms: Date.now() - resumeStartedAt,
     });
+    const lookupTimings = runtimeLookupTimingFields(
+      outcome.runtimeLookupTimings,
+    );
+    if (lookupTimings)
+      this.#ctx?.log.info("local_server.installer_runtime_timings", {
+        instance: LOCAL_INSTANCE,
+        ...lookupTimings,
+      });
     if (outcome.code !== 0) {
       const { code, causeCode, reasons } = outcome.details ?? {};
       const action =
@@ -3106,6 +3154,58 @@ interface ResumeOutcome {
     localModelsDegraded?: unknown;
   };
   runtime?: InstanceRuntime;
+  // Resume stderr is not piped (detached services could hold it open), so
+  // the runtime lookup's stage timings ride in the outcome instead.
+  runtimeLookupTimings?: unknown;
+}
+
+interface RuntimeLookupTimingFields {
+  config_ms: number;
+  runtime_ms: number;
+  local_models_ms: number;
+  tool_ms: number;
+  total_ms: number;
+}
+
+// The installer's runtime lookup timings, or undefined unless every stage is
+// a finite number; an older or newer installer must never fail the caller.
+function runtimeLookupTimingFields(
+  value: unknown,
+): RuntimeLookupTimingFields | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const { config, runtime, localModels, tool, total } = value as Record<
+    string,
+    unknown
+  >;
+  const stages = [config, runtime, localModels, tool, total];
+  if (!stages.every((ms) => typeof ms === "number" && Number.isFinite(ms)))
+    return undefined;
+  return {
+    config_ms: config as number,
+    runtime_ms: runtime as number,
+    local_models_ms: localModels as number,
+    tool_ms: tool as number,
+    total_ms: total as number,
+  };
+}
+
+// The installer's `installer.runtime_lookup_timings` stderr event as log
+// fields, keyed on the event name rather than the line's wording.
+function installerTimingEvent(
+  line: string,
+): (RuntimeLookupTimingFields & { instance?: string }) | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(line);
+  } catch {
+    return undefined;
+  }
+  if (!parsed || typeof parsed !== "object") return undefined;
+  const { event, instance, timings } = parsed as Record<string, unknown>;
+  if (event !== "installer.runtime_lookup_timings") return undefined;
+  const fields = runtimeLookupTimingFields(timings);
+  if (!fields) return undefined;
+  return { ...(typeof instance === "string" ? { instance } : {}), ...fields };
 }
 
 function parseResumeOutcomeLine(line: string): ResumeOutcome | undefined {
@@ -3246,6 +3346,8 @@ export const anotherMeMissing = (
 };
 
 interface Job {
+  readonly runtime?: InstanceRuntime;
+  readonly setupChoice?: string;
   readonly id: string;
   readonly instance: string;
   readonly state: string;
@@ -3521,7 +3623,12 @@ export class InstallerApi {
       transfer?: Transfer,
     ) => void,
     fresh = false,
-  ): Promise<{ readonly origin: string; readonly signInRequired: boolean }> {
+  ): Promise<{
+    readonly origin: string;
+    readonly signInRequired: boolean;
+    readonly setupChoice?: string;
+    readonly runtime?: InstanceRuntime;
+  }> {
     const { items } = await this.#json<{ items: Job[] }>("/api/jobs");
     const latest = items
       .filter((item) => item.instance === LOCAL_INSTANCE && !item.preparation)
@@ -3614,8 +3721,15 @@ export class InstallerApi {
           },
         );
       }
-      if (finished(job))
-        return { origin: job.origin!, signInRequired: signInRequired(job) };
+      if (finished(job)) {
+        const live = job === latest ? undefined : job;
+        return {
+          origin: job.origin!,
+          signInRequired: signInRequired(job),
+          setupChoice: live?.runtime?.setupChoice ?? live?.setupChoice,
+          runtime: live?.runtime,
+        };
+      }
       const planId = job.localModelsPlan?.planId;
       if (
         job.state === "waiting_user" &&

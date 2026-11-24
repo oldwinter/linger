@@ -18,6 +18,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/agentconnectedapps"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/collaboration"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/document"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/idempotency"
@@ -458,7 +459,10 @@ func (s *Service) createVoiceLiveRoom(ctx context.Context, session voicelive.Ses
 	}
 	name := strings.Join(strings.Fields(args.Name), " ")
 	description := strings.TrimSpace(args.Description)
-	if name == "" || len(name) > 120 || len(description) > 2000 || len(args.Members) > voicelive.MaxRoomMembers {
+	if name == "" ||
+		utf8.RuneCountInString(name) > roomcreation.MaxNameRunes ||
+		utf8.RuneCountInString(description) > roomcreation.MaxDescriptionRunes ||
+		len(args.Members) > voicelive.MaxRoomMembers {
 		return "", voicelive.ErrInvalid
 	}
 	var members voicelive.MemberMatch
@@ -986,6 +990,22 @@ func (s *Service) voiceLiveCallDocuments(ctx context.Context, session voicelive.
 	return kept, nil
 }
 
+// voiceLiveKnownAddresses reads the user's own addresses and the recipients
+// of the Gmail canvases they sent, from the texts the query found.
+func voiceLiveKnownAddresses(rows []store.ListVoiceLiveKnownAddressesRow) (own, sentTo []string) {
+	var ownTexts, sentFields []string
+	for _, row := range rows {
+		if row.Kind == "own" {
+			ownTexts = append(ownTexts, row.Text)
+			continue
+		}
+		if header, ok := agentconnectedapps.CanvasHeaderFromMarkdown(row.Text); ok && header.Target == "gmail" {
+			sentFields = append(sentFields, header.Fields["to"], header.Fields["cc"])
+		}
+	}
+	return voicelive.KnownAddresses(ownTexts, sentFields)
+}
+
 // LiveContext is what the live voice starts a VoiceSession's foreground
 // with: the Agent's instructions, the conversation so far, and its tools.
 // connectedApps adds the tools that need connected apps.
@@ -1006,6 +1026,11 @@ func (s *Service) LiveContext(ctx context.Context, voiceSessionID string, connec
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return teamhubinternal.VoiceLiveContext{}, fmt.Errorf("read live Voice user memory: %w", err)
 	}
+	known, err := s.queries.ListVoiceLiveKnownAddresses(ctx, store.ListVoiceLiveKnownAddressesParams{ActorID: session.HumanActorID, TenantID: session.TenantID})
+	if err != nil {
+		return teamhubinternal.VoiceLiveContext{}, fmt.Errorf("read live known email addresses: %w", err)
+	}
+	ownAddresses, sentTo := voiceLiveKnownAddresses(known)
 	documents, err := s.voiceLiveCallDocuments(ctx, session)
 	if err != nil {
 		return teamhubinternal.VoiceLiveContext{}, fmt.Errorf("read live call Documents: %w", err)
@@ -1013,7 +1038,7 @@ func (s *Service) LiveContext(ctx context.Context, voiceSessionID string, connec
 	response := teamhubinternal.VoiceLiveContext{
 		RoomId: session.RoomID, AgentName: session.Agent.DisplayName,
 		Instructions: voicelive.Instructions(session.Agent.DisplayName, roomLabel, voicelive.UserMemory{
-			Name: user.DisplayName, Markdown: user.Markdown,
+			Name: user.DisplayName, Markdown: user.Markdown, OwnAddresses: ownAddresses, SentTo: sentTo,
 		}) + voicelive.CallDocumentsNote(documents),
 		History: make([]teamhubinternal.VoiceLiveContextMessage, 0, len(history)),
 		Tools:   make([]teamhubinternal.VoiceLiveTool, 0, len(voicelive.Tools)),

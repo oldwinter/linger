@@ -11,6 +11,7 @@ import {
   type LiveSetup,
   type LiveTool,
 } from "./live-session.js";
+import { providerAgent, type ProviderProxy } from "./provider-proxy.js";
 
 // xAI Grok Voice realtime protocol (OpenAI Realtime style).
 // https://docs.x.ai/developers/model-capabilities/audio/speech-to-speech
@@ -27,6 +28,7 @@ export interface XaiLiveConnection {
   audioTransport?: "binary" | "json";
   handshakeTimeoutMs?: number;
   sessionTimeoutMs?: number;
+  proxy?: ProviderProxy;
 }
 
 /**
@@ -110,7 +112,12 @@ const latestWordsLimit = 160;
  * tool descriptions pulled Chinese replies into English mid-sentence (a Chinese
  * “it is written” followed by “titled …, open beside the chat”). The reminder
  * sits where the reply starts and quotes the user's latest words, so the model
- * sees which language to keep without any language being named here.
+ * sees which language to keep without any language being named here. The
+ * same spot holds the first person: reported from a result alone, finished
+ * work came out as things that happened by themselves (“it is open beside
+ * the chat”). Asked to speak after every result, the voice narrated each step
+ * of a chain instead, reading out folder names and English results, so a
+ * result that leads to another call is answered by that call alone.
  */
 export function withLanguage(output: string, latestWords?: string) {
   const words = latestWords?.trim();
@@ -121,7 +128,7 @@ export function withLanguage(output: string, latestWords?: string) {
       : words;
   return `${output}
 
-Reply in the language of the user's latest words (“${quoted}”), every word except names of people, companies, products and apps, whatever language this result is in.`;
+If this result leads to another tool call for the same request, make that call now without a word, and speak only with the answer. When you speak, reply in the language of the user's latest words (“${quoted}”), every word except names of people, companies, products and apps, whatever language this result is in, and say what you did with I as its subject, the word for I in their language, even where that language usually leaves the subject out.`;
 }
 
 const maximumQueuedEvents = 2_048;
@@ -227,6 +234,14 @@ interface Response {
 export const cutOffNote =
   "The user cut your last reply off before you called any tool: nothing it said you would do (starting a task, sending, opening, changing) has been done. If they still want it, call the tool now.";
 
+/**
+ * Closes the replayed Room history. Grok reads the replay as the same
+ * conversation, so a goodbye that ended the previous call ended this one at
+ * its first words unless the history is marked as before this call.
+ */
+export const newCallNote =
+  "A new voice call starts here. Everything above is earlier Room history from before this call: a goodbye or a call that ended there does not end this call. Answer what the user says from now on.";
+
 export class XaiLiveSession implements LiveSession {
   readonly #audioTransport: "binary" | "json";
   private readonly queue: LiveEvent[] = [];
@@ -307,6 +322,7 @@ export class XaiLiveSession implements LiveSession {
     const socket = new WebSocket(url, {
       headers: { Authorization: `Bearer ${options.apiKey}` },
       handshakeTimeout: options.handshakeTimeoutMs ?? 5_000,
+      agent: providerAgent(url, options.proxy),
     });
     // Fetched in parallel with the handshake; awaited once the socket is open.
     const setup: Promise<LiveSetup> =
@@ -418,7 +434,8 @@ export class XaiLiveSession implements LiveSession {
       },
     });
     await updated;
-    for (const message of historyPairs(options.history))
+    const history = historyPairs(options.history);
+    for (const message of history)
       this.send({
         type: "conversation.item.create",
         item: {
@@ -432,6 +449,7 @@ export class XaiLiveSession implements LiveSession {
           ],
         },
       });
+    if (history.length > 0) this.system(newCallNote);
   }
 
   appendAudio(frame: Int16Array) {

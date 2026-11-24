@@ -204,12 +204,14 @@ func envLookup(environment map[string]string, key string) string {
 
 // localGatewayPiProfile resolves the existing managed gateway-home Pi profile
 // shared by both localmodels tool invocations (when model-source.json exists)
-// and local-mode Runtime discovery. It prefers this home's per-home
-// tools/gateway-home over legacy state/gateway-home, and falls back to a legacy
-// managed gateway-home explicitly named in model-source.json (local mode) or
-// the Daemon's base environment without ever adopting byok-home, personal
-// ~/.pi/agent, or another home's global tools dir.
-func localGatewayPiProfile(base map[string]string, stateDir string, overlay *OverlayState) string {
+// and local-mode Runtime discovery. It keeps the verified legacy profile
+// while library models are loaded on that gateway. Otherwise it prefers
+// tools/gateway-home, then state/gateway-home, then a managed gateway-home
+// named in model-source.json (local mode) or the Daemon's base environment.
+func localGatewayPiProfile(base map[string]string, stateDir string, overlay *OverlayState, legacy *legacyGateway) string {
+	if legacy != nil {
+		return legacy.piProfile
+	}
 	candidates := make([]string, 0, 4)
 	if stateDir != "" {
 		if toolsDir := ToolsDirectory(stateDir); toolsDir != "" {
@@ -294,7 +296,8 @@ func OverlayEnvironment(base map[string]string, stateDir string) map[string]stri
 		}
 	}
 	if overlay.Mode == "local" {
-		if piProfile := localGatewayPiProfile(base, stateDir, overlay); piProfile != "" {
+		legacy := legacyLoadedGateway(stateDir, base, overlay)
+		if piProfile := localGatewayPiProfile(base, stateDir, overlay, legacy); piProfile != "" {
 			result["PI_CODING_AGENT_DIR"] = piProfile
 		}
 	}
@@ -660,7 +663,12 @@ func (m *ModelSource) Apply(ctx context.Context, apply ModelSourceApply) (wire.M
 		if apply.Byok != nil {
 			apiKey = apply.Byok.APIKey
 		}
-		return wire.ModelSourceStatus{}, parseToolFailure(stdout, CodeToolFailed, "Could not switch model source on this Computer.", apiKey)
+		failure := parseToolFailure(stdout, CodeToolFailed, "Could not switch model source on this Computer.", apiKey)
+		var msErr *ModelSourceError
+		if errors.As(failure, &msErr) && (msErr.Code == "GATEWAY_REGISTRATION_FAILED" || msErr.Code == "BYOK_GATEWAY_FAILED") {
+			m.tool.rotateUnownedBifrostAddr()
+		}
+		return wire.ModelSourceStatus{}, failure
 	}
 	status, err := parseSourceStatus(stdout)
 	if err != nil {

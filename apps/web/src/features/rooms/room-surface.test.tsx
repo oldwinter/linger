@@ -1262,6 +1262,31 @@ describe("RoomSurface command availability", () => {
     );
   });
 
+  it("shows a Room Run's status only in the Room composer while a Thread is open", async () => {
+    await renderRoomSurface("room-all", "", surfaceRuntime(), <RoomChat />);
+
+    const message = (await screen.findAllByRole("article")).find((article) =>
+      article.textContent?.includes("Keep the first release focused"),
+    );
+    fireEvent.click(
+      within(message!).getByRole("button", { name: "More message actions" }),
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: "Reply to thread" }));
+    const sidebar = await screen.findByRole("complementary", {
+      name: "Panel sidebar",
+    });
+    await waitFor(() =>
+      expect(within(sidebar).getByLabelText("Reply in Thread")).toBeEnabled(),
+    );
+    const dock = await screen.findByTestId("agent-streaming-status-dock");
+    // room-all has an active Run and the Thread has none: the Thread
+    // composer shows no status, and the Room's is not repeated there.
+    expect(screen.getAllByTestId("agent-streaming-status-dock")).toHaveLength(
+      1,
+    );
+    expect(sidebar).not.toContainElement(dock);
+  });
+
   it("keeps a newly sent structured Mention interactive inside its Thread panel", async () => {
     const runtime = await authenticatedFixtureRuntime();
     const router = await renderRoomSurface(

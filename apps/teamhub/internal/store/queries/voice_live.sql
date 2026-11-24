@@ -186,6 +186,38 @@ LEFT JOIN LATERAL (
 ) memory ON true
 WHERE actor.id=sqlc.arg(actor_id)::text AND actor.tenant_id=sqlc.arg(tenant_id)::text;
 
+-- name: ListVoiceLiveKnownAddresses :many
+-- Where the user's email addresses are written, for the live voice to check a
+-- recipient it heard against: their own (login, connected Gmail, Profile)
+-- first, then the emails they sent from Linger, newest first. The caller
+-- reads the addresses out of each text.
+SELECT known.kind::text AS kind, known.text::text AS text
+FROM (
+  SELECT 0 AS rank, 'own' AS kind, coalesce(account.email,'') AS text, NULL::timestamptz AS at
+  FROM actors actor JOIN accounts account ON account.id=actor.account_id
+  WHERE actor.id=sqlc.arg(actor_id)::text AND actor.tenant_id=sqlc.arg(tenant_id)::text
+  UNION ALL
+  SELECT 0, 'own', coalesce(connection.identity_label,''), NULL
+  FROM actors actor
+  JOIN external_connections connection ON connection.account_id=actor.account_id
+    AND connection.provider='gmail' AND connection.status='active'
+  WHERE actor.id=sqlc.arg(actor_id)::text AND actor.tenant_id=sqlc.arg(tenant_id)::text
+  UNION ALL
+  SELECT 0, 'own', revision.markdown, NULL
+  FROM personal_profile_currents current
+  JOIN personal_profile_revisions revision ON revision.id=current.revision_id
+  WHERE current.owner_actor_id=sqlc.arg(actor_id)::text AND current.tenant_id=sqlc.arg(tenant_id)::text
+  UNION ALL
+  (SELECT 1, 'sent', left(text.markdown, 2000), delivery.updated_at
+  FROM actors actor
+  JOIN mail_canvas_deliveries delivery ON delivery.account_id=actor.account_id AND delivery.status='sent'
+  JOIN document_texts text ON text.document_id=delivery.document_id AND text.tenant_id=sqlc.arg(tenant_id)::text
+  WHERE actor.id=sqlc.arg(actor_id)::text AND actor.tenant_id=sqlc.arg(tenant_id)::text
+  ORDER BY delivery.updated_at DESC
+  LIMIT 20)
+) known
+ORDER BY known.rank, known.at DESC NULLS LAST;
+
 -- name: ListVoiceLiveRoomDocuments :many
 -- Documents and files shared in a Room's Messages, newest first, with their
 -- indexed text. Being shown in the Room is what lets its members read them.

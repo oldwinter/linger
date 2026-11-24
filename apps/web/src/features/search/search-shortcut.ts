@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent } from "react";
+import { useEffect, useEffectEvent, useLayoutEffect } from "react";
 
 export function isMacLikePlatform() {
   if (typeof navigator === "undefined") return false;
@@ -34,7 +34,10 @@ export function useGlobalSearchShortcut(
   const canTrigger = useEffectEvent(
     (event: KeyboardEvent) => options?.canTrigger?.(event) ?? true,
   );
-  useEffect(() => {
+  // A layout effect arms the shortcut in the same commit that paints the
+  // shell; a passive effect can run later, dropping a keystroke pressed as
+  // soon as the shell appears.
+  useLayoutEffect(() => {
     if (!enabled) return;
     function onKeyDown(event: KeyboardEvent) {
       if (event.defaultPrevented) return;

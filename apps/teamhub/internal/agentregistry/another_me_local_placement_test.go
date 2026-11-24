@@ -3,6 +3,7 @@ package agentregistry
 import (
 	"errors"
 	"testing"
+	"time"
 
 	httpapi "github.com/simplexai-labs/linger/contracts-go/teamhubpublic"
 )
@@ -90,5 +91,30 @@ func TestStoredPreferredRuntimeReadsTheMarkedDiagnostic(t *testing.T) {
 		if err != nil || got != test.want {
 			t.Fatalf("preferred=%q err=%v, want %q", got, err, test.want)
 		}
+	}
+}
+
+func TestChooseAnotherMeLocalPlacementUsesProjectedDefaultReasoningEffort(t *testing.T) {
+	now := time.Date(2026, 11, 19, 12, 0, 0, 0, time.UTC)
+	row := storedLocalComputer("online", now)
+	row.RuntimeDiagnostics = []byte(`[
+		{"type":"pi","status":"ready","protocol":"rpc","checked_at":"2026-11-19T00:00:00Z","models":[
+			{"id":"localmodels-library/spark","label":"Spark-X2.6-4B","allowed_reasoning_effort":["none","low","high"]}
+		]}
+	]`)
+	projected, listed, err := projectStoredLocalComputer(row, "tenant_1", now)
+	if err != nil || !listed {
+		t.Fatalf("project computer=%+v listed=%v err=%v", projected, listed, err)
+	}
+	got, err := chooseAnotherMeLocalPlacement([]httpapi.LocalComputer{projected}, "pi")
+	want := anotherMeLocalPlacement{
+		ComputerID:       "computer_1",
+		RuntimeType:      "pi",
+		WorkspaceGrantID: "grant_b",
+		Model:            "localmodels-library/spark",
+		ReasoningEffort:  "low",
+	}
+	if err != nil || got != want {
+		t.Fatalf("placement=%+v err=%v, want %+v", got, err, want)
 	}
 }

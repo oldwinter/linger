@@ -855,6 +855,69 @@ func (q *Queries) ListVoiceLiveHandoverTasks(ctx context.Context, arg ListVoiceL
 	return items, nil
 }
 
+const listVoiceLiveKnownAddresses = `-- name: ListVoiceLiveKnownAddresses :many
+SELECT known.kind::text AS kind, known.text::text AS text
+FROM (
+  SELECT 0 AS rank, 'own' AS kind, coalesce(account.email,'') AS text, NULL::timestamptz AS at
+  FROM actors actor JOIN accounts account ON account.id=actor.account_id
+  WHERE actor.id=$1::text AND actor.tenant_id=$2::text
+  UNION ALL
+  SELECT 0, 'own', coalesce(connection.identity_label,''), NULL
+  FROM actors actor
+  JOIN external_connections connection ON connection.account_id=actor.account_id
+    AND connection.provider='gmail' AND connection.status='active'
+  WHERE actor.id=$1::text AND actor.tenant_id=$2::text
+  UNION ALL
+  SELECT 0, 'own', revision.markdown, NULL
+  FROM personal_profile_currents current
+  JOIN personal_profile_revisions revision ON revision.id=current.revision_id
+  WHERE current.owner_actor_id=$1::text AND current.tenant_id=$2::text
+  UNION ALL
+  (SELECT 1, 'sent', left(text.markdown, 2000), delivery.updated_at
+  FROM actors actor
+  JOIN mail_canvas_deliveries delivery ON delivery.account_id=actor.account_id AND delivery.status='sent'
+  JOIN document_texts text ON text.document_id=delivery.document_id AND text.tenant_id=$2::text
+  WHERE actor.id=$1::text AND actor.tenant_id=$2::text
+  ORDER BY delivery.updated_at DESC
+  LIMIT 20)
+) known
+ORDER BY known.rank, known.at DESC NULLS LAST
+`
+
+type ListVoiceLiveKnownAddressesParams struct {
+	ActorID  string `json:"actor_id"`
+	TenantID string `json:"tenant_id"`
+}
+
+type ListVoiceLiveKnownAddressesRow struct {
+	Kind string `json:"kind"`
+	Text string `json:"text"`
+}
+
+// Where the user's email addresses are written, for the live voice to check a
+// recipient it heard against: their own (login, connected Gmail, Profile)
+// first, then the emails they sent from Linger, newest first. The caller
+// reads the addresses out of each text.
+func (q *Queries) ListVoiceLiveKnownAddresses(ctx context.Context, arg ListVoiceLiveKnownAddressesParams) ([]ListVoiceLiveKnownAddressesRow, error) {
+	rows, err := q.db.Query(ctx, listVoiceLiveKnownAddresses, arg.ActorID, arg.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListVoiceLiveKnownAddressesRow{}
+	for rows.Next() {
+		var i ListVoiceLiveKnownAddressesRow
+		if err := rows.Scan(&i.Kind, &i.Text); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listVoiceLiveRecentToolCalls = `-- name: ListVoiceLiveRecentToolCalls :many
 SELECT name, arguments, output FROM voice_live_tool_calls
 WHERE voice_session_id=$1::text

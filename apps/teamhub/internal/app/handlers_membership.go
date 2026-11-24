@@ -3,7 +3,6 @@ package app
 import (
 	"errors"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -85,8 +84,7 @@ func (a *App) deleteRoomMember(c *gin.Context) {
 func (a *App) updateRoom(c *gin.Context) {
 	var request httpapi.RoomUpdateRequest
 	if decodeJSON(c, &request) != nil || (request.Name == nil && request.Description == nil) ||
-		(request.Name != nil && (strings.TrimSpace(*request.Name) == "" || len(*request.Name) > 120)) ||
-		(request.Description != nil && len(*request.Description) > 2000) {
+		!validRoomText(request.Name, request.Description) {
 		a.writeError(c, http.StatusBadRequest, "INVALID_REQUEST", "room name and description are invalid")
 		return
 	}

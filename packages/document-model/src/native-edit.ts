@@ -1,5 +1,6 @@
 import { BlockNoteEditor } from "@blocknote/core";
 import * as Y from "yjs";
+import { characterCount } from "./semantic.js";
 import type {
   RoomDocumentSemanticBlock,
   RoomDocumentSemanticOperation,
@@ -96,8 +97,8 @@ export function validateNativeDocumentEdit(edit: NativeDocumentEdit): void {
   if (
     edit.command === "set_title" &&
     (typeof edit.title !== "string" ||
-      edit.title.length < 1 ||
-      edit.title.length > 255)
+      characterCount(edit.title) < 1 ||
+      characterCount(edit.title) > 255)
   )
     throw invalid();
   if (

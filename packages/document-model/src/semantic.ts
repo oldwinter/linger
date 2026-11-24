@@ -396,8 +396,8 @@ function applyCommentTextReplacement(
   if (
     operation.threadId.length < 1 ||
     operation.threadId.length > 255 ||
-    operation.replacement.length < 1 ||
-    operation.replacement.length > 50_000
+    characterCount(operation.replacement) < 1 ||
+    characterCount(operation.replacement) > 50_000
   ) {
     throw invalidSemantic("Comment text replacement is invalid");
   }
@@ -616,7 +616,9 @@ function validateInput(input: {
 }
 
 function validateTitle(title: string): void {
-  if (title.length < 1 || title.length > 255) {
+  // The bound is in characters, so 255 astral characters are 255, not 510
+  // UTF-16 units.
+  if (characterCount(title) < 1 || characterCount(title) > 255) {
     throw invalidSemantic(
       "Native Document title must contain between 1 and 255 characters",
     );
@@ -633,6 +635,14 @@ function stableClientID(mutationID: string): number {
 
 function conflict(reason: Conflict["reason"]): Conflict {
   return { status: "conflicted", reason };
+}
+
+/** Counts Unicode characters, the unit the contract's maxLength states, so a
+ * replacement of 50 000 emoji is not cut at 25 000 UTF-16 units. */
+export function characterCount(value: string): number {
+  let count = 0;
+  for (const _ of value) count += 1;
+  return count;
 }
 
 function invalidSemantic(message: string): RoomDocumentModelError {

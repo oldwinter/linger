@@ -197,7 +197,7 @@ func (s *Service) startVoiceLiveTask(ctx context.Context, session voicelive.Sess
 		RoomID: session.RoomID, OwnerActorID: session.HumanActorID, Goal: goal,
 		Since: pgtype.Timestamptz{Time: time.Now().Add(-voicelive.RepeatedTaskWithin), Valid: true},
 	}); err == nil {
-		return voicelive.Output(map[string]string{"status": "started", "task_id": voicelive.TaskID(ordinal)}), nil
+		return voicelive.Output(map[string]string{"status": "started", "task_id": voicelive.TaskID(ordinal), "next": voicelive.StartedNext}), nil
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return "", err
 	}
@@ -268,7 +268,7 @@ func (s *Service) startVoiceLiveTask(ctx context.Context, session voicelive.Sess
 		return "", err
 	}
 	// Task creation publishes its wake transactionally.
-	return voicelive.Output(map[string]string{"status": "started", "task_id": voicelive.TaskID(ordinal)}), nil
+	return voicelive.Output(map[string]string{"status": "started", "task_id": voicelive.TaskID(ordinal), "next": voicelive.StartedNext}), nil
 }
 
 // replyToVoiceLiveTask gives the user's answer or change to the task's own

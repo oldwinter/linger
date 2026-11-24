@@ -21,6 +21,7 @@ import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type {
   TeamHubActor,
   TeamHubActorRef,
+  TeamHubTenantAgentAvailabilitySnapshot,
 } from "@/features/teamhub/teamhub-types";
 import { commonMessages } from "@/i18n/common.messages";
 import type { Message } from "@/i18n/messages";
@@ -44,6 +45,8 @@ import { roomMembersMarkdown } from "./room-members-markdown";
 
 /** Long enough to read, matching the other copy actions. */
 const MEMBERS_COPIED_MS = 1200;
+
+type AgentAvailability = TeamHubTenantAgentAvailabilitySnapshot["availability"];
 
 /** The roles TeamHub names today; any other value is shown as it was sent. */
 const ROLE_LABELS: Record<string, Message<string> | undefined> = {
@@ -153,14 +156,12 @@ export function RoomMembersSection({
     );
     const availableAgents = eligibleRoomAgents({
       agents: agentDirectory.data?.items ?? [],
-      availabilitySnapshots: agentAvailability.data?.items ?? [],
       roomMemberIds: memberIds,
       sponsorActorId: currentActorId,
     });
     return [...availableHumans, ...availableAgents];
   }, [
     actors.items,
-    agentAvailability.data?.items,
     agentDirectory.data?.items,
     currentActorId,
     membersResult.data?.items,
@@ -372,13 +373,10 @@ export function RoomMembersSection({
 
       {addOpen ? (
         <AddMemberDialog
-          agentDirectoryError={
-            agentDirectory.isError || agentAvailability.isError
-          }
-          agentDirectoryLoading={
-            agentDirectory.isPending || agentAvailability.isPending
-          }
+          agentDirectoryError={agentDirectory.isError}
+          agentDirectoryLoading={agentDirectory.isPending}
           actors={availableActors}
+          availabilityByActorId={availabilityByActorId}
           sponsoredAgentIds={sponsoredAgentIds}
           error={putMember.error?.message}
           isPending={putMember.isPending}
@@ -389,12 +387,7 @@ export function RoomMembersSection({
             putMember.reset();
             setAddOpen(false);
           }}
-          onRetryAgentDirectory={() =>
-            void Promise.all([
-              agentDirectory.refetch(),
-              agentAvailability.refetch(),
-            ])
-          }
+          onRetryAgentDirectory={() => void agentDirectory.refetch()}
         />
       ) : null}
       {removeTarget ? (
@@ -463,6 +456,7 @@ function AddMemberDialog({
   agentDirectoryError,
   agentDirectoryLoading,
   actors,
+  availabilityByActorId,
   error,
   isPending,
   onAdd,
@@ -473,6 +467,7 @@ function AddMemberDialog({
   agentDirectoryError: boolean;
   agentDirectoryLoading: boolean;
   actors: TeamHubActor[];
+  availabilityByActorId: ReadonlyMap<string, AgentAvailability>;
   error?: string;
   isPending: boolean;
   onAdd: (actor: TeamHubActor) => void;
@@ -533,14 +528,25 @@ function AddMemberDialog({
                 <span className="block truncate text-sm font-medium">
                   {actor.display_name}
                 </span>
-                <span className="block truncate text-xs text-muted-foreground">
-                  {t(
-                    sponsoredAgentIds.has(actor.id)
-                      ? m.yours
-                      : actor.kind === "agent"
-                        ? agentInfoMessages.agent
-                        : agentInfoMessages.human,
-                  )}
+                <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+                  <span className="truncate">
+                    {t(
+                      actor.kind === "human"
+                        ? agentInfoMessages.human
+                        : sponsoredAgentIds.has(actor.id)
+                          ? m.yours
+                          : agentInfoMessages.agent,
+                    )}
+                  </span>
+                  {availabilityByActorId.has(actor.id) ? (
+                    <>
+                      <span aria-hidden>·</span>
+                      <AgentStatus
+                        availability={availabilityByActorId.get(actor.id)!}
+                        showDetails
+                      />
+                    </>
+                  ) : null}
                 </span>
               </span>
               <Icon

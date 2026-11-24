@@ -4,7 +4,10 @@ import { translate } from "@/i18n/language";
 
 import {
   actionErrorCopy,
+  concurrencyCopy,
   debugBannerCopy,
+  engineBadgeCopy,
+  engineHintCopy,
   hostBlockerCopy,
   modelErrorCopy,
   modelErrorShortCopy,
@@ -35,6 +38,7 @@ import {
   placeName,
   poolLabel,
   poolOtherBytes,
+  poolUnaccountedBytes,
   safeModelSourceUrl,
   speedLabel,
   usedByBadge,
@@ -138,6 +142,7 @@ describe("local models rules", () => {
       componentBytes: gb(1.5),
       models: [{ bytes: gb(16), id: "shared:Q4", name: "Shared Model" }],
       otherBytes: gb(4),
+      unaccountedBytes: 0,
     });
 
     expect(memorySegments(macView())).toEqual({
@@ -146,7 +151,85 @@ describe("local models rules", () => {
         { bytes: gb(14.3), id: "gpt-oss-20b:Q4_K_M", name: "GPT-OSS 20B" },
       ],
       otherBytes: 0,
+      unaccountedBytes: 0,
     });
+  });
+
+  it("attributes other apps memory only to external holders and separates unaccounted overhead", () => {
+    // 16 GB card with 7.5 GB model, 15 GB total used.
+    // external_holders has desktop apps using 0.2 GB.
+    const poolWithHolders = {
+      ...gpuPool(0, 16, [
+        { gb: 7.5, id: "inkling-2-mini", name: "Inkling 2 Mini" },
+      ]),
+      external_holders: [{ bytes: gb(0.2), name: "browser" }],
+      used_bytes: gb(15),
+    };
+
+    // Residual is 15 - 7.5 = 7.5 GB.
+    // Other apps should only be the 0.2 GB from external_holders.
+    expect(poolOtherBytes(poolWithHolders)).toBe(gb(0.2));
+    // Remaining 7.3 GB is unaccounted (system/engine overhead).
+    expect(poolUnaccountedBytes(poolWithHolders)).toBe(gb(7.3));
+
+    // When external_holders is empty list (no closeable apps found)
+    const poolNoExternalApps = {
+      ...gpuPool(0, 16, [
+        { gb: 7.5, id: "inkling-2-mini", name: "Inkling 2 Mini" },
+      ]),
+      external_holders: [],
+      used_bytes: gb(15),
+    };
+    expect(poolOtherBytes(poolNoExternalApps)).toBe(0);
+    expect(poolUnaccountedBytes(poolNoExternalApps)).toBe(gb(7.5));
+
+    // When external_holders is undefined (legacy daemon/localmodels)
+    const legacyPool = {
+      ...gpuPool(0, 16, [
+        { gb: 7.5, id: "inkling-2-mini", name: "Inkling 2 Mini" },
+      ]),
+      used_bytes: gb(15),
+    };
+    expect(poolOtherBytes(legacyPool)).toBe(gb(7.5));
+    expect(poolUnaccountedBytes(legacyPool)).toBe(0);
+
+    // If external_holders report more bytes than the residual, cap to residual
+    const cappedPool = {
+      ...gpuPool(0, 16, [
+        { gb: 7.5, id: "inkling-2-mini", name: "Inkling 2 Mini" },
+      ]),
+      external_holders: [{ bytes: gb(10), name: "game" }],
+      used_bytes: gb(15),
+    };
+    expect(poolOtherBytes(cappedPool)).toBe(gb(7.5));
+    expect(poolUnaccountedBytes(cappedPool)).toBe(0);
+  });
+
+  it("does not trigger close-apps memory guidance when residual is system/engine overhead", () => {
+    // 16 GB card with 7.5 GB loaded model, 15 GB used (only 1 GB free).
+    // external_holders is empty. A 4 GB model cannot fit, but closing apps won't help.
+    const poolNoOtherApps = {
+      ...gpuPool(0, 16, [
+        { gb: 7.5, id: "inkling-2-mini", name: "Inkling 2 Mini" },
+      ]),
+      external_holders: [],
+      used_bytes: gb(15),
+    };
+    const view = labView({
+      models: [
+        modelView(
+          localModel({
+            id: "medium:Q4",
+            memory_bytes: gb(4),
+            name: "Medium",
+            pool: "gpu:0",
+          }),
+        ),
+      ],
+      pools: [poolNoOtherApps],
+    });
+    // memoryGuidance should be null because otherBytes is 0.
+    expect(memoryGuidance(view)).toBeNull();
   });
 
   it("detects external app memory and surfaces cleanup guidance when it blocks models", () => {
@@ -1103,6 +1186,62 @@ describe("hostBlocker, RAM reclaimability, and diagnostics copy", () => {
     );
     expect(modelErrorCopy({ code: "UNKNOWN_ERROR" }, translate)).toContain(
       "Something went wrong",
+    );
+  });
+
+  it("formats structured engine badges, hints, concurrency, and PolyStrata spotlight preference", () => {
+    expect(engineBadgeCopy("polystrata")).toBe("PolyStrata");
+    expect(engineBadgeCopy("llama.cpp")).toBe("llama.cpp");
+    expect(engineBadgeCopy("strata")).toBe("Strata");
+    expect(engineBadgeCopy(undefined)).toBeUndefined();
+
+    expect(engineHintCopy("polystrata", "gpu", translate)).toBe(
+      "Hybrid GPU + RAM expert offload",
+    );
+    expect(engineHintCopy("strata", "gpu", translate)).toBe(
+      "Hybrid GPU + RAM expert scheduling",
+    );
+    expect(engineHintCopy("llama.cpp", "gpu", translate)).toBe(
+      "All-in-VRAM native engine",
+    );
+    expect(engineHintCopy("llama.cpp", "unified", translate)).toBe(
+      "Unified memory native engine",
+    );
+    expect(engineHintCopy("llama.cpp", "system", translate)).toBe(
+      "System memory native engine",
+    );
+    expect(engineHintCopy("llama.cpp", "none", translate)).toBeUndefined();
+    expect(engineHintCopy(undefined, "gpu", translate)).toBeUndefined();
+
+    expect(concurrencyCopy(1, translate)).toBe("1 request at a time");
+    expect(concurrencyCopy(2, translate)).toBe("2 concurrent requests");
+    expect(concurrencyCopy(0, translate)).toBeUndefined();
+    expect(concurrencyCopy(undefined, translate)).toBeUndefined();
+
+    const polyEntry = {
+      ...modelView(
+        localModel({
+          engine: "polystrata",
+          id: "inkling-2-mini-q4-poly:UD-Q4_K_XL",
+          name: "Inkling 2 Mini (UD-Q4_K_XL)",
+          quant: "UD-Q4_K_XL",
+        }),
+      ),
+      status: "available" as const,
+    };
+    const llamaEntry = {
+      ...modelView(
+        localModel({
+          engine: "llama.cpp",
+          id: "inkling-2-mini:UD-Q4_K_M",
+          name: "Inkling 2 Mini (UD-Q4_K_M)",
+          quant: "UD-Q4_K_M",
+        }),
+      ),
+      status: "available" as const,
+    };
+    expect(featuredInklingEntry([llamaEntry, polyEntry])?.model.id).toBe(
+      "inkling-2-mini-q4-poly:UD-Q4_K_XL",
     );
   });
 });

@@ -15,10 +15,6 @@ import type { MessageDocumentOption } from "./message-composer-references";
 import { RoomChatComposerNotices } from "./room-chat-composer-notices";
 import { BackgroundTasksIndicator } from "./background-tasks-indicator";
 import {
-  SharedStreamingStatus,
-  useSharedStreamingStatusActive,
-} from "./shared-streaming-status";
-import {
   AgentStreamingStatusDock,
   hasAgentStreamingDockEntries,
 } from "./message-timeline";
@@ -90,9 +86,7 @@ export function RoomChatComposerSection({
   );
   const backgroundTasks = useRoomBackgroundTasks({ client, roomId, tenantId });
   const hasChatDock = useMemo(() => hasAgentStreamingDockEntries(dock), [dock]);
-  const sharedDockActive = useSharedStreamingStatusActive();
-  const peekSuppressed =
-    hasChatDock || sharedDockActive || backgroundTasks.length > 0;
+  const peekSuppressed = hasChatDock || backgroundTasks.length > 0;
   return room.participation === "left" ? (
     <RoomRejoinBanner room={room} />
   ) : (
@@ -121,9 +115,7 @@ export function RoomChatComposerSection({
         roomId={roomId}
         tenantId={tenantId}
       />
-      <SharedStreamingStatus active={hasChatDock} surface="chat">
-        <AgentStreamingStatusDock {...dock} />
-      </SharedStreamingStatus>
+      <AgentStreamingStatusDock {...dock} />
       <RoomMessageComposer
         agentPeek={{
           busyAgentIds: agentStreaming.runStatuses.flatMap((runStatus) =>

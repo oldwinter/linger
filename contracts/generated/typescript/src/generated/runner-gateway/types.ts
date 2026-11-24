@@ -36,7 +36,10 @@ export type ServiceFeature =
   | "local_models"
   | "byok_endpoint"
   | "local_models_diagnostics"
-  | "model_invoke_outcomes";
+  | "model_invoke_outcomes"
+  | "local_models_engine"
+  | "local_model_unavailable"
+  | "local_models_external_holders";
 export type JsonValue =
   | null
   | boolean
@@ -1150,7 +1153,7 @@ export interface ComputerToolCall {
   owner_actor_id: Id;
   agent_id: Id;
   tool_session_id: Id;
-  server: "browser" | "playground" | "herdr";
+  server: "browser" | "playground" | "herdr" | "feishu_mail";
   tool_name: string;
   arguments: OpaqueObject;
   deadline_ms: number;
@@ -1408,6 +1411,13 @@ export interface LocalModelPool {
    * @maxItems 256
    */
   holders: LocalModelPoolHolder[];
+  /**
+   * Closeable desktop applications holding this pool's memory, as localmodels reports them. [] means localmodels looked and found none; an absent field means not reported. Sent only when service_features declares local_models_external_holders.
+   *
+   * @minItems 0
+   * @maxItems 256
+   */
+  external_holders?: LocalModelPoolExternalHolder[];
 }
 /**
  * Something holding pool memory. A component is a foundation service (embedding, reranker, speech) that is never a model row.
@@ -1415,6 +1425,13 @@ export interface LocalModelPool {
 export interface LocalModelPoolHolder {
   kind: "model" | "component";
   id: string;
+  name: string;
+  bytes: NonNegativeInteger;
+}
+/**
+ * A desktop application outside localmodels holding pool memory, such as a browser, video player, or game, that the user could close.
+ */
+export interface LocalModelPoolExternalHolder {
   name: string;
   bytes: NonNegativeInteger;
 }
@@ -1489,6 +1506,22 @@ export interface LocalModel {
    * Warm prompt-processing speed in tokens/s measured at the last load; absent when unknown.
    */
   prompt_tokens_per_second?: number;
+  /**
+   * Inference engine family for this model. Sent only when runner.welcome service_features names local_models_engine.
+   */
+  engine?: "llama.cpp" | "polystrata" | "strata";
+  /**
+   * Display-only engine version and backend for this model. Sent only when runner.welcome service_features names local_models_engine.
+   */
+  engine_label?: string;
+  /**
+   * Maximum concurrent request slots for this model when loaded. Sent only when runner.welcome service_features names local_models_engine.
+   */
+  concurrency?: number;
+  /**
+   * Additional host system RAM used alongside GPU VRAM for hybrid offload engines. Sent only when runner.welcome service_features names local_models_engine.
+   */
+  host_ram_bytes?: number;
 }
 export interface LocalModelAvailability {
   downloadable: boolean;
@@ -2266,6 +2299,7 @@ export interface RuntimeExecutionFailure {
     | "network_error"
     | "rate_limited"
     | "model_unavailable"
+    | "local_model_unavailable"
     | "context_too_long"
     | "model_service_error"
     | "timeout"

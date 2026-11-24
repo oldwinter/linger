@@ -102,6 +102,7 @@ import { CanvasMailSentSync } from "./canvas/canvas-mail-send";
 import { CanvasMailSender } from "./canvas/canvas-mail-sender";
 import { documentCommentsMessages } from "./document-comments.messages";
 import { documentEditorMessages as m } from "./document-editor.messages";
+import { isMailCanvasTarget } from "./canvas/canvas-targets";
 
 const ignoreCommentsOpenChange = () => undefined;
 
@@ -542,8 +543,8 @@ export function RoomDocumentBlockNoteEditor({
           editable={editable}
           editor={editor}
           sender={
-            canvasTarget === "gmail" ? (
-              <CanvasMailSender client={client} />
+            isMailCanvasTarget(canvasTarget) ? (
+              <CanvasMailSender client={client} target={canvasTarget} />
             ) : undefined
           }
         />
@@ -637,7 +638,7 @@ export function RoomDocumentBlockNoteEditor({
           {roomDocumentTextCountLabel(textCount)}
         </p>
       ) : null}
-      {canvasTarget === "gmail" ? (
+      {isMailCanvasTarget(canvasTarget) ? (
         <CanvasMailAttachments
           key={`${documentId}:${editable && !canvasSent}`}
           client={client}
@@ -647,7 +648,7 @@ export function RoomDocumentBlockNoteEditor({
           scope={knowledge.scope}
         />
       ) : null}
-      {canvasTarget === "gmail" && canvas ? (
+      {isMailCanvasTarget(canvasTarget) && canvas ? (
         <CanvasMailSentSync
           canvas={canvas}
           client={client}

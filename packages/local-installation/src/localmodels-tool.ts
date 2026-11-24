@@ -1,7 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { lstat, readdir, readFile, rm, chmod } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
+import { sleep } from "@linger/service-kit";
 import { x as extract } from "tar";
 import { downloadInRegion, resolveRegion } from "./region.js";
 import {
@@ -553,14 +555,33 @@ function parseLoopbackBifrostAddress(
   if (!Number.isSafeInteger(port) || port < 1 || port > 65535) return undefined;
   return { addr: `${DEFAULT_BIFROST_HOST}:${port}`, port };
 }
-// owned.json is written by localmodels with the process umask rather than 0600,
-// inside this home's private tools directory.
-async function readOwnedBifrostAddress(
-  toolsDir: string,
-): Promise<LoopbackBifrostAddress | undefined> {
-  const ownedPath = path.join(toolsDir, "owned.json");
+/**
+ * The approved stack plan Quick Install saved for this home. The path is
+ * fixed by the installer, not by localmodels.
+ */
+export function localmodelsPlanFile(home: string): string {
+  return path.join(path.resolve(home), "runtime", "localmodels", "plan.json");
+}
+/**
+ * Records the shared tools directory a home kept from before per-home
+ * isolation; holds that directory's absolute path.
+ */
+export function localmodelsLegacyToolsMarkerFile(home: string): string {
+  return path.join(path.resolve(home), "runtime", "localmodels", "tools-dir");
+}
+/**
+ * localmodels' own default tools directory (its TOOLS_DIR,
+ * ~/.local/share/localmodels/tools on every platform), which every home
+ * shared before Linger gave each home its own.
+ */
+export function legacyLocalmodelsToolsDirectory(): string {
+  return path.join(os.homedir(), ".local", "share", "localmodels", "tools");
+}
+// owned.json and plan.json are written by localmodels with the process umask
+// rather than 0600, so this checks for a regular owned file of bounded size.
+async function readOwnedJson(file: string): Promise<object | undefined> {
   try {
-    const info = await lstat(ownedPath);
+    const info = await lstat(file);
     if (
       !info.isFile() ||
       info.isSymbolicLink() ||
@@ -568,18 +589,103 @@ async function readOwnedBifrostAddress(
       (process.platform !== "win32" && info.uid !== process.getuid?.())
     )
       return undefined;
-    const parsed: unknown = JSON.parse(await readFile(ownedPath, "utf8"));
-    if (!parsed || typeof parsed !== "object") return undefined;
-    const gateway = "gateway" in parsed ? parsed.gateway : undefined;
-    if (!gateway || typeof gateway !== "object") return undefined;
-    const bifrost = "bifrost" in gateway ? gateway.bifrost : undefined;
-    if (!bifrost || typeof bifrost !== "object") return undefined;
-    return parseLoopbackBifrostAddress(
-      "addr" in bifrost ? bifrost.addr : undefined,
-    );
+    const parsed: unknown = JSON.parse(await readFile(file, "utf8"));
+    return parsed && typeof parsed === "object" ? parsed : undefined;
   } catch {
     return undefined;
   }
+}
+function field(value: unknown, key: string): unknown {
+  return value && typeof value === "object" && key in value
+    ? (value as Record<string, unknown>)[key]
+    : undefined;
+}
+interface OwnedBifrostRecord {
+  address?: LoopbackBifrostAddress;
+  appDir?: string;
+}
+async function readOwnedBifrost(toolsDir: string): Promise<OwnedBifrostRecord> {
+  const owned = await readOwnedJson(path.join(toolsDir, "owned.json"));
+  const bifrost = field(field(owned, "gateway"), "bifrost");
+  const appDir = field(bifrost, "app_dir");
+  return {
+    address: parseLoopbackBifrostAddress(field(bifrost, "addr")),
+    appDir:
+      typeof appDir === "string" && path.isAbsolute(appDir)
+        ? path.normalize(appDir)
+        : undefined,
+  };
+}
+async function readOwnedBifrostAddress(
+  toolsDir: string,
+): Promise<LoopbackBifrostAddress | undefined> {
+  return (await readOwnedBifrost(toolsDir)).address;
+}
+// Deployment names of every service a stack plan deploys, as localmodels'
+// stack_verify.parts lists them.
+function planDeploymentNames(plan: unknown): string[] {
+  const parts = [
+    field(plan, "llm"),
+    field(plan, "llm_fast"),
+    field(plan, "decision"),
+    field(plan, "decision_front"),
+    ...(Array.isArray(field(plan, "aux"))
+      ? (field(plan, "aux") as unknown[])
+      : []),
+  ];
+  return parts
+    .map((part) => field(part, "name"))
+    .filter((name): name is string => typeof name === "string" && !!name);
+}
+/**
+ * The shared tools directory this home still runs from, or undefined when it
+ * uses its own. A home whose plan was applied before per-home isolation keeps
+ * its deployments' ownership, Pi profile and Bifrost in localmodels' default
+ * tools directory; running it against an empty per-home directory reads as
+ * "deployments removed" and the plan as changed, so the home stays where its
+ * plan was applied. Only a deployment the shared owned.json places under this
+ * home's models counts, since names repeat across homes. The choice is
+ * recorded once.
+ */
+export async function legacyLocalmodelsTools(
+  home: string,
+): Promise<string | undefined> {
+  const marker = localmodelsLegacyToolsMarkerFile(home);
+  const recorded = (await readPrivate(marker).catch(() => undefined))?.trim();
+  if (recorded && path.isAbsolute(recorded)) return path.normalize(recorded);
+  if (
+    await readOwnedJson(
+      path.join(localmodelsToolsDirectory(home), "owned.json"),
+    )
+  )
+    return undefined;
+  const names = planDeploymentNames(
+    await readOwnedJson(localmodelsPlanFile(home)),
+  );
+  if (!names.length) return undefined;
+  const legacy = legacyLocalmodelsToolsDirectory();
+  const deployments = field(
+    await readOwnedJson(path.join(legacy, "owned.json")),
+    "deployments",
+  );
+  if (!deployments || typeof deployments !== "object") return undefined;
+  // Deployment names are only <model>-<port>, so another home may own the
+  // same name; only a deployment living under this home's models counts.
+  const base = localmodelsBaseDirectory(home);
+  const ownsHere = (name: string) => {
+    const entry = field(deployments, name);
+    const deployDir = field(entry, "deploy_dir");
+    if (field(entry, "removed") === true || typeof deployDir !== "string")
+      return false;
+    const relative = path.relative(base, deployDir);
+    return (
+      !!relative && !relative.startsWith("..") && !path.isAbsolute(relative)
+    );
+  };
+  if (!names.some(ownsHere)) return undefined;
+  await privateDirectory(path.dirname(marker));
+  await atomicPrivate(marker, `${legacy}\n`);
+  return legacy;
 }
 async function readSavedBifrostAddress(
   addrFile: string,
@@ -633,8 +739,13 @@ export async function resolveLocalmodelsBifrostAddr(
   const allocate = options.allocate ?? true;
   const toolsDir = localmodelsToolsDirectory(home);
   const addrFile = localmodelsBifrostAddrFile(home);
-  const checkFree = dependencies.portFree ?? ((port: number) => portFree(port));
-  const pickFree = dependencies.freePort ?? freePort;
+  const checkFree =
+    dependencies.portFree ??
+    ((port: number) => portFree(port, "tcp", { allInterfaces: true }));
+  const pickFree =
+    dependencies.freePort ??
+    ((reserved: Set<number>, opts?: { preferred?: number }) =>
+      freePort(reserved, { ...opts, allInterfaces: true }));
   const resolveOnce = async (): Promise<string> => {
     const owned = await readOwnedBifrostAddress(toolsDir);
     if (owned) return owned.addr;
@@ -713,6 +824,43 @@ function downloadStageMessage(
   return undefined;
 }
 
+// LOCALMODELS_* paths and Bifrost address for one call. A legacy home gets
+// its shared tools directory and only the Bifrost directory and address that
+// directory's owned.json records, so localmodels falls back to its own
+// defaults for the rest exactly as it did when the plan was applied.
+async function localmodelsIsolation(
+  home: string,
+  args: readonly string[],
+  control: RunCommandControl,
+): Promise<NodeJS.ProcessEnv> {
+  const legacy = await legacyLocalmodelsTools(home);
+  if (legacy) {
+    const owned = await readOwnedBifrost(legacy);
+    return {
+      LOCALMODELS_TOOLS_DIR: legacy,
+      ...(owned.appDir ? { LOCALMODELS_BIFROST_DIR: owned.appDir } : {}),
+      ...(owned.address
+        ? { LOCALMODELS_BIFROST_ADDR: owned.address.addr }
+        : {}),
+    };
+  }
+  const tools = localmodelsToolsDirectory(home);
+  const bifrost = localmodelsBifrostDirectory(home);
+  await privateDirectory(tools);
+  await privateDirectory(bifrost);
+  return {
+    LOCALMODELS_TOOLS_DIR: tools,
+    LOCALMODELS_BIFROST_DIR: bifrost,
+    LOCALMODELS_BIFROST_ADDR: await resolveLocalmodelsBifrostAddr(
+      home,
+      {
+        allocate: control.allocateBifrostAddr ?? !isReadOnlyOrStopCommand(args),
+      },
+      control,
+    ),
+  };
+}
+
 async function runLocalmodelsCommand(
   home: string,
   args: string[],
@@ -726,27 +874,15 @@ async function runLocalmodelsCommand(
   if (!tool) throw new Error("The installed localmodels tool kit is missing.");
   const checkedAt = Date.now();
   const state = localmodelsStateDirectory(home);
-  const tools = localmodelsToolsDirectory(home);
-  const bifrost = localmodelsBifrostDirectory(home);
   await privateDirectory(state);
-  await privateDirectory(tools);
-  await privateDirectory(bifrost);
-  const allocateBifrostAddr =
-    control.allocateBifrostAddr ?? !isReadOnlyOrStopCommand(args);
-  const bifrostAddr = await resolveLocalmodelsBifrostAddr(
-    home,
-    { allocate: allocateBifrostAddr },
-    control,
-  );
+  const isolation = await localmodelsIsolation(home, args, control);
   const env: NodeJS.ProcessEnv = {
     ...stripInheritedEnvironment({ ...process.env, ...options.env }),
     // localmodels downloads from the same region and does not probe again.
     SIMPLEX_REGION: await resolveRegion(home, { signal: options.signal }),
     PYTHONPATH: tool.moduleDir,
     LOCALMODELS_STATE: state,
-    LOCALMODELS_TOOLS_DIR: tools,
-    LOCALMODELS_BIFROST_DIR: bifrost,
-    LOCALMODELS_BIFROST_ADDR: bifrostAddr,
+    ...isolation,
     PYTHONNOUSERSITE: "1",
     PYTHONDONTWRITEBYTECODE: "1",
     // Force UTF-8 mode so Python reads and writes UTF-8 state files and stdio
@@ -863,10 +999,17 @@ async function runLocalmodelsCommand(
   });
   return result;
 }
+// How often and how long a quit-time stop reads the library after
+// cancelling loads, until none is loading.
+const CANCEL_POLL_MS = 500;
+const CANCEL_WAIT_MS = 10_000;
 /**
  * Stops what the pinned kit runs for a home, through that kit: first every
- * model the model library loaded (`library unload`), whose engines `stack
- * down` leaves running, then, unless `keepController`, the model controller
+ * load the model library is running (`library cancel`), reading the library
+ * every 500 ms for up to 10 s until none is loading, then every model the
+ * last read shows loaded (`library unload`), whose engines `stack down`
+ * leaves running, so a load that finished before its cancel is unloaded. A
+ * model still loading after the wait is a stop failure. Then, unless `keepController`, the model controller
  * under <home>/runtime/model-services, and last the stack's processes and
  * the gateway the tool started (`stack down`), the library's Bifrost
  * included. An uninstall or an install over this release stops all of it; a
@@ -887,6 +1030,8 @@ export async function stopLocalmodels(
     run?: typeof runLocalmodels;
     runProcess?: typeof runProcess;
     installed?: (home: string) => Promise<boolean>;
+    cancelPollMs?: number;
+    cancelWaitMs?: number;
   } = {},
 ): Promise<void> {
   let installed: boolean;
@@ -916,7 +1061,11 @@ export async function stopLocalmodels(
       ));
   const base = localmodelsBaseDirectory(home);
   const failed: string[] = [];
-  const step = async (args: string[], name = args.slice(0, 2).join(" ")) => {
+  const step = async (
+    args: string[],
+    name = args.slice(0, 2).join(" "),
+    report = true,
+  ) => {
     options.signal.throwIfAborted();
     options.log?.(`Stopping the local models (localmodels ${name}).`);
     const result = await run(home, args, {
@@ -932,7 +1081,7 @@ export async function stopLocalmodels(
         stderr: "",
       };
     });
-    if (result.code !== 0)
+    if (report && result.code !== 0)
       failed.push(`localmodels ${name}: ${stopFailure(result)}`);
     return result;
   };
@@ -943,14 +1092,61 @@ export async function stopLocalmodels(
     base,
     "--json",
   ]);
-  if (status.code === 0) {
-    const loaded = loadedLibraryModels(status.stdout);
-    if (!loaded) failed.push("localmodels library status: no model list");
-    for (const model of loaded ?? [])
+  const unloadAll = async (models: string[]) => {
+    for (const model of models)
       await step(
         ["library", "unload", model, "--base-dir", base, "--json"],
         `library unload ${model}`,
       );
+  };
+  if (status.code === 0) {
+    let last = status.stdout;
+    const loading = libraryModelsIn(last, "loading");
+    if (!libraryModelsIn(last, "loaded") || !loading)
+      failed.push("localmodels library status: no model list");
+    // A load left running would make its model resident after the app is
+    // gone. A cancel that fails because the load just finished is not a
+    // failure: that model is unloaded below.
+    const cancelFailures = new Map<string, string>();
+    for (const model of loading ?? []) {
+      const name = `library cancel ${model}`;
+      const result = await step(
+        ["library", "cancel", model, "--base-dir", base, "--json"],
+        name,
+        false,
+      );
+      if (result.code !== 0)
+        cancelFailures.set(
+          model,
+          `localmodels ${name}: ${stopFailure(result)}`,
+        );
+    }
+    if (loading?.length) {
+      // A cancelled load leaves loading only once its engine stopped.
+      const deadline =
+        Date.now() + (dependencies.cancelWaitMs ?? CANCEL_WAIT_MS);
+      for (;;) {
+        const again = await step(
+          ["library", "status", "--base-dir", base, "--json"],
+          "library status",
+          false,
+        );
+        if (again.code === 0 && libraryModelsIn(again.stdout, "loading"))
+          last = again.stdout;
+        if (!libraryModelsIn(last, "loading")?.length || Date.now() >= deadline)
+          break;
+        await sleep(
+          dependencies.cancelPollMs ?? CANCEL_POLL_MS,
+          options.signal,
+        );
+      }
+      for (const model of libraryModelsIn(last, "loading") ?? [])
+        failed.push(
+          cancelFailures.get(model) ??
+            `localmodels library cancel ${model}: still loading`,
+        );
+    }
+    await unloadAll(libraryModelsIn(last, "loaded") ?? []);
   }
   if (!options.keepController)
     await step([
@@ -963,14 +1159,17 @@ export async function stopLocalmodels(
   await step(["stack", "down", "--json"]);
   if (failed.length) throw new Error(failed.join("; "));
 }
-// The ids of the models `library status` reports loaded, or undefined when
-// its output is not a status report.
-function loadedLibraryModels(stdout: string): string[] | undefined {
+// The ids of the models `library status` reports in state, or undefined
+// when its output is not a status report.
+function libraryModelsIn(
+  stdout: string,
+  state: "loaded" | "loading",
+): string[] | undefined {
   try {
     const models = (JSON.parse(stdout) as { models?: unknown }).models;
     if (!Array.isArray(models)) return undefined;
     return models.flatMap((model: { id?: unknown; state?: unknown }) =>
-      model?.state === "loaded" &&
+      model?.state === state &&
       typeof model.id === "string" &&
       /^[a-z0-9][a-z0-9._-]*:[A-Za-z0-9._-]+$/.test(model.id)
         ? [model.id]

@@ -48,12 +48,30 @@ Gateway and runs Agents. The daemon exits with the app.
   The callback restores the originating window and forwards the return to its
   signed-in SPA, which requests TeamHub verification.
 
-- The Web link preview panel frames other sites. The window drops their
-  framing refusals (`X-Frame-Options`, CSP `frame-ancestors`) for frames of
-  the app, except the panel's frame, named `linger-url-preview:<id>`. When
-  that frame's final response refuses framing, the window sends
-  `preview.frame-refused`, and the panel offers the system browser instead,
-  where the user's sign-ins work.
+- The Web link preview panel shows other sites in native views
+  (`src/main/preview-views.ts`, `preview.view` in the preload API). Each is a
+  `WebContentsView` the page asks for by id (at most eight) and lays over its
+  panel; a top-level page ignores framing rules (`X-Frame-Options`, CSP
+  `frame-ancestors`), so every site shows. Previews share the persistent
+  `persist:linger-preview` session, apart from the app's session with the
+  Linger server: sign-ins made there last across restarts, and sites get no
+  permissions beyond clipboard writes. They keep Electron's user agent, so
+  sites that refuse embedded browsers, such as Google sign-in, need the
+  system browser. Only the Linger page's main frame may drive the views. It
+  learns each view's address and history after every navigation, never its
+  content. A view loads only http and https; links asking for a new tab load
+  in place, and only script popups (sign-in windows) open a window: at most
+  two per view, titled with their site and closed with the view. A crashed
+  view reloads once. While a layer of the page (a portal beside the app
+  root, an open dialog or popover, or an element hit-tested over the panel)
+  covers the panel, or the panel is inert or being resized, the page hides
+  the view and the panel shows empty. The window closes every view when its
+  page navigates, crashes or its window closes.
+- Web builds without native previews still frame sites. The window drops
+  framing refusals for frames of the app, except the panel's frame, named
+  `linger-url-preview:<id>`. When that frame's final response refuses
+  framing, the window sends `preview.frame-refused`, and the panel offers
+  the system browser instead.
 
 - `src/main/modules.ts`: `Module` interface, typed bus and the host that starts
   modules in dependency layers and stops them in reverse.
@@ -104,8 +122,11 @@ Gateway and runs Agents. The daemon exits with the app.
   which lists `base + path + /models` and sends one request to
   `base + path + endpoint` in the format the page derived from that address.
   Then it saves the installed runtime's executable and profile paths
-  (`GET /api/instances/desktop/runtime`) as `runtimeEnvironment` in the
-  Desktop config, and the runtime its `setupChoice` runs (`local-models` runs
+  from the live completed job as `runtimeEnvironment` in the
+  Desktop config. After sign-in, when reusing a completed job, or when the installer
+  omits the runtime, it reads `GET /api/instances/desktop/runtime` for the current
+  environment. The job's setup choice identifies the runtime for sign-in when available.
+  Desktop also saves the runtime its `setupChoice` runs (`local-models` runs
   on Pi) as `preferredRuntime`. The daemon config carries that as
   `preferred_runtime`, and the daemon marks that runtime's diagnostic
   `preferred`, so TeamHub creates Another Me and the starter Agents on it
@@ -215,7 +236,20 @@ Gateway and runs Agents. The daemon exits with the app.
   file and renamed, so a power loss leaves the old record or none) and, while
   the window still uses that origin and the computer is enrolled, restarts the
   services on launch with `installer.js --resume`, which also restarts them
-  when the instance's `user.env` changed. When another program took the web
+  when the instance's `user.env` changed. Before it starts the installer
+  (`--resume`, or the installer that sets up) it asks
+  `session.resolveProxy` for the Soniox websocket URL (`system-proxy.ts`,
+  at most 1.5 s, alongside the Node runtime check) and passes an HTTP
+  proxy, the first choice of a fixed or PAC setting, as
+  `LINGER_SYSTEM_HTTPS_PROXY`; the installer gives it to TeamHub and
+  node-services only. `DIRECT`, SOCKS, a failure or a timeout pass none,
+  and an `HTTPS_PROXY` in the app's own environment wins. It logs
+  `local_server.system_proxy` (`source`, `ms`), never the address. A
+  system proxy changed while the app runs applies at the next launch. A
+  launch whose resolution fails (a PAC or WPAD lookup past the timeout, or a
+  PAC server not up yet) passes none, so TeamHub and node-services restart
+  without the proxy, and the next launch that resolves it restarts them with
+  it again. When another program took the web
   port, the installer moves the services to a free one and reports the new
   origin (`details.origin`, or the setup job's `origin`). The record, the
   window's `serverUrl` and the `savedEnrollments` entry follow it together
@@ -521,7 +555,10 @@ Gateway and runs Agents. The daemon exits with the app.
   quit a running app). Retry in that prompt runs the stop again. Nothing running: the stop finds nothing and setup goes on. The
   stop also asks the pinned localmodels kit, when that kit is installed in the
   home, to unload every model its model library loaded (`library status`,
-  then `library unload` for each `loaded` model), to end its foundations
+  then `library cancel` for each `loading` model, `library status` every
+  500 ms for up to 10 s until none is loading, and `library unload` for each
+  model the last read shows `loaded`; a model still loading then is a stop
+  failure), to end its foundations
   controller under `runtime/model-services` (`foundations stop`), and to stop
   the stack's processes and the gateway the tool started, the library's
   Bifrost included (`stack down`); it downloads nothing, and Linger does not

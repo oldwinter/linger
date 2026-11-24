@@ -25,6 +25,9 @@ import {
 } from "./local-model-agents";
 import {
   capabilityCopy,
+  concurrencyCopy,
+  engineBadgeCopy,
+  engineHintCopy,
   modelErrorCopy,
   modelNoteCopy,
   unavailableCopy,
@@ -46,6 +49,7 @@ import {
   poolLabel,
   poolOf,
   poolOtherBytes,
+  poolUnaccountedBytes,
   safeModelSourceUrl,
   speedLabel,
   type ModelEntry,
@@ -243,6 +247,13 @@ export function ModelFacts({
       : undefined;
   const capabilities = modelCapabilities(model);
   const parameters = parametersLabel(model, t);
+  const engineDisplay = model.engine_label ?? engineBadgeCopy(model.engine);
+  const engineHint = engineHintCopy(model.engine, model.fit, t);
+  const concurrency = concurrencyCopy(model.concurrency, t);
+  const hostRam =
+    model.host_ram_bytes && model.host_ram_bytes > 0
+      ? formatGigabytes(model.host_ram_bytes, t)
+      : undefined;
   const speed = speedLabel(model, t);
   const sourceUrl = safeModelSourceUrl(model.source_url);
   const reclaimable = memoryReclaimable(view, model);
@@ -346,11 +357,25 @@ export function ModelFacts({
         {parameters ? (
           <Fact label={t(m.factParameters)}>{parameters}</Fact>
         ) : null}
+        {engineDisplay ? (
+          <Fact label={t(m.factEngine)}>
+            <span className="block">{engineDisplay}</span>
+            {engineHint ? (
+              <span className="block text-xs text-muted-foreground">
+                {engineHint}
+              </span>
+            ) : null}
+          </Fact>
+        ) : null}
+        {concurrency ? (
+          <Fact label={t(m.factConcurrency)}>{concurrency}</Fact>
+        ) : null}
         <Fact label={t(m.factMemory)}>
           {memoryPlace
             ? t(m.memoryOn, { place: memoryPlace, size: memorySize })
             : memorySize}
         </Fact>
+        {hostRam ? <Fact label={t(m.factSystemMemory)}>{hostRam}</Fact> : null}
         <Fact label={t(onComputer ? m.factOnDisk : m.factDownload)}>
           {formatGigabytes(model.download_bytes, t)}
         </Fact>
@@ -460,6 +485,7 @@ function PoolBar({
   // used_bytes is the device's real use; on a shared card other processes
   // hold memory that no holder accounts for.
   const otherBytes = poolOtherBytes(pool);
+  const unaccountedBytes = poolUnaccountedBytes(pool);
   const width = (bytes: number) =>
     `${pool.total_bytes ? Math.min(100, (bytes / pool.total_bytes) * 100) : 0}%`;
   return (
@@ -500,6 +526,15 @@ function PoolBar({
             })}
           />
         ) : null}
+        {unaccountedBytes ? (
+          <span
+            className="h-full bg-muted-foreground/15"
+            style={{ width: width(unaccountedBytes) }}
+            title={t(m.systemAndEngineSize, {
+              size: formatGigabytes(unaccountedBytes, t),
+            })}
+          />
+        ) : null}
       </span>
       <span className="w-24 shrink-0 text-right text-xs whitespace-nowrap tabular-nums text-muted-foreground">
         {t(m.memoryFree, { free: formatGigabytes(poolFreeBytes(pool), t) })}
@@ -523,8 +558,10 @@ export function AdvancedDialog({
   const models: PoolHolder[] = [];
   const components: PoolHolder[] = [];
   let hasOtherApps = false;
+  let hasUnaccounted = false;
   for (const pool of view.pools) {
     if (poolOtherBytes(pool) > 0) hasOtherApps = true;
+    if (poolUnaccountedBytes(pool) > 0) hasUnaccounted = true;
     for (const holder of pool.holders) {
       if (seenHolderIds.has(holder.id)) continue;
       seenHolderIds.add(holder.id);
@@ -567,7 +604,7 @@ export function AdvancedDialog({
                 />
               ))}
             </div>
-            {seenHolderIds.size > 0 || hasOtherApps ? (
+            {seenHolderIds.size > 0 || hasOtherApps || hasUnaccounted ? (
               <p className="mt-2.5 flex flex-wrap gap-x-3.5 gap-y-1 px-0.5 text-xs text-muted-foreground">
                 {[...models, ...components].map((holder) => (
                   <span className="flex items-center gap-1.5" key={holder.id}>
@@ -588,6 +625,15 @@ export function AdvancedDialog({
                       className="size-1.5 rounded-full bg-muted-foreground/30"
                     />
                     {t(m.otherApps)}
+                  </span>
+                ) : null}
+                {hasUnaccounted ? (
+                  <span className="flex items-center gap-1.5">
+                    <span
+                      aria-hidden
+                      className="size-1.5 rounded-full bg-muted-foreground/15"
+                    />
+                    {t(m.systemAndEngine)}
                   </span>
                 ) : null}
               </p>

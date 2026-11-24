@@ -704,6 +704,40 @@ func TestAFailedLoadKeepsTheGatewayCauseOnItsRow(t *testing.T) {
 	})
 }
 
+func TestLoadRotatesUnownedBifrostAddrOnlyOnCauseFreeGatewayFailure(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		code    string
+		extra   string
+		rotates bool
+	}{
+		{name: "gateway registration", code: "GATEWAY_REGISTRATION_FAILED", rotates: true},
+		{name: "private home", code: "GATEWAY_REGISTRATION_FAILED", extra: `,"cause":"GATEWAY_HOME_NOT_PRIVATE","path":"/gateway-home"`},
+		{name: "unrecognized cause", code: "GATEWAY_REGISTRATION_FAILED", extra: `,"cause":"GATEWAY_OTHER_CAUSE"`},
+		{name: "other failure", code: "MODEL_UNKNOWN"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := newFakeTool(t)
+			addr := seedFreeBifrostAddr(t, fake.state)
+			fake.write("status.json", status(model(testModel, "idle")))
+			fake.script("load", fakeScript{
+				Lines: []fakeLine{
+					{Line: progressLine(testModel, "load", 0, 2)},
+					{Line: errorLine(testModel, tc.code, tc.extra)},
+				},
+				Exit: 1,
+			})
+			record := &recorder{}
+			library := newLibrary(t, fake, record, time.Second)
+			if refusal, answered := library.Act(t.Context(), Action{Name: ActionLoad, Model: testModel}, soon()); !answered || refusal != nil {
+				t.Fatalf("load answered=%t, refusal=%+v, want accepted", answered, refusal)
+			}
+			waitFor(t, "the Runtime refresh after load exits", func() bool { return record.changes() > 0 })
+			assertBifrostAddrRotation(t, fake.state, addr, tc.rotates)
+		})
+	}
+}
+
 func TestDownloadPublishesDownloadingBeforeSlowPhaseStatusReturns(t *testing.T) {
 	fake := newFakeTool(t)
 	fake.write("status.json", status(model(testModel, "absent")))

@@ -18,9 +18,10 @@
   orchestration, model selection, or Room callback behavior.
 - It executes the local-model library actions a Computer owner chose
   (download, cancel, load, unload, remove, refresh) through the installer's
-  `localmodels` tool, but it never chooses a model: every action names the
-  model the owner picked, and fit, placement and recommendation come from
-  `localmodels`.
+  `localmodels` tool, but it never chooses a model: on its own it loads only
+  the downloaded model a Run names, never downloads a model, and never
+  unloads another one to make room. Fit, placement and recommendation come
+  from `localmodels`.
 
 ## Structure
 
@@ -96,6 +97,19 @@
 - A wire request never supplies a local path, executable, environment, or
   credential. Resolve canonical workspace grants before invoking an
   installed Runtime provider.
+- The `feishu_mail` Computer tool (`localtools.FeishuMail`) runs the owner's
+  own lark-cli for TeamHub's Feishu Mail. It finds lark-cli where Runtime
+  discovery looks (`provider.ExecutableCandidates`: PATH, `~/.local/bin`,
+  and `%APPDATA%\npm` on Windows) or where its installers put it, and runs
+  the native binary beside npm's Node launcher, so Node need not be on a
+  short Daemon PATH. A request names only a
+  method and an API path under `/open-apis/mail/v1/user_mailboxes/me`, never
+  lark-cli's other Feishu scopes. A started login's device code stays in the
+  Daemon's memory under the caller's login name, so a restart drops it and
+  the owner connects again. Results carry lark-cli's error type, subtype,
+  Feishu code, never a decision made from its message; a
+  `config` error, a lark-cli never set up with a Feishu app, is
+  `not_configured`.
 - Do not commit runtime state, PID files, sockets, logs, credentials, or build
   output.
 

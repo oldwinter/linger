@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { TeamHubActorRef } from "./teamhub-types";
 import {
   createTeamHubMessageContent,
+  findTeamHubMessageTokenMatches,
   formatTeamHubMentionToken,
   isTeamHubMessageContent,
   referencedMessageActors,
@@ -133,6 +134,24 @@ describe("TeamHub structured Message content", () => {
     expect(content.segments.map((segment) => segment.content).join("")).toBe(
       content.raw_message,
     );
+  });
+
+  it("reads a mention written straight after an unspaced script", () => {
+    const japanese =
+      "\u8cc7\u6599\u3092\u78ba\u8a8d@\u5c71\u7530 \u304a\u9858\u3044\u3057\u307e\u3059";
+    expect(findTeamHubMessageTokenMatches(japanese, ["@\u5c71\u7530"])).toEqual(
+      [{ index: japanese.indexOf("@"), token: "@\u5c71\u7530" }],
+    );
+    // A Latin word, a number or a path character before the at-sign keeps it
+    // literal, so an address or a handle is not a mention.
+    for (const text of [
+      "alice@\u5c71\u7530",
+      "2026@\u5c71\u7530",
+      "a/@\u5c71\u7530",
+    ])
+      expect(findTeamHubMessageTokenMatches(text, ["@\u5c71\u7530"])).toEqual(
+        [],
+      );
   });
 
   it("encodes Document and Skill tokens at their exact text positions", () => {

@@ -52,16 +52,12 @@ import {
   PendingMessageRow,
   type PendingRoomMessage,
 } from "./message-row";
-import {
-  AgentStreamingStatusDock,
-  hasAgentStreamingDockEntries,
-} from "./message-timeline";
+import { AgentStreamingStatusDock } from "./message-timeline";
 import { useRoomMessagePresentations } from "./room-message-presentations";
 import {
   createRoomProjection,
   replaceLoadedRoomMessage,
 } from "./room-projection";
-import { SharedStreamingStatus } from "./shared-streaming-status";
 import { useMessageFilePreview } from "./use-message-file-preview";
 import { useRoomChatNavigation } from "./use-room-chat-navigation";
 import {
@@ -521,7 +517,6 @@ function ThreadReplyDock({
       </>
     );
   }
-  const hasThreadDock = Boolean(dock && hasAgentStreamingDockEntries(dock));
   return (
     <div className="room-composer-dock shrink-0 px-3">
       {filePreviewError ? (
@@ -534,9 +529,7 @@ function ThreadReplyDock({
           {outboxError}
         </p>
       ) : null}
-      <SharedStreamingStatus active={hasThreadDock} surface="thread">
-        {dock ? <AgentStreamingStatusDock {...dock} /> : null}
-      </SharedStreamingStatus>
+      {dock ? <AgentStreamingStatusDock {...dock} /> : null}
       {children}
     </div>
   );

@@ -557,6 +557,40 @@ func TestModelSourceApplyPropagatesByokGatewayFailedRedactsKeyAndMapsTimeout(t *
 	}
 }
 
+func TestModelSourceApplyRotatesUnownedBifrostAddrOnGatewayFailure(t *testing.T) {
+	for _, tc := range []struct {
+		mode    string
+		code    string
+		rotates bool
+	}{
+		{mode: "local", code: "GATEWAY_REGISTRATION_FAILED", rotates: true},
+		{mode: "byok", code: "BYOK_GATEWAY_FAILED", rotates: true},
+		{mode: "local", code: "MODEL_UNKNOWN"},
+	} {
+		t.Run(tc.code, func(t *testing.T) {
+			fake := newFakeTool(t)
+			addr := seedFreeBifrostAddr(t, fake.state)
+			fake.write("source-apply.json", map[string]any{
+				"schema": "localmodels.model-source-status/v1",
+				"ok":     false,
+				"code":   tc.code,
+			})
+			fake.write("source-apply-exit", 1)
+			source := NewModelSource(ModelSourceOptions{
+				Tool:         &fake.tool,
+				Environment:  map[string]string{"LOCALMODELS_FAKE_TOOL": "1"},
+				JobDirectory: filepath.Join(t.TempDir(), "jobs"),
+			})
+			_, err := source.Apply(t.Context(), ModelSourceApply{Mode: tc.mode, Runtime: "pi"})
+			var sourceErr *ModelSourceError
+			if !errors.As(err, &sourceErr) || sourceErr.Code != tc.code {
+				t.Fatalf("Apply error = %v, want %s", err, tc.code)
+			}
+			assertBifrostAddrRotation(t, fake.state, addr, tc.rotates)
+		})
+	}
+}
+
 func TestModelSourceParsesJsonlProgressAndClassifiesTimeouts(t *testing.T) {
 	ft := newFakeTool(t)
 	writeModelSourceJSON(t, ft.state, map[string]any{

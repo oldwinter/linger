@@ -1,5 +1,6 @@
 import { createSocket } from "node:dgram";
 import net from "node:net";
+import os from "node:os";
 
 // The addresses a loopback service can be reached on. The product origin is
 // `http://localhost:<port>`, which macOS resolves to ::1 first, so a program
@@ -7,21 +8,39 @@ import net from "node:net";
 // 127.0.0.1 without an error. A port is free only when both can be bound and
 // neither answers.
 const LOOPBACK = ["127.0.0.1", "::1"] as const;
-// A computer without IPv6 has no ::1; nothing can listen there either.
-const NO_IPV6 = new Set(["EADDRNOTAVAIL", "EAFNOSUPPORT", "EINVAL"]);
+// A computer without IPv6 (or a transient non-loopback address) cannot bind it.
+const UNAVAILABLE_BIND = new Set(["EADDRNOTAVAIL", "EAFNOSUPPORT", "EINVAL"]);
 
 type Protocol = "tcp" | "udp";
+
+export interface PortCheckOptions {
+  allInterfaces?: boolean;
+}
+
+function nonLoopbackLocalHosts(): string[] {
+  const hosts = new Set<string>();
+  for (const entries of Object.values(os.networkInterfaces())) {
+    for (const entry of entries ?? []) {
+      if (entry.internal || !entry.address) continue;
+      const addr = entry.address.split("%")[0] ?? "";
+      if (!addr || addr.toLowerCase().startsWith("fe80:")) continue;
+      hosts.add(addr);
+    }
+  }
+  return [...hosts];
+}
 
 function bindConflict(
   port: number,
   host: string,
   protocol: Protocol,
+  ignoreUnavailable = host.includes(":"),
 ): Promise<string | undefined> {
   const ipv6 = host.includes(":");
   return new Promise((resolve) => {
     const failed = (error: NodeJS.ErrnoException) =>
       resolve(
-        ipv6 && NO_IPV6.has(error.code ?? "")
+        ignoreUnavailable && UNAVAILABLE_BIND.has(error.code ?? "")
           ? undefined
           : `${host} bind: ${error.code ?? error.name}`,
       );
@@ -64,6 +83,7 @@ function answers(port: number, host: string): Promise<boolean> {
 async function portConflict(
   port: number,
   protocol: Protocol,
+  options: PortCheckOptions = {},
 ): Promise<string | undefined> {
   for (const host of LOOPBACK) {
     const conflict = await bindConflict(port, host, protocol);
@@ -74,15 +94,22 @@ async function portConflict(
     LOOPBACK.map((host) => answers(port, host)),
   );
   const host = LOOPBACK[answered.indexOf(true)];
-  return host ? `${host} already answers TCP connections` : undefined;
+  if (host) return `${host} already answers TCP connections`;
+  if (!options.allInterfaces) return undefined;
+  for (const external of nonLoopbackLocalHosts()) {
+    const conflict = await bindConflict(port, external, protocol, true);
+    if (conflict) return conflict;
+  }
+  return undefined;
 }
 
-/** Whether no program uses `port` on IPv4 or IPv6 loopback. */
+/** Whether no program uses `port` on IPv4 or IPv6 loopback (or any local interface when `allInterfaces` is set). */
 export async function portFree(
   port: number,
   protocol: Protocol = "tcp",
+  options: PortCheckOptions = {},
 ): Promise<boolean> {
-  return (await portConflict(port, protocol)) === undefined;
+  return (await portConflict(port, protocol, options)) === undefined;
 }
 
 function ephemeral(protocol: Protocol): Promise<number> {
@@ -111,14 +138,18 @@ function ephemeral(protocol: Protocol): Promise<number> {
  */
 export async function freePort(
   reserved: Set<number>,
-  options: { preferred?: number; protocol?: Protocol } = {},
+  options: {
+    preferred?: number;
+    protocol?: Protocol;
+    allInterfaces?: boolean;
+  } = {},
 ): Promise<number> {
   const protocol = options.protocol ?? "tcp";
   let port = options.preferred;
   let lastConflict: string | undefined;
   for (let attempt = 0; ; attempt++) {
     if (port !== undefined && !reserved.has(port)) {
-      lastConflict = await portConflict(port, protocol);
+      lastConflict = await portConflict(port, protocol, options);
       if (lastConflict === undefined) {
         reserved.add(port);
         return port;

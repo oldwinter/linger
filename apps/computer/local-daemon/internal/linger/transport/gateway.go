@@ -28,6 +28,12 @@ import (
 const MaxFrameBytes = 4 * 1024 * 1024
 const defaultWriteTimeout = 10 * time.Second
 
+// The Gateway sends frames only when it has commands, so liveness rides on
+// WebSocket Ping/Pong control frames, which every Agent Service answers
+// automatically; a half-open connection otherwise lingers until TCP gives up.
+const defaultPingInterval = 10 * time.Second
+const defaultReadTimeout = 30 * time.Second
+
 type GatewayControlPlane struct {
 	URL           string
 	BearerToken   string
@@ -35,6 +41,11 @@ type GatewayControlPlane struct {
 	MaxFrameBytes int64
 	// WriteTimeout bounds each socket write; non-positive values use 10 seconds.
 	WriteTimeout time.Duration
+	// PingInterval spaces liveness pings; non-positive values use 10 seconds.
+	PingInterval time.Duration
+	// ReadTimeout is how long the stream waits for any frame, Pong included,
+	// before it treats the connection as dead; non-positive values use 30 seconds.
+	ReadTimeout time.Duration
 }
 
 func (p GatewayControlPlane) Connect(ctx context.Context, hello Hello) (Stream, error) {
@@ -79,7 +90,25 @@ func (p GatewayControlPlane) Connect(ctx context.Context, hello Hello) (Stream, 
 	if writeTimeout <= 0 {
 		writeTimeout = defaultWriteTimeout
 	}
-	return &gatewayStream{socket: socket, hello: hello, writeMu: &sync.Mutex{}, writeTimeout: writeTimeout}, nil
+	pingInterval := p.PingInterval
+	if pingInterval <= 0 {
+		pingInterval = defaultPingInterval
+	}
+	readTimeout := p.ReadTimeout
+	if readTimeout <= 0 {
+		readTimeout = defaultReadTimeout
+	}
+	stream := &gatewayStream{
+		socket: socket, hello: hello, writeMu: &sync.Mutex{}, writeTimeout: writeTimeout,
+		readTimeout: readTimeout, done: make(chan struct{}),
+	}
+	if err := stream.extendReadDeadline(); err != nil {
+		_ = stream.Close()
+		return nil, &GatewayUnreachableError{Err: fmt.Errorf("connect Runner Gateway: %w", err)}
+	}
+	socket.SetPongHandler(func(string) error { return stream.extendReadDeadline() })
+	go stream.pingLoop(pingInterval)
+	return stream, nil
 }
 
 type gatewayStream struct {
@@ -87,9 +116,14 @@ type gatewayStream struct {
 	hello        Hello
 	writeMu      *sync.Mutex
 	writeTimeout time.Duration
-	closed       atomic.Bool
-	close        sync.Once
-	closeErr     error
+	readTimeout  time.Duration
+	// contextDeadline is the current Receive context's deadline; only the
+	// reader goroutine (Receive and the Pong handler it runs) touches it.
+	contextDeadline time.Time
+	done            chan struct{}
+	closed          atomic.Bool
+	close           sync.Once
+	closeErr        error
 }
 
 func (s *gatewayStream) Receive(ctx context.Context) (protocol.Command, error) {
@@ -105,13 +139,20 @@ func (s *gatewayStream) Receive(ctx context.Context) (protocol.Command, error) {
 		}
 	}()
 	defer close(readDone)
-	if deadline, ok := ctx.Deadline(); ok {
-		if err := s.socket.SetReadDeadline(deadline); err != nil {
-			return protocol.Command{}, err
-		}
+	s.contextDeadline, _ = ctx.Deadline()
+	if err := s.extendReadDeadline(); err != nil {
+		return protocol.Command{}, err
 	}
-	_, encoded, err := s.socket.ReadMessage()
+	encoded, err := s.readMessage()
+	contextDeadline := s.contextDeadline
+	s.contextDeadline = time.Time{}
 	if err != nil {
+		var networkError net.Error
+		if errors.As(err, &networkError) && networkError.Timeout() &&
+			(contextDeadline.IsZero() || time.Now().Before(contextDeadline)) {
+			slog.Warn("runner.gateway.liveness_timeout", "read_timeout_ms", s.readTimeout.Milliseconds())
+			_ = s.Close()
+		}
 		var closeError *websocket.CloseError
 		if errors.As(err, &closeError) && closeError.Code == websocket.ClosePolicyViolation {
 			if strings.HasPrefix(closeError.Text, "upgrade_required:") {
@@ -707,9 +748,64 @@ func (s *gatewayStream) runnerHello() (wire.RunnerHello, error) {
 	return hello, nil
 }
 
+// extendReadDeadline gives the peer another readTimeout to send any frame,
+// bounded by the current Receive context's deadline, which applies to that call only.
+func (s *gatewayStream) extendReadDeadline() error {
+	deadline := time.Now().Add(s.readTimeout)
+	if !s.contextDeadline.IsZero() && s.contextDeadline.Before(deadline) {
+		deadline = s.contextDeadline
+	}
+	return s.socket.SetReadDeadline(deadline)
+}
+
+// readMessage reads one message, extending the read deadline after every
+// chunk: on a slow downlink a large frame delays the peer's Pong behind it,
+// and any received byte already proves the connection is alive.
+func (s *gatewayStream) readMessage() ([]byte, error) {
+	_, reader, err := s.socket.NextReader()
+	if err != nil {
+		return nil, err
+	}
+	return io.ReadAll(livenessReader{reader: reader, stream: s})
+}
+
+type livenessReader struct {
+	reader io.Reader
+	stream *gatewayStream
+}
+
+func (r livenessReader) Read(buffer []byte) (int, error) {
+	n, err := r.reader.Read(buffer)
+	if n > 0 {
+		if deadlineErr := r.stream.extendReadDeadline(); deadlineErr != nil && err == nil {
+			err = deadlineErr
+		}
+	}
+	return n, err
+}
+
+// pingLoop runs until Close; a failed ping closes the stream so Receive ends.
+func (s *gatewayStream) pingLoop(interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-s.done:
+			return
+		case <-ticker.C:
+			// gorilla allows WriteControl concurrently with the writeMu-guarded data writes.
+			if err := s.socket.WriteControl(websocket.PingMessage, nil, time.Now().Add(s.writeTimeout)); err != nil {
+				_ = s.Close()
+				return
+			}
+		}
+	}
+}
+
 func (s *gatewayStream) Close() error {
 	s.close.Do(func() {
 		s.closed.Store(true)
+		close(s.done)
 		s.closeErr = s.socket.Close()
 	})
 	return s.closeErr
