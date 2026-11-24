@@ -846,7 +846,7 @@ async function runNativeSource(
         // workers tunnel Soniox and xAI through it; a changed proxy restarts
         // them. Without one their settings stay as they were, so nothing
         // restarts for it.
-        const proxyEnv = systemProxyEnvironment(env);
+        const proxyEnv = systemProxyEnvironment({ ...process.env, ...env });
         const proxied = proxyEnv.HTTPS_PROXY
           ? { proxy: proxyEnv.HTTPS_PROXY }
           : {};
