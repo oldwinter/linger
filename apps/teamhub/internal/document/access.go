@@ -3,6 +3,7 @@ package document
 import (
 	"context"
 	"sort"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -547,4 +548,19 @@ func invalidateBindingAccess(
 		}
 	}
 	return nil
+}
+
+// MaxDocumentTitleCharacters is the Document title bound its contract states as
+// maxLength: the database check counts characters too.
+const MaxDocumentTitleCharacters = 255
+
+// ValidDocumentTitle reports whether a title is one the contract allows: one to
+// MaxDocumentTitleCharacters characters of valid UTF-8, the unit its maxLength
+// states. A CJK title of 255 characters is 765 bytes and still fits.
+func ValidDocumentTitle(title string) bool {
+	if !utf8.ValidString(title) {
+		return false
+	}
+	count := utf8.RuneCountInString(title)
+	return count >= 1 && count <= MaxDocumentTitleCharacters
 }

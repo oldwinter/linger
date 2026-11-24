@@ -5,6 +5,7 @@ import {
   assertNewOutput,
   connectorTransferURL,
   readConnectorFile,
+  saveConnectorBytes,
   saveConnectorDownload,
   validateLocalFiles,
 } from "./connector-files.js";
@@ -29,6 +30,7 @@ import {
 import {
   connectorDefinition,
   cursor,
+  FEISHU_MAIL_ATTACHMENT_BUDGET,
   nextCursor,
   optionalFields,
   record,
@@ -58,6 +60,12 @@ import {
   rootSchema,
 } from "./connector-schemas.js";
 import { displayText } from "./display-text.js";
+import {
+  executeFeishuMail,
+  feishuMailAttachmentBytes,
+  feishuMailAttachments,
+  feishuMailBindings,
+} from "./connector-feishu-mail.js";
 
 const pageOptions = {
   "--limit": value("1–100 items per page; default 20."),
@@ -149,14 +157,23 @@ const options: Record<Action, Json> = {
     ),
   },
 };
+// Gmail, Outlook and Feishu Mail write a new email on a canvas the user sends from its
+// card, so an Agent reading this help reaches for the canvas first.
+const canvasNote =
+  "For a new email the user asks you to write, prepare, draft or send, open a canvas instead (read the canvas Skill); the user sends it from its card.";
+
 export const mailCommandDefinitions: CommandDefinition[] = [
   "gmail",
   "outlook",
+  "feishu-mail",
 ].flatMap((app) =>
   actions.map((action) =>
     connectorDefinition({
       command: [app, action],
-      description: summaries[action],
+      description:
+        action === "send" || action === "draft"
+          ? `${summaries[action]} ${canvasNote}`
+          : summaries[action],
       readOnly: ["list", "read", "download"].includes(action),
       options: options[action] as CommandDefinition["options"],
       usage: mailUsage(app, action),
@@ -288,6 +305,20 @@ export const mailCommandDefinitions: CommandDefinition[] = [
               "unsupported_combination",
               "Outlook search cannot be combined with --unread; use the separate list filters.",
             );
+          if (app === "feishu-mail" && input.folder === "all" && !input.query)
+            throw new CliError(
+              "unsupported_combination",
+              "Feishu Mail lists one folder at a time; use --folder inbox or sent, or search all folders with --query.",
+            );
+          if (
+            app === "feishu-mail" &&
+            typeof input.query === "string" &&
+            input.query.length > 50
+          )
+            throw new CliError(
+              "unsupported_combination",
+              "Feishu Mail search text is at most 50 characters.",
+            );
         } else if (action === "read") {
           const draft = option(args, "--draft");
           if (draft !== undefined) {
@@ -339,7 +370,11 @@ export const mailCommandDefinitions: CommandDefinition[] = [
             input.attachments = await validateLocalFiles(
               attachments,
               reader.cwd,
-              app === "outlook" ? 150 * 1024 * 1024 : 25 * 1024 * 1024,
+              app === "outlook"
+                ? 150 * 1024 * 1024
+                : app === "feishu-mail"
+                  ? FEISHU_MAIL_ATTACHMENT_BUDGET
+                  : 25 * 1024 * 1024,
             );
           const update = option(args, "--update");
           if (update !== undefined)
@@ -398,9 +433,15 @@ export const mailCommandDefinitions: CommandDefinition[] = [
         }
         return { input };
       },
-      bindings: (input) => mailBindings(app, action, input),
+      bindings: (input) =>
+        app === "feishu-mail"
+          ? feishuMailBindings(action, input)
+          : mailBindings(app, action, input),
       execute: async (input, runtime) => {
-        const result = await executeMail(app, action, input, runtime);
+        const result =
+          app === "feishu-mail" && action !== "download"
+            ? await executeFeishuMail(action, input, runtime)
+            : await executeMail(app, action, input, runtime);
         return ["list", "read", "download"].includes(action)
           ? result
           : { result };
@@ -555,8 +596,7 @@ function mailBindings(app: string, action: Action, input: Json): string[] {
         : ["OUTLOOK_GET_MESSAGE"]),
       "OUTLOOK_LIST_OUTLOOK_ATTACHMENTS",
     ];
-  if (action === "list")
-    return [input.query ? "OUTLOOK_LIST_MESSAGES" : "OUTLOOK_QUERY_EMAILS"];
+  if (action === "list") return [outlookListTool(input)];
   if (action === "send")
     return [input.draftId ? "OUTLOOK_SEND_DRAFT" : "OUTLOOK_SEND_EMAIL"];
   if (action === "draft")
@@ -575,6 +615,13 @@ function mailBindings(app: string, action: Action, input: Json): string[] {
   return ["OUTLOOK_MOVE_MESSAGE"];
 }
 
+// OUTLOOK_QUERY_EMAILS reads exactly one folder, so search and the whole
+// mailbox ("allfolders") go through OUTLOOK_LIST_MESSAGES.
+function outlookListTool(input: Json): string {
+  return input.query || input.folder === "all"
+    ? "OUTLOOK_LIST_MESSAGES"
+    : "OUTLOOK_QUERY_EMAILS";
+}
 async function executeMail(
   app: string,
   action: Action,
@@ -833,8 +880,9 @@ async function listMail(
       state.token,
     );
   } else {
+    const tool = outlookListTool(input);
     raw = await runtime.call(
-      input.query ? "OUTLOOK_LIST_MESSAGES" : "OUTLOOK_QUERY_EMAILS",
+      tool,
       optionalFields({
         top: input.limit,
         folder:
@@ -846,9 +894,13 @@ async function listMail(
         filter: input.unreadOnly
           ? "receivedDateTime ge 0001-01-01T00:00:00Z and isRead eq false"
           : undefined,
-        // OUTLOOK_QUERY_EMAILS types orderby as one string; search results
-        // from OUTLOOK_LIST_MESSAGES cannot be reordered.
-        orderby: input.query ? [] : "receivedDateTime desc",
+        // OUTLOOK_QUERY_EMAILS types orderby as one string and
+        // OUTLOOK_LIST_MESSAGES as a list; search results cannot be reordered.
+        orderby: input.query
+          ? []
+          : tool === "OUTLOOK_QUERY_EMAILS"
+            ? "receivedDateTime desc"
+            : ["receivedDateTime desc"],
         search: input.query,
         page_token: state.token,
       }),
@@ -1376,7 +1428,9 @@ async function downloadMail(
   runtime: ConnectorRuntime,
 ): Promise<Json> {
   let attachments: Json[];
-  if (app === "gmail") {
+  if (app === "feishu-mail") {
+    attachments = await feishuMailAttachments(input.messageId, runtime);
+  } else if (app === "gmail") {
     const mail = decodeMail(
       app,
       await runtime.call("GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID", {
@@ -1492,6 +1546,19 @@ async function downloadMail(
   const files: Json[] = [];
   for (const { file, output } of plan) {
     try {
+      if (app === "feishu-mail") {
+        const bytes = await feishuMailAttachmentBytes(
+          input.messageId,
+          file.attachmentId,
+          runtime,
+        );
+        files.push({
+          attachmentId: file.attachmentId,
+          name: file.name,
+          ...(await saveConnectorBytes(bytes, output, runtime.context)),
+        });
+        continue;
+      }
       const raw = await runtime.call(
         app === "gmail"
           ? "GMAIL_GET_ATTACHMENT"

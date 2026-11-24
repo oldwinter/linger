@@ -1250,14 +1250,27 @@ func (LocalModelPoolHolder) FixedFields() map[string]string { return nil }
 // RequiredFields lists the keys a LocalModelPoolHolder must carry.
 func (LocalModelPoolHolder) RequiredFields() []string { return []string{"kind", "id", "name", "bytes"} }
 
+// LocalModelPoolExternalHolder mirrors the LocalModelPoolExternalHolder schema shape.
+type LocalModelPoolExternalHolder struct {
+	Name  string `json:"name"`
+	Bytes uint64 `json:"bytes"`
+}
+
+// FixedFields lists the keys whose value the schema fixes for a LocalModelPoolExternalHolder.
+func (LocalModelPoolExternalHolder) FixedFields() map[string]string { return nil }
+
+// RequiredFields lists the keys a LocalModelPoolExternalHolder must carry.
+func (LocalModelPoolExternalHolder) RequiredFields() []string { return []string{"name", "bytes"} }
+
 // LocalModelPool mirrors the LocalModelPool schema shape.
 type LocalModelPool struct {
-	ID         string                 `json:"id"`
-	Kind       string                 `json:"kind"`
-	GpuIndex   *uint64                `json:"gpu_index,omitempty"`
-	TotalBytes uint64                 `json:"total_bytes"`
-	UsedBytes  uint64                 `json:"used_bytes"`
-	Holders    []LocalModelPoolHolder `json:"holders"`
+	ID              string                         `json:"id"`
+	Kind            string                         `json:"kind"`
+	GpuIndex        *uint64                        `json:"gpu_index,omitempty"`
+	TotalBytes      uint64                         `json:"total_bytes"`
+	UsedBytes       uint64                         `json:"used_bytes"`
+	Holders         []LocalModelPoolHolder         `json:"holders"`
+	ExternalHolders []LocalModelPoolExternalHolder `json:"external_holders,omitzero"`
 }
 
 // FixedFields lists the keys whose value the schema fixes for a LocalModelPool.
@@ -1396,6 +1409,10 @@ type LocalModel struct {
 	License               string                      `json:"license,omitempty"`
 	SourceURL             string                      `json:"source_url,omitempty"`
 	PromptTokensPerSecond *float64                    `json:"prompt_tokens_per_second,omitempty"`
+	Engine                string                      `json:"engine,omitempty"`
+	EngineLabel           string                      `json:"engine_label,omitempty"`
+	Concurrency           *uint64                     `json:"concurrency,omitempty"`
+	HostRamBytes          *uint64                     `json:"host_ram_bytes,omitempty"`
 }
 
 // FixedFields lists the keys whose value the schema fixes for a LocalModel.

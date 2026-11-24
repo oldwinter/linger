@@ -47,5 +47,7 @@ describe("updateCue", () => {
     );
     expect(cue).toContain("Task t2 ended its turn");
     expect(cue).not.toContain("Draw a strawberry tattoo");
+    // A report passes on what matters, not image sizes or source sites.
+    expect(cue).toContain("Leave out technical details");
   });
 });

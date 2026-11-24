@@ -477,7 +477,13 @@ file and build. For one release:
 3. For a new PostgreSQL or localmodels release, update
    `distribution/<target>.json`: `localmodelsTool` for the localmodels
    release `scripts/installs/stack.sh` pins, and `nativeSources` holding that target's
-   `postgres-<target>.json` object.
+   `postgres-<target>.json` object. `localmodelsTool.runtimeVersions` and
+   `runtimeBaselines` copy that release's `release.json` fields of the same
+   names: the Codex, Claude and Pi versions it installs, and the oldest of each
+   it reuses instead. `distribution.test.ts` checks them against the
+   `STACK_RUNTIMES` and `STACK_RUNTIME_BASELINES` pins in
+   `scripts/installs/stack.sh`, and the Computer Daemon's Go tests fail when
+   one is below the Daemon's minimum.
 4. Build with `LINGER_DESKTOP_DAEMON_TARGETS` set to the target and the source package
    (`LINGER_SOURCE_ARCHIVE_FILE`, or the URL and SHA256, plus the target's
    `LINGER_SOURCE_DEPENDENCIES_URL` and SHA256) set, then package (`packaging/mac/package.py
@@ -505,6 +511,14 @@ refuses to fetch Node.js or run the installer on an older macOS and says
 sets no `MACOSX_DEPLOYMENT_TARGET`, so PostgreSQL's minimum is the macOS of
 the host that built it. Check every Mach-O file of a new pinned binary
 (`otool -l`, `minos`) before raising or lowering the value in both places.
+
+The Developer ID signature carries the hardened runtime, which needs an
+entitlement in `packaging/mac/entitlements.plist` for each protected device
+the app uses, and `PRIVACY_USAGE` in `packaging/mac/package.py` holds the prompt
+text macOS shows. Without `com.apple.security.device.audio-input` macOS
+neither asks for the microphone nor refuses it: voice and recordings get a
+live track of silence. An ad-hoc build has no hardened runtime and works
+either way, so check such a change on a Developer ID build.
 
 Windows, Linux x64 and Apple silicon bundle PostgreSQL in the app instead
 (`file` in `distribution/<target>.json`; 35 MB on Windows, 10–12 MB

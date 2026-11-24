@@ -349,7 +349,11 @@ var DirectYesTools = map[string]bool{ToolSendEmailCanvas: true}
 
 // SentNext tells the live model to report a completed send: without it the
 // model can take the result as context and stay silent.
-const SentNext = "Tell the user now in one short sentence, in their language, that it was sent and to whom."
+const SentNext = "Tell the user in one warm, conversational sentence, in their language, that you sent it and to whom. Keep your friendly personality while leading with the confirmed result; a light touch is welcome when it fits, without forcing praise or a joke."
+
+// StartedNext acknowledges accepted work in the voice's own words without
+// exposing implementation details or claiming that work has finished.
+const StartedNext = "The work has started, not finished. If your preamble already explained what you will do, do not repeat it or add another acknowledgement. Otherwise acknowledge in a warm, relaxed first-person sentence what you are doing and its relevant goal or destination, with your usual light playfulness when the mood allows. Keep the meaning complete rather than reducing it to an action label. Report the result when it arrives; do not narrate intermediate steps or mention internal tasks, background processing or another worker."
 
 // ErrorOutput encodes a structured tool error for the live model.
 func ErrorOutput(code string) string {

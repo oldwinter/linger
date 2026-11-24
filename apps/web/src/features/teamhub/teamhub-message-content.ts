@@ -1,3 +1,4 @@
+import { startsMentionToken } from "./mention-boundary";
 import type { TeamHubActorRef, TeamHubMessageSegment } from "./teamhub-types";
 import { isRecord } from "@linger/service-kit";
 
@@ -146,14 +147,19 @@ export function findTeamHubMessageTokenMatches(
   if (!text || candidates.length === 0) {
     return [];
   }
+  // A token starts at the beginning, after punctuation, or after a character of
+  // an unspaced script; the same predicate answers for the picker, so the two
+  // cannot drift apart. A word ending in a combining mark counts as that word.
   const matcher = new RegExp(
-    `(?<![\\p{L}\\p{N}_@/])(?:${candidates.map(escapeRegExp).join("|")})(?![\\p{L}\\p{N}_-])`,
+    `(?:${candidates.map(escapeRegExp).join("|")})(?![\\p{L}\\p{N}_-])`,
     "gu",
   );
-  return [...text.matchAll(matcher)].map((match) => ({
-    index: match.index,
-    token: match[0],
-  }));
+  return [...text.matchAll(matcher)]
+    .filter((match) => startsMentionToken(text, match.index))
+    .map((match) => ({
+      index: match.index,
+      token: match[0],
+    }));
 }
 
 function textSegments(

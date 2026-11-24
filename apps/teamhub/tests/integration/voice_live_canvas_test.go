@@ -144,7 +144,7 @@ func canvasRuntime(t *testing.T, computes *atomic.Int32, replaced chan<- string,
 			state, title := []byte(operation["content"]), request.Change.CurrentTitle
 			switch {
 			case operation["command"] == "block_replace" && operation["start_block_id"] == "b1" && operation["end_block_id"] == "b3":
-			case operation["command"] == "block_replace" || operation["command"] == "block_insert_after" || operation["command"] == "block_delete":
+			case operation["command"] == "block_replace" || operation["command"] == "block_insert_after" || operation["command"] == "block_insert_before" || operation["command"] == "block_delete":
 				// A canvas is its header and paragraphs, b1, b2, … as the export names them.
 				parts := strings.SplitN(string(current), "```\n\n", 2)
 				units := []string{parts[0] + "```"}
@@ -177,6 +177,8 @@ func canvasRuntime(t *testing.T, computes *atomic.Int32, replaced chan<- string,
 				switch operation["command"] {
 				case "block_replace":
 					next = append(append(next, added...), units[to+1:]...)
+				case "block_insert_before":
+					next = append(append(next, added...), units[from:]...)
 				case "block_insert_after":
 					next = append(append(append(next, units[from]), added...), units[from+1:]...)
 				default:

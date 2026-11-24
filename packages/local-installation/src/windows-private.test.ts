@@ -10,7 +10,7 @@ import {
   WINDOWS_PRIVATE_SCRIPT,
   WINDOWS_PRIVATE_WORKER_SCRIPT,
 } from "./windows-private.js";
-it("sends paths through stdin and runs a fixed encoded ACL program", async () => {
+it("sends paths through stdin and launches a fixed PowerShell command", async () => {
   const run = vi.fn().mockResolvedValue({ code: 0, stdout: "", stderr: "" });
   await windowsPrivatePath(
     "C:\\Users\\person\\private's",
@@ -18,8 +18,18 @@ it("sends paths through stdin and runs a fixed encoded ACL program", async () =>
     true,
     run,
   );
-  expect(run.mock.calls[0]![1].join(" ")).not.toContain("person");
-  expect(run.mock.calls[0]![2].input).toContain("person");
+  expect(run.mock.calls[0]![1]).toEqual([
+    "-NoLogo",
+    "-NoProfile",
+    "-NonInteractive",
+    "-Command",
+    WINDOWS_PRIVATE_SCRIPT,
+  ]);
+  expect(JSON.parse(run.mock.calls[0]![2].input)).toEqual({
+    path: path.resolve("C:\\Users\\person\\private's"),
+    kind: "directory",
+    repair: true,
+  });
   expect(WINDOWS_PRIVATE_SCRIPT).toContain("[Console]::InputEncoding");
   expect(WINDOWS_PRIVATE_SCRIPT).toContain("ReparsePoint");
   expect(WINDOWS_PRIVATE_SCRIPT).toContain("GetCurrent().User");

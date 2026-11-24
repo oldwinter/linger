@@ -1,5 +1,6 @@
 import { createSocket } from "node:dgram";
 import net from "node:net";
+import os from "node:os";
 import { afterEach, expect, it } from "vitest";
 import { freePort, portFree } from "./ports.js";
 
@@ -79,4 +80,27 @@ it("checks UDP ports separately", async () => {
   const moved = await freePort(new Set(), { preferred: port, protocol: "udp" });
   expect(moved).not.toBe(port);
   expect(await portFree(moved, "udp")).toBe(true);
+});
+
+it("treats a port taken on a non-loopback local interface as used when allInterfaces is enabled", async (context) => {
+  let taken: number | undefined;
+  for (const entries of Object.values(os.networkInterfaces())) {
+    for (const entry of entries ?? []) {
+      if (entry.internal || !entry.address) continue;
+      const addr = entry.address.split("%")[0] ?? "";
+      if (!addr || addr.toLowerCase().startsWith("fe80:")) continue;
+      taken = await listen(addr);
+      if (taken !== undefined) break;
+    }
+    if (taken !== undefined) break;
+  }
+  if (taken === undefined)
+    return context.skip("This computer has no bindable non-loopback address.");
+  expect(await portFree(taken, "tcp", { allInterfaces: true })).toBe(false);
+  const moved = await freePort(new Set(), {
+    preferred: taken,
+    allInterfaces: true,
+  });
+  expect(moved).not.toBe(taken);
+  expect(await portFree(moved, "tcp", { allInterfaces: true })).toBe(true);
 });

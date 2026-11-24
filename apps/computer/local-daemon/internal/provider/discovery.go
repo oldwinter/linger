@@ -198,7 +198,7 @@ func diagnose(ctx context.Context, kind, executable, protocol string, options Di
 		defer release()
 		environment = prepared
 	}
-	outcome := probeRuntime(probe, kind, canonical, environment, budget, version, options.RuntimeHomeRoot)
+	outcome := probeRuntime(probe, kind, canonical, environment, budget, options.RuntimeHomeRoot)
 	observation.Status = outcome.Status
 	observation.authProbeFailed = outcome.protocolVerified && outcome.Status == "error" && outcome.Code == "RUNTIME_DIAGNOSTIC_FAILED"
 	if outcome.Status != "ready" {
@@ -294,11 +294,11 @@ func normalizeRuntimeModels(catalog []native.ModelOption) []RuntimeModel {
 			ordered = append(ordered, entry)
 		}
 	}
-	result := make([]RuntimeModel, 0, min(100, len(ordered)))
+	result := make([]RuntimeModel, 0, min(MaxRuntimeModels, len(ordered)))
 	seen := make(map[string]bool)
 	for _, entry := range ordered {
 		id := strings.TrimSpace(entry.ID)
-		if id == "" || len([]rune(id)) > 160 || seen[id] {
+		if id == "" || len([]rune(id)) > MaxRuntimeModelTextRunes || seen[id] {
 			continue
 		}
 		seen[id] = true
@@ -306,7 +306,7 @@ func normalizeRuntimeModels(catalog []native.ModelOption) []RuntimeModel {
 		if label == "" {
 			label = id
 		}
-		model := RuntimeModel{ID: id, Label: truncateRunes(label, 160), AllowedReasoningEffort: []string{}, IsDefault: entry.Default, resolved: strings.TrimSpace(entry.Resolved)}
+		model := RuntimeModel{ID: id, Label: ClipRuntimeModelLabel(label), AllowedReasoningEffort: []string{}, IsDefault: entry.Default, resolved: strings.TrimSpace(entry.Resolved)}
 		if entry.ContextWindow > 0 && entry.ContextWindow <= maxModelContextWindow {
 			model.ContextWindow = entry.ContextWindow
 		}
@@ -321,12 +321,53 @@ func normalizeRuntimeModels(catalog []native.ModelOption) []RuntimeModel {
 			}
 		}
 		result = append(result, model)
-		if len(result) == 100 {
+		if len(result) == MaxRuntimeModels {
 			break
 		}
 	}
 	return result
 }
+
+// Bounds of a Runtime's model catalog: how many models it lists, and how
+// many runes a model ID or label may have.
+const (
+	MaxRuntimeModels         = 100
+	MaxRuntimeModelTextRunes = 160
+)
+
+// MaxRuntimeModelContextWindow is the largest context window a catalog
+// reports, as the Runner Gateway schema bounds it.
+const MaxRuntimeModelContextWindow = maxModelContextWindow
+
+// ValidRuntimeModel reports whether model has the shape normalizeRuntimeModels
+// gives every catalog entry, which the Runner Gateway schema accepts: an ID
+// and a label within the bound, known and distinct reasoning efforts with
+// the default among them, a context window within the bound, and a known
+// link.
+func ValidRuntimeModel(model RuntimeModel) bool {
+	if strings.TrimSpace(model.ID) != model.ID || model.ID == "" || len([]rune(model.ID)) > MaxRuntimeModelTextRunes ||
+		model.Label == "" || len([]rune(model.Label)) > MaxRuntimeModelTextRunes || model.AllowedReasoningEffort == nil {
+		return false
+	}
+	for index, effort := range model.AllowedReasoningEffort {
+		if !validRuntimeReasoningEffort(effort) || slices.Contains(model.AllowedReasoningEffort[:index], effort) {
+			return false
+		}
+	}
+	if model.DefaultReasoningEffort != "" && !slices.Contains(model.AllowedReasoningEffort, model.DefaultReasoningEffort) {
+		return false
+	}
+	if model.ContextWindow < 0 || model.ContextWindow > maxModelContextWindow {
+		return false
+	}
+	return model.Link == "" || model.Link == linkAPI || model.Link == linkSubscription
+}
+
+// ClipRuntimeModelLabel cuts a model label to the catalog bound.
+func ClipRuntimeModelLabel(label string) string {
+	return truncateRunes(label, MaxRuntimeModelTextRunes)
+}
+
 func validRuntimeReasoningEffort(value string) bool {
 	return slices.Contains([]string{"none", "low", "medium", "high", "xhigh", "max", "ultra"}, value)
 }
@@ -349,15 +390,9 @@ func resolveExecutableEntry(ctx context.Context, kind, name string, options Disc
 	if path == "" {
 		path = os.Getenv("PATH")
 	}
-	for _, directory := range executableDirectories(path, options.Environment) {
-		if !filepath.IsAbs(directory) {
-			continue
-		}
-		for _, filename := range executableNames(name) {
-			candidate := filepath.Join(directory, filename)
-			if _, err := canonicalExecutable(candidate); err == nil {
-				return candidate, nil
-			}
+	for _, candidate := range executableCandidates(name, path, options.Environment) {
+		if _, err := canonicalExecutable(candidate); err == nil {
+			return candidate, nil
 		}
 	}
 	if bundle := applicationBundles[kind]; bundle != "" && runtime.GOOS == "darwin" {

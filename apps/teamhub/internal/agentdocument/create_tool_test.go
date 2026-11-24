@@ -83,3 +83,36 @@ func TestCreateAllowsRoomTargetWithoutExecution(t *testing.T) {
 		t.Fatalf("result=%+v called=%v error=%v", result, called, err)
 	}
 }
+
+func TestCreateAcceptsATitleOf255Characters(t *testing.T) {
+	invocationID := "agent-invocation-sha256:" + strings.Repeat("a", 64)
+	authorizer := fakeAuthorizer{authorize: func(context.Context, string, string) (agentauth.Authorization, error) {
+		return agentauth.Authorization{
+			Principal:         &agentcredential.Principal{CredentialID: "credential", AgentID: "agent", AgentActorID: "actor", TenantID: "tenant"},
+			ParticipantTaskID: "task_1", Target: agentauth.Target{Kind: "task", ID: "task_1"},
+		}, nil
+	}}
+	created := 0
+	creator := fakeCreator{create: func(_ context.Context, input document.CreateAgentDocumentInput) (document.CreateAgentDocumentResult, error) {
+		created++
+		return document.CreateAgentDocumentResult{DocumentID: "document_1", RevisionID: "revision_1"}, nil
+	}}
+	tool := NewCreateTool(authorizer, creator)
+	// Astral characters are four bytes each and one character, so a byte bound
+	// would refuse this title at 64 characters.
+	if _, err := tool.Create(context.Background(), "th_agent_token", CreateInput{
+		InvocationID: invocationID,
+		Title:        "\U0001F600" + strings.Repeat("\u6c49", 254), Markdown: "# Body\n",
+	}); err != nil {
+		t.Fatalf("255 characters refused: %v", err)
+	}
+	if _, err := tool.Create(context.Background(), "th_agent_token", CreateInput{
+		InvocationID: invocationID,
+		Title:        strings.Repeat("\u6c49", 256), Markdown: "# Body\n",
+	}); !errors.Is(err, document.ErrInvalidInput) {
+		t.Fatalf("256 characters accepted: %v", err)
+	}
+	if created != 1 {
+		t.Fatalf("creator called %d times, want 1", created)
+	}
+}

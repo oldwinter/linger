@@ -192,7 +192,7 @@ func TestVoiceLiveTurnsAreWithheldFromAgentsAndRepliesSavedOnce(t *testing.T) {
 		decode(t, []byte(result.Output), &output)
 		return output
 	}
-	if started := tool("lt_5", "call_start", "start_task", map[string]any{"goal": "Compile the schedule for today and post it to the group", "surface": "workspace"}); started["status"] != "started" || started["task_id"] != "t1" {
+	if started := tool("lt_5", "call_start", "start_task", map[string]any{"goal": "Compile the schedule for today and post it to the group", "surface": "workspace"}); started["status"] != "started" || started["task_id"] != "t1" || started["next"] == "" {
 		t.Fatalf("start_task=%v", started)
 	}
 	if second := tool("lt_5", "call_second", "start_task", map[string]any{"goal": "Look up the materials for the afternoon review", "surface": "workspace"}); second["task_id"] != "t2" {
@@ -624,7 +624,7 @@ func TestVoiceLiveTasksReportResultsAndWhatTheyWaitFor(t *testing.T) {
 	}
 	first := tool("lt_a", "a1", "start_task", map[string]any{"goal": "Compare noise-canceling headphones on JD", "surface": "workspace"})
 	// The same goal handed off again moments later is the same task.
-	if repeat := tool("lt_b", "b1", "start_task", map[string]any{"goal": "Compare noise-canceling headphones on JD", "surface": "workspace"}); repeat["task_id"] != first["task_id"] {
+	if repeat := tool("lt_b", "b1", "start_task", map[string]any{"goal": "Compare noise-canceling headphones on JD", "surface": "workspace"}); repeat["task_id"] != first["task_id"] || repeat["next"] == "" {
 		t.Fatalf("repeated start=%v first=%v", repeat, first)
 	}
 	second := tool("lt_a", "a2", "start_task", map[string]any{"goal": "Search Xiaohongshu for campsites", "surface": "workspace"})

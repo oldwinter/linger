@@ -9,8 +9,10 @@ const MAX_CREATION_MESSAGE_CODE_POINTS = 50_000;
 const MAX_ROOM_CREATION_ARTIFACTS = 5;
 const MAX_TASK_REQUIREMENT_CODE_POINTS = 20_000;
 
-function codePointString(input: {
-  readonly description: string;
+/** A string bounded in Unicode characters, not UTF-16 units or bytes, so the
+ * published schema's maxLength and the check mean what the contract means. */
+export function codePointString(input: {
+  readonly description?: string;
   readonly max: number;
   readonly nonBlank?: boolean;
   readonly optionalEmpty?: boolean;
@@ -30,7 +32,9 @@ function codePointString(input: {
       `String must contain at most ${input.max} Unicode characters.`,
     )
     .meta({
-      description: input.description,
+      ...(input.description === undefined
+        ? {}
+        : { description: input.description }),
       ...(input.optionalEmpty === true ? {} : { minLength: 1 }),
       maxLength: input.max,
     });

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -85,13 +86,23 @@ func (s *Service) runVoiceLiveDocumentTool(ctx context.Context, session voiceliv
 // applyVoiceLiveDocumentEdit applies one native edit as the Agent; output is
 // what the live model is told when it did not apply.
 func (s *Service) applyVoiceLiveDocumentEdit(ctx context.Context, session voicelive.Session, request teamhubinternal.VoiceLiveToolCall, principal agentcredential.Principal, documentID, expectedRevisionID string, edit map[string]string) (document.SemanticMutationResult, string, error) {
+	return s.applyVoiceLiveDocumentEditStep(ctx, session, request, principal, documentID, expectedRevisionID, edit, 0)
+}
+
+// applyVoiceLiveDocumentEditStep applies one of several edits a single call
+// makes: each step is its own operation, so a retried call makes it once.
+func (s *Service) applyVoiceLiveDocumentEditStep(ctx context.Context, session voicelive.Session, request teamhubinternal.VoiceLiveToolCall, principal agentcredential.Principal, documentID, expectedRevisionID string, edit map[string]string, step int) (document.SemanticMutationResult, string, error) {
 	change, err := json.Marshal([]map[string]string{edit})
 	if err != nil {
 		return document.SemanticMutationResult{}, "", err
 	}
+	invocationID := voiceLiveInvocationID(session, request)
+	if step > 0 {
+		invocationID += "_" + strconv.Itoa(step)
+	}
 	result, err := s.documents.ApplySemanticMutation(ctx, document.ApplySemanticMutationInput{
 		Principal: &principal, TargetKind: "room", TargetID: session.RoomID,
-		DocumentID: documentID, SourceInvocationID: voiceLiveInvocationID(session, request),
+		DocumentID: documentID, SourceInvocationID: invocationID,
 		SchemaVersion: "blocknote-semantic-v1", ExpectedRevisionID: expectedRevisionID, SemanticChange: change,
 	})
 	switch {
@@ -149,8 +160,6 @@ func (s *Service) editVoiceLiveDocument(ctx context.Context, session voicelive.S
 	}
 	text := strings.TrimSpace(string(current.markdown))
 	switch {
-	case current.hasMedia:
-		return voicelive.ErrorOutput("document_has_media"), nil
 	case len([]rune(text)) > voicelive.MaxRewriteRunes:
 		return voicelive.Output(map[string]string{"error": "too_long_to_rewrite", "detail": "Use append or replace_text, or start_task naming the document_id."}), nil
 	case args.RevisionID != current.revisionID || current.firstBlockID == "":
@@ -159,6 +168,9 @@ func (s *Service) editVoiceLiveDocument(ctx context.Context, session voicelive.S
 			"next": "Redo the change on this text and call again with this revision_id."}), nil
 	case strings.TrimSpace(args.Content) == "" || len([]rune(args.Content)) > voicelive.MaxRewriteRunes*2:
 		return voicelive.ErrorOutput("content_required"), nil
+	}
+	if current.hasMedia {
+		return s.rewriteVoiceLiveDocumentAroundMedia(ctx, session, request, principal, args, current, text)
 	}
 	edit := map[string]string{"kind": "edit_document", "parser_version": "markdown-v1", "command": "block_replace", "content": args.Content}
 	if current.firstBlockID == current.lastBlockID {
@@ -171,6 +183,57 @@ func (s *Service) editVoiceLiveDocument(ctx context.Context, session voicelive.S
 		return output, err
 	}
 	return voicelive.Output(map[string]string{"status": "changed", "document_id": args.DocumentID, "revision_id": result.RevisionID}), nil
+}
+
+// rewriteVoiceLiveDocumentAroundMedia rewrites a Document's text and leaves
+// its images and files where they are: a Markdown block replace would turn
+// them into text. The edits run in turn, each on the revision the one before
+// made; a change that lands between them leaves the rest undone.
+func (s *Service) rewriteVoiceLiveDocumentAroundMedia(ctx context.Context, session voicelive.Session, request teamhubinternal.VoiceLiveToolCall, principal agentcredential.Principal, args voicelive.DocumentArguments, current voiceLiveDocumentState, text string) (string, error) {
+	var export struct {
+		Blocks []voiceLiveCanvasBlock `json:"blocks"`
+	}
+	if json.Unmarshal(current.blocks, &export) != nil {
+		return "", document.ErrRevisionUnavailable
+	}
+	blocks := make([]voicelive.TopBlock, 0, len(export.Blocks))
+	for _, block := range export.Blocks {
+		if voiceLiveMedia(block.Children) || voiceLiveMediaBlock(block) && len(block.Children) > 0 {
+			return voicelive.ErrorOutput("document_has_media"), nil
+		}
+		assetID, local := strings.CutPrefix(block.Props.URL, "document-asset:")
+		if voiceLiveMediaBlock(block) && !local {
+			return voicelive.ErrorOutput("document_has_media"), nil
+		}
+		blocks = append(blocks, voicelive.TopBlock{ID: block.ID, AssetID: assetID, Media: voiceLiveMediaBlock(block)})
+	}
+	edits, problem := voicelive.RewriteAroundMedia(blocks, args.Content)
+	switch problem {
+	case "":
+	case "media_moved":
+		return voicelive.Output(map[string]string{"error": "media_moved", "revision_id": current.revisionID, "text": text,
+			"next": "Keep every image and file line (document-asset:) of this text exactly as it is and in this order, rewrite only the text around them, and call again with this revision_id."}), nil
+	default:
+		return voicelive.ErrorOutput(problem), nil
+	}
+	revisionID := current.revisionID
+	for step, edit := range edits {
+		edit["kind"], edit["parser_version"] = "edit_document", "markdown-v1"
+		result, output, err := s.applyVoiceLiveDocumentEditStep(ctx, session, request, principal, args.DocumentID, revisionID, edit, step)
+		if output != "" || err != nil {
+			if step > 0 && output != "" {
+				var failure map[string]any
+				if json.Unmarshal([]byte(output), &failure) == nil {
+					failure["partially_changed"] = true
+					failure["next"] = "Some text was changed before the edit stopped; all media was kept. Read the latest document before continuing, and do not say the whole rewrite is done."
+					output = voicelive.Output(failure)
+				}
+			}
+			return output, err
+		}
+		revisionID = result.RevisionID
+	}
+	return voicelive.Output(map[string]string{"status": "changed", "document_id": args.DocumentID, "revision_id": revisionID}), nil
 }
 
 func voiceLiveCommentError(err error) (string, bool) {

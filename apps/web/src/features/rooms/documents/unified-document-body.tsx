@@ -41,6 +41,7 @@ import type {
 import type { RoomDocumentCollaborationSession } from "./room-document-collaboration";
 import { hasUnsavedRoomDocumentChanges } from "./room-document-local-copies";
 import type { UnifiedDocumentPageModel } from "./use-unified-document-page-model";
+import { isMailCanvasTarget } from "./canvas/canvas-targets";
 
 interface UnifiedDocumentBodyProps {
   /** The Document actions, shown at the end of the byline row. */
@@ -205,7 +206,7 @@ function UnifiedDocumentEditorLayout({
     setHeadings,
     tenantId,
   } = model;
-  const mailCanvas = model.canvasTarget === "gmail";
+  const mailCanvas = isMailCanvasTarget(model.canvasTarget);
   return (
     <div
       className={`room-document-layout mx-auto min-h-full${knowledgeTitle !== undefined ? " room-document-layout--knowledge" : ""}`}

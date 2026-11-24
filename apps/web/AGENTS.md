@@ -67,12 +67,14 @@ build:assets` to check the initial JS budget.
   `@linger/service-kit/featured-models`, degrading to a partner highlight with
   external links when absent from the catalog),
   renders tinted family icon tiles, Agent
-  usage counts, structured capability/parameter badges (never matched against
+  usage counts, structured engine pills (`PolyStrata` / `llama.cpp` / `Strata`),
+  capability/parameter badges (never matched against
   `name` or `description`), state-distinct cards (`loaded`, `recommended`,
   `failed` with short failure reasons and direct `Remove` for damaged/missing
   files, `unavailable`), download speed/ETA, live Bifrost (`Pi`) `Gateway`
   readiness, and top diagnostic callouts with a two-column model-card facts
-  grid from structured `LocalModel` fields in `local-models-rules.ts`, resolves
+  grid (including `Engine`, `Concurrency`, and hybrid `System memory`) from
+  structured `LocalModel` fields in `local-models-rules.ts`, resolves
   Sponsor-owned Agent eligibility and `Pi` runtime switch payloads in
   `local-model-agents.ts` (`Use with <Another Me>`, `Open chat`,
   `Switch Agent…` in `Used by`, and `Make room` automatic Agent handoff once
@@ -93,9 +95,12 @@ build:assets` to check the initial JS budget.
   Removing), and spins that action's button, with the row's actions off; a
   download the Computer accepted can be cancelled before its first progress.
   Make room filters stale unloaded IDs out of `unload_first`, lists what else
-  holds the pool (components, and other apps from `used_bytes` no holder
-  accounts for) when unloading models cannot free enough, and says a model
-  cannot fit only when it needs more than the pool's total. Opening the page or
+  holds the pool (components and other apps) when unloading models cannot free
+  enough, and says a model cannot fit only when it needs more than the pool's
+  total. When the pool reports `external_holders`, only those apps count as
+  Other apps and the rest of the `used_bytes` no holder accounts for shows as
+  System & engine; without the field, all of that rest counts as Other apps.
+  Opening the page or
   reconnecting an offline Computer auto-refreshes `model-source` and triggers a
   fresh `POST .../local-models` memory snapshot for the owner, while
   `LOCAL_COMPUTER_OFFLINE` disables BYOK edits immediately. A Computer's detail
@@ -149,6 +154,10 @@ build:assets` to check the initial JS budget.
   uses the red panda portrait on its warm brown tile.
 - The login header uses the transparent horizontal Linger wordmark in
   `public/linger-wordmark.svg`, with the proportions of `assets/logo-horizontal.svg`.
+- The Another Me Chat opens with a danger banner while TeamHub's Another Me
+  carries `background_failure` (three or more failed background model calls
+  in a row), worded from its reason code (an unknown code reads as unknown).
+  It cannot be dismissed and goes once a background call completes.
 - Switching between Meeting and Voice Mode ends the previous session and
   releases its microphone before the new mode starts. Meeting saving can
   continue in the background. The sidebar Meeting entry spins only while a
@@ -222,7 +231,10 @@ build:assets` to check the initial JS budget.
   From/To/Cc/Bcc headers, followed by the full body and attachments. An empty
   Cc row reads None; Bcc appears only when populated. Email
   actions are Send and Don't send; declining does not request a reason.
-- A gmail canvas message segment renders as its email card
+- Feishu Mail setup in the connection card and app management dialog reads the
+  same account-scoped status. Rechecking does not create a connection or
+  open OAuth. The connect action starts authorization after setup is ready.
+- A mail canvas (`gmail` or `feishu_mail` target) message segment renders as its email card
   (`rooms/chat/message-mail-canvas.tsx`), laid out like a message approval:
   subject row with open-in-panel and expand controls, recipient line, then
   Send and Don't send, or one receipt line once decided; an unknown result

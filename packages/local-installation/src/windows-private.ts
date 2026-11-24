@@ -3,7 +3,7 @@ import path from "node:path";
 import { createInterface } from "node:readline";
 import { runProcess } from "./process.js";
 
-const WINDOWS_PRIVATE_PREAMBLE = String.raw`$ErrorActionPreference = 'Stop'
+export const WINDOWS_PRIVATE_PREAMBLE = String.raw`$ErrorActionPreference = 'Stop'
 # This fixed Windows PowerShell script uses only its own built-in modules.
 # A caller's PowerShell 7 modules can prevent Get-Acl from loading.
 $env:PSModulePath = [IO.Path]::Combine($PSHOME, 'Modules')
@@ -18,6 +18,10 @@ function Test-Administrator {
     $script:isAdministrator = $true
     return $true
   }
+  $script:isAdministrator = Test-LinkedTokenAdministrator
+  return $script:isAdministrator
+}
+function Test-LinkedTokenAdministrator {
   if (-not ('LingerLinkedToken' -as [type])) {
     Add-Type -TypeDefinition @'
 using System;
@@ -46,8 +50,7 @@ public static class LingerLinkedToken {
   $administrators = [Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')
   $binary = [byte[]]::new($administrators.BinaryLength)
   $administrators.GetBinaryForm($binary, 0)
-  $script:isAdministrator = [LingerLinkedToken]::IsAdministrator($binary)
-  return $script:isAdministrator
+  return [LingerLinkedToken]::IsAdministrator($binary)
 }`;
 
 const WINDOWS_PRIVATE_CHECK_BODY = String.raw`  $item = Get-Item -LiteralPath $request.path -Force
@@ -207,16 +210,16 @@ function powershellPath(): string {
   );
 }
 
+// Both launch sites and the native test share these arguments, so the test
+// covers how Node's Windows argv quoting carries the script's double quotes.
+export function windowsPowerShellArguments(script: string): string[] {
+  return ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script];
+}
+
 function spawnDefaultWorker(): WorkerProcess {
   return spawn(
     powershellPath(),
-    [
-      "-NoLogo",
-      "-NoProfile",
-      "-NonInteractive",
-      "-EncodedCommand",
-      Buffer.from(WINDOWS_PRIVATE_WORKER_SCRIPT, "utf16le").toString("base64"),
-    ],
+    windowsPowerShellArguments(WINDOWS_PRIVATE_WORKER_SCRIPT),
     {
       stdio: ["pipe", "pipe", "ignore"],
       windowsHide: true,
@@ -401,13 +404,7 @@ export async function windowsPrivatePath(
   const result = run
     ? await run(
         powershellPath(),
-        [
-          "-NoLogo",
-          "-NoProfile",
-          "-NonInteractive",
-          "-EncodedCommand",
-          Buffer.from(WINDOWS_PRIVATE_SCRIPT, "utf16le").toString("base64"),
-        ],
+        windowsPowerShellArguments(WINDOWS_PRIVATE_SCRIPT),
         {
           input: payload,
           timeoutMs: REQUEST_TIMEOUT_MS,

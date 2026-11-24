@@ -96,7 +96,7 @@ func (s *Service) CreateAgentDocument(
 
 func validateAgentDocumentCreateInput(input CreateAgentDocumentInput) ([]byte, error) {
 	if input.Principal == nil || input.SourceInvocationID == "" || len(input.SourceInvocationID) > 255 ||
-		!utf8.ValidString(input.Title) || len(input.Title) < 1 || len(input.Title) > 255 ||
+		!ValidDocumentTitle(input.Title) ||
 		!utf8.ValidString(input.Markdown) || len(input.Markdown) > 1048576 {
 		return nil, ErrInvalidInput
 	}

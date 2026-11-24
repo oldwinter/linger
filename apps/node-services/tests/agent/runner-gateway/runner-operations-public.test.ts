@@ -704,6 +704,261 @@ describe("RunnerGateway", () => {
     }
   });
 
+  it("yields a Claude Run only after it has done model work", async () => {
+    const gateway = createTestRunnerGateway({
+      createId: sequenceIds(),
+      operationCancelTimeoutMs: 10,
+    });
+    const peer = new RecordingPeer();
+    const connection = await acceptReadyConnection(
+      gateway,
+      peer,
+      {
+        ...hello([], 1),
+        runtimes: ["claude"],
+        runtime_diagnostics: runtimeDiagnostics({
+          link: "api",
+          ready: ["claude"],
+        }),
+      },
+      { ...defaultAgentPlacement(), runtime: { type: "claude" } },
+    );
+    try {
+      const target = runTarget();
+      const task = await gateway.startOperation({
+        ...target,
+        request: { ...target.request, runtime: { type: "claude" } },
+        runKind: "task",
+      });
+      void task.result.catch(() => undefined);
+      const start = peer.sent.find(
+        (command) => command.type === "operation.start",
+      )!;
+      const chat = gateway.startOperation({
+        ...target,
+        ...readyContextScope("chat"),
+        request: { ...target.request, runtime: { type: "claude" } },
+        runKind: "chat",
+      });
+      chat.then(
+        (interactive) => interactive.result.catch(() => undefined),
+        () => undefined,
+      );
+      await connection.receive(
+        event(start, 1, {
+          type: "operation.accepted",
+          command_id: start.command_id,
+          runner_pid: 100,
+        }),
+      );
+      await connection.receive(
+        event(start, 2, {
+          type: "operation.event",
+          event: {
+            type: "run.started",
+            turn_id: "turn-task",
+            session: { threadId: "task-session", canYield: true },
+          },
+        }),
+      );
+      // A resumable session alone does not make the Run give up its place.
+      expect(await settlesWithin(chat, 10)).toBe(false);
+      expect(peer.sent.some((command) => command.type === "cancel")).toBe(
+        false,
+      );
+      await connection.receive(
+        event(start, 3, {
+          type: "operation.event",
+          event: { type: "status.changed", status: "thinking" },
+        }),
+      );
+      await vi.waitFor(() =>
+        expect(
+          peer.sent.find((command) => command.type === "cancel"),
+        ).toMatchObject({
+          operation_id: start.operation_id,
+          reason: "scheduler_yield",
+        }),
+      );
+    } finally {
+      connection.disconnect();
+    }
+  });
+
+  it("asks another Run once a yield is overdue", async () => {
+    const gateway = createTestRunnerGateway({
+      createId: sequenceIds(),
+      operationYieldDeadlineMs: 20,
+    });
+    const peer = new RecordingPeer();
+    const connection = await acceptReadyConnection(gateway, peer, {
+      ...hello([], 3),
+      runtime_diagnostics: runtimeDiagnostics({ link: "subscription" }),
+    });
+    const startTask = async (name: string, firstSequence: number) => {
+      const task = await gateway.startOperation({
+        ...runTarget(),
+        ...readyContextScope(name),
+        runKind: "task",
+      });
+      void task.result.catch(() => undefined);
+      const start = peer.sent
+        .filter((command) => command.type === "operation.start")
+        .at(-1)!;
+      await connection.receive(
+        event(start, firstSequence, {
+          type: "operation.accepted",
+          command_id: start.command_id,
+          runner_pid: 100,
+        }),
+      );
+      await connection.receive(
+        event(start, firstSequence + 1, {
+          type: "operation.event",
+          event: {
+            type: "run.started",
+            turn_id: `turn-${name}`,
+            session: { threadId: `session-${name}`, canYield: true },
+          },
+        }),
+      );
+      await connection.receive(
+        event(start, firstSequence + 2, {
+          type: "operation.event",
+          event: {
+            type: "tool.called",
+            call_id: `read-${name}`,
+            tool_name: "read",
+            input: {},
+          },
+        }),
+      );
+      return start;
+    };
+    try {
+      // Two Tasks fill the ordinary places and a routine the last one.
+      const first = await startTask("task-a", 1);
+      const second = await startTask("task-b", 1);
+      const routine = await gateway.startOperation({
+        ...runTarget(),
+        ...readyContextScope("routine"),
+        runKind: "routine",
+      });
+      void routine.result.catch(() => undefined);
+      const chat = gateway.startOperation({
+        ...runTarget(),
+        ...readyContextScope("chat"),
+        runKind: "chat",
+      });
+      chat.then(
+        (interactive) => interactive.result.catch(() => undefined),
+        () => undefined,
+      );
+      const yields = () =>
+        peer.sent.flatMap((command) =>
+          command.type === "cancel" &&
+          command.target === "operation" &&
+          command.reason === "scheduler_yield"
+            ? [command.operation_id]
+            : [],
+        );
+      await vi.waitFor(() => expect(yields()).toHaveLength(1));
+      // The first Computer never finishes its yield; after the deadline the
+      // other Task is asked instead of the stuck one again.
+      await vi.waitFor(() => expect(yields()).toHaveLength(2));
+      const [stuck, asked] = yields();
+      expect(new Set([stuck, asked])).toEqual(
+        new Set([first.operation_id, second.operation_id]),
+      );
+      const yielded = asked === first.operation_id ? first : second;
+      await connection.receive(
+        event(yielded, 4, {
+          type: "operation.cancelled",
+          reason: "scheduler_yield",
+        }),
+      );
+      await expect(chat).resolves.toBeDefined();
+      expect(yields()).toHaveLength(2);
+    } finally {
+      connection.disconnect();
+    }
+  });
+
+  it("frees a stopped Task's place once its Computer stays silent past the grace", async () => {
+    const cancelTimeoutMs = 10;
+    const gateway = createTestRunnerGateway({
+      createId: sequenceIds(),
+      operationCancelTimeoutMs: cancelTimeoutMs,
+      stoppedTaskGraceMs: 1_000,
+    });
+    const peer = new RecordingPeer();
+    const connection = await acceptReadyConnection(gateway, peer, {
+      ...hello([], 1),
+      runtime_diagnostics: runtimeDiagnostics({ link: "api" }),
+    });
+    try {
+      const task = await gateway.startOperation({
+        ...runTarget(),
+        runKind: "task",
+      });
+      const start = peer.sent.find(
+        (command) => command.type === "operation.start",
+      )!;
+      await connection.receive(
+        event(start, 1, {
+          type: "operation.accepted",
+          command_id: start.command_id,
+          runner_pid: 100,
+        }),
+      );
+      let taskSettled = false;
+      const stopped = expect(
+        task.result.finally(() => {
+          taskSettled = true;
+        }),
+      ).rejects.toMatchObject({ code: "cancelled" });
+      await task.cancel("user_stop");
+      let chatStarted = false;
+      const chat = gateway
+        .startOperation({
+          ...runTarget(),
+          ...readyContextScope("chat"),
+          runKind: "chat",
+        })
+        .then((interactive) => {
+          chatStarted = true;
+          return interactive;
+        });
+      const starts = () =>
+        peer.sent
+          .filter((command) => command.type === "operation.start")
+          .map((command) => command.execution_context_key);
+      // Past the cancel timeout but inside the grace, the stopped Task still
+      // holds its places.
+      await new Promise((resolve) => setTimeout(resolve, cancelTimeoutMs * 5));
+      expect(taskSettled).toBe(false);
+      expect(chatStarted).toBe(false);
+      expect(starts()).toEqual([start.execution_context_key]);
+      // The Computer never confirms the stop, so the Task's model and
+      // Computer places go to the chat after the grace.
+      await stopped;
+      const interactive = await chat;
+      void interactive.result.catch(() => undefined);
+      expect(starts()).toEqual([start.execution_context_key, "context-chat"]);
+      // A late terminal for the released Task is acknowledged and dropped.
+      await connection.receive(
+        event(start, 2, { type: "operation.cancelled", reason: "user_stop" }),
+      );
+      expect(peer.sent.at(-1)).toMatchObject({
+        type: "operation.ack",
+        operation_id: start.operation_id,
+        through_seq: 2,
+      });
+    } finally {
+      connection.disconnect();
+    }
+  });
+
   it("records the Runtime turn a Run's Operation started as soon as it starts", async () => {
     const recordRunOperation = vi.fn(async () => {});
     const gateway = createTestRunnerGateway({
@@ -900,6 +1155,89 @@ describe("RunnerGateway", () => {
       (await second).release();
     } finally {
       stop.abort();
+      connection.disconnect();
+    }
+  });
+
+  it("aborts a waiting startOperation on preemptSignal without sending operation.start, and ignores it once sent", async () => {
+    const gateway = createTestRunnerGateway({ createId: sequenceIds() });
+    const peer = new RecordingPeer();
+    const connection = await acceptReadyConnection(
+      gateway,
+      peer,
+      {
+        ...hello([], 1),
+        runtime_diagnostics: runtimeDiagnostics({
+          link: "api",
+          ready: ["codex"],
+        }),
+      },
+      defaultAgentPlacement(),
+    );
+    try {
+      const target = runTarget();
+      const first = await gateway.startOperation({
+        ...target,
+        runKind: "routine",
+      });
+      first.result.catch(() => undefined);
+      expect(
+        peer.sent.filter((command) => command.type === "operation.start"),
+      ).toHaveLength(1);
+
+      const stop = new AbortController();
+      const preempt = new AbortController();
+      const waiting = gateway.startOperation({
+        ...target,
+        ...readyContextScope("waiting"),
+        runKind: "follow_up",
+        signal: stop.signal,
+        preemptSignal: preempt.signal,
+      });
+      const reason = new Error("preempted");
+      preempt.abort(reason);
+      await expect(waiting).rejects.toBe(reason);
+      expect(
+        peer.sent.filter((command) => command.type === "operation.start"),
+      ).toHaveLength(1);
+
+      // Once start is sent, aborting preemptSignal does not cancel it.
+      const firstStart = peer.sent.find(
+        (command) => command.type === "operation.start",
+      )!;
+      await connection.receive(
+        event(firstStart, 1, {
+          type: "operation.accepted",
+          command_id: firstStart.command_id,
+          runner_pid: 100,
+        }),
+      );
+      await connection.receive(
+        event(firstStart, 2, {
+          type: "operation.completed",
+          result: {
+            type: "run",
+            final_response: "done",
+            session: { thread_id: "thread-1" },
+          },
+        }),
+      );
+      const latePreempt = new AbortController();
+      const started = await gateway.startOperation({
+        ...target,
+        ...readyContextScope("started"),
+        runKind: "follow_up",
+        preemptSignal: latePreempt.signal,
+      });
+      started.result.catch(() => undefined);
+      expect(
+        peer.sent.filter((command) => command.type === "operation.start"),
+      ).toHaveLength(2);
+      latePreempt.abort(new Error("late preempt"));
+      expect(peer.sent.some((command) => command.type === "cancel")).toBe(
+        false,
+      );
+    } finally {
       connection.disconnect();
     }
   });

@@ -12,14 +12,11 @@ import {
   FIRST_STOP_HOOK_COMPUTER_VERSION,
   findRuntimeModel,
   isComputerVersionAtLeast,
-  LocalComputerModelError,
   LocalRuntimeAuthenticationRequiredError,
   resolveRuntimeModel,
   runtimeModelCatalogForComputer,
-  type LocalReasoningEffort,
   type LocalRuntimeModelCatalog,
   type LocalRuntimeModelDefinition,
-  type LocalRuntimeType,
 } from "./local-computer-management.js";
 import { isServingConnection } from "./runner-connections.js";
 import type {
@@ -266,22 +263,6 @@ export class RunnerOperationPreparation {
     return { prepareId };
   }
 }
-
-export const assertReasoningEffort = (
-  model: LocalRuntimeModelDefinition,
-  reasoningEffort: LocalReasoningEffort | undefined,
-  runtimeType: LocalRuntimeType,
-): void => {
-  const allowed = model.allowedReasoningEffort ?? [];
-  // A model without effort levels runs without one (withSupportedReasoningEffort).
-  if (allowed.length === 0) return;
-  if (reasoningEffort === undefined || !allowed.includes(reasoningEffort)) {
-    throw new LocalComputerModelError(
-      runtimeType,
-      "Local Computer model reasoning effort is unavailable",
-    );
-  }
-};
 
 const contextRunStartMatches = (
   start: RunnerOperationState["start"],

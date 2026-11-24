@@ -35,6 +35,9 @@ whitelist function that uses the resulting schema.
 | 00887            | 00891        | direct_chat_mentions_its_agent            |
 | 00888            | 00892        | voice_stop_reconcile_failures             |
 | 00889            | 00893        | message_human_waiting                     |
+| 00890            | 00894        | feishu_mail                               |
+| 00891            | 00895        | another_me_background_failures            |
+| 00892            | 00896        | meta_chat_preempts                        |
 
 This sequence supports an empty database and an existing fork database,
 including one at version `00869`. Goose records numeric versions without a

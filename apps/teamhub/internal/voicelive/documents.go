@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/document"
 )
 
 // Document tools: the live voice creates, renames and edits the Documents
@@ -82,7 +84,7 @@ var DocumentTools = []Tool{
 		Description: "Add to a document or canvas in this app, or rewrite all of it, as the user asks; it changes in the side panel at once. " + documentTarget +
 			"command append adds content (Markdown) at the end. command rewrite replaces the whole document with content: all of it in Markdown, keeping what the user did not ask to change. " +
 			"A rewrite needs the revision_id of the text you rewrote: call it without revision_id first, or after document_changed, to get the latest text and revision_id, redo the change on that text and call again. " +
-			"To change one line, use replace_document_text instead; to add an image, insert_document_image. document_has_media (images or files) or document_locked: use append or replace_document_text, or start_task naming the document_id. " +
+			"To change one line, use replace_document_text instead; to add an image, insert_document_image. Images and files stay where they are: keep each of their lines (document-asset:) as you read it and in order, and rewrite only the text around them; media_moved means one was left out or moved. document_has_media (media inside other blocks) or document_locked: use replace_document_text, or start_task naming the document_id. " +
 			"For a Gmail canvas use edit_email_canvas instead. When it is changed, say in one short sentence what you changed. document_not_editable means the Agent may not edit it.",
 		Parameters: objectSchema([]string{"document_id", "command", "content"}, map[string]any{
 			"document_id": stringProperty("The document to change"),
@@ -224,7 +226,7 @@ func DocumentEdit(args DocumentArguments) (edit map[string]string, problem strin
 // DocumentTitle is the title a rename sets; false when it is not one line.
 func DocumentTitle(raw string) (string, bool) {
 	title := strings.Join(strings.Fields(raw), " ")
-	return title, title != "" && utf8.RuneCountInString(title) <= 255
+	return title, document.ValidDocumentTitle(title)
 }
 
 // DocumentBlock is one block of a blocks export with its own text.

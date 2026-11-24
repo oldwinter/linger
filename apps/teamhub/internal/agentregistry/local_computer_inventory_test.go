@@ -89,3 +89,77 @@ func TestProjectStoredLocalComputerSkipsAComputerWithoutAnOwnerGrant(t *testing.
 		t.Fatalf("listed=%v err=%v", listed, err)
 	}
 }
+
+func TestStoredRuntimeModelsResolvesFallbackDefaultReasoningEffort(t *testing.T) {
+	now := time.Date(2026, 11, 19, 12, 0, 0, 0, time.UTC)
+	row := storedLocalComputer("online", now)
+	row.RuntimeDiagnostics = []byte(`[
+		{"type":"codex","status":"ready","protocol":"app-server","checked_at":"2026-11-19T00:00:00Z","models":[
+			{"id":"gpt-6-astra","label":"GPT-6-Astra","allowed_reasoning_effort":["low","xhigh"]}
+		]},
+		{"type":"pi","status":"ready","protocol":"rpc","checked_at":"2026-11-19T00:00:00Z","models":[
+			{"id":"spark","label":"Spark-X2.6-4B","allowed_reasoning_effort":["none","low","high"]},
+			{"id":"qwen","label":"Qwen3.6-35B-A3B","allowed_reasoning_effort":["none","low","medium","high"]},
+			{"id":"high-only","label":"HighOnly","allowed_reasoning_effort":["none","high"]},
+			{"id":"xhigh-only","label":"XHighOnly","allowed_reasoning_effort":["none","xhigh"]},
+			{"id":"none-only","label":"NoneOnly","allowed_reasoning_effort":["none"]},
+			{"id":"explicit-none","label":"ExplicitNone","allowed_reasoning_effort":["none","low","high"],"default_reasoning_effort":"none"},
+			{"id":"invalid-default","label":"InvalidDefault","allowed_reasoning_effort":["none","low","high"],"default_reasoning_effort":"medium"},
+			{"id":"no-effort","label":"NoEffort","allowed_reasoning_effort":[]}
+		]}
+	]`)
+	item, listed, err := projectStoredLocalComputer(row, "tenant_1", now)
+	if err != nil || !listed || len(item.Runtimes) != 2 {
+		t.Fatalf("computer=%+v listed=%v err=%v", item, listed, err)
+	}
+	want := map[string]string{
+		"spark":           "low",
+		"qwen":            "medium",
+		"high-only":       "high",
+		"xhigh-only":      "xhigh",
+		"none-only":       "none",
+		"explicit-none":   "none",
+		"invalid-default": "low",
+		"no-effort":       "",
+	}
+	for _, model := range item.Runtimes[1].Models {
+		got := ""
+		if model.DefaultReasoningEffort != nil {
+			got = string(*model.DefaultReasoningEffort)
+		}
+		if got != want[model.Id] {
+			t.Fatalf("%s default_reasoning_effort=%q, want %q", model.Id, got, want[model.Id])
+		}
+	}
+
+	medium := httpapi.AgentReasoningEffortMedium
+	high := httpapi.AgentReasoningEffortHigh
+	ultra := httpapi.AgentReasoningEffortUltra
+	if resolved := resolveRegistrationReasoningEffort(row.RuntimeDiagnostics, "pi", "spark", nil); resolved == nil || *resolved != httpapi.AgentReasoningEffortLow {
+		t.Fatalf("omitted effort on spark=%v, want low", resolved)
+	}
+	if resolved := resolveRegistrationReasoningEffort(row.RuntimeDiagnostics, "pi", "spark", &medium); resolved == nil || *resolved != httpapi.AgentReasoningEffortLow {
+		t.Fatalf("unsupported medium on spark=%v, want low", resolved)
+	}
+	if resolved := resolveRegistrationReasoningEffort(row.RuntimeDiagnostics, "pi", "spark", &high); resolved == nil || *resolved != httpapi.AgentReasoningEffortHigh {
+		t.Fatalf("supported high on spark=%v, want high", resolved)
+	}
+	if resolved := resolveRegistrationReasoningEffort(row.RuntimeDiagnostics, "pi", "spark", &ultra); resolved == nil || *resolved != httpapi.AgentReasoningEffortLow {
+		t.Fatalf("unsupported ultra on pi spark=%v, want low", resolved)
+	}
+	if resolved := resolveRegistrationReasoningEffort(row.RuntimeDiagnostics, "pi", "qwen", nil); resolved == nil || *resolved != httpapi.AgentReasoningEffortMedium {
+		t.Fatalf("omitted effort on qwen=%v, want medium", resolved)
+	}
+	if resolved := resolveRegistrationReasoningEffort(row.RuntimeDiagnostics, "codex", "gpt-6-astra", nil); resolved == nil || *resolved != httpapi.AgentReasoningEffortLow {
+		t.Fatalf("omitted effort on codex=%v, want low", resolved)
+	}
+	if resolved := resolveRegistrationReasoningEffort(row.RuntimeDiagnostics, "codex", "gpt-6-astra", &medium); resolved == nil || *resolved != httpapi.AgentReasoningEffortLow {
+		t.Fatalf("unsupported medium on codex=%v, want low", resolved)
+	}
+	if resolved := resolveRegistrationReasoningEffort(row.RuntimeDiagnostics, "codex", "gpt-6-astra", &ultra); resolved == nil || *resolved != httpapi.AgentReasoningEffortUltra {
+		t.Fatalf("explicit unsupported non-default effort on codex=%v, want ultra preserved", resolved)
+	}
+	if resolved := resolveRegistrationReasoningEffort(row.RuntimeDiagnostics, "pi", "unlisted", nil); resolved != nil {
+		t.Fatalf("unlisted model effort=%v, want nil", resolved)
+	}
+}

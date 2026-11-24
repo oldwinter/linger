@@ -1,5 +1,5 @@
 // One Grok Voice session configured like production (TeamHub instructions and
-// tools, the worker's own tools, server web_search, server VAD 300 ms) and
+// tools, the worker's own tools, server web_search, server VAD 400 ms) and
 // driven with text turns, so scenarios measure the model and its orchestration.
 import { readFileSync } from "node:fs";
 import WebSocket from "ws";
@@ -20,6 +20,7 @@ import { realtimeInstructions } from "../../src/realtime.js";
 import {
   cutOffNote,
   spokenSafeNames,
+  withLanguage,
   withModelNames,
   xaiSpeedTool,
 } from "../../src/xai-live.js";
@@ -104,12 +105,12 @@ export class Session {
       type: "session.update",
       session: {
         instructions: context.instructions,
-        voice: "ara",
+        voice: "carina",
         // Production runs high; LIVE_REASONING=none compares the other level.
         reasoning: {
           effort: process.env.LIVE_REASONING === "none" ? "none" : "high",
         },
-        turn_detection: { type: "server_vad", silence_duration_ms: 300 },
+        turn_detection: { type: "server_vad", silence_duration_ms: 400 },
         tools: [
           ...context.tools.map((tool) => ({
             type: "function",
@@ -317,7 +318,11 @@ export class Session {
           item: {
             type: "function_call_output",
             call_id: id,
-            output: JSON.stringify(outputs[index]),
+            // As the worker answers: the reminder keeps the user's language.
+            output: withLanguage(
+              JSON.stringify(outputs[index]),
+              this.lastWords,
+            ),
           },
         }),
       );

@@ -55,28 +55,36 @@ proactive Runs rank above Tasks on purpose: a routine that comes due or a
 reminder the user asked for runs on time instead of waiting for a long Task,
 and the Task gives up its current turn for it. Work of one
 priority never swaps out its own kind. A Run can yield once the Runtime has a
-resumable native session. On Codex, the Run must also have produced model
-output, its thinking included, or a tool event so that its original input is
-in its history. A pending tool approval or human interaction is answered
-before yielding. The waiting work starts after the Computer confirms cleanup.
-A Run that finishes on its own while it is asked to yield completes normally.
-The yielded Run keeps its ID, running status and claim while it waits, and
-continues in the same session when admitted again. A user stop still ends it.
+resumable native session and the Run has produced model output, its thinking
+included, or a tool event since it last started or resumed. Its original input
+is then in its history, and every resume makes some progress before the Run
+can be swapped out again. A pending tool approval or human interaction is
+answered before yielding. The waiting work starts after the Computer confirms
+cleanup. A Run that finishes on its own while it is asked to yield completes
+normally. The yielded Run keeps its ID, running status and claim while it
+waits, and continues in the same session when admitted again. A user stop
+still ends it. A yield the Computer has not finished after 90 seconds no
+longer blocks other swaps: the Agent Service logs it, does not ask that Run
+again, and lets the waiting work ask the next Run below it. A Task the user
+stopped keeps its place until its Computer confirms the stop, so a chat
+cannot start beside it, but for at most the cancel timeout plus 45 seconds;
+then the Agent Service ends it, logs the unconfirmed stop and frees the place.
 If a yielded Run's cleanup cannot be confirmed, the Computer refuses further
 work on that Runtime until it restarts. Other stops only report the unknown
 cleanup. A recording question, its notes, an approval and a compaction are
 never interrupted, so waiting work may still wait for one of them.
 
-Each running Operation holds one place across its tool calls. A Room
-conversation's Run waits and runs at the priority of the most urgent input it
-serves: its own inputs, a message steered into it, and every Run queued after
-it in that conversation. A chat that arrives while a follow-up waits or runs
-therefore moves the follow-up to chat priority, so it can swap out other
-conversation work ahead of it. The priority never drops while the Run lives.
-Task and document Runs keep theirs. Eligible work at the same priority starts
-in arrival order. When interactive work has waited 30 seconds for a place, the
-Agent Service log names the Runs holding places and why none of them can
-yield.
+Each running Operation holds one place across its tool calls. Within a Room
+conversation, a chat does not wait behind non-chat work of that conversation.
+If a non-chat Run has not yet been sent to its Runtime — before claim, waiting
+for a place, or waiting to resume after a yield — the waiting Run returns to
+the queue and the chat is claimed first. If the Run has already reached its
+Runtime, the chat steers into it from any of the Room's Inboxes and raises the
+Run's priority to chat, so it can swap out lower work ahead of it. The priority
+never drops while the Run lives. Task and document Runs keep theirs. Eligible
+work at the same priority starts in arrival order. When interactive work has
+waited 30 seconds for a place, the Agent Service log names the Runs holding
+places and why none of them can yield.
 
 Wiki and Memory chains keep their steps in order on one endpoint. Each model
 attempt releases its place when the Runtime answers or the step is swapped
@@ -98,6 +106,6 @@ its length cap or a runtime failure is tried again after a pause, and an answer
 that does not fit its schema or its caller's checks is sent back with the
 reason. How many tries a call gets depends on its kind.
 
-<sub>The queue only admits work; it never reorders a conversation. Within one
-chat, a new message joins the reply in progress or waits for the next one, so
-turns stay in order.</sub>
+<sub>The queue only admits work; within a Room conversation, a chat may join
+the reply in progress or go ahead of queued non-chat work, while chats keep
+their order.</sub>

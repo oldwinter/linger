@@ -152,7 +152,7 @@ const mail = {
   },
 };
 describe("reviewed Connector command boundaries", () => {
-  it("provides all 59 reviewed leaves as offline help and schemas, excluding removed apps", async () => {
+  it("provides all 68 reviewed leaves as offline help and schemas, excluding removed apps", async () => {
     const f = await fixture("gmail", () => {
       throw new Error("offline must not call provider");
     });
@@ -160,7 +160,7 @@ describe("reviewed Connector command boundaries", () => {
       x.toolName.startsWith("connector_"),
     );
     // Includes the two provider-independent generation commands.
-    expect(commands.length).toBe(59);
+    expect(commands.length).toBe(68);
     for (const command of commands) {
       expect(
         await runCli([...command.command, "--help"], { ...f.deps, env: {} }),
@@ -670,7 +670,8 @@ describe("mail attachment downloads", () => {
   });
   it.each([
     [[], "OUTLOOK_QUERY_EMAILS"],
-    [["--folder", "all"], "OUTLOOK_QUERY_EMAILS"],
+    [["--folder", "all"], "OUTLOOK_LIST_MESSAGES"],
+    [["--folder", "all", "--unread"], "OUTLOOK_LIST_MESSAGES"],
     [["--folder", "sent", "--unread"], "OUTLOOK_QUERY_EMAILS"],
     [["--unread"], "OUTLOOK_QUERY_EMAILS"],
     [["--query", "invoice"], "OUTLOOK_LIST_MESSAGES"],
@@ -690,6 +691,58 @@ describe("mail attachment downloads", () => {
       expect(await validateSchema(schema, seen[0]!.args)).toBe(true);
     },
   );
+  it("lists the whole Outlook mailbox newest first and pages it without a query", async () => {
+    const seen: Json[] = [];
+    const f = await fixture("outlook", (slug, args) => {
+      expect(slug).toBe("OUTLOOK_LIST_MESSAGES");
+      seen.push(args);
+      return args.page_token
+        ? { value: [{ id: "message_two", isRead: false }] }
+        : {
+            value: [{ id: "message_one", isRead: false }],
+            next_page_token: "page_2",
+          };
+    });
+    const flags = ["outlook", "list", "--folder", "all", "--unread"];
+    const first = await f.run([...flags, "--limit", "1", "--json"]);
+    expect(first.code, JSON.stringify(first.error)).toBe(0);
+    expect(first.result).toMatchObject({
+      messages: [{ messageId: "message_one", unread: true }],
+      hasMore: true,
+    });
+    const next = await f.run([
+      ...flags,
+      "--limit",
+      "1",
+      "--cursor",
+      first.result.nextCursor,
+      "--json",
+    ]);
+    expect(next.result).toMatchObject({
+      messages: [{ messageId: "message_two", unread: true }],
+      hasMore: false,
+    });
+    expect(next.result).not.toHaveProperty("nextCursor");
+    expect(seen).toEqual([
+      {
+        top: 1,
+        folder: "allfolders",
+        filter: "receivedDateTime ge 0001-01-01T00:00:00Z and isRead eq false",
+        orderby: ["receivedDateTime desc"],
+      },
+      expect.objectContaining({ folder: "allfolders", page_token: "page_2" }),
+    ]);
+    const inbox = await f.run([
+      "outlook",
+      "list",
+      "--unread",
+      "--limit",
+      "1",
+      "--cursor",
+      first.result.nextCursor,
+    ]);
+    expect(inbox.error.error.code).toBe("cursor_mismatch");
+  });
   it("requires an attachment ID for duplicate Outlook names", async () => {
     const ids = ["AAMkAGI2THVSAAABEgAQAC/+x1=", "AAMkAGI2THVSAAABEgAQAD+y2="];
     const f = await fixture("outlook", (slug) => {

@@ -3,6 +3,7 @@ package document
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/agentcredential"
@@ -78,5 +79,60 @@ func TestValidateSemanticMutationInputCanonicalizesEquivalentOperations(t *testi
 func TestValidateAppendBlocksNeedsNoExistingAnchor(t *testing.T) {
 	if err := validateSemanticOperation(json.RawMessage(`{"kind":"append_blocks","blocks":[{"id":"new-block","type":"paragraph","content":"Appended"}]}`)); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSetTitleCountsCharacters(t *testing.T) {
+	t.Parallel()
+
+	fits, err := json.Marshal(map[string]string{
+		"kind":  "set_title",
+		"title": strings.Repeat("\u6c49", MaxDocumentTitleCharacters),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateSemanticOperation(json.RawMessage(fits)); err != nil {
+		t.Fatalf("a title of 255 characters was refused: %v", err)
+	}
+	tooLong, err := json.Marshal(map[string]string{
+		"kind":  "set_title",
+		"title": strings.Repeat("\u6c49", MaxDocumentTitleCharacters+1),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateSemanticOperation(json.RawMessage(tooLong)); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("a title of one character more was accepted: %v", err)
+	}
+}
+
+func TestValidateSemanticOperationAcceptsAReplacementThatFitsInCharacters(t *testing.T) {
+	t.Parallel()
+
+	// 16667 Han characters are 50001 bytes and well inside the 50000 characters
+	// the contract allows, so a byte bound would refuse a replacement the tool
+	// accepts.
+	fits, err := json.Marshal(map[string]string{
+		"kind":        "replace_comment_text",
+		"thread_id":   "thread_1",
+		"replacement": strings.Repeat("\u6c49", 16667),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateSemanticOperation(json.RawMessage(fits)); err != nil {
+		t.Fatalf("a replacement of 16667 characters was refused: %v", err)
+	}
+	tooLong, err := json.Marshal(map[string]string{
+		"kind":        "replace_comment_text",
+		"thread_id":   "thread_1",
+		"replacement": strings.Repeat("\u6c49", MaxCommentReplacementCharacters+1),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateSemanticOperation(json.RawMessage(tooLong)); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("a replacement of one character more was accepted: %v", err)
 	}
 }

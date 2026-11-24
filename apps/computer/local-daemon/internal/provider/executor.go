@@ -129,8 +129,12 @@ type Executor struct {
 }
 
 type Result struct {
-	Diagnostics        native.RuntimeFailureDiagnostics
-	FailureCode        string
+	Diagnostics native.RuntimeFailureDiagnostics
+	FailureCode string
+	// ModelLoadFailed says the Daemon could not load a local model before
+	// the Runtime started. The cause is this Computer's resources, not a
+	// provider refusing the model, so the model is not rejected.
+	ModelLoadFailed    bool
 	NativeResume       *native.NativeResumeMeasurement
 	LastUsage          map[string]native.TokenCount
 	CompactionCount    *int64
@@ -428,13 +432,11 @@ func (e Executor) Start(ctx context.Context, spec OperationSpec, emit EmitFunc) 
 			codexConfigDigest = runtimeHome.ConfigDigest
 			skills := sha256.Sum256([]byte(runtimeHome.SkillDigest + "\x00" + spec.ContextSkillDigest))
 			residentSkillDigest = hex.EncodeToString(skills[:])
-			if native.CodexSupportsDirectTools(spec.CodexVersion) {
-				mcpConfig, capabilityErr = codexDirectLocalTools(mcpConfig, spec.TrustedLocalMCPTools)
-			}
+			mcpConfig, capabilityErr = codexDirectLocalTools(mcpConfig, spec.TrustedLocalMCPTools)
 			// A prepare binds the thread its Run reuses, so it carries the same
 			// managed hooks as that Run; the binding fingerprint covers them. The
 			// Run's MCP servers are attached when it adopts the process.
-			if capabilityErr == nil && (authorization.ReviewsPermissions() || authorization.UsesStopHook()) && native.CodexSupportsPermissionHook(spec.CodexVersion) {
+			if capabilityErr == nil && (authorization.ReviewsPermissions() || authorization.UsesStopHook()) {
 				codexHook, mcpConfig, capabilityErr = prepareCodexHooks(runtimeHome.Path, teamhubCommands, mcpConfig, authorization.ReviewsPermissions(), authorization.UsesStopHook())
 			}
 
@@ -478,7 +480,6 @@ func (e Executor) Start(ctx context.Context, spec OperationSpec, emit EmitFunc) 
 		TaskID:              spec.TaskID,
 		RuntimeID:           spec.RegistrationID,
 		ComputerVersion:     spec.DaemonVersion,
-		CodexToolVersion:    spec.CodexVersion,
 		CodexConfigArgs:     codexConfigArgs,
 		CodexConfigDigest:   codexConfigDigest,
 		PiConfigDigest:      piConfigDigest,

@@ -20,7 +20,7 @@ type UpdateMetadataResult struct {
 
 func (s *Service) UpdateMetadata(ctx context.Context, input UpdateMetadataInput) (UpdateMetadataResult, error) {
 	input.Title = strings.TrimSpace(input.Title)
-	if input.AccountID == "" || input.DocumentID == "" || input.Title == "" || len(input.Title) > 255 {
+	if input.AccountID == "" || input.DocumentID == "" || !ValidDocumentTitle(input.Title) {
 		return UpdateMetadataResult{}, ErrInvalidInput
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
