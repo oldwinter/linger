@@ -478,6 +478,8 @@ func (f *FakeServer) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch {
+	case f.serveWaveC1Route(w, r):
+		return
 	case path == "/companion/v1/status" && r.Method == http.MethodGet:
 		f.handleCompanionStatus(w)
 	case path == "/companion/v1/token/rotate" && r.Method == http.MethodPost:

@@ -89,10 +89,11 @@ type MessageAttachment struct {
 	SizeBytes         int64  `json:"size_bytes"`
 }
 
-// MessageSegment is one structured text or mention segment of a Message.
+// MessageSegment is one structured text, mention, or inline html_fragment segment of a Message.
 type MessageSegment struct {
 	Type    string    `json:"type"`
 	Content string    `json:"content"`
+	HTML    string    `json:"html,omitempty"`
 	Actor   *ActorRef `json:"actor,omitempty"`
 }
 

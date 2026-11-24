@@ -1,13 +1,12 @@
 // Package shell implements Linger Mobile's 5-tab navigation shell
 // (Rooms, Live, Work, Library, More), Biometric Lock Gate, Town Light/Dark
-// theme integration, and Connection Hub hosting.
+// theme integration, and pluggable Wave C screen routing.
 package shell
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 
 	"github.com/egoist/mygo"
@@ -17,42 +16,113 @@ import (
 	"github.com/oldwinter/linger/mobile/internal/components"
 	"github.com/oldwinter/linger/mobile/internal/config"
 	"github.com/oldwinter/linger/mobile/internal/screens/connect"
+	"github.com/oldwinter/linger/mobile/internal/screens/live"
+	"github.com/oldwinter/linger/mobile/internal/screens/rooms"
 	"github.com/oldwinter/linger/mobile/internal/state"
 	"github.com/oldwinter/linger/mobile/internal/theme"
 )
 
-// Shell owns the root 5-tab view, Biometric Lock Gate, and child screen controllers.
+// TabHooks lets Wave C-2 plug full Tabs 3/4/5 route views into Shell in ~10 lines
+// without editing Shell's core navigation or Tab 1/Tab 2 wiring.
+type TabHooks struct {
+	RouteWork    func(c *ui.Context, r *ui.Route, snap state.Snapshot)
+	RouteLibrary func(c *ui.Context, r *ui.Route, snap state.Snapshot)
+	RouteMore    func(c *ui.Context, r *ui.Route, snap state.Snapshot) bool
+}
+
+// Shell owns the root 5-tab view, Biometric Lock Gate, and tab screen controllers.
 type Shell struct {
 	store      *state.AppStore
 	connectHub *connect.Hub
+	roomsCtl   *rooms.Controller
+	liveCtl    *live.Controller
 	systemDark func() bool
 
 	mu             sync.Mutex
+	hooks          TabHooks
 	unlockError    string
 	unlocking      bool
 	biometricAvail biometrics.Kind
 }
 
-// New constructs a Shell bound to store.
+// New constructs a Shell bound to store with full Tab 1 (Rooms) and Tab 2 (Live) wired.
 func New(store *state.AppStore, systemDark func() bool) *Shell {
 	if systemDark == nil {
 		systemDark = func() bool { return false }
 	}
-	return &Shell{
+	s := &Shell{
 		store:      store,
 		connectHub: connect.NewHub(store),
 		systemDark: systemDark,
 	}
+	s.roomsCtl = rooms.NewController(store, rooms.NavigationHooks{
+		OnOpenConnect: s.OpenConnect,
+		OnOpenSettingsKey: func(kind, key string) {
+			s.OpenMoreRoute("/more/settings?focus=" + kind + "&key=" + key)
+		},
+		OnOpenCompute: func(computerID, section string) {
+			s.OpenLiveCompute(computerID, section)
+		},
+	})
+	s.liveCtl = live.NewController(store, live.NavigationHooks{
+		OnOpenConnect: s.OpenConnect,
+		OnOpenRoom:    s.OpenRoom,
+		OnWatchRun:    s.OpenRunWatch,
+		OnOpenSettingsKey: func(kind, key string) {
+			s.OpenMoreRoute("/more/settings?focus=" + kind + "&key=" + key)
+		},
+	})
+	return s
+}
+
+// SetTabHooks registers optional Wave C-2 route renderers for Tabs 3/4/5.
+func (s *Shell) SetTabHooks(hooks TabHooks) {
+	s.mu.Lock()
+	s.hooks = hooks
+	s.mu.Unlock()
 }
 
 // SetWindow passes the host mygo.Window down to platform-aware child controllers.
 func (s *Shell) SetWindow(w *mygo.Window) {
 	s.connectHub.SetWindow(w)
+	s.roomsCtl.SetWindow(w)
 }
 
 // ConnectHub returns the embedded Connection Hub controller.
-func (s *Shell) ConnectHub() *connect.Hub {
-	return s.connectHub
+func (s *Shell) ConnectHub() *connect.Hub { return s.connectHub }
+
+// Rooms returns Tab 1's Rooms controller.
+func (s *Shell) Rooms() *rooms.Controller { return s.roomsCtl }
+
+// Live returns Tab 2's Live Control controller.
+func (s *Shell) Live() *live.Controller { return s.liveCtl }
+
+// OpenRoom switches to Tab 1 and opens roomID.
+func (s *Shell) OpenRoom(roomID string) {
+	s.roomsCtl.OpenRoom(roomID)
+}
+
+// OpenRunWatch switches to Tab 1 and opens the Live Run Watch view for (roomID, runID).
+func (s *Shell) OpenRunWatch(roomID, runID string) {
+	s.roomsCtl.OpenRunWatch(roomID, runID)
+}
+
+// OpenConnect switches to Tab 5 More and pushes the Connection Hub.
+func (s *Shell) OpenConnect() {
+	s.store.SetActiveTab(state.TabMore)
+	s.store.Routers[state.TabMore].Push("/more/connect")
+}
+
+// OpenMoreRoute switches to Tab 5 More and pushes target path (for Wave C-2 Settings deep links).
+func (s *Shell) OpenMoreRoute(target string) {
+	s.store.SetActiveTab(state.TabMore)
+	s.store.Routers[state.TabMore].Push(target)
+}
+
+// OpenLiveCompute switches to Tab 2 Compute segment and optionally opens permissions or browser sheet.
+func (s *Shell) OpenLiveCompute(computerID, section string) {
+	s.store.SetActiveTab(state.TabLive)
+	s.liveCtl.OpenComputeSection(computerID, section)
 }
 
 // View renders the entire Linger Mobile application inside a MyGo window or ui.Tester.
@@ -82,9 +152,9 @@ func (s *Shell) View(c *ui.Context) {
 			router.View(c, func(r *ui.Route) {
 				switch activeTab {
 				case state.TabRooms:
-					s.routeRooms(c, r, snap)
+					s.roomsCtl.Route(c, r, snap)
 				case state.TabLive:
-					s.routeLive(c, r, snap)
+					s.liveCtl.Route(c, r, snap)
 				case state.TabWork:
 					s.routeWork(c, r, snap)
 				case state.TabLibrary:
@@ -95,7 +165,7 @@ func (s *Shell) View(c *ui.Context) {
 			})
 		})
 
-		// 5-destination mobile bottom tab bar.
+		// 5-destination mobile bottom tab bar with live Unread & Pending Approvals badges.
 		var unreadTotal int64
 		for _, rm := range snap.Rooms {
 			unreadTotal += rm.UnreadMessageCount
@@ -107,9 +177,18 @@ func (s *Shell) View(c *ui.Context) {
 				roomsBadge = "99+"
 			}
 		}
+
+		liveAttention := len(snap.PendingDecisions)
+		if liveAttention == 0 {
+			for _, run := range snap.ActiveRuns {
+				if run.Status == "active" {
+					liveAttention++
+				}
+			}
+		}
 		liveBadge := ""
-		if len(snap.ActiveRuns) > 0 {
-			liveBadge = fmt.Sprintf("%d", len(snap.ActiveRuns))
+		if liveAttention > 0 {
+			liveBadge = fmt.Sprintf("%d", liveAttention)
 		}
 
 		selected := activeTab
@@ -149,10 +228,7 @@ func (s *Shell) viewTopBar(c *ui.Context, snap state.Snapshot, tab int, router *
 	}
 
 	trailing := func() {
-		components.ConnectionHealthChip(c, hostName, connected, tlsPinned, plainHTTP, snap.RTTMs, func() {
-			s.store.SetActiveTab(state.TabMore)
-			s.store.Routers[state.TabMore].Push("/more/connect")
-		})
+		components.ConnectionHealthChip(c, hostName, connected, tlsPinned, plainHTTP, snap.RTTMs, s.OpenConnect)
 	}
 
 	mobile.TopBar(c, mobile.TopBarOptions{
@@ -181,167 +257,44 @@ func (s *Shell) topBarTitle(tab int, router *ui.Router) string {
 	}
 }
 
-func (s *Shell) routeRooms(c *ui.Context, r *ui.Route, snap state.Snapshot) {
-	switch {
-	case r.Match("/rooms/{id}"):
-		roomID := r.Param("id")
-		r.Title("Room")
-		s.viewRoomPlaceholderDetail(c, snap, roomID)
-	default:
-		r.Title("Rooms")
-		s.viewRoomsOverview(c, snap)
-	}
-}
-
-func (s *Shell) routeLive(c *ui.Context, r *ui.Route, snap state.Snapshot) {
-	r.Title("Live Control")
-	s.viewLiveOverview(c, snap)
-}
-
 func (s *Shell) routeWork(c *ui.Context, r *ui.Route, snap state.Snapshot) {
+	s.mu.Lock()
+	hook := s.hooks.RouteWork
+	s.mu.Unlock()
+	if hook != nil {
+		hook(c, r, snap)
+		return
+	}
 	r.Title("Work")
 	s.viewWorkOverview(c, snap)
 }
 
 func (s *Shell) routeLibrary(c *ui.Context, r *ui.Route, snap state.Snapshot) {
+	s.mu.Lock()
+	hook := s.hooks.RouteLibrary
+	s.mu.Unlock()
+	if hook != nil {
+		hook(c, r, snap)
+		return
+	}
 	r.Title("Library")
 	s.viewLibraryOverview(c, snap)
 }
 
 func (s *Shell) routeMore(c *ui.Context, r *ui.Route, snap state.Snapshot) {
-	switch {
-	case r.Match("/more/connect"):
+	if r.Match("/more/connect") {
 		r.Title("Connect")
 		s.connectHub.View(c)
-	default:
-		r.Title("More")
-		s.viewMoreSettings(c, snap, r)
+		return
 	}
-}
-
-func (s *Shell) viewRoomsOverview(c *ui.Context, snap state.Snapshot) {
-	t := c.Theme()
-	ui.Scroll(c).FillWidth().Grow(1).Basis(0).Children(func() {
-		ui.Column(c).FillWidth().Padding(12, 16, 24, 16).Gap(10).Children(func() {
-			if snap.TransientError != "" {
-				components.StatusBanner(c, components.ToneDanger, snap.TransientError, "Connect", func() {
-					s.openConnectHub()
-				})
-			}
-			if snap.ActiveHost == nil {
-				components.EmptyState(c, theme.IconRooms, "Connect a Linger Host",
-					"Pair your Linger Desktop over LAN or Tailscale to watch live Rooms and respond to Agents.",
-					"Open Connection Hub", s.openConnectHub)
-				return
-			}
-			if len(snap.Rooms) == 0 {
-				components.EmptyState(c, theme.IconRooms, "No Rooms loaded yet",
-					"Pull refresh to sync Rooms from "+snap.ActiveHost.Name+".",
-					"Refresh", s.refreshAsync)
-				return
-			}
-			for _, rm := range snap.Rooms {
-				rm := rm
-				row := ui.Row(c.Key(rm.ID)).FillWidth().MinHeight(60).Padding(12, 12).Gap(10).
-					Radius(12).Background(t.Surface).Border(1, t.Border).AlignItems(ui.Center).
-					Role(ui.RoleButton).Label("Room " + rm.Name)
-				row.Children(func() {
-					components.AvatarBadge(c, rm.Name, 40)
-					ui.Column(c).Grow(1).Basis(0).Gap(3).Children(func() {
-						ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(6).Children(func() {
-							ui.Text(c, rm.Name).FontSize(15).FontWeight(600).TextColor(t.Text).MaxLines(1)
-							if rm.UnreadMessageCount > 0 {
-								components.StatusPill(c, fmt.Sprintf("%d new", rm.UnreadMessageCount), components.ToneInfo)
-							}
-						})
-						preview := "No messages yet"
-						if rm.LatestMessage != nil && strings.TrimSpace(rm.LatestMessage.RawMessage) != "" {
-							preview = rm.LatestMessage.Author.DisplayName + ": " + rm.LatestMessage.RawMessage
-						}
-						ui.Text(c, preview).FontSize(13).TextColor(t.TextMuted).MaxLines(1)
-					})
-				})
-				if row.Clicked() {
-					s.store.Routers[state.TabRooms].Push("/rooms/" + rm.ID)
-				}
-			}
-		})
-	})
-}
-
-func (s *Shell) viewRoomPlaceholderDetail(c *ui.Context, snap state.Snapshot, roomID string) {
-	t := c.Theme()
-	roomName := roomID
-	for _, rm := range snap.Rooms {
-		if rm.ID == roomID {
-			roomName = rm.Name
-			break
-		}
+	s.mu.Lock()
+	hook := s.hooks.RouteMore
+	s.mu.Unlock()
+	if hook != nil && hook(c, r, snap) {
+		return
 	}
-	ui.Scroll(c).FillWidth().Grow(1).Basis(0).Children(func() {
-		ui.Column(c).FillWidth().Padding(16, 16, 24, 16).Gap(12).Children(func() {
-			components.SectionCard(c, roomName, "Live Room stream active", nil, func() {
-				ui.Text(c, fmt.Sprintf("Tracking room cursor for %s over unified SSE stream.", roomID)).
-					FontSize(13).TextColor(t.TextMuted)
-			})
-		})
-	})
-}
-
-func (s *Shell) viewLiveOverview(c *ui.Context, snap state.Snapshot) {
-	t := c.Theme()
-	ui.Scroll(c).FillWidth().Grow(1).Basis(0).Children(func() {
-		ui.Column(c).FillWidth().Padding(12, 16, 24, 16).Gap(12).Children(func() {
-			if snap.ActiveHost == nil {
-				components.EmptyState(c, theme.IconLive, "Live Control Room",
-					"Connect to Linger Desktop to monitor live Agent runs, approval decisions, and Local Models.",
-					"Open Connection Hub", s.openConnectHub)
-				return
-			}
-			components.SectionCard(c, "Desktop Runtime", snap.ActiveHost.Name, func() {
-				if snap.CompanionStatus != nil {
-					components.StatusPill(c, snap.CompanionStatus.RuntimeState, components.ToneSuccess)
-				}
-			}, func() {
-				if snap.CompanionStatus != nil {
-					ui.Text(c, fmt.Sprintf("Daemon: %s · Active ops: %d · Local server: %s",
-						snap.CompanionStatus.DaemonConnection, snap.CompanionStatus.ActiveOperations, snap.CompanionStatus.LocalServerPhase)).
-						FontSize(13).TextColor(t.TextMuted)
-				} else {
-					ui.Text(c, fmt.Sprintf("Connected in %s mode · %d local computers observed.", snap.ActiveHost.Mode, len(snap.Computers))).
-						FontSize(13).TextColor(t.TextMuted)
-				}
-			})
-
-			components.SectionCard(c, fmt.Sprintf("Active Agent Runs (%d)", len(snap.ActiveRuns)), "Real-time status across Rooms", nil, func() {
-				if len(snap.ActiveRuns) == 0 {
-					ui.Text(c, "All Agents are currently idle.").FontSize(13).TextColor(t.TextMuted)
-				} else {
-					ui.Column(c).FillWidth().Gap(8).Children(func() {
-						for _, run := range snap.ActiveRuns {
-							ui.Row(c.Key(run.RunID)).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
-								ui.Text(c, run.Agent.DisplayName).FontSize(14).FontWeight(600).TextColor(t.Text)
-								components.StatusPill(c, run.Status, components.ToneInfo)
-							})
-						}
-					})
-				}
-			})
-
-			if snap.LocalModels != nil {
-				components.SectionCard(c, "Local Models", snap.LocalModels.Computer.DisplayName, func() {
-					components.StatusPill(c, fmt.Sprintf("%d models", len(snap.LocalModels.Models)), components.ToneInfo)
-				}, func() {
-					for _, mv := range snap.LocalModels.Models {
-						ui.Row(c.Key(mv.Model.ID)).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
-							ui.Text(c, mv.Model.Name).FontSize(13).TextColor(t.Text).MaxLines(1)
-							components.StatusPill(c, mv.Model.State, components.ToneNeutral)
-						})
-					}
-				})
-			}
-		})
-	})
+	r.Title("More")
+	s.viewMoreSettings(c, snap)
 }
 
 func (s *Shell) viewWorkOverview(c *ui.Context, snap state.Snapshot) {
@@ -351,7 +304,7 @@ func (s *Shell) viewWorkOverview(c *ui.Context, snap state.Snapshot) {
 			if snap.ActiveHost == nil {
 				components.EmptyState(c, theme.IconWork, "Work & Routines",
 					"Connect to a host to manage Work Items, scheduled Routines, and Pocket Notes.",
-					"Open Connection Hub", s.openConnectHub)
+					"Open Connection Hub", s.OpenConnect)
 				return
 			}
 			components.SectionCard(c, fmt.Sprintf("Work Items (%d)", len(snap.WorkItems)), "Synced with offline SQLite cache", nil, func() {
@@ -391,7 +344,7 @@ func (s *Shell) viewLibraryOverview(c *ui.Context, snap state.Snapshot) {
 			if snap.ActiveHost == nil {
 				components.EmptyState(c, theme.IconLibrary, "Library & Knowledge",
 					"Connect to browse Documents, Personal Wiki, Memory, and FTS5 offline search.",
-					"Open Connection Hub", s.openConnectHub)
+					"Open Connection Hub", s.OpenConnect)
 				return
 			}
 			components.SectionCard(c, fmt.Sprintf("Documents (%d)", len(snap.Documents)),
@@ -412,11 +365,10 @@ func (s *Shell) viewLibraryOverview(c *ui.Context, snap state.Snapshot) {
 	})
 }
 
-func (s *Shell) viewMoreSettings(c *ui.Context, snap state.Snapshot, r *ui.Route) {
+func (s *Shell) viewMoreSettings(c *ui.Context, snap state.Snapshot) {
 	t := c.Theme()
 	ui.Scroll(c).FillWidth().Grow(1).Basis(0).Children(func() {
 		ui.Column(c).FillWidth().Padding(12, 16, 24, 16).Gap(12).Children(func() {
-			// Account / Host card
 			title := "Not Connected"
 			sub := "Tap Connection Hub to pair Linger Desktop"
 			if snap.Identity != nil {
@@ -445,7 +397,6 @@ func (s *Shell) viewMoreSettings(c *ui.Context, snap state.Snapshot, r *ui.Route
 				})
 			})
 
-			// Appearance selector (System / Town Light / Town Dark)
 			components.SectionCard(c, "Appearance", "Linger Town Light & Town Dark", nil, func() {
 				themeIdx := 0
 				switch snap.Prefs.Theme {
@@ -465,8 +416,7 @@ func (s *Shell) viewMoreSettings(c *ui.Context, snap state.Snapshot, r *ui.Route
 				}
 			})
 
-			// Security & Privacy
-			components.SectionCard(c, "Security", "Protect paired desktop tokens on this device", nil, func() {
+			components.SectionCard(c, "Security & Composer", "Protect paired desktop tokens and customize chat input", nil, func() {
 				bioOn := snap.Prefs.BiometricLock
 				ui.Row(c).FillWidth().MinHeight(44).AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
 					ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
@@ -478,6 +428,17 @@ func (s *Shell) viewMoreSettings(c *ui.Context, snap state.Snapshot, r *ui.Route
 						_ = s.store.SetBiometricPreference(bioOn)
 					}
 				})
+				retSends := snap.ComposerReturnSends
+				ui.Row(c).FillWidth().MinHeight(44).AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
+					ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
+						ui.Text(c, "Return Key Sends Message").FontSize(14).FontWeight(500).TextColor(t.Text)
+						ui.Text(c, "Cmd/Ctrl+Enter always sends on hardware keyboards").FontSize(12).TextColor(t.TextMuted)
+					})
+					sw := mobile.Switch(c, &retSends)
+					if sw.Changed() {
+						s.store.SetComposerReturnSends(retSends)
+					}
+				})
 				if snap.Prefs.BiometricLock {
 					lockBtn := components.SecondaryTouchButton(c, "Lock Now", false)
 					lockBtn.FillWidth()
@@ -487,7 +448,6 @@ func (s *Shell) viewMoreSettings(c *ui.Context, snap state.Snapshot, r *ui.Route
 				}
 			})
 
-			// Session controls
 			if snap.ActiveHost != nil {
 				components.SectionCard(c, "Active Connection", snap.ActiveHost.PrimaryURL, nil, func() {
 					diagBtn := components.SecondaryTouchButton(c, "View Diagnostics", false)
@@ -550,7 +510,6 @@ func (s *Shell) triggerBiometricUnlock() {
 		s.unlocking = false
 		switch {
 		case err == nil || errors.Is(err, errors.ErrUnsupported):
-			// On desktop preview where biometric hardware is unsupported, allow unlocking cleanly.
 			s.unlockError = ""
 			s.mu.Unlock()
 			s.store.SetBiometricLocked(false)
@@ -562,11 +521,6 @@ func (s *Shell) triggerBiometricUnlock() {
 		}
 		s.mu.Unlock()
 	}()
-}
-
-func (s *Shell) openConnectHub() {
-	s.store.SetActiveTab(state.TabMore)
-	s.store.Routers[state.TabMore].Push("/more/connect")
 }
 
 func (s *Shell) refreshAsync() {

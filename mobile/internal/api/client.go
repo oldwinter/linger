@@ -243,6 +243,43 @@ func (c *Client) CloseIdleConnections() {
 	c.transport.CloseIdleConnections()
 }
 
+type authRoundTripper struct {
+	client *Client
+	base   http.RoundTripper
+}
+
+func (a *authRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	cloned := req.Clone(req.Context())
+	cloned.Header.Del("Origin")
+	cloned.Header.Del("Sec-Fetch-Site")
+	cloned.Header.Set("User-Agent", UserAgent)
+
+	a.client.mu.RLock()
+	mode := a.client.mode
+	token := a.client.token
+	a.client.mu.RUnlock()
+
+	if token != "" {
+		switch mode {
+		case AuthModeCompanion:
+			cloned.Header.Set("Authorization", "Bearer "+token)
+		case AuthModeDirect:
+			cloned.Header.Set("Cookie", SessionCookieName+"="+token)
+		}
+	}
+	return a.base.RoundTrip(cloned)
+}
+
+// AuthenticatedHTTPClient returns an *http.Client sharing this client's
+// SPKI-pinned TLS transport and injecting live auth headers automatically
+// (for ui/netimage authenticated image loading).
+func (c *Client) AuthenticatedHTTPClient() *http.Client {
+	return &http.Client{
+		Transport: &authRoundTripper{client: c, base: c.transport},
+		Timeout:   20 * time.Second,
+	}
+}
+
 // BaseURL returns the currently active base URL.
 func (c *Client) BaseURL() string {
 	c.mu.RLock()

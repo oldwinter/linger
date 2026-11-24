@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/netimage"
 	"github.com/oldwinter/linger/mobile/internal/api"
 	"github.com/oldwinter/linger/mobile/internal/cache"
 	"github.com/oldwinter/linger/mobile/internal/config"
@@ -73,9 +74,19 @@ type Snapshot struct {
 	Documents       []api.Document
 	Computers       []api.LocalComputer
 	LocalModels     *api.LocalModelsView
-	CacheStats      cache.CacheStats
-	StreamCursors   map[string]int64
-	PendingPairURI  string
+	CacheStats          cache.CacheStats
+	StreamCursors       map[string]int64
+	PendingPairURI      string
+	ComposerReturnSends bool
+	OfflineViewingCache bool
+	Actors              []api.Actor
+	Agents              []api.TenantAgent
+	AgentAvailability   map[string]api.TenantAgentAvailabilitySnapshot
+	SkillManifests      []api.SkillManifest
+	AgentTemplates      []api.AgentTemplate
+	ModelSource         *api.ModelSourceView
+	PendingDecisions    []PendingDecisionItem
+	WorkingRoomIDs      map[string]bool
 }
 
 // Options configures AppStore construction.
@@ -126,9 +137,24 @@ type AppStore struct {
 	routines        []api.Routine
 	pocketNotes     []api.PocketNote
 	documents       []api.Document
-	computers       []api.LocalComputer
-	localModels     *api.LocalModelsView
-	cacheStats      cache.CacheStats
+	computers           []api.LocalComputer
+	localModels         *api.LocalModelsView
+	cacheStats          cache.CacheStats
+	composerReturnSends bool
+	offlineViewingCache bool
+	actors              []api.Actor
+	agents              []api.TenantAgent
+	agentAvailability   map[string]api.TenantAgentAvailabilitySnapshot
+	skillManifests      []api.SkillManifest
+	agentTemplates      []api.AgentTemplate
+	modelSource         *api.ModelSourceView
+	roomMessages        map[string][]api.Message
+	roomHasMore         map[string]bool
+	roomNextCursor      map[string]string
+	roomDrafts          map[string]string
+	runPresEvents       map[string][]api.RuntimePresentationEvent
+	pendingDecisions    []PendingDecisionItem
+	workingRoomIDs      map[string]bool
 }
 
 // NewAppStore initializes an AppStore with 5 independent per-tab routers.
@@ -144,8 +170,15 @@ func NewAppStore(opts Options) *AppStore {
 		onNotify:        opts.OnNotify,
 		phase:           PhaseDisconnected,
 		sseState:        realtime.StateDisconnected,
-		online:          true,
-		biometricLocked: prefs.BiometricLock,
+		online:            true,
+		biometricLocked:   prefs.BiometricLock,
+		agentAvailability: map[string]api.TenantAgentAvailabilitySnapshot{},
+		roomMessages:      map[string][]api.Message{},
+		roomHasMore:       map[string]bool{},
+		roomNextCursor:    map[string]string{},
+		roomDrafts:        map[string]string{},
+		runPresEvents:     map[string][]api.RuntimePresentationEvent{},
+		workingRoomIDs:    map[string]bool{},
 		Routers: [5]*ui.Router{
 			ui.NewRouter("/rooms"),
 			ui.NewRouter("/live"),
@@ -223,38 +256,61 @@ func (s *AppStore) Snapshot() Snapshot {
 		lm := *s.localModels
 		lmCopy = &lm
 	}
+	var msCopy *api.ModelSourceView
+	if s.modelSource != nil {
+		ms := *s.modelSource
+		msCopy = &ms
+	}
+	availCopy := make(map[string]api.TenantAgentAvailabilitySnapshot, len(s.agentAvailability))
+	for k, v := range s.agentAvailability {
+		availCopy[k] = v
+	}
+	workingCopy := make(map[string]bool, len(s.workingRoomIDs))
+	for k, v := range s.workingRoomIDs {
+		workingCopy[k] = v
+	}
 
 	return Snapshot{
-		ActiveTab:       s.activeTab,
-		Hosts:           hosts,
-		ActiveHost:      activeHost,
-		Prefs:           prefs,
-		Phase:           s.phase,
-		SSEState:        s.sseState,
-		Online:          s.online,
-		Suspended:       s.suspended,
-		BiometricLocked: s.biometricLocked,
-		RTTMs:           s.rttMs,
-		ActiveVia:       s.activeVia,
-		LastHeartbeat:   s.lastHB,
-		StatusMessage:   s.statusMessage,
-		TransientError:  s.transientError,
-		Discovered:      append([]discovery.DiscoveredHost(nil), s.discovered...),
-		CompanionStatus: compCopy,
-		Identity:        idCopy,
-		Tenants:         append([]api.Tenant(nil), s.tenants...),
-		TenantID:        s.tenantID,
-		Rooms:           append([]api.RoomListItem(nil), s.rooms...),
-		ActiveRuns:      append([]api.RoomRunStatus(nil), s.activeRuns...),
-		WorkItems:       append([]api.WorkItem(nil), s.workItems...),
-		Routines:        append([]api.Routine(nil), s.routines...),
-		PocketNotes:     append([]api.PocketNote(nil), s.pocketNotes...),
-		Documents:       append([]api.Document(nil), s.documents...),
-		Computers:       append([]api.LocalComputer(nil), s.computers...),
-		LocalModels:     lmCopy,
-		CacheStats:      s.cacheStats,
-		StreamCursors:   cursors,
-		PendingPairURI:  s.pendingPairURI,
+		ActiveTab:           s.activeTab,
+		Hosts:               hosts,
+		ActiveHost:          activeHost,
+		Prefs:               prefs,
+		Phase:               s.phase,
+		SSEState:            s.sseState,
+		Online:              s.online,
+		Suspended:           s.suspended,
+		BiometricLocked:     s.biometricLocked,
+		RTTMs:               s.rttMs,
+		ActiveVia:           s.activeVia,
+		LastHeartbeat:       s.lastHB,
+		StatusMessage:       s.statusMessage,
+		TransientError:      s.transientError,
+		Discovered:          append([]discovery.DiscoveredHost(nil), s.discovered...),
+		CompanionStatus:     compCopy,
+		Identity:            idCopy,
+		Tenants:             append([]api.Tenant(nil), s.tenants...),
+		TenantID:            s.tenantID,
+		Rooms:               append([]api.RoomListItem(nil), s.rooms...),
+		ActiveRuns:          append([]api.RoomRunStatus(nil), s.activeRuns...),
+		WorkItems:           append([]api.WorkItem(nil), s.workItems...),
+		Routines:            append([]api.Routine(nil), s.routines...),
+		PocketNotes:         append([]api.PocketNote(nil), s.pocketNotes...),
+		Documents:           append([]api.Document(nil), s.documents...),
+		Computers:           append([]api.LocalComputer(nil), s.computers...),
+		LocalModels:         lmCopy,
+		CacheStats:          s.cacheStats,
+		StreamCursors:       cursors,
+		PendingPairURI:      s.pendingPairURI,
+		ComposerReturnSends: s.composerReturnSends,
+		OfflineViewingCache: s.offlineViewingCache,
+		Actors:              append([]api.Actor(nil), s.actors...),
+		Agents:              append([]api.TenantAgent(nil), s.agents...),
+		AgentAvailability:   availCopy,
+		SkillManifests:      append([]api.SkillManifest(nil), s.skillManifests...),
+		AgentTemplates:      append([]api.AgentTemplate(nil), s.agentTemplates...),
+		ModelSource:         msCopy,
+		PendingDecisions:    append([]PendingDecisionItem(nil), s.pendingDecisions...),
+		WorkingRoomIDs:      workingCopy,
 	}
 }
 
@@ -713,6 +769,7 @@ func (s *AppStore) ConnectHost(ctx context.Context, hostID string) error {
 	s.mu.Lock()
 	s.client = client
 	s.mu.Unlock()
+	netimage.SetClient(client.AuthenticatedHTTPClient())
 
 	if err := s.RefreshActiveHost(ctx); err != nil {
 		if errors.Is(err, api.ErrUnauthorized) {
@@ -725,6 +782,7 @@ func (s *AppStore) ConnectHost(ctx context.Context, hostID string) error {
 		}
 		s.mu.Lock()
 		s.phase = PhaseReconnecting
+		s.offlineViewingCache = len(s.rooms) > 0
 		s.transientError = err.Error()
 		s.mu.Unlock()
 		s.notify()
@@ -743,6 +801,7 @@ func (s *AppStore) ConnectHost(ctx context.Context, hostID string) error {
 
 	s.mu.Lock()
 	s.phase = PhaseConnected
+	s.offlineViewingCache = false
 	s.rttMs = profile.LastRTTMs
 	s.activeVia = client.ActiveVia()
 	s.transientError = ""
@@ -814,6 +873,12 @@ func (s *AppStore) RefreshActiveHost(ctx context.Context) error {
 	var docs []api.Document
 	var computers []api.LocalComputer
 	var localModels *api.LocalModelsView
+	var modelSource *api.ModelSourceView
+	var actors []api.Actor
+	var agents []api.TenantAgent
+	var avail []api.TenantAgentAvailabilitySnapshot
+	var skills []api.SkillManifest
+	var templates []api.AgentTemplate
 
 	if tenantID != "" {
 		if rp, rErr := client.ListRooms(ctx, tenantID, 50, ""); rErr == nil {
@@ -827,6 +892,21 @@ func (s *AppStore) RefreshActiveHost(ctx context.Context) error {
 				activeRuns = append(activeRuns, item.ActiveRuns...)
 			}
 		}
+		if ap, aErr := client.ListActors(ctx, tenantID, 100, ""); aErr == nil {
+			actors = ap.Items
+		}
+		if ag, aErr := client.ListTenantAgents(ctx, tenantID); aErr == nil {
+			agents = ag.Items
+		}
+		if av, aErr := client.ListTenantAgentAvailability(ctx, tenantID); aErr == nil {
+			avail = av
+		}
+		if sk, sErr := client.ListSkillManifests(ctx, tenantID); sErr == nil {
+			skills = sk.Items
+		}
+		if tp, tErr := client.ListAgentTemplates(ctx, tenantID); tErr == nil {
+			templates = tp
+		}
 		if wp, wErr := client.ListWorkItems(ctx, tenantID, "", 50, ""); wErr == nil {
 			workItems = wp.Items
 		}
@@ -838,6 +918,9 @@ func (s *AppStore) RefreshActiveHost(ctx context.Context) error {
 			if len(cs) > 0 {
 				if lm, lmErr := client.GetLocalComputerModels(ctx, tenantID, cs[0].ComputerID); lmErr == nil {
 					localModels = &lm
+				}
+				if ms, msErr := client.GetLocalComputerModelSource(ctx, tenantID, cs[0].ComputerID); msErr == nil {
+					modelSource = &ms
 				}
 			}
 		}
@@ -851,6 +934,17 @@ func (s *AppStore) RefreshActiveHost(ctx context.Context) error {
 		docs = dp.Items
 	}
 
+	// Scan latest messages for active rooms so Pending Decisions Inbox has live unresolved cards immediately.
+	scannedMsgs := map[string][]api.Message{}
+	for i, rm := range rooms {
+		if i >= 12 {
+			break
+		}
+		if mp, mErr := client.ListMessages(ctx, rm.ID, 30, ""); mErr == nil {
+			scannedMsgs[rm.ID] = mp.Items
+		}
+	}
+
 	s.mu.Lock()
 	s.identity = &me
 	s.tenants = tenants
@@ -858,13 +952,33 @@ func (s *AppStore) RefreshActiveHost(ctx context.Context) error {
 	s.companionStatus = compStatus
 	s.rooms = rooms
 	s.activeRuns = activeRuns
+	s.actors = actors
+	s.agents = agents
+	s.agentAvailability = make(map[string]api.TenantAgentAvailabilitySnapshot, len(avail))
+	for _, av := range avail {
+		s.agentAvailability[av.ActorID] = av
+	}
+	s.skillManifests = skills
+	s.agentTemplates = templates
 	s.workItems = workItems
 	s.routines = routines
 	s.pocketNotes = notes
 	s.documents = docs
 	s.computers = computers
 	s.localModels = localModels
+	s.modelSource = modelSource
+	s.workingRoomIDs = make(map[string]bool)
+	for _, run := range activeRuns {
+		if run.Status == "active" && !run.Replied {
+			s.workingRoomIDs[run.RoomID] = true
+		}
+	}
+	for roomID, msgs := range scannedMsgs {
+		s.roomMessages[roomID] = msgs
+	}
+	s.rebuildPendingDecisionsLocked()
 	s.rttMs = int(client.LastRTT().Milliseconds())
+	s.offlineViewingCache = false
 	s.transientError = ""
 	cs := s.cacheStore
 	stream := s.stream
@@ -982,7 +1096,8 @@ func (s *AppStore) DiagnosticsText() string {
 
 func (s *AppStore) startRealtime(client *api.Client) {
 	ctx, cancel := context.WithCancel(context.Background())
-	tracker := realtime.NewRunPresentationTracker(client, func(_, _ string, _ api.RuntimePresentationEvent) {
+	tracker := realtime.NewRunPresentationTracker(client, func(_, runID string, ev api.RuntimePresentationEvent) {
+		s.appendRunPresentationEvent(runID, ev)
 		s.notify()
 	})
 	mgr := realtime.NewStreamManager(client, realtime.StreamCallbacks{
@@ -992,6 +1107,7 @@ func (s *AppStore) startRealtime(client *api.Client) {
 			switch st {
 			case realtime.StateConnected:
 				s.phase = PhaseConnected
+				s.offlineViewingCache = false
 				s.transientError = ""
 			case realtime.StateReconnecting:
 				s.phase = PhaseReconnecting
@@ -1006,6 +1122,7 @@ func (s *AppStore) startRealtime(client *api.Client) {
 			s.notify()
 		},
 		OnRoomEvent: func(ev api.RoomEventEnvelope) {
+			s.handleLiveRoomEvent(ctx, ev)
 			_ = tracker.HandleRoomEvent(ctx, ev)
 			s.notify()
 		},
