@@ -120,7 +120,7 @@ type Daemon struct {
 	localTools        LocalToolBinder
 	herdrPanes        HerdrPanes
 	// feishuMail runs TeamHub's Feishu Mail calls through the owner's lark-cli.
-	feishuMail *localtools.FeishuMail
+	feishuMail          *localtools.FeishuMail
 	browserConnections  BrowserConnections
 	computerPermissions ComputerPermissions
 	owners              []ComputerOwner
@@ -142,6 +142,9 @@ type Daemon struct {
 	// localModelsEngine holds whether the current Agent Service declared
 	// serviceFeatureLocalModelsEngine in its welcome.
 	localModelsEngine atomic.Bool
+	// localModelsConcurrencyProbe holds whether the current Agent Service
+	// declared serviceFeatureLocalModelsConcurrencyProbe in its welcome.
+	localModelsConcurrencyProbe atomic.Bool
 	// localModelsExternalHolders holds whether the current Agent Service
 	// declared serviceFeatureLocalModelsExternalHolders in its welcome.
 	localModelsExternalHolders atomic.Bool
@@ -237,10 +240,6 @@ type activeOperation struct {
 	inputMu           sync.Mutex
 	finishing         bool
 	pendingInputs     map[string]*pendingOperationInput
-	// sessionMoved is set when the Run continued in a new native session
-	// after announcing its retained one; it then declines a scheduler
-	// yield, whose follow-up would resume the session that is gone.
-	sessionMoved atomic.Bool
 }
 
 func New(options Options) (*Daemon, error) {
@@ -294,7 +293,7 @@ func New(options Options) (*Daemon, error) {
 		stateDirectory:       options.StateDirectory,
 		runtimeHomeRoot:      options.RuntimeHomeRoot,
 		runtimeObservations:  append([]transport.RegistrationObservation(nil), options.RuntimeObservations...),
-		diagnosticsRevision:  1,
+		diagnosticsRevision:  nextRevisionAbove(1, options.RuntimeObservations),
 		gatewayState:         "connecting",
 		locallyStopped:       make(map[string]bool),
 		welcomedEpochs:       make(map[uint64]bool),
@@ -427,6 +426,14 @@ func (d *Daemon) ActiveOperationCount() int {
 	d.activeMu.Lock()
 	defer d.activeMu.Unlock()
 	return len(d.activeOperations)
+}
+
+// ActiveModelInvokeCount returns the number of in-flight one-shot model
+// invocations.
+func (d *Daemon) ActiveModelInvokeCount() int {
+	d.modelInvokeMu.Lock()
+	defer d.modelInvokeMu.Unlock()
+	return len(d.modelInvokes)
 }
 
 func (d *Daemon) DrainIfIdle() int {
