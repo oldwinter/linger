@@ -226,8 +226,8 @@ func NewFakeServer(useTLS bool) (*FakeServer, error) {
 		},
 		PresentationByRun: map[string][]json.RawMessage{
 			"run_1": {
-				json.RawMessage(`{"event_ordinal":1,"type":"working_status_changed","status":"working","summary":"Inspecting repository"}`),
-				json.RawMessage(`{"event_ordinal":2,"type":"activity_started","title":"Run test suite","tool":"shell"}`),
+				json.RawMessage(`{"event_ordinal":1,"segment_id":"seg_1","event":{"type":"working_status_changed","status":"working","title":"Inspecting repository"}}`),
+				json.RawMessage(`{"event_ordinal":2,"segment_id":"seg_1","event":{"type":"activity_started","activity_id":"act_seed_1","kind":"command","title":"Run test suite"}}`),
 			},
 		},
 		WorkItems: []api.WorkItem{
@@ -297,14 +297,18 @@ func NewFakeServer(useTLS bool) (*FakeServer, error) {
 				DisplayName:      "Studio Mac",
 				Status:           "online",
 				ActiveOperations: 1,
-				Runtimes:         []api.LocalComputerRuntime{{RuntimeType: "pi", Models: []string{"qwen3-4b:Q4_K_M"}}},
+				Runtimes: []api.LocalComputerRuntime{{
+					Type:   "pi",
+					Status: "ready",
+					Models: []api.AgentModel{{ID: "qwen3-4b:Q4_K_M", Label: "Qwen3 4B"}},
+				}},
 			},
 		},
 		LocalModels: api.LocalModelsView{
 			Available:     true,
-			Computer:      api.LocalModelsComputer{ComputerID: "comp_mac_1", DisplayName: "Studio Mac", Online: true},
+			Computer:      api.LocalModelsComputer{ComputerID: "comp_mac_1", DisplayName: "Studio Mac", Status: "online"},
 			ViewerIsOwner: true,
-			Pools:         []api.LocalModelPool{{ID: "unified", Label: "Unified Memory", TotalBytes: 32 << 30, UsedBytes: 6 << 30, FreeBytes: 26 << 30}},
+			Pools:         []api.LocalModelPool{{ID: "unified", Kind: "unified", Label: "Unified Memory", TotalBytes: 32 << 30, UsedBytes: 6 << 30}},
 			Models: []api.LocalModelView{
 				{
 					Model: api.LocalModel{
@@ -317,7 +321,7 @@ func NewFakeServer(useTLS bool) (*FakeServer, error) {
 						ContextTokens: 32768,
 						DownloadBytes: 2600000000,
 						MemoryBytes:   3400000000,
-						Availability:  api.LocalModelAvailability{Available: true},
+						Availability:  api.LocalModelAvailability{Downloadable: true},
 					},
 				},
 			},
@@ -535,10 +539,19 @@ func (f *FakeServer) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, api.RoomListPage{Items: rooms})
 	case path == "/v0/tenants/"+f.TenantID+"/room-activity" && r.Method == http.MethodGet:
 		f.mu.Lock()
-		runs := append([]api.RoomRunStatus(nil), f.RunStatusesByRoom["room_general"]...)
+		running := []string{}
+		for rid, runs := range f.RunStatusesByRoom {
+			for _, run := range runs {
+				if run.Status == "active" && !run.Replied {
+					running = append(running, rid)
+					break
+				}
+			}
+		}
 		f.mu.Unlock()
 		writeJSON(w, http.StatusOK, api.TenantRoomActivity{
-			Items: []api.RoomActivityItem{{RoomID: "room_general", ActiveRuns: runs, PendingCount: 1}},
+			RunningRoomIDs: running,
+			FailedRoomIDs:  []string{},
 		})
 	case strings.HasPrefix(path, "/v0/rooms/") && strings.HasSuffix(path, "/messages") && r.Method == http.MethodGet:
 		roomID := extractMiddleSegment(path, "/v0/rooms/", "/messages")
@@ -549,7 +562,12 @@ func (f *FakeServer) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(path, "/v0/rooms/") && strings.HasSuffix(path, "/messages") && r.Method == http.MethodPost:
 		roomID := extractMiddleSegment(path, "/v0/rooms/", "/messages")
 		var req api.CreateMessageRequest
-		_ = json.NewDecoder(r.Body).Decode(&req)
+		dec := json.NewDecoder(r.Body)
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&req); err != nil || req.Segments == nil {
+			writeJSONError(w, http.StatusBadRequest, "INVALID_REQUEST", "message content is invalid (segments required, unknown fields disallowed)")
+			return
+		}
 		f.mu.Lock()
 		nextSeq := int64(len(f.MessagesByRoom[roomID]) + 1)
 		msg := api.Message{
@@ -560,6 +578,7 @@ func (f *FakeServer) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			Author:      api.ActorRef{ID: "act_human_1", TenantID: f.TenantID, Kind: "human", DisplayName: "Alex Rivera"},
 			MessageKind: "conversation",
 			RawMessage:  req.RawMessage,
+			Segments:    req.Segments,
 			CreatedAt:   time.Now().UTC(),
 		}
 		f.MessagesByRoom[roomID] = append(f.MessagesByRoom[roomID], msg)
@@ -648,6 +667,13 @@ func (f *FakeServer) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		f.mu.Unlock()
 		writeJSON(w, http.StatusOK, api.PocketNotePage{Today: "2026-11-24", Items: items})
 	case path == "/v0/library/documents" && r.Method == http.MethodGet:
+		view := r.URL.Query().Get("view")
+		switch view {
+		case "recent", "owned", "shared", "unfiled", "shareable":
+		default:
+			writeJSONError(w, http.StatusBadRequest, "INVALID_REQUEST", "view query parameter is required")
+			return
+		}
 		f.mu.Lock()
 		docs := append([]api.Document(nil), f.Documents...)
 		f.mu.Unlock()
@@ -779,16 +805,16 @@ func (f *FakeServer) handleUnpair(w http.ResponseWriter) {
 
 func (f *FakeServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Email      string `json:"email"`
 		Identifier string `json:"identifier"`
 		Password   string `json:"password"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
-	ident := req.Email
-	if ident == "" {
-		ident = req.Identifier
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil || strings.TrimSpace(req.Identifier) == "" {
+		writeJSONError(w, http.StatusBadRequest, "INVALID_REQUEST", "identifier and password are required")
+		return
 	}
-	if ident != "alex@linger.dev" || req.Password != "linger-pass" {
+	if req.Identifier != "alex@linger.dev" || req.Password != "linger-pass" {
 		writeJSONError(w, http.StatusUnauthorized, "INVALID_CREDENTIALS", "invalid email or password")
 		return
 	}

@@ -187,13 +187,13 @@ type TeamMdDocument struct {
 }
 
 type RoomHistoryShare struct {
-	ID           string     `json:"id"`
-	RoomID       string     `json:"room_id,omitempty"`
-	Title        string     `json:"title,omitempty"`
-	MessageCount int        `json:"message_count"`
-	RevokedAt    *time.Time `json:"revoked_at,omitempty"`
-	CreatedAt    time.Time  `json:"created_at"`
-	ShareURL     string     `json:"url,omitempty"`
+	ID              string    `json:"id"`
+	RoomName        string    `json:"room_name"`
+	MessageCount    int       `json:"message_count"`
+	SnapshotRoomSeq int64     `json:"snapshot_room_seq"`
+	Revoked         bool      `json:"revoked"`
+	Token           *string   `json:"token,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
 }
 
 type RoomHistorySharePage struct {
@@ -243,7 +243,8 @@ type ParsedPresentationEvent struct {
 	Raw                 json.RawMessage
 }
 
-// ParsePresentationEvent decodes a raw runtime presentation JSON object into a typed view.
+// ParsePresentationEvent decodes a persisted RoomRunPresentationEventRecord
+// (wrapping {event_ordinal, segment_id, message_id, event: {...}}) into a typed view.
 func ParsePresentationEvent(ev RuntimePresentationEvent) ParsedPresentationEvent {
 	out := ParsedPresentationEvent{
 		Ordinal: ev.EffectiveOrdinal(),
@@ -256,10 +257,7 @@ func ParsePresentationEvent(ev RuntimePresentationEvent) ParsedPresentationEvent
 	if out.Type == "" {
 		out.Type = ev.EventType
 	}
-	if len(ev.Raw) == 0 {
-		return out
-	}
-	var wire struct {
+	type innerWire struct {
 		EventOrdinal        int64                              `json:"event_ordinal"`
 		Ordinal             int64                              `json:"ordinal"`
 		Type                string                             `json:"type"`
@@ -282,10 +280,39 @@ func ParsePresentationEvent(ev RuntimePresentationEvent) ParsedPresentationEvent
 		UnconfirmedInputIDs []string                           `json:"unconfirmed_input_ids"`
 		Failure             *AgentRuntimeExecutionFailure      `json:"failure"`
 	}
-	if json.Unmarshal(ev.Raw, &wire) == nil {
-		if wire.EventOrdinal > 0 {
+
+	// TeamHub wraps each item as {event_ordinal, segment_id, message_id?, event: {...}}.
+	// Prefer the nested event payload when present; otherwise fall back to ev.Raw.
+	payload := ev.Event
+	if len(payload) == 0 && len(ev.Raw) > 0 {
+		var env struct {
+			EventOrdinal int64           `json:"event_ordinal"`
+			Ordinal      int64           `json:"ordinal"`
+			Event        json.RawMessage `json:"event"`
+		}
+		if json.Unmarshal(ev.Raw, &env) == nil {
+			if env.EventOrdinal > 0 {
+				out.Ordinal = env.EventOrdinal
+			} else if env.Ordinal > 0 {
+				out.Ordinal = env.Ordinal
+			}
+			if len(env.Event) > 0 && string(env.Event) != "null" {
+				payload = env.Event
+			}
+		}
+		if len(payload) == 0 {
+			payload = ev.Raw
+		}
+	}
+	if len(payload) == 0 {
+		return out
+	}
+
+	var wire innerWire
+	if json.Unmarshal(payload, &wire) == nil {
+		if wire.EventOrdinal > 0 && out.Ordinal == 0 {
 			out.Ordinal = wire.EventOrdinal
-		} else if wire.Ordinal > 0 {
+		} else if wire.Ordinal > 0 && out.Ordinal == 0 {
 			out.Ordinal = wire.Ordinal
 		}
 		if wire.Type != "" {

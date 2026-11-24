@@ -99,11 +99,13 @@ func (c *Client) ListRoomHistoryShares(ctx context.Context, roomID string) ([]Ro
 }
 
 // CreateRoomHistoryShare creates a share via POST /v0/rooms/:roomId/history-shares/create.
-func (c *Client) CreateRoomHistoryShare(ctx context.Context, roomID, title string) (RoomHistoryShare, error) {
+func (c *Client) CreateRoomHistoryShare(ctx context.Context, roomID, webVersion string) (RoomHistoryShare, error) {
+	body := map[string]string{}
+	if webVersion != "" {
+		body["web_version"] = webVersion
+	}
 	var out RoomHistoryShare
-	err := c.DoJSON(ctx, http.MethodPost, fmt.Sprintf("/v0/rooms/%s/history-shares/create", url.PathEscape(roomID)), map[string]string{
-		"title": title,
-	}, &out)
+	err := c.DoJSON(ctx, http.MethodPost, fmt.Sprintf("/v0/rooms/%s/history-shares/create", url.PathEscape(roomID)), body, &out)
 	return out, err
 }
 

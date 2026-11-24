@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"mime"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,11 +31,11 @@ func (s *Screen) viewDocsSegment(c *ui.Context) {
 	allDocs := append([]api.Document(nil), s.documents...)
 	roomDocs := append([]api.Document(nil), s.roomDocs...)
 	rooms := append([]api.RoomListItem(nil), s.rooms...)
-	s.mu.Unlock()
-
 	if s.docRoomID == "" && len(rooms) > 0 {
 		s.docRoomID = rooms[0].ID
 	}
+	selectedDocRoomID := s.docRoomID
+	s.mu.Unlock()
 
 	ui.Scroll(c).FillWidth().Grow(1).Basis(0).TrackScroll(&s.scroll[SegmentDocs]).Children(func() {
 		ui.Column(c).FillWidth().Padding(12, 16, 24, 16).Gap(10).Children(func() {
@@ -70,7 +71,7 @@ func (s *Screen) viewDocsSegment(c *ui.Context) {
 					ui.Row(c).Gap(6).Children(func() {
 						for _, rm := range rooms {
 							rm := rm
-							on := s.docRoomID == rm.ID
+							on := selectedDocRoomID == rm.ID
 							bg := theme.Extra(t).MutedBg
 							fg := t.TextMuted
 							if on {
@@ -83,7 +84,10 @@ func (s *Screen) viewDocsSegment(c *ui.Context) {
 								ui.Text(c, rm.Name).FontSize(12).FontWeight(600).TextColor(fg).NoWrap()
 							})
 							if chip.Clicked() {
+								s.mu.Lock()
 								s.docRoomID = rm.ID
+								s.mu.Unlock()
+								selectedDocRoomID = rm.ID
 								s.fetchRoomDocsAsync(rm.ID)
 							}
 						}
@@ -445,11 +449,94 @@ func (s *Screen) viewDocumentReaderSheet(c *ui.Context) {
 	})
 }
 
+func canonicalOriginTuple(u *url.URL) (string, string, bool) {
+	if u == nil || u.Scheme == "" || u.Host == "" {
+		return "", "", false
+	}
+	scheme := strings.ToLower(u.Scheme)
+	host := strings.ToLower(u.Hostname())
+	if host == "" {
+		return "", "", false
+	}
+	port := u.Port()
+	if port == "" {
+		switch scheme {
+		case "https":
+			port = "443"
+		case "http":
+			port = "80"
+		}
+	}
+	return scheme, host + ":" + port, true
+}
+
+// validateDocPreviewURL ensures a signed document preview URL uses an allowed
+// scheme and matches the connected Linger host origin (blocking file://,
+// javascript:, data:, linger://, and arbitrary external origins).
+func validateDocPreviewURL(previewURL, hostBaseURL string, allowPlainHTTP bool) error {
+	raw := strings.TrimSpace(previewURL)
+	if raw == "" {
+		return errors.New("preview URL is empty")
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("invalid preview URL: %w", err)
+	}
+	scheme := strings.ToLower(u.Scheme)
+	switch scheme {
+	case "https":
+	case "http":
+		if !allowPlainHTTP {
+			return errors.New("plain HTTP document preview is disallowed")
+		}
+	default:
+		return fmt.Errorf("disallowed preview URL scheme %q", u.Scheme)
+	}
+	s1, h1, ok1 := canonicalOriginTuple(u)
+	if !ok1 {
+		return errors.New("preview URL is missing a valid host")
+	}
+	if strings.TrimSpace(hostBaseURL) != "" {
+		base, bErr := url.Parse(strings.TrimSpace(hostBaseURL))
+		if bErr != nil {
+			return errors.New("connected host origin is invalid")
+		}
+		s2, h2, ok2 := canonicalOriginTuple(base)
+		if !ok2 || s1 != s2 || h1 != h2 {
+			return errors.New("preview URL origin does not match connected host")
+		}
+	}
+	return nil
+}
+
+func allowDocPreviewNavigation(navURL, initialURL, hostBaseURL string, allowPlainHTTP bool) bool {
+	u := strings.TrimSpace(navURL)
+	if strings.EqualFold(u, "about:blank") {
+		return true
+	}
+	if err := validateDocPreviewURL(u, hostBaseURL, allowPlainHTTP); err != nil {
+		return false
+	}
+	if initialURL != "" {
+		initParsed, err1 := url.Parse(initialURL)
+		navParsed, err2 := url.Parse(u)
+		if err1 != nil || err2 != nil {
+			return false
+		}
+		s1, h1, ok1 := canonicalOriginTuple(initParsed)
+		s2, h2, ok2 := canonicalOriginTuple(navParsed)
+		return ok1 && ok2 && s1 == s2 && h1 == h2
+	}
+	return true
+}
+
 func (s *Screen) openHTMLPreview(versionID string) {
 	client := s.client()
 	if client == nil {
 		return
 	}
+	hostBase := client.BaseURL()
+	allowPlain := client.AllowPlainHTTP()
 	s.htmlPreviewOpen = true
 	s.htmlPreviewURL = ""
 	s.htmlPreviewErr = ""
@@ -460,10 +547,28 @@ func (s *Screen) openHTMLPreview(versionID string) {
 				s.htmlPreviewErr = err.Error()
 				return
 			}
-			s.htmlPreviewURL = sess.PreviewURL
-			if s.deps.Window != nil {
+			resolvedURL := client.ResolveEndpointURL(sess.PreviewURL)
+			if vErr := validateDocPreviewURL(resolvedURL, hostBase, allowPlain); vErr != nil {
+				s.htmlPreviewErr = "Blocked unsafe preview URL: " + vErr.Error()
+				return
+			}
+			s.htmlPreviewURL = resolvedURL
+			s.mu.Lock()
+			win := s.deps.Window
+			s.mu.Unlock()
+			if win != nil {
 				s.destroyPreviewWebView()
-				if wv, wErr := s.deps.Window.NewWebView(mygo.WebViewOptions{URL: sess.PreviewURL}); wErr == nil {
+				if wv, wErr := win.NewWebView(mygo.WebViewOptions{
+					URL: resolvedURL,
+					Page: mygo.PageOptions{
+						Untrusted: true,
+					},
+				}); wErr == nil {
+					wv.Page().OnWillNavigate(func(e *mygo.NavigateEvent) {
+						if !allowDocPreviewNavigation(e.URL, resolvedURL, hostBase, allowPlain) {
+							e.PreventDefault()
+						}
+					})
 					s.htmlWebView = wv
 				} else {
 					s.htmlPreviewErr = wErr.Error()

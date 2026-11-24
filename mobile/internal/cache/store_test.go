@@ -60,7 +60,7 @@ func TestCacheMigrationsFTS5AndOutboxDrain(t *testing.T) {
 	}
 	if err := store.SaveLocalModelsSnapshot(ctx, "comp_1", api.LocalModelsView{
 		Available: true,
-		Computer:  api.LocalModelsComputer{ComputerID: "comp_1", DisplayName: "Studio Mac", Online: true},
+		Computer:  api.LocalModelsComputer{ComputerID: "comp_1", DisplayName: "Studio Mac", Status: "online"},
 	}); err != nil {
 		t.Fatalf("SaveLocalModelsSnapshot: %v", err)
 	}
@@ -134,5 +134,60 @@ func TestCacheMigrationsFTS5AndOutboxDrain(t *testing.T) {
 	stats, err := store.Stats(ctx)
 	if err != nil || stats.Rooms != 1 || stats.Messages != 1 || stats.WorkItems != 1 || stats.Outbox != 0 {
 		t.Fatalf("unexpected cache stats: %+v (%v)", stats, err)
+	}
+
+	// P1-1: DrainOutboxByKind must never delete or ack other outbox kinds.
+	if err := store.EnqueueOutbox(ctx, "msg_k1", "message.create", "room_1", map[string]string{"raw_message": "Queued chat"}); err != nil {
+		t.Fatalf("EnqueueOutbox message.create: %v", err)
+	}
+	if err := store.EnqueueOutbox(ctx, "pn_k1", "pocket_note.put", "ten_1", map[string]string{"text": "Pocket draft"}); err != nil {
+		t.Fatalf("EnqueueOutbox pocket_note.put: %v", err)
+	}
+	drainedPocket, err := store.DrainOutboxByKind(ctx, "pocket_note.put", func(_ context.Context, item cache.OutboxItem) error {
+		if item.Kind != "pocket_note.put" {
+			t.Fatalf("DrainOutboxByKind yielded wrong kind %q", item.Kind)
+		}
+		return nil
+	})
+	if err != nil || drainedPocket != 1 {
+		t.Fatalf("DrainOutboxByKind pocket_note.put: sent=%d err=%v", drainedPocket, err)
+	}
+	stillQueued, err := store.ListOutbox(ctx)
+	if err != nil || len(stillQueued) != 1 || stillQueued[0].Kind != "message.create" {
+		t.Fatalf("expected message.create outbox entry preserved after pocket drain, got %+v (%v)", stillQueued, err)
+	}
+
+	// P1-3: Pocket notes use composite PRIMARY KEY (tenant_id, note_date), preventing cross-tenant overwrites.
+	if err := store.UpsertPocketNotes(ctx, "ten_1", []api.PocketNote{{NoteDate: "2026-11-24", Body: "Tenant 1 note", UpdatedAt: now}}); err != nil {
+		t.Fatalf("UpsertPocketNotes ten_1: %v", err)
+	}
+	if err := store.UpsertPocketNotes(ctx, "ten_2", []api.PocketNote{{NoteDate: "2026-11-24", Body: "Tenant 2 note", UpdatedAt: now}}); err != nil {
+		t.Fatalf("UpsertPocketNotes ten_2: %v", err)
+	}
+	n1, err := store.ListPocketNotes(ctx, "ten_1")
+	if err != nil || len(n1) != 1 || n1[0].Body != "Tenant 1 note" {
+		t.Fatalf("ten_1 pocket note corrupted: %+v (%v)", n1, err)
+	}
+	n2, err := store.ListPocketNotes(ctx, "ten_2")
+	if err != nil || len(n2) != 1 || n2[0].Body != "Tenant 2 note" {
+		t.Fatalf("ten_2 pocket note corrupted: %+v (%v)", n2, err)
+	}
+
+	// P1-2: Clear() must succeed and wipe EVERY table including search_fts and local_models_snapshot.
+	if err := store.Clear(ctx); err != nil {
+		t.Fatalf("Clear() failed: %v", err)
+	}
+	clearedStats, err := store.Stats(ctx)
+	if err != nil {
+		t.Fatalf("Stats after Clear: %v", err)
+	}
+	if clearedStats != (cache.CacheStats{}) {
+		t.Fatalf("expected all zero stats after Clear, got %+v", clearedStats)
+	}
+	if hitsAfterClear, err := store.Search(ctx, "SPKI", 10); err != nil || len(hitsAfterClear) != 0 {
+		t.Fatalf("expected empty FTS5 index after Clear, got %+v (%v)", hitsAfterClear, err)
+	}
+	if _, ok, err := store.LoadLocalModelsSnapshot(ctx, "comp_1"); err != nil || ok {
+		t.Fatalf("expected local_models_snapshot cleared, got ok=%v err=%v", ok, err)
 	}
 }

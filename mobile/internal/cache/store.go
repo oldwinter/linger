@@ -138,10 +138,11 @@ func (s *Store) migrate(ctx context.Context) error {
 			updated_at TEXT NOT NULL
 		)`},
 		{SQL: `CREATE TABLE IF NOT EXISTS pocket_notes (
-			note_date TEXT PRIMARY KEY,
 			tenant_id TEXT NOT NULL,
+			note_date TEXT NOT NULL,
 			body TEXT NOT NULL,
-			updated_at TEXT NOT NULL
+			updated_at TEXT NOT NULL,
+			PRIMARY KEY (tenant_id, note_date)
 		)`},
 		{SQL: `CREATE TABLE IF NOT EXISTS documents (
 			document_id TEXT PRIMARY KEY,
@@ -178,6 +179,32 @@ func (s *Store) migrate(ctx context.Context) error {
 	_, err := s.db.Transaction(ctx, stmts)
 	if err != nil {
 		return fmt.Errorf("cache: migrate: %w", err)
+	}
+
+	// Migration v2: ensure pocket_notes uses composite PRIMARY KEY (tenant_id, note_date)
+	// so multi-tenant accounts sharing one cache never collide on the same calendar day.
+	var maxVer int64
+	if rows, qErr := s.db.Query(ctx, `SELECT COALESCE(MAX(version), 0) FROM schema_migrations`); qErr == nil && len(rows.Values) > 0 {
+		maxVer, _ = rows.Values[0][0].(int64)
+	}
+	if maxVer < 2 {
+		v2 := []sqlite.Statement{
+			{SQL: `CREATE TABLE IF NOT EXISTS pocket_notes_v2 (
+				tenant_id TEXT NOT NULL,
+				note_date TEXT NOT NULL,
+				body TEXT NOT NULL,
+				updated_at TEXT NOT NULL,
+				PRIMARY KEY (tenant_id, note_date)
+			)`},
+			{SQL: `INSERT OR REPLACE INTO pocket_notes_v2(tenant_id, note_date, body, updated_at)
+				SELECT tenant_id, note_date, body, updated_at FROM pocket_notes`},
+			{SQL: `DROP TABLE pocket_notes`},
+			{SQL: `ALTER TABLE pocket_notes_v2 RENAME TO pocket_notes`},
+			{SQL: `INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (2, ?)`, Args: []any{time.Now().UTC().Format(time.RFC3339)}},
+		}
+		if _, v2Err := s.db.Transaction(ctx, v2); v2Err != nil {
+			return fmt.Errorf("cache: migrate v2: %w", v2Err)
+		}
 	}
 	return nil
 }
@@ -412,15 +439,16 @@ func (s *Store) UpsertPocketNotes(ctx context.Context, tenantID string, notes []
 	}
 	stmts := make([]sqlite.Statement, 0, len(notes)*3)
 	for _, n := range notes {
+		ftsID := tenantID + ":" + n.NoteDate
 		stmts = append(stmts,
 			sqlite.Statement{
-				SQL: `INSERT INTO pocket_notes(note_date, tenant_id, body, updated_at)
+				SQL: `INSERT INTO pocket_notes(tenant_id, note_date, body, updated_at)
 				      VALUES (?, ?, ?, ?)
-				      ON CONFLICT(note_date) DO UPDATE SET body=excluded.body, updated_at=excluded.updated_at`,
-				Args: []any{n.NoteDate, tenantID, n.Body, n.UpdatedAt.UTC().Format(time.RFC3339Nano)},
+				      ON CONFLICT(tenant_id, note_date) DO UPDATE SET body=excluded.body, updated_at=excluded.updated_at`,
+				Args: []any{tenantID, n.NoteDate, n.Body, n.UpdatedAt.UTC().Format(time.RFC3339Nano)},
 			},
-			sqlite.Statement{SQL: `DELETE FROM search_fts WHERE entity_type='pocket_note' AND entity_id=?`, Args: []any{n.NoteDate}},
-			sqlite.Statement{SQL: `INSERT INTO search_fts(entity_type, entity_id, room_id, title, body) VALUES ('pocket_note', ?, '', ?, ?)`, Args: []any{n.NoteDate, n.NoteDate, n.Body}},
+			sqlite.Statement{SQL: `DELETE FROM search_fts WHERE entity_type='pocket_note' AND (entity_id=? OR entity_id=?)`, Args: []any{ftsID, n.NoteDate}},
+			sqlite.Statement{SQL: `INSERT INTO search_fts(entity_type, entity_id, room_id, title, body) VALUES ('pocket_note', ?, '', ?, ?)`, Args: []any{ftsID, n.NoteDate, n.Body}},
 		)
 	}
 	_, err := s.db.Transaction(ctx, stmts)
@@ -622,6 +650,37 @@ func (s *Store) ListOutbox(ctx context.Context) ([]OutboxItem, error) {
 	return out, nil
 }
 
+// ListOutboxByKind returns queued outbox items matching kind in FIFO order.
+func (s *Store) ListOutboxByKind(ctx context.Context, kind string) ([]OutboxItem, error) {
+	rows, err := s.db.Query(ctx, `SELECT id, idempotency_key, kind, target_id, payload_json, created_at, attempts, last_error FROM outbox_queue WHERE kind = ? ORDER BY id ASC`, kind)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]OutboxItem, 0, len(rows.Values))
+	for _, row := range rows.Values {
+		id, _ := row[0].(int64)
+		ikey, _ := row[1].(string)
+		k, _ := row[2].(string)
+		target, _ := row[3].(string)
+		payload, _ := row[4].(string)
+		createdStr, _ := row[5].(string)
+		attempts, _ := row[6].(int64)
+		lastErr, _ := row[7].(string)
+		createdAt, _ := time.Parse(time.RFC3339Nano, createdStr)
+		out = append(out, OutboxItem{
+			ID:             id,
+			IdempotencyKey: ikey,
+			Kind:           k,
+			TargetID:       target,
+			PayloadJSON:    payload,
+			CreatedAt:      createdAt,
+			Attempts:       int(attempts),
+			LastError:      lastErr,
+		})
+	}
+	return out, nil
+}
+
 // AckOutbox removes a successfully delivered outbox entry.
 func (s *Store) AckOutbox(ctx context.Context, id int64) error {
 	_, err := s.db.Execute(ctx, `DELETE FROM outbox_queue WHERE id = ?`, id)
@@ -640,6 +699,20 @@ func (s *Store) DrainOutbox(ctx context.Context, sendFn func(context.Context, Ou
 	if err != nil {
 		return 0, err
 	}
+	return s.drainItems(ctx, items, sendFn)
+}
+
+// DrainOutboxByKind replays ONLY queued items matching kind in FIFO order, leaving
+// all other outbox kinds untouched in outbox_queue.
+func (s *Store) DrainOutboxByKind(ctx context.Context, kind string, sendFn func(context.Context, OutboxItem) error) (sent int, err error) {
+	items, err := s.ListOutboxByKind(ctx, kind)
+	if err != nil {
+		return 0, err
+	}
+	return s.drainItems(ctx, items, sendFn)
+}
+
+func (s *Store) drainItems(ctx context.Context, items []OutboxItem, sendFn func(context.Context, OutboxItem) error) (sent int, err error) {
 	for _, item := range items {
 		if ctx.Err() != nil {
 			return sent, ctx.Err()
@@ -705,8 +778,9 @@ func (s *Store) Clear(ctx context.Context) error {
 		{SQL: `DELETE FROM routines`},
 		{SQL: `DELETE FROM pocket_notes`},
 		{SQL: `DELETE FROM documents`},
+		{SQL: `DELETE FROM local_models_snapshot`},
 		{SQL: `DELETE FROM outbox_queue`},
-		{SQL: `DELETE FROM search_index`},
+		{SQL: `DELETE FROM search_fts`},
 	}
 	_, err := s.db.Transaction(ctx, stmts)
 	return err

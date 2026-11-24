@@ -25,6 +25,16 @@ const fake = vi.hoisted(() => {
   };
   const windows: FakeWindow[] = [];
   const clipboardWrites: string[] = [];
+  const localInstanceRef: {
+    current: {
+      origin: string;
+      root: string;
+      source: { ports: { teamhub: number; document: number } };
+    } | null;
+  } = { current: null };
+  const localIdentityRef: {
+    current: { instanceId: string; secret: string } | null;
+  } = { current: null };
 
   class FakeWindow {
     readonly options: Record<string, unknown>;
@@ -65,7 +75,24 @@ const fake = vi.hoisted(() => {
     pages,
     windows,
     clipboardWrites,
+    localInstanceRef,
+    localIdentityRef,
     FakeWindow,
+  };
+});
+
+vi.mock("@linger/local-installation/instance", () => ({
+  loadInstance: async () => fake.localInstanceRef.current,
+}));
+vi.mock("@linger/local-installation/account", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@linger/local-installation/account")>();
+  return {
+    ...actual,
+    readLocalIdentity: async () => {
+      if (fake.localIdentityRef.current) return fake.localIdentityRef.current;
+      throw new Error("no local identity");
+    },
   };
 });
 
@@ -97,13 +124,21 @@ beforeEach(() => {
   fake.protocolHandlers.clear();
   fake.windows.length = 0;
   fake.clipboardWrites.length = 0;
+  fake.localInstanceRef.current = null;
+  fake.localIdentityRef.current = null;
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
 });
 
-async function createFixture() {
+async function createFixture(
+  options: {
+    readonly serverUrl?: string;
+    readonly sessionCookie?: (serverUrl: string) => Promise<string | undefined>;
+    readonly fetcher?: typeof fetch;
+  } = {},
+) {
   const userData = tempDirectory();
   const mdns = {
     active: vi.fn(() => false),
@@ -117,7 +152,9 @@ async function createFixture() {
     userData,
     version: "0.16.20",
     defaultHostName: "Dev Mac",
-    sessionCookie: async () => "teamhub_session=web_cookie_123",
+    sessionCookie:
+      options.sessionCookie ?? (async () => "teamhub_session=web_cookie_123"),
+    ...(options.fetcher ? { fetcher: options.fetcher } : {}),
     mdnsFactory: () => mdns,
   });
 
@@ -125,6 +162,10 @@ async function createFixture() {
     status: () => ({
       phase: "idle",
       location: { path: tempDirectory(), custom: false },
+    }),
+    account: async () => ({
+      email: "local@linger.test",
+      password: "local-password-123",
     }),
   });
   const daemonStub = Object.assign(stubModule("ComputerDaemon"), {
@@ -146,7 +187,7 @@ async function createFixture() {
       module,
     ],
     {
-      serverUrl: "http://127.0.0.1:3000",
+      serverUrl: options.serverUrl ?? "http://127.0.0.1:3000",
       tenantId: "tenant_1",
       computerId: "comp_1",
     },
@@ -276,5 +317,67 @@ describe("MobileCompanionModule", () => {
       jsonOutput: true,
       customHost: "box.ts.net",
     });
+  });
+
+  it("fails closed without delegating desktop cookie when local server identity proof fails", async () => {
+    fake.localInstanceRef.current = {
+      origin: "http://127.0.0.1:3000",
+      root: "/tmp/linger-local-test",
+      source: { ports: { teamhub: 3001, document: 3002 } },
+    };
+    fake.localIdentityRef.current = {
+      instanceId: "inst_1",
+      secret: "secret_1",
+    };
+
+    const sessionCookieSpy = vi.fn(
+      async () => "teamhub_session=desktop_web_cookie",
+    );
+    const failingFetcher = vi.fn(async () => {
+      return new Response(JSON.stringify({ error: "mismatch" }), {
+        status: 403,
+      });
+    }) as unknown as typeof fetch;
+
+    const f = await createFixture({
+      serverUrl: "http://127.0.0.1:3000",
+      sessionCookie: sessionCookieSpy,
+      fetcher: failingFetcher,
+    });
+    try {
+      const randomPort = 49152 + Math.floor(Math.random() * 10000);
+      const enabled = await f.invokeRun({
+        op: "config.update",
+        patch: {
+          enabled: true,
+          port: randomPort,
+          tls: false,
+          advertiseMdns: false,
+        },
+      });
+      expect(enabled.running).toBe(true);
+      const opened = await f.invokeRun({ op: "pairing.open" });
+      expect(opened.pairing).toBeDefined();
+
+      const pairRes = await fetch(
+        `http://127.0.0.1:${randomPort}/companion/v1/pair`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            pin: opened.pairing!.pin,
+            device_name: "Phone",
+            platform: "ios",
+          }),
+        },
+      );
+      expect(pairRes.status).toBe(503);
+      expect(await pairRes.json()).toMatchObject({
+        error: { code: "SESSION_UNAVAILABLE" },
+      });
+      expect(sessionCookieSpy).not.toHaveBeenCalled();
+    } finally {
+      await f.host.stop("quit");
+    }
   });
 });

@@ -460,9 +460,9 @@ func paintKnowledgeGraph(p *ui.Painter, r ui.Rect, t *ui.Theme, positions []grap
 			byID[np.Node.ID] = np
 		}
 
-		// Edges
-		edgeCol := t.Border
-		inferredCol := t.TextMuted.Alpha(0.35)
+		// Edges painted as true center-to-center diagonal ui.Path vectors beneath node circles
+		edgeCol := t.TextMuted.Alpha(0.50)
+		inferredCol := t.TextMuted.Alpha(0.28)
 		for _, e := range edges {
 			a, okA := byID[e.Source]
 			b, okB := byID[e.Target]
@@ -473,9 +473,11 @@ func paintKnowledgeGraph(p *ui.Painter, r ui.Rect, t *ui.Theme, positions []grap
 			width := float32(1.6)
 			if e.Kind == "mention" {
 				c = inferredCol
-				width = 1.1
+				width = 1.15
 			}
-			p.Line(r.X+a.X, r.Y+a.Y, r.X+b.X, r.Y+b.Y, width, c)
+			var edgePath ui.Path
+			edgePath.MoveTo(r.X+a.X, r.Y+a.Y).LineTo(r.X+b.X, r.Y+b.Y)
+			p.StrokePath(&edgePath, width, c)
 		}
 
 		// Nodes + labels

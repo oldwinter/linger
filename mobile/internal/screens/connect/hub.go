@@ -28,6 +28,7 @@ type Hub struct {
 	store *state.AppStore
 
 	mu             sync.Mutex
+	pending        []func()
 	segment        int // 0: Hosts, 1: Pair, 2: Direct
 	pairURI        string
 	pairPlainHTTP  bool
@@ -105,8 +106,30 @@ func (h *Hub) PrefillPairURI(raw string) {
 	h.mu.Unlock()
 }
 
+func (h *Hub) enqueueUI(fn func()) {
+	h.mu.Lock()
+	h.pending = append(h.pending, fn)
+	h.mu.Unlock()
+	h.store.Notify()
+}
+
+func (h *Hub) drainPending() {
+	h.mu.Lock()
+	if len(h.pending) == 0 {
+		h.mu.Unlock()
+		return
+	}
+	q := h.pending
+	h.pending = nil
+	h.mu.Unlock()
+	for _, fn := range q {
+		fn()
+	}
+}
+
 // View renders the Connection Hub inside the active tab's scrollable content area.
 func (h *Hub) View(c *ui.Context) {
+	h.drainPending()
 	snap := h.store.Snapshot()
 	if pending := h.store.ConsumePendingPairURI(); pending != "" {
 		h.PrefillPairURI(pending)
@@ -353,7 +376,9 @@ func (h *Hub) viewPairDesktop(c *ui.Context, snap state.Snapshot, busy bool) {
 						})
 						pairBtn := components.PrimaryTouchButton(c, "PIN Pair", busy)
 						if pairBtn.Clicked() {
-							h.openPINProbe(dh.BaseURL(), dh.Name, !dh.TLS)
+							// Never auto-opt-in to plain HTTP from mDNS TXT tls=0;
+							// require explicit user confirmation inside the PIN sheet.
+							h.openPINProbe(dh.BaseURL(), dh.Name, false)
 						}
 					})
 				}
@@ -511,7 +536,19 @@ func (h *Hub) viewPINSheet(c *ui.Context) {
 					return
 				}
 
-				if tofu != nil && tofu.ShortCode != "" {
+				isHTTPS := strings.HasPrefix(strings.ToLower(strings.TrimSpace(targetURL)), "https://")
+				if !isHTTPS && !plain {
+					components.StatusBanner(c, components.ToneWarning,
+						"This host advertised plain HTTP (no TLS encryption or SPKI fingerprint). Enable explicit opt-in below only on a trusted Tailscale or local dev network.", "", nil)
+					optIn := false
+					ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
+						ui.Text(c, "Allow plain HTTP for this pairing").FontSize(12).FontWeight(600).TextColor(t.Text).Grow(1).Basis(0)
+						sw := mobile.Switch(c, &optIn)
+						if sw.Changed() && optIn {
+							h.openPINProbe(targetURL, hostName, true)
+						}
+					})
+				} else if tofu != nil && tofu.ShortCode != "" {
 					ui.Column(c).FillWidth().Padding(12, 12).Radius(10).Background(theme.Extra(t).OKTint).
 						Border(1, t.Success.Alpha(0.35)).Gap(4).Children(func() {
 						ui.Text(c, "Verify Desktop TLS Fingerprint").FontSize(12).FontWeight(600).TextColor(t.Success)
@@ -527,10 +564,16 @@ func (h *Hub) viewPINSheet(c *ui.Context) {
 				components.FormField(c, "6-Digit PIN from Desktop", "123456", &h.pinCode, false)
 
 				confirmedFP := ""
-				if tofu != nil {
-					confirmedFP = tofu.ObservedFingerprint
+				tofuReady := false
+				if isHTTPS {
+					if tofu != nil && tofu.ObservedFingerprint != "" && tofu.ShortCode != "" {
+						confirmedFP = tofu.ObservedFingerprint
+						tofuReady = true
+					}
+				} else {
+					tofuReady = plain && tofu != nil
 				}
-				canPair := !busy && len(strings.TrimSpace(h.pinCode)) == 6
+				canPair := !busy && tofuReady && len(strings.TrimSpace(h.pinCode)) == 6
 				btn := components.PrimaryTouchButton(c, "Confirm & Pair", !canPair)
 				btn.FillWidth()
 				if btn.Clicked() {
@@ -579,15 +622,19 @@ func (h *Hub) viewDiagnosticsSheet(c *ui.Context, snap state.Snapshot) {
 					if shareBtn.Clicked() {
 						go func() {
 							err := mygo.Share(mygo.ShareOptions{Text: diagText})
-							h.mu.Lock()
+							var msg string
 							if errors.Is(err, errors.ErrUnsupported) {
-								h.diagNotice = "System share sheet is unavailable in desktop preview; diagnostics are shown above."
+								msg = "System share sheet is unavailable in desktop preview; diagnostics are shown above."
 							} else if err != nil {
-								h.diagNotice = "Share failed: " + err.Error()
+								msg = "Share failed: " + err.Error()
 							} else {
-								h.diagNotice = "Diagnostics shared."
+								msg = "Diagnostics shared."
 							}
-							h.mu.Unlock()
+							h.enqueueUI(func() {
+								h.mu.Lock()
+								h.diagNotice = msg
+								h.mu.Unlock()
+							})
 						}()
 					}
 					closeBtn := components.SecondaryTouchButton(c, "Close", false)
@@ -647,6 +694,9 @@ func (h *Hub) triggerCameraScan() {
 }
 
 func (h *Hub) openPINProbe(targetURL, hostName string, allowPlain bool) {
+	isPlainHTTP := strings.HasPrefix(strings.ToLower(strings.TrimSpace(targetURL)), "http://")
+	shouldProbe := !isPlainHTTP || allowPlain
+
 	h.mu.Lock()
 	h.pinSheetOpen = true
 	h.pinTargetURL = targetURL
@@ -655,22 +705,29 @@ func (h *Hub) openPINProbe(targetURL, hostName string, allowPlain bool) {
 	h.pinCode = ""
 	h.pinTOFU = nil
 	h.pinError = ""
-	h.pinProbing = true
+	h.pinProbing = shouldProbe
 	h.mu.Unlock()
+
+	if !shouldProbe {
+		return
+	}
 
 	go func() {
 		res, err := h.store.ProbePINHost(context.Background(), targetURL, allowPlain)
-		h.mu.Lock()
-		h.pinProbing = false
-		if err != nil {
-			h.pinError = err.Error()
-		} else {
-			h.pinTOFU = &res
-			if res.Info.HostName != "" {
-				h.pinHostName = res.Info.HostName
+		h.enqueueUI(func() {
+			h.mu.Lock()
+			h.pinProbing = false
+			if err != nil {
+				h.pinError = err.Error()
+			} else {
+				cp := res
+				h.pinTOFU = &cp
+				if res.Info.HostName != "" {
+					h.pinHostName = res.Info.HostName
+				}
 			}
-		}
-		h.mu.Unlock()
+			h.mu.Unlock()
+		})
 	}()
 }
 
@@ -682,18 +739,20 @@ func (h *Hub) pairPINAsync(targetURL, pin, confirmedFP string, allowPlain bool) 
 
 	go func() {
 		prof, err := h.store.PairWithPIN(context.Background(), targetURL, pin, confirmedFP, allowPlain)
-		h.mu.Lock()
-		h.busy = false
-		if err != nil {
-			h.pinError = err.Error()
-		} else {
-			h.pinSheetOpen = false
-			h.pinCode = ""
-			h.segment = 0
-			h.inlineError = ""
-			h.inlineNotice = "Paired with " + prof.Name
-		}
-		h.mu.Unlock()
+		h.enqueueUI(func() {
+			h.mu.Lock()
+			h.busy = false
+			if err != nil {
+				h.pinError = err.Error()
+			} else {
+				h.pinSheetOpen = false
+				h.pinCode = ""
+				h.segment = 0
+				h.inlineError = ""
+				h.inlineNotice = "Paired with " + prof.Name
+			}
+			h.mu.Unlock()
+		})
 	}()
 }
 
@@ -705,17 +764,19 @@ func (h *Hub) pairURIAsync(rawURI string, allowPlain bool) {
 
 	go func() {
 		prof, err := h.store.PairWithURI(context.Background(), rawURI, allowPlain)
-		h.mu.Lock()
-		h.busy = false
-		if err != nil {
-			h.inlineError = err.Error()
-		} else {
-			h.pairURI = ""
-			h.segment = 0
-			h.inlineError = ""
-			h.inlineNotice = "Paired with " + prof.Name
-		}
-		h.mu.Unlock()
+		h.enqueueUI(func() {
+			h.mu.Lock()
+			h.busy = false
+			if err != nil {
+				h.inlineError = err.Error()
+			} else {
+				h.pairURI = ""
+				h.segment = 0
+				h.inlineError = ""
+				h.inlineNotice = "Paired with " + prof.Name
+			}
+			h.mu.Unlock()
+		})
 	}()
 }
 
@@ -727,17 +788,19 @@ func (h *Hub) directLoginAsync(rawURL, email, password string, allowPlain bool) 
 
 	go func() {
 		prof, err := h.store.LoginDirect(context.Background(), rawURL, email, password, allowPlain)
-		h.mu.Lock()
-		h.busy = false
-		if err != nil {
-			h.inlineError = err.Error()
-		} else {
-			h.directPassword = ""
-			h.segment = 0
-			h.inlineError = ""
-			h.inlineNotice = "Signed in to " + prof.Name
-		}
-		h.mu.Unlock()
+		h.enqueueUI(func() {
+			h.mu.Lock()
+			h.busy = false
+			if err != nil {
+				h.inlineError = err.Error()
+			} else {
+				h.directPassword = ""
+				h.segment = 0
+				h.inlineError = ""
+				h.inlineNotice = "Signed in to " + prof.Name
+			}
+			h.mu.Unlock()
+		})
 	}()
 }
 
@@ -749,15 +812,17 @@ func (h *Hub) connectAsync(hostID string) {
 
 	go func() {
 		err := h.store.ConnectHost(context.Background(), hostID)
-		h.mu.Lock()
-		h.busy = false
-		if err != nil {
-			h.inlineError = err.Error()
-		} else {
-			h.inlineError = ""
-			h.inlineNotice = "Connected"
-		}
-		h.mu.Unlock()
+		h.enqueueUI(func() {
+			h.mu.Lock()
+			h.busy = false
+			if err != nil {
+				h.inlineError = err.Error()
+			} else {
+				h.inlineError = ""
+				h.inlineNotice = "Connected"
+			}
+			h.mu.Unlock()
+		})
 	}()
 }
 
@@ -769,14 +834,16 @@ func (h *Hub) rotateTokenAsync() {
 
 	go func() {
 		err := h.store.RotateActiveToken(context.Background())
-		h.mu.Lock()
-		h.busy = false
-		if err != nil {
-			h.inlineError = err.Error()
-		} else {
-			h.inlineNotice = "Device token rotated"
-		}
-		h.mu.Unlock()
+		h.enqueueUI(func() {
+			h.mu.Lock()
+			h.busy = false
+			if err != nil {
+				h.inlineError = err.Error()
+			} else {
+				h.inlineNotice = "Device token rotated"
+			}
+			h.mu.Unlock()
+		})
 	}()
 }
 
@@ -788,13 +855,15 @@ func (h *Hub) unpairAsync(hostID string) {
 
 	go func() {
 		err := h.store.UnpairHost(context.Background(), hostID)
-		h.mu.Lock()
-		h.busy = false
-		if err != nil {
-			h.inlineError = err.Error()
-		} else {
-			h.inlineNotice = "Host removed"
-		}
-		h.mu.Unlock()
+		h.enqueueUI(func() {
+			h.mu.Lock()
+			h.busy = false
+			if err != nil {
+				h.inlineError = err.Error()
+			} else {
+				h.inlineNotice = "Host removed"
+			}
+			h.mu.Unlock()
+		})
 	}()
 }

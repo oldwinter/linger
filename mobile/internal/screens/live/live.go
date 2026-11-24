@@ -147,6 +147,7 @@ func (ctl *Controller) Route(c *ui.Context, r *ui.Route, snap state.Snapshot) {
 
 // View renders the segmented Tab 2 Live Control view.
 func (ctl *Controller) View(c *ui.Context, snap state.Snapshot) {
+	ctl.store.DrainUI()
 	ctl.mu.Lock()
 	seg := ctl.segment
 	notice := ctl.inlineNotice
@@ -205,9 +206,9 @@ func (ctl *Controller) View(c *ui.Context, snap state.Snapshot) {
 		if scroll.PullToRefresh(&ctl.refresh) {
 			go func() {
 				_ = ctl.store.RefreshActiveHost(context.Background())
-				ctl.mu.Lock()
-				ctl.refresh.Refreshing = false
-				ctl.mu.Unlock()
+				ctl.store.EnqueueUI(func() {
+					ctl.refresh.Refreshing = false
+				})
 			}()
 		}
 		scroll.Children(func() {

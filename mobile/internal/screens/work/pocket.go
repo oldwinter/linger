@@ -209,22 +209,15 @@ func (s *Screen) queuePocketSave(text string) {
 	}
 	s.pocketSaveSeq++
 	seq := s.pocketSaveSeq
+	s.pocketPending = &pocketSaveReq{seq: seq, tenantID: tenantID, text: text}
 	s.pocketState = PocketStateSaving
 	s.pocketLastErr = ""
-	q := s.pocketQueue
+	wake := s.pocketWake
 	s.mu.Unlock()
 
-	req := pocketSaveReq{seq: seq, tenantID: tenantID, text: text}
 	select {
-	case q <- req:
+	case wake <- struct{}{}:
 	default:
-		// Coalesce if queue is full; worker processes latest sequence.
-		go func() {
-			select {
-			case q <- req:
-			default:
-			}
-		}()
 	}
 }
 
@@ -233,13 +226,22 @@ func (s *Screen) runPocketWorker(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case req := <-s.pocketQueue:
-			// Drain queued newer edits so rapid typing coalesces cleanly into one serialized write.
-			for len(s.pocketQueue) > 0 {
-				next := <-s.pocketQueue
-				req = next
+		case <-s.pocketWake:
+			for {
+				if ctx.Err() != nil {
+					return
+				}
+				s.mu.Lock()
+				req := s.pocketPending
+				s.pocketPending = nil
+				s.mu.Unlock()
+				if req == nil {
+					break
+				}
+				s.pocketMu.Lock()
+				s.persistPocketSave(ctx, *req)
+				s.pocketMu.Unlock()
 			}
-			s.persistPocketSave(ctx, req)
 		}
 	}
 }
@@ -258,8 +260,10 @@ func (s *Screen) persistPocketSave(ctx context.Context, req pocketSaveReq) {
 	if !s.isOnline() || client == nil || req.tenantID == "" {
 		s.enqueuePocketOutbox(ctx, req.tenantID, today, req.text)
 		s.mu.Lock()
-		s.pocketState = PocketStateSavedOffline
-		s.pocketLastErr = ""
+		if s.pocketSaveSeq == req.seq {
+			s.pocketState = PocketStateSavedOffline
+			s.pocketLastErr = ""
+		}
 		s.mu.Unlock()
 		s.notify()
 		return
@@ -269,12 +273,14 @@ func (s *Screen) persistPocketSave(ctx context.Context, req pocketSaveReq) {
 	if err != nil {
 		s.enqueuePocketOutbox(ctx, req.tenantID, today, req.text)
 		s.mu.Lock()
-		if !s.isOnline() {
-			s.pocketState = PocketStateSavedOffline
-			s.pocketLastErr = ""
-		} else {
-			s.pocketState = PocketStateError
-			s.pocketLastErr = err.Error()
+		if s.pocketSaveSeq == req.seq {
+			if !s.isOnline() {
+				s.pocketState = PocketStateSavedOffline
+				s.pocketLastErr = ""
+			} else {
+				s.pocketState = PocketStateError
+				s.pocketLastErr = err.Error()
+			}
 		}
 		s.mu.Unlock()
 		s.notify()
@@ -285,20 +291,32 @@ func (s *Screen) persistPocketSave(ctx context.Context, req pocketSaveReq) {
 	s.clearPocketOutbox(ctx)
 	s.mu.Lock()
 	s.pocketSavedSeq = req.seq
-	if s.pocketSaveSeq == req.seq {
+	isLatest := s.pocketSaveSeq == req.seq && s.pocketPending == nil
+	if isLatest {
 		s.pocketState = PocketStateSaved
 		s.pocketLastErr = ""
 		s.pocketServerTxt = saved.Text
 	}
 	s.mu.Unlock()
-	s.enqueueUI(func() {
-		s.pocketDirty = false
-	})
+	if isLatest {
+		s.enqueueUI(func() {
+			s.mu.Lock()
+			stillLatest := s.pocketSaveSeq == req.seq && s.pocketPending == nil
+			s.mu.Unlock()
+			if stillLatest {
+				s.pocketDirty = false
+			}
+		})
+	}
 	s.notify()
 }
 
-// SyncPocketOutbox drains all queued offline Pocket Note mutations to TeamHub.
+// SyncPocketOutbox drains all queued offline Pocket Note mutations to TeamHub
+// without touching other outbox kinds (such as message.create).
 func (s *Screen) SyncPocketOutbox(ctx context.Context) error {
+	s.pocketMu.Lock()
+	defer s.pocketMu.Unlock()
+
 	client := s.client()
 	if client == nil || !s.isOnline() {
 		return nil
@@ -310,10 +328,7 @@ func (s *Screen) SyncPocketOutbox(ctx context.Context) error {
 	s.notify()
 
 	if cs := s.cacheStore(); cs != nil {
-		_, err := cs.DrainOutbox(ctx, func(dCtx context.Context, item cache.OutboxItem) error {
-			if item.Kind != "pocket_note.put" {
-				return nil
-			}
+		_, err := cs.DrainOutboxByKind(ctx, "pocket_note.put", func(dCtx context.Context, item cache.OutboxItem) error {
 			var pl pocketOutboxPayload
 			if uErr := json.Unmarshal([]byte(item.PayloadJSON), &pl); uErr != nil {
 				return uErr
@@ -340,11 +355,11 @@ func (s *Screen) SyncPocketOutbox(ctx context.Context) error {
 		}
 	}
 
-	// Drain in-memory outbox fallback if Cache was nil.
+	// Drain in-memory outbox fallback if Cache was nil, removing ONLY acked entries.
 	s.mu.Lock()
 	mem := append([]pocketOutboxJob(nil), s.memOutbox...)
 	s.mu.Unlock()
-	for i, job := range mem {
+	for _, job := range mem {
 		tid := job.Payload.TenantID
 		if tid == "" {
 			tid = s.tenantID()
@@ -352,7 +367,6 @@ func (s *Screen) SyncPocketOutbox(ctx context.Context) error {
 		saved, err := client.PutTodayPocketNoteC2(ctx, tid, job.Payload.Text)
 		if err != nil {
 			s.mu.Lock()
-			s.memOutbox = mem[i:]
 			s.pocketState = PocketStateError
 			s.pocketLastErr = err.Error()
 			s.mu.Unlock()
@@ -360,17 +374,34 @@ func (s *Screen) SyncPocketOutbox(ctx context.Context) error {
 			return err
 		}
 		s.upsertLocalPocketNote(tid, saved)
+		s.mu.Lock()
+		filtered := s.memOutbox[:0]
+		for _, cur := range s.memOutbox {
+			if cur.IdempotencyKey != job.IdempotencyKey {
+				filtered = append(filtered, cur)
+			}
+		}
+		s.memOutbox = filtered
+		s.mu.Unlock()
 	}
 
 	s.mu.Lock()
-	s.memOutbox = nil
-	s.outboxPending = 0
-	s.pocketState = PocketStateSaved
-	s.pocketLastErr = ""
+	noMorePending := s.pocketPending == nil && s.outboxPending == 0 && len(s.memOutbox) == 0
+	if noMorePending {
+		s.pocketState = PocketStateSaved
+		s.pocketLastErr = ""
+	}
 	s.mu.Unlock()
-	s.enqueueUI(func() {
-		s.pocketDirty = false
-	})
+	if noMorePending {
+		s.enqueueUI(func() {
+			s.mu.Lock()
+			stillClean := s.pocketPending == nil && s.outboxPending == 0 && len(s.memOutbox) == 0
+			s.mu.Unlock()
+			if stillClean {
+				s.pocketDirty = false
+			}
+		})
+	}
 	s.notify()
 	return nil
 }
@@ -378,10 +409,10 @@ func (s *Screen) SyncPocketOutbox(ctx context.Context) error {
 func (s *Screen) enqueuePocketOutbox(ctx context.Context, tenantID, noteDate, text string) {
 	pl := pocketOutboxPayload{TenantID: tenantID, Date: noteDate, Text: text}
 	if cs := s.cacheStore(); cs != nil {
-		// Replace older queued pocket_note.put entries so only latest note text drains.
-		if existing, err := cs.ListOutbox(ctx); err == nil {
+		// Replace older queued pocket_note.put entries for this tenant so only latest note text drains.
+		if existing, err := cs.ListOutboxByKind(ctx, "pocket_note.put"); err == nil {
 			for _, it := range existing {
-				if it.Kind == "pocket_note.put" {
+				if it.TargetID == tenantID {
 					_ = cs.AckOutbox(ctx, it.ID)
 				}
 			}
@@ -397,11 +428,9 @@ func (s *Screen) enqueuePocketOutbox(ctx context.Context, tenantID, noteDate, te
 
 func (s *Screen) clearPocketOutbox(ctx context.Context) {
 	if cs := s.cacheStore(); cs != nil {
-		if existing, err := cs.ListOutbox(ctx); err == nil {
+		if existing, err := cs.ListOutboxByKind(ctx, "pocket_note.put"); err == nil {
 			for _, it := range existing {
-				if it.Kind == "pocket_note.put" {
-					_ = cs.AckOutbox(ctx, it.ID)
-				}
+				_ = cs.AckOutbox(ctx, it.ID)
 			}
 		}
 		s.refreshOutboxCount(ctx)
@@ -416,18 +445,12 @@ func (s *Screen) refreshOutboxCount(ctx context.Context) {
 	if cs == nil {
 		return
 	}
-	items, err := cs.ListOutbox(ctx)
+	items, err := cs.ListOutboxByKind(ctx, "pocket_note.put")
 	if err != nil {
 		return
 	}
-	n := 0
-	for _, it := range items {
-		if it.Kind == "pocket_note.put" {
-			n++
-		}
-	}
 	s.mu.Lock()
-	s.outboxPending = n
+	s.outboxPending = len(items)
 	s.mu.Unlock()
 }
 
@@ -469,14 +492,18 @@ func (s *Screen) sendPocketToAnotherMe(text string) {
 			})
 			return
 		}
-		if am.DirectRoom == nil || am.DirectRoom.ID == "" {
+		if am.RoomID == nil || strings.TrimSpace(*am.RoomID) == "" {
 			s.enqueueUI(func() {
 				s.pocketSendBusy = false
 				s.pocketActionErr = "Another Me direct room is unavailable."
 			})
 			return
 		}
-		_, msgErr := client.CreateMessage(ctx, am.DirectRoom.ID, api.CreateMessageRequest{RawMessage: text}, newOutboxKey())
+		targetRoomID := strings.TrimSpace(*am.RoomID)
+		_, msgErr := client.CreateMessage(ctx, targetRoomID, api.CreateMessageRequest{
+			RawMessage: text,
+			Segments:   []api.MessageSegment{{Type: "text", Content: text}},
+		}, newOutboxKey())
 		s.enqueueUI(func() {
 			s.pocketSendBusy = false
 			if msgErr != nil {
@@ -485,7 +512,7 @@ func (s *Screen) sendPocketToAnotherMe(text string) {
 			}
 			s.toast("Sent note to Another Me")
 			if s.deps.OnOpenRoom != nil {
-				s.deps.OnOpenRoom(am.DirectRoom.ID)
+				s.deps.OnOpenRoom(targetRoomID)
 			}
 		})
 	}()

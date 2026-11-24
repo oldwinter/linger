@@ -295,11 +295,13 @@ func (ctl *Controller) viewDeleteAgentConfirm(c *ui.Context) {
 					_ = cl.DeleteTenantAgent(context.Background(), tenantID, ag.Actor.ID)
 					_ = ctl.store.RefreshActiveHost(context.Background())
 				}
-				ctl.mu.Lock()
-				ctl.agentSheetOpen = false
-				ctl.selectedAgent = nil
-				ctl.mu.Unlock()
-				ctl.setNotice("Deleted agent " + name)
+				ctl.store.EnqueueUI(func() {
+					ctl.mu.Lock()
+					ctl.agentSheetOpen = false
+					ctl.selectedAgent = nil
+					ctl.mu.Unlock()
+					ctl.setNotice("Deleted agent " + name)
+				})
 			}()
 		},
 	})
@@ -309,7 +311,10 @@ func (ctl *Controller) openDirectAgentChat(actorID string) {
 	go func() {
 		rm, err := ctl.store.OpenDirectRoom(context.Background(), actorID)
 		if err == nil && ctl.nav.OnOpenRoom != nil {
-			ctl.nav.OnOpenRoom(rm.ID)
+			roomID := rm.ID
+			ctl.store.EnqueueUI(func() {
+				ctl.nav.OnOpenRoom(roomID)
+			})
 		}
 	}()
 }
@@ -375,38 +380,57 @@ func (ctl *Controller) createAgentAsync(tenantID string) {
 			ag, err := cl.CreateTenantAgent(context.Background(), tenantID, body)
 			if err == nil {
 				_ = ctl.store.RefreshActiveHost(context.Background())
-				ctl.mu.Lock()
-				ctl.createAgentOpen = false
-				ctl.mu.Unlock()
-				ctl.setNotice("Created agent " + ag.Actor.DisplayName)
-			} else {
-				ctl.store.SetTransientError(err.Error())
+				agentName := ag.Actor.DisplayName
+				ctl.store.EnqueueUI(func() {
+					ctl.mu.Lock()
+					ctl.createAgentOpen = false
+					ctl.agentBusy = false
+					ctl.mu.Unlock()
+					ctl.setNotice("Created agent " + agentName)
+				})
+				return
 			}
+			ctl.store.SetTransientError(err.Error())
 		}
-		ctl.mu.Lock()
-		ctl.agentBusy = false
-		ctl.mu.Unlock()
+		ctl.store.EnqueueUI(func() {
+			ctl.mu.Lock()
+			ctl.agentBusy = false
+			ctl.mu.Unlock()
+		})
 	}()
 }
 
 func (ctl *Controller) toggleAgentSkillAsync(tenantID, agentID string, sk api.SkillManifest, enable bool) {
+	ctl.mu.Lock()
+	var bindingVer int64 = 1
+	for _, b := range ctl.agentBindings {
+		if b.Skill.SkillID == sk.SkillID && b.BindingVersion >= 1 {
+			bindingVer = b.BindingVersion
+			break
+		}
+	}
+	ctl.mu.Unlock()
+
 	go func() {
 		cl := ctl.store.Client()
 		if cl == nil || tenantID == "" {
 			return
 		}
 		if enable {
-			_, _ = cl.PutAgentSkillBinding(context.Background(), tenantID, agentID, sk.SkillID, map[string]any{
-				"enabled":          true,
-				"manifest_version": sk.ManifestVersion,
+			_, _ = cl.PutAgentSkillBinding(context.Background(), tenantID, agentID, sk.SkillID, api.AgentSkillBindingPutRequest{
+				Config:                 map[string]any{},
+				Enabled:                true,
+				ExpectedBindingVersion: bindingVer,
+				ManifestVersion:        sk.ManifestVersion,
 			})
 		} else {
-			_ = cl.DeleteAgentSkillBinding(context.Background(), tenantID, agentID, sk.SkillID)
+			_ = cl.DeleteAgentSkillBinding(context.Background(), tenantID, agentID, sk.SkillID, bindingVer)
 		}
 		if bindings, err := cl.ListAgentSkillBindings(context.Background(), tenantID, agentID); err == nil {
 			ctl.mu.Lock()
 			ctl.agentBindings = bindings
 			ctl.mu.Unlock()
+			ctl.store.Notify()
 		}
 	}()
 }

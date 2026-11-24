@@ -64,7 +64,9 @@ type Screen struct {
 	syncError       string
 	outboxPending   int
 	memOutbox       []pocketOutboxJob
-	pocketQueue     chan pocketSaveReq
+	pocketMu        sync.Mutex // serializes all Pocket Note disk/network saves and outbox drains
+	pocketPending   *pocketSaveReq
+	pocketWake      chan struct{}
 	workerCancel    context.CancelFunc
 	pocketSaveSeq   uint64
 	pocketSavedSeq  uint64
@@ -148,7 +150,7 @@ func New(deps Deps) *Screen {
 	workerCtx, cancel := context.WithCancel(context.Background())
 	s := &Screen{
 		deps:               deps,
-		pocketQueue:        make(chan pocketSaveReq, 64),
+		pocketWake:         make(chan struct{}, 1),
 		workerCancel:       cancel,
 		pocketState:        PocketStateSaved,
 		createPriority:     1,

@@ -106,6 +106,11 @@ type AppStore struct {
 	Routers [5]*ui.Router
 
 	mu              sync.RWMutex
+	connGen         uint64
+	connectCancel   context.CancelFunc
+	refreshRunning  bool
+	refreshPending  bool
+	uiPending       []func()
 	activeTab       int
 	phase           ConnectionPhase
 	sseState        realtime.StreamState
@@ -385,13 +390,41 @@ func (s *AppStore) SetStatusMessage(msg string) {
 	s.notify()
 }
 
+// EnqueueUI schedules fn to run on the UI thread before the next frame renders.
+func (s *AppStore) EnqueueUI(fn func()) {
+	if fn == nil {
+		return
+	}
+	s.mu.Lock()
+	s.uiPending = append(s.uiPending, fn)
+	s.mu.Unlock()
+	s.notify()
+}
+
+// DrainUI executes any queued UI-thread actions (must be called on the UI thread).
+func (s *AppStore) DrainUI() {
+	s.mu.Lock()
+	if len(s.uiPending) == 0 {
+		s.mu.Unlock()
+		return
+	}
+	q := s.uiPending
+	s.uiPending = nil
+	s.mu.Unlock()
+	for _, fn := range q {
+		fn()
+	}
+}
+
 // SetPendingPairURI records an incoming linger://pair?... deep link and routes to Connection Hub.
 func (s *AppStore) SetPendingPairURI(uri string) {
 	s.mu.Lock()
 	s.pendingPairURI = strings.TrimSpace(uri)
 	s.activeTab = TabMore
+	s.uiPending = append(s.uiPending, func() {
+		s.Routers[TabMore].Replace("/more/connect")
+	})
 	s.mu.Unlock()
-	s.Routers[TabMore].Replace("/more/connect")
 	s.notify()
 }
 
@@ -443,12 +476,16 @@ func (s *AppStore) SetOnline(online bool) {
 	s.mu.Lock()
 	s.online = online
 	stream := s.stream
+	client := s.client
 	if online {
 		s.transientError = ""
 	}
 	s.mu.Unlock()
 	if stream != nil {
 		stream.SetOnline(online)
+	}
+	if online && client != nil {
+		go func() { _, _ = s.DrainMessageOutbox(context.Background()) }()
 	}
 	s.notify()
 }
@@ -732,6 +769,8 @@ func (s *AppStore) saveAndActivateHost(ctx context.Context, profile config.HostP
 
 // ConnectHost activates a saved host, opens its SQLite cache, hydrates offline
 // rows, probes LAN->Tailscale, fetches live data, and starts the single SSE engine.
+// Concurrent ConnectHost calls are generation-guarded so superseded attempts cancel
+// and close their resources cleanly without leaking streams or SQLite handles.
 func (s *AppStore) ConnectHost(ctx context.Context, hostID string) error {
 	profile, ok := s.cfg.Host(hostID)
 	if !ok {
@@ -743,22 +782,60 @@ func (s *AppStore) ConnectHost(ctx context.Context, hostID string) error {
 		return err
 	}
 
-	s.Disconnect()
-	_ = s.cfg.SetActiveHost(hostID)
-
+	connCtx, connCancel := context.WithCancel(ctx)
 	s.mu.Lock()
+	s.connGen++
+	myGen := s.connGen
+	prevConnectCancel := s.connectCancel
+	s.connectCancel = connCancel
+	prevStreamCancel := s.streamCancel
+	s.streamCancel = nil
+	s.stream = nil
+	s.presentation = nil
+	prevClient := s.client
+	s.client = nil
+	prevCache := s.cacheStore
+	s.cacheStore = nil
 	s.phase = PhaseConnecting
+	s.sseState = realtime.StateDisconnected
 	s.transientError = ""
 	s.mu.Unlock()
+
+	if prevConnectCancel != nil {
+		prevConnectCancel()
+	}
+	if prevStreamCancel != nil {
+		prevStreamCancel()
+	}
+	if prevClient != nil {
+		prevClient.CloseIdleConnections()
+	}
+	if prevCache != nil {
+		_ = prevCache.Close()
+	}
+
+	_ = s.cfg.SetActiveHost(hostID)
 	s.notify()
 
+	isSuperseded := func() bool {
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+		return s.connGen != myGen
+	}
+
 	// Open per-host SQLite cache and hydrate offline snapshot immediately.
-	cacheStore, cacheErr := s.openHostCache(ctx, hostID)
+	cacheStore, cacheErr := s.openHostCache(connCtx, hostID)
 	if cacheErr == nil {
 		s.mu.Lock()
+		if s.connGen != myGen {
+			s.mu.Unlock()
+			_ = cacheStore.Close()
+			connCancel()
+			return context.Canceled
+		}
 		s.cacheStore = cacheStore
 		s.mu.Unlock()
-		s.hydrateFromCache(ctx, cacheStore, profile.TenantID)
+		s.hydrateFromCache(connCtx, cacheStore, profile.TenantID)
 	}
 
 	mode := api.AuthModeCompanion
@@ -777,49 +854,82 @@ func (s *AppStore) ConnectHost(ctx context.Context, hostID string) error {
 		},
 	})
 	if err != nil {
-		s.mu.Lock()
-		s.phase = PhaseDisconnected
-		s.transientError = err.Error()
-		s.mu.Unlock()
-		s.notify()
+		connCancel()
+		if !isSuperseded() {
+			s.mu.Lock()
+			if s.connGen == myGen {
+				s.phase = PhaseDisconnected
+				s.transientError = err.Error()
+			}
+			s.mu.Unlock()
+			s.notify()
+		}
 		return err
 	}
 
 	// Probe LAN -> Tailscale failover when fallback exists.
 	if profile.TailscaleURL != "" {
-		if res, probeErr := client.ProbeAndSelectEndpoint(ctx, discovery.DefaultLANProbeTimeout); probeErr == nil {
+		if res, probeErr := client.ProbeAndSelectEndpoint(connCtx, discovery.DefaultLANProbeTimeout); probeErr == nil {
 			s.mu.Lock()
-			s.activeVia = res.Target.Via
-			s.rttMs = int(res.RTT.Milliseconds())
+			if s.connGen == myGen {
+				s.activeVia = res.Target.Via
+				s.rttMs = int(res.RTT.Milliseconds())
+			}
 			s.mu.Unlock()
 		}
 	}
 
 	s.mu.Lock()
+	if s.connGen != myGen {
+		s.mu.Unlock()
+		client.CloseIdleConnections()
+		connCancel()
+		return context.Canceled
+	}
 	s.client = client
 	s.mu.Unlock()
 	netimage.SetClient(client.AuthenticatedHTTPClient())
 
-	if err := s.RefreshActiveHost(ctx); err != nil {
+	if err := s.RefreshActiveHost(connCtx); err != nil {
+		if isSuperseded() {
+			connCancel()
+			return context.Canceled
+		}
 		if errors.Is(err, api.ErrUnauthorized) {
+			connCancel()
 			s.mu.Lock()
-			s.phase = PhaseExpired
-			s.transientError = "Session expired or device revoked. Pair or sign in again."
+			if s.connGen == myGen {
+				s.phase = PhaseExpired
+				s.transientError = "Session expired or device revoked. Pair or sign in again."
+			}
 			s.mu.Unlock()
 			s.notify()
 			return err
 		}
 		s.mu.Lock()
-		s.phase = PhaseReconnecting
-		s.offlineViewingCache = len(s.rooms) > 0
-		s.transientError = err.Error()
+		if s.connGen == myGen {
+			s.phase = PhaseReconnecting
+			s.offlineViewingCache = len(s.rooms) > 0
+			s.transientError = err.Error()
+		}
 		s.mu.Unlock()
+		// Start SSE realtime engine even after transient initial refresh failure
+		// so the store recovers automatically once the host comes back online.
+		s.startRealtime(client, myGen)
 		s.notify()
 		return err
 	}
 
-	// Start single /v0/events SSE engine.
-	s.startRealtime(client)
+	if isSuperseded() {
+		connCancel()
+		return context.Canceled
+	}
+
+	// Start single /v0/events SSE engine and drain any queued offline messages.
+	s.startRealtime(client, myGen)
+	go func() {
+		_, _ = s.DrainMessageOutbox(context.Background())
+	}()
 
 	profile.LastConnectedAt = time.Now().UTC()
 	profile.LastRTTMs = int(client.LastRTT().Milliseconds())
@@ -829,19 +939,24 @@ func (s *AppStore) ConnectHost(ctx context.Context, hostID string) error {
 	_ = s.cfg.UpsertHost(profile)
 
 	s.mu.Lock()
-	s.phase = PhaseConnected
-	s.offlineViewingCache = false
-	s.rttMs = profile.LastRTTMs
-	s.activeVia = client.ActiveVia()
-	s.transientError = ""
+	if s.connGen == myGen {
+		s.phase = PhaseConnected
+		s.offlineViewingCache = false
+		s.rttMs = profile.LastRTTMs
+		s.activeVia = client.ActiveVia()
+		s.transientError = ""
+	}
 	s.mu.Unlock()
 	s.notify()
 	return nil
 }
 
-// Disconnect stops SSE, closes the SQLite cache, and clears active runtime handles.
+// Disconnect stops SSE, cancels in-flight connects, closes the SQLite cache, and clears active runtime handles.
 func (s *AppStore) Disconnect() {
 	s.mu.Lock()
+	s.connGen++
+	connectCancel := s.connectCancel
+	s.connectCancel = nil
 	cancel := s.streamCancel
 	s.streamCancel = nil
 	s.stream = nil
@@ -854,6 +969,9 @@ func (s *AppStore) Disconnect() {
 	s.sseState = realtime.StateDisconnected
 	s.mu.Unlock()
 
+	if connectCancel != nil {
+		connectCancel()
+	}
 	if cancel != nil {
 		cancel()
 	}
@@ -896,6 +1014,7 @@ func (s *AppStore) RefreshActiveHost(ctx context.Context) error {
 
 	var rooms []api.RoomListItem
 	var activeRuns []api.RoomRunStatus
+	runningRoomSet := map[string]bool{}
 	var workItems []api.WorkItem
 	var routines []api.Routine
 	var notes []api.PocketNote
@@ -914,11 +1033,14 @@ func (s *AppStore) RefreshActiveHost(ctx context.Context) error {
 			rooms = rp.Items
 		}
 		if act, aErr := client.GetRoomActivity(ctx, tenantID); aErr == nil {
-			for _, item := range act.Items {
-				activeRuns = append(activeRuns, item.ActiveRuns...)
-			}
-			for _, item := range act.Rooms {
-				activeRuns = append(activeRuns, item.ActiveRuns...)
+			for _, rid := range act.RunningRoomIDs {
+				if rid == "" {
+					continue
+				}
+				runningRoomSet[rid] = true
+				if runs, rsErr := client.ListRoomRunStatuses(ctx, rid); rsErr == nil {
+					activeRuns = append(activeRuns, runs...)
+				}
 			}
 		}
 		if ap, aErr := client.ListActors(ctx, tenantID, 100, ""); aErr == nil {
@@ -997,6 +1119,9 @@ func (s *AppStore) RefreshActiveHost(ctx context.Context) error {
 	s.localModels = localModels
 	s.modelSource = modelSource
 	s.workingRoomIDs = make(map[string]bool)
+	for rid := range runningRoomSet {
+		s.workingRoomIDs[rid] = true
+	}
 	for _, run := range activeRuns {
 		if run.Status == "active" && !run.Replied {
 			s.workingRoomIDs[run.RoomID] = true
@@ -1123,7 +1248,45 @@ func (s *AppStore) DiagnosticsText() string {
 	return b.String()
 }
 
-func (s *AppStore) startRealtime(client *api.Client) {
+func (s *AppStore) scheduleCoalescedRefresh(ctx context.Context, gen uint64) {
+	s.mu.Lock()
+	if s.connGen != gen {
+		s.mu.Unlock()
+		return
+	}
+	if s.refreshRunning {
+		s.refreshPending = true
+		s.mu.Unlock()
+		return
+	}
+	s.refreshRunning = true
+	s.refreshPending = false
+	s.mu.Unlock()
+
+	go func() {
+		for {
+			if ctx.Err() != nil {
+				s.mu.Lock()
+				s.refreshRunning = false
+				s.refreshPending = false
+				s.mu.Unlock()
+				return
+			}
+			_ = s.RefreshActiveHost(ctx)
+			s.mu.Lock()
+			if !s.refreshPending || s.connGen != gen {
+				s.refreshRunning = false
+				s.refreshPending = false
+				s.mu.Unlock()
+				return
+			}
+			s.refreshPending = false
+			s.mu.Unlock()
+		}
+	}()
+}
+
+func (s *AppStore) startRealtime(client *api.Client, gen uint64) {
 	ctx, cancel := context.WithCancel(context.Background())
 	tracker := realtime.NewRunPresentationTracker(client, func(_, runID string, ev api.RuntimePresentationEvent) {
 		s.appendRunPresentationEvent(runID, ev)
@@ -1132,9 +1295,15 @@ func (s *AppStore) startRealtime(client *api.Client) {
 	mgr := realtime.NewStreamManager(client, realtime.StreamCallbacks{
 		OnState: func(st realtime.StreamState, err error) {
 			s.mu.Lock()
+			if s.connGen != gen {
+				s.mu.Unlock()
+				return
+			}
 			s.sseState = st
+			needHydrate := false
 			switch st {
 			case realtime.StateConnected:
+				needHydrate = s.identity == nil || s.phase != PhaseConnected
 				s.phase = PhaseConnected
 				s.offlineViewingCache = false
 				s.transientError = ""
@@ -1148,6 +1317,12 @@ func (s *AppStore) startRealtime(client *api.Client) {
 				s.transientError = "Session expired. Please reconnect."
 			}
 			s.mu.Unlock()
+			if st == realtime.StateConnected {
+				if needHydrate {
+					s.scheduleCoalescedRefresh(ctx, gen)
+				}
+				go func() { _, _ = s.DrainMessageOutbox(ctx) }()
+			}
 			s.notify()
 		},
 		OnRoomEvent: func(ev api.RoomEventEnvelope) {
@@ -1156,18 +1331,24 @@ func (s *AppStore) startRealtime(client *api.Client) {
 			s.notify()
 		},
 		OnInvalidated: func(_ realtime.ResourceInvalidation) {
-			go func() { _ = s.RefreshActiveHost(ctx) }()
+			s.scheduleCoalescedRefresh(ctx, gen)
 		},
 		OnResync: func(_ string) {
-			go func() { _ = s.RefreshActiveHost(ctx) }()
+			s.scheduleCoalescedRefresh(ctx, gen)
 		},
 		OnHeartbeat: func(at time.Time) {
 			s.mu.Lock()
-			s.lastHB = at
+			if s.connGen == gen {
+				s.lastHB = at
+			}
 			s.mu.Unlock()
 		},
 		OnSessionExpired: func(_, message string) {
 			s.mu.Lock()
+			if s.connGen != gen {
+				s.mu.Unlock()
+				return
+			}
 			s.phase = PhaseExpired
 			s.sseState = realtime.StateExpired
 			s.transientError = "Session expired: " + message
@@ -1177,6 +1358,12 @@ func (s *AppStore) startRealtime(client *api.Client) {
 	}, realtime.StreamOptions{})
 
 	s.mu.Lock()
+	if s.connGen != gen {
+		s.mu.Unlock()
+		cancel()
+		return
+	}
+	prevCancel := s.streamCancel
 	for _, r := range s.rooms {
 		mgr.SetRoomCursor(r.ID, r.LatestRoomSeq)
 	}
@@ -1186,6 +1373,9 @@ func (s *AppStore) startRealtime(client *api.Client) {
 	s.streamCancel = cancel
 	s.presentation = tracker
 	s.mu.Unlock()
+	if prevCancel != nil {
+		prevCancel()
+	}
 
 	mgr.SetOnline(online)
 	mgr.SetSuspended(suspended)

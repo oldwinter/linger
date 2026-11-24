@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"time"
 )
 
 // --- Auth, Session, Identity & Tenants ---
@@ -18,8 +19,8 @@ func (c *Client) Login(ctx context.Context, email, password string) (Session, er
 	c.mu.Unlock()
 	var out Session
 	err := c.DoJSON(ctx, http.MethodPost, "/v0/auth/login", LoginRequest{
-		Email:    email,
-		Password: password,
+		Identifier: email,
+		Password:   password,
 	}, &out)
 	return out, err
 }
@@ -113,18 +114,26 @@ func (c *Client) GetRoomActivity(ctx context.Context, tenantID string) (TenantRo
 	return out, err
 }
 
-// CreateRoom creates a group Room via POST /v0/tenants/:tenantId/rooms.
+// CreateRoom creates a group Room via POST /v0/tenants/:tenantId/rooms matching
+// HumanRoomCreateRequest (name, optional description), then invites any extra
+// memberActorIDs via PUT /v0/rooms/:roomId/members/:actorId.
 func (c *Client) CreateRoom(ctx context.Context, tenantID, name, description string, memberActorIDs []string) (Room, error) {
 	body := map[string]any{"name": name}
 	if description != "" {
 		body["description"] = description
 	}
-	if len(memberActorIDs) > 0 {
-		body["member_actor_ids"] = memberActorIDs
-	}
 	var out Room
 	err := c.DoJSON(ctx, http.MethodPost, fmt.Sprintf("/v0/tenants/%s/rooms", url.PathEscape(tenantID)), body, &out)
-	return out, err
+	if err != nil {
+		return out, err
+	}
+	for _, actorID := range memberActorIDs {
+		if actorID == "" {
+			continue
+		}
+		_, _ = c.PutRoomMember(ctx, out.ID, actorID, "member")
+	}
+	return out, nil
 }
 
 // OpenDirectRoom opens or returns a direct Room via POST /v0/tenants/:tenantId/direct-rooms.
@@ -202,6 +211,13 @@ func (c *Client) ListMessages(ctx context.Context, roomID string, limit int, cur
 
 // CreateMessage sends a message via POST /v0/rooms/:roomId/messages with optional Idempotency-Key.
 func (c *Client) CreateMessage(ctx context.Context, roomID string, req CreateMessageRequest, idempotencyKey string) (Message, error) {
+	if req.Segments == nil {
+		if req.RawMessage != "" {
+			req.Segments = []MessageSegment{{Type: "text", Content: req.RawMessage}}
+		} else {
+			req.Segments = []MessageSegment{}
+		}
+	}
 	headers := map[string]string{}
 	if idempotencyKey != "" {
 		headers["Idempotency-Key"] = idempotencyKey
@@ -241,10 +257,21 @@ func (c *Client) DeleteMessagePin(ctx context.Context, roomID, messageID string)
 // ListMessagePins lists pinned messages via GET /v0/rooms/:roomId/pins.
 func (c *Client) ListMessagePins(ctx context.Context, roomID string) ([]Message, error) {
 	var out struct {
-		Items []Message `json:"items"`
+		Items []struct {
+			Message         Message   `json:"message"`
+			PinnedAt        time.Time `json:"pinned_at"`
+			PinnedByActorID string    `json:"pinned_by_actor_id"`
+		} `json:"items"`
 	}
 	err := c.DoJSON(ctx, http.MethodGet, fmt.Sprintf("/v0/rooms/%s/pins", url.PathEscape(roomID)), nil, &out)
-	return out.Items, err
+	if err != nil {
+		return nil, err
+	}
+	msgs := make([]Message, 0, len(out.Items))
+	for _, it := range out.Items {
+		msgs = append(msgs, it.Message)
+	}
+	return msgs, nil
 }
 
 // ForwardRoomMessage forwards a message to another Room via POST /v0/rooms/:roomId/messages/:messageId/forward.
@@ -253,17 +280,25 @@ func (c *Client) ForwardRoomMessage(ctx context.Context, roomID, messageID, targ
 	if idempotencyKey != "" {
 		headers["Idempotency-Key"] = idempotencyKey
 	}
-	var out Message
-	err := c.DoJSONWithHeaders(ctx, http.MethodPost, fmt.Sprintf("/v0/rooms/%s/messages/%s/forward", url.PathEscape(roomID), url.PathEscape(messageID)), map[string]string{
-		"target_room_id": targetRoomID,
-	}, headers, &out)
-	return out, err
+	reqBody := map[string]any{
+		"target": map[string]string{
+			"kind": "room",
+			"id":   targetRoomID,
+		},
+	}
+	var out struct {
+		Message        Message  `json:"message"`
+		RoomID         string   `json:"room_id"`
+		RoomBindingIDs []string `json:"room_binding_ids"`
+	}
+	err := c.DoJSONWithHeaders(ctx, http.MethodPost, fmt.Sprintf("/v0/rooms/%s/messages/%s/forward", url.PathEscape(roomID), url.PathEscape(messageID)), reqBody, headers, &out)
+	return out.Message, err
 }
 
 // UpdateRoomReadState advances read_through_room_seq via PUT /v0/rooms/:roomId/read-state.
 func (c *Client) UpdateRoomReadState(ctx context.Context, roomID string, roomSeq int64) error {
 	return c.DoJSON(ctx, http.MethodPut, fmt.Sprintf("/v0/rooms/%s/read-state", url.PathEscape(roomID)), map[string]int64{
-		"read_through_room_seq": roomSeq,
+		"through_room_seq": roomSeq,
 	}, nil)
 }
 
@@ -320,7 +355,10 @@ func (c *Client) ListRoomRuntimePresentationEvents(ctx context.Context, roomID, 
 
 // CancelRoomRun cancels an active Agent Run via POST /v0/rooms/:roomId/runs/:runId/cancel.
 func (c *Client) CancelRoomRun(ctx context.Context, roomID, runID string) error {
-	return c.DoJSON(ctx, http.MethodPost, fmt.Sprintf("/v0/rooms/%s/runs/%s/cancel", url.PathEscape(roomID), url.PathEscape(runID)), struct{}{}, nil)
+	reqID := fmt.Sprintf("cancel_%s_%d", runID, time.Now().UnixNano())
+	return c.DoJSON(ctx, http.MethodPost, fmt.Sprintf("/v0/rooms/%s/runs/%s/cancel", url.PathEscape(roomID), url.PathEscape(runID)), map[string]string{
+		"request_id": reqID,
+	}, nil)
 }
 
 // RedeliverRoomRunUnconfirmedInputs retries unconfirmed inputs via POST /v0/rooms/:roomId/runs/:runId/redeliver-unconfirmed-inputs.

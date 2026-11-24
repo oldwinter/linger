@@ -190,15 +190,6 @@ export function isAllowedHostHeader(
     return true;
   }
 
-  if (isTailscaleIpv4(bareHost) || isTailscaleIpv6(bareHost)) {
-    return true;
-  }
-
-  if (bareHost.endsWith(".ts.net") && isValidDnsName(bareHost)) {
-    const prefix = bareHost.slice(0, -".ts.net".length);
-    if (prefix.length > 0) return true;
-  }
-
   const machineHost = options.hostname.trim().toLowerCase().replace(/\.$/u, "");
   if (machineHost) {
     const shortHost = machineHost.replace(/\.local$/u, "");
@@ -207,6 +198,12 @@ export function isAllowedHostHeader(
     }
     if (shortHost && bareHost === `${shortHost}.local`) {
       return true;
+    }
+    if (shortHost && bareHost.endsWith(".ts.net") && isValidDnsName(bareHost)) {
+      const labels = bareHost.slice(0, -".ts.net".length).split(".");
+      if (labels.length >= 2 && labels[0] === shortHost) {
+        return true;
+      }
     }
   }
 

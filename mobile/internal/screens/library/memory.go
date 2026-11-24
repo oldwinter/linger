@@ -269,6 +269,7 @@ func (s *Screen) startVoiceSSE(sessionID string) {
 
 func (s *Screen) stopAudioAndStream() {
 	s.mu.Lock()
+	s.audioGen++
 	cancel := s.voiceStreamCancel
 	s.voiceStreamCancel = nil
 	player := s.audioPlayer
@@ -331,14 +332,16 @@ func (s *Screen) viewVoiceCaptureSheet(c *ui.Context) {
 						if !s.voiceAudioLoaded {
 							verID := ""
 							if vc.AudioDocumentVersionID != nil {
-								verID = *vc.AudioDocumentVersionID
-							} else {
-								verID = "dv_rec_1"
+								verID = strings.TrimSpace(*vc.AudioDocumentVersionID)
 							}
-							playBtn := components.SecondaryTouchButton(c, "Load Audio", s.voiceBusy || verID == "")
-							playBtn.Grow(1).Basis(0)
-							if playBtn.Clicked() {
-								s.loadAudioVersion(verID)
+							if verID == "" && s.voiceAudioStatus == "" {
+								ui.Text(c, "No audio recording available for this capture.").FontSize(12).TextColor(t.TextMuted).Grow(1).Basis(0)
+							} else {
+								playBtn := components.SecondaryTouchButton(c, "Load Audio", s.voiceBusy || verID == "")
+								playBtn.Grow(1).Basis(0)
+								if playBtn.Clicked() {
+									s.loadAudioVersion(verID)
+								}
 							}
 						} else {
 							lbl := "Play"
@@ -511,9 +514,18 @@ func (s *Screen) sendVoiceQuestionTaskAsync(captureID, questionID string) {
 
 func (s *Screen) loadAudioVersion(verID string) {
 	client := s.client()
-	if client == nil {
+	if client == nil || strings.TrimSpace(verID) == "" {
 		return
 	}
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return
+	}
+	s.audioGen++
+	myGen := s.audioGen
+	s.mu.Unlock()
+
 	s.voiceAudioStatus = "Downloading recording..."
 	go func() {
 		data, ct, err := client.DownloadDocumentVersion(context.Background(), verID)
@@ -536,12 +548,19 @@ func (s *Screen) loadAudioVersion(verID string) {
 			return
 		}
 		s.mu.Lock()
-		if s.audioPlayer != nil {
-			s.audioPlayer.Stop()
-			s.audioPlayer.Close()
+		if s.closed || s.audioGen != myGen {
+			s.mu.Unlock()
+			player.Stop()
+			player.Close()
+			return
 		}
+		prev := s.audioPlayer
 		s.audioPlayer = player
 		s.mu.Unlock()
+		if prev != nil {
+			prev.Stop()
+			prev.Close()
+		}
 		player.Play()
 		s.enqueueUI(func() {
 			s.voiceAudioLoaded = true
@@ -571,6 +590,7 @@ func (s *Screen) toggleAudioPlayback() {
 
 func (s *Screen) stopAudioPlayerOnly() {
 	s.mu.Lock()
+	s.audioGen++
 	p := s.audioPlayer
 	s.audioPlayer = nil
 	s.mu.Unlock()

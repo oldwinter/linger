@@ -99,11 +99,48 @@ type MessageSegment struct {
 
 // MessageReaction represents grouped emoji reactions on a Message.
 type MessageReaction struct {
-	ReactionID string     `json:"reaction_id"`
-	Emoji      string     `json:"emoji,omitempty"`
-	Count      int        `json:"count"`
-	Reacted    bool       `json:"reacted,omitempty"`
-	Actors     []ActorRef `json:"actors,omitempty"`
+	ReactionID string   `json:"reaction_id"`
+	ActorIDs   []string `json:"actor_ids"`
+}
+
+// Count returns the number of actors who applied this reaction.
+func (r MessageReaction) Count() int {
+	return len(r.ActorIDs)
+}
+
+// ReactedBy reports whether actorID is present in ActorIDs.
+func (r MessageReaction) ReactedBy(actorID string) bool {
+	if actorID == "" {
+		return false
+	}
+	for _, id := range r.ActorIDs {
+		if id == actorID {
+			return true
+		}
+	}
+	return false
+}
+
+// DisplayEmoji returns a user-friendly emoji glyph for common @emoji-mart IDs.
+func (r MessageReaction) DisplayEmoji() string {
+	switch r.ReactionID {
+	case "+1", "thumbsup", "thumbs_up":
+		return "\U0001f44d"
+	case "heart":
+		return "\u2764\ufe0f"
+	case "eyes":
+		return "\U0001f440"
+	case "tada":
+		return "\U0001f389"
+	case "white_check_mark", "check":
+		return "\u2705"
+	case "fire":
+		return "\U0001f525"
+	case "rocket":
+		return "\U0001f680"
+	default:
+		return r.ReactionID
+	}
 }
 
 // MessageThreadSummary summarizes a message's attached Thread room.
@@ -145,10 +182,10 @@ type MessagePage struct {
 
 // CreateMessageRequest posts a message to POST /v0/rooms/:roomId/messages.
 type CreateMessageRequest struct {
-	RawMessage          string   `json:"raw_message,omitempty"`
-	Segments            []any    `json:"segments,omitempty"`
-	ReplyToMessageID    *string  `json:"reply_to_message_id,omitempty"`
-	AttachmentUploadIDs []string `json:"attachment_upload_ids,omitempty"`
+	RawMessage          string           `json:"raw_message"`
+	Segments            []MessageSegment `json:"segments"`
+	ContextMessageIDs   []string         `json:"context_message_ids,omitempty"`
+	AttachmentUploadIDs []string         `json:"attachment_upload_ids,omitempty"`
 }
 
 // RoomEventEnvelope is the canonical SSE room.event and /v0/rooms/:roomId/events envelope.
@@ -207,10 +244,13 @@ type RoomBackgroundTaskList struct {
 	Items []RoomBackgroundTask `json:"items"`
 }
 
-// RuntimePresentationEvent is a single persisted runtime presentation event
+// RuntimePresentationEvent is a single persisted runtime presentation event record
 // returned by GET /v0/rooms/:roomId/runs/:runId/runtime-presentation-events.
 type RuntimePresentationEvent struct {
 	EventOrdinal int64           `json:"event_ordinal,omitempty"`
+	SegmentID    string          `json:"segment_id,omitempty"`
+	MessageID    *string         `json:"message_id,omitempty"`
+	Event        json.RawMessage `json:"event,omitempty"`
 	Ordinal      int64           `json:"ordinal,omitempty"`
 	Kind         string          `json:"kind,omitempty"`
 	EventType    string          `json:"event_type,omitempty"`
@@ -316,16 +356,8 @@ type DecisionRequestedMessageCard struct {
 	SearchKey          json.RawMessage      `json:"search_key,omitempty"`
 }
 
-// RoomActivityItem represents one Room's live activity summary from GET /v0/tenants/:tenantId/room-activity.
-type RoomActivityItem struct {
-	RoomID          string          `json:"room_id"`
-	ActiveRuns      []RoomRunStatus `json:"active_runs,omitempty"`
-	PendingCount    int             `json:"pending_decision_count,omitempty"`
-	BackgroundCount int             `json:"background_task_count,omitempty"`
-}
-
 // TenantRoomActivity wraps GET /v0/tenants/:tenantId/room-activity.
 type TenantRoomActivity struct {
-	Items []RoomActivityItem `json:"items,omitempty"`
-	Rooms []RoomActivityItem `json:"rooms,omitempty"`
+	RunningRoomIDs []string `json:"running_room_ids"`
+	FailedRoomIDs  []string `json:"failed_room_ids"`
 }

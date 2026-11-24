@@ -102,7 +102,7 @@ Supported CLI flags (`mobile/cmd/linger-mobile/main.go`):
 
 - **LAN mDNS Radar**: Automatically discovers Desktop hosts advertising `_linger._tcp.local.` on your local network.
 - **QR Code / Deep Link**: Scan Desktop's QR code or open a `linger://pair?...` link (`mygo.App.OnOpenURL`).
-- **6-Digit PIN (TOFU)**: Enter host address and 6-digit PIN, verify the 8-character SPKI short code shown on Desktop, and pair.
+- **6-Digit PIN (TOFU)**: Enter host address and 6-digit PIN, verify the 16-character hex SPKI verification code (`XXXX-XXXX-XXXX-XXXX`) shown on Desktop, and pair.
 - **Tailscale / Direct URL**: Automatic LAN-to-Tailscale failover (1.5s LAN probe timeout) or direct TeamHub HTTPS login (`POST /v0/auth/login` with cookie auth).
 
 ---

@@ -425,6 +425,7 @@ func newC2FakeServerState(useTLS bool) *C2FakeServer {
 		},
 		VoiceCapture: api.VoiceCapture{
 			ID: "vc_1", VoiceSessionID: "vs_1", RoomID: room1, Status: "recording",
+			AudioDocumentVersionID: strPtr("dv_rec_1"),
 			GapCount: 1, GapDurationMs: 1200, TranscriptRecoveryStatus: strPtr("needed"),
 			CreatedAt: now, UpdatedAt: now,
 		},
@@ -631,7 +632,9 @@ func (s *C2FakeServer) ServeC2Route(w http.ResponseWriter, r *http.Request) bool
 	p := r.URL.Path
 	switch {
 	case p == "/v0/tenants/"+s.TenantID+"/another-me" && r.Method == http.MethodGet:
-		writeJSON(w, http.StatusOK, api.AnotherMeSummary{Actor: &s.AnotherMe, DirectRoom: &s.DirectRoom, Configured: true})
+		agentID := s.AnotherMe.ID
+		roomID := s.DirectRoom.ID
+		writeJSON(w, http.StatusOK, api.AnotherMeSummary{AgentActorID: &agentID, RoomID: &roomID})
 
 	// Work Items
 	case p == "/v0/tenants/"+s.TenantID+"/work-items" && r.Method == http.MethodGet:
@@ -720,6 +723,13 @@ func (s *C2FakeServer) ServeC2Route(w http.ResponseWriter, r *http.Request) bool
 
 	// Library & Documents
 	case p == "/v0/library/documents" && r.Method == http.MethodGet:
+		view := r.URL.Query().Get("view")
+		switch view {
+		case "recent", "owned", "shared", "unfiled", "shareable":
+		default:
+			writeJSONError(w, http.StatusBadRequest, "INVALID_REQUEST", "view query parameter is required")
+			return true
+		}
 		s.mu.Lock()
 		docs := append([]api.Document(nil), s.Documents...)
 		s.mu.Unlock()
@@ -882,6 +892,27 @@ func (s *C2FakeServer) ServeC2Route(w http.ResponseWriter, r *http.Request) bool
 		conns := append([]api.ExternalConnectionC2(nil), s.ExternalConns...)
 		s.mu.Unlock()
 		writeJSON(w, http.StatusOK, map[string]any{"connections": conns})
+	case p == "/v0/external-connections" && r.Method == http.MethodPost:
+		var req struct {
+			AppKey             string  `json:"app_key"`
+			DesktopCallbackURL *string `json:"desktop_callback_url"`
+		}
+		dec := json.NewDecoder(r.Body)
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&req); err != nil || strings.TrimSpace(req.AppKey) == "" {
+			writeJSONError(w, http.StatusBadRequest, "INVALID_REQUEST", "app_key is required")
+			return true
+		}
+		now := time.Now().UTC()
+		conn := api.ExternalConnection{
+			ID:        "conn_new_" + req.AppKey,
+			Provider:  req.AppKey,
+			Status:    "pending",
+			Revision:  1,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+		writeJSON(w, http.StatusCreated, conn)
 	case strings.HasPrefix(p, "/v0/external-connections/"):
 		s.handleExternalConnMutation(w, r, p)
 	case p == "/v0/web-search/backends" && r.Method == http.MethodGet:

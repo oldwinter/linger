@@ -620,18 +620,11 @@ export class MobileCompanionModule implements Module {
     if (local && endpoints && this.#usingLocalServer()) {
       try {
         const account = await local.account();
-        try {
-          const identity = await readLocalIdentity({ root: endpoints.root });
-          await proveLocalServer(
-            { origin: endpoints.origin, ...identity },
-            this.#fetcher,
-          );
-        } catch (identityError) {
-          this.#ctx?.log.warn("companion.local_identity_check_failed", {
-            error: String(identityError),
-          });
-          throw identityError;
-        }
+        const identity = await readLocalIdentity({ root: endpoints.root });
+        await proveLocalServer(
+          { origin: endpoints.origin, ...identity },
+          this.#fetcher,
+        );
         const dedicated = await loginForDedicatedSession(
           endpoints.teamhubUrl,
           account.email,
@@ -639,14 +632,21 @@ export class MobileCompanionModule implements Module {
           this.#fetcher,
         );
         if (dedicated) return dedicated;
+        this.#ctx?.log.warn("companion.local_dedicated_login_failed", {
+          reason: "missing_session_cookie",
+        });
       } catch (error) {
-        this.#ctx?.log.warn("companion.dedicated_login_fallback", {
+        this.#ctx?.log.warn("companion.local_identity_or_login_failed", {
           error: String(error),
         });
       }
+      // Fail closed in local-server mode: never delegate the Desktop web
+      // session cookie when local identity proof or dedicated login fails.
+      return undefined;
     }
 
-    const serverUrl = this.#ctx?.config.get().serverUrl ?? endpoints?.origin;
+    // Delegated session fallback is reserved strictly for explicit remote-server mode.
+    const serverUrl = this.#ctx?.config.get().serverUrl;
     if (!serverUrl) return undefined;
     const cookieHeader = await this.#options.sessionCookie(serverUrl);
     const value = extractSessionFromCookieHeader(cookieHeader);

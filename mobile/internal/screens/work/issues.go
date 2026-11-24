@@ -25,35 +25,37 @@ func (s *Screen) viewIssuesSegment(c *ui.Context) {
 
 	ui.Scroll(c).FillWidth().Grow(1).Basis(0).TrackScroll(&s.scroll[SegmentIssues]).Children(func() {
 		ui.Column(c).FillWidth().Padding(12, 16, 24, 16).Gap(10).Children(func() {
-			// Narrow-safe horizontally scrollable filter pills + New Work Item button.
-			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
-				ui.ScrollHorizontal(c).Grow(1).Basis(0).Children(func() {
-					ui.Row(c).Gap(6).Role(ui.RoleTabList).Children(func() {
-						for idx, label := range issueFilterLabels {
-							on := s.issueFilter == idx
-							bg := theme.Extra(t).MutedBg
-							fg := t.TextMuted
-							if on {
-								bg = t.Accent
-								fg = t.AccentText
-							}
-							chip := ui.Row(c.Key(idx)).MinHeight(36).PaddingX(12).Radius(999).Background(bg).
-								AlignItems(ui.Center).Justify(ui.Center).Shrink(0).
-								Role(ui.RoleTab).Label(label).Checked(on)
-							chip.Children(func() {
-								ui.Text(c, label).FontSize(12).FontWeight(600).TextColor(fg).NoWrap()
-							})
-							if chip.Clicked() {
-								s.issueFilter = idx
-							}
-						}
-					})
-				})
+			// Dedicated action header row + full-width scrollable filter pill row (zero clipped pill sliver).
+			ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
+				ui.Text(c, fmt.Sprintf("%s · %s", issueFilterLabels[s.issueFilter], components.PluralInt(len(filtered), "item", "items"))).
+					FontSize(13).FontWeight(600).TextColor(t.TextMuted).Grow(1).Basis(0).MaxLines(1)
 				newBtn := components.PrimaryTouchButton(c, "+ New", false)
 				newBtn.Shrink(0)
 				if newBtn.Clicked() {
 					s.openCreateWorkItemSheet()
 				}
+			})
+			ui.ScrollHorizontal(c).FillWidth().Children(func() {
+				ui.Row(c).Gap(6).Role(ui.RoleTabList).Children(func() {
+					for idx, label := range issueFilterLabels {
+						on := s.issueFilter == idx
+						bg := theme.Extra(t).MutedBg
+						fg := t.TextMuted
+						if on {
+							bg = t.Accent
+							fg = t.AccentText
+						}
+						chip := ui.Row(c.Key(idx)).MinHeight(36).PaddingX(12).Radius(999).Background(bg).
+							AlignItems(ui.Center).Justify(ui.Center).Shrink(0).
+							Role(ui.RoleTab).Label(label).Checked(on)
+						chip.Children(func() {
+							ui.Text(c, label).FontSize(12).FontWeight(600).TextColor(fg).NoWrap()
+						})
+						if chip.Clicked() {
+							s.issueFilter = idx
+						}
+					}
+				})
 			})
 
 			if len(filtered) == 0 {

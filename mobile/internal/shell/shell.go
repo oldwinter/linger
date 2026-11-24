@@ -50,9 +50,11 @@ type Shell struct {
 	syncedKey      string
 	toastMessage   string
 	toastUntil     time.Time
-	unlockError    string
-	unlocking      bool
-	biometricAvail biometrics.Kind
+	unlockError          string
+	unlocking            bool
+	biometricUnsupported bool
+	biometricAvail       biometrics.Kind
+	authenticateFn       func(context.Context, string) error
 }
 
 // New constructs a Shell bound to store with all 5 tabs (Rooms, Live, Work, Library, More) wired.
@@ -120,8 +122,11 @@ func New(store *state.AppStore, systemDark func() bool) *Shell {
 	return s
 }
 
-// Close releases background workers owned by child tab screens.
+// Close releases background workers and native WebViews owned by child tab screens.
 func (s *Shell) Close() {
+	if s.roomsCtl != nil {
+		s.roomsCtl.Close()
+	}
 	if s.workScr != nil {
 		s.workScr.Close()
 	}
@@ -268,6 +273,7 @@ func (s *Shell) maybeSyncTabsForConnection(snap state.Snapshot) {
 
 // View renders the entire Linger Mobile application inside a MyGo window or ui.Tester.
 func (s *Shell) View(c *ui.Context) {
+	s.store.DrainUI()
 	snap := s.store.Snapshot()
 	s.maybeSyncTabsForConnection(snap)
 	resolvedTheme := theme.Resolve(snap.Prefs.Theme, s.systemDark())
@@ -478,6 +484,7 @@ func (s *Shell) viewBiometricLockGate(c *ui.Context) {
 	s.mu.Lock()
 	unlockErr := s.unlockError
 	unlocking := s.unlocking
+	unsupported := s.biometricUnsupported
 	s.mu.Unlock()
 
 	ui.Column(c).Fill().AlignItems(ui.Center).Justify(ui.Center).Padding(24, 24).Gap(16).
@@ -496,6 +503,17 @@ func (s *Shell) viewBiometricLockGate(c *ui.Context) {
 		if unlockBtn.Clicked() {
 			s.triggerBiometricUnlock()
 		}
+		if unsupported {
+			disableBtn := components.DangerTouchButton(c, "Disable Biometric Lock", false)
+			disableBtn.FillWidth()
+			if disableBtn.Clicked() {
+				s.mu.Lock()
+				s.biometricUnsupported = false
+				s.unlockError = ""
+				s.mu.Unlock()
+				_ = s.store.SetBiometricPreference(false)
+			}
+		}
 	})
 }
 
@@ -510,20 +528,32 @@ func (s *Shell) triggerBiometricUnlock() {
 	s.mu.Unlock()
 
 	go func() {
-		err := biometrics.Authenticate(context.Background(), "Unlock Linger Mobile")
+		s.mu.Lock()
+		authFn := s.authenticateFn
+		s.mu.Unlock()
+		if authFn == nil {
+			authFn = biometrics.Authenticate
+		}
+		err := authFn(context.Background(), "Unlock Linger Mobile")
 		s.mu.Lock()
 		s.unlocking = false
 		switch {
-		case err == nil || errors.Is(err, errors.ErrUnsupported):
+		case err == nil:
 			s.unlockError = ""
+			s.biometricUnsupported = false
 			s.mu.Unlock()
 			s.store.SetBiometricLocked(false)
 			return
+		case errors.Is(err, errors.ErrUnsupported):
+			// Fail closed: never auto-unlock when biometric hardware is unavailable.
+			s.biometricUnsupported = true
+			s.unlockError = "Biometric authentication is unavailable on this device. Confirm below to disable Biometric Lock."
 		case errors.Is(err, biometrics.ErrCanceled):
 			s.unlockError = "Authentication canceled. Tap Unlock to try again."
 		default:
 			s.unlockError = "Authentication failed: " + err.Error()
 		}
 		s.mu.Unlock()
+		s.store.Notify()
 	}()
 }

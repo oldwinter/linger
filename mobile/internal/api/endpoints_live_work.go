@@ -41,14 +41,25 @@ func (c *Client) ListAgentSkillBindings(ctx context.Context, tenantID, agentID s
 	return out.Items, err
 }
 
-func (c *Client) PutAgentSkillBinding(ctx context.Context, tenantID, agentID, skillID string, body map[string]any) (AgentSkillBinding, error) {
+func (c *Client) PutAgentSkillBinding(ctx context.Context, tenantID, agentID, skillID string, req AgentSkillBindingPutRequest) (AgentSkillBinding, error) {
+	if req.Config == nil {
+		req.Config = map[string]any{}
+	}
+	if req.ExpectedBindingVersion < 1 {
+		req.ExpectedBindingVersion = 1
+	}
 	var out AgentSkillBinding
-	err := c.DoJSON(ctx, http.MethodPut, fmt.Sprintf("/v0/tenants/%s/agents/%s/skill-bindings/%s", url.PathEscape(tenantID), url.PathEscape(agentID), url.PathEscape(skillID)), body, &out)
+	err := c.DoJSON(ctx, http.MethodPut, fmt.Sprintf("/v0/tenants/%s/agents/%s/skill-bindings/%s", url.PathEscape(tenantID), url.PathEscape(agentID), url.PathEscape(skillID)), req, &out)
 	return out, err
 }
 
-func (c *Client) DeleteAgentSkillBinding(ctx context.Context, tenantID, agentID, skillID string) error {
-	return c.DoJSON(ctx, http.MethodDelete, fmt.Sprintf("/v0/tenants/%s/agents/%s/skill-bindings/%s", url.PathEscape(tenantID), url.PathEscape(agentID), url.PathEscape(skillID)), nil, nil)
+func (c *Client) DeleteAgentSkillBinding(ctx context.Context, tenantID, agentID, skillID string, expectedBindingVersion int64) error {
+	if expectedBindingVersion < 1 {
+		expectedBindingVersion = 1
+	}
+	q := url.Values{}
+	q.Set("expected_binding_version", strconv.FormatInt(expectedBindingVersion, 10))
+	return c.DoJSON(ctx, http.MethodDelete, fmt.Sprintf("/v0/tenants/%s/agents/%s/skill-bindings/%s%s", url.PathEscape(tenantID), url.PathEscape(agentID), url.PathEscape(skillID), BuildQuery(q)), nil, nil)
 }
 
 func (c *Client) ListSkillManifests(ctx context.Context, tenantID string) (SkillManifestPage, error) {
@@ -164,30 +175,9 @@ func (c *Client) ListWorkItems(ctx context.Context, tenantID string, state strin
 	return out, err
 }
 
-func (c *Client) CreateWorkItem(ctx context.Context, tenantID string, body map[string]any) (WorkItem, error) {
-	var out WorkItem
-	err := c.DoJSON(ctx, http.MethodPost, fmt.Sprintf("/v0/tenants/%s/work-items", url.PathEscape(tenantID)), body, &out)
-	return out, err
-}
-
 func (c *Client) GetWorkItem(ctx context.Context, workItemID string) (WorkItem, error) {
 	var out WorkItem
 	err := c.DoJSON(ctx, http.MethodGet, fmt.Sprintf("/v0/work-items/%s", url.PathEscape(workItemID)), nil, &out)
-	return out, err
-}
-
-func (c *Client) UpdateWorkItem(ctx context.Context, workItemID string, body map[string]any) (WorkItem, error) {
-	var out WorkItem
-	err := c.DoJSON(ctx, http.MethodPatch, fmt.Sprintf("/v0/work-items/%s", url.PathEscape(workItemID)), body, &out)
-	return out, err
-}
-
-func (c *Client) TransitionWorkItem(ctx context.Context, workItemID, state string, expectedVersion int64) (WorkItem, error) {
-	var out WorkItem
-	err := c.DoJSON(ctx, http.MethodPost, fmt.Sprintf("/v0/work-items/%s/transitions", url.PathEscape(workItemID)), map[string]any{
-		"state":            state,
-		"expected_version": expectedVersion,
-	}, &out)
 	return out, err
 }
 
@@ -197,36 +187,12 @@ func (c *Client) ListWorkItemComments(ctx context.Context, workItemID string) (W
 	return out, err
 }
 
-func (c *Client) CreateWorkItemComment(ctx context.Context, workItemID, body string) (WorkItemComment, error) {
-	var out WorkItemComment
-	err := c.DoJSON(ctx, http.MethodPost, fmt.Sprintf("/v0/work-items/%s/comments", url.PathEscape(workItemID)), map[string]string{
-		"body": body,
-	}, &out)
-	return out, err
-}
-
 func (c *Client) ListWorkItemTimeline(ctx context.Context, workItemID string) ([]json.RawMessage, error) {
 	var out struct {
 		Items []json.RawMessage `json:"items"`
 	}
 	err := c.DoJSON(ctx, http.MethodGet, fmt.Sprintf("/v0/work-items/%s/timeline", url.PathEscape(workItemID)), nil, &out)
 	return out.Items, err
-}
-
-func (c *Client) ArchiveWorkItem(ctx context.Context, workItemID string, expectedVersion int64) (WorkItem, error) {
-	var out WorkItem
-	err := c.DoJSON(ctx, http.MethodPost, fmt.Sprintf("/v0/work-items/%s/archive", url.PathEscape(workItemID)), map[string]int64{
-		"expected_version": expectedVersion,
-	}, &out)
-	return out, err
-}
-
-func (c *Client) UnarchiveWorkItem(ctx context.Context, workItemID string, expectedVersion int64) (WorkItem, error) {
-	var out WorkItem
-	err := c.DoJSON(ctx, http.MethodPost, fmt.Sprintf("/v0/work-items/%s/unarchive", url.PathEscape(workItemID)), map[string]int64{
-		"expected_version": expectedVersion,
-	}, &out)
-	return out, err
 }
 
 func (c *Client) GetTaskExecution(ctx context.Context, taskID string) (TaskExecutionProjection, error) {
@@ -277,14 +243,6 @@ func (c *Client) ListPocketNotes(ctx context.Context, tenantID string, limit int
 	}
 	var out PocketNotePage
 	err := c.DoJSON(ctx, http.MethodGet, fmt.Sprintf("/v0/tenants/%s/me/pocket-notes%s", url.PathEscape(tenantID), BuildQuery(q)), nil, &out)
-	return out, err
-}
-
-func (c *Client) PutTodayPocketNote(ctx context.Context, tenantID, body string) (PocketNote, error) {
-	var out PocketNote
-	err := c.DoJSON(ctx, http.MethodPut, fmt.Sprintf("/v0/tenants/%s/me/pocket-notes/today", url.PathEscape(tenantID)), map[string]string{
-		"body": body,
-	}, &out)
 	return out, err
 }
 

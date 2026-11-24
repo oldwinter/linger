@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/oldwinter/linger/mobile/internal/api"
+	"github.com/oldwinter/linger/mobile/internal/cache"
 )
 
 // PendingDecisionItem aggregates an unresolved DecisionRequestedMessageCard with its source Room context.
@@ -205,9 +206,18 @@ func (s *AppStore) SendMessage(ctx context.Context, roomID, text string, replyTo
 		return api.Message{}, errors.New("message cannot be empty")
 	}
 	ikey := fmt.Sprintf("mob_%d", time.Now().UnixNano())
+	segments := []api.MessageSegment{}
+	if text != "" {
+		segments = append(segments, api.MessageSegment{Type: "text", Content: text})
+	}
+	var contextMsgIDs []string
+	if replyToID != nil && strings.TrimSpace(*replyToID) != "" {
+		contextMsgIDs = []string{strings.TrimSpace(*replyToID)}
+	}
 	req := api.CreateMessageRequest{
 		RawMessage:          text,
-		ReplyToMessageID:    replyToID,
+		Segments:            segments,
+		ContextMessageIDs:   contextMsgIDs,
 		AttachmentUploadIDs: uploadIDs,
 	}
 
@@ -242,6 +252,40 @@ func (s *AppStore) SendMessage(ctx context.Context, roomID, text string, replyTo
 	}
 	s.notify()
 	return msg, nil
+}
+
+// DrainMessageOutbox replays any queued offline "message.create" entries from
+// the per-host SQLite outbox without touching other outbox kinds (such as pocket_note.put).
+func (s *AppStore) DrainMessageOutbox(ctx context.Context) (int, error) {
+	client := s.Client()
+	cs := s.Cache()
+	if client == nil || cs == nil {
+		return 0, nil
+	}
+	sent, err := cs.DrainOutboxByKind(ctx, "message.create", func(dCtx context.Context, item cache.OutboxItem) error {
+		var req api.CreateMessageRequest
+		if uErr := json.Unmarshal([]byte(item.PayloadJSON), &req); uErr != nil {
+			return uErr
+		}
+		msg, sendErr := client.CreateMessage(dCtx, item.TargetID, req, item.IdempotencyKey)
+		if sendErr != nil {
+			return sendErr
+		}
+		s.mu.Lock()
+		s.upsertRoomMessageLocked(item.TargetID, msg)
+		s.mu.Unlock()
+		_ = cs.UpsertMessages(dCtx, []api.Message{msg})
+		return nil
+	})
+	if sent > 0 {
+		if st, sErr := cs.Stats(ctx); sErr == nil {
+			s.mu.Lock()
+			s.cacheStats = st
+			s.mu.Unlock()
+		}
+		s.notify()
+	}
+	return sent, err
 }
 
 // ToggleRoomPin pins or unpins a room via PUT /v0/rooms/:r/pin.

@@ -203,14 +203,14 @@ func (f *FakeServer) SeedWaveC1Fixtures() {
 		},
 	}
 
-	// Enrich run_1 presentation events with plan + activities + streaming output.
+	// Enrich run_1 presentation events with TeamHub's nested {event_ordinal, segment_id, event: {...}} shape.
 	f.PresentationByRun["run_1"] = []json.RawMessage{
-		json.RawMessage(`{"event_ordinal":1,"type":"working_status_changed","status":"thinking","title":"Planning Wave C-1 checks"}`),
-		json.RawMessage(`{"event_ordinal":2,"type":"plan_updated","explanation":"Verify mobile packages","steps":[{"content":"Check OpenAPI DTOs","status":"completed"},{"content":"Run race tests","status":"in_progress"},{"content":"Build release binary","status":"pending"}]}`),
-		json.RawMessage(`{"event_ordinal":3,"type":"activity_started","activity_id":"act_run_1","kind":"command","title":"go test -race ./..."}`),
-		json.RawMessage(`{"event_ordinal":4,"type":"activity_updated","activity_id":"act_run_1","detail":"Testing internal/screens/rooms and internal/screens/live"}`),
-		json.RawMessage(`{"event_ordinal":5,"type":"activity_finished","activity_id":"act_run_1","outcome":"succeeded","content":[{"kind":"code","text":"ok github.com/oldwinter/linger/mobile/internal/api 1.2s"}]}`),
-		json.RawMessage(`{"event_ordinal":6,"type":"presentation_output_created","output_id":"out_1","output_kind":"text","text":"All **12 decision cards** and **Live Ops** checks look green."}`),
+		json.RawMessage(`{"event_ordinal":1,"segment_id":"seg_1","event":{"type":"working_status_changed","status":"thinking","title":"Planning Wave C-1 checks"}}`),
+		json.RawMessage(`{"event_ordinal":2,"segment_id":"seg_1","event":{"type":"plan_updated","explanation":"Verify mobile packages","steps":[{"content":"Check OpenAPI DTOs","status":"completed"},{"content":"Run race tests","status":"in_progress"},{"content":"Build release binary","status":"pending"}]}}`),
+		json.RawMessage(`{"event_ordinal":3,"segment_id":"seg_1","event":{"type":"activity_started","activity_id":"act_run_1","kind":"command","title":"go test -race ./..."}}`),
+		json.RawMessage(`{"event_ordinal":4,"segment_id":"seg_1","event":{"type":"activity_updated","activity_id":"act_run_1","detail":"Testing internal/screens/rooms and internal/screens/live"}}`),
+		json.RawMessage(`{"event_ordinal":5,"segment_id":"seg_1","event":{"type":"activity_finished","activity_id":"act_run_1","outcome":"succeeded","content":[{"kind":"code","text":"ok github.com/oldwinter/linger/mobile/internal/api 1.2s"}]}}`),
+		json.RawMessage(`{"event_ordinal":6,"segment_id":"seg_1","event":{"type":"presentation_output_created","output_id":"out_1","output_kind":"text","text":"All **12 decision cards** and **Live Ops** checks look green."}}`),
 	}
 
 	// Add second agent & second downloadable local model for Make Room & Load testing.
@@ -238,7 +238,7 @@ func (f *FakeServer) SeedWaveC1Fixtures() {
 			ContextTokens: 65536,
 			DownloadBytes: 4900000000,
 			MemoryBytes:   6200000000,
-			Availability:  api.LocalModelAvailability{Available: true},
+			Availability:  api.LocalModelAvailability{Downloadable: true},
 		},
 	})
 }
@@ -302,13 +302,18 @@ func (f *FakeServer) serveWaveC1Route(w http.ResponseWriter, r *http.Request) bo
 		writeJSONError(w, http.StatusNotFound, "NOT_FOUND", "decision not found: "+decisionID)
 		return true
 
-	// Create room
+	// Create room (strict HumanRoomCreateRequest)
 	case path == "/v0/tenants/"+f.TenantID+"/rooms" && r.Method == http.MethodPost:
 		var body struct {
 			Name        string  `json:"name"`
 			Description *string `json:"description"`
 		}
-		_ = json.NewDecoder(r.Body).Decode(&body)
+		dec := json.NewDecoder(r.Body)
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&body); err != nil || strings.TrimSpace(body.Name) == "" {
+			writeJSONError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid room create request")
+			return true
+		}
 		f.mu.Lock()
 		id := fmt.Sprintf("room_%d", len(f.Rooms)+1)
 		item := api.RoomListItem{
@@ -354,10 +359,19 @@ func (f *FakeServer) serveWaveC1Route(w http.ResponseWriter, r *http.Request) bo
 
 	case strings.HasPrefix(path, "/v0/rooms/") && strings.HasSuffix(path, "/read-state") && r.Method == http.MethodPut:
 		roomID := extractMiddleSegment(path, "/v0/rooms/", "/read-state")
+		var body struct {
+			ThroughRoomSeq int64 `json:"through_room_seq"`
+		}
+		dec := json.NewDecoder(r.Body)
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&body); err != nil {
+			writeJSONError(w, http.StatusBadRequest, "INVALID_REQUEST", "through_room_seq is required")
+			return true
+		}
 		f.mu.Lock()
 		for i := range f.Rooms {
 			if f.Rooms[i].ID == roomID {
-				f.Rooms[i].ReadThroughRoomSeq = f.Rooms[i].LatestRoomSeq
+				f.Rooms[i].ReadThroughRoomSeq = body.ThroughRoomSeq
 				f.Rooms[i].UnreadMessageCount = 0
 			}
 		}
@@ -407,9 +421,18 @@ func (f *FakeServer) serveWaveC1Route(w http.ResponseWriter, r *http.Request) bo
 	case strings.HasPrefix(path, "/v0/rooms/") && strings.HasSuffix(path, "/pins") && r.Method == http.MethodGet:
 		roomID := extractMiddleSegment(path, "/v0/rooms/", "/pins")
 		f.mu.Lock()
-		var pinned []api.Message
+		type pinItem struct {
+			Message         api.Message `json:"message"`
+			PinnedAt        time.Time   `json:"pinned_at"`
+			PinnedByActorID string      `json:"pinned_by_actor_id"`
+		}
+		var pinned []pinItem
 		if len(f.MessagesByRoom[roomID]) > 0 {
-			pinned = append(pinned, f.MessagesByRoom[roomID][0])
+			pinned = append(pinned, pinItem{
+				Message:         f.MessagesByRoom[roomID][0],
+				PinnedAt:        now,
+				PinnedByActorID: human.ID,
+			})
 		}
 		f.mu.Unlock()
 		writeJSON(w, http.StatusOK, map[string]any{"items": pinned})
@@ -433,12 +456,22 @@ func (f *FakeServer) serveWaveC1Route(w http.ResponseWriter, r *http.Request) bo
 
 	case strings.HasPrefix(path, "/v0/rooms/") && strings.HasSuffix(path, "/history-shares") && r.Method == http.MethodGet:
 		writeJSON(w, http.StatusOK, api.RoomHistorySharePage{
-			Items: []api.RoomHistoryShare{{ID: "share_1", Title: "Launch Notes Snapshot", MessageCount: 4, CreatedAt: now}},
+			Items: []api.RoomHistoryShare{{ID: "share_1", RoomName: "Product Launch", MessageCount: 4, SnapshotRoomSeq: 4, Revoked: false, CreatedAt: now}},
 		})
 		return true
 
 	case strings.HasPrefix(path, "/v0/rooms/") && strings.HasSuffix(path, "/history-shares/create") && r.Method == http.MethodPost:
-		writeJSON(w, http.StatusCreated, api.RoomHistoryShare{ID: "share_new", Title: "Shared Snapshot", MessageCount: 4, CreatedAt: now})
+		var body struct {
+			WebVersion *string `json:"web_version"`
+		}
+		dec := json.NewDecoder(r.Body)
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&body); err != nil {
+			writeJSONError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid history share request")
+			return true
+		}
+		tok := "share_tok_1"
+		writeJSON(w, http.StatusCreated, api.RoomHistoryShare{ID: "share_new", RoomName: "Product Launch", MessageCount: 4, SnapshotRoomSeq: 4, Revoked: false, Token: &tok, CreatedAt: now})
 		return true
 
 	case strings.HasPrefix(path, "/v0/rooms/") && strings.Contains(path, "/history-shares/") && r.Method == http.MethodDelete:
@@ -458,7 +491,23 @@ func (f *FakeServer) serveWaveC1Route(w http.ResponseWriter, r *http.Request) bo
 		return true
 
 	case strings.HasPrefix(path, "/v0/rooms/") && strings.Contains(path, "/messages/") && strings.HasSuffix(path, "/forward") && r.Method == http.MethodPost:
-		writeJSON(w, http.StatusCreated, api.Message{ID: "msg_fwd_1", RawMessage: "Forwarded message", Author: human, CreatedAt: now})
+		var req struct {
+			Target struct {
+				Kind string `json:"kind"`
+				ID   string `json:"id"`
+			} `json:"target"`
+		}
+		dec := json.NewDecoder(r.Body)
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&req); err != nil || req.Target.Kind == "" || req.Target.ID == "" {
+			writeJSONError(w, http.StatusBadRequest, "INVALID_REQUEST", "forward target is invalid")
+			return true
+		}
+		writeJSON(w, http.StatusCreated, map[string]any{
+			"room_id":          req.Target.ID,
+			"room_binding_ids": []string{},
+			"message":          api.Message{ID: "msg_fwd_1", RoomID: req.Target.ID, RawMessage: "Forwarded message", Author: human, CreatedAt: now},
+		})
 		return true
 
 	case strings.HasPrefix(path, "/v0/rooms/") && strings.HasSuffix(path, "/message-attachment-uploads") && r.Method == http.MethodPost:
@@ -477,6 +526,15 @@ func (f *FakeServer) serveWaveC1Route(w http.ResponseWriter, r *http.Request) bo
 		return true
 
 	case strings.HasPrefix(path, "/v0/rooms/") && strings.Contains(path, "/runs/") && strings.HasSuffix(path, "/cancel") && r.Method == http.MethodPost:
+		var body struct {
+			RequestID string `json:"request_id"`
+		}
+		dec := json.NewDecoder(r.Body)
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&body); err != nil || strings.TrimSpace(body.RequestID) == "" {
+			writeJSONError(w, http.StatusBadRequest, "INVALID_REQUEST", "request_id is required")
+			return true
+		}
 		roomID := strings.Split(strings.Trim(path, "/"), "/")[2]
 		runID := strings.Split(strings.Trim(path, "/"), "/")[4]
 		f.mu.Lock()
@@ -625,10 +683,22 @@ func (f *FakeServer) serveWaveC1Route(w http.ResponseWriter, r *http.Request) bo
 
 	case strings.Contains(path, "/skill-bindings/") && (r.Method == http.MethodPut || r.Method == http.MethodDelete):
 		if r.Method == http.MethodDelete {
+			ver := strings.TrimSpace(r.URL.Query().Get("expected_binding_version"))
+			if ver == "" || ver == "0" {
+				writeJSONError(w, http.StatusBadRequest, "INVALID_REQUEST", "expected_binding_version is required")
+				return true
+			}
 			w.WriteHeader(http.StatusNoContent)
 			return true
 		}
-		writeJSON(w, http.StatusOK, api.AgentSkillBinding{ID: "bind_1", Enabled: true})
+		var req api.AgentSkillBindingPutRequest
+		dec := json.NewDecoder(r.Body)
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&req); err != nil || req.ExpectedBindingVersion < 1 || strings.TrimSpace(req.ManifestVersion) == "" {
+			writeJSONError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid skill binding request")
+			return true
+		}
+		writeJSON(w, http.StatusOK, api.AgentSkillBinding{ID: "bind_1", BindingVersion: req.ExpectedBindingVersion + 1, Enabled: req.Enabled})
 		return true
 
 	case strings.HasSuffix(path, "/agent-templates") && r.Method == http.MethodGet:
@@ -699,7 +769,7 @@ func (f *FakeServer) serveWaveC1Route(w http.ResponseWriter, r *http.Request) bo
 					m.State = "idle"
 				case "pull":
 					m.State = "downloading"
-					m.Download = &api.LocalModelDownloadProgress{DownloadedBytes: m.DownloadBytes / 2, TotalBytes: m.DownloadBytes}
+					m.Download = &api.LocalModelDownloadProgress{DoneBytes: m.DownloadBytes / 2, TotalBytes: m.DownloadBytes, Step: "downloading"}
 				case "cancel_pull", "remove":
 					m.State = "absent"
 					m.Download = nil
@@ -712,14 +782,21 @@ func (f *FakeServer) serveWaveC1Route(w http.ResponseWriter, r *http.Request) bo
 
 	case strings.HasSuffix(path, "/model-source") && r.Method == http.MethodPost:
 		var req api.ModelSourceSwitchRequest
-		_ = json.NewDecoder(r.Body).Decode(&req)
+		dec := json.NewDecoder(r.Body)
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&req); err != nil || strings.TrimSpace(req.Mode) == "" {
+			writeJSONError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid model source switch request")
+			return true
+		}
 		f.mu.Lock()
 		if f.ModelSource.Status == nil {
 			f.ModelSource.Status = &api.ModelSourceStatus{}
 		}
 		f.ModelSource.Status.Mode = req.Mode
-		if req.RuntimeModel != nil && *req.RuntimeModel != "" {
-			f.ModelSource.Status.RuntimeModel = *req.RuntimeModel
+		if req.Byok != nil && req.Byok.ModelID != "" {
+			f.ModelSource.Status.RuntimeModel = req.Byok.ModelID
+		} else if req.LocalModelID != nil && *req.LocalModelID != "" {
+			f.ModelSource.Status.RuntimeModel = *req.LocalModelID
 		}
 		out := f.ModelSource
 		f.mu.Unlock()

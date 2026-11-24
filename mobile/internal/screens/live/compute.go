@@ -214,14 +214,18 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 					})
 
 					if m.Download != nil && m.Download.TotalBytes > 0 {
-						pct := float64(m.Download.DownloadedBytes) / float64(m.Download.TotalBytes)
+						pct := float64(m.Download.DoneBytes) / float64(m.Download.TotalBytes)
 						ui.Progress(c, pct).FillWidth().Height(6)
-						ui.Text(c, fmt.Sprintf("Downloading %.0f%% (%s / %s)", pct*100, formatBytesGB(m.Download.DownloadedBytes), formatBytesGB(m.Download.TotalBytes))).
+						ui.Text(c, fmt.Sprintf("Downloading %.0f%% (%s / %s)", pct*100, formatBytesGB(m.Download.DoneBytes), formatBytesGB(m.Download.TotalBytes))).
 							FontSize(11).TextColor(t.Accent)
 					}
 
-					if m.Error != nil && m.Error.Message != "" {
-						components.ErrorInline(c, m.Error.Message, nil)
+					if m.Error != nil && (m.Error.Detail != nil && *m.Error.Detail != "" || m.Error.Code != "") {
+						errMsg := m.Error.Code
+						if m.Error.Detail != nil && *m.Error.Detail != "" {
+							errMsg = *m.Error.Detail
+						}
+						components.ErrorInline(c, errMsg, nil)
 					}
 
 					// Action buttons tailored to state, with explicit busy labels disabling duplicate taps!
@@ -452,12 +456,15 @@ func (ctl *Controller) openBrowserSheet(computerID string) {
 			return
 		}
 		if st, err := cl.GetLocalComputerBrowserConnectionTyped(context.Background(), tid, cid); err == nil {
-			ctl.mu.Lock()
-			ctl.browserStatus = &st
-			if st.Profile != nil {
-				ctl.browserProfile = *st.Profile
-			}
-			ctl.mu.Unlock()
+			cp := st
+			ctl.store.EnqueueUI(func() {
+				ctl.mu.Lock()
+				ctl.browserStatus = &cp
+				if cp.Profile != nil {
+					ctl.browserProfile = *cp.Profile
+				}
+				ctl.mu.Unlock()
+			})
 		}
 	}()
 }
@@ -517,6 +524,7 @@ func (ctl *Controller) openBYOKSheet(snap state.Snapshot) {
 			ctl.byokModelID = *snap.ModelSource.Status.Byok.Model
 		}
 	}
+	ctl.byokAPIKey = ""
 	ctl.byokTestMsg = ""
 	ctl.byokSheetOpen = true
 	ctl.mu.Unlock()
@@ -524,6 +532,7 @@ func (ctl *Controller) openBYOKSheet(snap state.Snapshot) {
 
 func (ctl *Controller) viewBYOKSheet(c *ui.Context, snap state.Snapshot) {
 	t := c.Theme()
+	wasOpen := ctl.byokSheetOpen
 	mobile.Sheet(c, &ctl.byokSheetOpen, mobile.SheetOptions{Detents: []float32{0.80, 0.94}, Label: "BYOK Model Source"}, func() {
 		ctl.mu.Lock()
 		busy := ctl.byokBusy
@@ -580,30 +589,37 @@ func (ctl *Controller) viewBYOKSheet(c *ui.Context, snap state.Snapshot) {
 				applyBtn := components.PrimaryTouchButton(c, "Switch Desktop to BYOK", busy || strings.TrimSpace(ctl.byokModelID) == "")
 				applyBtn.FillWidth()
 				if applyBtn.Clicked() {
-					baseURL := strings.TrimSpace(ctl.byokBaseURL)
-					model := strings.TrimSpace(ctl.byokModelID)
-					key := ctl.byokAPIKey
+					in := ctl.currentBYOKInput()
 					ctl.mu.Lock()
 					ctl.byokBusy = true
 					ctl.mu.Unlock()
 					go func() {
 						_, err := ctl.store.SwitchModelSource(context.Background(), cid, api.ModelSourceSwitchRequest{
-							Mode:         "byok",
-							BaseURL:      &baseURL,
-							RuntimeModel: &model,
-							APIKey:       &key,
+							Mode: "byok",
+							Byok: &in,
 						})
-						ctl.mu.Lock()
-						ctl.byokBusy = false
-						if err == nil {
-							ctl.byokSheetOpen = false
-						}
-						ctl.mu.Unlock()
+						ctl.store.EnqueueUI(func() {
+							ctl.mu.Lock()
+							ctl.byokBusy = false
+							if err == nil {
+								ctl.byokAPIKey = ""
+								ctl.byokSheetOpen = false
+							} else {
+								ctl.byokTestMsg = "Switch failed: " + err.Error()
+							}
+							ctl.mu.Unlock()
+						})
 					}()
 				}
 			})
 		})
 	})
+	if wasOpen && !ctl.byokSheetOpen {
+		// Wipe sensitive API key from memory immediately when the BYOK sheet closes.
+		ctl.mu.Lock()
+		ctl.byokAPIKey = ""
+		ctl.mu.Unlock()
+	}
 }
 
 func (ctl *Controller) currentBYOKInput() api.ByokInput {

@@ -124,6 +124,11 @@ func (ctl *Controller) SetWindow(w *mygo.Window) {
 	ctl.mu.Unlock()
 }
 
+// Close releases any native WebViews or resources owned by the Rooms controller.
+func (ctl *Controller) Close() {
+	ctl.destroyHTMLWebView()
+}
+
 // SetFilter selects one of the 5 Room list filters (0=All,1=Unread,2=Working,3=Direct,4=Rooms).
 func (ctl *Controller) SetFilter(idx int) {
 	if idx >= 0 && idx <= 4 {
@@ -155,6 +160,7 @@ func (ctl *Controller) OpenRunWatch(roomID, runID string) {
 
 // Route renders Tab 1 routes inside Tab 1's ui.Router.
 func (ctl *Controller) Route(c *ui.Context, r *ui.Route, snap state.Snapshot) {
+	ctl.store.DrainUI()
 	switch {
 	case r.Match("/rooms/{roomId}/runs/{runId}"):
 		roomID := r.Param("roomId")
@@ -190,9 +196,9 @@ func (ctl *Controller) viewRoomList(c *ui.Context, snap state.Snapshot) {
 	if scroll.PullToRefresh(&ctl.refresh) {
 		go func() {
 			_ = ctl.store.RefreshActiveHost(context.Background())
-			ctl.mu.Lock()
-			ctl.refresh.Refreshing = false
-			ctl.mu.Unlock()
+			ctl.store.EnqueueUI(func() {
+				ctl.refresh.Refreshing = false
+			})
 		}()
 	}
 
@@ -490,19 +496,21 @@ func (ctl *Controller) viewNewRoomSheet(c *ui.Context, snap state.Snapshot) {
 						ctl.mu.Unlock()
 						go func() {
 							rm, err := ctl.store.CreateRoom(context.Background(), name, desc, memberIDs)
-							ctl.mu.Lock()
-							ctl.creatingRoom = false
-							if err == nil {
-								ctl.newRoomName = ""
-								ctl.newRoomDesc = ""
-								ctl.selectedPeers = map[string]bool{}
-								ctl.newRoomOpen = false
-								ctl.inlineNotice = "Created room " + rm.Name
-							}
-							ctl.mu.Unlock()
-							if err == nil {
-								ctl.OpenRoom(rm.ID)
-							}
+							ctl.store.EnqueueUI(func() {
+								ctl.mu.Lock()
+								ctl.creatingRoom = false
+								if err == nil {
+									ctl.newRoomName = ""
+									ctl.newRoomDesc = ""
+									ctl.selectedPeers = map[string]bool{}
+									ctl.newRoomOpen = false
+									ctl.inlineNotice = "Created room " + rm.Name
+								}
+								ctl.mu.Unlock()
+								if err == nil {
+									ctl.OpenRoom(rm.ID)
+								}
+							})
 						}()
 					}
 				} else {
@@ -526,15 +534,17 @@ func (ctl *Controller) viewNewRoomSheet(c *ui.Context, snap state.Snapshot) {
 							ctl.mu.Unlock()
 							go func() {
 								rm, err := ctl.store.OpenDirectRoom(context.Background(), act.ID)
-								ctl.mu.Lock()
-								ctl.creatingRoom = false
-								if err == nil {
-									ctl.newRoomOpen = false
-								}
-								ctl.mu.Unlock()
-								if err == nil {
-									ctl.OpenRoom(rm.ID)
-								}
+								ctl.store.EnqueueUI(func() {
+									ctl.mu.Lock()
+									ctl.creatingRoom = false
+									if err == nil {
+										ctl.newRoomOpen = false
+									}
+									ctl.mu.Unlock()
+									if err == nil {
+										ctl.OpenRoom(rm.ID)
+									}
+								})
 							}()
 						}
 					}

@@ -101,11 +101,29 @@ type AgentTemplatePage struct {
 	Items []AgentTemplate `json:"items"`
 }
 
+type AgentSkillBindingPutRequest struct {
+	Config                 map[string]any `json:"config"`
+	Enabled                bool           `json:"enabled"`
+	ExpectedBindingVersion int64          `json:"expected_binding_version"`
+	ManifestVersion        string         `json:"manifest_version"`
+	ReplaceSkillID         *string        `json:"replace_skill_id,omitempty"`
+}
+
+type AgentModel struct {
+	ID                     string   `json:"id"`
+	Label                  string   `json:"label"`
+	IsDefault              *bool    `json:"is_default,omitempty"`
+	AllowedReasoningEffort []string `json:"allowed_reasoning_effort,omitempty"`
+	DefaultReasoningEffort *string  `json:"default_reasoning_effort,omitempty"`
+}
+
 type LocalComputerRuntime struct {
-	RuntimeType string   `json:"runtime_type"`
-	Version     *string  `json:"version,omitempty"`
-	Models      []string `json:"models,omitempty"`
-	Default     *string  `json:"default_model,omitempty"`
+	Type      string       `json:"type"`
+	Status    string       `json:"status"`
+	Version   *string      `json:"version,omitempty"`
+	Models    []AgentModel `json:"models"`
+	ErrorCode *string      `json:"error_code,omitempty"`
+	Message   *string      `json:"message,omitempty"`
 }
 
 type LocalComputerWorkspaceGrant struct {
@@ -134,28 +152,51 @@ type LocalComputerPage struct {
 }
 
 type LocalModelDownloadProgress struct {
-	DownloadedBytes int64    `json:"downloaded_bytes"`
-	TotalBytes      int64    `json:"total_bytes"`
-	BytesPerSecond  *float64 `json:"bytes_per_second,omitempty"`
+	DoneBytes      int64  `json:"done_bytes"`
+	TotalBytes     int64  `json:"total_bytes"`
+	Step           string `json:"step,omitempty"`
+	BytesPerSecond *int64 `json:"bytes_per_second,omitempty"`
 }
 
 type LocalModelError struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
+	Code   string  `json:"code"`
+	Detail *string `json:"detail,omitempty"`
+	Cause  *string `json:"cause,omitempty"`
+	Path   *string `json:"path,omitempty"`
+}
+
+type LocalModelAvailabilityReason struct {
+	Code             string   `json:"code"`
+	DetectedCuda     *string  `json:"detected_cuda,omitempty"`
+	DetectedGlibc    *string  `json:"detected_glibc,omitempty"`
+	DriverVersion    *string  `json:"driver_version,omitempty"`
+	GpuVendor        *string  `json:"gpu_vendor,omitempty"`
+	HaveBytes        *int64   `json:"have_bytes,omitempty"`
+	MemoryKind       *string  `json:"memory_kind,omitempty"`
+	MissingLibraries []string `json:"missing_libraries,omitempty"`
+	NeedBytes        *int64   `json:"need_bytes,omitempty"`
+	RequiredCuda     *string  `json:"required_cuda,omitempty"`
+	RequiredGlibc    *string  `json:"required_glibc,omitempty"`
 }
 
 type LocalModelAvailability struct {
-	Available bool    `json:"available"`
-	Reason    *string `json:"reason,omitempty"`
+	Downloadable bool                          `json:"downloadable"`
+	Reason       *LocalModelAvailabilityReason `json:"reason,omitempty"`
+}
+
+type LocalModelsViewUnavailableReason struct {
+	Code   string  `json:"code"`
+	Detail *string `json:"detail,omitempty"`
 }
 
 type LocalModelPool struct {
-	ID         string `json:"id"`
-	Kind       string `json:"kind,omitempty"`
-	Label      string `json:"label,omitempty"`
-	TotalBytes int64  `json:"total_bytes"`
-	UsedBytes  int64  `json:"used_bytes"`
-	FreeBytes  int64  `json:"free_bytes"`
+	ID         string            `json:"id"`
+	Kind       string            `json:"kind,omitempty"`
+	GpuIndex   *int              `json:"gpu_index,omitempty"`
+	Label      string            `json:"label,omitempty"`
+	TotalBytes int64             `json:"total_bytes"`
+	UsedBytes  int64             `json:"used_bytes"`
+	Holders    []json.RawMessage `json:"holders,omitempty"`
 }
 
 type LocalModel struct {
@@ -184,8 +225,8 @@ type LocalModel struct {
 }
 
 type LocalModelUser struct {
-	ActorID     string `json:"actor_id"`
-	DisplayName string `json:"display_name"`
+	AgentID string `json:"agent_id"`
+	Name    string `json:"name"`
 }
 
 type LocalModelView struct {
@@ -194,21 +235,22 @@ type LocalModelView struct {
 }
 
 type LocalModelsComputer struct {
-	ComputerID  string  `json:"computer_id"`
-	DisplayName string  `json:"display_name"`
-	Online      bool    `json:"online"`
-	Platform    *string `json:"platform,omitempty"`
+	ComputerID  string          `json:"computer_id"`
+	DisplayName string          `json:"display_name"`
+	Status      string          `json:"status"`
+	Host        json.RawMessage `json:"host,omitempty"`
+	LastSeenAt  *time.Time      `json:"last_seen_at,omitempty"`
 }
 
 type LocalModelsView struct {
-	Available     bool                `json:"available"`
-	Computer      LocalModelsComputer `json:"computer"`
-	Models        []LocalModelView    `json:"models"`
-	Pools         []LocalModelPool    `json:"pools"`
-	Reason        *string             `json:"reason,omitempty"`
-	ToolVersion   *string             `json:"tool_version,omitempty"`
-	ObservedAt    *time.Time          `json:"observed_at,omitempty"`
-	ViewerIsOwner bool                `json:"viewer_is_owner"`
+	Available     bool                              `json:"available"`
+	Computer      LocalModelsComputer               `json:"computer"`
+	Models        []LocalModelView                  `json:"models"`
+	Pools         []LocalModelPool                  `json:"pools"`
+	Reason        *LocalModelsViewUnavailableReason `json:"reason,omitempty"`
+	ToolVersion   *string                           `json:"tool_version,omitempty"`
+	ObservedAt    *time.Time                        `json:"observed_at,omitempty"`
+	ViewerIsOwner bool                              `json:"viewer_is_owner"`
 }
 
 type ByokSummary struct {
@@ -238,13 +280,11 @@ type ModelSourceView struct {
 }
 
 type ModelSourceSwitchRequest struct {
-	Mode            string  `json:"mode"`
-	Runtime         *string `json:"runtime,omitempty"`
-	RuntimeModel    *string `json:"runtime_model,omitempty"`
-	ReasoningEffort *string `json:"reasoning_effort,omitempty"`
-	Provider        *string `json:"provider,omitempty"`
-	BaseURL         *string `json:"base_url,omitempty"`
-	APIKey          *string `json:"api_key,omitempty"`
+	Mode           string     `json:"mode"`
+	Runtime        *string    `json:"runtime,omitempty"`
+	Byok           *ByokInput `json:"byok,omitempty"`
+	LocalModelID   *string    `json:"local_model_id,omitempty"`
+	ForceTerminate *bool      `json:"force_terminate,omitempty"`
 }
 
 // --- Work Items, Tasks, Routines, Pocket Notes & Proactive Rules ---
@@ -338,8 +378,8 @@ type RoutineList struct {
 }
 
 type PocketNote struct {
-	NoteDate  string    `json:"note_date"`
-	Body      string    `json:"body"`
+	NoteDate  string    `json:"date"`
+	Body      string    `json:"text"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
 

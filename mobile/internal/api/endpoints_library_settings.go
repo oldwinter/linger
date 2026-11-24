@@ -12,7 +12,15 @@ import (
 // --- Library, Documents, Personal Wiki, Profile, Memory & Search ---
 
 func (c *Client) ListLibraryDocuments(ctx context.Context, limit int, cursor string) (DocumentPage, error) {
+	return c.ListLibraryDocumentsByView(ctx, "recent", limit, cursor)
+}
+
+func (c *Client) ListLibraryDocumentsByView(ctx context.Context, view string, limit int, cursor string) (DocumentPage, error) {
 	q := url.Values{}
+	if view == "" {
+		view = "recent"
+	}
+	q.Set("view", view)
 	if limit > 0 {
 		q.Set("limit", strconv.Itoa(limit))
 	}
@@ -71,14 +79,6 @@ func (c *Client) ListDocumentCommentThreads(ctx context.Context, docID string) (
 	var out DocumentCommentThreadList
 	err := c.DoJSON(ctx, http.MethodGet, fmt.Sprintf("/v0/documents/%s/comment-threads", url.PathEscape(docID)), nil, &out)
 	return out.Items, err
-}
-
-func (c *Client) CreateDocumentCommentReply(ctx context.Context, threadID, body string) (DocumentComment, error) {
-	var out DocumentComment
-	err := c.DoJSON(ctx, http.MethodPost, fmt.Sprintf("/v0/document-comment-threads/%s/comments", url.PathEscape(threadID)), map[string]string{
-		"body": body,
-	}, &out)
-	return out, err
 }
 
 func (c *Client) GetPersonalWiki(ctx context.Context, tenantID string) (PersonalWiki, error) {
@@ -233,10 +233,10 @@ func (c *Client) ListExternalConnections(ctx context.Context) ([]ExternalConnect
 	return out.Connections, err
 }
 
-func (c *Client) CreateExternalConnection(ctx context.Context, provider string) (ExternalConnection, error) {
+func (c *Client) CreateExternalConnection(ctx context.Context, appKey string) (ExternalConnection, error) {
 	var out ExternalConnection
 	err := c.DoJSON(ctx, http.MethodPost, "/v0/external-connections", map[string]string{
-		"provider": provider,
+		"app_key": appKey,
 	}, &out)
 	return out, err
 }

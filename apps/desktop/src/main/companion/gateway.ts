@@ -125,12 +125,25 @@ function rejectUpgrade(socket: Duplex, status: number, reason: string): void {
 interface NormalizedUrlResult {
   readonly ok: true;
   readonly pathname: string;
+  readonly encodedPath: string;
   readonly search: string;
 }
 
 type ParsePathResult =
   | NormalizedUrlResult
   | { readonly ok: false; readonly reason: string };
+
+// Reject percent-encoded traversal/delimiter/control bytes before decoding.
+const FORBIDDEN_RAW_PATH_ENCODINGS =
+  /(?:%2e|%2f|%5c|%3f|%23|%0[0-9a-f]|%1[0-9a-f]|%7f)/iu;
+
+// Reject ASCII control characters, whitespace, backslash, and query/fragment delimiters.
+// eslint-disable-next-line no-control-regex
+const FORBIDDEN_RAW_PATH_CHARS = /[\x00-\x20\x7f\\?#]/u;
+// eslint-disable-next-line no-control-regex
+const FORBIDDEN_DECODED_PATH_CHARS = /[\x00-\x1f\x7f\\?#]/u;
+// eslint-disable-next-line no-control-regex
+const FORBIDDEN_SEARCH_CHARS = /[\x00-\x20\x7f#]/u;
 
 export function normalizeRequestPath(
   rawUrl: string | undefined,
@@ -142,9 +155,9 @@ export function normalizeRequestPath(
 
   if (
     !rawPath.startsWith("/") ||
-    rawPath.includes("\\") ||
-    rawPath.includes("\0") ||
-    /%2e|%2f|%5c|%00/iu.test(rawPath)
+    FORBIDDEN_RAW_PATH_CHARS.test(rawPath) ||
+    FORBIDDEN_RAW_PATH_ENCODINGS.test(rawPath) ||
+    FORBIDDEN_SEARCH_CHARS.test(search)
   ) {
     return { ok: false, reason: "invalid_path" };
   }
@@ -156,7 +169,7 @@ export function normalizeRequestPath(
     return { ok: false, reason: "malformed_encoding" };
   }
 
-  if (decoded.includes("\\") || decoded.includes("\0")) {
+  if (FORBIDDEN_DECODED_PATH_CHARS.test(decoded)) {
     return { ok: false, reason: "invalid_path" };
   }
 
@@ -168,16 +181,25 @@ export function normalizeRequestPath(
   }
 
   const collapsed = decoded.replace(/\/{2,}/gu, "/");
-  return { ok: true, pathname: collapsed, search };
+  const encodedPath =
+    collapsed === "/"
+      ? "/"
+      : collapsed
+          .split("/")
+          .map((segment) => encodeURIComponent(segment))
+          .join("/");
+
+  return { ok: true, pathname: collapsed, encodedPath, search };
 }
 
 export function isForbiddenV0Path(pathname: string): boolean {
+  const lower = pathname.split(/[?#]/u, 1)[0]!.toLowerCase();
   for (const blocked of FORBIDDEN_V0_EXACT_OR_PREFIX) {
-    if (pathname === blocked || pathname.startsWith(`${blocked}/`)) {
+    if (lower === blocked || lower.startsWith(`${blocked}/`)) {
       return true;
     }
   }
-  return TENANT_ENROLLMENTS_PATTERN.test(pathname);
+  return TENANT_ENROLLMENTS_PATTERN.test(lower);
 }
 
 function parseBearerToken(req: IncomingMessage): string | undefined {
@@ -525,9 +547,22 @@ export class CompanionGateway {
     return { ok: true };
   }
 
+  pairRateBucketCount(): number {
+    return this.#pairRateBuckets.size;
+  }
+
   #checkPairRateLimit(ip: string): number {
     const now = Date.now();
     const cutoff = now - this.#pairRateLimitWindowMs;
+    for (const [key, timestamps] of this.#pairRateBuckets) {
+      if (key === ip) continue;
+      const active = timestamps.filter((ts) => ts > cutoff);
+      if (active.length === 0) {
+        this.#pairRateBuckets.delete(key);
+      } else if (active.length !== timestamps.length) {
+        this.#pairRateBuckets.set(key, active);
+      }
+    }
     const bucket = (this.#pairRateBuckets.get(ip) ?? []).filter(
       (ts) => ts > cutoff,
     );
@@ -574,7 +609,7 @@ export class CompanionGateway {
       return;
     }
 
-    const { pathname, search } = parsedPath;
+    const { pathname, encodedPath, search } = parsedPath;
     const method = (req.method ?? "GET").toUpperCase();
 
     // Companion control plane endpoints.
@@ -754,6 +789,7 @@ export class CompanionGateway {
         session.session_cookie,
         teamhubBase,
         pathname,
+        encodedPath,
         search,
       );
       return;
@@ -771,6 +807,7 @@ export class CompanionGateway {
     sessionCookie: string,
     teamhubBase: string,
     pathname: string,
+    encodedPath: string,
     search: string,
   ): void {
     const target = new URL(teamhubBase);
@@ -794,7 +831,7 @@ export class CompanionGateway {
       hostname: target.hostname,
       port: target.port || (target.protocol === "https:" ? 443 : 80),
       method: req.method,
-      path: `${pathname}${search}`,
+      path: `${encodedPath}${search}`,
       headers: upstreamHeaders,
     });
 
@@ -907,6 +944,22 @@ export class CompanionGateway {
   }
 
   #handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer): void {
+    try {
+      this.#handleUpgradeInner(req, socket, head);
+    } catch (error) {
+      rejectUpgrade(socket, 400, "Bad Request");
+      this.#options.log?.warn("companion.ws_upgrade_error", {
+        path: req.url ?? "",
+        error: String(error),
+      });
+    }
+  }
+
+  #handleUpgradeInner(
+    req: IncomingMessage,
+    socket: Duplex,
+    head: Buffer,
+  ): void {
     const guard = this.#checkRequestGuards(req);
     if (!guard.ok) {
       rejectUpgrade(socket, guard.status, "Forbidden");
@@ -918,7 +971,7 @@ export class CompanionGateway {
       rejectUpgrade(socket, 400, "Bad Request");
       return;
     }
-    const { pathname, search } = parsedPath;
+    const { pathname, encodedPath, search } = parsedPath;
     if (
       pathname !== "/document-collaboration" &&
       !pathname.startsWith("/document-collaboration/")
@@ -956,7 +1009,7 @@ export class CompanionGateway {
       hostname: target.hostname,
       port: target.port || (isHttps ? 443 : 80),
       method: req.method ?? "GET",
-      path: `${pathname}${search}`,
+      path: `${encodedPath}${search}`,
       headers: upstreamHeaders,
       agent: false,
     });

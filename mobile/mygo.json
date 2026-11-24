@@ -2,11 +2,11 @@
   "name": "Linger",
   "identifier": "ai.linger.mobile",
   "version": "0.1.0",
-  "entry": "./cmd/linger-mobile",
+  "main": "./cmd/linger-mobile",
   "icon": "./resources/icon.png",
-  "schemes": ["linger"],
+  "urlSchemes": ["linger"],
   "ios": {
-    "orientation": ["portrait", "landscape-left", "landscape-right"],
+    "orientations": ["portrait", "landscape"],
     "infoPlist": {
       "NSLocalNetworkUsageDescription": "Linger discovers your Linger Desktop host on the local network.",
       "NSBonjourServices": ["_linger._tcp"],
@@ -27,12 +27,5 @@
       "android.permission.CAMERA",
       "android.permission.USE_BIOMETRIC"
     ]
-  },
-  "plugins": [
-    "github.com/egoist/mygo/plugins/sqlite",
-    "github.com/egoist/mygo/plugins/preferences",
-    "github.com/egoist/mygo/plugins/biometrics",
-    "github.com/egoist/mygo/plugins/camera",
-    "github.com/egoist/mygo/plugins/imagepicker"
-  ]
+  }
 }

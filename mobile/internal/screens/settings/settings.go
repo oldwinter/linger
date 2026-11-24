@@ -271,19 +271,8 @@ func (s *Screen) View(c *ui.Context) {
 
 	ui.Column(c).Fill().Background(t.Background).Children(func() {
 		ui.Column(c).FillWidth().Padding(10, 14, 8, 14).Gap(8).Shrink(0).Children(func() {
-			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
-				ui.Column(c).Grow(1).Basis(0).Children(func() {
-					components.SegmentedControl(c, &s.section, "Overview", "My Rules", "Profile", "Connectors", "Prefs")
-				})
-				refLbl := "Sync"
-				if loading {
-					refLbl = "..."
-				}
-				refBtn := components.SecondaryTouchButton(c, refLbl, loading)
-				if refBtn.Clicked() {
-					go s.Refresh(context.Background())
-				}
-			})
+			// Full-width 5-section segmented bar so all labels ("Overview", "My Rules", "Profile", "Connectors", "Prefs") render cleanly without clipping.
+			components.SegmentedControl(c, &s.section, "Overview", "My Rules", "Profile", "Connectors", "Prefs")
 			if syncErr != "" {
 				components.ErrorInline(c, syncErr, func() {
 					go s.Refresh(context.Background())
@@ -294,7 +283,7 @@ func (s *Screen) View(c *ui.Context) {
 
 		switch s.section {
 		case SectionOverview:
-			s.viewOverviewSection(c)
+			s.viewOverviewSection(c, loading)
 		case SectionRules:
 			s.viewRulesSection(c)
 		case SectionProfile:
@@ -317,7 +306,7 @@ func (s *Screen) View(c *ui.Context) {
 	s.viewClearCacheConfirmSheet(c)
 }
 
-func (s *Screen) viewOverviewSection(c *ui.Context) {
+func (s *Screen) viewOverviewSection(c *ui.Context, loading bool) {
 	t := c.Theme()
 	var snap state.Snapshot
 	if s.deps.Store != nil {
@@ -325,11 +314,13 @@ func (s *Screen) viewOverviewSection(c *ui.Context) {
 	}
 
 	s.mu.Lock()
-	ruleCount := len(s.ruleBook.Rules)
+	activeRuleCount := 0
 	shadowCount := 0
 	for _, r := range s.ruleBook.Rules {
 		if r.Status == "shadow" {
 			shadowCount++
+		} else {
+			activeRuleCount++
 		}
 	}
 	connCount := len(s.connections)
@@ -433,8 +424,18 @@ func (s *Screen) viewOverviewSection(c *ui.Context) {
 			})
 
 			// Quick Hub Directory
-			components.SectionCard(c, "Workspace & Device Settings", "Jump directly to any section", nil, func() {
-				s.hubRow(c, "My Rules & Shadow Review", fmt.Sprintf("%d active/total · %d shadow", ruleCount, shadowCount), func() {
+			components.SectionCard(c, "Workspace & Device Settings", "Jump directly to any section", func() {
+				refLbl := "Sync"
+				if loading {
+					refLbl = "Syncing..."
+				}
+				refBtn := components.SecondaryTouchButton(c, refLbl, loading)
+				refBtn.MinHeight(34).Padding(4, 12)
+				if refBtn.Clicked() {
+					go s.Refresh(context.Background())
+				}
+			}, func() {
+				s.hubRow(c, "My Rules & Shadow Review", fmt.Sprintf("%d active · %d shadow", activeRuleCount, shadowCount), func() {
 					s.section = SectionRules
 				})
 				ui.Divider(c)

@@ -196,7 +196,11 @@ func ProbeCompanionTOFU(ctx context.Context, baseURL string, allowPlainHTTP bool
 		}
 	}
 
-	httpClient := &http.Client{Transport: tr, Timeout: 5 * time.Second}
+	httpClient := &http.Client{
+		Transport:     tr,
+		Timeout:       5 * time.Second,
+		CheckRedirect: disallowRedirects,
+	}
 	defer tr.CloseIdleConnections()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/companion/v1/info", nil)

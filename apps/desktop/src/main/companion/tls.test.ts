@@ -99,4 +99,16 @@ describe("companion TLS certificate builder", () => {
     const cert = new X509Certificate(recovered.certPem);
     expect(cert.verify(cert.publicKey)).toBe(true);
   });
+
+  it("includes bracketed IPv6 [host]:port customHost in certificate IP SANs", () => {
+    const dir = path.join(tempDirectory(), "companion-ipv6");
+    const material = ensureTlsMaterial(dir, {
+      hostname: "dev-box",
+      customHost: "[fd7a:115c:a1e0::1]:48210",
+    });
+    const cert = new X509Certificate(material.certPem);
+    expect(cert.subjectAltName).toContain(
+      "IP Address:FD7A:115C:A1E0:0:0:0:0:1",
+    );
+  });
 });

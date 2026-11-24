@@ -58,8 +58,8 @@ type Session struct {
 
 // LoginRequest is sent to POST /v0/auth/login in Direct TeamHub mode.
 type LoginRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
+	Identifier string `json:"identifier"`
+	Password   string `json:"password"`
 }
 
 // Tenant represents one TeamHub workspace.
@@ -105,8 +105,7 @@ type AccountProfilePatch struct {
 
 // AnotherMeSummary is returned by GET /v0/tenants/:tenantId/another-me.
 type AnotherMeSummary struct {
-	Actor       *Actor          `json:"actor,omitempty"`
-	DirectRoom  *Room           `json:"direct_room,omitempty"`
-	Configured  bool            `json:"configured,omitempty"`
-	RawResponse json.RawMessage `json:"-"`
+	AgentActorID *string         `json:"agent_actor_id,omitempty"`
+	RoomID       *string         `json:"room_id,omitempty"`
+	RawResponse  json.RawMessage `json:"-"`
 }

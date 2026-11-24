@@ -129,6 +129,7 @@ describe("CompanionGateway end-to-end", () => {
       ) => void;
       readonly customHost?: string;
       readonly pairRateLimitMax?: number;
+      readonly pairRateLimitWindowMs?: number;
     } = {},
   ) {
     const useTls = options.tls ?? true;
@@ -203,6 +204,9 @@ describe("CompanionGateway end-to-end", () => {
       }),
       ...(options.pairRateLimitMax !== undefined
         ? { pairRateLimitMax: options.pairRateLimitMax }
+        : {}),
+      ...(options.pairRateLimitWindowMs !== undefined
+        ? { pairRateLimitWindowMs: options.pairRateLimitWindowMs }
         : {}),
       log: silentLog,
     });
@@ -301,11 +305,11 @@ describe("CompanionGateway end-to-end", () => {
     });
     expect(badHost.status).toBe(403);
 
-    // Allowed hosts: LAN IP, Tailscale IP, Tailscale MagicDNS, local hostname, customHost.
+    // Allowed hosts: LAN IP, discovered Tailscale IP, matching machine Tailscale MagicDNS, local hostname, customHost.
     for (const host of [
       `192.168.1.25:${h.port}`,
       `100.64.0.9:${h.port}`,
-      `my-mac.tail1234.ts.net:${h.port}`,
+      `test-mac.tail1234.ts.net:${h.port}`,
       `test-mac.local:${h.port}`,
       `companion.home.arpa:${h.port}`,
     ]) {
@@ -316,6 +320,22 @@ describe("CompanionGateway end-to-end", () => {
         headers: { host },
       });
       expect(ok.status, `host ${host} should be allowed`).toBe(200);
+    }
+
+    // Unowned CGNAT/Tailscale IPs and unrelated *.ts.net hosts are rejected (DNS rebinding hardening).
+    for (const rejectedHost of [
+      `100.64.99.99:${h.port}`,
+      `[fd7a:115c:a1e0::99]:${h.port}`,
+      `other-box.tail1234.ts.net:${h.port}`,
+      `evil.ts.net:${h.port}`,
+    ]) {
+      const denied = await requestRaw({
+        tls: false,
+        port: h.port,
+        path: "/companion/v1/info",
+        headers: { host: rejectedHost },
+      });
+      expect(denied.status, `host ${rejectedHost} must be rejected`).toBe(403);
     }
 
     // Unexposed routes return 404.
@@ -705,5 +725,156 @@ describe("CompanionGateway end-to-end", () => {
     expect(h.gateway.activeConnectionsForDevice(paired.device_id).total).toBe(
       0,
     );
+  });
+
+  it("blocks encoded delimiter/case bypasses on forbidden /v0/* paths and safely proxies percent-encoded UTF-8 paths", async () => {
+    const upstreamHits: string[] = [];
+    const h = await createHarness({
+      tls: false,
+      teamhubHandler: (req, res) => {
+        upstreamHits.push(`${req.method ?? "GET"} ${req.url ?? ""}`);
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true, received_url: req.url }));
+      },
+      docUpgrade: (req, socket) => {
+        socket.write(
+          "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n",
+        );
+        socket.end(req.url ?? "");
+      },
+    });
+    const paired = await pairOne(h);
+
+    // Encoded query/fragment delimiters must be rejected with 400 and never reach upstream.
+    for (const bypassPath of [
+      "/v0/local/identity%3f",
+      "/v0/auth/login%3f",
+      "/v0/auth/logout%3f",
+      "/v0/account/password%3f",
+      "/v0/tenants/t1/local-computer-enrollments%3f",
+      "/v0/local/identity%23foo",
+      "/v0/rooms/room_1%0d%0a",
+    ]) {
+      const res = await requestRaw({
+        tls: false,
+        port: h.port,
+        method: "POST",
+        path: bypassPath,
+        headers: { authorization: `Bearer ${paired.token}` },
+      });
+      expect(res.status, `path ${bypassPath} must be rejected`).toBe(400);
+    }
+
+    // Upper/mixed-case forbidden paths must return 403 and never reach upstream.
+    for (const casedPath of [
+      "/v0/LOCAL/IDENTITY",
+      "/v0/Auth/Login",
+      "/v0/Tenants/t1/LOCAL-COMPUTER-ENROLLMENTS",
+    ]) {
+      const res = await requestRaw({
+        tls: false,
+        port: h.port,
+        method: "POST",
+        path: casedPath,
+        headers: { authorization: `Bearer ${paired.token}` },
+      });
+      expect(res.status, `path ${casedPath} must return 403`).toBe(403);
+    }
+    expect(upstreamHits).toEqual([]);
+
+    // Valid percent-encoded spaces and UTF-8 emoji reactions proxy cleanly without ERR_UNESCAPED_CHARACTERS.
+    const spaced = await requestRaw({
+      tls: false,
+      port: h.port,
+      path: "/v0/rooms/my%20room?limit=10",
+      headers: { authorization: `Bearer ${paired.token}` },
+    });
+    expect(spaced.status).toBe(200);
+    expect(JSON.parse(spaced.body)).toEqual({
+      ok: true,
+      received_url: "/v0/rooms/my%20room?limit=10",
+    });
+
+    const emoji = await requestRaw({
+      tls: false,
+      port: h.port,
+      method: "PUT",
+      path: "/v0/document-comments/c1/reactions/%F0%9F%91%8D",
+      headers: { authorization: `Bearer ${paired.token}` },
+    });
+    expect(emoji.status).toBe(200);
+    expect(JSON.parse(emoji.body)).toEqual({
+      ok: true,
+      received_url: "/v0/document-comments/c1/reactions/%F0%9F%91%8D",
+    });
+
+    // Percent-encoded space on WebSocket upgrade must not throw an uncaught exception.
+    const wsReceived = await new Promise<string>((resolve, reject) => {
+      const req = http.request({
+        hostname: "127.0.0.1",
+        port: h.port,
+        path: "/document-collaboration/doc%20name?token=abc",
+        agent: false,
+        headers: {
+          authorization: `Bearer ${paired.token}`,
+          connection: "Upgrade",
+          upgrade: "websocket",
+          "sec-websocket-key": "dGhlIHNhbXBsZSBub25jZQ==",
+          "sec-websocket-version": "13",
+        },
+      });
+      req.on("upgrade", (_res, socket, head) => {
+        let out = head.toString("utf8");
+        socket.on("data", (chunk: Buffer) => {
+          out += chunk.toString("utf8");
+        });
+        socket.once("end", () => resolve(out));
+        socket.once("close", () => resolve(out));
+      });
+      req.on("error", reject);
+      req.end();
+    });
+    expect(wsReceived).toBe("/document-collaboration/doc%20name?token=abc");
+  });
+
+  it("sweeps expired pairing rate-limit buckets", async () => {
+    const h = await createHarness({
+      tls: false,
+      pairRateLimitMax: 2,
+      pairRateLimitWindowMs: 25,
+    });
+    h.pairing.openPairingWindow();
+
+    await requestRaw({
+      tls: false,
+      port: h.port,
+      method: "POST",
+      path: "/companion/v1/pair",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        pin: "000001",
+        device_name: "A",
+        platform: "ios",
+      }),
+    });
+    expect(h.gateway.pairRateBucketCount()).toBe(1);
+
+    await new Promise((resolve) => setTimeout(resolve, 40));
+
+    // After window expiry, a new request succeeds cleanly without stale accumulation.
+    const fresh = await requestRaw({
+      tls: false,
+      port: h.port,
+      method: "POST",
+      path: "/companion/v1/pair",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        pin: "000001",
+        device_name: "A",
+        platform: "ios",
+      }),
+    });
+    expect(fresh.status).toBe(401);
+    expect(h.gateway.pairRateBucketCount()).toBe(1);
   });
 });

@@ -133,6 +133,12 @@ func SegmentedControl(c *ui.Context, selected *int, labels ...string) bool {
 	t := c.Theme()
 	ex := theme.Extra(t)
 	changed := false
+	padX := float32(12)
+	fontSize := float32(13)
+	if len(labels) >= 5 {
+		padX = 9
+		fontSize = 12
+	}
 	ui.ScrollHorizontal(c).FillWidth().Shrink(0).Children(func() {
 		ui.Row(c).Background(ex.MutedBg).Radius(10).Padding(3, 3).Gap(4).Role(ui.RoleTabList).Children(func() {
 			for i, label := range labels {
@@ -143,14 +149,14 @@ func SegmentedControl(c *ui.Context, selected *int, labels ...string) bool {
 					bg = t.Surface
 					fg = t.Text
 				}
-				seg := ui.Row(c.Key(i)).MinHeight(38).PaddingX(12).Radius(8).Background(bg).
+				seg := ui.Row(c.Key(i)).MinHeight(38).PaddingX(padX).Radius(8).Background(bg).
 					AlignItems(ui.Center).Justify(ui.Center).Shrink(0).
 					Role(ui.RoleTab).Label(label).Checked(on)
 				if on {
 					seg.Border(1, t.Border)
 				}
 				seg.Children(func() {
-					txt := ui.Text(c, label).FontSize(13).TextColor(fg).NoWrap()
+					txt := ui.Text(c, label).FontSize(fontSize).TextColor(fg).NoWrap()
 					if on {
 						txt.FontWeight(600)
 					}

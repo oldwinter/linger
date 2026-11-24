@@ -192,9 +192,44 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 		allowPlainHTTP: cfg.AllowPlainHTTP,
 		onTokenChanged: cfg.OnTokenChanged,
 		transport:      transport,
-		http:           &http.Client{Transport: transport, Timeout: timeout},
-		sseHTTP:        &http.Client{Transport: transport},
+		http:           &http.Client{Transport: transport, Timeout: timeout, CheckRedirect: disallowRedirects},
+		sseHTTP:        &http.Client{Transport: transport, CheckRedirect: disallowRedirects},
 	}, nil
+}
+
+func disallowRedirects(*http.Request, []*http.Request) error {
+	return http.ErrUseLastResponse
+}
+
+func canonicalOrigin(u *url.URL) (string, string, bool) {
+	if u == nil || u.Scheme == "" || u.Host == "" {
+		return "", "", false
+	}
+	scheme := strings.ToLower(u.Scheme)
+	host := strings.ToLower(u.Hostname())
+	if host == "" {
+		return "", "", false
+	}
+	port := u.Port()
+	if port == "" {
+		switch scheme {
+		case "https":
+			port = "443"
+		case "http":
+			port = "80"
+		}
+	}
+	return scheme, host + ":" + port, true
+}
+
+func sameOriginURL(reqURL *url.URL, rawBase string) bool {
+	base, err := url.Parse(rawBase)
+	if err != nil {
+		return false
+	}
+	s1, h1, ok1 := canonicalOrigin(reqURL)
+	s2, h2, ok2 := canonicalOrigin(base)
+	return ok1 && ok2 && s1 == s2 && h1 == h2
 }
 
 func validateEndpointPolicy(rawURL string, allowPlainHTTP bool) error {
@@ -257,26 +292,59 @@ func (a *authRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 	a.client.mu.RLock()
 	mode := a.client.mode
 	token := a.client.token
+	baseURL := a.client.baseURL
+	allowPlain := a.client.allowPlainHTTP
 	a.client.mu.RUnlock()
 
-	if token != "" {
+	if cloned.URL != nil && strings.EqualFold(cloned.URL.Scheme, "http") && !allowPlain {
+		return nil, fmt.Errorf("%w (%s)", ErrPlainHTTPDisallowed, cloned.URL.String())
+	}
+
+	if sameOriginURL(cloned.URL, baseURL) && token != "" {
 		switch mode {
 		case AuthModeCompanion:
 			cloned.Header.Set("Authorization", "Bearer "+token)
 		case AuthModeDirect:
 			cloned.Header.Set("Cookie", SessionCookieName+"="+token)
 		}
+	} else {
+		// Never forward companion bearer tokens or session cookies to any third-party origin.
+		cloned.Header.Del("Authorization")
+		cloned.Header.Del("Cookie")
 	}
 	return a.base.RoundTrip(cloned)
 }
 
 // AuthenticatedHTTPClient returns an *http.Client sharing this client's
-// SPKI-pinned TLS transport and injecting live auth headers automatically
-// (for ui/netimage authenticated image loading).
+// SPKI-pinned TLS transport and injecting live auth headers ONLY on same-origin
+// requests (for ui/netimage authenticated image loading).
 func (c *Client) AuthenticatedHTTPClient() *http.Client {
 	return &http.Client{
 		Transport: &authRoundTripper{client: c, base: c.transport},
 		Timeout:   20 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return errors.New("api: stopped after 5 redirects")
+			}
+			prev := via[len(via)-1]
+			if prev != nil && prev.URL != nil && req.URL != nil {
+				if strings.EqualFold(prev.URL.Scheme, "https") && !strings.EqualFold(req.URL.Scheme, "https") {
+					return errors.New("api: blocked HTTPS scheme downgrade redirect")
+				}
+				s1, h1, ok1 := canonicalOrigin(prev.URL)
+				s2, h2, ok2 := canonicalOrigin(req.URL)
+				if !ok1 || !ok2 || s1 != s2 || h1 != h2 {
+					return errors.New("api: blocked cross-origin redirect")
+				}
+			}
+			c.mu.RLock()
+			allowPlain := c.allowPlainHTTP
+			c.mu.RUnlock()
+			if req.URL != nil && strings.EqualFold(req.URL.Scheme, "http") && !allowPlain {
+				return fmt.Errorf("%w (%s)", ErrPlainHTTPDisallowed, req.URL.String())
+			}
+			return nil
+		},
 	}
 }
 
@@ -306,6 +374,13 @@ func (c *Client) Token() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.token
+}
+
+// AllowPlainHTTP reports whether this client explicitly allows plaintext HTTP.
+func (c *Client) AllowPlainHTTP() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.allowPlainHTTP
 }
 
 // SetToken updates the active Bearer token or session cookie value.

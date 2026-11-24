@@ -110,10 +110,12 @@ func (ctl *Controller) viewInspectorSheet(c *ui.Context, snap state.Snapshot) {
 								_ = cl.DeleteRoom(context.Background(), roomID)
 								_ = ctl.store.RefreshActiveHost(context.Background())
 							}
-							ctl.mu.Lock()
-							ctl.inspectorOpen = false
-							ctl.mu.Unlock()
-							ctl.store.Routers[state.TabRooms].Replace("/rooms")
+							ctl.store.EnqueueUI(func() {
+								ctl.mu.Lock()
+								ctl.inspectorOpen = false
+								ctl.mu.Unlock()
+								ctl.store.Routers[state.TabRooms].Replace("/rooms")
+							})
 						}()
 					}
 
@@ -214,7 +216,7 @@ func (ctl *Controller) viewInspectorSheet(c *ui.Context, snap state.Snapshot) {
 						if btn.Clicked() {
 							go func() {
 								if cl := ctl.store.Client(); cl != nil {
-									_, _ = cl.CreateRoomHistoryShare(context.Background(), roomID, roomTitle(snap, roomID))
+									_, _ = cl.CreateRoomHistoryShare(context.Background(), roomID, "")
 									ctl.openInspector(roomID, snap)
 								}
 							}()
@@ -225,9 +227,16 @@ func (ctl *Controller) viewInspectorSheet(c *ui.Context, snap state.Snapshot) {
 						}
 						for _, sh := range shares {
 							sh := sh
+							label := sh.RoomName
+							if label == "" {
+								label = sh.ID
+							}
+							if sh.Revoked {
+								label += " (revoked)"
+							}
 							ui.Row(c.Key(sh.ID)).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
-								ui.Text(c, fmt.Sprintf("%s (%d msgs)", sh.Title, sh.MessageCount)).FontSize(13).TextColor(t.Text).Grow(1).Basis(0).MaxLines(1)
-								revBtn := components.DangerTouchButton(c, "Revoke", false)
+								ui.Text(c, fmt.Sprintf("%s (%d msgs)", label, sh.MessageCount)).FontSize(13).TextColor(t.Text).Grow(1).Basis(0).MaxLines(1)
+								revBtn := components.DangerTouchButton(c, "Revoke", sh.Revoked)
 								if revBtn.Clicked() {
 									go func() {
 										if cl := ctl.store.Client(); cl != nil {

@@ -197,21 +197,27 @@ func (ctl *Controller) viewMessageRow(c *ui.Context, snap state.Snapshot, roomID
 			}
 
 			// Reactions bar + quick actions (React, Pin, Forward, Thread)
+			currentActorID := ""
+			if snap.Identity != nil {
+				for _, act := range snap.Identity.Actors {
+					if snap.TenantID == "" || act.TenantID == snap.TenantID {
+						currentActorID = act.ID
+						break
+					}
+				}
+			}
 			ui.Row(c).FillWidth().Wrap().AlignItems(ui.Center).Gap(6).Children(func() {
 				for _, rx := range m.Reactions {
 					rx := rx
+					reacted := rx.ReactedBy(currentActorID)
 					pill := ui.Row(c.Key("rx_"+rx.ReactionID)).MinHeight(32).Padding(4, 8).Radius(999).
 						Background(ex.MutedBg).Border(1, t.Border).AlignItems(ui.Center).
 						Role(ui.RoleButton).Label("Toggle reaction " + rx.ReactionID)
 					pill.Children(func() {
-						lbl := rx.Emoji
-						if lbl == "" {
-							lbl = rx.ReactionID
-						}
-						ui.Text(c, fmt.Sprintf("%s %d", lbl, rx.Count)).FontSize(12).TextColor(t.Text).NoWrap()
+						ui.Text(c, fmt.Sprintf("%s %d", rx.DisplayEmoji(), rx.Count())).FontSize(12).TextColor(t.Text).NoWrap()
 					})
 					if pill.Clicked() {
-						ctl.toggleReactionAsync(roomID, m.ID, rx.ReactionID, rx.Reacted)
+						ctl.toggleReactionAsync(roomID, m.ID, rx.ReactionID, reacted)
 					}
 				}
 				if !isThread && m.Thread != nil && m.Thread.ReplyCount > 0 {
@@ -252,7 +258,9 @@ func (ctl *Controller) viewMessageRow(c *ui.Context, snap state.Snapshot, roomID
 							if cl := ctl.store.Client(); cl != nil {
 								if th, err := cl.CreateOrGetMessageThread(context.Background(), roomID, m.ID); err == nil {
 									ctl.ensureRoomLoaded(th.ID)
-									ctl.store.Routers[state.TabRooms].Push("/rooms/" + roomID + "/thread/" + th.ID)
+									ctl.store.EnqueueUI(func() {
+										ctl.store.Routers[state.TabRooms].Push("/rooms/" + roomID + "/thread/" + th.ID)
+									})
 								}
 							}
 						}()
@@ -499,18 +507,47 @@ func (ctl *Controller) viewZoomLightbox(c *ui.Context) {
 	})
 }
 
+// allowHTMLFragmentNavigation enforces that untrusted inline HTML fragment
+// WebViews can only load about:blank and never navigate to file://, linger://,
+// javascript:, or external origins.
+func allowHTMLFragmentNavigation(rawURL string) bool {
+	u := strings.TrimSpace(rawURL)
+	return u == "" || strings.EqualFold(u, "about:blank")
+}
+
+func (ctl *Controller) destroyHTMLWebView() {
+	ctl.mu.Lock()
+	wv := ctl.htmlWebView
+	ctl.htmlWebView = nil
+	ctl.mu.Unlock()
+	if wv != nil {
+		wv.Destroy()
+	}
+}
+
 func (ctl *Controller) openHTMLPreview(title, html string) {
+	ctl.destroyHTMLWebView()
 	ctl.mu.Lock()
 	ctl.htmlTitle = title
 	ctl.htmlContent = html
 	ctl.htmlOpen = true
 	win := ctl.win
-	if win != nil && ctl.htmlWebView == nil {
-		if wv, err := win.NewWebView(mygo.WebViewOptions{}); err == nil {
-			ctl.htmlWebView = wv
+	var wv *mygo.WebView
+	if win != nil {
+		if created, err := win.NewWebView(mygo.WebViewOptions{
+			Page: mygo.PageOptions{
+				Untrusted: true,
+			},
+		}); err == nil {
+			created.Page().OnWillNavigate(func(e *mygo.NavigateEvent) {
+				if !allowHTMLFragmentNavigation(e.URL) {
+					e.PreventDefault()
+				}
+			})
+			ctl.htmlWebView = created
+			wv = created
 		}
 	}
-	wv := ctl.htmlWebView
 	ctl.mu.Unlock()
 	if wv != nil {
 		wv.Page().LoadHTML(html, "")
@@ -519,6 +556,7 @@ func (ctl *Controller) openHTMLPreview(title, html string) {
 
 func (ctl *Controller) viewHTMLPreviewSheet(c *ui.Context) {
 	t := c.Theme()
+	wasOpen := ctl.htmlOpen
 	mobile.Sheet(c, &ctl.htmlOpen, mobile.SheetOptions{
 		Detents: []float32{0.75, 0.92},
 		Label:   "HTML Fragment Preview",
@@ -533,6 +571,7 @@ func (ctl *Controller) viewHTMLPreviewSheet(c *ui.Context) {
 				ui.Text(c, title).FontSize(16).Bold().TextColor(t.Text).Grow(1).Basis(0).MaxLines(1)
 				if components.SecondaryTouchButton(c, "Close", false).Clicked() {
 					ctl.htmlOpen = false
+					ctl.destroyHTMLWebView()
 				}
 			})
 			if wv != nil {
@@ -544,6 +583,9 @@ func (ctl *Controller) viewHTMLPreviewSheet(c *ui.Context) {
 			}
 		})
 	})
+	if wasOpen && !ctl.htmlOpen {
+		ctl.destroyHTMLWebView()
+	}
 }
 
 // OpenMailCanvas fetches and opens the Mail Canvas sheet for documentID.

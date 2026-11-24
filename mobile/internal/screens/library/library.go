@@ -84,6 +84,7 @@ type Screen struct {
 	// Voice SSE / audio runtime handles (guarded by mu).
 	voiceStreamCancel context.CancelFunc
 	audioPlayer       *audio.Player
+	audioGen          uint64
 
 	// UI-thread-only state.
 	segment int
@@ -183,6 +184,7 @@ func New(deps Deps) *Screen {
 func (s *Screen) Close() {
 	s.mu.Lock()
 	s.closed = true
+	s.audioGen++
 	cancel := s.voiceStreamCancel
 	s.voiceStreamCancel = nil
 	player := s.audioPlayer
@@ -728,8 +730,11 @@ func (s *Screen) hydrateOfflineCache(ctx context.Context) {
 }
 
 func (s *Screen) selectedRoomID(rooms []api.RoomListItem) string {
-	if s.docRoomID != "" {
-		return s.docRoomID
+	s.mu.Lock()
+	rid := s.docRoomID
+	s.mu.Unlock()
+	if rid != "" {
+		return rid
 	}
 	if len(rooms) > 0 {
 		return rooms[0].ID

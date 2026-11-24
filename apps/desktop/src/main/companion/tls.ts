@@ -20,7 +20,11 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 
-import { discoverAddresses, isValidDnsName } from "./network.js";
+import {
+  discoverAddresses,
+  extractHostName,
+  isValidDnsName,
+} from "./network.js";
 
 export interface TlsMaterial {
   readonly certPem: string;
@@ -446,14 +450,14 @@ export function ensureTlsMaterial(
   ];
 
   if (options.customHost) {
-    const cleaned = options.customHost
-      .trim()
-      .replace(/^\[|\]$/gu, "")
-      .replace(/:\d+$/u, "");
-    if (net.isIP(cleaned)) {
+    const trimmed = options.customHost.trim();
+    const cleaned = net.isIPv6(trimmed)
+      ? trimmed.toLowerCase()
+      : (extractHostName(trimmed) ?? "");
+    if (cleaned && net.isIP(cleaned)) {
       ipAddresses.push(cleaned);
-    } else if (isValidDnsName(cleaned.toLowerCase())) {
-      dnsNames.push(cleaned.toLowerCase());
+    } else if (cleaned && isValidDnsName(cleaned)) {
+      dnsNames.push(cleaned);
     }
   }
 
