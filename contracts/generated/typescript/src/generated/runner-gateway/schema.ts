@@ -213,6 +213,7 @@ export const runnerGatewayEnvelopeSchema = {
         "local_models_diagnostics",
         "model_invoke_outcomes",
         "local_models_engine",
+        "local_models_concurrency_probe",
         "local_model_unavailable",
         "local_models_external_holders",
       ],
@@ -2794,10 +2795,15 @@ export const runnerGatewayEnvelopeSchema = {
         },
         concurrency: {
           description:
-            "Maximum concurrent request slots for this model when loaded. Sent only when runner.welcome service_features names local_models_engine.",
+            "Maximum concurrent request slots configured or probed for this model when loaded. Sent only when runner.welcome service_features names local_models_engine.",
           type: "integer",
           minimum: 1,
           maximum: 64,
+        },
+        concurrency_probing: {
+          description:
+            "True while a model is running its post-load max-concurrency probe before reporting loaded. Sent only when runner.welcome service_features names local_models_concurrency_probe.",
+          type: "boolean",
         },
         host_ram_bytes: {
           description:
@@ -4163,6 +4169,23 @@ export const runnerGatewayEnvelopeSchema = {
         },
       },
     },
+    PreviousRuntimeSession: {
+      type: "object",
+      additionalProperties: false,
+      description:
+        "Identifies the superseded native session of this Context so a fresh run.start can export its local transcript into ./playground/.previous-context.md.",
+      required: ["provider_type", "session_id"],
+      properties: {
+        provider_type: {
+          enum: ["codex", "claude", "pi", "antigravity"],
+        },
+        session_id: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+        },
+      },
+    },
     ContextRunStartRequest: {
       type: "object",
       additionalProperties: false,
@@ -4187,6 +4210,9 @@ export const runnerGatewayEnvelopeSchema = {
         },
         session: {
           $ref: "#/$defs/OpaqueObject",
+        },
+        previous_session: {
+          $ref: "#/$defs/PreviousRuntimeSession",
         },
         input: {
           $ref: "#/$defs/AgentInput",
@@ -4864,6 +4890,13 @@ export const runnerGatewayEnvelopeSchema = {
         },
         runtime_type: {
           enum: ["codex", "claude", "pi"],
+        },
+        model: {
+          description:
+            "Explicit provider model to run on this Runtime. Omitted leaves selection to the Runtime's own default; sent only to a Computer release that decodes it.",
+          type: "string",
+          minLength: 1,
+          maxLength: 160,
         },
         mode: {
           enum: ["structured", "text", "workspace"],

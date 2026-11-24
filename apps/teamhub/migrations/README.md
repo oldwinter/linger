@@ -38,6 +38,7 @@ whitelist function that uses the resulting schema.
 | 00890            | 00894        | feishu_mail                               |
 | 00891            | 00895        | another_me_background_failures            |
 | 00892            | 00896        | meta_chat_preempts                        |
+| 00893            | 00897        | transcript_only_captures                  |
 
 This sequence supports an empty database and an existing fork database,
 including one at version `00869`. Goose records numeric versions without a
