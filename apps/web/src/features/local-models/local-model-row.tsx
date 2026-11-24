@@ -20,8 +20,10 @@ import { Link } from "react-router";
 import { AutoHeight } from "@/components/ui/auto-height";
 import { Button, buttonClassName } from "@/components/ui/button";
 import { Icon, type IconSvgElement } from "@/components/ui/icon";
+import { Select, SelectItem } from "@/components/ui/select";
 import type { TeamHubLocalComputerPage } from "@/features/teamhub/teamhub-types";
 import { commonMessages } from "@/i18n/common.messages";
+import type { Translate } from "@/i18n/language";
 import type { Message } from "@/i18n/messages";
 import { useT } from "@/i18n/use-translation";
 import { cn } from "@/lib/cn";
@@ -51,6 +53,7 @@ import {
   downloadStopped,
   formatGigabytes,
   joinList,
+  modelBaseName,
   placeName,
   placeTitle,
   usedByBadge,
@@ -105,6 +108,7 @@ function cardTone(
   status: ModelStatus,
   inSpotlight: boolean,
   expanded: boolean,
+  recommended: boolean,
 ): string {
   if (inSpotlight) {
     return cn(
@@ -124,6 +128,14 @@ function cardTone(
     return cn(
       "rounded-xl border bg-muted/40",
       expanded ? "border-border-hover" : "border-border/70 hover:bg-muted/55",
+    );
+  }
+  if (recommended) {
+    return cn(
+      "rounded-xl border bg-card",
+      expanded
+        ? "border-app-info/45"
+        : "border-[var(--app-card-info-border)] hover:border-app-info/45 hover:bg-muted/30",
     );
   }
   return cn(
@@ -204,23 +216,24 @@ function OpenChatLink({
 }
 
 function RowStatusLine({
+  availableSummary,
   detail,
-  download,
-  recommended,
   slower,
   status,
   tag,
 }: {
+  availableSummary: string;
   detail: string | null;
-  download: string;
-  recommended: boolean;
   slower: boolean;
   status: ModelStatus;
   tag: { dot?: string; label: Message<string>; working?: boolean };
 }) {
   const t = useT();
   return (
-    <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+    <span
+      className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground"
+      data-status-line=""
+    >
       {tag.dot ? (
         <span
           aria-hidden
@@ -229,7 +242,7 @@ function RowStatusLine({
       ) : null}
       <span
         className={cn(
-          "min-w-0 tabular-nums @md:truncate",
+          "min-w-0 leading-snug tabular-nums",
           tag.working && "town-shimmer-text",
         )}
       >
@@ -246,19 +259,10 @@ function RowStatusLine({
         >
           {t(tag.label)}
         </span>
-        {recommended ? (
+        {slower ? (
           <>
             {" · "}
-            {download}
-            {" · "}
-            <span className="font-medium text-app-info">
-              {t(m.recommended)}
-            </span>
-          </>
-        ) : slower ? (
-          <>
-            {" · "}
-            {download}
+            {availableSummary}
             {" · "}
             <span className="text-app-warning">{t(m.runsSlower)}</span>
           </>
@@ -268,6 +272,57 @@ function RowStatusLine({
       </span>
     </span>
   );
+}
+
+function availableDetailCopy(model: LocalModel, t: Translate): string {
+  const download = formatGigabytes(model.download_bytes, t);
+  if (model.memory_bytes <= 0) return download;
+  const memory = formatGigabytes(model.memory_bytes, t);
+  if (model.fit === "gpu") {
+    if (model.host_ram_bytes && model.host_ram_bytes > 0) {
+      return t(m.availableDetailWithVramAndRam, {
+        download,
+        ram: formatGigabytes(model.host_ram_bytes, t),
+        vram: memory,
+      });
+    }
+    return t(m.availableDetailWithVram, { download, vram: memory });
+  }
+  return t(m.availableDetailWithMemory, { download, memory });
+}
+
+function loadedMemoryCopy(model: LocalModel, t: Translate): string {
+  const memory = formatGigabytes(model.memory_bytes, t);
+  if (model.host_ram_bytes && model.host_ram_bytes > 0) {
+    return t(m.loadedMemoryHybrid, {
+      ram: formatGigabytes(model.host_ram_bytes, t),
+      vram: memory,
+    });
+  }
+  return memory;
+}
+
+function variantDetailCopy(entry: ModelEntry, t: Translate): string {
+  const { model, status } = entry;
+  if (status === "loaded") {
+    return model.memory_bytes > 0
+      ? [t(m.statusLoaded), loadedMemoryCopy(model, t)].join(" · ")
+      : t(m.statusLoaded);
+  }
+  if (status === "idle") return t(m.statusIdle);
+  if (status === "downloading") return t(m.statusDownloading);
+  if (status === "loading") return t(m.statusLoading);
+  if (status === "failed") {
+    return t(downloadStopped(model) ? m.statusDownloadStopped : m.statusFailed);
+  }
+  if (status === "unavailable") {
+    return (
+      unavailableShortCopy(model.availability.reason, t) ??
+      t(m.statusUnavailable)
+    );
+  }
+  const base = availableDetailCopy(model, t);
+  return model.recommended ? `${base} · ${t(m.recommended)}` : base;
 }
 
 function RowMetadataPills({
@@ -398,10 +453,17 @@ export function ModelRow({
   disabled,
   entry,
   expanded,
+  hasReadyAlternatives = false,
   inSpotlight = false,
   onAssignAgent,
+  onRecheck,
+  onSelectVariant,
+  onUpdateDriver,
+  rechecking = false,
   requested,
+  showEngineBadge = true,
   switchingForAgents = false,
+  variants,
   view,
   ...handlers
 }: Handlers & {
@@ -413,12 +475,21 @@ export function ModelRow({
   disabled: boolean;
   entry: ModelEntry;
   expanded: boolean;
+  hasReadyAlternatives?: boolean;
   /** Rendered inside `FeaturedModelSpotlight`, which already carries the partner header. */
   inSpotlight?: boolean;
   onAssignAgent?: (agent: AssignableLocalModelAgent) => void;
+  onRecheck?: () => void;
+  onSelectVariant?: (modelId: string) => void;
+  onUpdateDriver?: () => void;
+  rechecking?: boolean;
   /** An action asked for and not yet in a snapshot. */
   requested?: LocalModelAction;
+  /** Show non-accelerated engine pills (e.g. `llama.cpp`); accelerated engines always show. */
+  showEngineBadge?: boolean;
   switchingForAgents?: boolean;
+  /** Sibling versions of the same logical model when grouped into one card. */
+  variants?: readonly ModelEntry[];
   view: LocalModelsView;
 }) {
   const t = useT();
@@ -455,12 +526,25 @@ export function ModelRow({
         ? { ...statusTags.failed, label: m.statusDownloadStopped }
         : statusTags[status];
   const progress = downloadPercent(model);
-  const download = formatGigabytes(model.download_bytes, t);
+  const availableSummary = availableDetailCopy(model, t);
   const recommended = status === "available" && model.recommended;
   const featured = isInkling2MiniModelId(model.id);
   const showFeaturedPill = featured && !inSpotlight;
   const slower =
     status === "available" && !model.recommended && model.fit === "system";
+  const hasVariants = Boolean(
+    variants && variants.length > 1 && onSelectVariant,
+  );
+  const displayName = modelBaseName(model);
+  const variantEngines = hasVariants
+    ? new Set(variants!.map((variant) => variant.model.engine).filter(Boolean))
+    : undefined;
+  const showVariantEngine = Boolean(variantEngines && variantEngines.size > 1);
+  const hasDuplicateQuant = hasVariants
+    ? new Set(
+        variants!.map((variant) => variant.model.quant || variant.model.name),
+      ).size < variants!.length
+    : false;
   const brand = modelBrand(model);
   const computerId = view.computer.computer_id;
   const usedNames = usedByAgentNames(entry, assignableAgents, computerId);
@@ -477,7 +561,12 @@ export function ModelRow({
     Boolean(model.pi_model) &&
     Boolean(primaryAgent) &&
     Boolean(onAssignAgent);
-  const engineBadge = engineBadgeCopy(model.engine);
+  const isAcceleratedEngine =
+    model.engine === "polystrata" || model.engine === "strata";
+  const engineBadge =
+    showEngineBadge || isAcceleratedEngine
+      ? engineBadgeCopy(model.engine)
+      : undefined;
   const engineTitle = model.engine_label ?? engineBadge;
   const { badges, overflowTitle } = collapsedRowBadges(model, t);
   const hasMeta =
@@ -490,7 +579,7 @@ export function ModelRow({
     (model.error?.code === "CHECKSUM_MISMATCH" ||
       model.error?.code === "MODEL_FILES_MISSING");
   const detail = {
-    available: download,
+    available: availableSummary,
     downloading: started ? null : downloadStatusDetail(model, t),
     failed: modelErrorShortCopy(model.error, t) ?? null,
     idle: model.note
@@ -498,10 +587,7 @@ export function ModelRow({
       : usedNames.length
         ? t(m.loadToAnswer)
         : null,
-    loaded: [
-      placeTitle(view, model.pool, t),
-      formatGigabytes(model.memory_bytes, t),
-    ]
+    loaded: [placeTitle(view, model.pool, t), loadedMemoryCopy(model, t)]
       .filter(Boolean)
       .join(" · "),
     loading: where ?? null,
@@ -566,11 +652,22 @@ export function ModelRow({
     primaryUsing &&
     anotherMeChatHref,
   );
+  const showsVersionControl = Boolean(
+    (hasVariants && variants && onSelectVariant) || model.quant,
+  );
+  const showsUpdateDriver = Boolean(
+    !action &&
+    status === "unavailable" &&
+    model.availability.reason?.code === "DRIVER_UPDATE_REQUIRED" &&
+    onUpdateDriver,
+  );
   const hasActions = Boolean(
+    showsVersionControl ||
     showsUseForAgents ||
     (showsPrimaryAssignButton && primaryAgent && onAssignAgent) ||
     showsOpenChat ||
-    action,
+    action ||
+    showsUpdateDriver,
   );
   // A stopped download has no record to remove; discarding it deletes the
   // kept partial instead.
@@ -583,7 +680,7 @@ export function ModelRow({
     <article
       className={cn(
         "@container overflow-hidden transition-[background-color,border-color] duration-150 motion-reduce:transition-none",
-        cardTone(status, inSpotlight, expanded),
+        cardTone(status, inSpotlight, expanded, recommended),
       )}
       data-featured={featured || undefined}
       data-recommended={recommended || undefined}
@@ -604,7 +701,7 @@ export function ModelRow({
         <button
           aria-controls={panelId}
           aria-expanded={expanded}
-          aria-label={model.name}
+          aria-label={displayName}
           className={cn(
             "col-start-1 row-start-1 flex min-w-0 items-center gap-3 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             hasActions && "col-span-2 @md:col-span-1",
@@ -624,13 +721,19 @@ export function ModelRow({
             <Icon icon={brand.icon} size={20} />
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm font-medium text-foreground">
-              {model.name}
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="truncate text-sm font-medium text-foreground">
+                {displayName}
+              </span>
+              {recommended ? (
+                <span className="inline-flex h-5 shrink-0 items-center rounded-sm bg-[var(--app-mention-surface)] px-1.5 text-xs font-medium text-app-info">
+                  {t(m.recommended)}
+                </span>
+              ) : null}
             </span>
             <RowStatusLine
+              availableSummary={availableSummary}
               detail={ending ? null : detail}
-              download={download}
-              recommended={recommended}
               slower={slower}
               status={status}
               tag={tag}
@@ -670,6 +773,54 @@ export function ModelRow({
               hasMeta ? "row-start-3 @2xl:col-start-3" : "row-start-2",
             )}
           >
+            {hasVariants && variants && onSelectVariant ? (
+              <Select
+                align="right"
+                aria-label={t(m.chooseVersion, { name: displayName })}
+                className="max-w-44 shrink-0"
+                onValueChange={onSelectVariant}
+                value={model.id}
+                variant="pill"
+              >
+                {variants.map((variant) => {
+                  const quantLabel = variant.model.quant || variant.model.name;
+                  const engineCopy = showVariantEngine
+                    ? engineBadgeCopy(variant.model.engine)
+                    : undefined;
+                  const optionLabel = engineCopy
+                    ? t(m.variantLabelWithEngine, {
+                        engine: engineCopy,
+                        quant: quantLabel,
+                      })
+                    : quantLabel;
+                  const triggerLabel = hasDuplicateQuant
+                    ? optionLabel
+                    : quantLabel;
+                  return (
+                    <SelectItem
+                      key={variant.model.id}
+                      triggerLabel={triggerLabel}
+                      value={variant.model.id}
+                    >
+                      {t(m.variantOptionDetail, {
+                        detail: variantDetailCopy(variant, t),
+                        label: optionLabel,
+                      })}
+                    </SelectItem>
+                  );
+                })}
+              </Select>
+            ) : model.quant ? (
+              <span
+                className={cn(
+                  "inline-flex h-7 max-w-44 shrink-0 items-center truncate rounded-full border border-border/70 bg-muted/40 px-2.5 text-xs font-medium text-muted-foreground",
+                  status === "unavailable" && "opacity-60",
+                )}
+                title={`${t(m.factVersion)}: ${model.quant}`}
+              >
+                {model.quant}
+              </span>
+            ) : null}
             {showsUseForAgents ? (
               <Button
                 aria-label={t(m.useForAgentsNamed, { name: model.name })}
@@ -736,6 +887,19 @@ export function ModelRow({
               >
                 {t(action[0])}
               </Button>
+            ) : showsUpdateDriver && onUpdateDriver ? (
+              <Button
+                aria-label={t(m.updateDriverNamed, { name: model.name })}
+                className="px-2.5"
+                onClick={(event) => {
+                  stopRowClick(event);
+                  onUpdateDriver();
+                }}
+                size="compact"
+                tone={inSpotlight && !expanded ? "primary" : "secondary"}
+              >
+                {t(m.updateDriver)}
+              </Button>
             ) : null}
           </div>
         ) : null}
@@ -763,7 +927,11 @@ export function ModelRow({
               disabled={disabled}
               entry={entry}
               hasPrimaryAssignAction={showsPrimaryAssignButton}
+              hasReadyAlternatives={hasReadyAlternatives}
               onAssignAgent={onAssignAgent}
+              onRecheck={onRecheck}
+              onUpdateDriver={onUpdateDriver}
+              rechecking={rechecking}
               view={view}
             />
             {removable || stopped ? (

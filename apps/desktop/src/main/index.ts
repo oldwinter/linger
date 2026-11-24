@@ -28,6 +28,12 @@ import { ConfigStore } from "./config.js";
 import { DesktopIpcModule } from "./desktop-ipc.js";
 import { dialogMessages } from "./dialogs.messages.js";
 import { DiagnosticsModule } from "./diagnostics.js";
+import { DriverUpdater } from "./driver-updater.js";
+import {
+  detectWindowsNvidiaGpuName,
+  runWindowsDriverInstaller,
+  verifyWindowsAuthenticode,
+} from "./windows-driver-platform.js";
 import { EnrollmentModule } from "./enrollment.js";
 import { GlobalShortcutModule } from "./global-shortcut.js";
 import { LanguageModule } from "./language.js";
@@ -208,6 +214,37 @@ async function main(): Promise<void> {
     background: background || needsSetup,
     localServerResumable: (url) => localServer.isStarting(url),
   });
+  const openExternal = (url: string): Promise<void> =>
+    process.platform === "linux" ? openWithXdg(url) : shell.openExternal(url);
+  const bus = new EventBus();
+  const driverUpdater = new DriverUpdater({
+    platform: process.platform as "darwin" | "win32" | "linux",
+    arch: process.arch,
+    existsSync,
+    env: process.env,
+    launchExecutable: async (executablePath) => {
+      const error = await shell.openPath(executablePath);
+      if (error) throw new Error(error);
+    },
+    openExternal,
+    onStateChange: () => bus.emit("driver-update.changed"),
+    onBusyChange: (busy) => bus.emit("driver-update.busy", busy),
+    ...(process.platform === "win32" && process.arch === "x64"
+      ? {
+          directInstall: {
+            downloadDirectory: path.join(userData, "driver-updates"),
+            detectGpuName: detectWindowsNvidiaGpuName,
+            verifyAuthenticode: verifyWindowsAuthenticode,
+            runInstaller: runWindowsDriverInstaller,
+            readPendingUpdate: () => config.get().pendingDriverUpdate,
+            writePendingUpdate: (record) => {
+              config.update({ pendingDriverUpdate: record });
+            },
+            systemUptimeSeconds: () => os.uptime(),
+          },
+        }
+      : {}),
+  });
   const setup = new SetupWindowModule({
     preload: path.join(here, "../preload/setup.cjs"),
     version: VERSION,
@@ -218,6 +255,7 @@ async function main(): Promise<void> {
       set: (on) =>
         app.setLoginItemSettings({ openAtLogin: on, args: ["--background"] }),
     },
+    driverUpdater,
     ...(process.platform === "darwin"
       ? {
           permissions: new MacPermissions({
@@ -376,9 +414,10 @@ async function main(): Promise<void> {
       ...(process.platform === "win32" ? {} : { badge: app }),
       ...(desktopPermissions ? { permissions: desktopPermissions } : {}),
       tray,
+      driverUpdater,
     }),
   ];
-  const host = new ModuleHost(modules, { config, log, bus: new EventBus() });
+  const host = new ModuleHost(modules, { config, log, bus });
 
   const showApp = (): void => setup.showApp();
   // The uninstaller, or setup replacing this release, asked to quit.

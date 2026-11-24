@@ -1503,6 +1503,215 @@ test("treats loading models as active and does not fall back to idleModels[0] wh
   ).toBeUndefined();
   expect(commands(f)).toEqual(["setup binding", "library status"]);
 });
+test("unloads and reloads a failed saved local model when setup binding reports ready", async () => {
+  const f = await stoppedLocalSetup("local");
+  Object.assign(f.binding, f.ready);
+  const stackPiModel = "localmodels/localmodels-agent";
+  const modelId = "inkling-2-mini-q4-poly:UD-Q4_K_XL";
+  await writeFile(
+    path.join(f.home, "runtime/localmodels/state/model-source.json"),
+    JSON.stringify({
+      schema: "localmodels.model-source/v1",
+      mode: "local",
+      runtime: "pi",
+      runtime_model: stackPiModel,
+      model_label: "Inkling 2 Mini",
+      gateway_url: "http://127.0.0.1:47711",
+      environment: {},
+    }),
+    { mode: 0o600 },
+  );
+  const original = f.call.getMockImplementation()!;
+  f.call.mockImplementation(async (...a) => {
+    if (a[1][0] === "library" && a[1][1] === "status") {
+      return {
+        code: 0,
+        stdout: JSON.stringify({
+          schema: "localmodels.library-status/v1",
+          models: [
+            {
+              id: modelId,
+              state: "failed",
+              pi_model: stackPiModel,
+              error: {
+                code: "HEALTH_CHECK_FAILED",
+                detail: "the model server does not answer; load it again",
+              },
+            },
+          ],
+        }),
+        stderr: "",
+      };
+    }
+    if (a[1][0] === "library" && a[1][1] === "unload") {
+      return {
+        code: 0,
+        stdout: JSON.stringify({ event: "result", ok: true }),
+        stderr: "",
+      };
+    }
+    if (a[1][0] === "library" && a[1][1] === "load") {
+      return { code: 0, stdout: "", stderr: "" };
+    }
+    if (a[1][0] === "source" && a[1][1] === "apply") {
+      return {
+        code: 0,
+        stdout: JSON.stringify({
+          schema: "localmodels.model-source/v1",
+          mode: "local",
+          runtime: "pi",
+          runtime_model: stackPiModel,
+          model_label: "Inkling 2 Mini",
+          gateway_url: "http://127.0.0.1:47711",
+          environment: {},
+        }),
+        stderr: "",
+      };
+    }
+    return original(...a);
+  });
+  expect(
+    await restoreLocalModels(f.instance, f.options, { localmodels: f.call }),
+  ).toBeUndefined();
+  expect(commands(f)).toEqual([
+    "setup binding",
+    "library status",
+    "library unload",
+    "library load",
+    "source apply",
+  ]);
+  const unloadArgs = f.call.mock.calls.find(
+    ([, args]) => args[0] === "library" && args[1] === "unload",
+  )?.[1];
+  expect(unloadArgs?.[2]).toBe(modelId);
+  const loadArgs = f.call.mock.calls.find(
+    ([, args]) => args[0] === "library" && args[1] === "load",
+  )?.[1];
+  expect(loadArgs?.[2]).toBe(modelId);
+  const applyArgs = f.call.mock.calls.find(
+    ([, args]) => args[0] === "source" && args[1] === "apply",
+  )?.[1];
+  expect(applyArgs).toContain("--model");
+  expect(applyArgs).toContain(modelId);
+});
+test("surfaces a degraded outcome when recovering a failed saved local model fails or download stopped", async () => {
+  const f = await stoppedLocalSetup("local");
+  Object.assign(f.binding, f.ready);
+  const stackPiModel = "localmodels/localmodels-agent";
+  const modelId = "inkling-2-mini-q4-poly:UD-Q4_K_XL";
+  await writeFile(
+    path.join(f.home, "runtime/localmodels/state/model-source.json"),
+    JSON.stringify({
+      schema: "localmodels.model-source/v1",
+      mode: "local",
+      runtime: "pi",
+      runtime_model: stackPiModel,
+      model_label: "Inkling 2 Mini",
+      gateway_url: "http://127.0.0.1:47711",
+      environment: {},
+    }),
+    { mode: 0o600 },
+  );
+  const original = f.call.getMockImplementation()!;
+  f.call.mockImplementation(async (...a) => {
+    if (a[1][0] === "library" && a[1][1] === "status") {
+      return {
+        code: 0,
+        stdout: JSON.stringify({
+          schema: "localmodels.library-status/v1",
+          models: [
+            {
+              id: modelId,
+              state: "failed",
+              pi_model: stackPiModel,
+              error: {
+                code: "HEALTH_CHECK_FAILED",
+                detail: "the model server does not answer; load it again",
+              },
+            },
+          ],
+        }),
+        stderr: "",
+      };
+    }
+    if (a[1][0] === "library" && a[1][1] === "unload") {
+      return {
+        code: 0,
+        stdout: JSON.stringify({ event: "result", ok: true }),
+        stderr: "",
+      };
+    }
+    if (a[1][0] === "library" && a[1][1] === "load") {
+      return {
+        code: 1,
+        stdout: JSON.stringify({
+          event: "error",
+          ok: false,
+          code: "ENGINE_START_FAILED",
+          detail: "GPU driver reset",
+        }),
+        stderr: "",
+      };
+    }
+    return original(...a);
+  });
+  const loadFailed = await restoreLocalModels(f.instance, f.options, {
+    localmodels: f.call,
+  });
+  expect(loadFailed).toMatchObject({
+    code: 1,
+    state: "failed",
+    details: { code: "ENGINE_START_FAILED" },
+  });
+  expect(localModelsDegradedFromOutcome(loadFailed!)).toMatchObject({
+    code: "ENGINE_START_FAILED",
+  });
+  expect(commands(f)).toEqual([
+    "setup binding",
+    "library status",
+    "library unload",
+    "library load",
+  ]);
+
+  // A stopped download holds no model record to unload or load, but resume
+  // must still report localModelsDegraded instead of succeeding silently.
+  f.call.mockClear();
+  f.call.mockImplementation(async (...a) => {
+    if (a[1][0] === "library" && a[1][1] === "status") {
+      return {
+        code: 0,
+        stdout: JSON.stringify({
+          schema: "localmodels.library-status/v1",
+          models: [
+            {
+              id: modelId,
+              state: "failed",
+              pi_model: stackPiModel,
+              error: {
+                code: "NETWORK_UNAVAILABLE",
+                detail: "offline",
+              },
+            },
+          ],
+        }),
+        stderr: "",
+      };
+    }
+    return original(...a);
+  });
+  const stoppedDownload = await restoreLocalModels(f.instance, f.options, {
+    localmodels: f.call,
+  });
+  expect(stoppedDownload).toMatchObject({
+    code: 1,
+    state: "failed",
+    details: { code: "NETWORK_UNAVAILABLE" },
+  });
+  expect(localModelsDegradedFromOutcome(stoppedDownload!)).toMatchObject({
+    code: "NETWORK_UNAVAILABLE",
+  });
+  expect(commands(f)).toEqual(["setup binding", "library status"]);
+});
 test("lastJsonObject parses indent=1 multi-line JSON after JSONL progress lines", () => {
   const stdout = [
     '{"kind":"stage","stage":"download","state":"connecting"}',

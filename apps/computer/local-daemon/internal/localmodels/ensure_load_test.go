@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,6 +22,9 @@ func newEnsureLibrary(t *testing.T, fake *fakeTool, ensureLoadTimeout time.Durat
 		JobDirectory: filepath.Join(t.TempDir(), "jobs"), Publish: record.publish, RuntimeChanged: record.runtimeChanged,
 		ProgressInterval: 20 * time.Millisecond, EnsureLoadTimeout: ensureLoadTimeout,
 	})
+	// Fake loaded rows carry a static non-listening 127.0.0.1:18100 endpoint;
+	// keep tests that do not start a real HTTP server independent of that port.
+	library.healthCheck = func(context.Context, string) bool { return true }
 	t.Cleanup(library.Close)
 	return library
 }
@@ -402,5 +407,292 @@ func TestAnUnreadableLibraryCostsARunNoToolCall(t *testing.T) {
 	}
 	if len(fake.calls()) != before {
 		t.Fatalf("ran the tool: %v", fake.calls()[before:])
+	}
+}
+
+func startHealthServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func loadedRowWithBaseURL(baseURL string) map[string]any {
+	row := model(testModel, "loaded")
+	row["endpoint"] = map[string]any{"base_url": baseURL, "model": "Qwen3.8-27B"}
+	return row
+}
+
+func writeLocalSourceOverlay(t *testing.T, stateDir, gatewayURL string) {
+	t.Helper()
+	body, err := json.Marshal(map[string]any{
+		"schema":        "localmodels.model-source/v1",
+		"mode":          "local",
+		"runtime":       "pi",
+		"runtime_model": testPiModel,
+		"gateway_url":   gatewayURL,
+		"environment":   map[string]string{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "model-source.json"), body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestEnsureLoadedProbesLoopbackHealthAndReturnsAtOnceWhenHealthy(t *testing.T) {
+	engine := startHealthServer(t)
+	gateway := startHealthServer(t)
+	fake := newFakeTool(t)
+	writeLocalSourceOverlay(t, fake.state, gateway.URL)
+	fake.write("status.json", status(loadedRowWithBaseURL(engine.URL+"/v1")))
+	library := newEnsureLibrary(t, fake, 0)
+	library.healthCheck = gatewayAnswers
+	library.progressInterval = time.Hour
+	library.Refresh(context.Background())
+	if err := library.awaitSettled(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	before := len(fake.calls())
+	if err := library.EnsureLoaded(context.Background(), testPiModel); err != nil {
+		t.Fatal(err)
+	}
+	if after := len(fake.calls()); after != before {
+		t.Fatalf("healthy loaded model ran the tool: %v", fake.calls()[before:])
+	}
+}
+
+func TestEnsureLoadedRecoversWhenACachedLoadedServerDies(t *testing.T) {
+	engine := startHealthServer(t)
+	gateway := startHealthServer(t)
+	fake := newFakeTool(t)
+	writeLocalSourceOverlay(t, fake.state, gateway.URL)
+	fake.write("status.json", status(loadedRowWithBaseURL(engine.URL+"/v1")))
+	library := newEnsureLibrary(t, fake, 0)
+	library.healthCheck = gatewayAnswers
+	library.progressInterval = time.Hour
+	library.Refresh(context.Background())
+	if err := library.awaitSettled(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate the model server dying after the last snapshot was cached.
+	engine.Close()
+	failed := model(testModel, "failed")
+	failed["error"] = map[string]any{
+		"code":   "HEALTH_CHECK_FAILED",
+		"detail": "the model server does not answer; load it again",
+	}
+	fake.write("status.json", status(failed))
+	recoveredEngine := startHealthServer(t)
+	fake.script("unload", fakeScript{
+		Lines:       []fakeLine{{Line: resultLine(testModel)}},
+		StatusAfter: statusJSON(model(testModel, "idle")),
+	})
+	fake.script("load", fakeScript{
+		Lines:       []fakeLine{{Line: progressLine(testModel, "load", 0, 2)}, {Line: resultLine(testModel)}},
+		StatusAfter: statusJSON(loadedRowWithBaseURL(recoveredEngine.URL + "/v1")),
+	})
+
+	if err := library.EnsureLoaded(context.Background(), testPiModel); err != nil {
+		t.Fatal(err)
+	}
+	unloads := callsWithPrefix(fake, "unload ")
+	loads := callsWithPrefix(fake, "load ")
+	if len(unloads) != 1 || len(loads) != 1 {
+		t.Fatalf("unloads = %v, loads = %v", unloads, loads)
+	}
+}
+
+func TestEnsureLoadedReloadsWhenLocalGatewayDiesWhileEngineAnswers(t *testing.T) {
+	engine := startHealthServer(t)
+	gateway := startHealthServer(t)
+	fake := newFakeTool(t)
+	writeLocalSourceOverlay(t, fake.state, gateway.URL)
+	fake.write("status.json", status(loadedRowWithBaseURL(engine.URL+"/v1")))
+	library := newEnsureLibrary(t, fake, 0)
+	library.healthCheck = gatewayAnswers
+	library.progressInterval = time.Hour
+	library.Refresh(context.Background())
+	if err := library.awaitSettled(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	// Engine still answers /health, but the local Bifrost gateway stopped.
+	gateway.Close()
+	fake.script("unload", fakeScript{
+		Lines:       []fakeLine{{Line: resultLine(testModel)}},
+		StatusAfter: statusJSON(model(testModel, "idle")),
+	})
+	fake.script("load", fakeScript{
+		Lines:       []fakeLine{{Line: progressLine(testModel, "load", 0, 2)}, {Line: resultLine(testModel)}},
+		StatusAfter: statusJSON(loadedRowWithBaseURL(engine.URL + "/v1")),
+	})
+
+	if err := library.EnsureLoaded(context.Background(), testPiModel); err != nil {
+		t.Fatal(err)
+	}
+	unloads := callsWithPrefix(fake, "unload ")
+	loads := callsWithPrefix(fake, "load ")
+	if len(unloads) != 1 || len(loads) != 1 {
+		t.Fatalf("unloads = %v, loads = %v", unloads, loads)
+	}
+}
+
+func TestActLoadUnloadsHealthCheckFailedModelFirst(t *testing.T) {
+	fake := newFakeTool(t)
+	failed := model(testModel, "failed")
+	failed["error"] = map[string]any{
+		"code":   "HEALTH_CHECK_FAILED",
+		"detail": "the model server does not answer; load it again",
+	}
+	fake.write("status.json", status(failed))
+	fake.script("unload", fakeScript{
+		Lines:       []fakeLine{{Line: resultLine(testModel)}},
+		StatusAfter: statusJSON(model(testModel, "idle")),
+	})
+	fake.script("load", fakeScript{
+		Lines:       []fakeLine{{Line: progressLine(testModel, "load", 0, 2)}, {Line: resultLine(testModel)}},
+		StatusAfter: statusJSON(model(testModel, "loaded")),
+	})
+	library := newEnsureLibrary(t, fake, 0)
+	library.Refresh(context.Background())
+
+	refusal, answered := library.Act(context.Background(), Action{Name: ActionLoad, Model: testModel}, soon())
+	if !answered || refusal != nil {
+		t.Fatalf("answered = %v, refusal = %+v", answered, refusal)
+	}
+	waitFor(t, "the model to finish loading", func() bool {
+		row := modelState(library.Refresh(context.Background()), testModel)
+		return row != nil && row.State == "loaded"
+	})
+	unloads := callsWithPrefix(fake, "unload ")
+	loads := callsWithPrefix(fake, "load ")
+	if len(unloads) != 1 || len(loads) != 1 {
+		t.Fatalf("unloads = %v, loads = %v", unloads, loads)
+	}
+
+	// An unload refusal stops the load before it starts.
+	fakeRefuse := newFakeTool(t)
+	fakeRefuse.write("status.json", status(failed))
+	fakeRefuse.script("unload", fakeScript{
+		Lines: []fakeLine{{Line: errorLine(testModel, "JOB_RUNNING", "")}},
+		Exit:  2,
+	})
+	libRefuse := newEnsureLibrary(t, fakeRefuse, 0)
+	libRefuse.Refresh(context.Background())
+	refusal, answered = libRefuse.Act(context.Background(), Action{Name: ActionLoad, Model: testModel}, soon())
+	if !answered || refusal == nil || refusal.Code != "JOB_RUNNING" {
+		t.Fatalf("answered = %v, refusal = %+v", answered, refusal)
+	}
+	if loads := callsWithPrefix(fakeRefuse, "load "); len(loads) != 0 {
+		t.Fatalf("started load after unload refusal: %v", loads)
+	}
+
+	// When reset-unload succeeds and the subsequent load is refused, the
+	// snapshot refreshes to idle and runtimeChanged runs so the UI is not stale.
+	fakeLoadRefuse := newFakeTool(t)
+	fakeLoadRefuse.write("status.json", status(failed))
+	fakeLoadRefuse.script("unload", fakeScript{
+		Lines:       []fakeLine{{Line: resultLine(testModel)}},
+		StatusAfter: statusJSON(model(testModel, "idle")),
+	})
+	fakeLoadRefuse.script("load", fakeScript{
+		Lines: []fakeLine{{Line: errorLine(testModel, "LOAD_NO_ROOM", "")}},
+		Exit:  2,
+	})
+	rec := &recorder{}
+	libLoadRefuse := New(Options{
+		Tool: &fakeLoadRefuse.tool, Environment: map[string]string{"LOCALMODELS_FAKE_TOOL": "1", "PATH": os.Getenv("PATH")},
+		JobDirectory: filepath.Join(t.TempDir(), "jobs"), Publish: rec.publish, RuntimeChanged: rec.runtimeChanged,
+		ProgressInterval: 20 * time.Millisecond,
+	})
+	libLoadRefuse.healthCheck = func(context.Context, string) bool { return true }
+	t.Cleanup(libLoadRefuse.Close)
+	libLoadRefuse.Refresh(context.Background())
+	refusal, answered = libLoadRefuse.Act(context.Background(), Action{Name: ActionLoad, Model: testModel}, soon())
+	if !answered || refusal == nil || refusal.Code != "LOAD_NO_ROOM" {
+		t.Fatalf("answered = %v, refusal = %+v", answered, refusal)
+	}
+	waitFor(t, "snapshot refreshed to idle after refused load", func() bool {
+		row := modelState(rec.last(), testModel)
+		rec.mu.Lock()
+		changed := rec.runtimeChanges > 0
+		rec.mu.Unlock()
+		return row != nil && row.State == "idle" && changed
+	})
+}
+
+func TestEnsureLoadedTrustsRefreshedLoadedRowWhenCachedEngineProbeMisses(t *testing.T) {
+	gateway := startHealthServer(t)
+	fake := newFakeTool(t)
+	writeLocalSourceOverlay(t, fake.state, gateway.URL)
+	// Point the engine at a closed port so the fast-path engine probe misses,
+	// while library status still reports the model loaded (e.g. engine slow
+	// under heavy generation). EnsureLoaded must refresh and NOT unload it.
+	closedEngine := startHealthServer(t)
+	closedEngine.Close()
+	fake.write("status.json", status(loadedRowWithBaseURL(closedEngine.URL+"/v1")))
+	library := newEnsureLibrary(t, fake, 0)
+	library.healthCheck = gatewayAnswers
+	library.progressInterval = time.Hour
+	library.Refresh(context.Background())
+	if err := library.awaitSettled(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := library.EnsureLoaded(context.Background(), testPiModel); err != nil {
+		t.Fatal(err)
+	}
+	if unloads := callsWithPrefix(fake, "unload "); len(unloads) != 0 {
+		t.Fatalf("unloaded a model that library status reported loaded: %v", unloads)
+	}
+	if loads := callsWithPrefix(fake, "load "); len(loads) != 0 {
+		t.Fatalf("reloaded a model that library status reported loaded: %v", loads)
+	}
+}
+
+func TestWaitLoadedReturnsImmediatelyForAdoptedLoadAlreadyLoaded(t *testing.T) {
+	fake := newFakeTool(t)
+	fake.write("status.json", status(model(testModel, "loaded")))
+	library := newEnsureLibrary(t, fake, 0)
+	library.Refresh(context.Background())
+	library.mu.Lock()
+	since := library.commits
+	library.mu.Unlock()
+	budget, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	if err := library.waitLoaded(context.Background(), budget, testModel, since, false); err != nil {
+		t.Fatalf("waitLoaded on already-loaded adopted row returned %v", err)
+	}
+}
+
+func TestLoopbackHealthURL(t *testing.T) {
+	cases := []struct {
+		raw     string
+		stripV1 bool
+		want    string
+	}{
+		{"http://127.0.0.1:18101/v1", true, "http://127.0.0.1:18101/health"},
+		{"http://127.0.0.1:18101/v1/", true, "http://127.0.0.1:18101/health"},
+		{"http://127.0.0.2:18101/v1", true, "http://127.0.0.2:18101/health"},
+		{"http://127.0.0.1:47711", false, "http://127.0.0.1:47711/health"},
+		{"http://[::1]:18101/v1", true, "http://[::1]:18101/health"},
+		{"http://LOCALHOST:18101/v1", true, "http://LOCALHOST:18101/health"},
+		{"https://127.0.0.1:18101/v1", true, ""},
+		{"http://10.0.0.5:18101/v1", true, ""},
+		{"http://user@127.0.0.1:18101/v1", true, ""},
+		{"http://127.0.0.1/v1", true, ""},
+	}
+	for _, tc := range cases {
+		if got := loopbackHealthURL(tc.raw, tc.stripV1); got != tc.want {
+			t.Errorf("loopbackHealthURL(%q, %v) = %q, want %q", tc.raw, tc.stripV1, got, tc.want)
+		}
 	}
 }
