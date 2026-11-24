@@ -135,6 +135,12 @@ await Promise.all([
     outfile: "dist/preload/quick-note.cjs",
     format: "cjs",
   }),
+  build({
+    ...common,
+    entryPoints: ["src/preload/mobile-companion.ts"],
+    outfile: "dist/preload/mobile-companion.cjs",
+    format: "cjs",
+  }),
 ]);
 
 const run = (script, args, failure) =>

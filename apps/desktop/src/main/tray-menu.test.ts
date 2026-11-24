@@ -29,6 +29,7 @@ describe("trayMenu", () => {
       "quick-note",
       "enroll",
       "toggle-prevent-sleep",
+      "mobile-companion",
       "show-logs",
       "save-diagnostics",
       "quit",
