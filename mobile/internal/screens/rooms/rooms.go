@@ -423,7 +423,7 @@ func (ctl *Controller) viewCatchUpSheet(c *ui.Context, snap state.Snapshot) {
 					if rm.LatestMessage != nil {
 						preview = rm.LatestMessage.Author.DisplayName + ": " + rm.LatestMessage.RawMessage
 					}
-					components.SectionCard(c, rm.Name, fmt.Sprintf("%d unread messages", rm.UnreadMessageCount), func() {
+					components.SectionCard(c, rm.Name, components.Plural(rm.UnreadMessageCount, "unread message", "unread messages"), func() {
 						btn := components.PrimaryTouchButton(c, "Jump", false)
 						if btn.Clicked() {
 							ctl.catchUpOpen = false

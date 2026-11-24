@@ -176,7 +176,9 @@ func (s *Screen) viewKnowledgeGraph(c *ui.Context, graph *api.WikiGraphData, fal
 	}
 
 	ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Children(func() {
-		ui.Text(c, fmt.Sprintf("%d nodes · %d links", len(visibleNodes), len(visibleEdges))).
+		ui.Text(c, fmt.Sprintf("%s · %s",
+			components.PluralInt(len(visibleNodes), "node", "nodes"),
+			components.PluralInt(len(visibleEdges), "link", "links"))).
 			FontSize(12).TextColor(t.TextMuted)
 		resetBtn := components.SecondaryTouchButton(c, "Reset Zoom", false)
 		resetBtn.MinHeight(32).Padding(4, 10)
@@ -398,9 +400,9 @@ func computeGraphLayout(nodes []api.WikiGraphNode, edges []api.WikiGraphEdge, w,
 					dx /= dist
 					dy /= dist
 				}
-				rep := 900.0 / (dist * dist)
-				if rep > 16 {
-					rep = 16
+				rep := 2400.0 / (dist * dist)
+				if rep > 24 {
+					rep = 24
 				}
 				dispX[i] += dx * rep
 				dispY[i] += dy * rep
@@ -420,7 +422,7 @@ func computeGraphLayout(nodes []api.WikiGraphNode, edges []api.WikiGraphEdge, w,
 			if dist < 1 {
 				continue
 			}
-			pull := (dist - 75.0) * 0.06
+			pull := (dist - 102.0) * 0.06
 			ux, uy := dx/dist, dy/dist
 			dispX[si] += ux * pull
 			dispY[si] += uy * pull
@@ -428,23 +430,24 @@ func computeGraphLayout(nodes []api.WikiGraphNode, edges []api.WikiGraphEdge, w,
 			dispY[ti] -= uy * pull
 		}
 
-		const pad = 28.0
-		maxX := math.Max(pad+1, float64(w)-pad)
-		maxY := math.Max(pad+1, float64(h)-pad)
+		const padX = 52.0
+		const padY = 34.0
+		maxX := math.Max(padX+1, float64(w)-padX)
+		maxY := math.Max(padY+1, float64(h)-padY-14)
 		for i := range pos {
 			// Gentle centering pull
-			dispX[i] += (cx - float64(pos[i].X)) * 0.04
-			dispY[i] += (cy - float64(pos[i].Y)) * 0.04
-			nx := float64(pos[i].X) + math.Max(-14, math.Min(14, dispX[i]))
-			ny := float64(pos[i].Y) + math.Max(-14, math.Min(14, dispY[i]))
+			dispX[i] += (cx - float64(pos[i].X)) * 0.025
+			dispY[i] += (cy - float64(pos[i].Y)) * 0.025
+			nx := float64(pos[i].X) + math.Max(-18, math.Min(18, dispX[i]))
+			ny := float64(pos[i].Y) + math.Max(-18, math.Min(18, dispY[i]))
 			if math.IsNaN(nx) || math.IsInf(nx, 0) {
 				nx = cx
 			}
 			if math.IsNaN(ny) || math.IsInf(ny, 0) {
 				ny = cy
 			}
-			pos[i].X = float32(math.Max(pad, math.Min(maxX, nx)))
-			pos[i].Y = float32(math.Max(pad, math.Min(maxY, ny)))
+			pos[i].X = float32(math.Max(padX, math.Min(maxX, nx)))
+			pos[i].Y = float32(math.Max(padY, math.Min(maxY, ny)))
 		}
 	}
 	return pos
@@ -490,7 +493,11 @@ func paintKnowledgeGraph(p *ui.Painter, r ui.Rect, t *ui.Theme, positions []grap
 			if len(lbl) > 18 {
 				lbl = lbl[:17] + "..."
 			}
-			p.Text(cx-np.R, cy+np.R+3, lbl, 10, t.Text)
+			lblX := cx - float32(len(lbl))*2.7
+			if lblX < r.X+6 {
+				lblX = r.X + 6
+			}
+			p.Text(lblX, cy+np.R+4, lbl, 10, t.Text)
 		}
 	})
 }

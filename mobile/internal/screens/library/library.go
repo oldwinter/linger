@@ -747,7 +747,22 @@ func (s *Screen) client() *api.Client {
 	return nil
 }
 
-func (s *Screen) cacheStore() *cache.Store { return s.deps.Cache }
+// SetWindow attaches the host mygo.Window so Document Reader can open WebView previews.
+func (s *Screen) SetWindow(w *mygo.Window) {
+	s.mu.Lock()
+	s.deps.Window = w
+	s.mu.Unlock()
+}
+
+func (s *Screen) cacheStore() *cache.Store {
+	if s.deps.Cache != nil {
+		return s.deps.Cache
+	}
+	if s.deps.Store != nil {
+		return s.deps.Store.Cache()
+	}
+	return nil
+}
 
 func (s *Screen) tenantID() string {
 	if strings.TrimSpace(s.deps.TenantID) != "" {

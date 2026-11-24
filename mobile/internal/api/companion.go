@@ -43,16 +43,40 @@ type PairRequest struct {
 	AppVersion string `json:"app_version"`
 }
 
+// FlexString accepts either a JSON string ("v0") or a JSON number (1) when unmarshaling
+// wire fields that may differ across Desktop Companion Gateway versions.
+type FlexString string
+
+// UnmarshalJSON decodes a JSON string, number, or null into FlexString.
+func (f *FlexString) UnmarshalJSON(data []byte) error {
+	trimmed := strings.TrimSpace(string(data))
+	if trimmed == "" || trimmed == "null" {
+		*f = ""
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		*f = FlexString(s)
+		return nil
+	}
+	var n json.Number
+	if err := json.Unmarshal(data, &n); err == nil {
+		*f = FlexString(n.String())
+		return nil
+	}
+	return fmt.Errorf("api: invalid string/number value %s", trimmed)
+}
+
 // PairResponse is returned by POST /companion/v1/pair on success.
 type PairResponse struct {
-	DeviceID       string `json:"device_id"`
-	Token          string `json:"token"`
-	HostID         string `json:"host_id"`
-	HostName       string `json:"host_name"`
-	TLSFingerprint string `json:"tls_fingerprint"`
-	TenantID       string `json:"tenant_id"`
-	APIVersion     string `json:"api_version"`
-	SessionMode    string `json:"session_mode"`
+	DeviceID       string     `json:"device_id"`
+	Token          string     `json:"token"`
+	HostID         string     `json:"host_id"`
+	HostName       string     `json:"host_name"`
+	TLSFingerprint string     `json:"tls_fingerprint"`
+	TenantID       string     `json:"tenant_id"`
+	APIVersion     FlexString `json:"api_version"`
+	SessionMode    string     `json:"session_mode"`
 }
 
 // CompanionStatus is returned by GET /companion/v1/status (Bearer auth).

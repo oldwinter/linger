@@ -37,7 +37,7 @@ func (ctl *Controller) openInspector(roomID string, snap state.Snapshot) {
 		ctx := context.Background()
 		members, _ := cl.ListRoomMembers(ctx, roomID)
 		pins, _ := cl.ListMessagePins(ctx, roomID)
-		docs, _ := cl.ListRoomDocuments(ctx, roomID)
+		docs, _ := cl.ListRoomDocuments(ctx, roomID, 50, "")
 		shares, _ := cl.ListRoomHistoryShares(ctx, roomID)
 		var teamDoc *api.TeamMdDocument
 		if td, err := cl.GetRoomTeamMd(ctx, roomID); err == nil {

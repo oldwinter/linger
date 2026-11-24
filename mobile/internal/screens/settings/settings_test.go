@@ -189,8 +189,7 @@ func TestSettingsViewportsInsetsThemesAndAccessibility(t *testing.T) {
 					} else {
 						c.SetTheme(theme.TownLight())
 					}
-					top, _, bottom, _ := c.SafeArea()
-					ui.Column(c).Fill().Background(c.Theme().Background).Padding(top, 0, bottom, 0).Children(func() {
+					ui.Column(c).Fill().Background(c.Theme().Background).Children(func() {
 						h.screen.View(c)
 					})
 				}
@@ -409,8 +408,7 @@ func TestSettingsGoldenSnapshots(t *testing.T) {
 
 	ttLight := testutil.NewPhoneTester(func(c *ui.Context) {
 		c.SetTheme(theme.TownLight())
-		top, _, bottom, _ := c.SafeArea()
-		ui.Column(c).Fill().Background(c.Theme().Background).Padding(top, 0, bottom, 0).Children(func() {
+		ui.Column(c).Fill().Background(c.Theme().Background).Children(func() {
 			h.screen.View(c)
 		})
 	}, testutil.StandardMobileViewports[1])
@@ -418,8 +416,7 @@ func TestSettingsGoldenSnapshots(t *testing.T) {
 
 	ttDark := testutil.NewPhoneTester(func(c *ui.Context) {
 		c.SetTheme(theme.TownDark())
-		top, _, bottom, _ := c.SafeArea()
-		ui.Column(c).Fill().Background(c.Theme().Background).Padding(top, 0, bottom, 0).Children(func() {
+		ui.Column(c).Fill().Background(c.Theme().Background).Children(func() {
 			h.screen.View(c)
 		})
 	}, testutil.StandardMobileViewports[1])

@@ -84,13 +84,6 @@ func (c *Client) CancelMessageAttachmentUpload(ctx context.Context, roomID, uplo
 	return c.DoJSON(ctx, http.MethodDelete, fmt.Sprintf("/v0/rooms/%s/message-attachment-uploads/%s", url.PathEscape(roomID), url.PathEscape(uploadID)), nil, nil)
 }
 
-// ListRoomDocuments fetches GET /v0/rooms/:roomId/documents.
-func (c *Client) ListRoomDocuments(ctx context.Context, roomID string) (DocumentPage, error) {
-	var out DocumentPage
-	err := c.DoJSON(ctx, http.MethodGet, fmt.Sprintf("/v0/rooms/%s/documents", url.PathEscape(roomID)), nil, &out)
-	return out, err
-}
-
 // GetRoomTeamMd fetches GET /v0/rooms/:roomId/team-md.
 func (c *Client) GetRoomTeamMd(ctx context.Context, roomID string) (TeamMdDocument, error) {
 	var out TeamMdDocument

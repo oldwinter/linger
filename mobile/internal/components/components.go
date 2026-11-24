@@ -315,13 +315,32 @@ func SecondaryTouchButton(c *ui.Context, label string, disabled bool) ui.Element
 func DangerTouchButton(c *ui.Context, label string, disabled bool) ui.Element {
 	t := c.Theme()
 	ex := theme.Extra(t)
+	fg := t.Danger
+	borderCol := t.Danger.Alpha(0.42)
+	if disabled {
+		fg = t.Danger.Alpha(0.55)
+		borderCol = t.Danger.Alpha(0.22)
+	}
 	btn := ui.Row(c).MinHeight(44).Padding(10, 14).Radius(10).Background(ex.DangerTint).
-		Border(1, t.Danger.Alpha(0.35)).AlignItems(ui.Center).Justify(ui.Center).
+		Border(1, borderCol).AlignItems(ui.Center).Justify(ui.Center).
 		Role(ui.RoleButton).Label(label).Disabled(disabled)
 	btn.Children(func() {
-		ui.Text(c, label).FontSize(14).FontWeight(600).TextColor(t.Danger).NoWrap()
+		ui.Text(c, label).FontSize(14).FontWeight(600).TextColor(fg).NoWrap()
 	})
 	return btn
+}
+
+// Plural formats a count with grammatically correct singular or plural noun.
+func Plural(n int64, singular, plural string) string {
+	if n == 1 || n == -1 {
+		return fmt.Sprintf("%d %s", n, singular)
+	}
+	return fmt.Sprintf("%d %s", n, plural)
+}
+
+// PluralInt formats an int count with grammatically correct singular or plural noun.
+func PluralInt(n int, singular, plural string) string {
+	return Plural(int64(n), singular, plural)
 }
 
 // FormField renders a labeled single-line mobile text input with >=44pt touch target.

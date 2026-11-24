@@ -39,7 +39,7 @@ func (ctl *Controller) viewChat(c *ui.Context, snap state.Snapshot, roomID, pare
 			if isThread {
 				ui.Text(c, "Thread in "+roomTitle(snap, parentRoomID)).FontSize(12).FontWeight(600).TextColor(t.TextMuted).MaxLines(1).Grow(1).Basis(0)
 			} else {
-				ui.Text(c, fmt.Sprintf("%d messages", len(msgs))).FontSize(12).TextColor(t.TextMuted).Grow(1).Basis(0)
+				ui.Text(c, components.PluralInt(len(msgs), "message", "messages")).FontSize(12).TextColor(t.TextMuted).Grow(1).Basis(0)
 				inspBtn := ui.Row(c).MinHeight(36).PaddingX(10).Radius(8).Background(t.Surface).
 					Border(1, t.Border).AlignItems(ui.Center).Role(ui.RoleButton).Label("Room Inspector")
 				inspBtn.Children(func() {
@@ -218,7 +218,7 @@ func (ctl *Controller) viewMessageRow(c *ui.Context, snap state.Snapshot, roomID
 					thBtn := ui.Row(c).MinHeight(32).Padding(4, 8).Radius(999).Background(ex.InfoTint).
 						AlignItems(ui.Center).Role(ui.RoleButton).Label("Open thread")
 					thBtn.Children(func() {
-						ui.Text(c, fmt.Sprintf("%d replies ›", m.Thread.ReplyCount)).FontSize(12).FontWeight(600).TextColor(t.Accent).NoWrap()
+						ui.Text(c, components.Plural(m.Thread.ReplyCount, "reply", "replies")+" ›").FontSize(12).FontWeight(600).TextColor(t.Accent).NoWrap()
 					})
 					if thBtn.Clicked() {
 						ctl.store.Routers[state.TabRooms].Push("/rooms/" + roomID + "/thread/" + m.Thread.ThreadRoomID)

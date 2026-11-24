@@ -83,6 +83,34 @@ type FakeServer struct {
 
 	sseSubs      map[chan SSEFrame]struct{}
 	voiceSSESubs map[chan SSEFrame]struct{}
+	c2           *C2FakeServer
+}
+
+// SeedAllFixtures populates rich fixtures for all 5 tabs (Wave C-1 Rooms & Live Ops
+// plus Wave C-2 Work, Library, Wiki, Memory, and Settings) on one unified FakeServer.
+func (f *FakeServer) SeedAllFixtures() {
+	f.SeedWaveC1Fixtures()
+	c2 := newC2FakeServerState(f.TLS)
+	f.mu.Lock()
+	c2.URL = f.URL
+	c2.TenantID = f.TenantID
+	c2.HostID = f.HostID
+	c2.HostName = f.HostName
+	c2.DeviceID = f.DeviceID
+	c2.ValidToken = f.ValidToken
+	c2.Rooms = append([]api.RoomListItem(nil), f.Rooms...)
+	c2.Messages = f.MessagesByRoom
+	f.c2 = c2
+	f.WorkItems = append([]api.WorkItem(nil), c2.WorkItems...)
+	f.Documents = append([]api.Document(nil), c2.Documents...)
+	f.mu.Unlock()
+}
+
+// C2State returns the attached Wave C-2 state (non-nil after SeedAllFixtures).
+func (f *FakeServer) C2State() *C2FakeServer {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.c2
 }
 
 // NewFakeServer starts a FakeServer over TLS 1.3 (when useTLS is true) or plain HTTP.
@@ -488,6 +516,8 @@ func (f *FakeServer) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		f.handleUnpair(w)
 	case path == "/v0/events" && r.Method == http.MethodGet:
 		f.handleSSE(w, r)
+	case f.c2 != nil && f.c2.ServeC2Route(w, r):
+		return
 	case strings.HasPrefix(path, "/v0/voice-sessions/") && strings.HasSuffix(path, "/events/stream") && r.Method == http.MethodGet:
 		f.handleVoiceSSE(w, r)
 	case path == "/v0/session" && (r.Method == http.MethodGet || r.Method == http.MethodPost):
@@ -748,23 +778,33 @@ func (f *FakeServer) handleUnpair(w http.ResponseWriter) {
 }
 
 func (f *FakeServer) handleLogin(w http.ResponseWriter, r *http.Request) {
-	var req api.LoginRequest
+	var req struct {
+		Email      string `json:"email"`
+		Identifier string `json:"identifier"`
+		Password   string `json:"password"`
+	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
-	if req.Email != "alex@linger.dev" || req.Password != "linger-pass" {
+	ident := req.Email
+	if ident == "" {
+		ident = req.Identifier
+	}
+	if ident != "alex@linger.dev" || req.Password != "linger-pass" {
 		writeJSONError(w, http.StatusUnauthorized, "INVALID_CREDENTIALS", "invalid email or password")
 		return
 	}
 	f.mu.Lock()
 	ck := f.ValidCookie
 	id := f.Identity
+	tid := f.TenantID
 	f.mu.Unlock()
 	http.SetCookie(w, &http.Cookie{Name: api.SessionCookieName, Value: ck, Path: "/"})
-	writeJSON(w, http.StatusOK, api.Session{
-		ID:        "sess_1",
-		AccountID: id.Account.ID,
-		CreatedAt: time.Now().UTC(),
-		ExpiresAt: time.Now().UTC().Add(24 * time.Hour),
-		Identity:  id,
+	writeJSON(w, http.StatusOK, map[string]any{
+		"id":         "sess_1",
+		"account_id": id.Account.ID,
+		"tenant_id":  tid,
+		"created_at": time.Now().UTC(),
+		"expires_at": time.Now().UTC().Add(24 * time.Hour),
+		"identity":   id,
 	})
 }
 

@@ -226,8 +226,13 @@ func (h *Hub) viewConnectionOverviewCard(c *ui.Context, snap state.Snapshot) {
 			}())
 		})
 		if snap.CompanionStatus != nil {
-			ui.Text(c, fmt.Sprintf("Desktop v%s · Runtime %s · %d active ops",
-				snap.CompanionStatus.DesktopVersion, snap.CompanionStatus.RuntimeState, snap.CompanionStatus.ActiveOperations)).
+			ver := snap.CompanionStatus.DesktopVersion
+			if ver != "" && ver[0] >= '0' && ver[0] <= '9' {
+				ver = "v" + ver
+			}
+			ui.Text(c, fmt.Sprintf("Desktop %s · Runtime %s · %s",
+				ver, snap.CompanionStatus.RuntimeState,
+				components.PluralInt(snap.CompanionStatus.ActiveOperations, "active op", "active ops"))).
 				FontSize(12).TextColor(t.TextMuted)
 		}
 	})

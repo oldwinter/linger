@@ -321,6 +321,35 @@ func (s *AppStore) Client() *api.Client {
 	return s.client
 }
 
+// Cache returns the active host's SQLite *cache.Store (nil when disconnected or not opened).
+func (s *AppStore) Cache() *cache.Store {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.cacheStore
+}
+
+// ClearCache wipes cached tables in the active host's SQLite store and refreshes CacheStats.
+func (s *AppStore) ClearCache(ctx context.Context) error {
+	cs := s.Cache()
+	if cs == nil {
+		return nil
+	}
+	if err := cs.Clear(ctx); err != nil {
+		return err
+	}
+	st, _ := cs.Stats(ctx)
+	s.mu.Lock()
+	s.cacheStats = st
+	s.mu.Unlock()
+	s.notify()
+	return nil
+}
+
+// Notify triggers a UI repaint callback when child screen controllers mutate state.
+func (s *AppStore) Notify() {
+	s.notify()
+}
+
 // SetActiveTab switches the active bottom tab.
 func (s *AppStore) SetActiveTab(idx int) {
 	if idx < 0 || idx > 4 {

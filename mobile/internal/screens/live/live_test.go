@@ -51,8 +51,7 @@ func TestLiveOpsSegmentsApprovalsAgentsAndLocalModelsActions(t *testing.T) {
 		t.Run(vp.Name, func(t *testing.T) {
 			view := func(c *ui.Context) {
 				c.SetTheme(theme.TownLight())
-				top, _, bottom, _ := c.SafeArea()
-				ui.Column(c).Fill().Background(c.Theme().Background).Padding(top, 0, bottom, 0).Children(func() {
+				ui.Column(c).Fill().Background(c.Theme().Background).Children(func() {
 					ctl.View(c, store.Snapshot())
 				})
 			}
@@ -155,8 +154,7 @@ func TestLiveGoldenSnapshots(t *testing.T) {
 	ctl.SelectSegment(live.SegmentApprovals)
 	ttApp := testutil.NewPhoneTester(func(c *ui.Context) {
 		c.SetTheme(theme.TownLight())
-		top, _, bottom, _ := c.SafeArea()
-		ui.Column(c).Fill().Background(c.Theme().Background).Padding(top, 0, bottom, 0).Children(func() {
+		ui.Column(c).Fill().Background(c.Theme().Background).Children(func() {
 			ctl.View(c, baseSnap)
 		})
 	}, testutil.StandardMobileViewports[1])
@@ -166,8 +164,7 @@ func TestLiveGoldenSnapshots(t *testing.T) {
 	ctl.SelectSegment(live.SegmentCompute)
 	ttComp := testutil.NewPhoneTester(func(c *ui.Context) {
 		c.SetTheme(theme.TownDark())
-		top, _, bottom, _ := c.SafeArea()
-		ui.Column(c).Fill().Background(c.Theme().Background).Padding(top, 0, bottom, 0).Children(func() {
+		ui.Column(c).Fill().Background(c.Theme().Background).Children(func() {
 			ctl.View(c, baseSnap)
 		})
 	}, testutil.StandardMobileViewports[1])

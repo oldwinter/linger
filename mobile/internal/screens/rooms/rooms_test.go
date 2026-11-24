@@ -45,8 +45,7 @@ func TestRoomsFiltersChatComposerDraftsRunWatchAndOfflineRecovery(t *testing.T) 
 		t.Run(vp.Name, func(t *testing.T) {
 			view := func(c *ui.Context) {
 				c.SetTheme(theme.TownLight())
-				top, _, bottom, _ := c.SafeArea()
-				ui.Column(c).Fill().Background(c.Theme().Background).Padding(top, 0, bottom, 0).Children(func() {
+				ui.Column(c).Fill().Background(c.Theme().Background).Children(func() {
 					store.Routers[state.TabRooms].View(c, func(r *ui.Route) {
 						ctl.Route(c, r, store.Snapshot())
 					})
@@ -175,8 +174,7 @@ func TestRoomsGoldenSnapshots(t *testing.T) {
 			} else {
 				c.SetTheme(theme.TownLight())
 			}
-			top, _, bottom, _ := c.SafeArea()
-			ui.Column(c).Fill().Background(c.Theme().Background).Padding(top, 0, bottom, 0).Children(func() {
+			ui.Column(c).Fill().Background(c.Theme().Background).Children(func() {
 				router.View(c, func(r *ui.Route) {
 					ctl.Route(c, r, store.Snapshot())
 				})
@@ -198,10 +196,9 @@ func TestRoomsGoldenSnapshots(t *testing.T) {
 	// 3. Live Run Watch (Town Dark, 390x844) with zero elapsed-seconds drift
 	ttWatch := testutil.NewPhoneTester(func(c *ui.Context) {
 		c.SetTheme(theme.TownDark())
-		top, _, bottom, _ := c.SafeArea()
 		s := store.Snapshot()
 		s.ActiveRuns = []api.RoomRunStatus{{RunID: "run_1", RoomID: "room_general", Agent: api.RoomRunStatusAgentRef{ID: "act_agent_1", DisplayName: "Scout"}, Status: "completed"}}
-		ui.Column(c).Fill().Background(c.Theme().Background).Padding(top, 0, bottom, 0).Children(func() {
+		ui.Column(c).Fill().Background(c.Theme().Background).Children(func() {
 			ctl.ViewRunWatch(c, s, "room_general", "run_1")
 		})
 	}, testutil.StandardMobileViewports[1])

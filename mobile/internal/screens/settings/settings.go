@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/plugins/biometrics"
@@ -155,7 +156,7 @@ func (s *Screen) SelectSection(idx int) {
 // Refresh fetches Proactive Rules, Profiles, Insights, External Connections,
 // Web Search backends, Voice Media Policy, and SQLite Cache stats.
 func (s *Screen) Refresh(ctx context.Context) {
-	s.probeBiometrics(ctx)
+	go s.probeBiometrics(ctx)
 	s.refreshCacheStats(ctx)
 
 	client := s.client()
@@ -437,11 +438,11 @@ func (s *Screen) viewOverviewSection(c *ui.Context) {
 					s.section = SectionRules
 				})
 				ui.Divider(c)
-				s.hubRow(c, "Profile & Personal Insights", fmt.Sprintf("%d insights recorded", insightCount), func() {
+				s.hubRow(c, "Profile & Personal Insights", components.PluralInt(insightCount, "insight", "insights")+" recorded", func() {
 					s.section = SectionProfile
 				})
 				ui.Divider(c)
-				s.hubRow(c, "Connectors, Search & Voice Keys", fmt.Sprintf("%d external connections", connCount), func() {
+				s.hubRow(c, "Connectors, Search & Voice Keys", components.PluralInt(connCount, "external connection", "external connections"), func() {
 					s.section = SectionIntegrations
 				})
 				ui.Divider(c)
@@ -620,10 +621,18 @@ func (s *Screen) checkBiometrics(ctx context.Context) (biometrics.Kind, error) {
 	if s.deps.CheckBiometrics != nil {
 		return s.deps.CheckBiometrics(ctx)
 	}
-	return biometrics.Available(ctx)
+	probeCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
+	defer cancel()
+	return biometrics.Available(probeCtx)
 }
 
 func (s *Screen) probeBiometrics(ctx context.Context) {
+	s.mu.Lock()
+	already := s.bioChecked && s.deps.CheckBiometrics == nil
+	s.mu.Unlock()
+	if already {
+		return
+	}
 	kind, err := s.checkBiometrics(ctx)
 	s.mu.Lock()
 	s.bioChecked = true
@@ -639,8 +648,12 @@ func (s *Screen) probeBiometrics(ctx context.Context) {
 }
 
 func (s *Screen) refreshCacheStats(ctx context.Context) {
-	if s.deps.Cache != nil {
-		if st, err := s.deps.Cache.Stats(ctx); err == nil {
+	cs := s.deps.Cache
+	if cs == nil && s.deps.Store != nil {
+		cs = s.deps.Store.Cache()
+	}
+	if cs != nil {
+		if st, err := cs.Stats(ctx); err == nil {
 			s.mu.Lock()
 			s.cacheStats = st
 			s.mu.Unlock()

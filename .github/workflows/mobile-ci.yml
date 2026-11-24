@@ -1,0 +1,122 @@
+name: Mobile Companion CI
+
+on:
+  pull_request:
+    paths:
+      - "mobile/**"
+      - "apps/desktop/src/main/companion/**"
+      - "apps/desktop/src/main/mobile-companion*"
+      - ".github/workflows/mobile-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "mobile/**"
+      - "apps/desktop/src/main/companion/**"
+      - "apps/desktop/src/main/mobile-companion*"
+      - ".github/workflows/mobile-ci.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  GOTOOLCHAIN: auto
+  MYGO_VERSION: v0.10.1-0.20261123162213-5fe46f2dd0be
+
+jobs:
+  mobile-go-test:
+    name: Mobile Go Vet, Race Tests & Builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: mobile/go.mod
+          cache-dependency-path: mobile/go.sum
+      - name: Install Linux UI build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgl1-mesa-dev libwayland-dev libxkbcommon-dev \
+            libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev \
+            pkg-config
+      - name: Go vet
+        working-directory: mobile
+        run: go vet ./...
+      - name: Go test with race detector
+        working-directory: mobile
+        run: go test -race -count=1 ./...
+      - name: Build desktop preview & release binaries
+        working-directory: mobile
+        run: |
+          CGO_ENABLED=0 go build ./cmd/linger-mobile
+          CGO_ENABLED=0 go build -tags e2e -o /tmp/linger-mobile-e2e ./cmd/linger-mobile
+          CGO_ENABLED=0 go build -trimpath -tags mygo_noinspector \
+            -ldflags "-s -w -X github.com/egoist/mygo.production=1" \
+            -o /tmp/linger-mobile-release ./cmd/linger-mobile
+
+  mobile-ios-sim-build:
+    name: Mobile iOS Simulator Build
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: mobile/go.mod
+          cache-dependency-path: mobile/go.sum
+      - name: Install pinned MyGo CLI
+        run: go install "github.com/egoist/mygo/cmd/mygo@${MYGO_VERSION}"
+      - name: Verify toolchain with mygo doctor
+        working-directory: mobile
+        run: mygo doctor || true
+      - name: Build iOS Simulator app bundle
+        working-directory: mobile
+        run: mygo build -platform ios/simulator
+
+  mobile-android-apk-build:
+    name: Mobile Android ARM64 APK Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: mobile/go.mod
+          cache-dependency-path: mobile/go.sum
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK platform, build-tools, NDK & CMake
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "ndk;27.2.12479018" \
+            "cmake;3.22.1"
+          echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/27.2.12479018" >> "$GITHUB_ENV"
+      - name: Install pinned MyGo CLI
+        run: go install "github.com/egoist/mygo/cmd/mygo@${MYGO_VERSION}"
+      - name: Build Android ARM64 APK
+        working-directory: mobile
+        run: mygo build -platform android/arm64
+
+  desktop-companion-check:
+    name: Desktop Companion Gateway Tests & Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          go: false
+      - name: Run Desktop companion unit & integration tests
+        run: |
+          pnpm --filter @linger/desktop exec vitest run \
+            src/main/companion \
+            src/main/mobile-companion.test.ts
+      - name: Run Desktop typecheck and checks
+        run: make check-desktop

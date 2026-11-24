@@ -691,3 +691,23 @@ func (s *Store) Stats(ctx context.Context) (CacheStats, error) {
 	}
 	return st, nil
 }
+
+// Clear removes all cached entities, FTS5 search index rows, and pending outbox entries.
+func (s *Store) Clear(ctx context.Context) error {
+	if s == nil || s.db == nil {
+		return nil
+	}
+	stmts := []sqlite.Statement{
+		{SQL: `DELETE FROM rooms`},
+		{SQL: `DELETE FROM messages`},
+		{SQL: `DELETE FROM actors`},
+		{SQL: `DELETE FROM work_items`},
+		{SQL: `DELETE FROM routines`},
+		{SQL: `DELETE FROM pocket_notes`},
+		{SQL: `DELETE FROM documents`},
+		{SQL: `DELETE FROM outbox_queue`},
+		{SQL: `DELETE FROM search_index`},
+	}
+	_, err := s.db.Transaction(ctx, stmts)
+	return err
+}

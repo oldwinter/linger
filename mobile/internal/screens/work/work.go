@@ -509,7 +509,13 @@ func (s *Screen) client() *api.Client {
 }
 
 func (s *Screen) cacheStore() *cache.Store {
-	return s.deps.Cache
+	if s.deps.Cache != nil {
+		return s.deps.Cache
+	}
+	if s.deps.Store != nil {
+		return s.deps.Store.Cache()
+	}
+	return nil
 }
 
 func (s *Screen) tenantID() string {

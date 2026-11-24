@@ -27,6 +27,7 @@ func main() {
 		flagTLSFP     = flag.String("tls-fp", "", "Optional SPKI TLS fingerprint for --host-url")
 		flagDataDir   = flag.String("data-dir", "", "Isolated data directory for preferences, secrets, and SQLite cache")
 		flagTheme     = flag.String("theme", "", "Force theme preference: system, light, or dark")
+		flagPairURI   = flag.String("pair-uri", "", "Open Connection Hub directly with a linger://pair?... URI")
 		flagPlainHTTP = flag.Bool("plain-http", false, "Explicitly opt in to plain HTTP for --host-url (Tailscale/dev)")
 	)
 	flag.Parse()
@@ -83,6 +84,7 @@ func main() {
 
 	mygo.App.OnWillQuit(func(_ *mygo.QuitEvent) {
 		kept.ActiveTab = appStore.Snapshot().ActiveTab
+		appShell.Close()
 		appStore.StopDiscovery()
 		appStore.Disconnect()
 	})
@@ -119,10 +121,17 @@ func main() {
 
 		appStore.StartDiscovery(context.Background())
 
-		// Connect immediately when launched with preview flags or a saved active host.
-		if hostURL := strings.TrimSpace(*flagHostURL); hostURL != "" {
+		// Connect immediately when launched with preview flags, pair URI, or a saved active host.
+		if pairURI := strings.TrimSpace(*flagPairURI); pairURI != "" {
+			appStore.SetPendingPairURI(pairURI)
+		} else if hostURL := strings.TrimSpace(*flagHostURL); hostURL != "" {
 			go func() {
-				_ = appStore.ConfigurePreviewHost(context.Background(), hostURL, strings.TrimSpace(*flagToken), strings.TrimSpace(*flagTLSFP), *flagPlainHTTP)
+				if err := appStore.ConfigurePreviewHost(context.Background(), hostURL, strings.TrimSpace(*flagToken), strings.TrimSpace(*flagTLSFP), *flagPlainHTTP); err == nil {
+					win.Update(func() {
+						appStore.Routers[state.TabMore].Replace("/more")
+						appStore.SetActiveTab(state.TabRooms)
+					})
+				}
 			}()
 		} else if ah, ok := cfgStore.ActiveHost(); ok {
 			go func() {

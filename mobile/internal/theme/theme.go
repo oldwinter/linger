@@ -66,7 +66,7 @@ var (
 		MutedBg:    ui.Hex("#282822"),
 		Info:       ui.Hex("#4DA3E8"),
 		InfoTint:   ui.RGBA(77, 163, 232, 0.16),
-		DangerTint: ui.RGBA(230, 100, 60, 0.16),
+		DangerTint: ui.RGBA(255, 133, 95, 0.18),
 		WarnTint:   ui.RGBA(229, 160, 50, 0.16),
 		OKTint:     ui.RGBA(117, 184, 83, 0.16),
 	}
@@ -120,7 +120,7 @@ func TownDark() *ui.Theme {
 		AccentPressed:   ui.Hex("#358CD3"),
 		AccentText:      ui.Hex("#0E151C"),
 		InactiveAccent:  ui.Hex("#698CC7"),
-		Danger:          ui.Hex("#E6643C"),
+		Danger:          ui.Hex("#FF855F"),
 		Warning:         ui.Hex("#E5A032"),
 		Success:         ui.Hex("#75B853"),
 		Selection:       ui.RGBA(77, 163, 232, 0.30),

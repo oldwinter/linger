@@ -103,6 +103,31 @@ type C2FakeServer struct {
 
 // NewC2FakeServer starts a C2FakeServer with rich realistic fixtures.
 func NewC2FakeServer(useTLS bool) (*C2FakeServer, error) {
+	s := newC2FakeServerState(useTLS)
+
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(s.serveHTTP))
+	if useTLS {
+		cert, fp, err := generateSelfSignedECDSACert()
+		if err != nil {
+			return nil, err
+		}
+		s.Fingerprint = fp
+		sc, err := discovery.ShortFingerprint(fp)
+		if err != nil {
+			return nil, err
+		}
+		s.ShortCode = sc
+		srv.TLS = &tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{cert}}
+		srv.StartTLS()
+	} else {
+		srv.Start()
+	}
+	s.Server = srv
+	s.URL = srv.URL
+	return s, nil
+}
+
+func newC2FakeServerState(useTLS bool) *C2FakeServer {
 	now := time.Date(2026, 11, 24, 14, 0, 0, 0, time.UTC)
 	human := api.ActorRef{ID: "act_human_1", TenantID: "ten_1", Kind: "human", DisplayName: "Alex Rivera"}
 	agent := api.ActorRef{ID: "act_agent_1", TenantID: "ten_1", Kind: "agent", DisplayName: "Scout"}
@@ -496,26 +521,7 @@ func NewC2FakeServer(useTLS bool) (*C2FakeServer, error) {
 		},
 	}
 
-	srv := httptest.NewUnstartedServer(http.HandlerFunc(s.serveHTTP))
-	if useTLS {
-		cert, fp, err := generateSelfSignedECDSACert()
-		if err != nil {
-			return nil, err
-		}
-		s.Fingerprint = fp
-		sc, err := discovery.ShortFingerprint(fp)
-		if err != nil {
-			return nil, err
-		}
-		s.ShortCode = sc
-		srv.TLS = &tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{cert}}
-		srv.StartTLS()
-	} else {
-		srv.Start()
-	}
-	s.Server = srv
-	s.URL = srv.URL
-	return s, nil
+	return s
 }
 
 // Close shuts down the test server and closes active voice SSE channels.
@@ -595,8 +601,6 @@ func (s *C2FakeServer) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, api.TenantList{Items: []api.Tenant{{ID: s.TenantID, Name: "Alex Workspace", CreatedAt: time.Now().UTC()}}})
 	case p == "/v0/tenants/"+s.TenantID+"/actors" && r.Method == http.MethodGet:
 		writeJSON(w, http.StatusOK, api.ActorPage{Items: s.Actors})
-	case p == "/v0/tenants/"+s.TenantID+"/another-me" && r.Method == http.MethodGet:
-		writeJSON(w, http.StatusOK, api.AnotherMeSummary{Actor: &s.AnotherMe, DirectRoom: &s.DirectRoom, Configured: true})
 	case p == "/v0/tenants/"+s.TenantID+"/rooms" && r.Method == http.MethodGet:
 		writeJSON(w, http.StatusOK, api.RoomListPage{Items: s.Rooms})
 	case strings.HasPrefix(p, "/v0/rooms/") && strings.HasSuffix(p, "/messages") && r.Method == http.MethodPost:
@@ -613,6 +617,21 @@ func (s *C2FakeServer) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		s.Messages[roomID] = append(s.Messages[roomID], msg)
 		s.mu.Unlock()
 		writeJSON(w, http.StatusCreated, msg)
+	default:
+		if !s.ServeC2Route(w, r) {
+			writeJSONError(w, http.StatusNotFound, "NOT_FOUND", "route not found: "+r.Method+" "+p)
+		}
+	}
+}
+
+// ServeC2Route dispatches all Wave C-2 routes (Work Items, Tasks, Routines, Pocket Notes,
+// Library Documents/Trees/Search, Personal Wiki/Graph, Memory/Voice, Proactive Rules,
+// Profiles/Insights, External Connections, Web Search, Voice Keys) without re-checking auth.
+func (s *C2FakeServer) ServeC2Route(w http.ResponseWriter, r *http.Request) bool {
+	p := r.URL.Path
+	switch {
+	case p == "/v0/tenants/"+s.TenantID+"/another-me" && r.Method == http.MethodGet:
+		writeJSON(w, http.StatusOK, api.AnotherMeSummary{Actor: &s.AnotherMe, DirectRoom: &s.DirectRoom, Configured: true})
 
 	// Work Items
 	case p == "/v0/tenants/"+s.TenantID+"/work-items" && r.Method == http.MethodGet:
@@ -649,7 +668,7 @@ func (s *C2FakeServer) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		s.mu.Unlock()
 		if !ok {
 			writeJSONError(w, http.StatusNotFound, "NOT_FOUND", "task execution not found")
-			return
+			return true
 		}
 		writeJSON(w, http.StatusOK, ex)
 	case strings.HasPrefix(p, "/v0/tasks/") && strings.HasSuffix(p, "/conversation") && r.Method == http.MethodGet:
@@ -882,8 +901,9 @@ func (s *C2FakeServer) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(p, "/v0/voice-provider-keys/") && r.Method == http.MethodPut:
 		s.handleVoiceKey(w, r, strings.TrimPrefix(p, "/v0/voice-provider-keys/"))
 	default:
-		writeJSONError(w, http.StatusNotFound, "NOT_FOUND", "route not found: "+r.Method+" "+p)
+		return false
 	}
+	return true
 }
 
 func (s *C2FakeServer) handleListWorkItems(w http.ResponseWriter, r *http.Request) {

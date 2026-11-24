@@ -21,16 +21,28 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 	// 1. Desktop Companion Host Health Card (GET /companion/v1/status)
 	if snap.CompanionStatus != nil {
 		cs := snap.CompanionStatus
-		components.SectionCard(c, "Desktop Companion Host", fmt.Sprintf("%s · v%s · %dms RTT", cs.HostName, cs.DesktopVersion, snap.RTTMs), func() {
+		ver := cs.DesktopVersion
+		if ver != "" && ver[0] >= '0' && ver[0] <= '9' {
+			ver = "v" + ver
+		}
+		sub := cs.HostName
+		if ver != "" {
+			sub += " · " + ver
+		}
+		if snap.RTTMs > 0 {
+			sub += fmt.Sprintf(" · %dms RTT", snap.RTTMs)
+		}
+		components.SectionCard(c, "Desktop Companion Host", sub, func() {
 			tone := components.ToneSuccess
-			if cs.LocalModelsDegraded || cs.DaemonConnection != "connected" {
+			daemonOK := cs.DaemonConnection == "connected" || cs.DaemonConnection == "online"
+			if cs.LocalModelsDegraded || !daemonOK {
 				tone = components.ToneWarning
 			}
 			components.StatusPill(c, cs.RuntimeState, tone)
 		}, func() {
 			ui.Row(c).FillWidth().Wrap().Gap(6).Children(func() {
 				components.StatusPill(c, "Daemon: "+cs.DaemonConnection, components.ToneInfo)
-				components.StatusPill(c, fmt.Sprintf("%d active ops", cs.ActiveOperations), components.ToneNeutral)
+				components.StatusPill(c, components.PluralInt(cs.ActiveOperations, "active op", "active ops"), components.ToneNeutral)
 				components.StatusPill(c, "Server: "+cs.LocalServerPhase, components.ToneNeutral)
 				components.StatusPill(c, "URL: "+cs.ServerURLMode, components.ToneNeutral)
 				if cs.PreventSleep {
@@ -41,7 +53,7 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 				}
 			})
 			if cs.ComputerID != "" {
-				ui.Text(c, fmt.Sprintf("Computer ID: %s · %d paired devices", cs.ComputerID, cs.PairedDevicesCount)).
+				ui.Text(c, fmt.Sprintf("Computer ID: %s · %s", cs.ComputerID, components.PluralInt(cs.PairedDevicesCount, "paired device", "paired devices"))).
 					FontSize(12).TextColor(t.TextMuted)
 			}
 		})
@@ -64,7 +76,9 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 				ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(6).Children(func() {
 					ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
 						ui.Text(c, comp.DisplayName).FontSize(14).FontWeight(600).TextColor(t.Text)
-						ui.Text(c, fmt.Sprintf("%d active ops · %d runtimes", comp.ActiveOperations, len(comp.Runtimes))).FontSize(12).TextColor(t.TextMuted)
+						ui.Text(c, fmt.Sprintf("%s · %s",
+							components.PluralInt(comp.ActiveOperations, "active op", "active ops"),
+							components.PluralInt(len(comp.Runtimes), "runtime", "runtimes"))).FontSize(12).TextColor(t.TextMuted)
 					})
 					components.StatusPill(c, comp.Status, tone)
 				})
@@ -137,7 +151,7 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 		rechecking := ctl.recheckBusy
 		ctl.mu.Unlock()
 
-		components.SectionCard(c, "Local Models", fmt.Sprintf("%s · %d catalog models", lm.Computer.DisplayName, len(lm.Models)), func() {
+		components.SectionCard(c, "Local Models", fmt.Sprintf("%s · %s", lm.Computer.DisplayName, components.PluralInt(len(lm.Models), "catalog model", "catalog models")), func() {
 			recheckLbl := "Recheck"
 			if rechecking {
 				recheckLbl = "Checking..."
@@ -650,7 +664,7 @@ func (ctl *Controller) listBYOKModelsAsync(tenantID, compID string) {
 				msg = "List failed: " + err.Error()
 			} else {
 				list = res.Models
-				msg = fmt.Sprintf("Loaded %d models from provider", len(res.Models))
+				msg = fmt.Sprintf("Loaded %s from provider", components.PluralInt(len(res.Models), "model", "models"))
 			}
 		}
 		ctl.mu.Lock()
