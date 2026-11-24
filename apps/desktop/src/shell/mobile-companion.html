@@ -1,0 +1,813 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'"
+    />
+    <title>Mobile Companion</title>
+    <style>
+      :root {
+        --canvas: #fcfcfa;
+        --surface: #ffffff;
+        --soft: #f4f4f0;
+        --ink: #1a1a16;
+        --muted: #737266;
+        --border: #ecece9;
+        --border-strong: #d7d7d1;
+        --action: #1a1a16;
+        --action-ink: #ffffff;
+        --ok: #2f9e44;
+        --ok-soft: rgba(47, 158, 68, 0.12);
+        --warn: #b5650d;
+        --warn-soft: rgba(181, 101, 13, 0.12);
+        --danger: #b5320a;
+        --danger-soft: rgba(181, 50, 10, 0.1);
+        --mono:
+          ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        --shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        color-scheme: light dark;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --canvas: #141413;
+          --surface: #1c1c1a;
+          --soft: #252522;
+          --ink: #f4f4f0;
+          --muted: #a1a096;
+          --border: #2c2c28;
+          --border-strong: #3d3d38;
+          --action: #f4f4f0;
+          --action-ink: #141413;
+          --ok: #51cf66;
+          --ok-soft: rgba(81, 207, 102, 0.15);
+          --warn: #f0a143;
+          --warn-soft: rgba(240, 161, 67, 0.16);
+          --danger: #ff6b4a;
+          --danger-soft: rgba(255, 107, 74, 0.15);
+          --shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
+        }
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+      }
+
+      body {
+        background: var(--canvas);
+        color: var(--ink);
+        font:
+          13.5px/1.5 -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          system-ui,
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      main {
+        max-width: 560px;
+        margin: 0 auto;
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 16px;
+        box-shadow: var(--shadow);
+      }
+
+      .row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .stack {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 17px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+
+      h2 {
+        margin: 0;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--ink);
+      }
+
+      .muted {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .mono {
+        font-family: var(--mono);
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 2px 9px;
+        border-radius: 999px;
+        font-size: 11.5px;
+        font-weight: 500;
+        background: var(--soft);
+        color: var(--muted);
+      }
+
+      .badge[data-tone="ok"] {
+        background: var(--ok-soft);
+        color: var(--ok);
+      }
+
+      .badge[data-tone="warn"] {
+        background: var(--warn-soft);
+        color: var(--warn);
+      }
+
+      .badge[data-tone="danger"] {
+        background: var(--danger-soft);
+        color: var(--danger);
+      }
+
+      .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: currentColor;
+      }
+
+      .dot.pulse {
+        animation: pulse 1.8s ease-in-out infinite;
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.35;
+        }
+      }
+
+      .switch {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        cursor: pointer;
+      }
+
+      .switch input {
+        position: absolute;
+        opacity: 0;
+        width: 0;
+        height: 0;
+      }
+
+      .track {
+        width: 38px;
+        height: 22px;
+        border-radius: 999px;
+        background: var(--border-strong);
+        transition: background 0.16s ease;
+        position: relative;
+      }
+
+      .track::after {
+        content: "";
+        position: absolute;
+        top: 3px;
+        left: 3px;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: #ffffff;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+        transition: transform 0.16s ease;
+      }
+
+      .switch input:checked + .track {
+        background: var(--ok);
+      }
+
+      .switch input:checked + .track::after {
+        transform: translateX(16px);
+      }
+
+      button {
+        appearance: none;
+        border: 1px solid var(--border-strong);
+        background: var(--surface);
+        color: var(--ink);
+        border-radius: 8px;
+        padding: 6px 12px;
+        font: inherit;
+        font-size: 12.5px;
+        font-weight: 500;
+        cursor: pointer;
+        transition:
+          opacity 0.15s ease,
+          background 0.15s ease;
+      }
+
+      button:hover:not(:disabled) {
+        background: var(--soft);
+      }
+
+      button.primary {
+        background: var(--action);
+        color: var(--action-ink);
+        border-color: transparent;
+      }
+
+      button.primary:hover:not(:disabled) {
+        opacity: 0.9;
+        background: var(--action);
+      }
+
+      button.danger {
+        color: var(--danger);
+        border-color: var(--danger-soft);
+        background: var(--danger-soft);
+      }
+
+      button.danger:hover:not(:disabled) {
+        opacity: 0.85;
+      }
+
+      button:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+
+      .banner {
+        padding: 10px 12px;
+        border-radius: 8px;
+        font-size: 12.5px;
+        background: var(--danger-soft);
+        color: var(--danger);
+      }
+
+      .meta-grid {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 6px 14px;
+        margin-top: 10px;
+        font-size: 12px;
+      }
+
+      .meta-grid dt {
+        color: var(--muted);
+      }
+
+      .meta-grid dd {
+        margin: 0;
+        word-break: break-all;
+      }
+
+      .pairing-box {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+        margin-top: 12px;
+        padding: 16px;
+        border-radius: 10px;
+        background: var(--soft);
+      }
+
+      .qr-frame {
+        width: 204px;
+        height: 204px;
+        padding: 8px;
+        border-radius: 10px;
+        background: #ffffff;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .qr-frame svg {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+
+      .pin-display {
+        font-family: var(--mono);
+        font-size: 26px;
+        font-weight: 700;
+        letter-spacing: 0.16em;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .actions-row {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 8px;
+      }
+
+      .device-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-top: 10px;
+      }
+
+      .device-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 10px 12px;
+        border-radius: 9px;
+        background: var(--soft);
+      }
+
+      .device-meta {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+      }
+
+      .device-name {
+        font-weight: 600;
+        font-size: 13px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .device-sub {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        font-size: 11.5px;
+        color: var(--muted);
+      }
+
+      .form-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px 14px;
+        margin-top: 12px;
+      }
+
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .field.full {
+        grid-column: 1 / -1;
+      }
+
+      .field label {
+        font-size: 11.5px;
+        color: var(--muted);
+      }
+
+      .field input[type="text"],
+      .field input[type="number"] {
+        padding: 7px 10px;
+        border: 1px solid var(--border-strong);
+        border-radius: 8px;
+        background: var(--canvas);
+        color: var(--ink);
+        font: inherit;
+        font-size: 12.5px;
+        outline: none;
+      }
+
+      .field input:focus {
+        border-color: var(--ink);
+      }
+
+      .check-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12.5px;
+        cursor: pointer;
+      }
+
+      .hidden {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="card">
+        <div class="row">
+          <div class="stack">
+            <h1>Mobile Companion</h1>
+            <span class="muted" id="subtitle"
+              >Expose this Linger desktop securely over LAN or Tailscale.</span
+            >
+          </div>
+          <label class="switch" title="Enable Mobile Companion Gateway">
+            <input type="checkbox" id="toggle-enabled" />
+            <span class="track"></span>
+          </label>
+        </div>
+
+        <div
+          id="error-banner"
+          class="banner hidden"
+          style="margin-top: 12px"
+        ></div>
+
+        <dl class="meta-grid">
+          <dt>Status</dt>
+          <dd><span id="status-badge" class="badge">Stopped</span></dd>
+          <dt>Host</dt>
+          <dd id="host-name">—</dd>
+          <dt>Addresses</dt>
+          <dd id="addresses" class="mono">—</dd>
+          <dt>TLS Pin</dt>
+          <dd id="fingerprint" class="mono">—</dd>
+        </dl>
+      </section>
+
+      <section class="card">
+        <div class="row">
+          <div class="stack">
+            <h2>Pair Mobile Device</h2>
+            <span class="muted"
+              >Pairing stays closed until you open a 5-minute single-use
+              window.</span
+            >
+          </div>
+          <button id="open-pair-btn" class="primary" type="button">
+            Open Pairing
+          </button>
+        </div>
+
+        <div id="pairing-box" class="pairing-box hidden">
+          <div id="qr-frame" class="qr-frame"></div>
+          <div class="pin-display" id="pin-display">000 000</div>
+          <div class="muted" id="countdown">Expires in 5:00</div>
+          <div class="actions-row">
+            <button id="copy-uri-btn" type="button">Copy Pairing Link</button>
+            <button id="close-pair-btn" type="button">Close Pairing</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="row">
+          <div class="row" style="gap: 8px">
+            <h2>Paired Devices</h2>
+            <span id="devices-count" class="badge">0</span>
+          </div>
+          <button id="revoke-all-btn" class="danger hidden" type="button">
+            Revoke All
+          </button>
+        </div>
+        <div id="device-list" class="device-list"></div>
+        <p id="no-devices" class="muted" style="margin: 10px 0 0">
+          No mobile devices paired yet.
+        </p>
+      </section>
+
+      <section class="card">
+        <div class="row">
+          <h2>Gateway Settings</h2>
+          <button id="save-settings-btn" type="button">Save Settings</button>
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label for="input-port">Listen Port</label>
+            <input id="input-port" type="number" min="1024" max="65535" />
+          </div>
+          <div class="field">
+            <label for="input-custom-host">Custom Host (optional)</label>
+            <input
+              id="input-custom-host"
+              type="text"
+              placeholder="mac.tailnet.ts.net"
+            />
+          </div>
+          <label class="check-row">
+            <input id="input-tls" type="checkbox" />
+            <span>Require TLS 1.3</span>
+          </label>
+          <label class="check-row">
+            <input id="input-mdns" type="checkbox" />
+            <span>Advertise via mDNS</span>
+          </label>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const api = window.lingerMobileCompanion;
+      const el = (id) => document.getElementById(id);
+
+      const toggleEnabled = el("toggle-enabled");
+      const errorBanner = el("error-banner");
+      const statusBadge = el("status-badge");
+      const hostName = el("host-name");
+      const addressesEl = el("addresses");
+      const fingerprintEl = el("fingerprint");
+      const openPairBtn = el("open-pair-btn");
+      const pairingBox = el("pairing-box");
+      const qrFrame = el("qr-frame");
+      const pinDisplay = el("pin-display");
+      const countdownEl = el("countdown");
+      const copyUriBtn = el("copy-uri-btn");
+      const closePairBtn = el("close-pair-btn");
+      const devicesCount = el("devices-count");
+      const revokeAllBtn = el("revoke-all-btn");
+      const deviceList = el("device-list");
+      const noDevices = el("no-devices");
+      const inputPort = el("input-port");
+      const inputCustomHost = el("input-custom-host");
+      const inputTls = el("input-tls");
+      const inputMdns = el("input-mdns");
+      const saveSettingsBtn = el("save-settings-btn");
+
+      let currentState = null;
+      let settingsDirty = false;
+      let copyResetTimer = null;
+
+      function formatPin(pin) {
+        return pin.length === 6 ? `${pin.slice(0, 3)} ${pin.slice(3)}` : pin;
+      }
+
+      function formatRelative(iso) {
+        const ms = Date.now() - Date.parse(iso);
+        if (!Number.isFinite(ms) || ms < 0) return "just now";
+        const sec = Math.floor(ms / 1000);
+        if (sec < 60) return "just now";
+        const min = Math.floor(sec / 60);
+        if (min < 60) return `${min}m ago`;
+        const hr = Math.floor(min / 60);
+        if (hr < 24) return `${hr}h ago`;
+        return `${Math.floor(hr / 24)}d ago`;
+      }
+
+      function updateCountdown() {
+        const pairing = currentState && currentState.pairing;
+        if (!pairing) return;
+        const remainingMs = Math.max(0, pairing.expiresAt - Date.now());
+        const totalSec = Math.ceil(remainingMs / 1000);
+        const min = Math.floor(totalSec / 60);
+        const sec = String(totalSec % 60).padStart(2, "0");
+        countdownEl.textContent =
+          totalSec > 0 ? `Expires in ${min}:${sec}` : "Pairing window expired";
+      }
+
+      function renderQr(svgText) {
+        qrFrame.replaceChildren();
+        const doc = new DOMParser().parseFromString(svgText, "image/svg+xml");
+        const svg = doc.documentElement;
+        if (svg && svg.nodeName.toLowerCase() === "svg") {
+          qrFrame.appendChild(document.importNode(svg, true));
+        }
+      }
+
+      function renderDevices(devices) {
+        devicesCount.textContent = String(devices.length);
+        revokeAllBtn.classList.toggle("hidden", devices.length === 0);
+        noDevices.classList.toggle("hidden", devices.length > 0);
+        deviceList.replaceChildren();
+
+        for (const device of devices) {
+          const item = document.createElement("div");
+          item.className = "device-item";
+
+          const meta = document.createElement("div");
+          meta.className = "device-meta";
+
+          const name = document.createElement("div");
+          name.className = "device-name";
+          name.textContent = device.deviceName;
+
+          const sub = document.createElement("div");
+          sub.className = "device-sub";
+
+          const plat = document.createElement("span");
+          plat.textContent = device.appVersion
+            ? `${device.platform} · v${device.appVersion}`
+            : device.platform;
+          sub.appendChild(plat);
+
+          const mode = document.createElement("span");
+          mode.textContent = device.sessionMode;
+          sub.appendChild(mode);
+
+          const live = document.createElement("span");
+          live.className = "badge";
+          if (device.activeSse) {
+            live.dataset.tone = "ok";
+            const dot = document.createElement("span");
+            dot.className = "dot pulse";
+            live.appendChild(dot);
+            live.appendChild(document.createTextNode("Live"));
+          } else {
+            live.textContent = `Seen ${formatRelative(device.lastSeenAt)}`;
+          }
+          sub.appendChild(live);
+
+          meta.appendChild(name);
+          meta.appendChild(sub);
+
+          const revoke = document.createElement("button");
+          revoke.type = "button";
+          revoke.className = "danger";
+          revoke.textContent = "Revoke";
+          revoke.addEventListener("click", () => {
+            void runCommand({ op: "device.revoke", deviceId: device.deviceId });
+          });
+
+          item.appendChild(meta);
+          item.appendChild(revoke);
+          deviceList.appendChild(item);
+        }
+      }
+
+      function render(state) {
+        currentState = state;
+        toggleEnabled.checked = Boolean(state.config.enabled);
+
+        if (state.error) {
+          errorBanner.textContent = state.error;
+          errorBanner.classList.remove("hidden");
+        } else {
+          errorBanner.classList.add("hidden");
+        }
+
+        statusBadge.replaceChildren();
+        if (state.running) {
+          statusBadge.dataset.tone = "ok";
+          const dot = document.createElement("span");
+          dot.className = "dot";
+          statusBadge.appendChild(dot);
+          const proto = state.config.tls ? "HTTPS/TLS 1.3" : "HTTP";
+          const mdnsLabel = state.mdnsActive ? " · mDNS" : "";
+          statusBadge.appendChild(
+            document.createTextNode(
+              `Running on :${state.listenPort} (${proto}${mdnsLabel})`,
+            ),
+          );
+        } else if (state.error) {
+          statusBadge.dataset.tone = "danger";
+          statusBadge.textContent = "Error";
+        } else {
+          statusBadge.dataset.tone = "";
+          statusBadge.textContent = "Disabled";
+        }
+
+        hostName.textContent = state.hostName;
+        const addrParts = [];
+        if (state.addresses.lan.length > 0) {
+          addrParts.push(`LAN: ${state.addresses.lan.join(", ")}`);
+        }
+        if (state.addresses.tailscale.length > 0) {
+          addrParts.push(`Tailscale: ${state.addresses.tailscale.join(", ")}`);
+        }
+        if (state.config.customHost) {
+          addrParts.push(`Custom: ${state.config.customHost}`);
+        }
+        addressesEl.textContent =
+          addrParts.length > 0 ? addrParts.join(" · ") : "127.0.0.1";
+
+        fingerprintEl.textContent = state.config.tls
+          ? state.shortFingerprint || "—"
+          : "TLS disabled";
+
+        openPairBtn.disabled = !state.running;
+        openPairBtn.textContent = state.pairing
+          ? "Rotate Pairing Code"
+          : "Open Pairing";
+
+        if (state.pairing) {
+          pairingBox.classList.remove("hidden");
+          renderQr(state.pairing.qrSvg);
+          pinDisplay.textContent = formatPin(state.pairing.pin);
+          updateCountdown();
+        } else {
+          pairingBox.classList.add("hidden");
+        }
+
+        renderDevices(state.devices);
+
+        if (!settingsDirty) {
+          inputPort.value = String(state.config.port);
+          inputCustomHost.value = state.config.customHost || "";
+          inputTls.checked = Boolean(state.config.tls);
+          inputMdns.checked = Boolean(state.config.advertiseMdns);
+        }
+      }
+
+      async function runCommand(command) {
+        try {
+          const next = await api.run(command);
+          render(next);
+        } catch (err) {
+          errorBanner.textContent =
+            err instanceof Error ? err.message : String(err);
+          errorBanner.classList.remove("hidden");
+        }
+      }
+
+      toggleEnabled.addEventListener("change", () => {
+        void runCommand({
+          op: "config.update",
+          patch: { enabled: toggleEnabled.checked },
+        });
+      });
+
+      openPairBtn.addEventListener("click", () => {
+        void runCommand({ op: "pairing.open" });
+      });
+
+      closePairBtn.addEventListener("click", () => {
+        void runCommand({ op: "pairing.close" });
+      });
+
+      copyUriBtn.addEventListener("click", () => {
+        void runCommand({ op: "pairing.copyUri" }).then(() => {
+          copyUriBtn.textContent = "Copied!";
+          if (copyResetTimer) clearTimeout(copyResetTimer);
+          copyResetTimer = setTimeout(() => {
+            copyUriBtn.textContent = "Copy Pairing Link";
+          }, 1600);
+        });
+      });
+
+      revokeAllBtn.addEventListener("click", () => {
+        void runCommand({ op: "device.revokeAll" });
+      });
+
+      for (const input of [inputPort, inputCustomHost, inputTls, inputMdns]) {
+        input.addEventListener("input", () => {
+          settingsDirty = true;
+        });
+        input.addEventListener("change", () => {
+          settingsDirty = true;
+        });
+      }
+
+      saveSettingsBtn.addEventListener("click", () => {
+        const parsedPort = Number(inputPort.value);
+        if (
+          !Number.isInteger(parsedPort) ||
+          parsedPort < 1024 ||
+          parsedPort > 65535
+        ) {
+          errorBanner.textContent =
+            "Port must be an integer between 1024 and 65535.";
+          errorBanner.classList.remove("hidden");
+          return;
+        }
+        const customHost = inputCustomHost.value.trim();
+        settingsDirty = false;
+        void runCommand({
+          op: "config.update",
+          patch: {
+            port: parsedPort,
+            tls: inputTls.checked,
+            advertiseMdns: inputMdns.checked,
+            customHost: customHost || null,
+          },
+        });
+      });
+
+      api.onState((state) => render(state));
+      setInterval(updateCountdown, 1000);
+      void api.getState().then((state) => render(state));
+    </script>
+  </body>
+</html>

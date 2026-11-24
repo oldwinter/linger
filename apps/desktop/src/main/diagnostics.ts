@@ -42,6 +42,9 @@ const EXCLUDED_NAMES = new Set([
   ".credentials.json",
   "cookies",
   "cookies-journal",
+  "devices.json",
+  "device-sessions.json",
+  "tls-key.pem",
 ]);
 
 export const excludedFromDiagnostics = (file: string): boolean => {

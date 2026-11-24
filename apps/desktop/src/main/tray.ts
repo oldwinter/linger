@@ -17,6 +17,7 @@ import { sendWithPrompts } from "./diagnostics-upload.js";
 import { EnrollmentError, type EnrollmentModule } from "./enrollment.js";
 import { headlessDisplay } from "./headless.js";
 import type { LanguageModule } from "./language.js";
+import type { MobileCompanionModule } from "./mobile-companion.js";
 import type { Module, ModuleContext } from "./modules.js";
 import type { PowerGuardModule } from "./power-guard.js";
 import type { QuickNoteModule } from "./quick-note.js";
@@ -79,6 +80,7 @@ export class TrayModule implements Module, DesktopTrayHost {
     "Enrollment",
     "SetupWindow",
     "QuickNote",
+    "MobileCompanion",
     "Updater",
     "Diagnostics",
     "Language",
@@ -219,6 +221,9 @@ export class TrayModule implements Module, DesktopTrayHost {
         break;
       case "quick-note":
         ctx.get<QuickNoteModule>("QuickNote").show();
+        break;
+      case "mobile-companion":
+        ctx.get<MobileCompanionModule>("MobileCompanion").show();
         break;
       case "toggle-prevent-sleep": {
         const power = ctx.get<PowerGuardModule>("PowerGuard");

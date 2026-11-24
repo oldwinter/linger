@@ -58,6 +58,9 @@ describe("excludedFromDiagnostics", () => {
     "C:\\Users\\me\\AppData\\Roaming\\Linger\\Network\\Cookies",
     "/home/me/.linger/instances/desktop/.env.local",
     "/home/me/.linger/instances/desktop/postgres-password",
+    "/home/me/Library/Application Support/Linger/companion/devices.json",
+    "/home/me/Library/Application Support/Linger/companion/device-sessions.json",
+    "/home/me/Library/Application Support/Linger/companion/tls-key.pem",
   ])("leaves out %s", (file) => {
     expect(excludedFromDiagnostics(file)).toBe(true);
   });

@@ -7,6 +7,7 @@ export type TrayAction =
   | "enroll"
   | "open"
   | "quick-note"
+  | "mobile-companion"
   | "toggle-prevent-sleep"
   | "install-update"
   | "check-update"
@@ -60,6 +61,11 @@ export const trayMenu = (
     action: "toggle-prevent-sleep",
     label: t(m.preventSleep),
     checked: state.preventSleep,
+  },
+  {
+    kind: "action",
+    action: "mobile-companion",
+    label: t(m.mobileCompanion),
   },
   { kind: "separator" },
   // What to send when something goes wrong.
