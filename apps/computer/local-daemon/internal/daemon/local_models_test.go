@@ -21,6 +21,8 @@ type fakeLocalModels struct {
 	actions    []localmodels.Action
 	refusal    *wire.LocalModelActionRefusal
 	unanswered bool
+	ensured    []string
+	ensureErr  error
 }
 
 func (f *fakeLocalModels) Act(_ context.Context, action localmodels.Action, _ time.Time) (*wire.LocalModelActionRefusal, bool) {
@@ -32,6 +34,13 @@ func (f *fakeLocalModels) Act(_ context.Context, action localmodels.Action, _ ti
 
 func (f *fakeLocalModels) Refresh(context.Context) wire.LocalModelsSnapshot {
 	return wire.LocalModelsSnapshot{}
+}
+
+func (f *fakeLocalModels) EnsureLoaded(_ context.Context, piModel string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.ensured = append(f.ensured, piModel)
+	return f.ensureErr
 }
 
 func TestLocalModelsCommandAnswersAcceptedOrRefused(t *testing.T) {
@@ -298,6 +307,7 @@ func TestLocalModelsFramesFollowTheWelcomeServiceFeatures(t *testing.T) {
 
 func TestPublishLocalModelsDowngradesDiagnosticsForOlderServices(t *testing.T) {
 	need, have := uint64(16<<30), uint64(8<<30)
+	conc, hostRAM := uint64(1), uint64(19<<30)
 	rich := wire.LocalModelsSnapshot{
 		Available:  true,
 		ObservedAt: "2026-11-22T00:00:00Z",
@@ -306,6 +316,8 @@ func TestPublishLocalModelsDowngradesDiagnosticsForOlderServices(t *testing.T) {
 		Models: []wire.LocalModel{
 			{
 				ID: "m1:Q4", Name: "M1", Quant: "Q4", Fit: "none", State: "absent",
+				Engine: "polystrata", EngineLabel: "PolyStrata 0.2.19-poly.1 · CUDA",
+				Concurrency: &conc, HostRamBytes: &hostRAM,
 				Availability: wire.LocalModelAvailability{
 					Downloadable: false,
 					Reason: &wire.LocalModelAvailabilityReason{
@@ -332,7 +344,13 @@ func TestPublishLocalModelsDowngradesDiagnosticsForOlderServices(t *testing.T) {
 		},
 	}
 
-	// Without local_models_diagnostics, new fields and codes are downgraded cleanly.
+	// Without local_models_diagnostics, local_models_engine, or local_models_concurrency_probe,
+	// new fields and codes are downgraded cleanly.
+	probing := true
+	rich.Models = append(rich.Models, wire.LocalModel{
+		ID: "m4:Q4", Name: "M4", Quant: "Q4", Fit: "gpu", Pool: "gpu:0", State: "loading",
+		ConcurrencyProbing: &probing,
+	})
 	streamOld := &browserEventStream{}
 	dOld := &Daemon{computerID: "computer", protocolVersion: protocol.Version, localModelsStream: streamOld}
 	dOld.PublishLocalModels(rich)
@@ -342,6 +360,13 @@ func TestPublishLocalModelsDowngradesDiagnosticsForOlderServices(t *testing.T) {
 	}
 	if oldFrame.LocalModels.Debug != nil {
 		t.Fatalf("legacy service received debug: %+v", oldFrame.LocalModels.Debug)
+	}
+	if oldFrame.LocalModels.Models[0].Engine != "" || oldFrame.LocalModels.Models[0].EngineLabel != "" ||
+		oldFrame.LocalModels.Models[0].Concurrency != nil || oldFrame.LocalModels.Models[0].HostRamBytes != nil {
+		t.Fatalf("legacy service received engine metadata: %+v", oldFrame.LocalModels.Models[0])
+	}
+	if oldFrame.LocalModels.Models[3].ConcurrencyProbing != nil {
+		t.Fatalf("legacy service received concurrency_probing: %+v", oldFrame.LocalModels.Models[3])
 	}
 	r0 := oldFrame.LocalModels.Models[0].Availability.Reason
 	if r0 == nil || r0.Code != "PLATFORM_UNSUPPORTED" || r0.RequiredCuda != "" || r0.DetectedCuda != "" {
@@ -355,19 +380,91 @@ func TestPublishLocalModelsDowngradesDiagnosticsForOlderServices(t *testing.T) {
 		t.Fatalf("legacy error = %+v", oldFrame.LocalModels.Models[2].Error)
 	}
 
-	// With local_models_diagnostics, all diagnostic fields pass through intact.
-	streamNew := &browserEventStream{}
-	dNew := &Daemon{computerID: "computer", protocolVersion: protocol.Version, localModelsStream: streamNew}
-	dNew.localModelsDiagnostics.Store(true)
-	dNew.PublishLocalModels(rich)
-	var newFrame wire.RunnerLocalModels
-	if err := json.Unmarshal(streamNew.events[0].Payload, &newFrame); err != nil {
+	// With local_models_diagnostics alone, diagnostics pass through while engine metadata is still stripped.
+	streamDiag := &browserEventStream{}
+	dDiag := &Daemon{computerID: "computer", protocolVersion: protocol.Version, localModelsStream: streamDiag}
+	dDiag.localModelsDiagnostics.Store(true)
+	dDiag.PublishLocalModels(rich)
+	var diagFrame wire.RunnerLocalModels
+	if err := json.Unmarshal(streamDiag.events[0].Payload, &diagFrame); err != nil {
 		t.Fatal(err)
 	}
-	if newFrame.LocalModels.Debug == nil || newFrame.LocalModels.Debug.Mode != "tiny" ||
-		newFrame.LocalModels.Models[0].Availability.Reason.Code != "DRIVER_UPDATE_REQUIRED" ||
-		newFrame.LocalModels.Models[1].Availability.Reason.MemoryKind != "ram" ||
-		newFrame.LocalModels.Models[2].Error.Code != "UNKNOWN_ERROR" {
-		t.Fatalf("modern frame lost diagnostic fields: %+v", newFrame.LocalModels)
+	if diagFrame.LocalModels.Debug == nil || diagFrame.LocalModels.Debug.Mode != "tiny" ||
+		diagFrame.LocalModels.Models[0].Availability.Reason.Code != "DRIVER_UPDATE_REQUIRED" ||
+		diagFrame.LocalModels.Models[1].Availability.Reason.MemoryKind != "ram" ||
+		diagFrame.LocalModels.Models[2].Error.Code != "UNKNOWN_ERROR" {
+		t.Fatalf("diagnostics frame lost diagnostic fields: %+v", diagFrame.LocalModels)
+	}
+	if diagFrame.LocalModels.Models[0].Engine != "" || diagFrame.LocalModels.Models[0].Concurrency != nil ||
+		diagFrame.LocalModels.Models[0].HostRamBytes != nil {
+		t.Fatalf("diagnostics-only service received engine metadata: %+v", diagFrame.LocalModels.Models[0])
+	}
+
+	// With local_models_diagnostics, local_models_engine, and local_models_concurrency_probe,
+	// all fields pass through intact.
+	streamFull := &browserEventStream{}
+	dFull := &Daemon{computerID: "computer", protocolVersion: protocol.Version, localModelsStream: streamFull}
+	dFull.localModelsDiagnostics.Store(true)
+	dFull.localModelsEngine.Store(true)
+	dFull.localModelsConcurrencyProbe.Store(true)
+	dFull.PublishLocalModels(rich)
+	var fullFrame wire.RunnerLocalModels
+	if err := json.Unmarshal(streamFull.events[0].Payload, &fullFrame); err != nil {
+		t.Fatal(err)
+	}
+	m0 := fullFrame.LocalModels.Models[0]
+	if m0.Engine != "polystrata" || m0.EngineLabel != "PolyStrata 0.2.19-poly.1 · CUDA" ||
+		m0.Concurrency == nil || *m0.Concurrency != 1 ||
+		m0.HostRamBytes == nil || *m0.HostRamBytes != hostRAM {
+		t.Fatalf("full frame lost engine fields: %+v", m0)
+	}
+	if m3 := fullFrame.LocalModels.Models[3]; m3.ConcurrencyProbing == nil || !*m3.ConcurrencyProbing {
+		t.Fatalf("full frame lost concurrency_probing: %+v", m3)
+	}
+	// Diagnostics + engine without concurrency_probe still strips concurrency_probing.
+	if diagFrame.LocalModels.Models[3].ConcurrencyProbing != nil {
+		t.Fatalf("service without concurrency_probe received concurrency_probing: %+v", diagFrame.LocalModels.Models[3])
+	}
+}
+
+func TestPublishLocalModelsGatesExternalHolders(t *testing.T) {
+	snapshot := wire.LocalModelsSnapshot{
+		Pools: []wire.LocalModelPool{
+			{ID: "gpu:0", Kind: "gpu", ExternalHolders: []wire.LocalModelPoolExternalHolder{{Name: "msedge", Bytes: 10}}},
+			{ID: "ram", Kind: "ram", ExternalHolders: []wire.LocalModelPoolExternalHolder{}},
+		},
+	}
+	publish := func(feature bool) []map[string]any {
+		t.Helper()
+		stream := &browserEventStream{}
+		d := &Daemon{computerID: "computer", protocolVersion: protocol.Version, localModelsStream: stream}
+		d.localModelsExternalHolders.Store(feature)
+		d.PublishLocalModels(snapshot)
+		var frame struct {
+			LocalModels struct {
+				Pools []map[string]any `json:"pools"`
+			} `json:"local_models"`
+		}
+		if err := json.Unmarshal(stream.events[0].Payload, &frame); err != nil {
+			t.Fatal(err)
+		}
+		return frame.LocalModels.Pools
+	}
+
+	for _, pool := range publish(false) {
+		if _, ok := pool["external_holders"]; ok {
+			t.Fatalf("legacy service received external_holders: %+v", pool)
+		}
+	}
+	if len(snapshot.Pools[0].ExternalHolders) != 1 || snapshot.Pools[1].ExternalHolders == nil {
+		t.Fatalf("stripping mutated the caller's snapshot: %+v", snapshot.Pools)
+	}
+
+	pools := publish(true)
+	if holders, ok := pools[0]["external_holders"].([]any); !ok || len(holders) != 1 {
+		t.Fatalf("holders did not pass through: %+v", pools[0])
+	}
+	if holders, ok := pools[1]["external_holders"].([]any); !ok || len(holders) != 0 {
+		t.Fatalf("empty holders did not pass through as []: %+v", pools[1])
 	}
 }

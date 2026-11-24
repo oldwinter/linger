@@ -41,6 +41,10 @@ scripts/ci/desktop-release.sh publish desktop-v0.16.36 --notes-file notes.md
   `scripts/ci/desktop-release.sh publish` validates the uploaded assets,
   attaches the release notes, marks it as the latest release, and cleans up
   matching `desktop-v<version>-rc.*` prereleases and tags.
+- Before publishing a stable release, upgrade the previous stable release to
+  the candidate on each platform following the
+  [upgrade recipe](../.agents/skills/verify-linger/features/desktop-and-installer.md#upgrade-from-the-previous-release);
+  a fresh install does not catch state an earlier release left behind.
 - The version comes from the tag. The build writes it into
   `apps/desktop/package.json` for packaging and restores the file afterwards, so
   no version commit is needed.
@@ -50,33 +54,40 @@ scripts/ci/desktop-release.sh publish desktop-v0.16.36 --notes-file notes.md
 ## How the workflow runs
 
 The workflow runs for `desktop-v*` tags and from Actions → Desktop release →
-Run workflow. Its `build` (`darwin-arm64`, `linux-x64`) and `build-win32`
-(`win32-x64`) jobs run on `ubuntu-24.04` (the macOS and Windows runners have no
-Docker), pull the prebuilt `dmgtool` and `wintool` images from GHCR (published
-by [`.github/workflows/desktop-packaging-images.yml`](../.github/workflows/desktop-packaging-images.yml)
+Run workflow. `prepare` validates the version and stops before building when
+an official `simplexai-labs/linger` publish lacks the required macOS signing,
+notarization, or update-manifest secrets. Its `build` (`darwin-arm64`,
+`linux-x64`) and `build-win32` (`win32-x64`) jobs run on `ubuntu-24.04` (the
+macOS and Windows runners have no Docker), pull the prebuilt `dmgtool` and
+`wintool` images from GHCR (published by
+[`.github/workflows/desktop-packaging-images.yml`](../.github/workflows/desktop-packaging-images.yml)
 whenever a packaging Dockerfile changes, with automatic fallback to local
-`docker build`), and keep
-the files as workflow artifacts for 14 days: `desktop-<target>`, a zip of
-every file for the platform (with the Windows portable archive split into
-`desktop-win32-x64-portable` so `desktop-win32-x64` carries only the Setup and
-its `windows-setup.sha256` digest), and the installer on its own, not zipped
-(the `.dmg`, the `-setup.exe`, the Linux `.tar.gz`), for testers to download
-directly. `windows-smoke` depends only on `prepare` and `build-win32`, so it
-starts as soon as `win32-x64` finishes without waiting for `darwin-arm64`; it
-downloads `desktop-win32-x64`, verifies the Setup
-against `windows-setup.sha256`, and installs those bytes silently under a fresh
-standard user on `windows-2022`. It requests only packaged Pi preparation and
-checks the real Pi RPC handshake (`get_state`, `get_commands`) and the
-registered `mcp` command from the bundled managed MCP extension, with no
-`NODE_PATH` override. It starts no full Linger services, uses no model
-credentials, downloads no model weights, and does not verify the graphical
-installer, model inference, restart persistence, or uninstallation. `release`
-requires `windows-smoke` to pass, downloads `desktop-*`, checks the same
-`windows-setup.sha256` digest before removing that file, writes
-`SHA256SUMS.txt`, and creates the GitHub Release (as a draft for stable tags or
-published prerelease for hyphenated tags; reruns upload files to an existing
-release with `--clobber`). A manual run creates a release only with `publish`
-set, and a `publish=false` run still executes `windows-smoke`.
+`docker build`), notarize and staple the macOS DMG in a single Apple submission
+(stapling the already-issued ticket onto `Linger.app` for the `.app.tar.gz`
+update archive; `Linger.app` inside the DMG is notarized by Apple with the DMG
+submission but not separately stapled, so dragging it out of the DMG and
+launching it for the first time completely offline relies on online ticket
+lookup), and upload each release file once as an uncompressed workflow
+artifact for 14 days (under its exact filename, such as the `.dmg`, the
+`-setup.exe`, or the Linux `.tar.gz`), so testers download the installer
+directly and `windows-smoke` / `release` consume the same artifact without
+duplicate uploads. `windows-smoke` depends only on `prepare` and `build-win32`,
+so it starts as soon as `win32-x64` finishes without waiting for `darwin-arm64`;
+it downloads `Linger-<version>-windows-x64-setup.exe` and `windows-setup.sha256`,
+verifies the Setup against `windows-setup.sha256`, and installs those bytes
+silently under a fresh standard user on `windows-2022`. It requests only
+packaged Pi preparation and checks the real Pi RPC handshake (`get_state`,
+`get_commands`) and the registered `mcp` command from the bundled managed MCP
+extension, with no `NODE_PATH` override. It starts no full Linger services,
+uses no model credentials, downloads no model weights, and does not verify the
+graphical installer, model inference, restart persistence, or uninstallation.
+`release` requires `windows-smoke` to pass, downloads every `Linger-<version>-*`
+artifact and `windows-setup.sha256`, checks the same digest before removing
+that file, writes `SHA256SUMS.txt`, and creates the GitHub Release (as a draft
+for stable tags or published prerelease for hyphenated tags; reruns upload
+files to an existing release with `--clobber`). A manual run creates a release
+only with `publish` set, and a `publish=false` run still executes
+`windows-smoke`.
 
 The release goes to `RELEASE_REPO`, `simplexai-labs/linger` by default:
 
@@ -107,10 +118,10 @@ that runs the workflow:
 | `LINGER_DIAGNOSTICS_UPLOAD_URL` | secret               | no                                        | https URL of the hosted diagnostics receiver ([diagnostics-upload.md](diagnostics-upload.md)) that the build carries. A secret, so the address stays masked in logs. Without it Send Diagnostics is hidden unless `config.json` names a receiver. |
 | `RELEASE_REPO`                  | variable             | no                                        | `owner/name` that receives the release; `simplexai-labs/linger` when unset.                                                                                                                                                                       |
 | `LINGER_RELEASE_TOKEN`          | secret               | when `RELEASE_REPO` is another repository | Fine-grained token for `RELEASE_REPO` only, with Contents: read and write. Not needed in simplexai-labs/linger itself.                                                                                                                            |
-| `MACOS_DEVELOPER_ID_P12_BASE64` | secret               | no                                        | Base64 of the Developer ID `.p12`. Without it the app is signed ad hoc.                                                                                                                                                                           |
+| `MACOS_DEVELOPER_ID_P12_BASE64` | secret               | official publish                          | Base64 of the Developer ID `.p12`. Required when publishing to `simplexai-labs/linger`; optional on forks or `publish=false` runs (ad-hoc signed without it).                                                                                     |
 | `MACOS_DEVELOPER_ID_PASSWORD`   | secret               | with the `.p12`                           | Password of that `.p12`.                                                                                                                                                                                                                          |
-| `MACOS_NOTARY_KEY_JSON`         | secret               | no                                        | App Store Connect API key JSON; needs the Developer ID.                                                                                                                                                                                           |
-| `DESKTOP_UPDATE_KEY_PEM`        | secret               | for auto-update                           | Ed25519 private key (PEM) that signs `manifest.json`. Without it the release has no manifest and installed apps are not offered it.                                                                                                               |
+| `MACOS_NOTARY_KEY_JSON`         | secret               | official publish                          | App Store Connect API key JSON; needs the Developer ID. Required when publishing to `simplexai-labs/linger`; optional on forks or `publish=false` runs.                                                                                           |
+| `DESKTOP_UPDATE_KEY_PEM`        | secret               | official publish                          | Ed25519 private key (PEM) that signs `manifest.json`. Required when publishing to `simplexai-labs/linger`; on forks without it the release has no manifest and installed apps are not offered it.                                                 |
 | `WINDOWS_SIGNING_P12_BASE64`    | secret               | no                                        | Base64 of an Authenticode `.p12`. Without it the setup program is unsigned.                                                                                                                                                                       |
 | `WINDOWS_SIGNING_PASSWORD`      | secret               | with the `.p12`                           | Password of that `.p12`.                                                                                                                                                                                                                          |
 
@@ -326,9 +337,10 @@ manifest must be signed by the same key.
 The `release` job signs `manifest.json` with `DESKTOP_UPDATE_KEY_PEM`
 (`desktop-release.sh manifest`) after all three packages are built, and
 refuses a key whose public half is not `UPDATE_PUBLIC_KEY`, since installed
-apps would reject its signature. Without the secret the job logs a warning and
-publishes the release without a manifest. Make a new pair only when the key is
-lost, and ship the new public key in a release first:
+apps would reject its signature. Official `simplexai-labs/linger` publishes
+fail fast when the secret is missing; on forks without the secret, the job logs
+a warning and publishes the release without a manifest. Make a new pair only
+when the key is lost, and ship the new public key in a release first:
 
 ```sh
 openssl genpkey -algorithm ed25519 -out ed25519.pem
@@ -477,7 +489,13 @@ file and build. For one release:
 3. For a new PostgreSQL or localmodels release, update
    `distribution/<target>.json`: `localmodelsTool` for the localmodels
    release `scripts/installs/stack.sh` pins, and `nativeSources` holding that target's
-   `postgres-<target>.json` object.
+   `postgres-<target>.json` object. `localmodelsTool.runtimeVersions` and
+   `runtimeBaselines` copy that release's `release.json` fields of the same
+   names: the Codex, Claude and Pi versions it installs, and the oldest of each
+   it reuses instead. `distribution.test.ts` checks them against the
+   `STACK_RUNTIMES` and `STACK_RUNTIME_BASELINES` pins in
+   `scripts/installs/stack.sh`, and the Computer Daemon's Go tests fail when
+   one is below the Daemon's minimum.
 4. Build with `LINGER_DESKTOP_DAEMON_TARGETS` set to the target and the source package
    (`LINGER_SOURCE_ARCHIVE_FILE`, or the URL and SHA256, plus the target's
    `LINGER_SOURCE_DEPENDENCIES_URL` and SHA256) set, then package (`packaging/mac/package.py
@@ -505,6 +523,14 @@ refuses to fetch Node.js or run the installer on an older macOS and says
 sets no `MACOSX_DEPLOYMENT_TARGET`, so PostgreSQL's minimum is the macOS of
 the host that built it. Check every Mach-O file of a new pinned binary
 (`otool -l`, `minos`) before raising or lowering the value in both places.
+
+The Developer ID signature carries the hardened runtime, which needs an
+entitlement in `packaging/mac/entitlements.plist` for each protected device
+the app uses, and `PRIVACY_USAGE` in `packaging/mac/package.py` holds the prompt
+text macOS shows. Without `com.apple.security.device.audio-input` macOS
+neither asks for the microphone nor refuses it: voice and recordings get a
+live track of silence. An ad-hoc build has no hardened runtime and works
+either way, so check such a change on a Developer ID build.
 
 Windows, Linux x64 and Apple silicon bundle PostgreSQL in the app instead
 (`file` in `distribution/<target>.json`; 35 MB on Windows, 10–12 MB

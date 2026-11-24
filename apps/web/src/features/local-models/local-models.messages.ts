@@ -98,6 +98,7 @@ export const localModelsMessages = defineMessages("localModels", {
   statusIdle: "Downloaded",
   statusLoaded: "Loaded",
   statusLoading: "Loading",
+  statusProbingConcurrency: "Probing max concurrency",
   statusUnavailable: "Can't download",
   statusDownloadStopped: "Download stopped",
   endingCancel: "Cancelling",
@@ -157,7 +158,10 @@ export const localModelsMessages = defineMessages("localModels", {
   factCapabilities: "Capabilities",
   factPublisher: "Publisher",
   factParameters: "Parameters",
+  factEngine: "Engine",
+  factConcurrency: "Concurrency",
   factMemory: "Memory",
+  factSystemMemory: "System memory",
   factOnDisk: "On disk",
   factDownload: "Download",
   factContext: "Context",
@@ -185,6 +189,8 @@ export const localModelsMessages = defineMessages("localModels", {
   poolInUse: "{pool}: {used} of {total} in use",
   otherApps: "Other apps",
   otherAppsSize: "Other apps · {size}",
+  systemAndEngine: "System & engine",
+  systemAndEngineSize: "System & engine · {size}",
   hardware: "Hardware",
 
   // Confirmations.
@@ -498,6 +504,13 @@ export const localModelsMessages = defineMessages("localModels", {
   capabilityVision: "Vision",
   architectureDense: "Dense",
   architectureMoe: "MoE",
+  engineHintPolystrata: "Hybrid GPU + RAM expert offload",
+  engineHintStrata: "Hybrid GPU + RAM expert scheduling",
+  engineHintLlamaCpp: "All-in-VRAM native engine",
+  engineHintLlamaCppUnified: "Unified memory native engine",
+  engineHintLlamaCppSystem: "System memory native engine",
+  concurrencySingle: "1 request at a time",
+  concurrencyMultiple: "{count} concurrent requests",
 
   // Why a model-source switch, endpoint test or read failed.
   sourceAgentsWorking: "Agents on this computer are working on tasks.",

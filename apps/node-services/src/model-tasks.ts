@@ -145,7 +145,7 @@ export const modelCallPolicies: Readonly<
     priority: RECORDING_PRIORITY,
     interactive: true,
     attempts: 1,
-    timeoutMs: 20_000,
+    timeoutMs: 60_000,
   },
   agent_memory: {
     priority: 30,
@@ -184,4 +184,9 @@ export function isModelCallKind(value: unknown): value is ModelCallKind {
     typeof value === "string" &&
     (modelCallKinds as readonly string[]).includes(value)
   );
+}
+
+/** Whether kind is a yieldable background model call. */
+export function isBackgroundModelCall(kind: string): boolean {
+  return isModelCallKind(kind) && !modelCallPolicies[kind].interactive;
 }

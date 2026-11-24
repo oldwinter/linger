@@ -479,6 +479,8 @@ export class RemoteRuntimeProvider implements AgentProvider {
     let busyRetries = 0;
     for (;;) {
       signal.throwIfAborted();
+      // Nothing reached the Runtime yet, a busy rejection included.
+      spec.preemptSignal?.throwIfAborted();
       if (!spec.runContext)
         throw new TypeError("Local Run requires a Context run context");
       const runStartContext = await this.#contextRunStart(spec.runContext, {
@@ -491,6 +493,14 @@ export class RemoteRuntimeProvider implements AgentProvider {
           runtime: this.#runtime,
           session_options: this.#requireSessionOptions(),
           session: mutableSession,
+          ...(spec.previousSession
+            ? {
+                previous_session: {
+                  provider_type: spec.previousSession.providerType,
+                  session_id: spec.previousSession.sessionId,
+                },
+              }
+            : {}),
           input,
           ...runStartContext,
           ...(cliRunContext ? { cli_run_context: cliRunContext } : {}),
@@ -529,7 +539,11 @@ export class RemoteRuntimeProvider implements AgentProvider {
             ) *
             (0.5 + Math.random() / 2);
           busyRetries += 1;
-          await waitForAdmission(delay, undefined, { signal });
+          await waitForAdmission(delay, undefined, {
+            signal: spec.preemptSignal
+              ? AbortSignal.any([signal, spec.preemptSignal])
+              : signal,
+          });
           continue;
         }
         throw localRunFailure(error, false, this.#runtime.type);
@@ -761,7 +775,11 @@ export class RemoteRuntimeProvider implements AgentProvider {
       runKind,
       priority = new RunPriority(runPriorities[runKind ?? "chat"]),
       beforeYieldResume,
-    }: Pick<ExecutionSpec, "runKind" | "priority" | "beforeYieldResume"> = {},
+      preemptSignal,
+    }: Pick<
+      ExecutionSpec,
+      "runKind" | "priority" | "beforeYieldResume" | "preemptSignal"
+    > = {},
   ): Promise<RunnerOperation> {
     if (this.#closePromise) {
       throw new Error("Remote Codex provider is closed");
@@ -770,7 +788,7 @@ export class RemoteRuntimeProvider implements AgentProvider {
       this.#capacityPermit ??
       (await this.#dispatcher.acquireOperationCapacity?.(
         { ...this.#target, priority },
-        signal,
+        preemptSignal ? AbortSignal.any([signal, preemptSignal]) : signal,
       ));
     try {
       const operation = await this.#dispatcher.startOperation({
@@ -780,6 +798,7 @@ export class RemoteRuntimeProvider implements AgentProvider {
         priority,
         ...(beforeYieldResume ? { beforeYieldResume } : {}),
         signal,
+        ...(preemptSignal ? { preemptSignal } : {}),
         contextViewRef: this.#contextRunResources.currentContextViewRef(),
         request,
         ...(permit ? { capacityPermit: permit } : {}),

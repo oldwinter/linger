@@ -37,7 +37,7 @@ func TestRuntimeMonitorPreservesCodexRegistrationUntilFailureThreshold(t *testin
 			entry, original, replacement := filepath.Join(root, "codex"), filepath.Join(root, "codex-old"), filepath.Join(root, "codex-new")
 			stateFile := filepath.Join(root, "probe-state")
 			script := `#!/bin/sh
-if [ "$1" = "--version" ]; then echo 'codex-cli 0.144.1'; exit 0; fi
+if [ "$1" = "--version" ]; then echo 'codex-cli 0.171.0'; exit 0; fi
 read probe_state < "$PROBE_STATE"
 if [ "$probe_state" = "protocol" ]; then exit 2; fi
 read initialize
@@ -75,7 +75,7 @@ fi
 				}
 				output, err := command.CombinedOutput()
 				cancel()
-				if err != nil || strings.TrimSpace(string(output)) != "codex-cli 0.144.1" {
+				if err != nil || strings.TrimSpace(string(output)) != "codex-cli 0.171.0" {
 					t.Fatalf("prepare Codex fixture %s: %v, output=%q", executable, err, output)
 				}
 			}
@@ -449,7 +449,7 @@ func TestShapeDiscoveredResultReappliesByokOverlayAcrossPeriodicRefreshes(t *tes
 		}
 		unshaped.Installations = provider.InstallationsFromDiagnostics(unshaped.Diagnostics)
 
-		shaped := shapeDiscoveredResult(unshaped, stateDir, false)
+		shaped := shapeDiscoveredResult(unshaped, stateDir, false, nil, nil)
 		nextProviders, nextRuntimes := providerInstallations(shaped, env, stateDir)
 		providerCatalog.Replace(nextProviders)
 		controller.UpdateDiagnostics(shaped.Diagnostics)
@@ -574,7 +574,7 @@ done
 		}
 	}
 	shape := func(result provider.DiscoveryResult) provider.DiscoveryResult {
-		return shapeDiscoveredResult(result, stateDir, false)
+		return shapeDiscoveredResult(result, stateDir, false, nil, nil)
 	}
 	wantModels := []provider.RuntimeModel{{
 		ID:                     "localmodels/localmodels-byok",
@@ -729,5 +729,48 @@ func writeByokOverlayFile(t *testing.T, stateDir, runtimeType, runtimeModel, mod
 	}
 	if err := os.WriteFile(filepath.Join(stateDir, "model-source.json"), encodedOverlay, 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRuntimeRefreshAllowedPausesInTerminalGatewayStates(t *testing.T) {
+	for _, tc := range []struct {
+		state string
+		want  bool
+	}{
+		{state: "connecting", want: true},
+		{state: "connected", want: true},
+		{state: "upgrade-required", want: false},
+		{state: "authentication-failed", want: false},
+		{state: "identity-conflict", want: false},
+	} {
+		if got := runtimeRefreshAllowed(tc.state); got != tc.want {
+			t.Fatalf("runtimeRefreshAllowed(%q) = %v, want %v", tc.state, got, tc.want)
+		}
+	}
+}
+
+// The first discovery runs before the Library exists; the hello it feeds
+// still lists the local model a quit unloaded, from the remembered entries.
+func TestTheFirstDiscoveryListsRememberedLocalModels(t *testing.T) {
+	directory := t.TempDir()
+	piModel := "localmodels-library/localmodels-lib-qwen3-4b-q4-k-m/Qwen3-4B-Q4_K_M"
+	remembered := fmt.Sprintf(`{"schema":"linger.local-models-pi-catalog/v1","models":{%q:{"id":%q,"label":"Qwen3 4B","allowed_reasoning_effort":["high"],"default_reasoning_effort":"high"}}}`, piModel, piModel)
+	if err := os.WriteFile(filepath.Join(directory, "pi-catalog.json"), []byte(remembered), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	raw := provider.DiscoveryResult{Diagnostics: []provider.RuntimeDiagnostic{{
+		Type: "pi", Status: "authentication_required", Protocol: "rpc", ExecutablePath: filepath.Join(directory, "pi"),
+		Models: []provider.RuntimeModel{}, Error: &provider.DiagnosticError{Code: "RUNTIME_AUTHENTICATION_REQUIRED", Message: "sign in"},
+	}}}
+	shaped := shapeDiscoveredResult(raw, t.TempDir(), false, localmodels.NewPiCatalog(directory), nil)
+	pi := shaped.Diagnostics[0]
+	if pi.Status != "ready" || pi.Error != nil || len(pi.Models) != 1 || pi.Models[0].ID != piModel || pi.Models[0].DefaultReasoningEffort != "high" {
+		t.Fatalf("pi = %+v", pi)
+	}
+	if _, ok := shaped.Installations["pi"]; !ok {
+		t.Fatalf("installations = %+v", shaped.Installations)
+	}
+	if raw.Diagnostics[0].Status != "authentication_required" {
+		t.Fatal("shaping changed the raw result")
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
@@ -77,9 +78,23 @@ func (a *App) getRoom(c *gin.Context) {
 	c.JSON(http.StatusOK, room)
 }
 
+// validRoomText reports whether a Room name and description fit the bounds
+// roomcreation enforces: characters, not UTF-8 bytes, counted after trimming so
+// surrounding spaces do not spend a name's 120.
+func validRoomText(name, description *string) bool {
+	if name != nil &&
+		(strings.TrimSpace(*name) == "" ||
+			utf8.RuneCountInString(strings.TrimSpace(*name)) > roomcreation.MaxNameRunes) {
+		return false
+	}
+	return description == nil ||
+		utf8.RuneCountInString(*description) <= roomcreation.MaxDescriptionRunes
+}
+
 func (a *App) createRoom(c *gin.Context) {
 	var request httpapi.HumanRoomCreateRequest
-	if err := decodeJSON(c, &request); err != nil || strings.TrimSpace(request.Name) == "" || len(request.Name) > 120 || (request.Description != nil && len(*request.Description) > 2000) {
+	if err := decodeJSON(c, &request); err != nil ||
+		!validRoomText(&request.Name, request.Description) {
 		a.writeError(c, http.StatusBadRequest, "INVALID_REQUEST", "room name and description are invalid")
 		return
 	}

@@ -24,6 +24,29 @@ func TestGmailQueryIsTheConnectorCommandsSearch(t *testing.T) {
 	}
 }
 
+func TestOutlookMailSearchListsTheWholeMailboxWithListMessages(t *testing.T) {
+	unread := "receivedDateTime ge 0001-01-01T00:00:00Z and isRead eq false"
+	newest := []string{"receivedDateTime desc"}
+	for _, check := range []struct {
+		query, folder string
+		unread        bool
+		slug          string
+		arguments     map[string]any
+	}{
+		{"", "all", false, "OUTLOOK_LIST_MESSAGES", map[string]any{"top": AppResultLimit, "folder": "allfolders", "orderby": newest}},
+		{"", "all", true, "OUTLOOK_LIST_MESSAGES", map[string]any{"top": AppResultLimit, "folder": "allfolders", "filter": unread, "orderby": newest}},
+		{"", "", false, "OUTLOOK_QUERY_EMAILS", map[string]any{"top": AppResultLimit, "folder": "inbox", "orderby": newest}},
+		{"", "sent", true, "OUTLOOK_QUERY_EMAILS", map[string]any{"top": AppResultLimit, "folder": "sentitems", "filter": unread, "orderby": newest}},
+		{" quote ", "all", false, "OUTLOOK_LIST_MESSAGES", map[string]any{"top": AppResultLimit, "folder": "allfolders", "search": "quote"}},
+		{"quote", "inbox", false, "OUTLOOK_LIST_MESSAGES", map[string]any{"top": AppResultLimit, "folder": "inbox", "search": "quote"}},
+	} {
+		slug, arguments := OutlookMailSearch(check.query, check.folder, check.unread)
+		if slug != check.slug || !reflect.DeepEqual(arguments, check.arguments) {
+			t.Fatalf("%q %q %v: %s %#v", check.query, check.folder, check.unread, slug, arguments)
+		}
+	}
+}
+
 func TestMailIsTrimmedToWhatIsSaid(t *testing.T) {
 	gmail := map[string]any{
 		"messageId": "m1", "threadId": "t1", "sender": "Director Wang <wang@acme.com>", "subject": "Quote",

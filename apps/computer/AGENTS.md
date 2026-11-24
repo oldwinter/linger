@@ -18,9 +18,10 @@
   orchestration, model selection, or Room callback behavior.
 - It executes the local-model library actions a Computer owner chose
   (download, cancel, load, unload, remove, refresh) through the installer's
-  `localmodels` tool, but it never chooses a model: every action names the
-  model the owner picked, and fit, placement and recommendation come from
-  `localmodels`.
+  `localmodels` tool, but it never chooses a model: on its own it loads only
+  the downloaded model a Run names, never downloads a model, and never
+  unloads another one to make room. Fit, placement and recommendation come
+  from `localmodels`.
 
 ## Structure
 
@@ -73,16 +74,17 @@
 - On Windows an npm-launched Runtime starts on the Node the bundle ships in
   `runtime/bin`, so an engine requirement a Runtime declares is independent of
   the Node installed on the machine; the machine's `PATH` stays the user's.
-- A Pi background model call uses one ephemeral RPC turn with no tools on
-  whatever model Pi's profile selects by default, local or remote; the Daemon
-  does not check which.
-- A Codex background model call runs the model its `config.toml` selects (the
-  active profile's or the top-level `model`). When it selects none, the call
-  names the model Codex's own catalog marks as the default for the signed-in
-  account, the catalog Agent runs choose from; the Daemon passes that default
-  on and never picks among models. Codex's built-in default may be one the
-  account cannot use. A call the provider rejects with `model_not_found` is
-  reported as `runtime_incompatible`, not as a transient failure.
+- Background model calls (`execute` `model_invoke`) follow the same model as
+  Agent Runs when the Agent Service supplies `model` (Computer `0.62.0` or
+  later), passing it explicitly to Codex (`-m` / `--config model=...`), Claude
+  (`--model`), and Pi (`--model`), normalizing reasoning effort against that
+  model, and calling `ensureLocalModel` for Pi library models on demand.
+- For legacy callers that omit `model`, a Pi background model call runs on
+  whatever model Pi's profile selects by default (refused when no library model
+  is loaded), and a Codex call runs the model its `config.toml` selects or the
+  signed-in account's catalog default when `config.toml` names none. A call the
+  provider rejects with `model_not_found` is reported as
+  `runtime_incompatible`, not as a transient failure.
 - Codex turn cleanup keeps receiving a process's notifications after its
   Operation detaches, so a retried stop sees the turn complete. After an
   invalid-request interrupt rejection the Daemon also accepts an idle status on
@@ -96,6 +98,19 @@
 - A wire request never supplies a local path, executable, environment, or
   credential. Resolve canonical workspace grants before invoking an
   installed Runtime provider.
+- The `feishu_mail` Computer tool (`localtools.FeishuMail`) runs the owner's
+  own lark-cli for TeamHub's Feishu Mail. It finds lark-cli where Runtime
+  discovery looks (`provider.ExecutableCandidates`: PATH, `~/.local/bin`,
+  and `%APPDATA%\npm` on Windows) or where its installers put it, and runs
+  the native binary beside npm's Node launcher, so Node need not be on a
+  short Daemon PATH. A request names only a
+  method and an API path under `/open-apis/mail/v1/user_mailboxes/me`, never
+  lark-cli's other Feishu scopes. A started login's device code stays in the
+  Daemon's memory under the caller's login name, so a restart drops it and
+  the owner connects again. Results carry lark-cli's error type, subtype,
+  Feishu code, never a decision made from its message; a
+  `config` error, a lark-cli never set up with a Feishu app, is
+  `not_configured`.
 - Do not commit runtime state, PID files, sockets, logs, credentials, or build
   output.
 

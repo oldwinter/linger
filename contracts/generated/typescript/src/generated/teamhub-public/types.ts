@@ -2568,6 +2568,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v0/url-preview/framing": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Report whether a site lets the link preview panel frame it.
+     * @description A browser cannot read a cross-origin frame's response headers, so the Web link preview panel asks TeamHub before it frames a page. TeamHub sends HEAD without cookies (GET only when the server refuses HEAD, which may spend a one-time link), follows up to five redirects and reads the framing rules of the final response. It requests only public addresses, checked at connection time, on ports 80 and 443, runs a few probes at once and gives up after five seconds. The desktop app shows pages natively and does not use this. 400 INVALID_REQUEST for a URL that is not http or https, or that carries credentials.
+     */
+    get: operations["getUrlPreviewFraming"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v0/web-search/backends": {
     parameters: {
       query?: never;
@@ -4171,6 +4191,23 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v0/external-apps/feishu-mail/setup": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Check whether the signed-in account can start Feishu Mail authorization. */
+    get: operations["checkFeishuMailSetup"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v0/external-apps/provider-key": {
     parameters: {
       query?: never;
@@ -4676,10 +4713,25 @@ export interface components {
       items: components["schemas"]["TenantAgentAvailabilitySnapshot"][];
       page: components["schemas"]["PageMeta"];
     };
+    /**
+     * @description Why the latest background model call failed: the Runtime is incompatible or its model is not available to the account, the Runtime needs sign-in, the Runtime is unavailable, or a cause the Human cannot act on. Clients show an unknown value as unknown.
+     * @enum {string}
+     */
+    AnotherMeBackgroundFailureReason:
+      | "runtime_incompatible"
+      | "runtime_auth_required"
+      | "runtime_unavailable"
+      | "unknown";
+    /** @description Present while the Another Me's background model calls (Wiki, Memory, daily reports) have failed at least three times in a row; absent again after the next one completes. */
+    AnotherMeBackgroundFailure: {
+      consecutive_failures: number;
+      reason: components["schemas"]["AnotherMeBackgroundFailureReason"];
+    };
     /** @description The Human's Another Me and its live direct Chat. Empty until the Another Me exists; room_id is also absent while the Chat is being deleted. */
     AnotherMe: {
       agent_actor_id?: components["schemas"]["Id"];
       room_id?: components["schemas"]["Id"];
+      background_failure?: components["schemas"]["AnotherMeBackgroundFailure"];
     };
     TenantAgentAvatarUpdateRequest: {
       avatar_key: string;
@@ -4861,6 +4913,12 @@ export interface components {
       /** Format: int64 */
       bytes: number;
     };
+    /** @description A desktop application outside localmodels holding pool memory, such as a browser, video player, or game, that the user could close. */
+    LocalModelPoolExternalHolder: {
+      name: string;
+      /** Format: int64 */
+      bytes: number;
+    };
     /** @description One place models load into. The system and unified budgets are 80% of RAM, as localmodels computes them. */
     LocalModelPool: {
       id: components["schemas"]["LocalModelPoolId"];
@@ -4873,6 +4931,8 @@ export interface components {
       /** Format: int64 */
       used_bytes: number;
       holders: components["schemas"]["LocalModelPoolHolder"][];
+      /** @description Closeable desktop applications holding this pool's memory, as localmodels reports them. An empty list means localmodels looked and found no closeable app; absent means not reported, and the rest of used_bytes is then not known to be other apps. */
+      external_holders?: components["schemas"]["LocalModelPoolExternalHolder"][];
     };
     /** @description Stable localmodels library id: catalog id and variant, such as qwen3-4b:Q4_K_M. */
     LocalModelId: string;
@@ -5020,6 +5080,11 @@ export interface components {
       | "reasoning"
       | "coding"
       | "multilingual";
+    /**
+     * @description Inference engine family that runs this model entry. Never inferred from name or description.
+     * @enum {string}
+     */
+    LocalModelEngine: "llama.cpp" | "polystrata" | "strata";
     /** @description One validated chat model of the catalog on this platform and its state on this Computer. Sizes are bytes; readers format them. */
     LocalModel: {
       id: components["schemas"]["LocalModelId"];
@@ -5071,6 +5136,18 @@ export interface components {
       source_url?: string;
       /** @description Warm prompt-processing speed in tokens/s measured at the last load; absent when unknown. */
       prompt_tokens_per_second?: number;
+      engine?: components["schemas"]["LocalModelEngine"];
+      /** @description Display-only engine version and backend for this model, such as PolyStrata 0.2.19-poly.1 · CUDA. */
+      engine_label?: string;
+      /** @description Maximum concurrent request slots configured or probed for this model when loaded. */
+      concurrency?: number;
+      /** @description True while a loaded or loading local model is running its post-load max-concurrency probe before reporting loaded. */
+      concurrency_probing?: boolean;
+      /**
+       * Format: int64
+       * @description Additional host system RAM used alongside GPU VRAM for hybrid offload engines (such as PolyStrata); absent when all weights stay in the model's primary pool.
+       */
+      host_ram_bytes?: number;
     };
     /** @description An Agent whose runtime model is this model on this Computer. */
     LocalModelUser: {
@@ -6211,7 +6288,8 @@ export interface components {
         | "outlook"
         | "google_calendar"
         | "outlook_calendar"
-        | "slack";
+        | "slack"
+        | "feishu_mail";
     };
     /** @description A Routine has exactly one of cadence and listener. A listener Routine is AnotherMe's app listener; it can only be paused and resumed, and goes away when the Human revokes AnotherMe's access to the app. */
     Routine: {
@@ -6764,7 +6842,7 @@ export interface components {
       /** @description Optional public queue label for queued, or the full provider-visible reasoning summary title for thinking. Omit for working; raw reasoning is never allowed. */
       title?: string;
     };
-    /** @description Public classified failure; contains no native error text, paths, credentials, or task input. Each code is set where the failure is observed, from structured signals only. model_unavailable means the model service refused the selected model for the Runtime's account, so the Agent needs another model or another sign-in. model_not_offered means the Agent's Computer does not offer the selected model for its Runtime, or the model does not support the selected reasoning effort, so the Runtime could not start; the Agent needs a model and reasoning effort that Computer offers. context_too_long means the conversation no longer fits the model's context window. model_service_error means the model service reported a server-side error. timeout means the Runtime hit its local execution deadline. execution_outcome_unknown means a command was dispatched but no validated exit was observed before unexpected transport or Runtime failure. Intentional cancellation, authorization loss or unavailability, and normal retirement do not create this classification. Authorization loss or unavailability includes explicit revocation, authorization checks that fail or time out, and authorization expiry. This code does not currently cover unknown effects caused by control-plane disconnection. It remains a failed Run and must not be automatically replayed; verify its effects before starting another Run. reply_undelivered means a Room Run finished, but every message the Agent tried to post failed, so the Room received no reply from it. reply_not_sent means a Room Run finished without trying to post anything while a Human who mentioned the Agent waited for its reply; the Runtime ended the turn in text nobody sees, which is not posted for it. interrupted means the Run stopped before it finished for a reason other than a user cancellation, such as a restart or a Runner stopped on its Computer; part of its work may have taken effect and it is not replayed. computer_unavailable means the Agent's Computer could not run it: the Computer is unreachable, the Agent's Runner is stopped there, or the Runtime is not enabled. cleanup_unconfirmed means the Runtime process could not be confirmed stopped. response_too_large means the reply exceeded the Room's size limit. unclassified means no structured signal identified the cause. runtime_type is present when the failure belongs to a selected Runtime; it is absent for failures the Agent Service or TeamHub observes without one. */
+    /** @description Public classified failure; contains no native error text, paths, credentials, or task input. Each code is set where the failure is observed, from structured signals only. model_unavailable means the model service refused the selected model for the Runtime's account, so the Agent needs another model or another sign-in. model_not_offered means the Agent's Computer does not offer the selected model for its Runtime, or the model does not support the selected reasoning effort, so the Runtime could not start; the Agent needs a model and reasoning effort that Computer offers. local_model_unavailable means the Agent's Computer could not load the Agent's local model (not enough free memory, not fully downloaded, or loading took too long), so the Runtime did not start; the person can manage it on the Computer's Models page or choose another model. context_too_long means the conversation no longer fits the model's context window. model_service_error means the model service reported a server-side error. timeout means the Runtime hit its local execution deadline. execution_outcome_unknown means a command was dispatched but no validated exit was observed before unexpected transport or Runtime failure. Intentional cancellation, authorization loss or unavailability, and normal retirement do not create this classification. Authorization loss or unavailability includes explicit revocation, authorization checks that fail or time out, and authorization expiry. This code does not currently cover unknown effects caused by control-plane disconnection. It remains a failed Run and must not be automatically replayed; verify its effects before starting another Run. reply_undelivered means a Room Run finished while a Human who mentioned the Agent waited for its reply, every message write the Agent tried to post failed, and no reply reached the Room. reply_not_sent means a Room Run finished while a Human who mentioned the Agent waited for its reply and no reply reached the Room without any failed message write attempt (for instance, the Runtime ended the turn in text nobody sees, which is not posted for it). interrupted means the Run stopped before it finished for a reason other than a user cancellation, such as a restart or a Runner stopped on its Computer; part of its work may have taken effect and it is not replayed. computer_unavailable means the Agent's Computer could not run it: the Computer is unreachable, the Agent's Runner is stopped there, or the Runtime is not enabled. cleanup_unconfirmed means the Runtime process could not be confirmed stopped. response_too_large means the reply exceeded the Room's size limit. unclassified means no structured signal identified the cause. runtime_type is present when the failure belongs to a selected Runtime; it is absent for failures the Agent Service or TeamHub observes without one. */
     AgentRuntimeExecutionFailure: {
       /** @enum {string} */
       code:
@@ -6775,6 +6853,7 @@ export interface components {
         | "rate_limited"
         | "model_unavailable"
         | "model_not_offered"
+        | "local_model_unavailable"
         | "context_too_long"
         | "model_service_error"
         | "timeout"
@@ -7729,6 +7808,13 @@ export interface components {
       /** Format: binary */
       content: string;
     };
+    UrlPreviewFraming: {
+      /**
+       * @description refused: the final response forbids framing by another site (X-Frame-Options DENY or SAMEORIGIN, or a CSP frame-ancestors that allows no page of the Linger page's scheme), so the panel offers a new tab instead of a frame. allowed: it does not. unknown: TeamHub did not read the page, because it was unreachable, slow or redirected too often, TeamHub was busy with other probes, or it is on a non-public address or a port other than 80 and 443, which TeamHub never requests; the panel frames it and lets the browser decide.
+       * @enum {string}
+       */
+      framing: "allowed" | "refused" | "unknown";
+    };
     /**
      * @description A backend that runs searches.
      * @enum {string}
@@ -8102,6 +8188,8 @@ export interface components {
         | "failed"
         | "unknown"
         | "declined";
+      /** @description The canvas's mail app, gmail, outlook or feishu_mail; Send must use a connection of this app. */
+      target?: string;
       subject: string;
       to: string;
       error?: string;
@@ -13246,6 +13334,33 @@ export interface operations {
       503: components["responses"]["ServiceUnavailable"];
     };
   };
+  getUrlPreviewFraming: {
+    parameters: {
+      query: {
+        /** @description The http or https page to preview. */
+        url: string;
+        /** @description The scheme of the Linger page that frames the site; frame-ancestors scheme sources are matched against it. Without it, http and https sources both allow the frame. */
+        page_scheme?: "http" | "https";
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Whether the page may be framed. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["UrlPreviewFraming"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+    };
+  };
   listWebSearchBackends: {
     parameters: {
       query?: {
@@ -16217,6 +16332,27 @@ export interface operations {
         };
       };
       401: components["responses"]["Unauthenticated"];
+    };
+  };
+  checkFeishuMailSetup: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The Computer can start authorization. */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components["responses"]["Unauthenticated"];
+      409: components["responses"]["Conflict"];
+      503: components["responses"]["ServiceUnavailable"];
     };
   };
   saveExternalProviderKey: {

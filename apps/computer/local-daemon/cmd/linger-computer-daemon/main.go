@@ -150,6 +150,13 @@ func run(args []string) (resultErr error) {
 		return localmodels.OverlayEnvironment(baseProviderEnvironment, localModelsStateDir)
 	}
 	var localModels *localmodels.Library
+	// The Pi catalog merge needs no Library: until one has read the library,
+	// the remembered entries stand in, so the first discovery and the hello
+	// already list the models a quit unloaded.
+	var piCatalog *localmodels.PiCatalog
+	if computer.LocalModels != nil {
+		piCatalog = localmodels.NewPiCatalog(filepath.Join(computer.StateDirectory, "local-models"))
+	}
 	currentDiscoveryOptions := func() provider.DiscoveryOptions {
 		var managedPi string
 		if localModels != nil {
@@ -164,7 +171,11 @@ func run(args []string) (resultErr error) {
 		}
 	}
 	shapeDiscovered := func(result provider.DiscoveryResult) provider.DiscoveryResult {
-		return shapeDiscoveredResult(result, localModelsStateDir, localModels != nil && localModels.PiProvisionFailed())
+		var snapshot *wire.LocalModelsSnapshot
+		if localModels != nil {
+			snapshot = localModels.Snapshot()
+		}
+		return shapeDiscoveredResult(result, localModelsStateDir, localModels != nil && localModels.PiProvisionFailed(), piCatalog, snapshot)
 	}
 	discover := func(ctx context.Context, options provider.DiscoveryOptions) (provider.DiscoveryResult, error) {
 		result, err := provider.Discover(ctx, options)
@@ -174,10 +185,13 @@ func run(args []string) (resultErr error) {
 		return result, err
 	}
 	providerEnvironment := currentProviderEnvironment()
-	discovered, err := discover(context.Background(), currentDiscoveryOptions())
+	// The monitor refreshes from what Discover found, not from the shaped
+	// result, so it gets the unshaped one.
+	rawDiscovered, err := provider.Discover(context.Background(), currentDiscoveryOptions())
 	if err != nil {
 		return err
 	}
+	discovered := shapeDiscovered(rawDiscovered)
 	logRuntimeDiagnostics(discovered.Diagnostics)
 	diagnostics, err := provider.DiagnosticsJSON(provider.GatewayDiagnostics(discovered.Diagnostics))
 	if err != nil {
@@ -345,13 +359,20 @@ func run(args []string) (resultErr error) {
 	}
 	localModels = localmodels.New(localmodels.Options{
 		Tool: localModelsTool, Environment: baseProviderEnvironment,
-		JobDirectory:     jobDir,
-		HarnessDirectory: libraryHarnessDir,
-		NodePath:         nodePath,
+		JobDirectory:        jobDir,
+		ProbeCacheDirectory: filepath.Join(computer.StateDirectory, "local-models"),
+		HarnessDirectory:    libraryHarnessDir,
+		NodePath:            nodePath,
 		// The library publishes only from Act and Refresh, which the Daemon
 		// calls once it runs.
 		Publish: func(snapshot wire.LocalModelsSnapshot) { localDaemon.PublishLocalModels(snapshot) },
 		RuntimeChanged: func() {
+			select {
+			case runtimeRefresh <- struct{}{}:
+			default:
+			}
+		},
+		CatalogChanged: func() {
 			select {
 			case runtimeRefresh <- struct{}{}:
 			default:
@@ -407,8 +428,11 @@ func run(args []string) (resultErr error) {
 		RuntimeHomeRoot:     filepath.Join(computer.StateDirectory, "runtime-homes"),
 		RuntimeObservations: runtimeObservations(computer, provider.GatewayDiagnostics(discovered.Diagnostics), runtimeObservationRevision),
 		OnModelUnavailable:  inventory.reject,
-		ControlPlane:        transport.GatewayControlPlane{URL: computer.GatewayURL, BearerToken: computer.GatewayToken},
-		IdentityStore:       transport.IdentityFileStore{Path: filepath.Join(computer.StateDirectory, "daemon-identity.json")},
+		ModelInvokeUnready: func(runtimeType string) bool {
+			return runtimeType == "pi" && piCatalog.LibraryOnly()
+		},
+		ControlPlane:  transport.GatewayControlPlane{URL: computer.GatewayURL, BearerToken: computer.GatewayToken},
+		IdentityStore: transport.IdentityFileStore{Path: filepath.Join(computer.StateDirectory, "daemon-identity.json")},
 		Executor: provider.Executor{
 			TempBase: operationTempBase, RuntimeHomeRoot: filepath.Join(computer.StateDirectory, "runtime-homes"),
 			CodexModelSessionHome: codexModelSessions.Home(),
@@ -493,12 +517,16 @@ func run(args []string) (resultErr error) {
 	monitorDone := make(chan error, 1)
 	go func() {
 		monitorDone <- provider.MonitorRuntimeDiagnostics(ctx, provider.RuntimeMonitorOptions{
-			Initial:               discovered,
+			Initial:               rawDiscovered,
+			InitialPublished:      &discovered,
 			Discovery:             currentDiscoveryOptions(),
 			ResolveDiscovery:      currentDiscoveryOptions,
 			Shape:                 shapeDiscovered,
 			RefreshInterval:       15 * time.Second,
 			FullRefreshEveryTicks: 4,
+			RefreshAllowed: func() bool {
+				return runtimeRefreshAllowed(localDaemon.GatewayState())
+			},
 			FullRefreshAllowed: func() bool {
 				return localDaemon.ActiveOperationCount() == 0
 			},
@@ -638,6 +666,17 @@ func (c *controlController) Shutdown() {
 
 func (c *controlController) ShutdownIfIdle() int {
 	return c.daemon.DrainIfIdle()
+}
+
+// runtimeRefreshAllowed stops periodic CLI probes once the daemon is parked in
+// a terminal Gateway state and will not reconnect until restarted.
+func runtimeRefreshAllowed(gatewayState string) bool {
+	switch gatewayState {
+	case "upgrade-required", "authentication-failed", "identity-conflict":
+		return false
+	default:
+		return true
+	}
 }
 
 // runtimeInventory publishes the discovered Runtimes to the Gateway without
@@ -921,8 +960,10 @@ func runtimeModelCatalogs(diagnostics []provider.RuntimeDiagnostic) map[string][
 // shapeDiscoveredResult applies the persisted BYOK catalog overlay and managed
 // Pi provisioning status without mutating the input, and rebuilds Installations
 // so provider lookup sees the same shaped catalog.
-func shapeDiscoveredResult(result provider.DiscoveryResult, localModelsStateDir string, piProvisionFailed bool) provider.DiscoveryResult {
-	diagnostics := byokRuntimeCatalogs(result.Diagnostics, localmodels.ReadOverlay(localModelsStateDir))
+func shapeDiscoveredResult(result provider.DiscoveryResult, localModelsStateDir string, piProvisionFailed bool, piCatalog *localmodels.PiCatalog, snapshot *wire.LocalModelsSnapshot) provider.DiscoveryResult {
+	source := localmodels.ReadOverlay(localModelsStateDir)
+	diagnostics := byokRuntimeCatalogs(result.Diagnostics, source)
+	diagnostics = piCatalog.Merge(diagnostics, source, snapshot)
 	diagnostics = withPiProvisionStatus(diagnostics, piProvisionFailed)
 	return provider.DiscoveryResult{
 		Diagnostics:   diagnostics,

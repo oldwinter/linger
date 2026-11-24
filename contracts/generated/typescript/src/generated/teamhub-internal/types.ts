@@ -180,6 +180,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v0/agent-runtime/another-me/background-calls": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Record how one background model call of an Another Me ended.
+     * @description The Agent Service reports each background model call that ran on an Another Me's Computer and either completed or failed for a reason the Human may need to act on. Failures in a row are counted per Another Me and a completed call clears the count; the Human's Another Me shows the count once it reaches three. A call for an Agent that is not an Another Me changes nothing.
+     */
+    post: operations["recordAnotherMeBackgroundCall"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v0/agent-runtime/deletion-snapshot": {
     parameters: {
       query?: never;
@@ -1930,11 +1950,21 @@ export interface components {
       agent_actor_id: components["schemas"]["Id"];
       computer_id: components["schemas"]["Id"];
       local_runtime_type: components["schemas"]["LocalRuntimeType"];
+      /** @description The model configured for the Another Me on its local Runtime. */
+      runtime_model?: string;
       /** @enum {string} */
       status: "active" | "updating";
     };
     AnotherMePlacementList: {
       items: components["schemas"]["AnotherMePlacement"][];
+    };
+    RecordAnotherMeBackgroundCallRequest: {
+      tenant_id: components["schemas"]["Id"];
+      agent_actor_id: components["schemas"]["Id"];
+      /** @enum {string} */
+      outcome: "completed" | "failed";
+      /** @description Why a failed call failed, as an AnotherMeBackgroundFailureReason code. A string rather than the enum so a newer Agent Service can send a code this TeamHub does not know; TeamHub records it as unknown. Ignored for a completed call. */
+      reason?: string;
     };
     AgentRuntimeContextRef:
       | {
@@ -2106,6 +2136,8 @@ export interface components {
     AgentLocalRunReplyStatus: {
       /** @description Whether TeamHub persisted a visible reply from this Local Run: a conversation Message or decision card attributed to the Run, a queued presentation sequence attributed to the Run, or an unattributed conversation Message, presentation sequence, or emoji Reaction written by the Context's Agent in the Room or its Threads since the Run started. */
       replied: boolean;
+      /** @description The Inboxes that hold such a reply: the Inbox of the Room or Thread it is in (`room:<id>`, `thread:<id>`) and of each Task whose work Room that is (`task:<id>`). A Run that took up mentions from several Inboxes has answered only those listed. */
+      replied_inbox_ids?: string[];
     };
     AgentRuntimeWaitingContexts: {
       context_keys: components["schemas"]["AgentRuntimeContextKey"][];
@@ -2145,6 +2177,21 @@ export interface components {
       name: string;
       instructions: string;
     };
+    AgentLocalRunRecentMessage: {
+      message_id: string;
+      author: string;
+      author_kind: string;
+      body: string;
+      truncated?: boolean;
+      /** Format: date-time */
+      created_at: string;
+    };
+    /** @description Bounded slice of recent product messages preceding a Run's first input, returned only when the Context currently has no persisted Runtime Session and continues earlier work. */
+    AgentLocalRunRecentMessages: {
+      inbox_id: string;
+      messages: components["schemas"]["AgentLocalRunRecentMessage"][];
+      next_cursor?: string;
+    };
     ClaimedAgentLocalRun: {
       /** @description Current cancellation flag returned atomically with the Run claim. The production authority always returns this field. */
       cancellation_requested?: boolean;
@@ -2154,6 +2201,7 @@ export interface components {
       profile_update?: components["schemas"]["AgentProfileUpdate"];
       /** @description The Context received input before this Run's first input. */
       continues_context: boolean;
+      recent_messages?: components["schemas"]["AgentLocalRunRecentMessages"];
     };
     ClaimAgentLocalRunResult: {
       claimed: boolean;
@@ -2167,7 +2215,7 @@ export interface components {
     AgentRuntimeSuccessResult: {
       success: boolean;
     };
-    /** @description Public classified failure; contains no native error text, paths, credentials, or task input. Each code is set where the failure is observed, from structured signals only. model_unavailable means the model service refused the selected model for the Runtime's account, so the Agent needs another model or another sign-in. model_not_offered means the Agent's Computer does not offer the selected model for its Runtime, or the model does not support the selected reasoning effort, so the Runtime could not start; the Agent needs a model and reasoning effort that Computer offers. context_too_long means the conversation no longer fits the model's context window. model_service_error means the model service reported a server-side error. timeout means the Runtime hit its local execution deadline. execution_outcome_unknown means a command was dispatched but no validated exit was observed before unexpected transport or Runtime failure. Intentional cancellation, authorization loss or unavailability, and normal retirement do not create this classification. Authorization loss or unavailability includes explicit revocation, authorization checks that fail or time out, and authorization expiry. This code does not currently cover unknown effects caused by control-plane disconnection. It remains a failed Run and must not be automatically replayed; verify its effects before starting another Run. reply_undelivered means a Room Run finished, but every message the Agent tried to post failed, so the Room received no reply from it. reply_not_sent means a Room Run finished without trying to post anything while a Human who mentioned the Agent waited for its reply; the Runtime ended the turn in text nobody sees, which is not posted for it. interrupted means the Run stopped before it finished for a reason other than a user cancellation, such as a restart or a Runner stopped on its Computer; part of its work may have taken effect and it is not replayed. computer_unavailable means the Agent's Computer could not run it: the Computer is unreachable, the Agent's Runner is stopped there, or the Runtime is not enabled. cleanup_unconfirmed means the Runtime process could not be confirmed stopped. response_too_large means the reply exceeded the Room's size limit. unclassified means no structured signal identified the cause. runtime_type is present when the failure belongs to a selected Runtime; it is absent for failures the Agent Service or TeamHub observes without one. */
+    /** @description Public classified failure; contains no native error text, paths, credentials, or task input. Each code is set where the failure is observed, from structured signals only. model_unavailable means the model service refused the selected model for the Runtime's account, so the Agent needs another model or another sign-in. model_not_offered means the Agent's Computer does not offer the selected model for its Runtime, or the model does not support the selected reasoning effort, so the Runtime could not start; the Agent needs a model and reasoning effort that Computer offers. local_model_unavailable means the Agent's Computer could not load the Agent's local model (not enough free memory, not fully downloaded, or loading took too long), so the Runtime did not start; the person can manage it on the Computer's Models page or choose another model. context_too_long means the conversation no longer fits the model's context window. model_service_error means the model service reported a server-side error. timeout means the Runtime hit its local execution deadline. execution_outcome_unknown means a command was dispatched but no validated exit was observed before unexpected transport or Runtime failure. Intentional cancellation, authorization loss or unavailability, and normal retirement do not create this classification. Authorization loss or unavailability includes explicit revocation, authorization checks that fail or time out, and authorization expiry. This code does not currently cover unknown effects caused by control-plane disconnection. It remains a failed Run and must not be automatically replayed; verify its effects before starting another Run. reply_undelivered means a Room Run finished while a Human who mentioned the Agent waited for its reply, every message write the Agent tried to post failed, and no reply reached the Room. reply_not_sent means a Room Run finished while a Human who mentioned the Agent waited for its reply and no reply reached the Room without any failed message write attempt (for instance, the Runtime ended the turn in text nobody sees, which is not posted for it). interrupted means the Run stopped before it finished for a reason other than a user cancellation, such as a restart or a Runner stopped on its Computer; part of its work may have taken effect and it is not replayed. computer_unavailable means the Agent's Computer could not run it: the Computer is unreachable, the Agent's Runner is stopped there, or the Runtime is not enabled. cleanup_unconfirmed means the Runtime process could not be confirmed stopped. response_too_large means the reply exceeded the Room's size limit. unclassified means no structured signal identified the cause. runtime_type is present when the failure belongs to a selected Runtime; it is absent for failures the Agent Service or TeamHub observes without one. */
     AgentRuntimeExecutionFailure: {
       /** @enum {string} */
       code:
@@ -2178,6 +2226,7 @@ export interface components {
         | "rate_limited"
         | "model_unavailable"
         | "model_not_offered"
+        | "local_model_unavailable"
         | "context_too_long"
         | "model_service_error"
         | "timeout"
@@ -2300,6 +2349,11 @@ export interface components {
       configuration_revision: components["schemas"]["AgentRuntimePositiveInt64"];
       /** @description Loaded registration revision for automatic stale-session clearing. Requires the same active registration and rejects a Session compatible through proven profile initialization. Omit only for an explicit Session reset. */
       expected_current_configuration_revision?: components["schemas"]["AgentRuntimePositiveInt64"];
+      /**
+       * @description Runtime failure code that triggers a same-revision Session reset on an idle active Context. Mutually exclusive with expected_current_configuration_revision.
+       * @enum {string}
+       */
+      recovery_reason?: "session_not_found" | "context_too_long";
     };
     ClearAgentRuntimeSessionResult: {
       cleared: boolean;
@@ -2615,6 +2669,12 @@ export interface components {
       /** Format: int64 */
       bytes: number;
     };
+    /** @description A desktop application outside localmodels holding pool memory, such as a browser, video player, or game, that the user could close. */
+    LocalModelPoolExternalHolder: {
+      name: string;
+      /** Format: int64 */
+      bytes: number;
+    };
     /** @description One place models load into. The system and unified budgets are 80% of RAM, as localmodels computes them. */
     LocalModelPool: {
       id: components["schemas"]["LocalModelPoolId"];
@@ -2627,6 +2687,8 @@ export interface components {
       /** Format: int64 */
       used_bytes: number;
       holders: components["schemas"]["LocalModelPoolHolder"][];
+      /** @description Closeable desktop applications holding this pool's memory, as localmodels reports them. An empty list means localmodels looked and found no closeable app; absent means not reported, and the rest of used_bytes is then not known to be other apps. */
+      external_holders?: components["schemas"]["LocalModelPoolExternalHolder"][];
     };
     /** @description Stable localmodels library id: catalog id and variant, such as qwen3-4b:Q4_K_M. */
     LocalModelId: string;
@@ -2774,6 +2836,11 @@ export interface components {
       | "reasoning"
       | "coding"
       | "multilingual";
+    /**
+     * @description Inference engine family that runs this model entry. Never inferred from name or description.
+     * @enum {string}
+     */
+    LocalModelEngine: "llama.cpp" | "polystrata" | "strata";
     /** @description One validated chat model of the catalog on this platform and its state on this Computer. Sizes are bytes; readers format them. */
     LocalModel: {
       id: components["schemas"]["LocalModelId"];
@@ -2825,6 +2892,18 @@ export interface components {
       source_url?: string;
       /** @description Warm prompt-processing speed in tokens/s measured at the last load; absent when unknown. */
       prompt_tokens_per_second?: number;
+      engine?: components["schemas"]["LocalModelEngine"];
+      /** @description Display-only engine version and backend for this model, such as PolyStrata 0.2.19-poly.1 · CUDA. */
+      engine_label?: string;
+      /** @description Maximum concurrent request slots configured or probed for this model when loaded. */
+      concurrency?: number;
+      /** @description True while a loaded or loading local model is running its post-load max-concurrency probe before reporting loaded. */
+      concurrency_probing?: boolean;
+      /**
+       * Format: int64
+       * @description Additional host system RAM used alongside GPU VRAM for hybrid offload engines (such as PolyStrata); absent when all weights stay in the model's primary pool.
+       */
+      host_ram_bytes?: number;
     };
     /** @description Present only when localmodels debug mode (tiny or simulate) is active on the Computer. config_path is shown only to the Computer owner. */
     LocalModelsDebugInfo: {
@@ -3937,6 +4016,31 @@ export interface operations {
       503: components["responses"]["ServiceUnavailable"];
     };
   };
+  recordAnotherMeBackgroundCall: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["RecordAnotherMeBackgroundCallRequest"];
+      };
+    };
+    responses: {
+      /** @description Recorded. */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      500: components["responses"]["InternalError"];
+    };
+  };
   getAgentRuntimeDeletionSnapshot: {
     parameters: {
       query: {
@@ -4299,7 +4403,7 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description Whether TeamHub recorded a visible reply for the Local Run. */
+      /** @description Whether, and in which Inboxes, TeamHub recorded a visible reply for the Local Run. */
       200: {
         headers: {
           [name: string]: unknown;

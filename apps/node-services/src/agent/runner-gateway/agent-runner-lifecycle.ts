@@ -11,9 +11,9 @@ import { AgentRunnerConnectionReconciliation } from "./agent-runner-reconciliati
 import {
   findRuntimeModel,
   LocalAgentRunnerReadinessError,
+  resolveSupportedReasoningEffort,
   type LocalPlacementRequirement,
   type LocalRuntimeModelCatalog,
-  withSupportedReasoningEffort,
 } from "./local-computer-management.js";
 import {
   runtimeRegistrationId,
@@ -31,8 +31,6 @@ import {
   RunnerGatewayProtocolError,
 } from "./runner-operation.js";
 import { logAgentEvent } from "../observability/agent-log.js";
-
-import { assertReasoningEffort } from "./runner-operation-preparation.js";
 
 /**
  * Keeps each connected Computer's Agent Runners on the placement TeamHub's
@@ -457,8 +455,11 @@ const resolveRuntimeConfig = (
       `Runner model "${runtime.model}" is unavailable for Runtime "${runtime.type}"`,
     );
   }
-  assertReasoningEffort(model, runtime.reasoning_effort, runtime.type);
-  const { reasoning_effort } = withSupportedReasoningEffort(runtime, model);
+  const reasoning_effort = resolveSupportedReasoningEffort(
+    model,
+    runtime.reasoning_effort,
+    runtime.type,
+  );
   return {
     type: runtime.type,
     ...(model.runtimeModel === undefined ? {} : { model: model.runtimeModel }),

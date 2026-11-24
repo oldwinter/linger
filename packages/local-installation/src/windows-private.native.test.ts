@@ -4,7 +4,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   closeWindowsPrivateWorker,
+  WINDOWS_PRIVATE_PREAMBLE,
   WINDOWS_PRIVATE_SCRIPT,
+  windowsPowerShellArguments,
   windowsPrivatePath,
 } from "./windows-private.js";
 import { runProcess } from "./process.js";
@@ -23,6 +25,17 @@ async function fixture() {
   await windowsPrivatePath(root, "directory", true);
   return root;
 }
+it.skipIf(process.platform !== "win32")(
+  "passes a literal path through stdin to both PowerShell launch modes",
+  { timeout: 60_000 },
+  async () => {
+    const root = await fixture();
+    const target = path.join(root, "spaces and 'quotes' \u6587");
+    await mkdir(target);
+    await windowsPrivatePath(target, "directory", true);
+    await windowsPrivatePath(target, "directory", false, runProcess);
+  },
+);
 it.skipIf(process.platform !== "win32")(
   "restores write access to a private directory with a read-only owner rule",
   { timeout: 30_000 },
@@ -85,12 +98,9 @@ it.skipIf(process.platform !== "win32")(
     const probe = (directory: string) =>
       runProcess(
         powershell,
-        [
-          "-NoProfile",
-          "-NonInteractive",
-          "-EncodedCommand",
-          Buffer.from(script, "utf16le").toString("base64"),
-        ],
+        // The full script as -EncodedCommand is the long command line that
+        // stalls behind some endpoint security; launch it as production does.
+        windowsPowerShellArguments(script),
         {
           input: JSON.stringify({
             path: directory,
@@ -319,4 +329,27 @@ it.skipIf(process.platform !== "win32")(
       reason: "UNSAFE_PARENT_ACCESS",
     });
   },
+);
+
+// Elevated runners return from Test-Administrator before the linked-token
+// check, so this compiles and calls it directly.
+it.skipIf(process.platform !== "win32")(
+  "compiles the linked-token administrator check through the production launch arguments",
+  async () => {
+    expect(WINDOWS_PRIVATE_PREAMBLE).toContain('DllImport("advapi32.dll")');
+    const powershell = path.win32.join(
+      process.env.SystemRoot ?? "C:\\Windows",
+      "System32/WindowsPowerShell/v1.0/powershell.exe",
+    );
+    const result = await runProcess(
+      powershell,
+      windowsPowerShellArguments(
+        `${WINDOWS_PRIVATE_PREAMBLE}\n[Console]::Out.Write((Test-LinkedTokenAdministrator).GetType().FullName)`,
+      ),
+      { timeoutMs: 30_000 },
+    );
+    expect(result.code, result.stderr).toBe(0);
+    expect(result.stdout).toBe("System.Boolean");
+  },
+  60_000,
 );

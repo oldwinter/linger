@@ -325,67 +325,70 @@ func (e AgentRuntimeActivityOutcome) Valid() bool {
 
 // Defines values for AgentRuntimeExecutionFailureCode.
 const (
-	AuthenticationRequired  AgentRuntimeExecutionFailureCode = "authentication_required"
-	CleanupUnconfirmed      AgentRuntimeExecutionFailureCode = "cleanup_unconfirmed"
-	ComputerUnavailable     AgentRuntimeExecutionFailureCode = "computer_unavailable"
-	ContextTooLong          AgentRuntimeExecutionFailureCode = "context_too_long"
-	ExecutionFailed         AgentRuntimeExecutionFailureCode = "execution_failed"
-	ExecutionOutcomeUnknown AgentRuntimeExecutionFailureCode = "execution_outcome_unknown"
-	Interrupted             AgentRuntimeExecutionFailureCode = "interrupted"
-	ModelNotOffered         AgentRuntimeExecutionFailureCode = "model_not_offered"
-	ModelServiceError       AgentRuntimeExecutionFailureCode = "model_service_error"
-	ModelUnavailable        AgentRuntimeExecutionFailureCode = "model_unavailable"
-	NetworkError            AgentRuntimeExecutionFailureCode = "network_error"
-	ProtocolIncompatible    AgentRuntimeExecutionFailureCode = "protocol_incompatible"
-	RateLimited             AgentRuntimeExecutionFailureCode = "rate_limited"
-	ReplyNotSent            AgentRuntimeExecutionFailureCode = "reply_not_sent"
-	ReplyUndelivered        AgentRuntimeExecutionFailureCode = "reply_undelivered"
-	ResponseTooLarge        AgentRuntimeExecutionFailureCode = "response_too_large"
-	SessionNotFound         AgentRuntimeExecutionFailureCode = "session_not_found"
-	Timeout                 AgentRuntimeExecutionFailureCode = "timeout"
-	Unclassified            AgentRuntimeExecutionFailureCode = "unclassified"
+	AgentRuntimeExecutionFailureCodeAuthenticationRequired  AgentRuntimeExecutionFailureCode = "authentication_required"
+	AgentRuntimeExecutionFailureCodeCleanupUnconfirmed      AgentRuntimeExecutionFailureCode = "cleanup_unconfirmed"
+	AgentRuntimeExecutionFailureCodeComputerUnavailable     AgentRuntimeExecutionFailureCode = "computer_unavailable"
+	AgentRuntimeExecutionFailureCodeContextTooLong          AgentRuntimeExecutionFailureCode = "context_too_long"
+	AgentRuntimeExecutionFailureCodeExecutionFailed         AgentRuntimeExecutionFailureCode = "execution_failed"
+	AgentRuntimeExecutionFailureCodeExecutionOutcomeUnknown AgentRuntimeExecutionFailureCode = "execution_outcome_unknown"
+	AgentRuntimeExecutionFailureCodeInterrupted             AgentRuntimeExecutionFailureCode = "interrupted"
+	AgentRuntimeExecutionFailureCodeLocalModelUnavailable   AgentRuntimeExecutionFailureCode = "local_model_unavailable"
+	AgentRuntimeExecutionFailureCodeModelNotOffered         AgentRuntimeExecutionFailureCode = "model_not_offered"
+	AgentRuntimeExecutionFailureCodeModelServiceError       AgentRuntimeExecutionFailureCode = "model_service_error"
+	AgentRuntimeExecutionFailureCodeModelUnavailable        AgentRuntimeExecutionFailureCode = "model_unavailable"
+	AgentRuntimeExecutionFailureCodeNetworkError            AgentRuntimeExecutionFailureCode = "network_error"
+	AgentRuntimeExecutionFailureCodeProtocolIncompatible    AgentRuntimeExecutionFailureCode = "protocol_incompatible"
+	AgentRuntimeExecutionFailureCodeRateLimited             AgentRuntimeExecutionFailureCode = "rate_limited"
+	AgentRuntimeExecutionFailureCodeReplyNotSent            AgentRuntimeExecutionFailureCode = "reply_not_sent"
+	AgentRuntimeExecutionFailureCodeReplyUndelivered        AgentRuntimeExecutionFailureCode = "reply_undelivered"
+	AgentRuntimeExecutionFailureCodeResponseTooLarge        AgentRuntimeExecutionFailureCode = "response_too_large"
+	AgentRuntimeExecutionFailureCodeSessionNotFound         AgentRuntimeExecutionFailureCode = "session_not_found"
+	AgentRuntimeExecutionFailureCodeTimeout                 AgentRuntimeExecutionFailureCode = "timeout"
+	AgentRuntimeExecutionFailureCodeUnclassified            AgentRuntimeExecutionFailureCode = "unclassified"
 )
 
 // Valid indicates whether the value is a known member of the AgentRuntimeExecutionFailureCode enum.
 func (e AgentRuntimeExecutionFailureCode) Valid() bool {
 	switch e {
-	case AuthenticationRequired:
+	case AgentRuntimeExecutionFailureCodeAuthenticationRequired:
 		return true
-	case CleanupUnconfirmed:
+	case AgentRuntimeExecutionFailureCodeCleanupUnconfirmed:
 		return true
-	case ComputerUnavailable:
+	case AgentRuntimeExecutionFailureCodeComputerUnavailable:
 		return true
-	case ContextTooLong:
+	case AgentRuntimeExecutionFailureCodeContextTooLong:
 		return true
-	case ExecutionFailed:
+	case AgentRuntimeExecutionFailureCodeExecutionFailed:
 		return true
-	case ExecutionOutcomeUnknown:
+	case AgentRuntimeExecutionFailureCodeExecutionOutcomeUnknown:
 		return true
-	case Interrupted:
+	case AgentRuntimeExecutionFailureCodeInterrupted:
 		return true
-	case ModelNotOffered:
+	case AgentRuntimeExecutionFailureCodeLocalModelUnavailable:
 		return true
-	case ModelServiceError:
+	case AgentRuntimeExecutionFailureCodeModelNotOffered:
 		return true
-	case ModelUnavailable:
+	case AgentRuntimeExecutionFailureCodeModelServiceError:
 		return true
-	case NetworkError:
+	case AgentRuntimeExecutionFailureCodeModelUnavailable:
 		return true
-	case ProtocolIncompatible:
+	case AgentRuntimeExecutionFailureCodeNetworkError:
 		return true
-	case RateLimited:
+	case AgentRuntimeExecutionFailureCodeProtocolIncompatible:
 		return true
-	case ReplyNotSent:
+	case AgentRuntimeExecutionFailureCodeRateLimited:
 		return true
-	case ReplyUndelivered:
+	case AgentRuntimeExecutionFailureCodeReplyNotSent:
 		return true
-	case ResponseTooLarge:
+	case AgentRuntimeExecutionFailureCodeReplyUndelivered:
 		return true
-	case SessionNotFound:
+	case AgentRuntimeExecutionFailureCodeResponseTooLarge:
 		return true
-	case Timeout:
+	case AgentRuntimeExecutionFailureCodeSessionNotFound:
 		return true
-	case Unclassified:
+	case AgentRuntimeExecutionFailureCodeTimeout:
+		return true
+	case AgentRuntimeExecutionFailureCodeUnclassified:
 		return true
 	default:
 		return false
@@ -635,6 +638,24 @@ func (e CancelAgentLocalRunResultStatus) Valid() bool {
 	case CancelAgentLocalRunResultStatusCanceled:
 		return true
 	case CancelAgentLocalRunResultStatusNotFound:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ClearAgentRuntimeSessionRequestRecoveryReason.
+const (
+	ClearAgentRuntimeSessionRequestRecoveryReasonContextTooLong  ClearAgentRuntimeSessionRequestRecoveryReason = "context_too_long"
+	ClearAgentRuntimeSessionRequestRecoveryReasonSessionNotFound ClearAgentRuntimeSessionRequestRecoveryReason = "session_not_found"
+)
+
+// Valid indicates whether the value is a known member of the ClearAgentRuntimeSessionRequestRecoveryReason enum.
+func (e ClearAgentRuntimeSessionRequestRecoveryReason) Valid() bool {
+	switch e {
+	case ClearAgentRuntimeSessionRequestRecoveryReasonContextTooLong:
+		return true
+	case ClearAgentRuntimeSessionRequestRecoveryReasonSessionNotFound:
 		return true
 	default:
 		return false
@@ -914,6 +935,27 @@ func (e LocalModelDownloadProgressStep) Valid() bool {
 	case LocalModelDownloadStepDownload:
 		return true
 	case LocalModelDownloadStepVerify:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for LocalModelEngine.
+const (
+	LocalModelEngineLlamaCpp   LocalModelEngine = "llama.cpp"
+	LocalModelEnginePolystrata LocalModelEngine = "polystrata"
+	LocalModelEngineStrata     LocalModelEngine = "strata"
+)
+
+// Valid indicates whether the value is a known member of the LocalModelEngine enum.
+func (e LocalModelEngine) Valid() bool {
+	switch e {
+	case LocalModelEngineLlamaCpp:
+		return true
+	case LocalModelEnginePolystrata:
+		return true
+	case LocalModelEngineStrata:
 		return true
 	default:
 		return false
@@ -1448,15 +1490,33 @@ func (e ProactiveWindowMessageAuthor) Valid() bool {
 	}
 }
 
+// Defines values for RecordAnotherMeBackgroundCallRequestOutcome.
+const (
+	RecordAnotherMeBackgroundCallRequestOutcomeCompleted RecordAnotherMeBackgroundCallRequestOutcome = "completed"
+	RecordAnotherMeBackgroundCallRequestOutcomeFailed    RecordAnotherMeBackgroundCallRequestOutcome = "failed"
+)
+
+// Valid indicates whether the value is a known member of the RecordAnotherMeBackgroundCallRequestOutcome enum.
+func (e RecordAnotherMeBackgroundCallRequestOutcome) Valid() bool {
+	switch e {
+	case RecordAnotherMeBackgroundCallRequestOutcomeCompleted:
+		return true
+	case RecordAnotherMeBackgroundCallRequestOutcomeFailed:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for RuntimeHumanInteractionCreatedStatus.
 const (
-	Pending RuntimeHumanInteractionCreatedStatus = "pending"
+	RuntimeHumanInteractionCreatedStatusPending RuntimeHumanInteractionCreatedStatus = "pending"
 )
 
 // Valid indicates whether the value is a known member of the RuntimeHumanInteractionCreatedStatus enum.
 func (e RuntimeHumanInteractionCreatedStatus) Valid() bool {
 	switch e {
-	case Pending:
+	case RuntimeHumanInteractionCreatedStatusPending:
 		return true
 	default:
 		return false
@@ -2388,10 +2448,30 @@ type AgentLocalRun struct {
 // AgentLocalRunStatus defines model for AgentLocalRun.Status.
 type AgentLocalRunStatus string
 
+// AgentLocalRunRecentMessage defines model for AgentLocalRunRecentMessage.
+type AgentLocalRunRecentMessage struct {
+	Author     string    `json:"author"`
+	AuthorKind string    `json:"author_kind"`
+	Body       string    `json:"body"`
+	CreatedAt  time.Time `json:"created_at"`
+	MessageId  string    `json:"message_id"`
+	Truncated  *bool     `json:"truncated,omitempty"`
+}
+
+// AgentLocalRunRecentMessages Bounded slice of recent product messages preceding a Run's first input, returned only when the Context currently has no persisted Runtime Session and continues earlier work.
+type AgentLocalRunRecentMessages struct {
+	InboxId    string                       `json:"inbox_id"`
+	Messages   []AgentLocalRunRecentMessage `json:"messages"`
+	NextCursor *string                      `json:"next_cursor,omitempty"`
+}
+
 // AgentLocalRunReplyStatus defines model for AgentLocalRunReplyStatus.
 type AgentLocalRunReplyStatus struct {
 	// Replied Whether TeamHub persisted a visible reply from this Local Run: a conversation Message or decision card attributed to the Run, a queued presentation sequence attributed to the Run, or an unattributed conversation Message, presentation sequence, or emoji Reaction written by the Context's Agent in the Room or its Threads since the Run started.
 	Replied bool `json:"replied"`
+
+	// RepliedInboxIds The Inboxes that hold such a reply: the Inbox of the Room or Thread it is in (`room:<id>`, `thread:<id>`) and of each Task whose work Room that is (`task:<id>`). A Run that took up mentions from several Inboxes has answered only those listed.
+	RepliedInboxIds *[]string `json:"replied_inbox_ids,omitempty"`
 }
 
 // AgentMemoryDocument defines model for AgentMemoryDocument.
@@ -2621,7 +2701,7 @@ type AgentRuntimeDeletionSnapshot struct {
 	TenantId Id `json:"tenant_id"`
 }
 
-// AgentRuntimeExecutionFailure Public classified failure; contains no native error text, paths, credentials, or task input. Each code is set where the failure is observed, from structured signals only. model_unavailable means the model service refused the selected model for the Runtime's account, so the Agent needs another model or another sign-in. model_not_offered means the Agent's Computer does not offer the selected model for its Runtime, or the model does not support the selected reasoning effort, so the Runtime could not start; the Agent needs a model and reasoning effort that Computer offers. context_too_long means the conversation no longer fits the model's context window. model_service_error means the model service reported a server-side error. timeout means the Runtime hit its local execution deadline. execution_outcome_unknown means a command was dispatched but no validated exit was observed before unexpected transport or Runtime failure. Intentional cancellation, authorization loss or unavailability, and normal retirement do not create this classification. Authorization loss or unavailability includes explicit revocation, authorization checks that fail or time out, and authorization expiry. This code does not currently cover unknown effects caused by control-plane disconnection. It remains a failed Run and must not be automatically replayed; verify its effects before starting another Run. reply_undelivered means a Room Run finished, but every message the Agent tried to post failed, so the Room received no reply from it. reply_not_sent means a Room Run finished without trying to post anything while a Human who mentioned the Agent waited for its reply; the Runtime ended the turn in text nobody sees, which is not posted for it. interrupted means the Run stopped before it finished for a reason other than a user cancellation, such as a restart or a Runner stopped on its Computer; part of its work may have taken effect and it is not replayed. computer_unavailable means the Agent's Computer could not run it: the Computer is unreachable, the Agent's Runner is stopped there, or the Runtime is not enabled. cleanup_unconfirmed means the Runtime process could not be confirmed stopped. response_too_large means the reply exceeded the Room's size limit. unclassified means no structured signal identified the cause. runtime_type is present when the failure belongs to a selected Runtime; it is absent for failures the Agent Service or TeamHub observes without one.
+// AgentRuntimeExecutionFailure Public classified failure; contains no native error text, paths, credentials, or task input. Each code is set where the failure is observed, from structured signals only. model_unavailable means the model service refused the selected model for the Runtime's account, so the Agent needs another model or another sign-in. model_not_offered means the Agent's Computer does not offer the selected model for its Runtime, or the model does not support the selected reasoning effort, so the Runtime could not start; the Agent needs a model and reasoning effort that Computer offers. local_model_unavailable means the Agent's Computer could not load the Agent's local model (not enough free memory, not fully downloaded, or loading took too long), so the Runtime did not start; the person can manage it on the Computer's Models page or choose another model. context_too_long means the conversation no longer fits the model's context window. model_service_error means the model service reported a server-side error. timeout means the Runtime hit its local execution deadline. execution_outcome_unknown means a command was dispatched but no validated exit was observed before unexpected transport or Runtime failure. Intentional cancellation, authorization loss or unavailability, and normal retirement do not create this classification. Authorization loss or unavailability includes explicit revocation, authorization checks that fail or time out, and authorization expiry. This code does not currently cover unknown effects caused by control-plane disconnection. It remains a failed Run and must not be automatically replayed; verify its effects before starting another Run. reply_undelivered means a Room Run finished while a Human who mentioned the Agent waited for its reply, every message write the Agent tried to post failed, and no reply reached the Room. reply_not_sent means a Room Run finished while a Human who mentioned the Agent waited for its reply and no reply reached the Room without any failed message write attempt (for instance, the Runtime ended the turn in text nobody sees, which is not posted for it). interrupted means the Run stopped before it finished for a reason other than a user cancellation, such as a restart or a Runner stopped on its Computer; part of its work may have taken effect and it is not replayed. computer_unavailable means the Agent's Computer could not run it: the Computer is unreachable, the Agent's Runner is stopped there, or the Runtime is not enabled. cleanup_unconfirmed means the Runtime process could not be confirmed stopped. response_too_large means the reply exceeded the Room's size limit. unclassified means no structured signal identified the cause. runtime_type is present when the failure belongs to a selected Runtime; it is absent for failures the Agent Service or TeamHub observes without one.
 type AgentRuntimeExecutionFailure struct {
 	Code           AgentRuntimeExecutionFailureCode `json:"code"`
 	RuntimeType    *LocalRuntimeType                `json:"runtime_type,omitempty"`
@@ -3041,7 +3121,10 @@ type AnotherMePlacement struct {
 	LocalRuntimeType LocalRuntimeType `json:"local_runtime_type"`
 
 	// OwnerActorId Opaque, case-sensitive identifier. Clients must not infer type or time from it.
-	OwnerActorId Id                       `json:"owner_actor_id"`
+	OwnerActorId Id `json:"owner_actor_id"`
+
+	// RuntimeModel The model configured for the Another Me on its local Runtime.
+	RuntimeModel *string                  `json:"runtime_model,omitempty"`
 	Status       AnotherMePlacementStatus `json:"status"`
 
 	// TenantId Opaque, case-sensitive identifier. Clients must not infer type or time from it.
@@ -3121,7 +3204,10 @@ type ClaimedAgentLocalRun struct {
 
 	// ProfileUpdate The Agent's current profile, present when this Context's Runtime Session was started under an older profile. Agent Service puts it before the Run's inputs as one hidden update; TeamHub returns each profile revision to a Session once.
 	ProfileUpdate *AgentProfileUpdate `json:"profile_update,omitempty"`
-	RunId         string              `json:"run_id"`
+
+	// RecentMessages Bounded slice of recent product messages preceding a Run's first input, returned only when the Context currently has no persisted Runtime Session and continues earlier work.
+	RecentMessages *AgentLocalRunRecentMessages `json:"recent_messages,omitempty"`
+	RunId          string                       `json:"run_id"`
 }
 
 // ClearAgentRuntimeSessionRequest defines model for ClearAgentRuntimeSessionRequest.
@@ -3134,7 +3220,13 @@ type ClearAgentRuntimeSessionRequest struct {
 
 	// ExpectedCurrentConfigurationRevision Loaded registration revision for automatic stale-session clearing. Requires the same active registration and rejects a Session compatible through proven profile initialization. Omit only for an explicit Session reset.
 	ExpectedCurrentConfigurationRevision *AgentRuntimePositiveInt64 `json:"expected_current_configuration_revision,omitempty"`
+
+	// RecoveryReason Runtime failure code that triggers a same-revision Session reset on an idle active Context. Mutually exclusive with expected_current_configuration_revision.
+	RecoveryReason *ClearAgentRuntimeSessionRequestRecoveryReason `json:"recovery_reason,omitempty"`
 }
+
+// ClearAgentRuntimeSessionRequestRecoveryReason Runtime failure code that triggers a same-revision Session reset on an idle active Context. Mutually exclusive with expected_current_configuration_revision.
+type ClearAgentRuntimeSessionRequestRecoveryReason string
 
 // ClearAgentRuntimeSessionResult defines model for ClearAgentRuntimeSessionResult.
 type ClearAgentRuntimeSessionResult struct {
@@ -3310,7 +3402,7 @@ type FinishAgentLocalRunRequestTerminalType string
 
 // FinishAgentLocalRunRequest_Terminal defines model for FinishAgentLocalRunRequest.Terminal.
 type FinishAgentLocalRunRequest_Terminal struct {
-	// Failure Public classified failure; contains no native error text, paths, credentials, or task input. Each code is set where the failure is observed, from structured signals only. model_unavailable means the model service refused the selected model for the Runtime's account, so the Agent needs another model or another sign-in. model_not_offered means the Agent's Computer does not offer the selected model for its Runtime, or the model does not support the selected reasoning effort, so the Runtime could not start; the Agent needs a model and reasoning effort that Computer offers. context_too_long means the conversation no longer fits the model's context window. model_service_error means the model service reported a server-side error. timeout means the Runtime hit its local execution deadline. execution_outcome_unknown means a command was dispatched but no validated exit was observed before unexpected transport or Runtime failure. Intentional cancellation, authorization loss or unavailability, and normal retirement do not create this classification. Authorization loss or unavailability includes explicit revocation, authorization checks that fail or time out, and authorization expiry. This code does not currently cover unknown effects caused by control-plane disconnection. It remains a failed Run and must not be automatically replayed; verify its effects before starting another Run. reply_undelivered means a Room Run finished, but every message the Agent tried to post failed, so the Room received no reply from it. reply_not_sent means a Room Run finished without trying to post anything while a Human who mentioned the Agent waited for its reply; the Runtime ended the turn in text nobody sees, which is not posted for it. interrupted means the Run stopped before it finished for a reason other than a user cancellation, such as a restart or a Runner stopped on its Computer; part of its work may have taken effect and it is not replayed. computer_unavailable means the Agent's Computer could not run it: the Computer is unreachable, the Agent's Runner is stopped there, or the Runtime is not enabled. cleanup_unconfirmed means the Runtime process could not be confirmed stopped. response_too_large means the reply exceeded the Room's size limit. unclassified means no structured signal identified the cause. runtime_type is present when the failure belongs to a selected Runtime; it is absent for failures the Agent Service or TeamHub observes without one.
+	// Failure Public classified failure; contains no native error text, paths, credentials, or task input. Each code is set where the failure is observed, from structured signals only. model_unavailable means the model service refused the selected model for the Runtime's account, so the Agent needs another model or another sign-in. model_not_offered means the Agent's Computer does not offer the selected model for its Runtime, or the model does not support the selected reasoning effort, so the Runtime could not start; the Agent needs a model and reasoning effort that Computer offers. local_model_unavailable means the Agent's Computer could not load the Agent's local model (not enough free memory, not fully downloaded, or loading took too long), so the Runtime did not start; the person can manage it on the Computer's Models page or choose another model. context_too_long means the conversation no longer fits the model's context window. model_service_error means the model service reported a server-side error. timeout means the Runtime hit its local execution deadline. execution_outcome_unknown means a command was dispatched but no validated exit was observed before unexpected transport or Runtime failure. Intentional cancellation, authorization loss or unavailability, and normal retirement do not create this classification. Authorization loss or unavailability includes explicit revocation, authorization checks that fail or time out, and authorization expiry. This code does not currently cover unknown effects caused by control-plane disconnection. It remains a failed Run and must not be automatically replayed; verify its effects before starting another Run. reply_undelivered means a Room Run finished while a Human who mentioned the Agent waited for its reply, every message write the Agent tried to post failed, and no reply reached the Room. reply_not_sent means a Room Run finished while a Human who mentioned the Agent waited for its reply and no reply reached the Room without any failed message write attempt (for instance, the Runtime ended the turn in text nobody sees, which is not posted for it). interrupted means the Run stopped before it finished for a reason other than a user cancellation, such as a restart or a Runner stopped on its Computer; part of its work may have taken effect and it is not replayed. computer_unavailable means the Agent's Computer could not run it: the Computer is unreachable, the Agent's Runner is stopped there, or the Runtime is not enabled. cleanup_unconfirmed means the Runtime process could not be confirmed stopped. response_too_large means the reply exceeded the Room's size limit. unclassified means no structured signal identified the cause. runtime_type is present when the failure belongs to a selected Runtime; it is absent for failures the Agent Service or TeamHub observes without one.
 	Failure              *AgentRuntimeExecutionFailure          `json:"failure,omitempty"`
 	Type                 FinishAgentLocalRunRequestTerminalType `json:"type"`
 	AdditionalProperties map[string]interface{}                 `json:"-"`
@@ -3369,19 +3461,34 @@ type LocalModel struct {
 	Availability LocalModelAvailability  `json:"availability"`
 
 	// Capabilities Capabilities verified by localmodels on this platform.
-	Capabilities  *[]LocalModelCapability     `json:"capabilities,omitempty"`
-	ContextTokens int64                       `json:"context_tokens"`
-	Description   string                      `json:"description"`
-	Download      *LocalModelDownloadProgress `json:"download,omitempty"`
-	DownloadBytes int64                       `json:"download_bytes"`
-	Endpoint      *LocalModelEndpoint         `json:"endpoint,omitempty"`
-	Error         *LocalModelError            `json:"error,omitempty"`
+	Capabilities *[]LocalModelCapability `json:"capabilities,omitempty"`
+
+	// Concurrency Maximum concurrent request slots configured or probed for this model when loaded.
+	Concurrency *int `json:"concurrency,omitempty"`
+
+	// ConcurrencyProbing True while a loaded or loading local model is running its post-load max-concurrency probe before reporting loaded.
+	ConcurrencyProbing *bool                       `json:"concurrency_probing,omitempty"`
+	ContextTokens      int64                       `json:"context_tokens"`
+	Description        string                      `json:"description"`
+	Download           *LocalModelDownloadProgress `json:"download,omitempty"`
+	DownloadBytes      int64                       `json:"download_bytes"`
+	Endpoint           *LocalModelEndpoint         `json:"endpoint,omitempty"`
+
+	// Engine Inference engine family that runs this model entry. Never inferred from name or description.
+	Engine *LocalModelEngine `json:"engine,omitempty"`
+
+	// EngineLabel Display-only engine version and backend for this model, such as PolyStrata 0.2.19-poly.1 · CUDA.
+	EngineLabel *string          `json:"engine_label,omitempty"`
+	Error       *LocalModelError `json:"error,omitempty"`
 
 	// Family Model family for brand presentation; never inferred from name.
 	Family *LocalModelFamily `json:"family,omitempty"`
 
 	// Fit Where the model can live, judged on total capacity so it stays stable across loads. system means localmodels can run it from RAM, slower.
 	Fit LocalModelFit `json:"fit"`
+
+	// HostRamBytes Additional host system RAM used alongside GPU VRAM for hybrid offload engines (such as PolyStrata); absent when all weights stay in the model's primary pool.
+	HostRamBytes *int64 `json:"host_ram_bytes,omitempty"`
 
 	// Id Stable localmodels library id: catalog id and variant, such as qwen3-4b:Q4_K_M.
 	Id LocalModelId `json:"id"`
@@ -3492,6 +3599,9 @@ type LocalModelEndpoint struct {
 	BaseUrl string `json:"base_url"`
 }
 
+// LocalModelEngine Inference engine family that runs this model entry. Never inferred from name or description.
+type LocalModelEngine string
+
 // LocalModelError defines model for LocalModelError.
 type LocalModelError struct {
 	// Cause Why a GATEWAY_REGISTRATION_FAILED happened, when the Computer supervised the failed job. GATEWAY_HOME_NOT_PRIVATE: the local gateway's private folder at path has another owner; closing Linger and renaming that folder lets the model load.
@@ -3562,6 +3672,9 @@ type LocalModelNoteCode string
 
 // LocalModelPool One place models load into. The system and unified budgets are 80% of RAM, as localmodels computes them.
 type LocalModelPool struct {
+	// ExternalHolders Closeable desktop applications holding this pool's memory, as localmodels reports them. An empty list means localmodels looked and found no closeable app; absent means not reported, and the rest of used_bytes is then not known to be other apps.
+	ExternalHolders *[]LocalModelPoolExternalHolder `json:"external_holders,omitempty"`
+
 	// GpuIndex Present only for kind gpu; matches LocalModelGpu.index.
 	GpuIndex *int                   `json:"gpu_index,omitempty"`
 	Holders  []LocalModelPoolHolder `json:"holders"`
@@ -3575,6 +3688,12 @@ type LocalModelPool struct {
 
 // LocalModelPoolKind defines model for LocalModelPool.Kind.
 type LocalModelPoolKind string
+
+// LocalModelPoolExternalHolder A desktop application outside localmodels holding pool memory, such as a browser, video player, or game, that the user could close.
+type LocalModelPoolExternalHolder struct {
+	Bytes int64  `json:"bytes"`
+	Name  string `json:"name"`
+}
 
 // LocalModelPoolHolder Something holding pool memory. A component is a foundation service such as an embedding, reranker, or speech model; it is never a model row.
 type LocalModelPoolHolder struct {
@@ -3958,6 +4077,22 @@ type RecordAgentLocalRunOperationRequest struct {
 	// Usage The usage the Operation's terminal reported; absent when the Operation starts.
 	Usage *[]map[string]interface{} `json:"usage,omitempty"`
 }
+
+// RecordAnotherMeBackgroundCallRequest defines model for RecordAnotherMeBackgroundCallRequest.
+type RecordAnotherMeBackgroundCallRequest struct {
+	// AgentActorId Opaque, case-sensitive identifier. Clients must not infer type or time from it.
+	AgentActorId Id                                          `json:"agent_actor_id"`
+	Outcome      RecordAnotherMeBackgroundCallRequestOutcome `json:"outcome"`
+
+	// Reason Why a failed call failed, as an AnotherMeBackgroundFailureReason code. A string rather than the enum so a newer Agent Service can send a code this TeamHub does not know; TeamHub records it as unknown. Ignored for a completed call.
+	Reason *string `json:"reason,omitempty"`
+
+	// TenantId Opaque, case-sensitive identifier. Clients must not infer type or time from it.
+	TenantId Id `json:"tenant_id"`
+}
+
+// RecordAnotherMeBackgroundCallRequestOutcome defines model for RecordAnotherMeBackgroundCallRequest.Outcome.
+type RecordAnotherMeBackgroundCallRequestOutcome string
 
 // RecordLocalModelsRequest The latest runner.local_models snapshot of one Computer. TeamHub keeps only the latest per Computer, so an offline Computer still shows what it last reported.
 type RecordLocalModelsRequest struct {
@@ -5020,6 +5155,9 @@ type ReportVoiceRecordingJSONRequestBody = VoiceRecordingReport
 
 // CommitAgentMemoryJSONRequestBody defines body for CommitAgentMemory for application/json ContentType.
 type CommitAgentMemoryJSONRequestBody = AgentMemoryDocument
+
+// RecordAnotherMeBackgroundCallJSONRequestBody defines body for RecordAnotherMeBackgroundCall for application/json ContentType.
+type RecordAnotherMeBackgroundCallJSONRequestBody = RecordAnotherMeBackgroundCallRequest
 
 // EnsureAgentExecutionContextJSONRequestBody defines body for EnsureAgentExecutionContext for application/json ContentType.
 type EnsureAgentExecutionContextJSONRequestBody = EnsureAgentExecutionContextRequest

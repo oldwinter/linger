@@ -20,7 +20,8 @@ const storedLocalModelsSnapshotJSON = `{"available":true,"observed_at":"2026-11-
   "pool":"gpu:0","state":"loaded","endpoint":{"base_url":"http://127.0.0.1:18100/v1"},"pi_model":"localmodels-library/localmodels-lib-qwen3-8-27b-iq3s-ud-iq3-s/Qwen3.8-27B-UD-IQ3_S",
   "family":"qwen","publisher":"Alibaba Cloud","architecture":"moe","parameters":"30B","active_parameters":"3B",
   "capabilities":["tool_use","reasoning","coding"],"license":"Apache-2.0",
-  "source_url":"https://huggingface.co/Qwen/Qwen3-Coder-30B-A3B-Instruct","prompt_tokens_per_second":612.5},
+  "source_url":"https://huggingface.co/Qwen/Qwen3-Coder-30B-A3B-Instruct","prompt_tokens_per_second":612.5,
+  "engine":"polystrata","engine_label":"PolyStrata 0.2.19-poly.1 · CUDA","concurrency":1,"host_ram_bytes":19800000000},
  {"id":"quick-install:Q4","name":"Quick Install","description":"","quant":"Q4","context_tokens":8192,"vision":false,
   "download_bytes":10,"memory_bytes":30,"fit":"gpu","recommended":false,"availability":{"downloadable":true},
   "pool":"gpu:0","state":"loaded","endpoint":{"base_url":"http://127.0.0.1:18101/v1"},"pi_model":"localmodels/localmodels-agent"},
@@ -74,7 +75,11 @@ func TestLocalModelsViewMatchesAgentsToModelsOnTheComputer(t *testing.T) {
 		first.Capabilities == nil || !slices.Equal(*first.Capabilities, []httpapi.LocalModelCapability{httpapi.LocalModelCapabilityToolUse, httpapi.LocalModelCapabilityReasoning, httpapi.LocalModelCapabilityCoding}) ||
 		first.License == nil || *first.License != "Apache-2.0" ||
 		first.SourceUrl == nil || *first.SourceUrl != "https://huggingface.co/Qwen/Qwen3-Coder-30B-A3B-Instruct" ||
-		first.PromptTokensPerSecond == nil || *first.PromptTokensPerSecond != 612.5 {
+		first.PromptTokensPerSecond == nil || *first.PromptTokensPerSecond != 612.5 ||
+		first.Engine == nil || *first.Engine != httpapi.LocalModelEnginePolystrata ||
+		first.EngineLabel == nil || *first.EngineLabel != "PolyStrata 0.2.19-poly.1 · CUDA" ||
+		first.Concurrency == nil || *first.Concurrency != 1 ||
+		first.HostRamBytes == nil || *first.HostRamBytes != 19800000000 {
 		t.Fatalf("rich model fields=%+v", first)
 	}
 	if users := view.Models[1].UsedBy; len(users) != 1 || users[0].AgentId != "agent_2" {
@@ -212,6 +217,22 @@ func TestValidLocalModelsSnapshot(t *testing.T) {
 			p := float32(-1)
 			s.Models[0].PromptTokensPerSecond = &p
 		},
+		"unknown engine": func(s *teamhubinternal.LocalModelsSnapshot) {
+			e := teamhubinternal.LocalModelEngine("vllm")
+			s.Models[0].Engine = &e
+		},
+		"zero concurrency": func(s *teamhubinternal.LocalModelsSnapshot) {
+			c := 0
+			s.Models[0].Concurrency = &c
+		},
+		"negative host_ram_bytes": func(s *teamhubinternal.LocalModelsSnapshot) {
+			r := int64(-1)
+			s.Models[0].HostRamBytes = &r
+		},
+		"concurrency_probing outside loading": func(s *teamhubinternal.LocalModelsSnapshot) {
+			p := true
+			s.Models[0].ConcurrencyProbing = &p
+		},
 	} {
 		var copied teamhubinternal.LocalModelsSnapshot
 		if err := json.Unmarshal([]byte(storedLocalModelsSnapshotJSON), &copied); err != nil {
@@ -256,9 +277,17 @@ func TestSanitizeLocalModelsSnapshotForwardCompatibility(t *testing.T) {
 	badCause := teamhubinternal.LocalModelErrorCause("FUTURE_CAUSE")
 	path := "/tmp/x"
 	badNote := teamhubinternal.LocalModelNoteCode("FUTURE_NOTE")
+	badEngine := teamhubinternal.LocalModelEngine("future_engine")
+	badConcurrency := 0
+	badHostRam := int64(-5)
+	probingOnFailed := true
 	snapshot.Models[0].Family = &badFamily
 	snapshot.Models[0].Architecture = &badArch
 	snapshot.Models[0].Capabilities = &badCaps
+	snapshot.Models[0].Engine = &badEngine
+	snapshot.Models[0].Concurrency = &badConcurrency
+	snapshot.Models[0].ConcurrencyProbing = &probingOnFailed
+	snapshot.Models[0].HostRamBytes = &badHostRam
 	snapshot.Models[0].State = teamhubinternal.LocalModelStateFailed
 	snapshot.Models[0].Error = &teamhubinternal.LocalModelError{Code: "FUTURE_CODE", Cause: &badCause, Path: &path}
 	snapshot.Models[2].Note = &teamhubinternal.LocalModelNote{Code: badNote}
@@ -270,10 +299,40 @@ func TestSanitizeLocalModelsSnapshotForwardCompatibility(t *testing.T) {
 	}
 	if snapshot.Models[0].Family == nil || *snapshot.Models[0].Family != teamhubinternal.LocalModelFamilyOther ||
 		snapshot.Models[0].Architecture != nil ||
+		snapshot.Models[0].Engine != nil ||
+		snapshot.Models[0].Concurrency != nil ||
+		snapshot.Models[0].ConcurrencyProbing != nil ||
+		snapshot.Models[0].HostRamBytes != nil ||
 		snapshot.Models[0].Capabilities == nil || !slices.Equal(*snapshot.Models[0].Capabilities, []teamhubinternal.LocalModelCapability{teamhubinternal.LocalModelCapabilityVision}) ||
 		snapshot.Models[0].Error.Code != teamhubinternal.UNKNOWNERROR || snapshot.Models[0].Error.Cause != nil || snapshot.Models[0].Error.Path != nil ||
 		snapshot.Models[2].Note != nil ||
 		snapshot.Models[3].Availability.Reason.Code != teamhubinternal.LocalModelAvailabilityUnavailable {
 		t.Fatalf("unexpected sanitized models: %+v", snapshot.Models)
+	}
+}
+
+func TestLocalModelsViewPassesThroughConcurrencyProbingWhileLoading(t *testing.T) {
+	probingSnapshot := strings.Replace(storedLocalModelsSnapshotJSON,
+		`"state":"idle"`,
+		`"state":"loading","concurrency_probing":true`, 1)
+	var internal teamhubinternal.LocalModelsSnapshot
+	if err := json.Unmarshal([]byte(probingSnapshot), &internal); err != nil {
+		t.Fatal(err)
+	}
+	if !validLocalModelsSnapshot(internal) {
+		t.Fatal("loading snapshot with concurrency_probing=true was rejected")
+	}
+	record := agentruntimestate.LocalModelsRecord{
+		ComputerID: "computer_1", DisplayName: "Studio", Status: "online",
+		Owner:    agentruntimestate.LocalComputerOwner{TenantID: "tenant_1", OwnerActorID: "actor_owner"},
+		Snapshot: json.RawMessage(probingSnapshot),
+	}
+	view, err := localModelsView(record, "actor_owner", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	probingModel := view.Models[2].Model
+	if probingModel.State != httpapi.LocalModelStateLoading || probingModel.ConcurrencyProbing == nil || !*probingModel.ConcurrencyProbing {
+		t.Fatalf("probing model = %+v, want state=loading concurrency_probing=true", probingModel)
 	}
 }

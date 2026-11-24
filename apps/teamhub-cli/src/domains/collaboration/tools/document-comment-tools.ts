@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { codePointString } from "./creation-schemas.js";
 import { teamHubIdSchema } from "../message-segments.js";
 
 const documentCommentTextSchema = z
@@ -134,11 +135,11 @@ export const replaceDocumentCommentTextInputSchema = z
     thread_id: teamHubIdSchema.describe(
       "Document Comment Thread whose attached selected text will be replaced.",
     ),
-    replace_str: z
-      .string()
-      .min(1)
-      .max(50_000)
-      .describe("Exact replacement text for the attached selection."),
+    // The published schema keeps its key order when the description is applied
+    // after the bound, so the snapshot stays as it was.
+    replace_str: codePointString({ max: 50_000 }).describe(
+      "Exact replacement text for the attached selection.",
+    ),
   })
   .strict()
   .describe("Replacement text for the current Thread selection.");

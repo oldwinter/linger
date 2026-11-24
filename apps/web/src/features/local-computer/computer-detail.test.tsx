@@ -12,6 +12,7 @@ import { ComputerDetail } from "./computer-detail";
 
 afterEach(() => {
   cleanup();
+  delete (window as { lingerDesktop?: unknown }).lingerDesktop;
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
@@ -207,4 +208,56 @@ it("keeps Hint wrappers free of competing display classes and double tab stops o
     "tabindex",
     "0",
   );
+});
+
+it("shows the desktop Prevent sleep switch only for this computer", async () => {
+  Object.assign(window, {
+    lingerDesktop: {
+      computer: {
+        getStatus: vi.fn(async () => ({
+          bridge: "online",
+          runtime: "ready",
+          computerId: "this-mac",
+          activeOperations: 0,
+        })),
+        onStatus: vi.fn(() => () => {}),
+        enroll: vi.fn(),
+      },
+      settings: {
+        get: vi.fn(async () => ({ preventSleep: false })),
+        set: vi.fn(async (patch: { preventSleep: boolean }) => patch),
+        onChange: vi.fn(() => () => {}),
+      },
+    },
+  });
+  const baseComputer: TeamHubLocalComputerPage["items"][number] = {
+    computer_id: "this-mac",
+    display_name: "Studio Mac",
+    status: "online",
+    platform: "darwin",
+    upgrade_required: false,
+    active_operations: 0,
+    workspace_grants: [],
+    runtimes: [{ type: "codex", status: "ready", models: [] }],
+  };
+  const props = {
+    agents: [],
+    agentAvailabilities: new Map(),
+    onOpenAgent: vi.fn(),
+  };
+
+  const { rerender } = render(
+    <ComputerDetail {...props} computer={baseComputer} />,
+  );
+  expect(
+    await screen.findByRole("switch", { name: "Prevent sleep" }),
+  ).toBeVisible();
+
+  rerender(
+    <ComputerDetail
+      {...props}
+      computer={{ ...baseComputer, computer_id: "other-mac" }}
+    />,
+  );
+  expect(screen.queryByRole("switch", { name: "Prevent sleep" })).toBeNull();
 });

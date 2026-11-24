@@ -1,3 +1,4 @@
+import { startsMentionToken } from "@/features/teamhub/mention-boundary";
 import type { TeamHubActorRef } from "@/features/teamhub/teamhub-types";
 import {
   findTeamHubMessageTokenMatches,
@@ -21,18 +22,17 @@ export function findMessageMentionQuery(
 ): MessageMentionQuery | null {
   const boundedCursor = Math.max(0, Math.min(cursor, body.length));
   const beforeCursor = body.slice(0, boundedCursor);
-  const match = beforeCursor.match(/(^|\s)@([\p{L}\p{N}_-]*)$/u);
+  // Chinese, Japanese and Korean prose has no spaces, so `@` after a Han
+  // character still starts a mention; a word in a script that does use spaces,
+  // a number, or a path or address character before it keeps the `@` literal.
+  const match = beforeCursor.match(/@([\p{L}\p{N}_-]*)$/u);
 
-  if (!match) {
+  if (!match || !startsMentionToken(beforeCursor, match.index!)) {
     return null;
   }
 
-  const query = match[2] ?? "";
-  return {
-    end: boundedCursor,
-    query,
-    start: boundedCursor - query.length - 1,
-  };
+  const query = match[1] ?? "";
+  return { end: boundedCursor, query, start: match.index! };
 }
 
 export function findMessageMentionCandidates(

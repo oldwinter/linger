@@ -115,3 +115,93 @@ func TestVoiceLiveRenamesEditsAndCommentsOnADocument(t *testing.T) {
 		t.Fatal("thread not resolved")
 	}
 }
+
+func TestVoiceLiveDocumentRewriteKeepsMediaAndStopsOnConflicts(t *testing.T) {
+	allowParallelIntegrationTest(t)
+	var computes atomic.Int32
+	replaced := make(chan string, 64)
+	var bodies *pgxpool.Pool
+	runtime := canvasRuntime(t, &computes, replaced, func() *pgxpool.Pool { return bodies })
+	env, _, _, sessionID := newVoiceLiveRoom(t, func(cfg *config.Config) { cfg.RoomDocument.RuntimeURL = runtime.URL })
+	bodies = env.pool
+	call := func(id, name string, args map[string]any) map[string]any {
+		t.Helper()
+		encoded, _ := json.Marshal(args)
+		var result teamhubinternal.VoiceLiveToolResult
+		decode(t, voiceRuntimeCall(t, env, http.MethodPost, "/internal/v1/voice/live-tool-calls", map[string]any{
+			"voice_session_id": sessionID, "turn_id": "lt_media", "call_id": id, "name": name, "arguments": string(encoded),
+		}, http.StatusOK), &result)
+		var output map[string]any
+		if err := json.Unmarshal([]byte(result.Output), &output); err != nil {
+			t.Fatal(err)
+		}
+		return output
+	}
+	opened := call("create", "create_document", map[string]any{"title": "Court invitation", "content": "Court introduction"})
+	documentID, ok := opened["document_id"].(string)
+	if !ok {
+		t.Fatalf("create=%v", opened)
+	}
+	header := "```\nCourt information\n```\n\n"
+	photo := "![Court](document-asset:document_asset_chart)"
+	file := "[Guide (application/pdf)](document-asset:document_asset_guide)"
+	original := header + "Old introduction\n\n" + photo + "\n\nOld middle\n\n" + file + "\n\nOld ending\n"
+	if _, err := env.pool.Exec(t.Context(), `UPDATE document_bodies SET state=$2,seq=seq+1 WHERE document_id=$1`, documentID, []byte(original)); err != nil {
+		t.Fatal(err)
+	}
+	stateOf := func() string {
+		t.Helper()
+		var state []byte
+		if err := env.pool.QueryRow(t.Context(), `SELECT state FROM document_bodies WHERE document_id=$1`, documentID).Scan(&state); err != nil {
+			t.Fatal(err)
+		}
+		return string(state)
+	}
+	read := func(id string) map[string]any {
+		return call(id, "edit_document", map[string]any{"document_id": documentID, "command": "rewrite", "content": "unused"})
+	}
+	current := read("read")
+	if current["error"] != "document_changed" || current["text"] != strings.TrimSpace(original) {
+		t.Fatalf("read=%v", current)
+	}
+	revision := current["revision_id"]
+	rewrite := func(id string, rev any, content string) map[string]any {
+		return call(id, "edit_document", map[string]any{"document_id": documentID, "command": "rewrite", "revision_id": rev, "content": content})
+	}
+	next := header + "New introduction\n\n" + photo + "\n\nNew middle\n\n" + file + "\n\nNew ending\n"
+	before := computes.Load()
+	if rejected := rewrite("missing", revision, strings.ReplaceAll(next, photo, "")); rejected["error"] != "media_moved" {
+		t.Fatalf("missing marker=%v", rejected)
+	}
+	if rejected := rewrite("stale", "revision_old", next); rejected["error"] != "document_changed" {
+		t.Fatalf("stale=%v", rejected)
+	}
+	if computes.Load() != before || stateOf() != original {
+		t.Fatal("rejected rewrite changed the document")
+	}
+	changed := rewrite("rewrite", revision, next)
+	if changed["status"] != "changed" || stateOf() != next {
+		t.Fatalf("rewrite=%v state=%q", changed, stateOf())
+	}
+	after := computes.Load()
+	replay := rewrite("rewrite", revision, next)
+	if replay["status"] != "changed" || computes.Load() != after || stateOf() != next {
+		t.Fatalf("replay=%v", replay)
+	}
+	// The last text run lands, then a concurrent edit prevents further writes.
+	canvasConflicts.Store(documentID, &canvasConflictPlan{skip: 1, conflicts: 1})
+	t.Cleanup(func() { canvasConflicts.Delete(documentID) })
+	final := strings.ReplaceAll(next, "New", "Final")
+	conflict := rewrite("conflict", changed["revision_id"], final)
+	if conflict["error"] != "document_changed" || conflict["partially_changed"] != true || conflict["next"] == "" {
+		t.Fatalf("conflict=%v", conflict)
+	}
+	partial := stateOf()
+	if partial != strings.Replace(next, "New ending", "Final ending", 1) {
+		t.Fatalf("unexpected partial state=%q", partial)
+	}
+	fresh := read("read-after-conflict")
+	if retry := rewrite("retry", fresh["revision_id"], final); retry["status"] != "changed" || stateOf() != final {
+		t.Fatalf("retry=%v state=%q", retry, stateOf())
+	}
+}

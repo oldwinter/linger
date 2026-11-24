@@ -29,7 +29,12 @@ import { publicComputer } from "./public.js";
 import { prepareDependencies } from "@linger/local-installation/dependencies";
 import { readManagedModel } from "@linger/local-installation/managed-codex";
 import type { RunInstallation } from "./jobs.js";
-import { instanceRuntime } from "./instance-runtime.js";
+import type { RuntimeDescriptor } from "@linger/local-installation/managed-runtimes";
+import {
+  formatRuntimeLookupTimings,
+  instanceRuntime,
+} from "./instance-runtime.js";
+import { RuntimeLookups } from "./runtime-lookup.js";
 export function coreAdapter(
   home: string,
   sourceRepo: string,
@@ -37,6 +42,15 @@ export function coreAdapter(
 ) {
   const instance = (name: string) => loadInstance({ name, home });
   const nativeLogin = new RuntimeLoginManager();
+  const runtimes = new RuntimeLookups(async (name, descriptors) => {
+    const choice = await readSetupChoice({ name, home });
+    const reused = descriptors?.filter((row) => row.runtime === choice);
+    return instanceRuntime(home, name, {
+      ...(reused?.length ? { runtimeDescriptors: reused } : {}),
+      onTimings: (timings) =>
+        process.stderr.write(formatRuntimeLookupTimings(name, timings)),
+    });
+  });
   return {
     closeRuntimeLogins: () => nativeLogin.close(),
     cancelRuntimeLogin: async (name: string) => nativeLogin.cancel(name),
@@ -56,7 +70,7 @@ export function coreAdapter(
       const runtime = await readSetupChoice({ name, home });
       if (!value || !runtime || runtime === "local-models")
         return { state: "idle" as const };
-      if (credential)
+      if (credential) {
         await withInstanceLock(value, () =>
           saveRuntimeApiKey(
             value.root,
@@ -70,6 +84,8 @@ export function coreAdapter(
               : undefined,
           ),
         );
+        runtimes.invalidate(name);
+      }
       const input = { instance: name, home, root: value.root, runtime };
       return start && !credential
         ? nativeLogin.start(input, code, method)
@@ -77,23 +93,69 @@ export function coreAdapter(
     },
     setup: () =>
       inspectSetup({ home, signal: AbortSignal.timeout(10 * 60_000) }),
-    run: ((input, signal, onEvent) =>
-      input.preparation
-        ? prepareDependencies({
+    run: (async (input, signal, onEvent, publishRuntime) => {
+      runtimes.invalidate(input.instance);
+      let descriptors: RuntimeDescriptor[] | undefined;
+      let outcome: unknown;
+      try {
+        if (input.preparation) {
+          outcome = await prepareDependencies({
             home,
             dependency: input.preparation,
             signal,
             onEvent,
-          })
-        : installNativeSource({
-            ...input,
-            name: input.instance,
-            home,
-            repo: sourceRepo,
-            externalComputer,
-            signal,
-            onEvent,
-          })) as RunInstallation,
+          });
+          return outcome;
+        }
+        const installOutcome = await installNativeSource({
+          ...input,
+          name: input.instance,
+          home,
+          repo: sourceRepo,
+          externalComputer,
+          signal,
+          onEvent,
+          onRuntimeDescriptors: (value) => {
+            descriptors = value;
+          },
+        });
+        outcome = installOutcome;
+        if (
+          externalComputer &&
+          installOutcome.code === 0 &&
+          publishRuntime &&
+          descriptors?.some((row) => row.runtime === input.setupChoice)
+        ) {
+          // A failed handoff leaves the completed job usable. Desktop can retry the live lookup,
+          // so the failure is only reported on stderr, which Desktop logs.
+          const runtime = await instanceRuntime(home, input.instance, {
+            runtimeDescriptors: descriptors,
+            onTimings: (timings) =>
+              process.stderr.write(
+                formatRuntimeLookupTimings(input.instance, timings),
+              ),
+          }).catch((error: unknown) => {
+            process.stderr.write(
+              `${JSON.stringify({
+                event: "installer.runtime_handoff_failed",
+                instance: input.instance,
+                message: error instanceof Error ? error.message : String(error),
+              })}\n`,
+            );
+            return undefined;
+          });
+          if (runtime) publishRuntime(runtime);
+        }
+        return installOutcome;
+      } finally {
+        runtimes.invalidate(input.instance);
+        if (
+          descriptors &&
+          (outcome as { state?: unknown } | undefined)?.state === "ready"
+        )
+          runtimes.remember(input.instance, descriptors);
+      }
+    }) as RunInstallation,
     environment: () =>
       checkNativeSourceEnvironment({
         repo: sourceRepo,
@@ -180,7 +242,7 @@ export function coreAdapter(
     runtime(
       name: string,
     ): Promise<components["schemas"]["InstanceRuntime"] | undefined> {
-      return instanceRuntime(home, name);
+      return runtimes.get(name);
     },
     async login(name: string) {
       const value = await instance(name);

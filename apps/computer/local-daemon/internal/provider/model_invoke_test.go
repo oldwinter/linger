@@ -50,7 +50,7 @@ func disabledFeatures(args []string) []string {
 }
 
 func TestCodexModelInvokeArgsPinEffortIsolationAndNoPrompt(t *testing.T) {
-	args := codexModelInvokeArgs("0.150.1", ModelInvokeStructured, "low", "", "/tmp/call/work", "/tmp/call/schema.json", "/tmp/call/last.txt")
+	args := codexModelInvokeArgs(ModelInvokeStructured, "low", "", "/tmp/call/work", "/tmp/call/schema.json", "/tmp/call/last.txt")
 	if args[0] != "exec" || !slices.Contains(args, "--skip-git-repo-check") || !slices.Contains(args, "--ephemeral") ||
 		!slices.Contains(args, "--ignore-rules") || argValue(args, "--sandbox") != "read-only" ||
 		argValue(args, "--color") != "never" || argValue(args, "-C") != "/tmp/call/work" ||
@@ -82,13 +82,13 @@ func TestCodexModelInvokeArgsPinEffortIsolationAndNoPrompt(t *testing.T) {
 		t.Fatalf("argv ends with %q", last)
 	}
 
-	text := codexModelInvokeArgs("0.150.1", ModelInvokeText, "high", "gpt-account-default", "/w", "", "/l")
+	text := codexModelInvokeArgs(ModelInvokeText, "high", "gpt-account-default", "/w", "", "/l")
 	if slices.Contains(text, "--output-schema") || !slices.Contains(text, `model_reasoning_effort="high"`) ||
 		argValue(text, "-m") != "gpt-account-default" || slices.Contains(args, "-m") {
 		t.Fatalf("text args = %q", text)
 	}
 
-	workspace := codexModelInvokeArgs("0.150.1", ModelInvokeWorkspace, "medium", "", "/w", "", "/l")
+	workspace := codexModelInvokeArgs(ModelInvokeWorkspace, "medium", "", "/w", "", "/l")
 	if argValue(workspace, "--sandbox") != "workspace-write" {
 		t.Fatalf("workspace args = %q", workspace)
 	}
@@ -139,13 +139,14 @@ func TestCodexModelInvokeAvoidsUnknownDisableFlagsOnOlderCodex(t *testing.T) {
 
 func TestClaudeModelInvokeArgsDisableToolsAndCustomizations(t *testing.T) {
 	schema := json.RawMessage(`{"type":"object"}`)
-	args := claudeModelInvokeArgs(ModelInvokeStructured, "low", schema)
+	args := claudeModelInvokeArgs(ModelInvokeStructured, "low", "claude-sonnet-4-6", schema)
 	for _, flag := range []string{"-p", "--safe-mode", "--strict-mcp-config", "--no-session-persistence", "--disable-slash-commands"} {
 		if !slices.Contains(args, flag) {
 			t.Fatalf("args lack %s: %q", flag, args)
 		}
 	}
 	if argValue(args, "--output-format") != "json" || argValue(args, "--json-schema") != `{"type":"object"}` ||
+		argValue(args, "--model") != "claude-sonnet-4-6" ||
 		argValue(args, "--effort") != "low" || argValue(args, "--permission-mode") != "dontAsk" {
 		t.Fatalf("args = %q", args)
 	}
@@ -156,28 +157,28 @@ func TestClaudeModelInvokeArgsDisableToolsAndCustomizations(t *testing.T) {
 		t.Fatalf("structured mode is restricted: %q", args)
 	}
 
-	text := claudeModelInvokeArgs(ModelInvokeText, "medium", nil)
-	if slices.Contains(text, "--json-schema") || argValue(text, "--effort") != "medium" {
+	text := claudeModelInvokeArgs(ModelInvokeText, "medium", "", nil)
+	if slices.Contains(text, "--json-schema") || slices.Contains(text, "--model") || argValue(text, "--effort") != "medium" {
 		t.Fatalf("text args = %q", text)
 	}
 
-	workspace := claudeModelInvokeArgs(ModelInvokeWorkspace, "high", nil)
+	workspace := claudeModelInvokeArgs(ModelInvokeWorkspace, "high", "", nil)
 	if argValue(workspace, "--tools") != "Read,Write,Edit,Glob,Grep" || !slices.Contains(workspace, "--restricted") ||
 		argValue(workspace, "--permission-mode") != "acceptEdits" {
 		t.Fatalf("workspace args = %q", workspace)
 	}
 
-	noneArgs := claudeModelInvokeArgs(ModelInvokeText, "none", nil)
+	noneArgs := claudeModelInvokeArgs(ModelInvokeText, "none", "", nil)
 	if slices.Contains(noneArgs, "--effort") || argValue(noneArgs, "--thinking") != "disabled" {
 		t.Fatalf("none args = %q; want --thinking disabled without --effort", noneArgs)
 	}
 
-	emptyArgs := claudeModelInvokeArgs(ModelInvokeText, "", nil)
+	emptyArgs := claudeModelInvokeArgs(ModelInvokeText, "", "", nil)
 	if slices.Contains(emptyArgs, "--effort") || slices.Contains(emptyArgs, "--thinking") {
 		t.Fatalf("empty effort args = %q; want neither --effort nor --thinking", emptyArgs)
 	}
 
-	codexEmpty := codexModelInvokeArgs("", ModelInvokeText, "", "", "/w", "", "/l")
+	codexEmpty := codexModelInvokeArgs(ModelInvokeText, "", "", "/w", "", "/l")
 	for _, arg := range codexEmpty {
 		if strings.HasPrefix(arg, "model_reasoning_effort=") {
 			t.Fatalf("codex empty effort included reasoning override: %q", codexEmpty)
@@ -426,6 +427,22 @@ func TestCodexModelInvokeRunsTheCatalogDefaultWhenConfigNamesNoModel(t *testing.
 	fixture.invoker.Invoke(context.Background(), structuredRequest())
 	if slices.Contains(args, "-m") {
 		t.Fatalf("args = %q", args)
+	}
+
+	// An explicit request model always wins, overriding an incompatible model
+	// configured in config.toml or its active profile.
+	for _, config := range []string{
+		"model = \"unsupported-local-model\"\n",
+		"profile = \"custom\"\n[profiles.custom]\nmodel = \"unsupported-local-model\"\n",
+	} {
+		writeCodexConfig(t, fixture, config)
+		withDefaultModel(&fixture, "gpt-account-default")
+		req := structuredRequest()
+		req.Model = "gpt-explicit"
+		result := fixture.invoker.Invoke(context.Background(), req)
+		if result.Outcome != ModelInvokeCompleted || result.Model != "gpt-explicit" || argValue(args, "-m") != "gpt-explicit" {
+			t.Fatalf("config %q: result = %+v, args = %q", config, result, args)
+		}
 	}
 }
 

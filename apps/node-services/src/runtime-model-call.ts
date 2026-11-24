@@ -21,8 +21,10 @@ import { modelCallPolicies, type ModelCallKind } from "./model-tasks.js";
 type AnotherMePlacement = components["schemas"]["AnotherMePlacement"];
 
 /**
- * Background model calls use the Daemon's one-shot model invocation and the
- * selected Runtime's default model. The request names no endpoint, key or model.
+ * Background model calls use the Daemon's one-shot model invocation with the
+ * placed Agent's configured model (or the selected Runtime's catalog default
+ * on cross-Runtime fallback or when unconfigured). The request names no
+ * endpoint or key.
  */
 
 export type ModelCallEffort = ModelInvoke["reasoning_effort"];
@@ -45,6 +47,8 @@ export interface ModelPlacement extends ModelOwner {
   readonly agentId: string;
   readonly computerId: string;
   readonly runtimeType: LocalRuntimeType;
+  /** The model configured for this Agent on its local Runtime. */
+  readonly model?: string;
   /** The Another Me's own actor; TeamHub placements always carry it. */
   readonly agentActorId?: string;
 }
@@ -253,6 +257,9 @@ export class ModelCallError extends Error {
   readonly output?: string;
   /** The Daemon's structured outcome when kind is runtime_unavailable. */
   readonly runtimeOutcome?: ModelCallRuntimeOutcome;
+  /** The Daemon stopped the call because its connection closed, it began
+   * shutting down, or the caller cancelled it; the Runtime did not fail. */
+  readonly canceled?: boolean;
 
   constructor(
     readonly kind: ModelCallErrorKind,
@@ -260,11 +267,13 @@ export class ModelCallError extends Error {
     options?: ErrorOptions & {
       readonly output?: string;
       readonly runtimeOutcome?: ModelCallRuntimeOutcome;
+      readonly canceled?: boolean;
     },
   ) {
     super(message, options);
     this.output = options?.output;
     this.runtimeOutcome = options?.runtimeOutcome;
+    if (options?.canceled) this.canceled = true;
   }
 }
 
@@ -286,6 +295,8 @@ export interface ModelQueueWork {
 /** One model a Computer reports for a Runtime. */
 export interface RuntimeModelInfo {
   readonly id: string;
+  /** Provider model sent over the Gateway; omitted selects the host Runtime default. */
+  readonly runtimeModel?: string;
   /** Context length in tokens; undefined when unknown. */
   readonly contextWindow?: number;
   /** The model the Runtime runs when none is selected. */
@@ -302,6 +313,7 @@ export interface RuntimeModelGateway {
       readonly ownerActorId: string;
       readonly agentId: string;
       readonly runtimeType: ModelInvoke["runtime_type"];
+      readonly model?: ModelInvoke["model"];
       readonly mode: ModelInvoke["mode"];
       readonly reasoningEffort: ModelCallEffort;
       readonly instructions?: string;
@@ -347,9 +359,29 @@ export type AnotherMePlacementSource = (
   signal?: AbortSignal,
 ) => Promise<readonly ModelPlacement[]>;
 
+/** Why a background call failed, as its Human is told. */
+export type BackgroundFailureReason =
+  | "runtime_incompatible"
+  | "runtime_auth_required"
+  | "runtime_unavailable"
+  | "unknown";
+
+/** How one background call that ran on an Another Me's Computer ended. */
+export interface BackgroundCallOutcome {
+  readonly tenantId: string;
+  readonly agentActorId: string;
+  readonly kind: ModelCallKind;
+  /** Absent for a completed call. */
+  readonly failure?: BackgroundFailureReason;
+}
+
 export interface RuntimeModelCallOptions {
   readonly gateway: RuntimeModelGateway;
   readonly placements: AnotherMePlacementSource;
+  /** Hears each background call that completed or failed on an Another Me's
+   * Computer, once per execution however many attempts it took. It must not
+   * throw or block. */
+  readonly onBackgroundOutcome?: (outcome: BackgroundCallOutcome) => void;
   readonly logger?: Pick<JsonLogger, "log">;
   /** Keeps each call's prompt and reply on local disk. */
   readonly callLog?: ModelCallLog;
@@ -531,6 +563,9 @@ interface Entry {
   readonly controller: AbortController;
   result: Promise<ModelCallAnswer>;
   waiters: number;
+  /** Where the latest attempt ran; absent when it never reached the
+   * Runtime, such as while the background backoff holds it back. */
+  placement?: ModelPlacement;
 }
 
 function targetOf(request: ModelTarget): ModelTarget {
@@ -760,8 +795,9 @@ async function resolvePlacement(
 
 /** Pi stays on Pi, even when it is unavailable. Codex and Claude retain
  * their same-Computer fallback. Antigravity has no model.invoke, so it uses
- * Claude, falling back to Codex. Invocations use the selected Runtime's
- * default. */
+ * Claude, falling back to Codex. Invocations follow the placed Agent's
+ * configured model on its own Runtime, falling back to the target Runtime's
+ * catalog default on cross-Runtime fallback or when unconfigured. */
 function resolveTarget(
   gateway: RuntimeModelGateway,
   placement: ModelPlacement,
@@ -769,6 +805,7 @@ function resolveTarget(
   readonly runtimeType: ModelInvoke["runtime_type"];
   readonly offline: boolean;
   readonly model?: RuntimeModelInfo;
+  readonly wireModel?: string;
 } {
   const preferred =
     placement.runtimeType === "antigravity" ? "claude" : placement.runtimeType;
@@ -780,11 +817,21 @@ function resolveTarget(
       ? fallback
       : preferred;
   const models = gateway.runtimeModels(placement.computerId, runtimeType);
-  const model = defaultRuntimeModel(models);
+  const configured =
+    runtimeType === placement.runtimeType && placement.model
+      ? models?.find(({ id }) => id === placement.model)
+      : undefined;
+  const fallbackModel = defaultRuntimeModel(models);
+  const model =
+    configured?.runtimeModel !== undefined
+      ? configured
+      : (fallbackModel ?? configured);
+  const wireModel = model?.runtimeModel;
   return {
     runtimeType,
     offline: models === undefined,
     ...(model ? { model } : {}),
+    ...(wireModel ? { wireModel } : {}),
   };
 }
 
@@ -870,6 +917,7 @@ async function invokeAttempt(
 }> {
   const { call } = entry;
   const signal = entry.controller.signal;
+  entry.placement = undefined;
   const { placement, key } = await resolvePlacement(state, call.target, signal);
   const resolved = resolveTarget(state.options.gateway, placement);
   const runtimeType = entry.chain?.runtimeType ?? resolved.runtimeType;
@@ -877,9 +925,13 @@ async function invokeAttempt(
     placement.computerId,
     runtimeType,
   );
+  const wireModel =
+    runtimeType === resolved.runtimeType
+      ? resolved.wireModel
+      : defaultRuntimeModel(runtimeModels)?.runtimeModel;
   const policy = modelCallPolicies[call.kind];
   const breakerKey = backgroundBreakerKey(placement.computerId, runtimeType);
-  const modelsFingerprint = runtimeModelsFingerprint(runtimeModels);
+  const modelsFingerprint = `${wireModel ?? ""}\n${runtimeModelsFingerprint(runtimeModels)}`;
   let claimedProbe = false;
   if (!policy.interactive) {
     const admission = admitBackgroundCall(state, breakerKey, modelsFingerprint);
@@ -892,6 +944,7 @@ async function invokeAttempt(
     }
     claimedProbe = admission.claimedProbe;
   }
+  entry.placement = placement;
   const startedAt = state.now();
   const callLog = state.options.callLog;
   callLog?.started({
@@ -919,6 +972,7 @@ async function invokeAttempt(
       ownerActorId: placement.ownerActorId,
       agentId: placement.agentId,
       runtimeType,
+      ...(wireModel ? { model: wireModel } : {}),
       mode: call.mode,
       reasoningEffort: call.effort ?? "low",
       ...(call.instructions ? { instructions: call.instructions } : {}),
@@ -1148,10 +1202,12 @@ function startCall(
   state.entries.set(call.id, entry);
   entry.result = executeCall(state, entry).then(
     (result) => {
+      reportBackgroundOutcome(state, entry, { result });
       settleCall(state, entry, { result });
       return result;
     },
     (error: unknown) => {
+      reportBackgroundOutcome(state, entry, { error });
       settleCall(state, entry, { error });
       throw error;
     },
@@ -1159,6 +1215,66 @@ function startCall(
   // Nobody may be waiting when it fails; settle already reported it.
   entry.result.catch(() => undefined);
   return entry;
+}
+
+/** Reports a background call that ran on an Another Me's Computer and
+ * completed, or failed for a cause its Human may need to act on. A call that
+ * never ran, was stopped, or found the Computer offline says nothing about the
+ * Runtime, and interactive calls fail in front of the Human already. */
+function reportBackgroundOutcome(
+  state: ModelCallState,
+  entry: Entry,
+  outcome: { readonly result: ModelCallAnswer } | { readonly error: unknown },
+): void {
+  const report = state.options.onBackgroundOutcome;
+  const { call, placement } = entry;
+  if (
+    !report ||
+    !placement?.agentActorId ||
+    modelCallPolicies[call.kind].interactive
+  )
+    return;
+  let failure: BackgroundFailureReason | undefined;
+  if ("error" in outcome) {
+    if (entry.controller.signal.aborted) return;
+    failure = backgroundFailureReason(outcome.error);
+    if (!failure) return;
+  }
+  report({
+    tenantId: placement.tenantId,
+    agentActorId: placement.agentActorId,
+    kind: call.kind,
+    ...(failure ? { failure } : {}),
+  });
+}
+
+/** The reason a Human is told, from the error's kind and the Daemon's
+ * structured outcome; undefined for a failure that does not count. */
+function backgroundFailureReason(
+  error: unknown,
+): BackgroundFailureReason | undefined {
+  if (!(error instanceof ModelCallError)) return undefined;
+  switch (error.kind) {
+    case "runtime_unavailable":
+      return error.runtimeOutcome === "auth_required"
+        ? "runtime_auth_required"
+        : error.runtimeOutcome === "runtime_incompatible" ||
+            error.runtimeOutcome === "unsupported"
+          ? "runtime_incompatible"
+          : "runtime_unavailable";
+    case "failed":
+      return error.canceled ? undefined : "unknown";
+    case "timed_out":
+    case "output_limited":
+    case "invalid_output":
+    case "invalid_request":
+      return "unknown";
+    case "computer_offline":
+    case "owner_unresolved":
+    case "pending":
+    case "yielded":
+      return undefined;
+  }
 }
 
 /** Waits for the call's result; the caller's signal only stops this wait.
@@ -1288,7 +1404,8 @@ async function runModelChain<T>(
       targetOf(spec),
       controller.signal,
     );
-    const { runtimeType } = resolveTarget(state.options.gateway, placement);
+    const resolved = resolveTarget(state.options.gateway, placement);
+    const { runtimeType } = resolved;
     const policy = modelCallPolicies[spec.kind];
     const acquire = (key: string, signal: AbortSignal) =>
       state.options.gateway.acquireModelCall(
@@ -1308,9 +1425,18 @@ async function runModelChain<T>(
       },
       releaseUnused,
     };
+    const { model: _previousModel, ...placementBase } = placement;
+    const chainModel =
+      runtimeType === placement.runtimeType
+        ? placement.model
+        : resolved.model?.id;
     const inChain = {
       kind: spec.kind,
-      placement: { ...placement, runtimeType },
+      placement: {
+        ...placementBase,
+        runtimeType,
+        ...(chainModel ? { model: chainModel } : {}),
+      },
     };
     let previous: Promise<unknown> = Promise.resolve();
     const step = (call: (key: string) => CallRequest, stepName: string) => {
@@ -1417,11 +1543,13 @@ function outcomeFailure(
         streamed,
       );
     case "canceled":
-    case "failed":
       return new ModelCallError(
         "failed",
-        `Model invocation ${outcome.outcome}${reason}`,
+        `Model invocation canceled${reason}`,
+        { canceled: true },
       );
+    case "failed":
+      return new ModelCallError("failed", `Model invocation failed${reason}`);
   }
 }
 
@@ -1463,8 +1591,56 @@ export function createTeamHubAnotherMePlacementSource(options: {
         agentId: item.agent_id,
         computerId: item.computer_id,
         runtimeType: item.local_runtime_type,
+        ...(typeof item.runtime_model === "string" && item.runtime_model
+          ? { model: item.runtime_model }
+          : {}),
         agentActorId: item.agent_actor_id,
       }));
+  };
+}
+
+/** How long a background outcome report may take before it is dropped. */
+const BACKGROUND_REPORT_TIMEOUT_MS = 10_000;
+
+/** Sends each background call's outcome to TeamHub, which counts an Another
+ * Me's failures in a row for its Human. Nobody waits on a report: a failed
+ * one, including a TeamHub that predates the route, only logs a warning. */
+export function createTeamHubBackgroundOutcomeReporter(options: {
+  readonly baseUrl: string;
+  readonly serviceToken: string;
+  readonly logger: Pick<JsonLogger, "log">;
+  readonly fetch?: typeof fetch;
+}): (outcome: BackgroundCallOutcome) => void {
+  const client = createTeamHubAgentRuntimeStateClient({
+    baseUrl: options.baseUrl,
+    serviceToken: options.serviceToken,
+    ...(options.fetch ? { fetch: options.fetch } : {}),
+  });
+  return (outcome) => {
+    const failed = (fields: Record<string, unknown>) =>
+      options.logger.log("warn", "model_call.background_report_failed", {
+        kind: outcome.kind,
+        agent_actor_id: outcome.agentActorId,
+        ...fields,
+      });
+    client
+      .recordAnotherMeBackgroundCall(
+        {
+          tenant_id: outcome.tenantId,
+          agent_actor_id: outcome.agentActorId,
+          outcome: outcome.failure ? "failed" : "completed",
+          ...(outcome.failure ? { reason: outcome.failure } : {}),
+        },
+        AbortSignal.timeout(BACKGROUND_REPORT_TIMEOUT_MS),
+      )
+      .then(
+        (response) => {
+          // A body that already errored rejects its cancel.
+          void response.body?.cancel().catch(() => undefined);
+          if (!response.ok) failed({ status: response.status });
+        },
+        (error: unknown) => failed({ error }),
+      );
   };
 }
 

@@ -203,11 +203,13 @@ func (a *App) getAgentLocalRun(c *gin.Context) {
 
 func (a *App) getAgentLocalRunReplyStatus(c *gin.Context) {
 	params := contractParams[teamhubinternal.GetAgentLocalRunReplyStatusParams](c)
-	replied, err := a.agentRuntimeState.GetLocalRunReplyStatus(c.Request.Context(), params.ContextKey, params.LocalRunId)
+	status, err := a.agentRuntimeState.GetLocalRunReplyStatus(c.Request.Context(), params.ContextKey, params.LocalRunId)
 	if a.writeAgentRuntimeStateError(c, "get Local Run reply status", err) {
 		return
 	}
-	c.JSON(http.StatusOK, teamhubinternal.AgentLocalRunReplyStatus{Replied: replied})
+	c.JSON(http.StatusOK, teamhubinternal.AgentLocalRunReplyStatus{
+		Replied: status.Replied, RepliedInboxIds: &status.RepliedInboxIDs,
+	})
 }
 
 func (a *App) claimAgentLocalRun(c *gin.Context) {
@@ -236,6 +238,32 @@ func (a *App) claimAgentLocalRun(c *gin.Context) {
 			response.Run.ProfileUpdate = &teamhubinternal.AgentProfileUpdate{
 				ConfigurationRevision: update.ConfigurationRevision, Name: update.Name, Instructions: update.Instructions,
 			}
+		}
+		if recent := result.Run.RecentMessages; recent != nil {
+			messages := make([]teamhubinternal.AgentLocalRunRecentMessage, 0, len(recent.Messages))
+			for _, item := range recent.Messages {
+				entry := teamhubinternal.AgentLocalRunRecentMessage{
+					MessageId:  item.MessageID,
+					Author:     item.Author,
+					AuthorKind: item.AuthorKind,
+					Body:       item.Body,
+					CreatedAt:  item.CreatedAt,
+				}
+				if item.Truncated {
+					truncated := true
+					entry.Truncated = &truncated
+				}
+				messages = append(messages, entry)
+			}
+			recentContract := &teamhubinternal.AgentLocalRunRecentMessages{
+				InboxId:  recent.InboxID,
+				Messages: messages,
+			}
+			if recent.NextCursor != "" {
+				nextCursor := recent.NextCursor
+				recentContract.NextCursor = &nextCursor
+			}
+			response.Run.RecentMessages = recentContract
 		}
 	}
 	c.JSON(http.StatusOK, response)
@@ -408,9 +436,14 @@ func (a *App) clearAgentRuntimeSession(c *gin.Context) {
 		}
 		expectedCurrentRevision = &value
 	}
+	recoveryReason := ""
+	if request.RecoveryReason != nil {
+		recoveryReason = string(*request.RecoveryReason)
+	}
 	result, err := a.agentRuntimeState.ClearRuntimeSession(c.Request.Context(), agentruntimestate.ClearRuntimeSessionInput{
 		ContextKey: request.ContextKey, Epoch: request.Epoch,
 		ConfigurationRevision: configurationRevision, ExpectedCurrentConfigurationRevision: expectedCurrentRevision,
+		RecoveryReason: recoveryReason,
 	})
 	if a.writeAgentRuntimeStateError(c, "clear RuntimeSession", err) {
 		return

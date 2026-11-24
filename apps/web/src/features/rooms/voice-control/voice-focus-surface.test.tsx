@@ -270,6 +270,35 @@ describe("VoiceFocusSurface", () => {
     await vi.waitFor(() => expect(startCapture).toHaveBeenCalledOnce());
   });
 
+  it("points the Mac desktop app to System Settings for a blocked microphone", async () => {
+    const desktop = window as { lingerDesktop?: unknown };
+    desktop.lingerDesktop = { platform: "darwin" };
+    try {
+      render(
+        <VoiceControlContext.Provider
+          value={voiceValue({
+            boundDevice: undefined,
+            captureState: { status: "idle" },
+            discoverDevices: vi.fn(async () => {
+              throw new DOMException("Permission denied", "NotAllowedError");
+            }),
+            listenerStatus: "disabled",
+          })}
+        >
+          <VoiceFocusSurface autoStart onExit={vi.fn()} />
+        </VoiceControlContext.Provider>,
+      );
+      expect(
+        await screen.findByRole("heading", { name: "Recording did not start" }),
+      ).toBeVisible();
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "Linger can't use the microphone. Allow Linger in System Settings › Privacy & Security › Microphone, then try again.",
+      );
+    } finally {
+      delete desktop.lingerDesktop;
+    }
+  });
+
   it("asks the browser again when the remembered microphone does not connect", async () => {
     const discoverDevices = vi.fn(async () => [microphone]);
     const selectDevice = vi.fn(async () => undefined);
@@ -643,6 +672,34 @@ describe("VoiceFocusSurface", () => {
     expect(stopCapture).not.toHaveBeenCalled();
     expect(screen.getByText("Listening…")).toBeVisible();
   });
+
+  it.each([
+    ["a Start that failed", "start_outcome_unknown", true],
+    ["a Start still waiting for the recorder", undefined, false],
+  ] as const)(
+    "says whether audio is saved while starting after %s",
+    (_case, lastFailureCode, warned) => {
+      render(
+        <VoiceControlContext.Provider
+          value={voiceValue({
+            captureState: {
+              status: "starting",
+              capture: {
+                ...capture(),
+                status: "starting",
+                last_failure_code: lastFailureCode,
+              },
+            },
+          })}
+        >
+          <VoiceFocusSurface onExit={vi.fn()} />
+        </VoiceControlContext.Provider>,
+      );
+      const warning = screen.queryByText(/Audio is not being saved yet/);
+      if (warned) expect(warning).toBeVisible();
+      else expect(warning).not.toBeInTheDocument();
+    },
+  );
 
   it("says muted, not that recording continues, while paused with unconfirmed transcript", async () => {
     render(

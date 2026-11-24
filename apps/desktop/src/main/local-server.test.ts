@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   chmodSync,
@@ -51,6 +51,8 @@ import {
   parseSetCookie,
   LocalServerUnverifiedError,
   proveLocalServer,
+  RUNTIME_LOOKUP_HINT_MS,
+  RUNTIME_LOOKUP_LIMIT_MS,
   SignInRejectedError,
   signInFailure,
   signInWithPassword,
@@ -74,6 +76,28 @@ const isWindowsHost = process.platform === "win32";
 if (isWindowsHost) vi.setConfig({ testTimeout: 20_000 });
 const waitForInstaller = (check: () => unknown) =>
   vi.waitFor(check, { timeout: isWindowsHost ? 10_000 : 1_000 });
+
+// Fake timers that still advance with real time, for the installer stub's
+// subprocess; AbortSignal.timeout runs on them too, since the native one
+// uses a timer outside Vitest's fake clock.
+const fakeClock = () => {
+  vi.useFakeTimers({
+    shouldAdvanceTime: true,
+    toFake: ["setTimeout", "clearTimeout", "Date"],
+  });
+  const timeout = vi.spyOn(AbortSignal, "timeout").mockImplementation((ms) => {
+    const controller = new AbortController();
+    setTimeout(
+      () => controller.abort(new DOMException("timed out", "TimeoutError")),
+      ms,
+    );
+    return controller.signal;
+  });
+  return () => {
+    timeout.mockRestore();
+    vi.useRealTimers();
+  };
+};
 
 // Prints what the real installer prints and writes its private launcher.
 const FAKE_INSTALLER = String.raw`
@@ -206,7 +230,10 @@ if (args.includes("--resume")) {
   const originFile = path.join(home, "resume-origin");
   const origin = fs.existsSync(originFile) ? fs.readFileSync(originFile, "utf8") : "http://localhost:3000";
   const outcome = failure ? JSON.parse(failure) : { message: code ? "Native teamhub stopped" : "ok", details: { source, origin } };
-  process.stdout.write("noise\n" + JSON.stringify({ code, ...outcome, ...(runtime ? { runtime } : {}) }) + "\n");
+  // resume-timings.json holds the outcome's runtimeLookupTimings.
+  const timingsFile = path.join(home, "resume-timings.json");
+  const runtimeLookupTimings = fs.existsSync(timingsFile) ? JSON.parse(fs.readFileSync(timingsFile, "utf8")) : undefined;
+  process.stdout.write("noise\n" + JSON.stringify({ code, ...outcome, ...(runtime ? { runtime } : {}), ...(runtimeLookupTimings ? { runtimeLookupTimings } : {}) }) + "\n");
   process.exit(code);
 }
 if (fs.existsSync(path.join(home, "start-refused"))) {
@@ -215,6 +242,9 @@ if (fs.existsSync(path.join(home, "start-refused"))) {
   process.stderr.write("Installer could not start (WINDOWS_PRIVATE_PATH_UNSAFE): Windows private path validation failed\n");
   process.exit(1);
 }
+// serve-stderr holds what the serving installer writes to stderr.
+const serveStderr = path.join(home, "serve-stderr");
+if (fs.existsSync(serveStderr)) process.stderr.write(fs.readFileSync(serveStderr, "utf8"));
 const origin = "http://127.0.0.1:4321";
 fs.writeFileSync(
   path.join(home, "installer", "launch.html"),
@@ -293,11 +323,15 @@ const installerApi = (
   const retried: unknown[] = [];
   const canceled: string[] = [];
   // The runtime the installation set up and its sign-in; tests change them.
+  // The installer answers runtime lookups once `lookup` settles, as its
+  // one lookup per instance ends; `asked` counts the requests.
   const runtime: {
     setupChoice: string;
     environment: Record<string, string>;
     login: Record<string, unknown>;
     logins: unknown[];
+    lookup: Promise<void>;
+    asked: number;
   } = {
     setupChoice: "claude",
     environment: {
@@ -306,6 +340,8 @@ const installerApi = (
     },
     login: { state: "ready" },
     logins: [],
+    lookup: Promise.resolve(),
+    asked: 0,
   };
   let polls = 0;
   const job = (fields: Record<string, unknown>) => ({
@@ -368,11 +404,20 @@ const installerApi = (
             password: "pw",
             origin: "http://localhost:3000",
           });
-    if (url.pathname === `/api/instances/${LOCAL_INSTANCE}/runtime`)
+    if (url.pathname === `/api/instances/${LOCAL_INSTANCE}/runtime`) {
+      runtime.asked++;
+      const { signal } = init;
+      await new Promise<void>((resolve, reject) => {
+        const stop = () => reject(signal!.reason);
+        if (signal?.aborted) stop();
+        signal?.addEventListener("abort", stop, { once: true });
+        void runtime.lookup.then(resolve);
+      });
       return Response.json({
         setupChoice: runtime.setupChoice,
         environment: runtime.environment,
       });
+    }
     if (url.pathname === "/api/runtime-login" && init.method === "DELETE") {
       runtime.logins.push("cancel");
       runtime.login = { state: "idle" };
@@ -702,6 +747,31 @@ describe("LocalServerModule", () => {
     expect(packaging).toContain("LSMinimumSystemVersion=MINIMUM_MACOS");
   });
 
+  it("uses the runtime returned by the completed install without another lookup", async () => {
+    const runtime = {
+      setupChoice: "pi",
+      environment: { LINGER_PI_PATH: "/managed/pi" },
+    };
+    const api = installerApi([], {
+      state: "succeeded",
+      origin: "http://localhost:3000",
+      runtime,
+    });
+    const lookup = vi.spyOn(InstallerApi.prototype, "runtime");
+    try {
+      const f = fixture(withCheckout, {}, checkout, api);
+      await f.host.start();
+      await f.module.begin();
+      expect(f.host.ctx.config.get().runtimeEnvironment).toEqual(
+        runtime.environment,
+      );
+      expect(lookup).not.toHaveBeenCalled();
+      await f.host.stop("quit");
+    } finally {
+      lookup.mockRestore();
+    }
+  });
+
   it("installs from the pinned source, signs in and connects this computer", async () => {
     const root = tempDirectory();
     const archive = sourceArchive(root);
@@ -790,12 +860,16 @@ describe("LocalServerModule", () => {
     // only its runtime stage waits for the sign-in.
     const api = installerApi([], {
       state: "succeeded",
+      setupChoice: "codex",
       origin: "http://localhost:3000",
       stages: [
         { id: "runtime", state: "waiting_user" },
         { id: "computer", state: "skipped" },
       ],
     });
+    const requests = vi.spyOn(api, "handle");
+    const lookups = () =>
+      requests.mock.calls.filter(([url]) => url.pathname.endsWith("/runtime"));
     api.runtime.setupChoice = "codex";
     api.runtime.login = { state: "idle" };
     const openExternal = vi.fn(async () => {});
@@ -808,6 +882,7 @@ describe("LocalServerModule", () => {
     await f.host.start();
     const done = f.module.begin();
     await waitForInstaller(() => expect(f.module.status().step).toBe("signin"));
+    expect(lookups()).toHaveLength(0);
     expect(f.module.status()).toMatchObject({
       phase: "installing",
       message: "Sign in to Codex",
@@ -862,6 +937,7 @@ describe("LocalServerModule", () => {
     // Signing in finishes in the browser; the next check sees it.
     api.runtime.login = { state: "ready" };
     await done;
+    expect(lookups()).toHaveLength(1);
     expect(f.module.status()).toMatchObject({
       phase: "ready",
       signIn: { runtime: "codex", state: "signed_in" },
@@ -1984,6 +2060,91 @@ describe("LocalServerModule", () => {
     await f.host.stop("quit");
   });
 
+  it("waits out a slow runtime lookup, says what it waits on and finishes", async () => {
+    const restore = fakeClock();
+    try {
+      const api = installerApi([], {
+        state: "succeeded",
+        origin: "http://localhost:3000",
+      });
+      let finish!: () => void;
+      api.runtime.lookup = new Promise((resolve) => {
+        finish = resolve;
+      });
+      const f = fixture(withCheckout, {}, checkout, api);
+      // As the desktop's enrollment does once signed in.
+      f.enroll.mockImplementation(async () => {
+        f.host.ctx.config.update({ computerId: "computer-1" });
+      });
+      await f.host.start();
+      const done = f.module.begin();
+      await waitForInstaller(() => expect(api.runtime.asked).toBe(1));
+      expect(f.module.status()).toMatchObject({ phase: "installing" });
+      expect(f.module.status().waiting).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(RUNTIME_LOOKUP_HINT_MS);
+      expect(f.module.status()).toMatchObject({
+        phase: "installing",
+        waiting: "runtime",
+      });
+      // The lookup took 104 s on a reporter's Windows computer (#549),
+      // past the 60 s the desktop once allowed it (#385).
+      await vi.advanceTimersByTimeAsync(104_000 - RUNTIME_LOOKUP_HINT_MS);
+      finish();
+      await done;
+      expect(f.module.status().phase).toBe("ready");
+      expect(f.module.status().waiting).toBeUndefined();
+      expect(api.runtime.asked).toBe(1);
+      expect(f.host.ctx.config.get()).toMatchObject({
+        runtimeEnvironment: api.runtime.environment,
+        computerId: "computer-1",
+      });
+      await f.host.stop("quit");
+    } finally {
+      restore();
+    }
+  });
+
+  it("names a runtime lookup that never ends, and Try Again picks up its late answer", async () => {
+    const restore = fakeClock();
+    try {
+      const api = installerApi([], {
+        state: "succeeded",
+        origin: "http://localhost:3000",
+      });
+      let finish!: () => void;
+      api.runtime.lookup = new Promise((resolve) => {
+        finish = resolve;
+      });
+      const f = fixture(withCheckout, {}, checkout, api);
+      f.enroll.mockImplementation(async () => {
+        f.host.ctx.config.update({ computerId: "computer-1" });
+      });
+      await f.host.start();
+      const first = f.module.begin().catch((error: unknown) => error);
+      await waitForInstaller(() => expect(api.runtime.asked).toBe(1));
+      await vi.advanceTimersByTimeAsync(RUNTIME_LOOKUP_LIMIT_MS);
+      expect(await first).toMatchObject({ code: "runtime_lookup_timed_out" });
+      expect(f.module.status()).toMatchObject({
+        phase: "failed",
+        failure: "runtime_lookup_timed_out",
+      });
+      expect(f.module.status().waiting).toBeUndefined();
+      expect(f.enroll).not.toHaveBeenCalled();
+      expect(f.host.ctx.config.get().computerId).toBeFalsy();
+      // The installer's lookup ends after the desktop stopped waiting and
+      // keeps its answer; Try Again (or the next launch) gets it at once.
+      finish();
+      await f.module.begin();
+      expect(api.runtime.asked).toBe(2);
+      expect(f.module.status()).toMatchObject({ phase: "ready" });
+      expect(f.module.status().failure).toBeUndefined();
+      expect(f.host.ctx.config.get().computerId).toBe("computer-1");
+      await f.host.stop("quit");
+    } finally {
+      restore();
+    }
+  });
+
   it("asks for a new local model plan after a stopped deployment", async () => {
     const f = fixture(
       withCheckout,
@@ -2361,6 +2522,55 @@ describe("LocalServerModule", () => {
     await f.host.stop("quit");
   });
 
+  it("logs the serving installer's timing events at info and other stderr at warn", async () => {
+    const f = fixture(withCheckout, {}, (home) => {
+      checkout(home);
+      writeFileSync(
+        path.join(home, "serve-stderr"),
+        `${JSON.stringify({
+          event: "installer.runtime_lookup_timings",
+          instance: "desktop",
+          timings: {
+            config: 1,
+            runtime: 2,
+            localModels: 3,
+            tool: 4,
+            total: 10,
+          },
+        })}\nSomething else\n`,
+      );
+    });
+    const info = vi.spyOn(silentLog, "info");
+    const warn = vi.spyOn(silentLog, "warn");
+    await f.host.start();
+    await f.module.begin({ runtime: "claude" });
+    await vi.waitFor(() =>
+      expect(warn).toHaveBeenCalledWith("local_server.installer_stderr", {
+        line: "Something else",
+      }),
+    );
+    expect(info).toHaveBeenCalledWith(
+      "local_server.installer_runtime_timings",
+      {
+        instance: "desktop",
+        config_ms: 1,
+        runtime_ms: 2,
+        local_models_ms: 3,
+        tool_ms: 4,
+        total_ms: 10,
+      },
+    );
+    expect(warn).not.toHaveBeenCalledWith(
+      "local_server.installer_stderr",
+      expect.objectContaining({
+        line: expect.stringContaining("runtime_lookup_timings"),
+      }),
+    );
+    info.mockRestore();
+    warn.mockRestore();
+    await f.host.stop("quit");
+  });
+
   it("enrolls this computer again, once, after the installer set the earlier Simplex data aside", async () => {
     const backup = (home: string) =>
       path.join(
@@ -2563,6 +2773,98 @@ describe("LocalServerModule", () => {
     expect(f.api.created).toEqual([]);
     expect(f.module.status().phase).toBe("ready");
     await f.host.stop("quit");
+  });
+
+  it.each([
+    ["a subscription runtime", { runtime: "codex" } as const, "codex"],
+    // The subscription on a computer whose pick is the local model.
+    ["the installer's pick", { runtime: "recommended" } as const, "pi"],
+  ])(
+    "does not follow the local model download after %s is chosen instead",
+    async (_name, plan, setupChoice) => {
+      // The person chose the local model, quit part way through its
+      // download, and chose again; the installer kept that job running.
+      const f = fixture(
+        withCheckout,
+        {},
+        checkout,
+        installerApi([
+          {
+            id: "download",
+            instance: LOCAL_INSTANCE,
+            setupChoice: "local-models",
+            state: "running",
+            stage: "runtime",
+            message: "Downloading the local model…",
+            createdAt: "2026-11-03T00:00:00Z",
+            stages: [{ id: "runtime", state: "running" }],
+          },
+        ]),
+      );
+      await f.host.start();
+      const messages: string[] = [];
+      f.host.ctx.bus.on("local-server.changed", () =>
+        messages.push(f.module.status().message),
+      );
+      await f.module.begin(plan);
+      expect(f.api.created).toEqual([
+        { instance: LOCAL_INSTANCE, setupChoice },
+      ]);
+      expect(messages).not.toContain("Downloading the local model…");
+      expect(f.module.status().phase).toBe("ready");
+      await f.host.stop("quit");
+    },
+  );
+
+  it("installs the local model chosen after a subscription setup", async () => {
+    const subscription = {
+      id: "old",
+      instance: LOCAL_INSTANCE,
+      setupChoice: "codex",
+      state: "succeeded",
+      origin: "http://localhost:3000",
+      createdAt: "2026-11-03T00:00:00Z",
+      stages: [],
+    };
+    // Its services still answer, so the same choice would follow it.
+    const answering = (home: string) => ({
+      ...withCheckout(home),
+      fetch: (async () => new Response(null)) as typeof fetch,
+    });
+    const same = fixture(answering, {}, checkout, installerApi([subscription]));
+    await same.host.start();
+    await same.module.begin({ runtime: "codex" });
+    expect(same.api.created).toEqual([]);
+    await same.host.stop("quit");
+    for (const state of ["succeeded", "running"]) {
+      const f = fixture(
+        answering,
+        {},
+        checkout,
+        installerApi(
+          [{ ...subscription, state }],
+          DONE,
+          undefined,
+          // The new job stays queued until the running one has stopped,
+          // which takes until the end of a step such as starting services.
+          state === "running"
+            ? [
+                { state: "queued" },
+                { state: "queued" },
+                { state: "queued" },
+                { state: "running", stage: "images" },
+              ]
+            : undefined,
+        ),
+      );
+      await f.host.start();
+      await f.module.begin({ runtime: "local" });
+      expect(f.api.created).toEqual([
+        { instance: LOCAL_INSTANCE, setupChoice: "local-models" },
+      ]);
+      expect(f.module.status().phase).toBe("ready");
+      await f.host.stop("quit");
+    }
   });
 
   it("installs again when a finished installation's data is gone", async () => {
@@ -3096,6 +3398,63 @@ describe("LocalServerModule after a restart", () => {
     await f.host.stop("quit");
   });
 
+  it("logs the runtime lookup timings a resume outcome carries", async () => {
+    const f = fixture({}, enrolled, (home) => {
+      record(home);
+      writeFileSync(
+        path.join(home, "resume-timings.json"),
+        JSON.stringify({
+          config: 1,
+          runtime: 2,
+          localModels: 3,
+          tool: 4,
+          total: 10,
+        }),
+      );
+    });
+    const info = vi.spyOn(silentLog, "info");
+    await f.host.start();
+    await waitForInstaller(() => expect(f.module.status().phase).toBe("ready"));
+    expect(info).toHaveBeenCalledWith(
+      "local_server.installer_runtime_timings",
+      {
+        instance: LOCAL_INSTANCE,
+        config_ms: 1,
+        runtime_ms: 2,
+        local_models_ms: 3,
+        tool_ms: 4,
+        total_ms: 10,
+      },
+    );
+    info.mockRestore();
+    await f.host.stop("quit");
+  });
+
+  it("ignores malformed runtime lookup timings in a resume outcome", async () => {
+    const f = fixture({}, enrolled, (home) => {
+      record(home);
+      writeFileSync(
+        path.join(home, "resume-timings.json"),
+        JSON.stringify({
+          config: "1",
+          runtime: 2,
+          localModels: 3,
+          tool: 4,
+          total: 10,
+        }),
+      );
+    });
+    const info = vi.spyOn(silentLog, "info");
+    await f.host.start();
+    await waitForInstaller(() => expect(f.module.status().phase).toBe("ready"));
+    expect(info).not.toHaveBeenCalledWith(
+      "local_server.installer_runtime_timings",
+      expect.anything(),
+    );
+    info.mockRestore();
+    await f.host.stop("quit");
+  });
+
   it("follows the origin the installer moved the services to", async () => {
     const f = fixture({}, enrolled, (home) => {
       record(home);
@@ -3358,6 +3717,33 @@ describe("LocalServerModule after a restart", () => {
     });
     expect(readdirSync(sources)).toEqual([path.basename(current)]);
     await f.host.stop("quit");
+  });
+
+  it("keeps an older source folder a running process still starts from", async () => {
+    const root = tempDirectory();
+    const archive = sourceArchive(root);
+    const f = installedBy(archive);
+    const sources = path.join(f.home, "desktop", "source");
+    const previous = path.join(sources, "previous");
+    // A service the move did not reach still runs from the older folder.
+    const service = spawn(
+      process.execPath,
+      ["-e", "setInterval(() => {}, 1000)", path.join(previous, "server.mjs")],
+      { stdio: "ignore" },
+    );
+    try {
+      await new Promise((resolve) => service.once("spawn", resolve));
+      await f.host.start();
+      await waitForInstaller(() =>
+        expect(f.module.status().phase).toBe("ready"),
+      );
+      expect(readdirSync(sources).sort()).toEqual(
+        [archive.sha256.slice(0, 16), "previous"].sort(),
+      );
+      await f.host.stop("quit");
+    } finally {
+      service.kill("SIGKILL");
+    }
   });
 
   it("shows the start failure when moving to the newer source package fails", async () => {
@@ -5066,13 +5452,22 @@ it("allows a slow installer runtime lookup and keeps the login deadline", async 
     controller.abort(new Error("Desktop stopped"));
     expect(await cancelled).toBe(controller.signal.reason);
 
-    responseMs = 181_000;
+    // A lookup that keeps running is waited for, well past the 180 s the
+    // desktop once allowed it.
+    responseMs = 9 * 60_000;
+    const slow = api.runtime(new AbortController().signal);
+    await vi.advanceTimersByTimeAsync(9 * 60_000);
+    await expect(slow).resolves.toEqual(runtime);
+
+    responseMs = RUNTIME_LOOKUP_LIMIT_MS + 1;
     const overdue = api
       .runtime(new AbortController().signal)
       .catch((error: unknown) => error);
-    await vi.advanceTimersByTimeAsync(180_000);
+    await vi.advanceTimersByTimeAsync(RUNTIME_LOOKUP_LIMIT_MS);
     expect(await overdue).toMatchObject({
-      message: "The installer timed out while reading the selected runtime.",
+      code: "runtime_lookup_timed_out",
+      message:
+        "Checking the AI runtime on this computer did not finish in time.",
     });
   } finally {
     timeout.mockRestore();
@@ -5156,6 +5551,51 @@ describe("InstallerApi polling", () => {
     expect(warnings).toEqual([
       { stage: "poll_job", job_id: "job", code: "ECONNRESET", attempt: 1 },
     ]);
+  });
+
+  it("asks for the runtime again after a dropped connection or fetch's own wait", async () => {
+    warnings.length = 0;
+    const runtime = { setupChoice: "pi", environment: {} };
+    const failures = [
+      reset(),
+      new TypeError("fetch failed", {
+        cause: Object.assign(new Error("Headers Timeout Error"), {
+          code: "UND_ERR_HEADERS_TIMEOUT",
+        }),
+      }),
+    ];
+    let asked = 0;
+    const fetcher = (async (input: URL) => {
+      if (input.pathname === "/api/session")
+        return new Response("{}", {
+          headers: { "set-cookie": "linger_installer_session=s1; Path=/api" },
+        });
+      asked++;
+      const failure = failures.shift();
+      if (failure) throw failure;
+      return Response.json(runtime);
+    }) as unknown as typeof fetch;
+    await expect(
+      (await open(fetcher)).runtime(new AbortController().signal),
+    ).resolves.toEqual(runtime);
+    expect(asked).toBe(3);
+    expect(warnings).toEqual([
+      { stage: "runtime", code: "ECONNRESET", attempt: 1 },
+      { stage: "runtime", code: "UND_ERR_HEADERS_TIMEOUT", attempt: 2 },
+    ]);
+  });
+
+  it("names a runtime lookup the installer stopped answering", async () => {
+    const fetcher = (async (input: URL) => {
+      if (input.pathname === "/api/session")
+        return new Response("{}", {
+          headers: { "set-cookie": "linger_installer_session=s1; Path=/api" },
+        });
+      throw reset();
+    }) as unknown as typeof fetch;
+    await expect(
+      (await open(fetcher, 30)).runtime(new AbortController().signal),
+    ).rejects.toMatchObject({ code: "runtime_lookup_unreachable" });
   });
 
   it("gives up once the installer stays unreachable", async () => {

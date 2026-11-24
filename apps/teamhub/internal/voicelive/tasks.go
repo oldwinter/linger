@@ -108,7 +108,7 @@ var taskTools = []Tool{
 			"Several separate pieces of work are several calls. As you start it, confirm it like a person in one natural sentence that repeats the key details the user gave, never a clipped fragment, never that you cannot do it, and never mention an Agent, a backend or handing off. " +
 			"no_computer or computer_offline means the user's computer is not connected: say so plainly and suggest connecting it. too_many_tasks: several tasks still run; offer to wait or stop one.",
 		Parameters: objectSchema([]string{"goal", "surface", "irreversible"}, map[string]any{
-			"goal":            stringProperty("The full request, with every detail needed"),
+			"goal":            stringProperty("The full request, with every detail needed. Never where to save files or a request for a file path: the task's files always land in its own folder, which list_tasks and ls show."),
 			"surface":         map[string]any{"type": "string", "enum": Surfaces, "description": "Where the work happens"},
 			"irreversible":    map[string]any{"type": "boolean", "description": "Whether the work itself sends, posts or deletes something in the user's name, or pays without stopping to ask"},
 			"confirmation_id": stringProperty("Only when confirming: the confirmation_id of the needs_confirmation the user just said yes to"),

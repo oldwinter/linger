@@ -16,6 +16,10 @@ export function redact(text: string): string {
       )
   );
 }
+/** Caps one line of program output so it cannot fill a status message. */
+export function excerptLine(line: string, limit = 240): string {
+  return line.length > limit ? `${line.slice(0, limit - 1)}\u2026` : line;
+}
 export function lineRedactor(write: (value: string) => void) {
   let pending = "",
     discarded = false;

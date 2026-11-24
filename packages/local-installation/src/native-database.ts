@@ -15,6 +15,7 @@ import {
 } from "./native-process.js";
 import { preLingerSchema, setAsideLegacyData } from "./legacy-database.js";
 import { runProcess } from "./process.js";
+import { excerptLine, redact } from "./redaction.js";
 import { parseEnv } from "node:util";
 
 /** The PostgreSQL program `name` in `bin`, with `.exe` on Windows. */
@@ -83,10 +84,26 @@ export async function prepareNativeDatabase(options: {
       timeoutMs,
       onOutput: options.onOutput,
     });
-    if (result.code !== 0)
+    if (result.code !== 0) {
+      // The program's own last lines are what the person and the report need:
+      // "inspect the log" alone sends them looking for a file in a directory
+      // they were never told about. The password never appears here, and the
+      // window is five lines because initdb ends with cleanup lines such as
+      // "removing data directory" that would otherwise push out its FATAL one.
+      const detail = redact(
+        result.stderr
+          .replaceAll(password, "[redacted]")
+          .split(/\r?\n/u)
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .slice(-5)
+          .map((line) => excerptLine(line))
+          .join(" "),
+      ).replace(/[.;]+$/u, "");
       throw new Error(
-        `Native PostgreSQL ${name} failed; inspect the instance log.`,
+        `Native PostgreSQL ${name} failed${detail ? `: ${detail}` : ""}. Inspect the instance log.`,
       );
+    }
     return result;
   };
   const open = async () => {
@@ -172,6 +189,13 @@ export async function prepareNativeDatabase(options: {
       signal,
       redactions: [password],
       withoutAdministrators,
+      // A release that repins the PostgreSQL archive unpacks it into a new
+      // component folder, so the server an earlier release left running
+      // differs only in its executable path. The new server opens the same
+      // data directory: on macOS and Linux the stop is a fast shutdown; on
+      // Windows it terminates the server, which recovers from its WAL on
+      // start, as after any Windows stop.
+      restartOnConfigurationChange: true,
     });
     const connection = [
       "--host",

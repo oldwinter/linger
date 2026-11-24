@@ -192,7 +192,7 @@ func (s *CommentTool) ReplaceText(
 	input ReplaceInput,
 ) (ReplaceResult, error) {
 	if s == nil || s.documents == nil || !validInvocationID(input.InvocationID) ||
-		len(input.Replacement) < 1 || len(input.Replacement) > 50000 {
+		!document.ValidCommentReplacement(input.Replacement) {
 		return ReplaceResult{}, document.ErrInvalidInput
 	}
 	authorization, err := s.authorize(ctx, token, "replace_document_comment_text", input.ThreadID)

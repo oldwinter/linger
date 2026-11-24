@@ -36,6 +36,7 @@ import {
   inspectNativeProcess,
   nativeConfigurationChanged,
   reclaimNativeOrphans,
+  SERVICE_RESTART_POLICY,
   startNativeProcess,
   stopNativeProcess,
   type NativeService,
@@ -64,6 +65,7 @@ import {
   writeSetupChoice,
 } from "./setup-selection.js";
 import {
+  isLocalRuntimeModel,
   localModelsDegradedFromError,
   localModelsDegradedFromOutcome,
   prepareLocalModels,
@@ -74,8 +76,9 @@ import {
 import { prepareSourceComputer } from "./source-computer.js";
 import { connectComputer, stopComputer } from "./computer.js";
 import { prepareLocalEnrollment } from "./local-enrollment.js";
-import { lineRedactor, redact } from "./redaction.js";
+import { excerptLine, lineRedactor, redact } from "./redaction.js";
 import { runProcess } from "./process.js";
+import { systemProxyEnvironment } from "./service-proxy.js";
 import {
   installAppleDeveloperTools,
   needsAppleDeveloperTools,
@@ -273,7 +276,7 @@ export function compileFailureExcerpt(text: string, limit = 12) {
     .map((line) => line.trim())
     .filter((line) => line && !/^(?:\S+\s+)?(?:watching|!exclude)\b/.test(line))
     .slice(-limit)
-    .map((line) => (line.length > 240 ? `${line.slice(0, 239)}…` : line))
+    .map((line) => excerptLine(line))
     .join("\n");
 }
 // A compile that fails stops TeamHub or leaves the dev server waiting for an
@@ -517,7 +520,7 @@ async function runNativeSource(
       let byokGateway: ByokGatewayFailure | undefined;
       let localModelsDegraded: LocalModelsDegraded | undefined;
       const resumeLocalModels =
-        Boolean(options.resume) &&
+        Boolean(options.resume || options.degradeLocalModels) &&
         !options.setupChoice &&
         !options.localModelsApproval &&
         !options.localModelsReplan;
@@ -577,6 +580,8 @@ async function runNativeSource(
             runtimeOutcome = await prepareByokRuntime(
               { ...options.byok, runtime: byokRuntime },
               {
+                onDescriptor: (descriptor) =>
+                  options.onRuntimeDescriptors?.([descriptor]),
                 home,
                 signal,
                 onEvent: emit,
@@ -632,7 +637,8 @@ async function runNativeSource(
                 !runtimeOutcome &&
                 !localModelsDegraded &&
                 !options.localModelsReplan &&
-                restoredLocal?.runtimeModel.startsWith("localmodels-library/")
+                restoredLocal &&
+                isLocalRuntimeModel(restoredLocal.runtimeModel)
               )
                 await restoreSavedLocalModel();
             }
@@ -836,10 +842,21 @@ async function runNativeSource(
           voice: voice ? voice.bin : "off",
         };
         const settings = JSON.stringify(shared);
+        // The Desktop's system proxy goes only to TeamHub, for every https
+        // call it makes to the outside, and to node-services, whose voice
+        // workers tunnel Soniox and xAI through it; a changed proxy restarts
+        // them. Without one their settings stay as they were, so nothing
+        // restarts for it.
+        const proxyEnv = systemProxyEnvironment({ ...process.env, ...env });
+        const proxied = proxyEnv.HTTPS_PROXY
+          ? { proxy: proxyEnv.HTTPS_PROXY }
+          : {};
+        const nodeServicesSettings = JSON.stringify({ ...shared, ...proxied });
         // TeamHub also restarts for a new identity key; the digest keeps the
         // key itself out of the process record.
         const teamhubSettings = JSON.stringify({
           ...shared,
+          ...proxied,
           identity: createHash("sha256").update(identityKey).digest("hex"),
         });
         await timed("Protecting the instance data directories", () =>
@@ -1093,13 +1110,28 @@ async function runNativeSource(
             cwd: current.source!.repo,
             env:
               name === "teamhub"
-                ? { ...env, TEAMHUB_LOCAL_IDENTITY_KEY: identityKey }
-                : env,
+                ? {
+                    ...env,
+                    ...proxyEnv,
+                    TEAMHUB_LOCAL_IDENTITY_KEY: identityKey,
+                  }
+                : name === "node-services"
+                  ? { ...env, ...proxyEnv }
+                  : env,
             signal,
             redactions: secrets,
-            // A changed user.env, port, credential or voice tool restarts it.
-            settings: name === "teamhub" ? teamhubSettings : settings,
+            // A changed user.env, port, credential, voice tool or system
+            // proxy restarts it.
+            settings:
+              name === "teamhub"
+                ? teamhubSettings
+                : name === "node-services"
+                  ? nodeServicesSettings
+                  : settings,
             restartOnConfigurationChange: true,
+            // Its supervisor brings it back when it exits unasked, so the
+            // window does not wait on a dead port until the next launch.
+            restartOnExit: SERVICE_RESTART_POLICY,
           });
           // Stop the Agent Service only when TeamHub is about to restart for a
           // changed configuration, so its graceful shutdown can requeue

@@ -211,9 +211,17 @@ func Create(ctx context.Context, queries *store.Queries, spec Spec) (Result, err
 	return Result{Room: room, Creator: spec.Creator}, nil
 }
 
+// The Room text bounds, in characters: the contract states them as maxLength,
+// and a CJK name of 120 characters is 360 bytes.
+const (
+	MaxNameRunes        = 120
+	MaxDescriptionRunes = 2000
+)
+
 func validateAndResolveMembers(ctx context.Context, queries *store.Queries, input Spec) (map[string]store.Actor, error) {
 	if input.TenantID == "" || input.Name == "" || strings.TrimSpace(input.Name) != input.Name ||
-		utf8.RuneCountInString(input.Name) > 120 || input.Description != nil && utf8.RuneCountInString(*input.Description) > 2000 ||
+		utf8.RuneCountInString(input.Name) > MaxNameRunes ||
+		input.Description != nil && utf8.RuneCountInString(*input.Description) > MaxDescriptionRunes ||
 		input.Creator.ID == "" || input.Creator.TenantID != input.TenantID ||
 		input.Owner.ID == "" || input.Owner.TenantID != input.TenantID || input.Owner.Kind != "human" ||
 		!input.Owner.AccountID.Valid || input.Owner.AccountID.String == "" || len(input.MemberActorIDs) > 100 {

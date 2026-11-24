@@ -3092,10 +3092,12 @@ components:
           type: string
         server:
           type: string
+          description: herdr answers blocked herdr panes; feishu_mail runs TeamHub's Feishu Mail calls through the owner's own lark-cli login.
           enum:
             - browser
             - playground
             - herdr
+            - feishu_mail
         tool_name:
           type: string
           minLength: 1

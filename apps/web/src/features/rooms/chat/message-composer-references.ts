@@ -1,3 +1,4 @@
+import { startsMentionToken } from "@/features/teamhub/mention-boundary";
 import {
   findTeamHubMessageTokenMatches,
   teamHubMentionTokenAliases,
@@ -68,10 +69,12 @@ export function findMessageSkillQuery(
 ): MessageSkillQuery | null {
   const boundedCursor = Math.max(0, Math.min(cursor, body.length));
   const beforeCursor = body.slice(0, boundedCursor);
-  const match = beforeCursor.match(/(^|\s)\/([\p{L}\p{N}_-]*)$/u);
-  if (!match) return null;
-  const query = match[2] ?? "";
-  const start = boundedCursor - query.length - 1;
+  // The Skill token follows the same boundary as a Mention: a token starts at
+  // the beginning, after punctuation, or after an unspaced script.
+  const match = beforeCursor.match(/\/([\p{L}\p{N}_-]*)$/u);
+  if (!match || !startsMentionToken(beforeCursor, match.index!)) return null;
+  const query = match[1] ?? "";
+  const start = match.index!;
   const agent = findNearestMentionedAgent(body.slice(0, start), mentions);
   if (!agent) return null;
   return {

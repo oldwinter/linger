@@ -854,12 +854,25 @@ describe("RunnerGateway", () => {
         reasoningEffort,
         agentId: "agent-reviewer",
       };
-      expect(() =>
+      expect(
         gateway.requireLocalPlacement(
           requirement.placement,
           requirement.modelId,
         ),
-      ).toThrow("reasoning effort is unavailable");
+      ).toMatchObject({
+        id: "gpt-6-astra",
+        defaultReasoningEffort: "low",
+      });
+      expect(
+        gateway.requireLocalPlacement(
+          requirement.placement,
+          requirement.modelId,
+          "medium",
+        ),
+      ).toMatchObject({
+        id: "gpt-6-astra",
+        defaultReasoningEffort: "low",
+      });
       await expect(
         gateway.ensureReadyLocalAgentRunner({
           ...requirement,
@@ -882,6 +895,170 @@ describe("RunnerGateway", () => {
       connection.disconnect();
     },
   );
+
+  it("resolves a valid fallback reasoning effort when default_reasoning_effort is absent or medium is not offered", async () => {
+    const gateway = createTestRunnerGateway({ heartbeatIntervalMs: 1_000 });
+    const peer = new RecordingPeer();
+    const diagnostics = runtimeDiagnostics({
+      ready: ["codex", "claude", "pi"],
+    }).map((diagnostic) =>
+      diagnostic.type === "pi"
+        ? {
+            ...diagnostic,
+            models: [
+              {
+                id: "local/spark-x2.6-4b",
+                label: "Spark-X2.6-4B",
+                allowed_reasoning_effort: ["none", "low", "high"] as const,
+              },
+              {
+                id: "local/qwen3.6-35b-a3b",
+                label: "Qwen3.6-35B-A3B",
+                allowed_reasoning_effort: [
+                  "none",
+                  "low",
+                  "medium",
+                  "high",
+                ] as const,
+              },
+              {
+                id: "local/high-only",
+                label: "HighOnly",
+                allowed_reasoning_effort: ["none", "high"] as const,
+              },
+              {
+                id: "local/xhigh-only",
+                label: "XHighOnly",
+                allowed_reasoning_effort: ["none", "xhigh"] as const,
+              },
+              {
+                id: "local/none-only",
+                label: "NoneOnly",
+                allowed_reasoning_effort: ["none"] as const,
+              },
+              {
+                id: "local/explicit-none",
+                label: "ExplicitNone",
+                allowed_reasoning_effort: ["none", "low", "high"] as const,
+                default_reasoning_effort: "none" as const,
+              },
+              {
+                id: "local/invalid-default",
+                label: "InvalidDefault",
+                allowed_reasoning_effort: ["none", "low", "high"] as const,
+                default_reasoning_effort: "medium" as const,
+              },
+            ],
+          }
+        : { ...diagnostic, models: [] },
+    ) as unknown as RunnerHello["runtime_diagnostics"];
+    const connection = await gateway.acceptConnection(
+      authenticatedPrincipal(),
+      {
+        ...hello(),
+        runtimes: ["codex", "claude", "pi"],
+        runtime_diagnostics: diagnostics,
+        workspace_grants: [
+          {
+            grant_id: "grant-owner",
+            tenant_id: "tenant-acme",
+            label: "Linger workspace",
+            mode: "workspace-write",
+            scope: "owner",
+          },
+        ],
+      },
+      peer,
+    );
+
+    expect(gateway.runtimeModels("runner-local", "pi")).toEqual([
+      expect.objectContaining({
+        id: "local/spark-x2.6-4b",
+        allowedReasoningEffort: ["none", "low", "high"],
+        defaultReasoningEffort: "low",
+      }),
+      expect.objectContaining({
+        id: "local/qwen3.6-35b-a3b",
+        allowedReasoningEffort: ["none", "low", "medium", "high"],
+        defaultReasoningEffort: "medium",
+      }),
+      expect.objectContaining({
+        id: "local/high-only",
+        defaultReasoningEffort: "high",
+      }),
+      expect.objectContaining({
+        id: "local/xhigh-only",
+        defaultReasoningEffort: "xhigh",
+      }),
+      expect.objectContaining({
+        id: "local/none-only",
+        defaultReasoningEffort: "none",
+      }),
+      expect.objectContaining({
+        id: "local/explicit-none",
+        defaultReasoningEffort: "none",
+      }),
+      expect.objectContaining({
+        id: "local/invalid-default",
+        defaultReasoningEffort: "low",
+      }),
+    ]);
+
+    const placement = {
+      type: "local" as const,
+      assignmentRevision: 1,
+      tenantId: "tenant-acme",
+      ownerActorId: "actor-alice",
+      computerId: "runner-local",
+      runtimeType: "pi" as const,
+      workspaceGrantId: "grant-owner",
+    };
+
+    expect(() =>
+      gateway.requireLocalPlacement(placement, "local/spark-x2.6-4b"),
+    ).not.toThrow();
+    expect(() =>
+      gateway.requireLocalPlacement(placement, "local/spark-x2.6-4b", "medium"),
+    ).not.toThrow();
+
+    const readiness = gateway.ensureReadyLocalAgentRunner({
+      placement,
+      modelId: "local/spark-x2.6-4b",
+      reasoningEffort: "medium",
+      agentId: "agent-spark",
+    });
+    await vi.waitFor(() =>
+      expect(peer.sent.at(-1)).toMatchObject({
+        type: "agent_runner.ensure",
+        runtime: {
+          type: "pi",
+          model: "local/spark-x2.6-4b",
+          reasoning_effort: "low",
+        },
+      }),
+    );
+    await acknowledgeEnsuredAgent(connection, peer);
+    await expect(readiness).resolves.toBe(1);
+
+    const omittedReadiness = gateway.ensureReadyLocalAgentRunner({
+      placement,
+      modelId: "local/qwen3.6-35b-a3b",
+      agentId: "agent-qwen",
+    });
+    await vi.waitFor(() =>
+      expect(peer.sent.at(-1)).toMatchObject({
+        type: "agent_runner.ensure",
+        runtime: {
+          type: "pi",
+          model: "local/qwen3.6-35b-a3b",
+          reasoning_effort: "medium",
+        },
+      }),
+    );
+    await acknowledgeEnsuredAgent(connection, peer);
+    await expect(omittedReadiness).resolves.toBe(1);
+    connection.disconnect();
+  });
 
   it("runs without the reasoning effort when the Computer's model offers none", async () => {
     const gateway = createTestRunnerGateway({ heartbeatIntervalMs: 1_000 });
@@ -945,6 +1122,62 @@ describe("RunnerGateway", () => {
     expect(peer.sent.at(-1)).not.toHaveProperty("runtime.reasoning_effort");
     await acknowledgeEnsuredAgent(connection, peer);
     await expect(readiness).resolves.toBe(1);
+    connection.disconnect();
+  });
+
+  // The Daemon lists a downloaded local model that is not loaded in its Pi
+  // diagnostic, shaped as a model without reasoning effort, so a Run on it
+  // reaches the Computer, which loads it first.
+  it("places a Pi Agent on a downloaded local model the Computer lists", async () => {
+    const gateway = createTestRunnerGateway({ heartbeatIntervalMs: 1_000 });
+    const piModel =
+      "localmodels-library/localmodels-lib-qwen3-4b-q4-k-m/Qwen3-4B-Q4_K_M";
+    const diagnostics = runtimeDiagnostics({ ready: ["codex", "pi"] }).map(
+      (diagnostic) =>
+        diagnostic.type === "pi"
+          ? {
+              ...diagnostic,
+              models: [
+                {
+                  id: piModel,
+                  label: "Qwen3 4B",
+                  allowed_reasoning_effort: [],
+                  context_window: 32768,
+                },
+              ],
+            }
+          : diagnostic,
+    ) as unknown as RunnerHello["runtime_diagnostics"];
+    const connection = await gateway.acceptConnection(
+      authenticatedPrincipal(),
+      {
+        ...hello(),
+        runtimes: ["codex", "pi"],
+        runtime_diagnostics: diagnostics,
+        workspace_grants: [
+          {
+            grant_id: "grant-owner",
+            tenant_id: "tenant-acme",
+            label: "Linger workspace",
+            mode: "workspace-write",
+            scope: "owner",
+          },
+        ],
+      },
+      new RecordingPeer(),
+    );
+    const placement = {
+      type: "local" as const,
+      assignmentRevision: 1,
+      tenantId: "tenant-acme",
+      ownerActorId: "actor-alice",
+      computerId: "runner-local",
+      runtimeType: "pi" as const,
+      workspaceGrantId: "grant-owner",
+    };
+    expect(() =>
+      gateway.requireLocalPlacement(placement, piModel),
+    ).not.toThrow();
     connection.disconnect();
   });
 

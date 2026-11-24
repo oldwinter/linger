@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -30,6 +31,7 @@ const (
 	defaultBifrostAddr = "127.0.0.1:18480"
 	maxOwnedFileBytes  = 1 << 20
 	maxAddrFileBytes   = 256
+	maxMarkerFileBytes = 4096
 )
 
 var (
@@ -72,6 +74,16 @@ func BifrostAddrFile(stateDir string) string {
 		return ""
 	}
 	return filepath.Clean(filepath.Join(stateDir, "..", "bifrost-addr"))
+}
+
+// LegacyToolsMarkerFile returns the file in which the installer records the
+// shared tools directory a home kept from before per-home isolation, sibling
+// to a localmodels StateDirectory, or an empty string when stateDir is unset.
+func LegacyToolsMarkerFile(stateDir string) string {
+	if stateDir == "" {
+		return ""
+	}
+	return filepath.Clean(filepath.Join(stateDir, "..", "tools-dir"))
 }
 
 // Tool is where the installer put the localmodels tool and its state, as
@@ -155,7 +167,17 @@ func (t Tool) commandArgs(environment map[string]string, args []string) *exec.Cm
 	}
 	effective["PYTHONPATH"] = t.ModuleDirectory
 	effective["LOCALMODELS_STATE"] = t.StateDirectory
-	if t.StateDirectory != "" {
+	overlay := ReadOverlay(t.StateDirectory)
+	legacy := legacyLoadedGateway(t.StateDirectory, environment, overlay)
+	if legacy != nil {
+		effective["LOCALMODELS_TOOLS_DIR"] = legacy.toolsDir
+		if legacy.bifrostDir != "" {
+			effective["LOCALMODELS_BIFROST_DIR"] = legacy.bifrostDir
+		}
+		if legacy.addr != "" {
+			effective["LOCALMODELS_BIFROST_ADDR"] = legacy.addr
+		}
+	} else if t.StateDirectory != "" {
 		toolsDir := ToolsDirectory(t.StateDirectory)
 		bifrostDir := BifrostDirectory(t.StateDirectory)
 		ensureSiblingDirectories(t.StateDirectory, toolsDir, bifrostDir)
@@ -167,7 +189,7 @@ func (t Tool) commandArgs(environment map[string]string, args []string) *exec.Cm
 			!isReadOnlyOrStopSubcommand(args),
 		)
 	}
-	if overlay := ReadOverlay(t.StateDirectory); overlay == nil {
+	if overlay == nil && legacy == nil {
 		baseForPi := make(map[string]string, len(environment))
 		for key, value := range environment {
 			if strings.EqualFold(key, "PI_CODING_AGENT_DIR") {
@@ -183,7 +205,7 @@ func (t Tool) commandArgs(environment map[string]string, args []string) *exec.Cm
 		if piEnv, err := workspace.PiSourceEnvironment(baseForPi); err == nil && piEnv["PI_CODING_AGENT_DIR"] != "" {
 			effective["PI_CODING_AGENT_DIR"] = piEnv["PI_CODING_AGENT_DIR"]
 		}
-	} else if piProfile := localGatewayPiProfile(environment, t.StateDirectory, overlay); piProfile != "" {
+	} else if piProfile := localGatewayPiProfile(environment, t.StateDirectory, overlay, legacy); piProfile != "" {
 		effective["PI_CODING_AGENT_DIR"] = piProfile
 	}
 	effective["PYTHONNOUSERSITE"] = "1"
@@ -269,33 +291,254 @@ func parseLoopbackBifrostAddr(raw string) (string, int, bool) {
 	return fmt.Sprintf("%s:%d", defaultBifrostHost, port), port, true
 }
 
-// readOwnedBifrostAddr reads gateway.bifrost.addr from <toolsDir>/owned.json.
+type ownedBifrostRecord struct {
+	addr   string
+	port   int
+	appDir string
+}
+
+// readOwnedBifrostRecord reads gateway.bifrost from <toolsDir>/owned.json.
 // localmodels writes owned.json under the process umask rather than 0600, so
-// this checks for a regular non-symlink file inside the private tools dir.
-func readOwnedBifrostAddr(toolsDir string) (string, int, bool) {
+// this checks for a regular non-symlink file inside the tools dir.
+func readOwnedBifrostRecord(toolsDir string) (ownedBifrostRecord, bool) {
 	if toolsDir == "" {
-		return "", 0, false
+		return ownedBifrostRecord{}, false
 	}
 	ownedPath := filepath.Join(toolsDir, "owned.json")
 	info, err := os.Lstat(ownedPath)
 	if err != nil || !info.Mode().IsRegular() {
-		return "", 0, false
+		return ownedBifrostRecord{}, false
 	}
 	raw, err := readBounded(ownedPath, maxOwnedFileBytes)
 	if err != nil {
-		return "", 0, false
+		return ownedBifrostRecord{}, false
 	}
 	var doc struct {
 		Gateway struct {
 			Bifrost *struct {
-				Addr string `json:"addr"`
+				Addr   string `json:"addr"`
+				AppDir string `json:"app_dir"`
 			} `json:"bifrost"`
 		} `json:"gateway"`
 	}
 	if err := json.Unmarshal(raw, &doc); err != nil || doc.Gateway.Bifrost == nil {
+		return ownedBifrostRecord{}, false
+	}
+	addr, port, ok := parseLoopbackBifrostAddr(doc.Gateway.Bifrost.Addr)
+	if !ok {
+		return ownedBifrostRecord{}, false
+	}
+	appDir := strings.TrimSpace(doc.Gateway.Bifrost.AppDir)
+	if appDir != "" && filepath.IsAbs(appDir) {
+		appDir = filepath.Clean(appDir)
+	} else {
+		appDir = ""
+	}
+	return ownedBifrostRecord{addr: addr, port: port, appDir: appDir}, true
+}
+
+func readOwnedBifrostAddr(toolsDir string) (string, int, bool) {
+	rec, ok := readOwnedBifrostRecord(toolsDir)
+	if !ok {
 		return "", 0, false
 	}
-	return parseLoopbackBifrostAddr(doc.Gateway.Bifrost.Addr)
+	return rec.addr, rec.port, true
+}
+
+type legacyGateway struct {
+	toolsDir   string
+	bifrostDir string
+	addr       string
+	piProfile  string
+}
+
+func loadedLibraryProviders(stateDir string) map[string]struct{} {
+	modelsDir := filepath.Join(stateDir, "library", "models")
+	entries, err := os.ReadDir(modelsDir)
+	if err != nil {
+		return nil
+	}
+	providers := make(map[string]struct{})
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		path := filepath.Join(modelsDir, entry.Name())
+		info, err := os.Lstat(path)
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		raw, err := readBounded(path, maxOwnedFileBytes)
+		if err != nil {
+			continue
+		}
+		var doc struct {
+			State        string `json:"state"`
+			Registration *struct {
+				Provider string `json:"provider"`
+			} `json:"registration"`
+		}
+		if err := json.Unmarshal(raw, &doc); err != nil {
+			continue
+		}
+		if doc.State == "loaded" && doc.Registration != nil && doc.Registration.Provider != "" {
+			providers[doc.Registration.Provider] = struct{}{}
+		}
+	}
+	return providers
+}
+
+func bifrostConfigHasAnyProvider(appDir string, wanted map[string]struct{}) bool {
+	if appDir == "" || len(wanted) == 0 {
+		return false
+	}
+	cfgPath := filepath.Join(appDir, "config.json")
+	info, err := os.Lstat(cfgPath)
+	if err != nil || !info.Mode().IsRegular() {
+		return false
+	}
+	raw, err := readBounded(cfgPath, maxOwnedFileBytes)
+	if err != nil {
+		return false
+	}
+	var doc struct {
+		Providers map[string]json.RawMessage `json:"providers"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return false
+	}
+	for provider := range wanted {
+		if _, ok := doc.Providers[provider]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func toolsDirFromGatewayPiProfile(piDir string) string {
+	if piDir == "" || !filepath.IsAbs(piDir) {
+		return ""
+	}
+	cleaned := filepath.Clean(piDir)
+	if !strings.EqualFold(filepath.Base(cleaned), "agent") {
+		return ""
+	}
+	piParent := filepath.Dir(cleaned)
+	if !strings.EqualFold(filepath.Base(piParent), ".pi") {
+		return ""
+	}
+	gatewayHome := filepath.Dir(piParent)
+	if !strings.EqualFold(filepath.Base(gatewayHome), "gateway-home") {
+		return ""
+	}
+	return filepath.Dir(gatewayHome)
+}
+
+// defaultLegacyToolsDir is localmodels' own default tools directory,
+// TOOLS_DIR = ~/.local/share/localmodels/tools expanded the way Python's
+// expanduser does: USERPROFILE on Windows, HOME elsewhere.
+func defaultLegacyToolsDir(baseEnv map[string]string) string {
+	homeKey := "HOME"
+	if runtime.GOOS == "windows" {
+		homeKey = "USERPROFILE"
+	}
+	home := envLookup(baseEnv, homeKey)
+	if home == "" || !filepath.IsAbs(home) {
+		return ""
+	}
+	return filepath.Join(filepath.Clean(home), ".local", "share", "localmodels", "tools")
+}
+
+// legacyLoadedGateway preserves continuity for upgraded hosts whose loaded
+// models are still registered in the platform's default legacy tool directory
+// or a gateway recorded in local-mode model-source.json.
+func legacyLoadedGateway(stateDir string, baseEnv map[string]string, overlay *OverlayState) *legacyGateway {
+	if stateDir == "" {
+		return nil
+	}
+	if marked := markedLegacyGateway(stateDir); marked != nil {
+		return marked
+	}
+	isolatedTools := ToolsDirectory(stateDir)
+	if _, _, owned := readOwnedBifrostAddr(isolatedTools); owned {
+		return nil
+	}
+	loadedProviders := loadedLibraryProviders(stateDir)
+	if len(loadedProviders) == 0 {
+		return nil
+	}
+	candidates := make([]string, 0, 2)
+	addCandidate := func(dir string) {
+		if dir == "" || !filepath.IsAbs(dir) {
+			return
+		}
+		cleaned := filepath.Clean(dir)
+		if cleaned == isolatedTools {
+			return
+		}
+		for _, existing := range candidates {
+			if existing == cleaned {
+				return
+			}
+		}
+		candidates = append(candidates, cleaned)
+	}
+	if overlay != nil && overlay.Mode == "local" {
+		addCandidate(toolsDirFromGatewayPiProfile(overlay.Environment["PI_CODING_AGENT_DIR"]))
+	}
+	addCandidate(defaultLegacyToolsDir(baseEnv))
+
+	for _, toolsDir := range candidates {
+		rec, ok := readOwnedBifrostRecord(toolsDir)
+		if !ok || rec.appDir == "" {
+			continue
+		}
+		if overlay != nil && overlay.Mode == "local" && overlay.GatewayURL != "" {
+			if strings.TrimRight(overlay.GatewayURL, "/") != "http://"+rec.addr {
+				continue
+			}
+		}
+		if !bifrostConfigHasAnyProvider(rec.appDir, loadedProviders) {
+			continue
+		}
+		piProfile := filepath.Join(toolsDir, "gateway-home", ".pi", "agent")
+		if !dirExists(piProfile) {
+			piProfile = ""
+		}
+		return &legacyGateway{
+			toolsDir:   toolsDir,
+			bifrostDir: rec.appDir,
+			addr:       rec.addr,
+			piProfile:  piProfile,
+		}
+	}
+	return nil
+}
+
+// markedLegacyGateway follows the installer's record of a home that still
+// runs from the shared tools directory its plan was applied in, so the Daemon
+// reads the same deployments, Pi profile and Bifrost as the installer. Only
+// what that directory's owned.json records is set; localmodels keeps its own
+// defaults for the rest, as when the plan was applied.
+func markedLegacyGateway(stateDir string) *legacyGateway {
+	raw, err := privatefs.ReadFile(LegacyToolsMarkerFile(stateDir), maxMarkerFileBytes)
+	if err != nil {
+		return nil
+	}
+	toolsDir := strings.TrimSpace(string(raw))
+	if toolsDir == "" || !filepath.IsAbs(toolsDir) {
+		return nil
+	}
+	toolsDir = filepath.Clean(toolsDir)
+	gateway := &legacyGateway{toolsDir: toolsDir}
+	if rec, ok := readOwnedBifrostRecord(toolsDir); ok {
+		gateway.bifrostDir = rec.appDir
+		gateway.addr = rec.addr
+	}
+	if piProfile := filepath.Join(toolsDir, "gateway-home", ".pi", "agent"); dirExists(piProfile) {
+		gateway.piProfile = piProfile
+	}
+	return gateway
 }
 
 func readSavedBifrostAddr(addrFile string) (string, int, bool) {
@@ -339,8 +582,40 @@ func resolveBifrostAddr(stateDir, toolsDir string, allocate bool) string {
 	return addr
 }
 
+// rotateUnownedBifrostAddr moves bifrost-addr onto a fresh free port after a
+// gateway registration failure when this home does not yet own a Bifrost
+// instance, so retries never deadlock on a port rejected by localmodels.
+func (t Tool) rotateUnownedBifrostAddr() {
+	if t.StateDirectory == "" {
+		return
+	}
+	bifrostAddrMu.Lock()
+	defer bifrostAddrMu.Unlock()
+	if _, _, owned := readOwnedBifrostAddr(ToolsDirectory(t.StateDirectory)); owned {
+		return
+	}
+	addrFile := BifrostAddrFile(t.StateDirectory)
+	exclude := defaultBifrostPort
+	if _, savedPort, ok := readSavedBifrostAddr(addrFile); ok {
+		exclude = savedPort
+	}
+	port, ok := allocateBifrostPortExcluding(0, exclude)
+	if !ok {
+		return
+	}
+	parentDir := filepath.Dir(filepath.Clean(t.StateDirectory))
+	if dirExists(parentDir) {
+		_ = privatefs.EnsureDir(parentDir)
+		_ = privatefs.WriteFile(addrFile, []byte(fmt.Sprintf("%s:%d\n", defaultBifrostHost, port)), false)
+	}
+}
+
 func allocateBifrostPort(preferred int) (int, bool) {
-	if preferred >= 1024 && preferred <= 65535 && bifrostPortFree(preferred) {
+	return allocateBifrostPortExcluding(preferred, 0)
+}
+
+func allocateBifrostPortExcluding(preferred, exclude int) (int, bool) {
+	if preferred >= 1024 && preferred <= 65535 && preferred != exclude && bifrostPortFree(preferred) {
 		return preferred, true
 	}
 	for range 100 {
@@ -350,7 +625,7 @@ func allocateBifrostPort(preferred int) (int, bool) {
 		}
 		addr, ok := listener.Addr().(*net.TCPAddr)
 		_ = listener.Close()
-		if !ok || addr.Port <= 0 {
+		if !ok || addr.Port <= 0 || addr.Port == exclude {
 			continue
 		}
 		if bifrostPortFree(addr.Port) {
@@ -372,7 +647,7 @@ func loopbackPortFree(port int) bool {
 	if loopbackAnswers("tcp4", v4Addr) || loopbackAnswers("tcp6", v6Addr) {
 		return false
 	}
-	return true
+	return nonLoopbackPortFree(port)
 }
 
 func bindLoopbackFree(network, address string, allowMissingIPv6 bool) bool {

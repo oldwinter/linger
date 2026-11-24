@@ -25,7 +25,14 @@ import {
   usableConnectUrl,
   accountIdentityText,
 } from "@/features/apps/connection-state";
+import {
+  FeishuConnectGuide,
+  isFeishuConnectError,
+  useFeishuMailSetup,
+} from "@/features/apps/feishu-connect-guide";
+import { connectorMessages } from "@/features/apps/connectors.messages";
 import { openOAuthUrl } from "@/features/apps/oauth-popup";
+import type { TeamHubError } from "@/features/teamhub/teamhub-error";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubExternalConnection } from "@/features/teamhub/teamhub-types";
 import { commonMessages } from "@/i18n/common.messages";
@@ -110,6 +117,7 @@ function ConnectionAuthCard({
   children,
   done,
   error,
+  guide,
 }: {
   actions?: ReactNode;
   appKey: string;
@@ -118,6 +126,8 @@ function ConnectionAuthCard({
   children?: ReactNode;
   done?: ReactNode;
   error?: string;
+  /** Steps that replace the error when the Human can fix it themselves. */
+  guide?: ReactNode;
 }) {
   const t = useT();
   return (
@@ -147,7 +157,7 @@ function ConnectionAuthCard({
             />
           ) : null)}
         {actions ? <CardActions>{actions}</CardActions> : null}
-        {error ? <CardError>{error}</CardError> : null}
+        {guide ?? (error ? <CardError>{error}</CardError> : null)}
       </CardBox>
     </>
   );
@@ -197,6 +207,9 @@ function ConnectionAuthorizationActions({
   const [created, setCreated] = useState<TeamHubExternalConnection>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // A Feishu Mail connection the owner's Computer cannot make yet gets steps
+  // instead of an error line.
+  const [feishuError, setFeishuError] = useState<TeamHubError>();
   const [fallbackUrl, setFallbackUrl] = useState("");
   const authorizing = card.status === "authorizing";
   const boundConnectionId = card.connection_auth?.connection_id ?? "";
@@ -252,6 +265,21 @@ function ConnectionAuthorizationActions({
     selectedId === NEW_ACCOUNT
       ? undefined
       : (available.find((item) => item.id === selectedId) ?? defaultSelection);
+  const needsFeishuSetup =
+    appKey === "feishu_mail" &&
+    !authorizing &&
+    !connections.isPending &&
+    (selected ? selected.status !== "active" : canConnectNew);
+  const setup = useFeishuMailSetup(needsFeishuSetup);
+  const checkingSetup =
+    needsFeishuSetup && (setup.isPending || setup.isFetching);
+  const setupError = needsFeishuSetup
+    ? (feishuError ?? setup.error)
+    : undefined;
+  const connectionError = setupError ?? feishuError;
+  const guideError = isFeishuConnectError(connectionError)
+    ? connectionError
+    : undefined;
   const resumeUrl =
     fallbackUrl ||
     reauthorizationConnectUrl(bound.data) ||
@@ -269,6 +297,7 @@ function ConnectionAuthorizationActions({
   async function authorize(newAccount: boolean) {
     setBusy(true);
     setError("");
+    setFeishuError(undefined);
     try {
       let connection = newAccount ? undefined : selected;
       let connectUrl = "";
@@ -319,11 +348,13 @@ function ConnectionAuthorizationActions({
         queryKey: externalConnectionsQueryKey(),
       });
     } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : translate(cardsMessages.authorizationNotStarted),
-      );
+      if (isFeishuConnectError(cause)) setFeishuError(cause);
+      else
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : translate(cardsMessages.authorizationNotStarted),
+        );
     } finally {
       setBusy(false);
     }
@@ -362,14 +393,26 @@ function ConnectionAuthorizationActions({
     >
       {t(commonMessages.open)}
     </Button>
-  ) : authorizing ? null : selected ? (
+  ) : authorizing ? null : setupError ? (
+    <Button
+      disabled={busy || setup.isFetching}
+      onClick={() => {
+        setFeishuError(undefined);
+        void setup.refetch();
+      }}
+      size="large"
+      tone="primary"
+    >
+      {t(connectorMessages.feishuCheckAgain)}
+    </Button>
+  ) : selected ? (
     <Button
       aria-label={
         selected.status === "active"
           ? t(cardsMessages.allowAgent, { name: agentName })
           : t(cardsMessages.connectApp, { name: appName })
       }
-      disabled={busy}
+      disabled={busy || checkingSetup}
       onClick={() => void authorize(false)}
       size="large"
       tone="primary"
@@ -383,7 +426,7 @@ function ConnectionAuthorizationActions({
   ) : loading || canConnectNew ? (
     <Button
       aria-label={t(cardsMessages.connectApp, { name: appName })}
-      disabled={busy || loading}
+      disabled={busy || loading || checkingSetup}
       onClick={() => void authorize(true)}
       size="large"
       tone="primary"
@@ -410,8 +453,16 @@ function ConnectionAuthorizationActions({
       appKey={appKey}
       appName={appName}
       card={card}
+      guide={
+        guideError ? (
+          <FeishuConnectGuide className="mt-3" error={guideError} />
+        ) : undefined
+      }
       error={
         error ||
+        (setupError instanceof Error && !guideError
+          ? setupError.message
+          : undefined) ||
         (loadError
           ? loadError instanceof Error
             ? loadError.message
@@ -425,7 +476,11 @@ function ConnectionAuthorizationActions({
             aria-label={t(cardsMessages.appAccount, { app: appName })}
             className="h-8 w-full px-2.5 text-sm"
             disabled={busy}
-            onValueChange={setSelectedId}
+            onValueChange={(id) => {
+              setSelectedId(id);
+              setFeishuError(undefined);
+              setError("");
+            }}
             value={selected?.id ?? (canConnectNew ? NEW_ACCOUNT : "")}
           >
             {available.map((connection) => {

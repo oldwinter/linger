@@ -1,9 +1,21 @@
 import { z } from "zod";
 import { teamHubIdSchema } from "../message-segments.js";
+import { codePointString } from "./creation-schemas.js";
+
+/** A Document title bound, in characters: what the contract's maxLength means,
+ * so a title of 255 emoji is 255 characters. */
+const documentTitleCharacters = 255;
+
+const documentTitle = (description?: string) => {
+  const schema = codePointString({ max: documentTitleCharacters });
+  // A field that carried no description keeps carrying none, and one that did
+  // keeps the published key order it had.
+  return description === undefined ? schema : schema.describe(description);
+};
 
 export const createDocumentInputSchema = z
   .object({
-    title: z.string().min(1).max(255).describe("Document title."),
+    title: documentTitle("Document title."),
     markdown: z
       .string()
       .max(1_048_576)
@@ -158,7 +170,7 @@ export const editDocumentInputSchema = z
       .object({
         document_id: teamHubIdSchema,
         command: z.literal("set_title"),
-        title: z.string().min(1).max(255),
+        title: documentTitle(),
       })
       .strict(),
     ...(["image_insert_after", "image_replace"] as const).map((command) =>

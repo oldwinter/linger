@@ -1,4 +1,3 @@
-import { SharedStreamingStatusProvider } from "./chat/shared-streaming-status";
 import {
   useQuery,
   useQueryClient,
@@ -674,9 +673,7 @@ function RoomCollaborationScope({
       enabled={voiceEnabled && (remote || roomOffersVoiceMaterials(room))}
       remote={remote}
     >
-      <SharedStreamingStatusProvider key={`${tenantId}:${room.id}`}>
-        {children}
-      </SharedStreamingStatusProvider>
+      {children}
     </VoiceMaterialsProvider>
   );
 }

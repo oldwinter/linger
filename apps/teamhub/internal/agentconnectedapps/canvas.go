@@ -12,6 +12,7 @@ import (
 
 	artifactstore "github.com/simplexai-labs/linger/apps/teamhub/internal/artifact"
 
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/composio"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/document"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
@@ -39,15 +40,17 @@ var (
 // shows at their natural size.
 const defaultMailImageWidth = 600
 
-// CanvasDraftError is a canvas that cannot become a Gmail draft; path names
+// CanvasDraftError is a canvas that cannot become a mail draft; path names
 // the request field at fault, or is empty for the canvas as a whole.
 type CanvasDraftError struct{ Path, Code, Message string }
 
 func (e *CanvasDraftError) Error() string { return e.Message }
 
-// CanvasDraft is a canvas built as a Gmail draft.
+// CanvasDraft is the complete reviewed email, with an Outlook JSON representation
+// when the selected provider does not use the RFC 5322 payload.
 type CanvasDraft struct {
 	Raw          string
+	Outlook      *composio.OutlookDraftMessage
 	DocumentID   string
 	SourceDigest string
 	// InlineImages counts the images shown in the body.
@@ -56,18 +59,50 @@ type CanvasDraft struct {
 	Attachments []string
 }
 
+// The mail canvas targets: the mail apps a canvas can be drafted and sent in.
+// A target is the catalog key of its app.
+const (
+	MailCanvasGmail   = "gmail"
+	MailCanvasOutlook = "outlook"
+	MailCanvasFeishu  = "feishu_mail"
+)
+
+// IsMailCanvasTarget reports whether a canvas of target is an email.
+func IsMailCanvasTarget(target string) bool {
+	return target == MailCanvasGmail || target == MailCanvasFeishu || target == MailCanvasOutlook
+}
+
+// MailCanvasAppName names a mail canvas target's app to the people reading
+// a message about it.
+func MailCanvasAppName(target string) string {
+	if target == MailCanvasOutlook {
+		return "Outlook"
+	}
+	if target == MailCanvasFeishu {
+		return "Feishu Mail"
+	}
+	return "Gmail"
+}
+
 // GmailCanvasDraftRaw builds the Gmail draft of a canvas: its images show in
 // the body and its file blocks go as attachments. Recipients and subject left
 // nil come from the canvas header.
 func (s *Canvas) GmailCanvasDraftRaw(ctx context.Context, tenantID, agentID, documentID string, to, cc *[]string, subject *string) (CanvasDraft, error) {
+	return s.MailCanvasDraftRaw(ctx, MailCanvasGmail, tenantID, agentID, documentID, to, cc, subject)
+}
+
+// MailCanvasDraftRaw builds the draft of a canvas of target as one RFC 5322
+// message, base64url encoded, and Outlook fields when needed.
+func (s *Canvas) MailCanvasDraftRaw(ctx context.Context, target, tenantID, agentID, documentID string, to, cc *[]string, subject *string) (CanvasDraft, error) {
 	blocks, sourceDigest, err := s.canvasBlocks(ctx, tenantID, agentID, documentID)
 	if err != nil {
 		return CanvasDraft{}, err
 	}
 	header, isCanvas := ReadCanvasHeader(blocks)
 	if to == nil || cc == nil || subject == nil {
-		if !isCanvas || header.Target != "gmail" {
-			return CanvasDraft{}, &CanvasDraftError{"document_id", "not_gmail_canvas", "This Document is not a Gmail canvas; pass --to, --cc and --subject"}
+		if !isCanvas || header.Target != target {
+			name := MailCanvasAppName(target)
+			return CanvasDraft{}, &CanvasDraftError{"document_id", "not_gmail_canvas", "This Document is not a " + name + " canvas; pass --to, --cc and --subject"}
 		}
 		if to == nil {
 			to = commaList(header.Fields["to"])
@@ -161,7 +196,18 @@ func (s *Canvas) GmailCanvasDraftRaw(ctx context.Context, tenantID, agentID, doc
 	if current != sourceDigest {
 		return CanvasDraft{}, &CanvasDraftError{Message: "The canvas changed while its draft was being built. Save the draft again from the current canvas."}
 	}
-	return CanvasDraft{Raw: raw, InlineImages: len(images), Attachments: names, DocumentID: documentID, SourceDigest: sourceDigest}, nil
+	built := CanvasDraft{Raw: raw, InlineImages: len(images), Attachments: names, DocumentID: documentID, SourceDigest: sourceDigest}
+	if target == MailCanvasOutlook {
+		message := composio.OutlookDraftMessage{To: *to, Cc: *cc, Subject: *subject, HTML: html}
+		for _, image := range images {
+			message.Attachments = append(message.Attachments, composio.OutlookDraftAttachment{Name: image.Filename, ContentType: image.MediaType, ContentID: image.ContentID, Bytes: image.Bytes})
+		}
+		for _, file := range attachments {
+			message.Attachments = append(message.Attachments, composio.OutlookDraftAttachment{Name: file.Filename, ContentType: file.MediaType, Bytes: file.Bytes})
+		}
+		built.Outlook = &message
+	}
+	return built, nil
 }
 
 // assetBytes reads one canvas Asset, at most limit bytes.
@@ -278,7 +324,24 @@ func ReadCanvasHeader(blocks []CanvasBlock) (CanvasHeader, bool) {
 			text.WriteString(item.Text)
 		}
 	}
-	lines := strings.Split(text.String(), "\n")
+	return readCanvasHeaderText(strings.Split(text.String(), "\n"))
+}
+
+// CanvasHeaderFromMarkdown reads the canvas header from a canvas's Markdown,
+// where the first block is written as a fenced code block.
+func CanvasHeaderFromMarkdown(markdown string) (CanvasHeader, bool) {
+	fence := CanvasHeaderFence.FindString(markdown)
+	if fence == "" {
+		return CanvasHeader{}, false
+	}
+	lines := strings.Split(strings.TrimRight(strings.TrimSpace(fence), "\n"), "\n")
+	return readCanvasHeaderText(lines[1 : len(lines)-1])
+}
+
+func readCanvasHeaderText(lines []string) (CanvasHeader, bool) {
+	if len(lines) == 0 {
+		return CanvasHeader{}, false
+	}
 	match := canvasHeaderLine.FindStringSubmatch(strings.TrimSpace(lines[0]))
 	if match == nil {
 		return CanvasHeader{}, false

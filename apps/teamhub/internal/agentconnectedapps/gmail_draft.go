@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	stdimage "image"
 	"image/draw"
@@ -204,27 +205,56 @@ func writeBase64Lines(writer interface{ Write([]byte) (int, error) }, content []
 // SaveGmailDraft saves raw as a draft on a Gmail connection the Agent may use,
 // under the same grant and connection checks as tool execution. It never sends.
 func (s *Service) SaveGmailDraft(ctx context.Context, token, connectionID, draftID, raw string) (draft composio.GmailDraft, err error) {
-	connectionID = strings.TrimSpace(connectionID)
-	if !connectionIDPattern.MatchString(connectionID) || raw == "" || len(draftID) > 256 {
-		return composio.GmailDraft{}, ErrInvalid
-	}
-	if s == nil || s.pool == nil || s.contexts == nil || s.connections == nil {
+	if s == nil {
 		return composio.GmailDraft{}, unavailableError(nil)
 	}
 	provider, ok := s.provider.(gmailDraftProvider)
 	if !ok {
 		return composio.GmailDraft{}, unavailableError(nil)
 	}
+	if raw == "" {
+		return composio.GmailDraft{}, ErrInvalid
+	}
+	return s.saveProviderCanvasDraft(ctx, token, connectionID, MailCanvasGmail, draftID, func(ctx context.Context, upstreamID, draftID string) (composio.GmailDraft, error) {
+		return provider.SaveGmailDraft(ctx, upstreamID, draftID, raw)
+	})
+}
+
+type outlookDraftProvider interface {
+	SaveOutlookDraft(context.Context, string, string, composio.OutlookDraftMessage) (composio.GmailDraft, error)
+}
+
+func (s *Service) saveOutlookDraft(ctx context.Context, token, connectionID, draftID string, message *composio.OutlookDraftMessage) (composio.GmailDraft, error) {
+	provider, ok := s.provider.(outlookDraftProvider)
+	if !ok || message == nil {
+		return composio.GmailDraft{}, unavailableError(nil)
+	}
+	return s.saveProviderCanvasDraft(ctx, token, connectionID, MailCanvasOutlook, draftID, func(ctx context.Context, upstreamID, draftID string) (composio.GmailDraft, error) {
+		return provider.SaveOutlookDraft(ctx, upstreamID, draftID, *message)
+	})
+}
+
+func (s *Service) saveProviderCanvasDraft(ctx context.Context, token, connectionID, target, draftID string, save func(context.Context, string, string) (composio.GmailDraft, error)) (draft composio.GmailDraft, err error) {
+	connectionID = strings.TrimSpace(connectionID)
+	if !connectionIDPattern.MatchString(connectionID) || len(draftID) > 256 {
+		return composio.GmailDraft{}, ErrInvalid
+	}
+	if s == nil || s.pool == nil || s.contexts == nil || s.connections == nil {
+		return composio.GmailDraft{}, unavailableError(nil)
+	}
+	if save == nil {
+		return composio.GmailDraft{}, unavailableError(nil)
+	}
 	connection, err := s.authorizeExecution(ctx, token, connectionID)
 	if err != nil {
 		return composio.GmailDraft{}, err
 	}
-	if connection.ToolkitSlug != "gmail" {
+	if connection.AppKey != target || connection.ToolkitSlug != target {
 		return composio.GmailDraft{}, ErrInvalid
 	}
 	var providerError string
 	defer func() {
-		s.logCall(ctx, "gmail/canvas-draft", connection, "", "", callOutcome(err), "provider_error", providerError)
+		s.logCall(ctx, "mail/canvas-draft", connection, "", "", callOutcome(err), "provider_error", providerError)
 	}()
 	status, err := s.provider.GetConnectionStatusForToolkit(ctx, connection.UpstreamConnectionID, connection.ToolkitSlug)
 	if err != nil {
@@ -240,12 +270,61 @@ func (s *Service) SaveGmailDraft(ctx context.Context, token, connectionID, draft
 	if current != connection {
 		return composio.GmailDraft{}, mapToolError(externalsource.ErrNotActive, "execute")
 	}
-	draft, err = provider.SaveGmailDraft(ctx, connection.UpstreamConnectionID, draftID, raw)
+	draft, err = save(ctx, connection.UpstreamConnectionID, draftID)
 	if err != nil {
 		providerError = err.Error()
 		return composio.GmailDraft{}, uncertainExecutionError(err)
 	}
 	return draft, nil
+}
+
+// MailCanvasTargetOf returns the mail canvas target of a connection the Agent
+// may use: the canvas its draft is built from must name that mail app.
+func (s *Service) MailCanvasTargetOf(ctx context.Context, token, connectionID string) (string, error) {
+	if !connectionIDPattern.MatchString(strings.TrimSpace(connectionID)) {
+		return "", ErrInvalid
+	}
+	if s == nil || s.pool == nil || s.contexts == nil || s.connections == nil {
+		return "", unavailableError(nil)
+	}
+	connection, err := s.authorizeExecution(ctx, token, strings.TrimSpace(connectionID))
+	if err != nil {
+		return "", err
+	}
+	if !IsMailCanvasTarget(connection.AppKey) {
+		return "", ErrInvalid
+	}
+	return connection.AppKey, nil
+}
+
+// saveFeishuDraft saves a whole message as a draft on a Feishu Mail
+// connection the Agent may use, under the same checks as SaveGmailDraft.
+func (s *Service) saveFeishuDraft(ctx context.Context, token, connectionID, draftID string, raw []byte) (draft composio.GmailDraft, err error) {
+	saver, ok := s.provider.(nativeDraftSaver)
+	if !ok || len(raw) == 0 || len(draftID) > 256 {
+		return composio.GmailDraft{}, unavailableError(nil)
+	}
+	connection, err := s.authorizeExecution(ctx, token, connectionID)
+	if err != nil {
+		return composio.GmailDraft{}, err
+	}
+	if connection.AppKey != MailCanvasFeishu {
+		return composio.GmailDraft{}, ErrInvalid
+	}
+	defer func() {
+		s.logCall(ctx, "mail/canvas-draft", connection, "", "", callOutcome(err))
+	}()
+	if err = s.checkConnectionActive(ctx, connection); err != nil {
+		return composio.GmailDraft{}, err
+	}
+	saved, err := saver.SaveDraftRaw(ctx, connection.UpstreamConnectionID, draftID, raw)
+	if errors.Is(err, externalsource.ErrNotActive) {
+		return composio.GmailDraft{}, mapToolError(err, "execute")
+	}
+	if err != nil {
+		return composio.GmailDraft{}, uncertainExecutionError(err)
+	}
+	return composio.GmailDraft{DraftID: saved}, nil
 }
 
 // AgentPrincipal returns who is calling, for reading the canvas they draft from.

@@ -70,9 +70,34 @@ components:
           $ref: "./common.yaml#/components/schemas/Id"
         local_runtime_type:
           $ref: "./domain.yaml#/components/schemas/LocalRuntimeType"
+        runtime_model:
+          type: string
+          minLength: 1
+          maxLength: 160
+          description: The model configured for the Another Me on its local Runtime.
         status:
           type: string
           enum: [active, updating]
+    RecordAnotherMeBackgroundCallRequest:
+      type: object
+      additionalProperties: false
+      required: [tenant_id, agent_actor_id, outcome]
+      properties:
+        tenant_id:
+          $ref: "./common.yaml#/components/schemas/Id"
+        agent_actor_id:
+          $ref: "./common.yaml#/components/schemas/Id"
+        outcome:
+          type: string
+          enum: [completed, failed]
+        reason:
+          type: string
+          maxLength: 64
+          description: >-
+            Why a failed call failed, as an AnotherMeBackgroundFailureReason
+            code. A string rather than the enum so a newer Agent Service can
+            send a code this TeamHub does not know; TeamHub records it as
+            unknown. Ignored for a completed call.
     AnotherMePlacementList:
       type: object
       additionalProperties: false
@@ -587,6 +612,10 @@ components:
           allOf:
             - $ref: "#/components/schemas/AgentRuntimePositiveInt64"
           description: Loaded registration revision for automatic stale-session clearing. Requires the same active registration and rejects a Session compatible through proven profile initialization. Omit only for an explicit Session reset.
+        recovery_reason:
+          type: string
+          enum: [session_not_found, context_too_long]
+          description: Runtime failure code that triggers a same-revision Session reset on an idle active Context. Mutually exclusive with expected_current_configuration_revision.
     ClearAgentRuntimeSessionResult:
       type: object
       additionalProperties: false
@@ -672,6 +701,15 @@ components:
             unattributed conversation Message, presentation sequence, or emoji
             Reaction written by the Context's Agent in the Room or its Threads
             since the Run started.
+        replied_inbox_ids:
+          type: array
+          items:
+            type: string
+          description: >-
+            The Inboxes that hold such a reply: the Inbox of the Room or
+            Thread it is in (`room:<id>`, `thread:<id>`) and of each Task whose
+            work Room that is (`task:<id>`). A Run that took up mentions from
+            several Inboxes has answered only those listed.
     ClaimAgentLocalRunRequest:
       type: object
       additionalProperties: false
@@ -709,6 +747,43 @@ components:
         continues_context:
           type: boolean
           description: The Context received input before this Run's first input.
+        recent_messages:
+          $ref: "#/components/schemas/AgentLocalRunRecentMessages"
+    AgentLocalRunRecentMessage:
+      type: object
+      additionalProperties: false
+      required: [message_id, author, author_kind, body, created_at]
+      properties:
+        message_id:
+          type: string
+        author:
+          type: string
+        author_kind:
+          type: string
+        body:
+          type: string
+        truncated:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+    AgentLocalRunRecentMessages:
+      type: object
+      additionalProperties: false
+      description: >-
+        Bounded slice of recent product messages preceding a Run's first input,
+        returned only when the Context currently has no persisted Runtime Session
+        and continues earlier work.
+      required: [inbox_id, messages]
+      properties:
+        inbox_id:
+          type: string
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentLocalRunRecentMessage"
+        next_cursor:
+          type: string
     AgentProfileUpdate:
       type: object
       additionalProperties: false
@@ -1093,6 +1168,10 @@ components:
         model_not_offered means the Agent's Computer does not offer the selected model for
         its Runtime, or the model does not support the selected reasoning effort, so the
         Runtime could not start; the Agent needs a model and reasoning effort that Computer offers.
+        local_model_unavailable means the Agent's Computer could not load the Agent's local
+        model (not enough free memory, not fully downloaded, or loading took too long), so the
+        Runtime did not start; the person can manage it on the Computer's Models page or
+        choose another model.
         context_too_long means the conversation no longer fits the model's context window.
         model_service_error means the model service reported a server-side error.
         timeout means the Runtime hit its local execution deadline.
@@ -1103,11 +1182,13 @@ components:
         authorization checks that fail or time out, and authorization expiry. This code
         does not currently cover unknown effects caused by control-plane disconnection.
         It remains a failed Run and must not be automatically replayed; verify its effects
-        before starting another Run. reply_undelivered means a Room Run finished, but every
-        message the Agent tried to post failed, so the Room received no reply from it.
-        reply_not_sent means a Room Run finished without trying to post anything while a
-        Human who mentioned the Agent waited for its reply; the Runtime ended the turn in
-        text nobody sees, which is not posted for it.
+        before starting another Run. reply_undelivered means a Room Run finished while
+        a Human who mentioned the Agent waited for its reply, every message write the
+        Agent tried to post failed, and no reply reached the Room.
+        reply_not_sent means a Room Run finished while a Human who mentioned the Agent
+        waited for its reply and no reply reached the Room without any failed message
+        write attempt (for instance, the Runtime ended the turn in text nobody sees,
+        which is not posted for it).
         interrupted means the Run stopped before it finished for a reason other than a user
         cancellation, such as a restart or a Runner stopped on its Computer; part of its work
         may have taken effect and it is not replayed.
@@ -1130,6 +1211,7 @@ components:
               rate_limited,
               model_unavailable,
               model_not_offered,
+              local_model_unavailable,
               context_too_long,
               model_service_error,
               timeout,

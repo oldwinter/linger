@@ -24,6 +24,71 @@ Go service owning Human HTTP/SSE, Agent callbacks, and active product state.
 - Connector authorization defaults to the public Web callback. For a desktop
   request, pass only a validated one-time loopback address to Composio.
   TeamHub verifies connection status independently under the signed-in Account.
+- Feishu Mail is the one connected app TeamHub runs itself
+  (`internal/feishu`, `externalsource/feishu.go`): Composio has no Feishu
+  toolkit. Every call runs through the owner's own lark-cli on the online
+  Computer that runs their active Another Me
+  (`store.GetFeishuMailComputerTarget`): TeamHub sends a `feishu_mail` Computer
+  tool call through Node Services (`roomagent.CallLocalComputerToolResult`),
+  and the Daemon runs lark-cli against the owner's mailbox API paths only.
+  TeamHub keeps no Feishu credentials and needs no Feishu app of its own; the
+  Feishu app behind lark-cli must enable the mail scopes the Daemon's
+  `localtools.FeishuMailScopes` names. The Apps page never shows Feishu Mail,
+  not even under Connected: a person shares it by asking their Another Me, whose
+  `teamhub apps connect feishu_mail` posts the chat's `connection_auth` card,
+  and the account then shows among Another Me's connectors. Connect checks the
+  owner's lark-cli: one already logged in with every mail scope needs no page,
+  and otherwise the Computer starts a device login named after the upstream and
+  keeps its device code, whose Feishu page is the connect URL. The connection's
+  pending checks wait on that login, then read the mailbox address as its
+  identity. Without an online Computer, lark-cli, or a scope the app enables,
+  connecting answers `FEISHU_COMPUTER_OFFLINE`, `LARK_CLI_NOT_INSTALLED`,
+  `LARK_CLI_NOT_CONFIGURED` (installed but never set up with a Feishu app) or
+  `FEISHU_SCOPES_NOT_ENABLED`, which the Web shows as steps the Human can
+  follow. The install and setup commands live only in `internal/feishu`
+  (`InstallCommand`, `SetupCommand`) and reach the Web as `command` error
+  details. The connection card and the Feishu Mail management dialog check
+  and recheck setup through the same account-scoped endpoint. The check neither
+  starts a login nor creates a connection. Connect rechecks readiness before
+  creating one. A lark-cli that is only logged out is ready to start OAuth. Any other Computer
+  failure is logged with the status and detail the Computer sent. Disconnecting leaves the owner's lark-cli login
+  alone. While the Computer is offline, polls, syncs and tool calls fail
+  without changing the connection, and a listener catches up from its
+  watermark later. An Agent tool call does not check the login first: the
+  six-hourly reconcile does, and a call that finds it broken fails as not
+  active. lark-cli acts as whoever is logged in to it now, so an identified
+  connection is bound to its mailbox address: its first mail call of an
+  operation reads the logged-in address, and another mailbox refuses every
+  call (`feishu.ErrMailboxChanged`) before anything is read or sent and
+  expires the connection at its next check. Its Agent tools (`FEISHU_MAIL_*`) run in
+  `externalsource/feishu_mail_tools.go` behind
+  `agentconnectedapps.WithNativeToolkit`, so admission, confirmation cards and
+  operation IDs match Composio's tools; a confirmed send runs on the Computer
+  when the card is approved. A Feishu Mail connection imports no mail from
+  before it: its snapshot completes empty and the nightly sync reads the inbox
+  and sent folders from the connection time on. Its listener polls the inbox
+  against a received-time watermark; a backlog larger than one poll reads is
+  read on from its page over the next polls, and the watermark moves past it
+  only once all of it is read. Email canvases target `gmail`, `outlook` or
+  `feishu_mail`. Gmail and Feishu take one RFC 5322 message; Outlook uses
+  Graph JSON drafts with CID inline images and attachment upload sessions.
+  Outlook updates replace all attachments and invalidate the old source binding
+  before the first write, so partial uploads cannot use an old confirmation.
+  Graph's empty 202 acknowledges sending without supplying a sent message ID;
+  an uncertain send is never replayed automatically. All three share draft
+  bindings and delivery receipts.
+- `internal/urlpreview`: `GET /v0/url-preview/framing` reads a page's
+  framing rules (`X-Frame-Options`, CSP `frame-ancestors`) for the Web link
+  preview panel, which cannot read a cross-origin frame's headers. It sends
+  a cookieless HEAD (GET only when the server refuses HEAD, which may spend
+  a one-time link), follows up to five redirects itself and answers
+  `allowed`, `refused` or `unknown` within five seconds. It requests only
+  public addresses, checked at connection time, on ports 80 and 443, reads
+  at most 64 KiB of headers and runs at most eight probes at once; others
+  answer `unknown` at once. Through the environment's HTTP(S) proxy it checks
+  every address the name resolves to before asking; the proxy resolves the
+  name again, so only certificates guard https against a name that changes
+  its answer in between.
 - `internal/<feature>`: business behavior, transactions and data access with
   package tests: `collaboration` (Human Rooms and Messages),
   `agentregistry` (Agents, templates, Skill bindings, Another Me),
@@ -39,6 +104,13 @@ Go service owning Human HTTP/SSE, Agent callbacks, and active product state.
 
 ## Important Conventions
 
+- `another_me_background_failures` counts an Another Me's background model
+  calls that failed in a row, as the Agent Service reports them; a completed
+  call deletes the row. `GET /v0/tenants/{tenantId}/another-me` carries
+  `background_failure` from the third failure on. The `another-me` hint goes
+  out when it appears, when its reason changes and when it clears; a higher
+  count alone shows on the next fetch. Reason codes TeamHub does not know are
+  stored as `unknown`.
 - The Human's default Another Me Agent is named `Linger`. Changing the Human's
   name updates the delegate description, never the Agent's display name.
   A forward migration renames generated names; custom Agent names stay.
@@ -76,8 +148,35 @@ Go service owning Human HTTP/SSE, Agent callbacks, and active product state.
   card cannot send it again. `GET` reports `sent` whenever the header says so, and
   `can_edit`; only editors may send or decline. While the latest content is
   still rendering these routes answer 503 with `Retry-After`.
+- The live voice's About the User holds the Human's whole memory.md and the
+  email addresses they use: their own (login, active Gmail connection,
+  addresses in the current Profile) and up to ten recipients of Gmail canvases
+  they sent, read from `document_texts`; all of it goes to the voice provider
+  with the instructions. Live writes a recipient as heard and leaves matching
+  it to TeamHub: before a canvas write, TeamHub compares each `to`/`cc`
+  address not on that list with it, name before `@` and domain apart (edit
+  distance, or a shared start with Jaro-Winkler): a close one holds the write
+  as `needs_confirmation` with reason `check_recipient` and the suggested
+  address (the known one, or the heard name at the known domain). The write
+  goes ahead when the model writes the suggestion, or keeps its own with
+  `confirmed` once the user stood by it (no recorded question is needed: the
+  model may have suggested the known address itself, and sending asks again).
+  It never replaces an address itself.
+- Live whole-document rewrites preserve top-level image, file, audio and video
+  blocks. The model keeps their exported `document-asset:` lines in order;
+  missing, repeated or reordered markers are rejected before any write.
+  Nested media requires targeted text edits. Text runs are edited from last
+  to first with revision checks; a conflict stops the rewrite and reports
+  whether earlier runs changed. Gmail canvases keep their separate header,
+  body and attachment rules; an inline image still blocks a body rewrite.
 - Live voice write tools that finish a send return a `next` asking the model
   to say it was sent; a result without one can leave the voice silent.
+- The live voice's persona is warm and lightly playful and says what it does
+  in the first person; Voice Runtime's tone rules have each reply open with a
+  brief reaction and keep it to two or three short sentences. Humor softens
+  when the user is rushed or upset. Started work is not done; its
+  acknowledgement must not repeat an already-spoken preamble. Change the
+  persona here and the tone rules in Voice Runtime together.
 - Live voice writes need the user's yes from a turn after the question
   (`voiceLiveConfirmed`), except `voicelive.DirectYesTools`: sending a Gmail
   canvas, which is open beside the chat, runs when the user's own turn told
@@ -247,6 +346,15 @@ Go service owning Human HTTP/SSE, Agent callbacks, and active product state.
   session can close. Never fail an epoch whose recorder may still write its
   staging: it keeps its owed stop. A shutdown or not-yet-due deferral spends
   nothing.
+- A stopped Capture whose recorder saved no audio is not failed outright: its
+  epoch fails with `audio_unavailable` and materialization finalizes the
+  Capture from its live transcript, without an audio Document, once that
+  transcript has speech, kept its integrity and is covered up to its frozen
+  end (Stop, or the earlier end of the input track). Completion then writes the
+  transcript Document, the completion Message (transcript card only) and Quick
+  Notes, and the Meeting Wiki picks it up as any finalized recording. The
+  Meetings browser still lists only recordings with audio. Without speech,
+  integrity or coverage within the transcript wait, the Capture fails.
 - Voice: `TEAMHUB_VOICE_MEDIA` (`on` by default) builds the voice media plane
   over LiveKit; `off`, a missing `LINGER_SECRET_SEED`, or missing ffmpeg keep
   voice off (the last two log `voice.media_unavailable`) without stopping

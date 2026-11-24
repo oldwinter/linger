@@ -192,7 +192,7 @@ func TestVoiceLiveTurnsAreWithheldFromAgentsAndRepliesSavedOnce(t *testing.T) {
 		decode(t, []byte(result.Output), &output)
 		return output
 	}
-	if started := tool("lt_5", "call_start", "start_task", map[string]any{"goal": "Compile the schedule for today and post it to the group", "surface": "workspace"}); started["status"] != "started" || started["task_id"] != "t1" {
+	if started := tool("lt_5", "call_start", "start_task", map[string]any{"goal": "Compile the schedule for today and post it to the group", "surface": "workspace"}); started["status"] != "started" || started["task_id"] != "t1" || started["next"] == "" {
 		t.Fatalf("start_task=%v", started)
 	}
 	if second := tool("lt_5", "call_second", "start_task", map[string]any{"goal": "Look up the materials for the afternoon review", "surface": "workspace"}); second["task_id"] != "t2" {
@@ -603,7 +603,9 @@ func TestVoiceLiveTasksReportResultsAndWhatTheyWaitFor(t *testing.T) {
 	}
 	// Irreversible work starts only from a confirmation given in a later turn,
 	// once, and does exactly what was confirmed.
-	pending := tool("lt_x", "x1", "start_task", map[string]any{"goal": "Delete the old hiring document", "surface": "workspace", "irreversible": true})
+	// The work room prefix leaves 113 characters: truncation lands on a space.
+	goal := strings.Repeat("a", 112) + " after approval"
+	pending := tool("lt_x", "x1", "start_task", map[string]any{"goal": goal, "surface": "workspace", "irreversible": true})
 	confirmationID, _ := pending["confirmation_id"].(string)
 	if pending["status"] != "needs_confirmation" || confirmationID == "" ||
 		countRows(t, env, `SELECT count(*) FROM voice_live_tasks WHERE voice_session_id=$1`, sessionID) != 0 {
@@ -613,7 +615,7 @@ func TestVoiceLiveTasksReportResultsAndWhatTheyWaitFor(t *testing.T) {
 		t.Fatalf("same-turn confirmation=%v", early)
 	}
 	if confirmed := tool("lt_y", "y1", "start_task", map[string]any{"goal": "Delete all documents", "surface": "workspace", "irreversible": true, "confirmation_id": confirmationID}); confirmed["status"] != "started" ||
-		countRows(t, env, `SELECT count(*) FROM voice_live_tasks WHERE voice_session_id=$1 AND goal='Delete the old hiring document'`, sessionID) != 1 {
+		countRows(t, env, `SELECT count(*) FROM voice_live_tasks WHERE voice_session_id=$1 AND goal=$2`, sessionID, goal) != 1 {
 		t.Fatalf("confirmed task=%v", confirmed)
 	}
 	if again := tool("lt_z", "z1", "start_task", map[string]any{"goal": "Delete the old hiring document", "surface": "workspace", "irreversible": true, "confirmation_id": confirmationID}); again["error"] != "confirmation_invalid" {
@@ -624,7 +626,7 @@ func TestVoiceLiveTasksReportResultsAndWhatTheyWaitFor(t *testing.T) {
 	}
 	first := tool("lt_a", "a1", "start_task", map[string]any{"goal": "Compare noise-canceling headphones on JD", "surface": "workspace"})
 	// The same goal handed off again moments later is the same task.
-	if repeat := tool("lt_b", "b1", "start_task", map[string]any{"goal": "Compare noise-canceling headphones on JD", "surface": "workspace"}); repeat["task_id"] != first["task_id"] {
+	if repeat := tool("lt_b", "b1", "start_task", map[string]any{"goal": "Compare noise-canceling headphones on JD", "surface": "workspace"}); repeat["task_id"] != first["task_id"] || repeat["next"] == "" {
 		t.Fatalf("repeated start=%v first=%v", repeat, first)
 	}
 	second := tool("lt_a", "a2", "start_task", map[string]any{"goal": "Search Xiaohongshu for campsites", "surface": "workspace"})

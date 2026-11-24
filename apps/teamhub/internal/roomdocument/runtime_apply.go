@@ -103,7 +103,8 @@ func validateApplyResult(result nodeservicesinternal.ApplyDocumentChangeResult) 
 		applied, err := result.AsAppliedDocumentChangeResult()
 		references := applied.CompleteReferences
 		if err != nil || applied.Seq < 1 || !sha256Pattern.MatchString(applied.StateHash) ||
-			len(applied.Title) > 255 || !validReferenceIDs(references.DocumentAssetIds) ||
+			(applied.Title != "" && !document.ValidDocumentTitle(applied.Title)) ||
+			!validReferenceIDs(references.DocumentAssetIds) ||
 			!validReferenceIDs(references.DocumentThreadIds) ||
 			len(references.DocumentAssetIds)+len(references.DocumentThreadIds) > 4096 {
 			return document.ApplyResult{}, ErrInvalidState

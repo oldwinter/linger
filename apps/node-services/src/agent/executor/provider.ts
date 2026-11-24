@@ -139,15 +139,28 @@ export type RuntimeStopHookDecision =
   | { readonly action: "allow" }
   | { readonly action: "block"; readonly reason: string };
 
+export interface PreviousRuntimeSession {
+  readonly providerType: "codex" | "claude" | "pi" | "antigravity";
+  readonly sessionId: string;
+}
+
 export interface ExecutionSpec {
   /** Process-local monotonic acceptance time; never persisted or sent over the wire. */
   acceptedAtMonotonicMs?: number;
+  /** Superseded native session whose local transcript a fresh start may export to ./playground/.previous-context.md. */
+  previousSession?: PreviousRuntimeSession;
   /** What queued the Run, for model scheduling; never sent over the wire. */
   runKind?: RunKind;
   /** The Run's live queue priority; absent, its kind's. */
   priority?: RunPriority;
   /** Revalidate the live claim after readmission and before resuming its native session. */
   beforeYieldResume?: () => Promise<void>;
+  /**
+   * Gives back the place of a Run that has not been sent to its Runtime:
+   * aborting it stops the waits before the start, and the start rejects with
+   * its reason. It has no effect once the start is sent.
+   */
+  preemptSignal?: AbortSignal;
   /** Evaluated before a Runtime finishes a turn when stop interception is active. */
   onStopHook?: (
     event: RuntimeStopHookEvent,
@@ -474,6 +487,7 @@ export interface RuntimeExecutionFailure {
     | "rate_limited"
     | "model_unavailable"
     | "model_not_offered"
+    | "local_model_unavailable"
     | "context_too_long"
     | "model_service_error"
     | "timeout"

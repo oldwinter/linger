@@ -12,6 +12,7 @@ import (
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/linger/assignment"
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/linger/clicredential"
 	lingercontext "github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/linger/context"
+	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/linger/localtools"
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/linger/mcpproxy"
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/linger/registration"
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/linger/transport"
@@ -62,6 +63,9 @@ type Options struct {
 	// OnModelUnavailable learns that the Runtime login refused a model, so
 	// the Computer can stop offering it.
 	OnModelUnavailable func(runtimeType, modelID string)
+	// ModelInvokeUnready reports whether runtimeType lists models but has
+	// none loaded to answer a model call that names none.
+	ModelInvokeUnready func(runtimeType string) bool
 	// ModelInvoker runs model invocations; nil answers each with runtime_unavailable.
 	ModelInvoker ModelInvoker
 	// HerdrPanes answers blocked herdr agent panes; nil when herdr is not
@@ -101,26 +105,29 @@ type localToolPrewarmer interface {
 }
 
 type Daemon struct {
-	controlPlane        transport.ControlPlane
-	identityStore       transport.IdentityStore
-	executor            provider.Executor
-	protocolVersion     string
-	computerID          string
-	operationResolver   OperationResolver
-	enabledRuntimes     []string
-	ledger              OperationLedgerStore
-	registrations       registration.Store
-	assignments         assignment.Store
-	contextViews        *lingercontext.ViewStore
-	localSkills         LocalSkillCatalog
-	localTools          LocalToolBinder
-	herdrPanes          HerdrPanes
+	controlPlane      transport.ControlPlane
+	identityStore     transport.IdentityStore
+	executor          provider.Executor
+	protocolVersion   string
+	computerID        string
+	operationResolver OperationResolver
+	enabledRuntimes   []string
+	ledger            OperationLedgerStore
+	registrations     registration.Store
+	assignments       assignment.Store
+	contextViews      *lingercontext.ViewStore
+	localSkills       LocalSkillCatalog
+	localTools        LocalToolBinder
+	herdrPanes        HerdrPanes
+	// feishuMail runs TeamHub's Feishu Mail calls through the owner's lark-cli.
+	feishuMail          *localtools.FeishuMail
 	browserConnections  BrowserConnections
 	computerPermissions ComputerPermissions
 	owners              []ComputerOwner
 	cliCredentials      *clicredential.Store
 	teamhubCLIBin       string
 	onModelUnavailable  func(runtimeType, modelID string)
+	modelInvokeUnready  func(runtimeType string) bool
 	openMCPProxies      func(context.Context, json.RawMessage, mcpproxy.OperationIdentity) (*mcpproxy.Set, error)
 	connectionEpoch     uint64
 	// contentURL is the current connection's context_content_url, read by
@@ -132,6 +139,15 @@ type Daemon struct {
 	// localModelsDiagnostics holds whether the current Agent Service declared
 	// serviceFeatureLocalModelsDiagnostics in its welcome.
 	localModelsDiagnostics atomic.Bool
+	// localModelsEngine holds whether the current Agent Service declared
+	// serviceFeatureLocalModelsEngine in its welcome.
+	localModelsEngine atomic.Bool
+	// localModelsConcurrencyProbe holds whether the current Agent Service
+	// declared serviceFeatureLocalModelsConcurrencyProbe in its welcome.
+	localModelsConcurrencyProbe atomic.Bool
+	// localModelsExternalHolders holds whether the current Agent Service
+	// declared serviceFeatureLocalModelsExternalHolders in its welcome.
+	localModelsExternalHolders atomic.Bool
 	// modelInvokeOutcomes holds whether the current Agent Service declared
 	// serviceFeatureModelInvokeOutcomes in its welcome.
 	modelInvokeOutcomes atomic.Bool
@@ -141,6 +157,9 @@ type Daemon struct {
 	daemonID            string
 	activeMu            sync.Mutex
 	admissionMu         sync.Mutex
+	// localModelUnavailable holds whether the current Agent Service declared
+	// serviceFeatureLocalModelUnavailable in its welcome.
+	localModelUnavailable atomic.Bool
 	// authorityRevision counts, under admissionMu, the commands that can change
 	// what an accepted Operation may start with: Registration snapshots, Agent
 	// Runner commands and Context commands. A start whose revision is unchanged
@@ -221,10 +240,6 @@ type activeOperation struct {
 	inputMu           sync.Mutex
 	finishing         bool
 	pendingInputs     map[string]*pendingOperationInput
-	// sessionMoved is set when the Run continued in a new native session
-	// after announcing its retained one; it then declines a scheduler
-	// yield, whose follow-up would resume the session that is gone.
-	sessionMoved atomic.Bool
 }
 
 func New(options Options) (*Daemon, error) {
@@ -278,7 +293,7 @@ func New(options Options) (*Daemon, error) {
 		stateDirectory:       options.StateDirectory,
 		runtimeHomeRoot:      options.RuntimeHomeRoot,
 		runtimeObservations:  append([]transport.RegistrationObservation(nil), options.RuntimeObservations...),
-		diagnosticsRevision:  1,
+		diagnosticsRevision:  nextRevisionAbove(1, options.RuntimeObservations),
 		gatewayState:         "connecting",
 		locallyStopped:       make(map[string]bool),
 		welcomedEpochs:       make(map[uint64]bool),
@@ -288,6 +303,7 @@ func New(options Options) (*Daemon, error) {
 		contextViews:         options.ContextViews,
 		localSkills:          options.LocalSkills,
 		localTools:           options.LocalTools,
+		feishuMail:           localtools.NewFeishuMail(),
 		browserConnections:   options.BrowserConnections,
 		computerPermissions:  options.ComputerPermissions,
 		owners:               options.Owners,
@@ -296,6 +312,7 @@ func New(options Options) (*Daemon, error) {
 		openMCPProxies:       mcpproxy.Open,
 		onModelUnavailable:   options.OnModelUnavailable,
 		herdrPanes:           options.HerdrPanes,
+		modelInvokeUnready:   options.ModelInvokeUnready,
 	}, nil
 }
 
@@ -409,6 +426,14 @@ func (d *Daemon) ActiveOperationCount() int {
 	d.activeMu.Lock()
 	defer d.activeMu.Unlock()
 	return len(d.activeOperations)
+}
+
+// ActiveModelInvokeCount returns the number of in-flight one-shot model
+// invocations.
+func (d *Daemon) ActiveModelInvokeCount() int {
+	d.modelInvokeMu.Lock()
+	defer d.modelInvokeMu.Unlock()
+	return len(d.modelInvokes)
 }
 
 func (d *Daemon) DrainIfIdle() int {

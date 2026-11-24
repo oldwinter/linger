@@ -6,6 +6,7 @@ import { sleep } from "@linger/service-kit";
 import {
   atomicPrivate,
   INSTANCE_BUSY,
+  instanceLockFile,
   privateDirectory,
   readPrivate,
   withInstanceLock,
@@ -126,20 +127,57 @@ const RESTARTABLE_BINDING_REASONS = new Set([
   "deployment-unavailable",
   "gateway-unavailable",
 ]);
+// The Computer Daemon takes and at once releases this lock after it starts,
+// to wait for a quit-time stop; a holder that meets that probe retries for
+// this long instead of failing.
+const LOCK_BUSY_WINDOW_MS = 2_000;
+const LOCK_BUSY_RETRY_MS = 100;
+function localModelsLockRoot(home: string): string {
+  return path.join(path.resolve(home), "runtime/localmodels");
+}
+/**
+ * The lock database `withLocalModelsLock` takes. The Computer Daemon derives
+ * the same path from the config's `state_directory` (`installerLockPath`),
+ * the file beside that directory, to wait for a quit-time stop or a resume
+ * restore holding it.
+ */
+export function localModelsLockFile(home: string): string {
+  return instanceLockFile(localModelsLockRoot(home));
+}
 /**
  * Runs `callback` holding the lock every deployment, restore check and
  * quit-time stop of a home's local model stack takes, so none of them sees
- * the stack half changed. Throws `INSTANCE_BUSY` at once when another holds
- * it; the caller creates `<home>/runtime/localmodels` first.
+ * the stack half changed. Throws `INSTANCE_BUSY` when another still holds it
+ * after a short retry window; the caller creates `<home>/runtime/localmodels`
+ * first.
  */
-export function withLocalModelsLock<T>(
+export async function withLocalModelsLock<T>(
   home: string,
   callback: () => Promise<T>,
+  timing: { busyWindowMs?: number; busyRetryMs?: number } = {},
 ): Promise<T> {
-  return withInstanceLock(
-    { root: path.join(path.resolve(home), "runtime/localmodels") } as Instance,
-    callback,
-  );
+  const deadline = Date.now() + (timing.busyWindowMs ?? LOCK_BUSY_WINDOW_MS);
+  for (;;) {
+    let started = false;
+    try {
+      return await withInstanceLock(
+        { root: localModelsLockRoot(home) } as Instance,
+        () => {
+          started = true;
+          return callback();
+        },
+      );
+    } catch (error) {
+      // A callback that ran is never run again, whatever it threw.
+      if (
+        started ||
+        (error as { code?: unknown }).code !== INSTANCE_BUSY ||
+        Date.now() >= deadline
+      )
+        throw error;
+      await sleep(timing.busyRetryMs ?? LOCK_BUSY_RETRY_MS);
+    }
+  }
 }
 // What each stack component downloads, as the setup page names it.
 const DOWNLOADS: Record<string, string> = {
@@ -715,7 +753,8 @@ async function waitForLocalModelsLock<T>(
   const deadline = Date.now() + (dependencies.lockWaitMs ?? LOCK_WAIT_MS);
   for (;;) {
     try {
-      return { value: await lock(home, callback) };
+      // This loop is the wait; the lock's own short retry adds nothing.
+      return { value: await lock(home, callback, { busyWindowMs: 0 }) };
     } catch (error) {
       if ((error as { code?: unknown }).code !== INSTANCE_BUSY) throw error;
       if (Date.now() >= deadline) return undefined;
@@ -972,10 +1011,27 @@ async function runLoadLibraryModel(
   };
 }
 
-// Checks whether the saved local library model is loaded, loading, or idle
-// while the caller holds the local models lock, reloading and applying it when
-// idle. Returns `handled: true` when no generic no-model `source apply` fallback
-// is needed.
+/**
+ * Reports whether a saved `runtime_model` names a local model managed by the
+ * localmodels library or adopted from a local stack (`localmodels/...` or
+ * `localmodels-library/...`, excluding BYOK sentinel IDs).
+ */
+export function isLocalRuntimeModel(runtimeModel: string): boolean {
+  if (
+    runtimeModel === "localmodels-byok" ||
+    runtimeModel.endsWith("/localmodels-byok")
+  )
+    return false;
+  return (
+    runtimeModel.startsWith("localmodels/") ||
+    runtimeModel.startsWith("localmodels-library/")
+  );
+}
+
+// Checks whether the saved local model is loaded, loading, or idle while the
+// caller holds the local models lock, reloading and applying it when idle.
+// Returns `handled: true` when no generic no-model `source apply` fallback is
+// needed.
 async function restoreLibraryModelUnderLock(
   home: string,
   savedRuntimeModel: string,
@@ -983,7 +1039,7 @@ async function restoreLibraryModelUnderLock(
   options: { signal: AbortSignal; onEvent: (e: InstallerEvent) => void },
   dependencies: RestoreDependencies,
 ): Promise<{ handled: boolean; outcome?: InstallOutcome }> {
-  if (!savedRuntimeModel) return { handled: false };
+  if (!isLocalRuntimeModel(savedRuntimeModel)) return { handled: false };
   const invoke = dependencies.localmodels ?? runLocalmodels;
   const library = await observeLibraryModels(home, invoke, options.signal);
   if (!library) return { handled: false };
@@ -1050,9 +1106,7 @@ export async function restoreLocalModels(
   if (!planID && source?.mode !== "local") return;
   const invoke = dependencies.localmodels ?? runLocalmodels;
   const savedRuntimeModel = source?.runtimeModel ?? "";
-  const wantsLibraryModel = savedRuntimeModel.startsWith(
-    "localmodels-library/",
-  );
+  const wantsLocalModel = isLocalRuntimeModel(savedRuntimeModel);
 
   // A quit-time stop may still hold the lock; checking, loading, and applying
   // under the same lock prevents racing with a quit-time unload.
@@ -1106,7 +1160,7 @@ export async function restoreLocalModels(
   const postHeld = await waitForLocalModelsLock(
     home,
     async (): Promise<{ outcome?: InstallOutcome }> => {
-      if (wantsLibraryModel) {
+      if (wantsLocalModel) {
         const restored = await restoreLibraryModelUnderLock(
           home,
           savedRuntimeModel,
@@ -1137,7 +1191,7 @@ export async function restoreLocalModels(
       message:
         "Another local model operation is still running. Try again once it ends.",
       details: {
-        code: wantsLibraryModel
+        code: wantsLocalModel
           ? "LOCAL_MODELS_BUSY"
           : "LOCAL_MODELS_RECOVERY_REQUIRED",
       },

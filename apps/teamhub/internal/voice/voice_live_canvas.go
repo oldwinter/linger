@@ -75,7 +75,14 @@ func (s *Service) openVoiceLiveEmailCanvas(ctx context.Context, session voiceliv
 	if voicelive.DecodeArguments(request.Arguments, &args) != nil {
 		return "", voicelive.ErrInvalid
 	}
-	canvas, problem := voicelive.EmailCanvas(args)
+	target, output, err := s.voiceLiveEmailCanvasTarget(ctx, session, args.App)
+	if output != "" || err != nil {
+		return output, err
+	}
+	if output, err := s.checkVoiceLiveRecipients(ctx, session, args.To, args.Cc, bool(args.Confirmed)); output != "" || err != nil {
+		return output, err
+	}
+	canvas, problem := voicelive.EmailCanvas(args, target)
 	if problem != "" {
 		return voicelive.ErrorOutput(problem), nil
 	}
@@ -85,8 +92,48 @@ func (s *Service) openVoiceLiveEmailCanvas(ctx context.Context, session voiceliv
 	}
 	return voicelive.Output(map[string]string{
 		"status": "opened", "document_id": created.DocumentID, "revision_id": created.RevisionID,
-		"next": "First tell the user in one short sentence what the email says: its subject and main points, in your own words. Then say it is open beside the chat for them to change, and only then ask for anything missing, such as a recipient.",
+		"next": "Hand it over like a friend would, in your own words with I as the subject: the gist of what you wrote in a few words (not every point), then that you put it beside the chat for them to change, and only then ask for anything missing, such as a recipient.",
 	}), nil
+}
+
+// voiceLiveEmailCanvasTarget picks the mail app a new email canvas is sent
+// from: the one the user named, or the only connected mail app. Multiple
+// apps require the user to choose rather than silently picking a provider.
+func (s *Service) voiceLiveEmailCanvasTarget(ctx context.Context, session voicelive.Session, named string) (string, string, error) {
+	switch named {
+	case voicelive.EmailCanvasGmail, voicelive.EmailCanvasFeishu, voicelive.EmailCanvasOutlook:
+		return named, "", nil
+	case "":
+	default:
+		return "", "", voicelive.ErrInvalid
+	}
+	_, token, err := s.voiceLiveAgent(ctx, session)
+	if errors.Is(err, errVoiceLiveAgentUnavailable) {
+		return "", voicelive.ErrorOutput("agent_unavailable"), nil
+	}
+	if err != nil {
+		return "", "", err
+	}
+	apps, err := s.agentConnectedApps.List(ctx, token)
+	if err != nil {
+		return "", "", err
+	}
+	targets := map[string]bool{}
+	for _, app := range apps {
+		if agentconnectedapps.IsMailCanvasTarget(app.AppKey) {
+			targets[app.AppKey] = true
+		}
+	}
+	if len(targets) == 0 {
+		return voicelive.EmailCanvasGmail, "", nil
+	}
+	if len(targets) > 1 {
+		return "", voicelive.ErrorOutput("mail_app_required"), nil
+	}
+	for target := range targets {
+		return target, "", nil
+	}
+	return "", "", voicelive.ErrInvalid
 }
 
 // openVoiceLiveCanvas creates a Document the Agent owns in the call's Room
@@ -149,6 +196,16 @@ func (s *Service) editVoiceLiveEmailCanvas(ctx context.Context, session voiceliv
 	var args voicelive.EditEmailCanvasArguments
 	if voicelive.DecodeArguments(request.Arguments, &args) != nil || args.DocumentID == "" {
 		return "", voicelive.ErrInvalid
+	}
+	var to, cc string
+	if args.To != nil {
+		to = *args.To
+	}
+	if args.Cc != nil {
+		cc = *args.Cc
+	}
+	if output, err := s.checkVoiceLiveRecipients(ctx, session, to, cc, bool(args.Confirmed)); output != "" || err != nil {
+		return output, err
 	}
 	principal, err := s.voiceLiveAgentPrincipal(ctx, session)
 	if errors.Is(err, errVoiceLiveAgentUnavailable) {
@@ -237,7 +294,7 @@ func (s *Service) voiceLiveCanvasBodySince(ctx context.Context, revisionID strin
 // means another change landed first, after which part of it may be made.
 func (s *Service) applyVoiceLiveEmailEdit(ctx context.Context, session voicelive.Session, request teamhubinternal.VoiceLiveToolCall,
 	principal agentcredential.Principal, canvas voiceLiveCanvasState, args voicelive.EditEmailCanvasArguments, attempt int) (string, bool, error) {
-	_, header, problem := voicelive.EditedEmailCanvas(canvas.fields, canvas.text, args)
+	_, header, problem := voicelive.EditedEmailCanvas(canvas.target, canvas.fields, canvas.text, args)
 	if problem != "" {
 		return voicelive.ErrorOutput(problem), false, nil
 	}
@@ -263,10 +320,10 @@ func (s *Service) applyVoiceLiveEmailEdit(ctx context.Context, session voicelive
 			kept = 1
 		}
 		for index := len(runs) - 1; index >= kept; index-- {
-			edits = append(edits, voiceLiveRunEdit("block_delete", runs[index]))
+			edits = append(edits, voicelive.BlockRunEdit("block_delete", runs[index]))
 		}
 		if replace {
-			edit := voiceLiveRunEdit("block_replace", runs[0])
+			edit := voicelive.BlockRunEdit("block_replace", runs[0])
 			edit["content"] = body
 			edits = append(edits, edit)
 		} else {
@@ -311,7 +368,7 @@ func (s *Service) applyVoiceLiveEmailEdit(ctx context.Context, session voicelive
 	}
 	return voicelive.Output(map[string]string{
 		"status": "changed", "document_id": args.DocumentID, "revision_id": revisionID,
-		"next": "Tell the user in one short sentence what you changed in the email.",
+		"next": "Tell the user in one short, warm sentence of your own what you changed in the email, as something you did.",
 	}), false, nil
 }
 
@@ -414,14 +471,6 @@ func (s *Service) attachVoiceLiveEmailFile(ctx context.Context, session voiceliv
 	}
 }
 
-// voiceLiveRunEdit names a run of sibling blocks for a block edit.
-func voiceLiveRunEdit(command string, run []string) map[string]string {
-	if len(run) == 1 {
-		return map[string]string{"command": command, "block_id": run[0]}
-	}
-	return map[string]string{"command": command, "start_block_id": run[0], "end_block_id": run[len(run)-1]}
-}
-
 func voiceLiveCanvasError(err error) (string, bool) {
 	switch {
 	case errors.Is(err, document.ErrNotFound):
@@ -434,6 +483,8 @@ func voiceLiveCanvasError(err error) (string, bool) {
 
 // voiceLiveCanvasState is one revision of a canvas as the Agent reads it.
 type voiceLiveCanvasState struct {
+	// target is the mail app the canvas is sent from.
+	target                                            string
 	documentID, revisionID, firstBlockID, lastBlockID string
 	hasMedia                                          bool
 	fields                                            map[string]string
@@ -483,6 +534,7 @@ type voiceLiveCanvasBlock struct {
 	Type  string `json:"type"`
 	Props struct {
 		Name string `json:"name"`
+		URL  string `json:"url"`
 	} `json:"props"`
 	Children []voiceLiveCanvasBlock `json:"children"`
 }
@@ -634,11 +686,11 @@ func (s *Service) voiceLiveCanvas(ctx context.Context, principal agentcredential
 	runs, attachmentFirst, attachments, mediaInText := voiceLiveCanvasBody(idBlocks.Blocks)
 	body, text := voiceLiveCanvasText(string(state.markdown))
 	header, ok := agentconnectedapps.ReadCanvasHeader(headerBlocks.Blocks)
-	if !ok || header.Target != "gmail" {
+	if !ok || !agentconnectedapps.IsMailCanvasTarget(header.Target) {
 		return voiceLiveCanvasState{}, errNotEmailCanvas
 	}
 	return voiceLiveCanvasState{
-		documentID: documentID, revisionID: state.revisionID, firstBlockID: state.firstBlockID, lastBlockID: state.lastBlockID,
+		target: header.Target, documentID: documentID, revisionID: state.revisionID, firstBlockID: state.firstBlockID, lastBlockID: state.lastBlockID,
 		hasMedia: state.hasMedia, fields: header.Fields, body: body,
 		text:     text,
 		textRuns: runs, attachmentFirst: attachmentFirst, attachments: attachments, mediaInText: mediaInText,

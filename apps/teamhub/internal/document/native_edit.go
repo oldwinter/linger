@@ -63,7 +63,7 @@ func validateNativeEditOperation(value json.RawMessage) error {
 	}
 	switch edit.Command {
 	case "set_title":
-		if edit.Title == nil || utf8.RuneCountInString(*edit.Title) < 1 || utf8.RuneCountInString(*edit.Title) > 255 {
+		if edit.Title == nil || !ValidDocumentTitle(*edit.Title) {
 			return ErrInvalidInput
 		}
 	case "str_replace":

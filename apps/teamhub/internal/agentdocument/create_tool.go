@@ -55,7 +55,7 @@ func (s *CreateTool) Create(
 		return CreateResult{}, ErrCreateDependency
 	}
 	if !validInvocationID(input.InvocationID) ||
-		!utf8.ValidString(input.Title) || len(input.Title) < 1 || len(input.Title) > 255 ||
+		!document.ValidDocumentTitle(input.Title) ||
 		!utf8.ValidString(input.Markdown) || len(input.Markdown) > 1048576 {
 		return CreateResult{}, document.ErrInvalidInput
 	}

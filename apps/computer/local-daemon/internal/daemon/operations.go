@@ -86,7 +86,7 @@ func (d *Daemon) finishOperation(ctx context.Context, command protocol.Command, 
 		terminalType = protocol.EventOperationCancelled
 	} else if result.Status != "completed" {
 		terminalType = protocol.EventOperationFailed
-		if d.onModelUnavailable != nil && spec.Model != "" && provider.ClassifyExecutionFailure(spec.Provider, spec.CodexVersion, result.Status, result.FailureCode, result.Diagnostics).Code == "model_unavailable" {
+		if d.onModelUnavailable != nil && spec.Model != "" && !result.ModelLoadFailed && provider.ClassifyExecutionFailure(spec.Provider, spec.CodexVersion, result.Status, result.FailureCode, result.Diagnostics).Code == "model_unavailable" {
 			d.onModelUnavailable(spec.Provider, spec.Model)
 		}
 	}
@@ -146,14 +146,6 @@ func (d *Daemon) handleOperationCancel(command protocol.Command) error {
 		_ = json.Unmarshal(command.Payload, &payload)
 		if payload.Reason == "" {
 			payload.Reason = "Operation cancelled"
-		}
-		if payload.Reason == schedulerYield && active.sessionMoved.Load() {
-			// The Run finishes instead; Agent Service accepts a natural
-			// terminal after it asked for a yield. Agent Service resends the
-			// same yield on every reconnect, so each one is declined; the
-			// user's Stop arrives as a cancel with its own reason.
-			slog.Info("runner.operation.yield_declined", "operation_id", command.OperationID, "reason", "session_moved")
-			return nil
 		}
 		active.reason = payload.Reason
 		active.cancel()

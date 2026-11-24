@@ -60,6 +60,7 @@ import type { UnifiedDocumentPageModel } from "./use-unified-document-page-model
 import { useDocumentCommentsClose } from "./document-comment-draft-guard";
 import { MailCanvasStatus } from "./canvas/canvas-mail-status";
 import { documentPageMessages as m } from "./document-page.messages";
+import { isMailCanvasTarget } from "./canvas/canvas-targets";
 import { RoomDocumentSaveIndicator } from "./unified-document-body";
 
 const LINK_COPIED_MS = 1200;
@@ -129,7 +130,7 @@ export function UnifiedDocumentPageHeader({
       duplicatePending={duplicatePending}
       exportPending={exportPending}
       canvasSent={canvasSent}
-      mailCanvas={model.canvasTarget === "gmail"}
+      mailCanvas={isMailCanvasTarget(model.canvasTarget)}
       isEditing={isEditing}
       linkCopyState={linkCopyState}
       onComments={() => {

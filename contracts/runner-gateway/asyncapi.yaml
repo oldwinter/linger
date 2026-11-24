@@ -42,8 +42,11 @@ info:
     the playground.
     execute with kind model_invoke is a one-shot model call on the Computer's
     Codex, Claude or Pi Runtime that has no Context, takes no execution slot
-    and is not in the Operation ledger. A Pi call runs on Pi's default model and
-    has no workspace tools. The service sends Pi calls only to a
+    and is not in the Operation ledger. Its optional model selects the provider
+    model explicitly (sent only to a Computer release that decodes it),
+    matching Agent Runs and loading a named Pi library model on demand; when
+    omitted, the Runtime uses its default. A Pi call has no workspace tools.
+    The service sends Pi calls only to a
     Computer release that can decode them. The Agent Service's model scheduler
     decides when a call is sent; the Daemon runs every call it receives. Its
     optional session_key lets a Daemon answer the structured Codex calls of
@@ -54,7 +57,9 @@ info:
     model_invoke outcomes (context_too_long and unsupported) travel only after
     a runner.welcome whose service_features names model_invoke_outcomes.
     execute with kind
-    computer_tool runs native browser actions and retained Task output reads.
+    computer_tool runs native browser actions, retained Task output reads,
+    and Feishu Mail calls through the owner's own lark-cli login, limited to
+    the owner's mailbox API paths.
     TeamHub resolves the owner, Agent and Task scope; the Computer checks its
     current assignment and retained scope. No Meta Context or model turn is
     started. Responses carry the same owner and connection epoch.
@@ -76,6 +81,13 @@ info:
     seconds while a download or load runs. Extended diagnostic reasons,
     refusal codes, and optional debug-mode metadata travel only after a
     runner.welcome whose service_features names local_models_diagnostics.
+    Per-model inference engine fields (engine, engine_label, concurrency,
+    host_ram_bytes) travel only after a runner.welcome whose service_features
+    names local_models_engine, advertised to Computer 0.61.0 and later.
+    Per-model concurrency_probing (indicating a post-load max-concurrency probe
+    is running before reporting loaded) travels only after a runner.welcome
+    whose service_features names local_models_concurrency_probe, advertised to
+    Computer 0.64.0 and later.
     execute with kind model_source reads or switches the Computer's model
     source. A BYOK input names its address as base_url, path and endpoint
     with an explicit protocol, and the Computer sends one request there; the

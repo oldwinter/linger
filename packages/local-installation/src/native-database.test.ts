@@ -108,6 +108,17 @@ describe("windowsElevated", () => {
   });
 });
 
+describe("prepareNativeDatabase start", () => {
+  it("restarts a server an earlier release left running from another archive", async () => {
+    run.mockImplementation(async () => ok("1"));
+    await prepareNativeDatabase(options);
+    expect(vi.mocked(startNativeProcess).mock.calls[0]![0]).toMatchObject({
+      name: "postgres",
+      restartOnConfigurationChange: true,
+    });
+  });
+});
+
 describe("prepareNativeDatabase on Windows", () => {
   it("runs the .exe programs from the private PostgreSQL", async () => {
     asWindows();
@@ -155,6 +166,79 @@ describe("prepareNativeDatabase on Windows", () => {
 });
 
 describe("prepareNativeDatabase initdb", () => {
+  it("says what the program reported, without the password", async () => {
+    run.mockImplementation(async (command) =>
+      path.basename(command) === "initdb"
+        ? {
+            code: 1,
+            stdout: "",
+            stderr:
+              "initdb: error: could not change permissions of directory\nsecret\n",
+          }
+        : ok(),
+    );
+    const failure = await prepareNativeDatabase(options).catch(
+      (error: unknown) => error,
+    );
+    expect(failure).toBeInstanceOf(Error);
+    const message = (failure as Error).message;
+    expect(message).toContain("could not change permissions");
+    expect(message).toContain("Inspect the instance log.");
+    expect(message).not.toContain("secret");
+  });
+
+  it("keeps the last lines in view and caps a long one", async () => {
+    run.mockImplementation(async (command) =>
+      path.basename(command) === "initdb"
+        ? {
+            code: 1,
+            stdout: "",
+            stderr: `${"x".repeat(5_000)}\nFATAL: data directory is not empty\ncleaning up\n`,
+          }
+        : ok(),
+    );
+    const first = await prepareNativeDatabase(options).catch(
+      (error: unknown) => error,
+    );
+    // The FATAL line survives the cleanup lines that follow it.
+    expect((first as Error).message).toContain(
+      "FATAL: data directory is not empty",
+    );
+
+    vi.clearAllMocks();
+    run.mockImplementation(async (command) =>
+      path.basename(command) === "initdb"
+        ? { code: 1, stdout: "", stderr: `${"y".repeat(5_000)}\n` }
+        : ok(),
+    );
+    const second = await prepareNativeDatabase(options).catch(
+      (error: unknown) => error,
+    );
+    // The long line is copied but capped at 240 characters.
+    expect((second as Error).message).toContain("y".repeat(239));
+    expect((second as Error).message).not.toContain("y".repeat(241));
+  });
+
+  it("shows exactly the last five lines, in any language", async () => {
+    run.mockImplementation(async (command) =>
+      path.basename(command) === "initdb"
+        ? {
+            code: 1,
+            stdout: "",
+            stderr:
+              "line 1\nline 2\nline 3\nline 4\n\u521d\u59cb\u5316\u5931\u8d25\nline 6\nline 7\n",
+          }
+        : ok(),
+    );
+    const failure = await prepareNativeDatabase(options).catch(
+      (error: unknown) => error,
+    );
+    const message = (failure as Error).message;
+    expect(message).toContain("line 3");
+    expect(message).toContain("line 7");
+    expect(message).toContain("\u521d\u59cb\u5316\u5931\u8d25");
+    expect(message).not.toContain("line 2");
+  });
   const data = path.join(instance.root, "native/postgres-data");
   const pending = `${data}.partial`;
   const pgdata = () =>

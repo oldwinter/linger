@@ -16,6 +16,7 @@ import {
 } from "../../model-tasks.js";
 import { logAgentEvent } from "../observability/agent-log.js";
 import {
+  FIRST_PREVIOUS_SESSION_COMPUTER_VERSION,
   FIRST_STOP_HOOK_COMPUTER_VERSION,
   isComputerVersionAtLeast,
   LocalComputerOfflineError,
@@ -285,9 +286,13 @@ export class RunnerOperations {
       permit.release();
       permit = undefined;
     }
+    const signal = target.signal ?? new AbortController().signal;
+    const waitSignal = target.preemptSignal
+      ? AbortSignal.any([signal, target.preemptSignal])
+      : signal;
     permit ??= await this.acquireOperationCapacity(
       { ...target, priority },
-      target.signal ?? new AbortController().signal,
+      waitSignal,
     );
     try {
       // The whole Run is one unit of its endpoint's model queue. It waits
@@ -302,11 +307,11 @@ export class RunnerOperations {
           kind: target.runKind ?? "chat",
           key: target.request.run_context.execution_run_ref,
         },
-        target.signal ?? new AbortController().signal,
+        waitSignal,
       );
       try {
         if (target.beforeYieldResume) await target.beforeYieldResume();
-        target.signal?.throwIfAborted();
+        waitSignal.throwIfAborted();
         const reservation = this.#capacityReservations.get(permit.id);
         if (
           !reservation ||
@@ -422,13 +427,16 @@ export class RunnerOperations {
       resolvedTarget,
       connection.hello.daemon_version,
     );
-    const operation = new RunnerOperationState({
+    const operation: RunnerOperationState = new RunnerOperationState({
       target: targetForDaemon,
       connectionEpoch: connection.connectionEpoch,
       runnerRevision: desiredRunner.runnerRevision,
       createId: this.context.createId,
       send: (command) => this.owners.connections().sendToCurrentRunner(command),
       cancelTimeoutMs: this.context.operationCancelTimeoutMs,
+      yieldDeadlineMs: this.context.operationYieldDeadlineMs,
+      stoppedTaskGraceMs: this.context.stoppedTaskGraceMs,
+      onSchedulingChange: () => this.#schedulingChanged(operation),
       runtimeAssignment: {
         registrationId: desiredRunner.registrationId,
         assignmentRevision: desiredRunner.assignmentRevision,
@@ -649,6 +657,18 @@ export class RunnerOperations {
         operation.expireInputReceipts();
   }
 
+  /** A Run that has just become able to yield, or whose yield is overdue,
+   * lets the work waiting on its endpoint ask again. */
+  #recheckYields(operation: RunnerOperationState): void {
+    this.owners.queue().recheckInteractiveWait(operationEndpoint(operation));
+    this.wakeCapacityWaiters();
+  }
+
+  #schedulingChanged(operation: RunnerOperationState): void {
+    if (operation.terminal) this.#retireOperation(operation);
+    else this.#recheckYields(operation);
+  }
+
   #retireOperation(operation: RunnerOperationState): void {
     const operationId = operation.start.operation_id;
     if (this.#operations.get(operationId) !== operation) {
@@ -751,7 +771,7 @@ export class RunnerOperations {
         );
       return;
     }
-    const wasResumable = operation.resumable;
+    const wasYieldable = operation.yieldBlocker === undefined;
     const acknowledgement = await operation.receive(envelope);
     if (
       envelope.type === "operation.event" &&
@@ -769,12 +789,10 @@ export class RunnerOperations {
       this.#recordRunOperation(operation);
     if (
       !operation.terminal &&
-      operation.resumable &&
-      (!wasResumable || envelope.type === "operation.input_result")
-    ) {
-      this.owners.queue().recheckInteractiveWait(operationEndpoint(operation));
-      this.wakeCapacityWaiters();
-    }
+      !wasYieldable &&
+      operation.yieldBlocker === undefined
+    )
+      this.#recheckYields(operation);
     if (operation.terminal) this.#retireOperation(operation);
     if (acknowledgement)
       await this.owners.connections().send(connection, acknowledgement);
@@ -793,6 +811,11 @@ export class RunnerOperations {
       type: "latency",
       source: "run",
       latencyMs: response.first_item_at_unix_ms - response.started_at_unix_ms,
+      // The report arrives once the whole response is written.
+      endedMsAgo: Math.max(
+        0,
+        response.responded_at_unix_ms - response.first_item_at_unix_ms,
+      ),
       workTokens: response.usage.input,
     });
   }
@@ -921,19 +944,30 @@ function filterOperationTargetForDaemon(
   target: RunnerOperationTarget,
   daemonVersion: string,
 ): RunnerOperationTarget {
-  if (
-    isComputerVersionAtLeast(daemonVersion, FIRST_STOP_HOOK_COMPUTER_VERSION) ||
-    target.request.run_context.stop_hook === undefined
-  ) {
+  const stripStopHook =
+    !isComputerVersionAtLeast(
+      daemonVersion,
+      FIRST_STOP_HOOK_COMPUTER_VERSION,
+    ) && target.request.run_context.stop_hook !== undefined;
+  const stripPreviousSession =
+    !isComputerVersionAtLeast(
+      daemonVersion,
+      FIRST_PREVIOUS_SESSION_COMPUTER_VERSION,
+    ) && target.request.previous_session !== undefined;
+  if (!stripStopHook && !stripPreviousSession) {
     return target;
   }
-  const filteredRunContext = { ...target.request.run_context };
-  delete filteredRunContext.stop_hook;
+  const filteredRequest = { ...target.request };
+  if (stripStopHook) {
+    const filteredRunContext = { ...filteredRequest.run_context };
+    delete filteredRunContext.stop_hook;
+    filteredRequest.run_context = filteredRunContext;
+  }
+  if (stripPreviousSession) {
+    delete filteredRequest.previous_session;
+  }
   return {
     ...target,
-    request: {
-      ...target.request,
-      run_context: filteredRunContext,
-    },
+    request: filteredRequest,
   };
 }

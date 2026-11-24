@@ -6,6 +6,7 @@ import {
 } from "@linger/local-installation/windows-private";
 import type { LegacyInstanceSkipped } from "@linger/local-installation/legacy-migration";
 import type { RuntimeDescriptor } from "@linger/local-installation/managed-runtimes";
+import type { RuntimeLookupTimings } from "./server/instance-runtime.js";
 import { fileURLToPath } from "node:url";
 import { launchInstaller } from "./server/launch.js";
 export { startInstallerServer } from "./server/server.js";
@@ -171,19 +172,28 @@ async function resume(options: ReturnType<typeof parseInstallerArguments>) {
   }));
   // The desktop's own Computer takes the runtime and localmodels tool paths
   // from every resume, so an install from before it knew one gains it.
+  // The desktop does not read resume stderr, so timings ride in the outcome.
+  let runtimeLookupTimings: RuntimeLookupTimings | undefined;
   const runtime =
     outcome.code === 0 && options.externalComputer
       ? await import("./server/instance-runtime.js")
           .then(({ instanceRuntime }) =>
             instanceRuntime(options.home, options.instanceName!, {
               runtimeDescriptors,
+              onTimings: (timings) => {
+                runtimeLookupTimings = timings;
+              },
             }),
           )
           .catch(() => undefined)
       : undefined;
   // Detached service processes may keep handles open; exit once flushed.
   process.stdout.write(
-    `${JSON.stringify({ ...outcome, ...(runtime ? { runtime } : {}) })}\n`,
+    `${JSON.stringify({
+      ...outcome,
+      ...(runtime ? { runtime } : {}),
+      ...(runtimeLookupTimings ? { runtimeLookupTimings } : {}),
+    })}\n`,
     () => process.exit(outcome.code),
   );
 }

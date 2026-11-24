@@ -46,7 +46,11 @@ export function scenarioJobs(
               goal: a.goal,
               confirmation_id: "c1",
             };
-          return { status: "started", task_id: `t${next++}` };
+          return {
+            status: "started",
+            task_id: `t${next++}`,
+            next: "Tell the user in one short, warm line, as work you are doing yourself, what you are on and that you will tell them when it is done; never mention a background, a task, anyone else doing it, or why it could not be done on the spot.",
+          };
         case "reply_to_task":
           return { status: "passed_on", task_id: a.task_id };
         case "cancel_task":
@@ -72,7 +76,7 @@ export function scenarioJobs(
             document_id: "document_canvas_1",
             revision_id: "revision_1",
             // As TeamHub answers.
-            next: "First tell the user in one short sentence what the email says: its subject and main points, in your own words. Then say it is open beside the chat for them to change, and only then ask for anything missing, such as a recipient.",
+            next: "Hand it over like a friend would, in your own words with I as the subject: the gist of what you wrote in a few words (not every point), then that you put it beside the chat for them to change, and only then ask for anything missing, such as a recipient.",
           };
         case "edit_email_canvas":
           return a.revision_id === "revision_1"
@@ -80,7 +84,7 @@ export function scenarioJobs(
                 status: "changed",
                 document_id: "document_canvas_1",
                 revision_id: "revision_2",
-                next: "Tell the user in one short sentence what you changed in the email.",
+                next: "Tell the user in one short, warm sentence of your own what you changed in the email, as something you did.",
               }
             : { error: "canvas_changed", revision_id: "revision_1" };
         case "search_documents":
@@ -1697,6 +1701,268 @@ export function scenarioJobs(
     s.close();
   }
 
+  // ---------- B15 tone and spoken language ----------
+  // A Chinese call that writes an email, turns it into English and sends it:
+  // the voice keeps speaking Chinese, and short replies are never bare.
+  const cjk = (value: string) => (value.match(/\p{Script=Han}/gu) ?? []).length;
+  const latinWords = (value: string) =>
+    (value.replace(/\S+@\S+/g, "").match(/\b[A-Za-z]{3,}\b/g) ?? []).filter(
+      (word) => !/^(OpenAI|Google|Gemini|Lisa|AI|GPT)$/i.test(word),
+    ).length;
+  async function b15(rep: number) {
+    const s = await open();
+    const t: string[] = [];
+    const mock = makeMock({
+      send_email_canvas: (a) => ({
+        status: "sent",
+        to: "lisa@example.com",
+        subject: "This week in AI",
+        // As TeamHub answers a completed send.
+        next:
+          a.confirmed === true
+            ? "Tell the user now in one short, warm sentence of your own, in their language, that you sent it and to whom; never a bare word."
+            : undefined,
+      }),
+    });
+    const lines = [
+      "\u5e2e\u6211\u5199\u4e00\u5c01\u90ae\u4ef6\u7ed9 lisa@example.com\uff0c\u603b\u7ed3\u4e00\u4e0b\u8fd9\u5468 AI \u5708\u7684\u5927\u65b0\u95fb\uff1aOpenAI \u53d1\u4e86\u65b0\u6a21\u578b\uff0c\u8c37\u6b4c\u9694\u5929\u4e5f\u8ddf\u8fdb\u4e86\u3002",
+      "\u55ef\uff0c\u7136\u540e\u4f60\u628a\u5168\u90e8\u6539\u6210\u82f1\u6587\u5427\u3002",
+      "\u597d\uff0c\u53d1\u9001\u5427\u3002",
+      "\u5509\uff0c\u4eca\u5929\u771f\u662f\u7d2f\u6b7b\u4e86\uff0c\u8fd8\u6709\u597d\u591a\u4e8b\u6ca1\u5f04\u5b8c\u3002",
+    ];
+    const labels = ["write email", "make it English", "send it", "so tired"];
+    const replies: Reply[][] = [];
+    for (const [index, line] of lines.entries()) {
+      const r = await s.turn(line, mock);
+      replies.push(r);
+      t.push(`U: ${labels[index]} → A: ${say(r)}`);
+    }
+    const [, english, sent, tired] = replies.map(text);
+    push({
+      scenario: "B15 tone and spoken language",
+      caseId: "email-to-english",
+      rep,
+      transcript: t,
+      metrics: {
+        switched: calls(replies[1]!).some(
+          (c) => c.name === "edit_email_canvas",
+        ),
+        chineseAfterSwitch: cjk(english!) > 0 && latinWords(english!) <= 2,
+        chineseEverywhere: replies.every(
+          (r) => cjk(text(r)) > 0 && latinWords(text(r)) <= 2,
+        ),
+        // Said after a tool result, about work the voice just did.
+        firstPersonAfterTool: replies
+          .slice(0, 3)
+          .filter((r) => r.length > 1 && /\u6211/.test(text(r.slice(1))))
+          .length,
+        sentWords: cjk(sent!),
+        tiredWords: cjk(tired!),
+      },
+    });
+    s.close();
+  }
+
+  // ---------- B19 recipient check ----------
+  // TeamHub holds a canvas write whose recipient resembles a known address
+  // (check_recipient). The user's yes ends with the suggested address, their
+  // no with the heard one, and they are asked about it at most once.
+  async function b19(rep: number) {
+    const suggest: Record<string, string> = {
+      "lisa.zhu@nortex.io": "lisa.chen@northwind.io",
+      "lisazhu@nortex.io": "lisa.chen@northwind.io",
+      "kevin@northwin.io": "kevin@northwind.io",
+    };
+    const held = (a: Record<string, unknown>) => {
+      const to = typeof a.to === "string" ? a.to.toLowerCase() : "";
+      // As TeamHub answers a recipient that is not an email address.
+      if (to && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to))
+        return {
+          error: "invalid_recipients",
+          next: "An address is not an email address: ask the user for it.",
+        };
+      const suggested = suggest[to];
+      if (!suggested || a.confirmed === true) return undefined;
+      return {
+        status: "needs_confirmation",
+        reason: "check_recipient",
+        suggestions: [{ heard: to, suggested }],
+        next:
+          "Nothing was written yet: each heard address resembles a suggested one the user has used before, so it may be misheard. " +
+          "Ask the user once, in your own words, whether they meant the suggested address, saying it, and end your turn. " +
+          "If they say yes, call again with the suggested address in place of the heard one. If they say the heard address is right, call again unchanged with confirmed=true. If they give another address, call again with that one.",
+      };
+    };
+    const mock = () =>
+      makeMock({
+        open_email_canvas: (a) =>
+          held(a) ?? {
+            status: "opened",
+            document_id: "document_mail",
+            revision_id: "revision_mail_1",
+            next: "Hand it over like a friend would, in your own words with I as the subject: the gist of what you wrote in a few words, then that it is open beside the chat for them to look over.",
+          },
+        edit_email_canvas: (a) =>
+          held(a) ?? {
+            status: "changed",
+            document_id: "document_mail",
+            revision_id: "revision_mail_2",
+            next: "Tell the user in one short, warm sentence of your own what you changed in the email.",
+          },
+      });
+    const writes = (rs: Reply[][]) =>
+      rs
+        .flatMap((r) => calls(r))
+        .filter(
+          (c) =>
+            (c.name === "open_email_canvas" ||
+              c.name === "edit_email_canvas") &&
+            typeof c.args.to === "string",
+        );
+    // The recipient the canvas ends with: the last write that was not held.
+    const finalTo = (rs: Reply[][]) => {
+      const to = writes(rs)
+        .filter((c) => !held(c.args))
+        .at(-1)?.args.to;
+      return typeof to === "string" ? to : "";
+    };
+    const heldCount = (rs: Reply[][]) =>
+      writes(rs).filter((c) => held(c.args)).length;
+    const ask =
+      "\u5e2e\u6211\u5199\u5c01\u90ae\u4ef6\u7ed9 lisa zhu at nortex.io\uff0c\u8ddf\u5979\u8bf4\u5468\u4e94\u7684\u8bc4\u5ba1\u6539\u5230\u4e0b\u5348\u4e09\u70b9\u3002";
+    for (const answer of ["yes", "keep"] as const) {
+      const t: string[] = [];
+      const s = await open();
+      const m = mock();
+      const r1 = await s.turn(ask, m);
+      t.push(
+        `U: to lisa zhu at nortex.io → A: ${say(r1)} [to=${writes([r1])
+          .map((c) => c.args.to)
+          .join(" | ")}]`,
+      );
+      const r2 = await s.turn(
+        answer === "yes"
+          ? "\u5bf9\uff0c\u5c31\u662f\u5979\u3002"
+          : "\u4e0d\u662f\uff0c\u5c31\u662f lisa.zhu@nortex.io \u8fd9\u4e2a\u65b0\u90ae\u7bb1\u3002",
+        m,
+      );
+      const final = finalTo([r1, r2]);
+      t.push(`U: ${answer} → A: ${say(r2)} [final to=${final}]`);
+      s.close();
+      push({
+        scenario: "B19 recipient check",
+        caseId: answer,
+        rep,
+        transcript: t,
+        metrics: {
+          askedSuggestion: /lisa\.?chen|northwind/i.test(text(r1)),
+          heldAtMostOnce: heldCount([r1, r2]) <= 1,
+          resolved:
+            answer === "yes"
+              ? /^lisa\.chen@northwind\.io$/i.test(final)
+              : /^lisa\.zhu@nortex\.io$/i.test(final),
+        },
+      });
+    }
+    const t: string[] = [];
+    const s = await open();
+    const m = mock();
+    const r1 = await s.turn(
+      "\u5e2e\u6211\u5199\u5c01\u90ae\u4ef6\u7ed9 kevin at northwin.io\uff0c\u8ddf\u4ed6\u8bf4\u5468\u4e94\u7684\u8bc4\u5ba1\u6539\u5230\u4e0b\u5348\u4e09\u70b9\u3002",
+      m,
+    );
+    t.push(`U: to kevin at northwin.io → A: ${say(r1)}`);
+    const r2 = await s.turn("\u5bf9\u3002", m);
+    const final = finalTo([r1, r2]);
+    t.push(`U: yes → A: ${say(r2)} [final to=${final}]`);
+    s.close();
+    push({
+      scenario: "B19 recipient check",
+      caseId: "domain-only",
+      rep,
+      transcript: t,
+      metrics: { resolved: /^kevin@northwind\.io$/i.test(final) },
+    });
+    const f = await open();
+    const fresh = await f.turn(
+      "\u5e2e\u6211\u5199\u5c01\u90ae\u4ef6\u7ed9 kevin at acme.com\uff0c\u8ddf\u4ed6\u8bf4\u5468\u4e94\u7684\u8bc4\u5ba1\u6539\u5230\u4e0b\u5348\u4e09\u70b9\u3002",
+      mock(),
+    );
+    f.close();
+    push({
+      scenario: "B19 recipient check",
+      caseId: "new",
+      rep,
+      transcript: [
+        `U: to kevin at acme.com \u2192 A: ${say(fresh)} [final to=${finalTo([fresh])}]`,
+      ],
+      metrics: {
+        keptNew: /^kevin@acme\.com$/i.test(finalTo([fresh])),
+        notHeld: heldCount([fresh]) === 0,
+      },
+    });
+  }
+
+  // A whole rewrite keeps exported media markers, without a slow handoff.
+  async function b18(rep: number) {
+    const s = await open();
+    const image = "![Court](document-asset:asset_court)";
+    const attachment = "[Guide (application/pdf)](document-asset:asset_guide)";
+    const original = `# Invitation\n\nJoin us for tennis.\n\n${image}\n\nBring your racket.\n\n${attachment}`;
+    let rewritten = "";
+    const mock = makeMock({
+      read_document: () => ({
+        document_id: "document_tennis",
+        title: "Tennis invitation",
+        text: original,
+        revision_id: "revision_tennis_1",
+      }),
+      edit_document: (a) => {
+        if (a.revision_id !== "revision_tennis_1")
+          return {
+            error: "document_changed",
+            revision_id: "revision_tennis_1",
+            text: original,
+            next: "Redo the change on this text and call again with this revision_id.",
+          };
+        const content = typeof a.content === "string" ? a.content : "";
+        if (
+          a.command !== "rewrite" ||
+          !content.includes(image) ||
+          !content.includes(attachment) ||
+          content.indexOf(image) > content.indexOf(attachment)
+        )
+          return { error: "media_moved", text: original };
+        rewritten = content;
+        return {
+          status: "changed",
+          document_id: "document_tennis",
+          revision_id: "revision_tennis_2",
+        };
+      },
+    });
+    try {
+      const r = await s.turn(
+        "Translate the entire Tennis invitation document document_tennis into French. Keep its photo and attached guide exactly where they are.",
+        mock,
+      );
+      push({
+        scenario: "B18 media rewrite",
+        caseId: "translate-with-media",
+        rep,
+        transcript: [`A: ${say(r)}`, `Document: ${rewritten}`],
+        metrics: {
+          rewritten: rewritten !== "" && rewritten !== original,
+          keptMedia:
+            rewritten.includes(image) && rewritten.includes(attachment),
+          noHandoff: !calls(r).some((c) => c.name === "start_task"),
+        },
+      });
+    } finally {
+      s.close();
+    }
+  }
+
   return [
     ["b1-result", b1],
     ["b1b-length", b1Length],
@@ -1712,5 +1978,8 @@ export function scenarioJobs(
     ["b11-cut-off", b11],
     ["b13-open-file", b13],
     ["b14-email-content", b14],
+    ["b15-tone-language", b15],
+    ["b18-media-rewrite", b18],
+    ["b19-recipient-check", b19],
   ];
 }

@@ -85,6 +85,8 @@ export const recordingMessages = defineMessages("recording", {
     "Reconnecting transcript updates; saved text will sync after reconnection",
   statusReconnectingRecording:
     "Reconnecting recording status; waiting for server confirmation",
+  statusAudioNotSaved:
+    "Audio is not being saved yet; only the transcript is. Retrying the recording.",
   statusMicrophoneMuted:
     "Microphone muted. Your voice is not recorded until you resume.",
   statusUnconfirmedAfterStop:
@@ -132,6 +134,8 @@ export const recordingMessages = defineMessages("recording", {
     "No microphone is available. Connect one, then start recording again.",
   microphoneBusy: "The microphone is in use by another application.",
   microphoneDenied: "Microphone permission was denied",
+  microphoneBlockedOnMac:
+    "Linger can't use the microphone. Allow Linger in System Settings › Privacy & Security › Microphone, then try again.",
   microphoneInterrupted: "Microphone connection was interrupted",
   microphoneUnavailable: "Microphone access is unavailable",
   noAudioInput: "No audio input device is available",

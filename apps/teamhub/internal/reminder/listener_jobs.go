@@ -193,7 +193,7 @@ func (s *Service) pollBinding(ctx context.Context, provider *composio.Client, ro
 	}
 	// Each provider request and retry checks authority without holding a DB lock over I/O.
 	callCtx := composio.WithRequestAuthorization(ctx, func(ctx context.Context) error { return grant.Check(ctx, store.New(s.pool)) })
-	read, err := fetchListenerPoll(callCtx, provider, target.connection.UpstreamConnectionID, target.spec, cursor)
+	read, err := s.fetchListenerPoll(callCtx, provider, target.connection.UpstreamConnectionID, target.spec, cursor)
 	if err != nil {
 		if derr := s.delayPoll(ctx, bindingID, pollFailureDelay(interval, err)); derr != nil {
 			return derr
@@ -784,9 +784,15 @@ func parseRFC3339OK(raw string) (time.Time, bool) {
 	return parsed, err == nil
 }
 
-func fetchListenerPoll(ctx context.Context, provider *composio.Client, ca string, spec ListenerSpec, cursor pollCursor) (pollRead, error) {
+func (s *Service) fetchListenerPoll(ctx context.Context, provider *composio.Client, ca string, spec ListenerSpec, cursor pollCursor) (pollRead, error) {
 	if len(cursor.Pending) > 0 {
 		return pollRead{cursor: cursor, nextPoll: time.Minute}, nil
+	}
+	if spec.Type == ListenerFeishuMail {
+		if s.feishuMail == nil {
+			return pollRead{}, errors.New("Feishu Mail listeners are not configured")
+		}
+		return fetchFeishuMail(ctx, s.feishuMail, ca, cursor)
 	}
 	fetch := pollFetchers[spec.Type]
 	if fetch == nil {
@@ -801,4 +807,77 @@ func pollFailureDelay(interval time.Duration, cause error) time.Duration {
 		return max(time.Minute, limited.RetryAfter)
 	}
 	return interval + listenerErrorBackoff*time.Second
+}
+
+// FeishuInboxMessage is one inbox message a Feishu Mail listener reports.
+// Body is cleaned and bounded like other listener mail bodies.
+type FeishuInboxMessage struct {
+	ID, ThreadID, From, To, Subject, Body string
+	Received                              time.Time
+}
+
+// FeishuMailFeed reads a Feishu inbox for its listener. TeamHub runs Feishu
+// itself, so the feed comes from the connection service, not Composio.
+type FeishuMailFeed interface {
+	// FeishuInboxSince returns inbox mail received at or after since, newest
+	// first, from pageToken as far as a bounded number of pages reach. next
+	// is where to read on when mail newer than since remains unread.
+	FeishuInboxSince(ctx context.Context, upstreamID string, since time.Time, pageToken string) (messages []FeishuInboxMessage, next string, err error)
+}
+
+// SetFeishuMailFeed lets Feishu Mail listeners read their inboxes.
+func (s *Service) SetFeishuMailFeed(feed FeishuMailFeed) { s.feishuMail = feed }
+
+// Feishu Mail: the inbox has no delta API, so each poll reads the newest
+// inbox mail since a received-time watermark. The first poll only records the
+// watermark, so mail from before the listener is not news. Mail received in
+// the watermark's own millisecond is read again; delivery receipts dedup it.
+// A backlog larger than one read is read on from its page over the next
+// polls, and the watermark moves to the backlog's newest mail only once all
+// of it is read, so no mail newer than the old watermark is skipped.
+func fetchFeishuMail(ctx context.Context, feed FeishuMailFeed, ca string, cursor pollCursor) (pollRead, error) {
+	if cursor.Channels == nil {
+		cursor.Channels = map[string]string{}
+	}
+	if cursor.Channels["since"] == "" {
+		cursor.Channels["since"] = time.Now().UTC().Format(time.RFC3339Nano)
+		return pollRead{cursor: cursor, nextPoll: time.Minute}, nil
+	}
+	since, err := time.Parse(time.RFC3339Nano, cursor.Channels["since"])
+	if err != nil {
+		return pollRead{}, err
+	}
+	// newest is the newest mail this backlog has shown, across its polls.
+	newest := since
+	if seen := cursor.Channels["backlog_newest"]; seen != "" {
+		if newest, err = time.Parse(time.RFC3339Nano, seen); err != nil {
+			return pollRead{}, err
+		}
+	}
+	messages, next, err := feed.FeishuInboxSince(ctx, ca, since, cursor.Channels["backlog_page"])
+	if err != nil {
+		return pollRead{}, err
+	}
+	read := pollRead{cursor: cursor}
+	for _, m := range messages {
+		if m.Received.Before(since) {
+			continue
+		}
+		newest = maxTime(newest, m.Received)
+		read.events = append(read.events, ListenerEvent{
+			Source: ListenerFeishuMail, EventID: m.ID, EventKind: "message",
+			From: m.From, To: m.To, Subject: m.Subject, Snippet: m.Body,
+			MessageID: m.ID, ThreadID: m.ThreadID,
+		})
+	}
+	if next != "" {
+		read.cursor.Channels["backlog_page"] = next
+		read.cursor.Channels["backlog_newest"] = newest.UTC().Format(time.RFC3339Nano)
+		read.nextPoll = time.Minute
+		return read, nil
+	}
+	delete(read.cursor.Channels, "backlog_page")
+	delete(read.cursor.Channels, "backlog_newest")
+	read.cursor.Channels["since"] = newest.UTC().Format(time.RFC3339Nano)
+	return read, nil
 }

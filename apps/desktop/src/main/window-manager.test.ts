@@ -143,6 +143,7 @@ import { ConfigStore } from "./config.js";
 import zhCN from "../i18n/locales/zh-CN.json" with { type: "json" };
 import { LanguageModule } from "./language.js";
 import { EventBus, ModuleHost, type Module } from "./modules.js";
+import { PreviewViews } from "./preview-views.js";
 import { tempDirectory } from "./test-support.js";
 import { WindowManagerModule } from "./window-manager.js";
 
@@ -416,10 +417,12 @@ describe("WindowManagerModule", () => {
 
   it("reloads on retry after start-failed or remote offline failure", async () => {
     const remote = "https://remote.example.com";
-    const { manager, host } = setup(
+    const { manager, host, bus } = setup(
       { serverUrl: remote },
       { localServerResumable: async () => false },
     );
+    const unreachable = vi.fn();
+    bus.on("local-server.unreachable", unreachable);
     await host.start();
 
     const content = contentView().webContents;
@@ -435,6 +438,8 @@ describe("WindowManagerModule", () => {
     expect(content.loadURL).toHaveBeenLastCalledWith(
       `app://offline/?server=${encodeURIComponent(remote)}&error=ERR_NAME_NOT_RESOLVED`,
     );
+    // The local server, when it is the one shown, checks itself.
+    expect(unreachable).toHaveBeenCalledOnce();
 
     manager.loadServer("retry");
     expect(content.loadURL).toHaveBeenLastCalledWith(remote);
@@ -611,6 +616,21 @@ describe("WindowManagerModule", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("closes the previews of a page that navigates away or crashes", async () => {
+    const closeAll = vi.spyOn(PreviewViews.prototype, "closeAll");
+    const { host } = setup({ serverUrl: "http://localhost:3000" });
+    await host.start();
+    const content = contentView().webContents;
+    closeAll.mockClear();
+    content.emit("did-navigate-in-page");
+    expect(closeAll).not.toHaveBeenCalled();
+    content.emit("did-navigate");
+    content.emit("render-process-gone");
+    expect(closeAll).toHaveBeenCalledTimes(2);
+    await host.stop("quit");
+    closeAll.mockRestore();
   });
 
   it("keeps framing rules for the preview frame and reports a refusal", async () => {
