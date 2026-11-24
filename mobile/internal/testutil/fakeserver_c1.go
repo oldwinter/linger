@@ -8,6 +8,7 @@ import (
 	"image/color"
 	"image/png"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -784,8 +785,8 @@ func (f *FakeServer) serveWaveC1Route(w http.ResponseWriter, r *http.Request) bo
 		var req api.ModelSourceSwitchRequest
 		dec := json.NewDecoder(r.Body)
 		dec.DisallowUnknownFields()
-		if err := dec.Decode(&req); err != nil || strings.TrimSpace(req.Mode) == "" {
-			writeJSONError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid model source switch request")
+		if err := dec.Decode(&req); err != nil || !validModelSourceSwitch(req) {
+			writeJSONError(w, http.StatusBadRequest, "INVALID_REQUEST", "Model source switch is invalid")
 			return true
 		}
 		f.mu.Lock()
@@ -793,8 +794,39 @@ func (f *FakeServer) serveWaveC1Route(w http.ResponseWriter, r *http.Request) bo
 			f.ModelSource.Status = &api.ModelSourceStatus{}
 		}
 		f.ModelSource.Status.Mode = req.Mode
-		if req.Byok != nil && req.Byok.ModelID != "" {
+		if req.Runtime != nil {
+			f.ModelSource.Status.Runtime = *req.Runtime
+		} else {
+			f.ModelSource.Status.Runtime = "pi"
+		}
+		if req.Byok != nil {
 			f.ModelSource.Status.RuntimeModel = req.Byok.ModelID
+			baseURL := req.Byok.BaseURL
+			protocol := req.Byok.Protocol
+			modelID := req.Byok.ModelID
+			keySaved := f.ModelSource.Status.Byok.KeySaved
+			if req.Byok.APIKey != nil && *req.Byok.APIKey != "" {
+				keySaved = true
+			}
+			var pathPtr, epPtr *string
+			if req.Byok.Path != "" {
+				p := req.Byok.Path
+				pathPtr = &p
+			}
+			if req.Byok.Endpoint != "" {
+				ep := req.Byok.Endpoint
+				epPtr = &ep
+			}
+			f.ModelSource.Status.Byok = api.ByokSummary{
+				Configured:    true,
+				KeySaved:      keySaved,
+				BaseURL:       &baseURL,
+				Path:          pathPtr,
+				Endpoint:      epPtr,
+				Protocol:      &protocol,
+				ModelID:       &modelID,
+				ContextWindow: req.Byok.ContextWindow,
+			}
 		} else if req.LocalModelID != nil && *req.LocalModelID != "" {
 			f.ModelSource.Status.RuntimeModel = *req.LocalModelID
 		}
@@ -804,22 +836,86 @@ func (f *FakeServer) serveWaveC1Route(w http.ResponseWriter, r *http.Request) bo
 		return true
 
 	case strings.HasSuffix(path, "/model-source/test") && r.Method == http.MethodPost:
+		var req struct {
+			Byok api.ByokInput `json:"byok"`
+		}
+		dec := json.NewDecoder(r.Body)
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&req); err != nil || !validByokInput(req.Byok) {
+			writeJSONError(w, http.StatusBadRequest, "INVALID_REQUEST", "BYOK configuration is invalid")
+			return true
+		}
+		proto := req.Byok.Protocol
+		if proto == "" {
+			proto = "openai-chat"
+		}
 		writeJSON(w, http.StatusOK, api.ByokTestResult{
-			Ok: true, ModelID: "gpt-4o-mini", Protocol: "openai_chat_completions", URL: "https://api.openai.com/v1/chat/completions", ContextWindow: 128000,
+			Ok: true, ModelID: req.Byok.ModelID, Protocol: proto, URL: req.Byok.BaseURL + req.Byok.Path + req.Byok.Endpoint, ContextWindow: 128000,
 		})
 		return true
 
 	case strings.HasSuffix(path, "/model-source/models") && r.Method == http.MethodPost:
+		var req api.ByokEndpointInput
+		dec := json.NewDecoder(r.Body)
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&req); err != nil ||
+			!validByokAddress(req.BaseURL, req.Path, req.Endpoint, req.Protocol) ||
+			(req.APIKey != nil && len(*req.APIKey) > 4096) {
+			writeJSONError(w, http.StatusBadRequest, "INVALID_REQUEST", "BYOK endpoint is invalid")
+			return true
+		}
 		name1 := "GPT-4o Mini"
 		name2 := "Claude 3.7 Sonnet"
 		writeJSON(w, http.StatusOK, api.ByokModelList{
-			URL: "https://api.openai.com/v1/models",
+			URL: req.BaseURL + req.Path + "/models",
 			Models: []api.ByokModel{
 				{ID: "gpt-4o-mini", Name: &name1},
 				{ID: "claude-3-7-sonnet", Name: &name2},
 			},
 		})
 		return true
+	}
+	return false
+}
+
+var (
+	byokURLPathPattern  = regexp.MustCompile(`^(/[^/?#\s\\]+)*$`)
+	localModelIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$`)
+)
+
+func validModelSourceRuntime(rt string) bool {
+	return rt == "claude" || rt == "codex" || rt == "pi"
+}
+
+func validByokProtocol(protocol string) bool {
+	return protocol == "anthropic" || protocol == "openai-chat" || protocol == "openai-responses"
+}
+
+func validByokAddress(baseURL, path, endpoint, protocol string) bool {
+	return strings.TrimSpace(baseURL) != "" && len(baseURL) <= 2048 && validByokProtocol(protocol) &&
+		len(path) <= 256 && byokURLPathPattern.MatchString(path) &&
+		len(endpoint) <= 256 && byokURLPathPattern.MatchString(endpoint)
+}
+
+func validByokInput(input api.ByokInput) bool {
+	return validByokAddress(input.BaseURL, input.Path, input.Endpoint, input.Protocol) &&
+		strings.TrimSpace(input.ModelID) != "" && len(input.ModelID) <= 256 &&
+		(input.APIKey == nil || len(*input.APIKey) <= 4096) &&
+		(input.ContextWindow == nil || *input.ContextWindow >= 1)
+}
+
+func validModelSourceSwitch(req api.ModelSourceSwitchRequest) bool {
+	if req.Runtime != nil && !validModelSourceRuntime(*req.Runtime) {
+		return false
+	}
+	switch req.Mode {
+	case "byok":
+		return req.Runtime != nil && req.LocalModelID == nil && req.Byok != nil && validByokInput(*req.Byok)
+	case "subscription":
+		return req.Runtime != nil && *req.Runtime != "pi" && req.LocalModelID == nil && req.Byok == nil
+	case "local":
+		return (req.Runtime == nil || *req.Runtime == "pi") && req.Byok == nil &&
+			(req.LocalModelID == nil || localModelIDPattern.MatchString(*req.LocalModelID))
 	}
 	return false
 }

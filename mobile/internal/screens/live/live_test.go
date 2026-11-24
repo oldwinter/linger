@@ -84,6 +84,9 @@ func TestLiveOpsSegmentsApprovalsAgentsAndLocalModelsActions(t *testing.T) {
 			if !tt.HasText("Desktop Companion Host") || !tt.HasText("Qwen3 4B") || !tt.HasText("Llama 3.3 8B") {
 				t.Fatal("expected Companion host status and Local Models in Compute segment")
 			}
+			if !tt.HasText("SUBSCRIPTION") || tt.HasText("MANAGED") {
+				t.Fatal("expected SUBSCRIPTION button and zero MANAGED button in Model Source switcher")
+			}
 		})
 	}
 
@@ -116,22 +119,59 @@ func TestLiveOpsSegmentsApprovalsAgentsAndLocalModelsActions(t *testing.T) {
 		t.Fatalf("expected qwen3 unloaded and llama3.3 loaded, got %+v", states)
 	}
 
-	// Test Model Source switch + BYOK test & list.
-	if _, err := store.SwitchModelSource(context.Background(), "comp_mac_1", api.ModelSourceSwitchRequest{Mode: "byok"}); err != nil {
-		t.Fatalf("SwitchModelSource: %v", err)
+	// Test Model Source switches (local, subscription, byok) + strict TeamHub validation + BYOK test & list.
+	rtPi := "pi"
+	rtClaude := "claude"
+	if _, err := store.SwitchModelSource(context.Background(), "comp_mac_1", api.ModelSourceSwitchRequest{Mode: "managed"}); err == nil {
+		t.Fatal("expected \"managed\" mode switch to be rejected")
+	}
+	if _, err := store.SwitchModelSource(context.Background(), "comp_mac_1", api.ModelSourceSwitchRequest{
+		Mode: "byok",
+		Byok: &api.ByokInput{
+			BaseURL: "https://api.openai.com", Path: "/v1", Endpoint: "/chat/completions", Protocol: "openai-chat", ModelID: "gpt-4o-mini",
+		},
+	}); err == nil {
+		t.Fatal("expected \"byok\" switch with nil Runtime to be rejected")
+	}
+	if _, err := store.SwitchModelSource(context.Background(), "comp_mac_1", api.ModelSourceSwitchRequest{
+		Mode:    "subscription",
+		Runtime: &rtClaude,
+	}); err != nil {
+		t.Fatalf("SwitchModelSource (subscription): %v", err)
+	}
+	if store.Snapshot().ModelSource.Status.Mode != "subscription" {
+		t.Fatalf("expected subscription mode, got %+v", store.Snapshot().ModelSource.Status)
+	}
+	if _, err := store.SwitchModelSource(context.Background(), "comp_mac_1", api.ModelSourceSwitchRequest{
+		Mode:    "byok",
+		Runtime: &rtPi,
+		Byok: &api.ByokInput{
+			BaseURL: "https://api.openai.com", Path: "/v1", Endpoint: "/chat/completions", Protocol: "openai-chat", ModelID: "gpt-4o-mini",
+		},
+	}); err != nil {
+		t.Fatalf("SwitchModelSource (byok): %v", err)
 	}
 	if store.Snapshot().ModelSource.Status.Mode != "byok" {
 		t.Fatalf("expected byok mode, got %+v", store.Snapshot().ModelSource.Status)
 	}
+	if _, err := store.SwitchModelSource(context.Background(), "comp_mac_1", api.ModelSourceSwitchRequest{
+		Mode:    "local",
+		Runtime: &rtPi,
+	}); err != nil {
+		t.Fatalf("SwitchModelSource (local): %v", err)
+	}
+	if store.Snapshot().ModelSource.Status.Mode != "local" {
+		t.Fatalf("expected local mode, got %+v", store.Snapshot().ModelSource.Status)
+	}
 	cl := store.Client()
 	res, err := cl.TestLocalComputerModelSourceTyped(context.Background(), "ten_1", "comp_mac_1", api.ByokInput{
-		BaseURL: "https://api.openai.com", Path: "/v1", Endpoint: "/chat/completions", Protocol: "openai_chat_completions", ModelID: "gpt-4o-mini",
+		BaseURL: "https://api.openai.com", Path: "/v1", Endpoint: "/chat/completions", Protocol: "openai-chat", ModelID: "gpt-4o-mini",
 	})
 	if err != nil || !res.Ok {
 		t.Fatalf("TestLocalComputerModelSourceTyped: %+v (%v)", res, err)
 	}
 	list, err := cl.ListLocalComputerByokModelsTyped(context.Background(), "ten_1", "comp_mac_1", api.ByokInput{
-		BaseURL: "https://api.openai.com", Path: "/v1", Endpoint: "/chat/completions", Protocol: "openai_chat_completions",
+		BaseURL: "https://api.openai.com", Path: "/v1", Endpoint: "/chat/completions", Protocol: "openai-chat",
 	})
 	if err != nil || len(list.Models) != 2 {
 		t.Fatalf("ListLocalComputerByokModelsTyped: %+v (%v)", list, err)

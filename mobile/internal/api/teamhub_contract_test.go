@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -169,7 +170,7 @@ func TestRealTeamHubWireContractsStrict(t *testing.T) {
 		case r.Method == http.MethodGet && r.URL.Path == "/v0/tenants/ten_1/local-computers/comp_1/local-models":
 			_, _ = w.Write([]byte(`{"available":true,"viewer_is_owner":true,"reason":{"code":"NOT_REPORTED","detail":"none"},"computer":{"computer_id":"comp_1","display_name":"Studio Mac","status":"online","host":{"os":"darwin","arch":"arm64"}},"pools":[{"id":"unified","kind":"unified","total_bytes":34359738368,"used_bytes":6442450944,"holders":[]}],"models":[{"model":{"id":"qwen3-4b:Q4_K_M","name":"Qwen3 4B","description":"Fast","quant":"Q4_K_M","fit":"unified","state":"downloading","context_tokens":32768,"download_bytes":2600000000,"memory_bytes":3400000000,"vision":false,"recommended":true,"availability":{"downloadable":false,"reason":{"code":"MEMORY_INSUFFICIENT","have_bytes":1024,"need_bytes":2048}},"download":{"done_bytes":1300000000,"total_bytes":2600000000,"step":"downloading"},"error":{"code":"DOWNLOAD_FAILED","detail":"disk full"}},"used_by":[{"agent_id":"act_agent_1","name":"Scout"}]}]}`))
 
-		// P1-6 #11: POST /v0/tenants/:tenantId/local-computers/:id/model-source -> {mode, runtime, byok:{...}, local_model_id, force_terminate}
+		// P1-6 #11: POST /v0/tenants/:tenantId/local-computers/:id/model-source -> strict validModelSourceSwitch parity
 		case r.Method == http.MethodPost && r.URL.Path == "/v0/tenants/ten_1/local-computers/comp_1/model-source":
 			var req struct {
 				Mode           string         `json:"mode"`
@@ -178,11 +179,51 @@ func TestRealTeamHubWireContractsStrict(t *testing.T) {
 				LocalModelID   *string        `json:"local_model_id"`
 				ForceTerminate *bool          `json:"force_terminate"`
 			}
-			decodeStrict(t, r, &req)
-			if req.Mode != "byok" || req.Byok == nil || req.Byok.ModelID != "gpt-4o-mini" {
-				t.Fatalf("unexpected model-source payload: %+v", req)
+			dec := json.NewDecoder(r.Body)
+			dec.DisallowUnknownFields()
+			if err := dec.Decode(&req); err != nil || !strictValidModelSourceSwitch(req.Mode, req.Runtime, req.Byok, req.LocalModelID) {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"error":{"code":"INVALID_REQUEST","message":"Model source switch is invalid"}}`))
+				return
 			}
-			_, _ = w.Write([]byte(`{"computer_id":"comp_1","online":true,"viewer_is_owner":true,"status":{"mode":"byok","runtime":"pi","runtime_model":"gpt-4o-mini","byok":{"configured":true}}}`))
+			rt := "pi"
+			if req.Runtime != nil {
+				rt = *req.Runtime
+			}
+			switch req.Mode {
+			case "byok":
+				_, _ = w.Write([]byte(`{"computer_id":"comp_1","online":true,"viewer_is_owner":true,"status":{"mode":"byok","runtime":"` + rt + `","runtime_model":"` + req.Byok.ModelID + `","byok":{"configured":true,"key_saved":true,"base_url":"https://api.openai.com","path":"/v1","endpoint":"/chat/completions","protocol":"openai-chat","model_id":"` + req.Byok.ModelID + `","context_window":128000}}}`))
+			case "subscription":
+				_, _ = w.Write([]byte(`{"computer_id":"comp_1","online":true,"viewer_is_owner":true,"status":{"mode":"subscription","runtime":"` + rt + `","runtime_model":"claude-sonnet-4","byok":{"configured":false,"key_saved":false}}}`))
+			case "local":
+				lm := "localmodels/qwen3-4b:Q4_K_M"
+				if req.LocalModelID != nil && *req.LocalModelID != "" {
+					lm = *req.LocalModelID
+				}
+				_, _ = w.Write([]byte(`{"computer_id":"comp_1","online":true,"viewer_is_owner":true,"status":{"mode":"local","runtime":"pi","runtime_model":"` + lm + `","byok":{"configured":false,"key_saved":false}}}`))
+			}
+
+		case r.Method == http.MethodPost && r.URL.Path == "/v0/tenants/ten_1/local-computers/comp_1/model-source/test":
+			var req struct {
+				Byok api.ByokInput `json:"byok"`
+			}
+			decodeStrict(t, r, &req)
+			if !strictValidByokInput(req.Byok) {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"error":{"code":"INVALID_REQUEST","message":"BYOK configuration is invalid"}}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"ok":true,"model_id":"` + req.Byok.ModelID + `","protocol":"` + req.Byok.Protocol + `","url":"` + req.Byok.BaseURL + req.Byok.Path + req.Byok.Endpoint + `","context_window":128000}`))
+
+		case r.Method == http.MethodPost && r.URL.Path == "/v0/tenants/ten_1/local-computers/comp_1/model-source/models":
+			var req api.ByokEndpointInput
+			decodeStrict(t, r, &req)
+			if !strictValidByokAddress(req.BaseURL, req.Path, req.Endpoint, req.Protocol) {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"error":{"code":"INVALID_REQUEST","message":"BYOK endpoint is invalid"}}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"url":"` + req.BaseURL + req.Path + `/models","models":[{"id":"gpt-4o-mini","name":"GPT-4o Mini"}]}`))
 
 		// P1-6 #12: PUT & DELETE /v0/tenants/:tenantId/agents/:agentId/skill-bindings/:skillId
 		case r.Method == http.MethodPut && r.URL.Path == "/v0/tenants/ten_1/agents/act_agent_1/skill-bindings/skill.git":
@@ -339,21 +380,68 @@ func TestRealTeamHubWireContractsStrict(t *testing.T) {
 		len(lm.Models[0].UsedBy) != 1 || lm.Models[0].UsedBy[0].AgentID != "act_agent_1" {
 		t.Fatalf("GetLocalComputerModels nested fields mismatch: %+v", lm.Models)
 	}
-	// 13. Model source BYOK (P1-6 #11)
+	// 13. Model source local / subscription / BYOK + ByokSummary + strict rejection checks
 	key := "sk-live-secret"
-	ms, err := cl.SwitchLocalComputerModelSource(ctx, "ten_1", "comp_1", api.ModelSourceSwitchRequest{
-		Mode: "byok",
-		Byok: &api.ByokInput{
-			BaseURL:  "https://api.openai.com",
-			Path:     "/v1",
-			Endpoint: "/chat/completions",
-			Protocol: "openai_chat_completions",
-			ModelID:  "gpt-4o-mini",
-			APIKey:   &key,
-		},
+	rtPi := "pi"
+	rtClaude := "claude"
+	localModelID := "qwen3-4b:Q4_K_M"
+	msLocal, err := cl.SwitchLocalComputerModelSource(ctx, "ten_1", "comp_1", api.ModelSourceSwitchRequest{
+		Mode:         "local",
+		Runtime:      &rtPi,
+		LocalModelID: &localModelID,
 	})
-	if err != nil || ms.Status == nil || ms.Status.Mode != "byok" {
-		t.Fatalf("SwitchLocalComputerModelSource: %+v (%v)", ms, err)
+	if err != nil || msLocal.Status == nil || msLocal.Status.Mode != "local" {
+		t.Fatalf("SwitchLocalComputerModelSource (local): %+v (%v)", msLocal, err)
+	}
+	msSub, err := cl.SwitchLocalComputerModelSource(ctx, "ten_1", "comp_1", api.ModelSourceSwitchRequest{
+		Mode:    "subscription",
+		Runtime: &rtClaude,
+	})
+	if err != nil || msSub.Status == nil || msSub.Status.Mode != "subscription" || msSub.Status.Runtime != "claude" {
+		t.Fatalf("SwitchLocalComputerModelSource (subscription): %+v (%v)", msSub, err)
+	}
+	byokCfg := api.ByokInput{
+		BaseURL:  "https://api.openai.com",
+		Path:     "/v1",
+		Endpoint: "/chat/completions",
+		Protocol: "openai-chat",
+		ModelID:  "gpt-4o-mini",
+		APIKey:   &key,
+	}
+	ms, err := cl.SwitchLocalComputerModelSource(ctx, "ten_1", "comp_1", api.ModelSourceSwitchRequest{
+		Mode:    "byok",
+		Runtime: &rtPi,
+		Byok:    &byokCfg,
+	})
+	if err != nil || ms.Status == nil || ms.Status.Mode != "byok" || !ms.Status.Byok.Configured || !ms.Status.Byok.KeySaved ||
+		ms.Status.Byok.ModelID == nil || *ms.Status.Byok.ModelID != "gpt-4o-mini" ||
+		ms.Status.Byok.BaseURL == nil || *ms.Status.Byok.BaseURL != "https://api.openai.com" ||
+		ms.Status.Byok.Path == nil || *ms.Status.Byok.Path != "/v1" ||
+		ms.Status.Byok.Endpoint == nil || *ms.Status.Byok.Endpoint != "/chat/completions" ||
+		ms.Status.Byok.Protocol == nil || *ms.Status.Byok.Protocol != "openai-chat" ||
+		ms.Status.Byok.ContextWindow == nil || *ms.Status.Byok.ContextWindow != 128000 {
+		t.Fatalf("SwitchLocalComputerModelSource (byok): %+v (%v)", ms, err)
+	}
+	if testRes, err := cl.TestLocalComputerModelSourceTyped(ctx, "ten_1", "comp_1", byokCfg); err != nil || !testRes.Ok {
+		t.Fatalf("TestLocalComputerModelSourceTyped: %+v (%v)", testRes, err)
+	}
+	if modelsRes, err := cl.ListLocalComputerByokModelsTyped(ctx, "ten_1", "comp_1", byokCfg); err != nil || len(modelsRes.Models) != 1 {
+		t.Fatalf("ListLocalComputerByokModelsTyped: %+v (%v)", modelsRes, err)
+	}
+	for _, invalid := range []struct {
+		name string
+		req  api.ModelSourceSwitchRequest
+	}{
+		{"managed mode", api.ModelSourceSwitchRequest{Mode: "managed"}},
+		{"byok missing runtime", api.ModelSourceSwitchRequest{Mode: "byok", Byok: &byokCfg}},
+		{"subscription on pi", api.ModelSourceSwitchRequest{Mode: "subscription", Runtime: &rtPi}},
+		{"byok legacy protocol", api.ModelSourceSwitchRequest{Mode: "byok", Runtime: &rtPi, Byok: &api.ByokInput{
+			BaseURL: "https://api.openai.com", Path: "/v1", Endpoint: "/chat/completions", Protocol: "openai_chat_completions", ModelID: "gpt-4o-mini",
+		}}},
+	} {
+		if _, err := cl.SwitchLocalComputerModelSource(ctx, "ten_1", "comp_1", invalid.req); err == nil {
+			t.Fatalf("expected HTTP 400 rejection for %s", invalid.name)
+		}
 	}
 	// 14. Agent skill binding PUT & DELETE (P1-6 #12)
 	b, err := cl.PutAgentSkillBinding(ctx, "ten_1", "act_agent_1", "skill.git", api.AgentSkillBindingPutRequest{
@@ -522,4 +610,39 @@ func newTestSelfSignedTLS(t *testing.T) (tls.Certificate, string) {
 	}
 	fp := discovery.ComputeSPKIFingerprint(leaf.RawSubjectPublicKeyInfo)
 	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: priv, Leaf: leaf}, fp
+}
+
+var (
+	contractByokPathPattern    = regexp.MustCompile(`^(/[^/?#\s\\]+)*$`)
+	contractLocalModelPattern  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$`)
+)
+
+func strictValidByokAddress(baseURL, path, endpoint, protocol string) bool {
+	validProto := protocol == "anthropic" || protocol == "openai-chat" || protocol == "openai-responses"
+	return strings.TrimSpace(baseURL) != "" && len(baseURL) <= 2048 && validProto &&
+		len(path) <= 256 && contractByokPathPattern.MatchString(path) &&
+		len(endpoint) <= 256 && contractByokPathPattern.MatchString(endpoint)
+}
+
+func strictValidByokInput(in api.ByokInput) bool {
+	return strictValidByokAddress(in.BaseURL, in.Path, in.Endpoint, in.Protocol) &&
+		strings.TrimSpace(in.ModelID) != "" && len(in.ModelID) <= 256 &&
+		(in.APIKey == nil || len(*in.APIKey) <= 4096) &&
+		(in.ContextWindow == nil || *in.ContextWindow >= 1)
+}
+
+func strictValidModelSourceSwitch(mode string, runtime *string, byok *api.ByokInput, localModelID *string) bool {
+	if runtime != nil && *runtime != "claude" && *runtime != "codex" && *runtime != "pi" {
+		return false
+	}
+	switch mode {
+	case "byok":
+		return runtime != nil && localModelID == nil && byok != nil && strictValidByokInput(*byok)
+	case "subscription":
+		return runtime != nil && *runtime != "pi" && localModelID == nil && byok == nil
+	case "local":
+		return (runtime == nil || *runtime == "pi") && byok == nil &&
+			(localModelID == nil || contractLocalModelPattern.MatchString(*localModelID))
+	}
+	return false
 }

@@ -271,7 +271,7 @@ func (s *Screen) openDocument(doc api.Document) {
 	s.linkShareSheetOpen = false
 	s.renameSheetOpen = false
 	s.deleteConfirmOpen = false
-	s.htmlPreviewOpen = false
+	s.closeHTMLPreview()
 	s.readerErr = ""
 	s.readerNotice = ""
 	s.readerBytes = nil
@@ -530,6 +530,14 @@ func allowDocPreviewNavigation(navURL, initialURL, hostBaseURL string, allowPlai
 	return true
 }
 
+func (s *Screen) closeHTMLPreview() {
+	s.htmlPreviewOpen = false
+	s.mu.Lock()
+	s.htmlPreviewGen++
+	s.mu.Unlock()
+	s.destroyPreviewWebView()
+}
+
 func (s *Screen) openHTMLPreview(versionID string) {
 	client := s.client()
 	if client == nil {
@@ -540,9 +548,21 @@ func (s *Screen) openHTMLPreview(versionID string) {
 	s.htmlPreviewOpen = true
 	s.htmlPreviewURL = ""
 	s.htmlPreviewErr = ""
+	s.mu.Lock()
+	s.htmlPreviewGen++
+	gen := s.htmlPreviewGen
+	s.mu.Unlock()
 	go func() {
 		sess, err := client.CreateDocumentPreviewSession(context.Background(), versionID)
 		s.enqueueUI(func() {
+			s.mu.Lock()
+			stale := s.closed || s.htmlPreviewGen != gen
+			win := s.deps.Window
+			createWV := s.previewWebViewFactory
+			s.mu.Unlock()
+			if !s.htmlPreviewOpen || stale {
+				return
+			}
 			if err != nil {
 				s.htmlPreviewErr = err.Error()
 				return
@@ -553,22 +573,24 @@ func (s *Screen) openHTMLPreview(versionID string) {
 				return
 			}
 			s.htmlPreviewURL = resolvedURL
-			s.mu.Lock()
-			win := s.deps.Window
-			s.mu.Unlock()
-			if win != nil {
+			if createWV == nil && win != nil {
+				createWV = win.NewWebView
+			}
+			if createWV != nil {
 				s.destroyPreviewWebView()
-				if wv, wErr := win.NewWebView(mygo.WebViewOptions{
+				if wv, wErr := createWV(mygo.WebViewOptions{
 					URL: resolvedURL,
 					Page: mygo.PageOptions{
 						Untrusted: true,
 					},
 				}); wErr == nil {
-					wv.Page().OnWillNavigate(func(e *mygo.NavigateEvent) {
-						if !allowDocPreviewNavigation(e.URL, resolvedURL, hostBase, allowPlain) {
-							e.PreventDefault()
-						}
-					})
+					if wv != nil {
+						wv.Page().OnWillNavigate(func(e *mygo.NavigateEvent) {
+							if !allowDocPreviewNavigation(e.URL, resolvedURL, hostBase, allowPlain) {
+								e.PreventDefault()
+							}
+						})
+					}
 					s.htmlWebView = wv
 				} else {
 					s.htmlPreviewErr = wErr.Error()
@@ -597,8 +619,7 @@ func (s *Screen) viewHTMLPreviewSheet(c *ui.Context) {
 				ui.Text(c, "Sandboxed HTML Preview").FontSize(16).Bold().TextColor(t.Text)
 				closeBtn := components.SecondaryTouchButton(c, "Close", false)
 				if closeBtn.Clicked() {
-					s.htmlPreviewOpen = false
-					s.destroyPreviewWebView()
+					s.closeHTMLPreview()
 				}
 			})
 			if s.htmlPreviewErr != "" {
@@ -616,7 +637,7 @@ func (s *Screen) viewHTMLPreviewSheet(c *ui.Context) {
 		})
 	})
 	if wasOpen && !s.htmlPreviewOpen {
-		s.destroyPreviewWebView()
+		s.closeHTMLPreview()
 	}
 }
 

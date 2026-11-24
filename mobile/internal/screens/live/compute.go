@@ -117,7 +117,7 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 		components.StatusPill(c, strings.ToUpper(msMode), components.ToneInfo)
 	}, func() {
 		ui.Row(c).FillWidth().Wrap().Gap(6).Children(func() {
-			for _, m := range []string{"local", "managed", "byok"} {
+			for _, m := range []string{"local", "subscription", "byok"} {
 				m := m
 				isCurrent := strings.EqualFold(msMode, m)
 				var btn ui.Element
@@ -127,12 +127,29 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 					btn = components.SecondaryTouchButton(c, strings.ToUpper(m), activeCompID == "")
 				}
 				if btn.Clicked() {
-					if m == "byok" {
+					switch m {
+					case "byok":
 						ctl.openBYOKSheet(snap)
-					} else {
+					case "subscription":
+						mygo.Haptics.Light()
+						rt := ctl.effectiveSubscriptionRuntime(snap, activeCompID)
+						ctl.mu.Lock()
+						ctl.subRuntime = rt
+						ctl.mu.Unlock()
+						go func() {
+							_, _ = ctl.store.SwitchModelSource(context.Background(), activeCompID, api.ModelSourceSwitchRequest{
+								Mode:    "subscription",
+								Runtime: &rt,
+							})
+						}()
+					default:
 						mygo.Haptics.Light()
 						go func() {
-							_, _ = ctl.store.SwitchModelSource(context.Background(), activeCompID, api.ModelSourceSwitchRequest{Mode: m})
+							rt := "pi"
+							_, _ = ctl.store.SwitchModelSource(context.Background(), activeCompID, api.ModelSourceSwitchRequest{
+								Mode:    "local",
+								Runtime: &rt,
+							})
 						}()
 					}
 				}
@@ -142,6 +159,29 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 				ctl.openBYOKSheet(snap)
 			}
 		})
+		if strings.EqualFold(msMode, "subscription") {
+			curSub := ctl.effectiveSubscriptionRuntime(snap, activeCompID)
+			subIdx := 0
+			if curSub == "codex" {
+				subIdx = 1
+			}
+			if components.SegmentedControl(c, &subIdx, "Claude", "Codex") {
+				nextRt := "claude"
+				if subIdx == 1 {
+					nextRt = "codex"
+				}
+				ctl.mu.Lock()
+				ctl.subRuntime = nextRt
+				ctl.mu.Unlock()
+				mygo.Haptics.Light()
+				go func() {
+					_, _ = ctl.store.SwitchModelSource(context.Background(), activeCompID, api.ModelSourceSwitchRequest{
+						Mode:    "subscription",
+						Runtime: &nextRt,
+					})
+				}()
+			}
+		}
 	})
 
 	// 4. Local Models Manager (Memory Pools + Pull/Load/Make Room & Load/Unload/Remove + Recheck Hardware)
@@ -329,6 +369,7 @@ func (ctl *Controller) actOnLocalModelAsync(computerID, modelID, action string, 
 			mygo.Haptics.Success()
 			ctl.setNotice(fmt.Sprintf("Model %s: %s accepted", modelID, action))
 		}
+		ctl.store.Notify()
 	}()
 }
 
@@ -341,6 +382,7 @@ func (ctl *Controller) recheckHardwareAsync(computerID string) {
 		ctl.mu.Lock()
 		ctl.recheckBusy = false
 		ctl.mu.Unlock()
+		ctl.store.Notify()
 	}()
 }
 
@@ -382,6 +424,7 @@ func (ctl *Controller) openPermissionsSheet(computerID string) {
 			ctl.mu.Lock()
 			ctl.permStatus = &st
 			ctl.mu.Unlock()
+			ctl.store.Notify()
 		}
 	}()
 }
@@ -427,6 +470,7 @@ func (ctl *Controller) viewPermissionsSheet(c *ui.Context, snap state.Snapshot) 
 													ctl.mu.Lock()
 													ctl.permStatus = &updated
 													ctl.mu.Unlock()
+													ctl.store.Notify()
 												}
 											}
 										}()
@@ -448,10 +492,17 @@ func (ctl *Controller) openBrowserSheet(computerID string) {
 	}
 	ctl.browserSheetOpen = true
 	ctl.mu.Unlock()
+	ctl.refreshBrowserStatus(computerID)
+}
+
+func (ctl *Controller) refreshBrowserStatus(computerID string) {
 	go func() {
 		cl := ctl.store.Client()
 		tid := ctl.store.Snapshot().TenantID
-		cid := ctl.activeComputerID(ctl.store.Snapshot())
+		cid := computerID
+		if cid == "" {
+			cid = ctl.activeComputerID(ctl.store.Snapshot())
+		}
 		if cl == nil || tid == "" || cid == "" {
 			return
 		}
@@ -494,6 +545,7 @@ func (ctl *Controller) viewBrowserSheet(c *ui.Context, snap state.Snapshot) {
 									ctl.mu.Lock()
 									ctl.browserStatus = &updated
 									ctl.mu.Unlock()
+									ctl.store.Notify()
 								}
 							}
 						}()
@@ -503,7 +555,7 @@ func (ctl *Controller) viewBrowserSheet(c *ui.Context, snap state.Snapshot) {
 						go func() {
 							if cl := ctl.store.Client(); cl != nil {
 								_ = cl.DeleteLocalComputerBrowserConnection(context.Background(), snap.TenantID, cid)
-								ctl.openBrowserSheet(cid)
+								ctl.refreshBrowserStatus(cid)
 							}
 						}()
 					}
@@ -513,16 +565,73 @@ func (ctl *Controller) viewBrowserSheet(c *ui.Context, snap state.Snapshot) {
 	})
 }
 
+func validModelSourceRuntime(rt string) bool {
+	return rt == "pi" || rt == "claude" || rt == "codex"
+}
+
+func validByokProtocol(protocol string) bool {
+	return protocol == "openai-chat" || protocol == "openai-responses" || protocol == "anthropic"
+}
+
+func (ctl *Controller) effectiveSubscriptionRuntime(snap state.Snapshot, compID string) string {
+	ctl.mu.Lock()
+	saved := ctl.subRuntime
+	ctl.mu.Unlock()
+	if saved == "claude" || saved == "codex" {
+		return saved
+	}
+	if snap.ModelSource != nil && snap.ModelSource.Status != nil {
+		rt := snap.ModelSource.Status.Runtime
+		if rt == "claude" || rt == "codex" {
+			return rt
+		}
+	}
+	for _, comp := range snap.Computers {
+		if compID != "" && comp.ComputerID != compID {
+			continue
+		}
+		for _, rt := range comp.Runtimes {
+			if rt.Type == "claude" || rt.Type == "codex" {
+				return rt.Type
+			}
+		}
+	}
+	return "claude"
+}
+
 func (ctl *Controller) openBYOKSheet(snap state.Snapshot) {
 	ctl.mu.Lock()
 	if snap.ModelSource != nil && snap.ModelSource.Status != nil {
-		ctl.byokMode = snap.ModelSource.Status.Mode
-		if snap.ModelSource.Status.Byok.BaseURL != nil {
-			ctl.byokBaseURL = *snap.ModelSource.Status.Byok.BaseURL
+		st := snap.ModelSource.Status
+		ctl.byokMode = st.Mode
+		if validModelSourceRuntime(st.Runtime) {
+			ctl.byokRuntime = st.Runtime
 		}
-		if snap.ModelSource.Status.Byok.Model != nil {
-			ctl.byokModelID = *snap.ModelSource.Status.Byok.Model
+		if st.Byok.BaseURL != nil {
+			ctl.byokBaseURL = *st.Byok.BaseURL
 		}
+		if st.Byok.Path != nil {
+			ctl.byokPath = *st.Byok.Path
+		} else if st.Byok.Configured {
+			ctl.byokPath = ""
+		}
+		if st.Byok.Endpoint != nil {
+			ctl.byokEndpoint = *st.Byok.Endpoint
+		} else if st.Byok.Configured {
+			ctl.byokEndpoint = ""
+		}
+		if st.Byok.Protocol != nil && validByokProtocol(*st.Byok.Protocol) {
+			ctl.byokProtocol = *st.Byok.Protocol
+		}
+		if st.Byok.ModelID != nil {
+			ctl.byokModelID = *st.Byok.ModelID
+		}
+	}
+	if !validModelSourceRuntime(ctl.byokRuntime) {
+		ctl.byokRuntime = "pi"
+	}
+	if !validByokProtocol(ctl.byokProtocol) {
+		ctl.byokProtocol = "openai-chat"
 	}
 	ctl.byokAPIKey = ""
 	ctl.byokTestMsg = ""
@@ -537,6 +646,8 @@ func (ctl *Controller) viewBYOKSheet(c *ui.Context, snap state.Snapshot) {
 		ctl.mu.Lock()
 		busy := ctl.byokBusy
 		testMsg := ctl.byokTestMsg
+		curRuntime := ctl.byokRuntime
+		curProtocol := ctl.byokProtocol
 		models := append([]api.ByokModel(nil), ctl.byokModels...)
 		ctl.mu.Unlock()
 		cid := ctl.activeComputerID(snap)
@@ -547,6 +658,37 @@ func (ctl *Controller) viewBYOKSheet(c *ui.Context, snap state.Snapshot) {
 				if testMsg != "" {
 					components.StatusBanner(c, components.ToneInfo, testMsg, "", nil)
 				}
+
+				runtimes := []string{"pi", "claude", "codex"}
+				rtIdx := 0
+				for i, r := range runtimes {
+					if curRuntime == r {
+						rtIdx = i
+						break
+					}
+				}
+				ui.Text(c, "Runtime Harness").FontSize(12).FontWeight(600).TextColor(t.TextMuted)
+				if components.SegmentedControl(c, &rtIdx, "Pi", "Claude", "Codex") {
+					ctl.mu.Lock()
+					ctl.byokRuntime = runtimes[rtIdx]
+					ctl.mu.Unlock()
+				}
+
+				protocols := []string{"openai-chat", "openai-responses", "anthropic"}
+				protoIdx := 0
+				for i, p := range protocols {
+					if curProtocol == p {
+						protoIdx = i
+						break
+					}
+				}
+				ui.Text(c, "Upstream Protocol").FontSize(12).FontWeight(600).TextColor(t.TextMuted)
+				if components.SegmentedControl(c, &protoIdx, "OpenAI Chat", "Responses", "Anthropic") {
+					ctl.mu.Lock()
+					ctl.byokProtocol = protocols[protoIdx]
+					ctl.mu.Unlock()
+				}
+
 				components.FormField(c, "Base URL", "https://api.openai.com", &ctl.byokBaseURL, false)
 				components.FormField(c, "Path", "/v1", &ctl.byokPath, false)
 				components.FormField(c, "Endpoint", "/chat/completions", &ctl.byokEndpoint, false)
@@ -591,12 +733,17 @@ func (ctl *Controller) viewBYOKSheet(c *ui.Context, snap state.Snapshot) {
 				if applyBtn.Clicked() {
 					in := ctl.currentBYOKInput()
 					ctl.mu.Lock()
+					rt := ctl.byokRuntime
+					if !validModelSourceRuntime(rt) {
+						rt = "pi"
+					}
 					ctl.byokBusy = true
 					ctl.mu.Unlock()
 					go func() {
 						_, err := ctl.store.SwitchModelSource(context.Background(), cid, api.ModelSourceSwitchRequest{
-							Mode: "byok",
-							Byok: &in,
+							Mode:    "byok",
+							Runtime: &rt,
+							Byok:    &in,
 						})
 						ctl.store.EnqueueUI(func() {
 							ctl.mu.Lock()
@@ -630,11 +777,15 @@ func (ctl *Controller) currentBYOKInput() api.ByokInput {
 		k := ctl.byokAPIKey
 		keyPtr = &k
 	}
+	proto := ctl.byokProtocol
+	if !validByokProtocol(proto) {
+		proto = "openai-chat"
+	}
 	return api.ByokInput{
 		BaseURL:  strings.TrimSpace(ctl.byokBaseURL),
 		Path:     strings.TrimSpace(ctl.byokPath),
 		Endpoint: strings.TrimSpace(ctl.byokEndpoint),
-		Protocol: ctl.byokProtocol,
+		Protocol: proto,
 		ModelID:  strings.TrimSpace(ctl.byokModelID),
 		APIKey:   keyPtr,
 	}
@@ -662,6 +813,7 @@ func (ctl *Controller) testBYOKAsync(tenantID, compID string) {
 		ctl.byokBusy = false
 		ctl.byokTestMsg = msg
 		ctl.mu.Unlock()
+		ctl.store.Notify()
 	}()
 }
 
@@ -688,6 +840,7 @@ func (ctl *Controller) listBYOKModelsAsync(tenantID, compID string) {
 		ctl.byokModels = list
 		ctl.byokTestMsg = msg
 		ctl.mu.Unlock()
+		ctl.store.Notify()
 	}()
 }
 
@@ -702,6 +855,7 @@ func (ctl *Controller) scanSkillsAsync(tenantID, compID string) {
 				ctl.scanResult = "Skill scan complete."
 			}
 			ctl.mu.Unlock()
+			ctl.store.Notify()
 			_ = ctl.store.RefreshActiveHost(context.Background())
 		}
 	}()

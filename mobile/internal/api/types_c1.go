@@ -405,6 +405,15 @@ type BrowserConnectionStatus struct {
 	VerifiedAt   *time.Time `json:"verified_at,omitempty"`
 }
 
+type ByokEndpointInput struct {
+	BaseURL       string  `json:"base_url"`
+	Path          string  `json:"path"`
+	Endpoint      string  `json:"endpoint"`
+	Protocol      string  `json:"protocol"`
+	APIKey        *string `json:"api_key,omitempty"`
+	ReuseSavedKey *bool   `json:"reuse_saved_key,omitempty"`
+}
+
 type ByokInput struct {
 	BaseURL       string  `json:"base_url"`
 	Path          string  `json:"path"`

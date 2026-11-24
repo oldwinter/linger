@@ -209,9 +209,15 @@ func (c *Client) TestLocalComputerModelSourceTyped(ctx context.Context, tenantID
 // ListLocalComputerByokModelsTyped lists models offered by a BYOK provider via POST .../model-source/models.
 func (c *Client) ListLocalComputerByokModelsTyped(ctx context.Context, tenantID, computerID string, byok ByokInput) (ByokModelList, error) {
 	var out ByokModelList
-	err := c.DoJSON(ctx, http.MethodPost, fmt.Sprintf("/v0/tenants/%s/local-computers/%s/model-source/models", url.PathEscape(tenantID), url.PathEscape(computerID)), map[string]any{
-		"byok": byok,
-	}, &out)
+	endpoint := ByokEndpointInput{
+		BaseURL:       byok.BaseURL,
+		Path:          byok.Path,
+		Endpoint:      byok.Endpoint,
+		Protocol:      byok.Protocol,
+		APIKey:        byok.APIKey,
+		ReuseSavedKey: byok.ReuseSavedKey,
+	}
+	err := c.DoJSON(ctx, http.MethodPost, fmt.Sprintf("/v0/tenants/%s/local-computers/%s/model-source/models", url.PathEscape(tenantID), url.PathEscape(computerID)), endpoint, &out)
 	return out, err
 }
 

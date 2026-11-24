@@ -82,9 +82,11 @@ type Screen struct {
 	syncError     string
 
 	// Voice SSE / audio runtime handles (guarded by mu).
-	voiceStreamCancel context.CancelFunc
-	audioPlayer       *audio.Player
-	audioGen          uint64
+	voiceStreamCancel     context.CancelFunc
+	audioPlayer           *audio.Player
+	audioGen              uint64
+	htmlPreviewGen        uint64
+	previewWebViewFactory func(mygo.WebViewOptions) (*mygo.WebView, error)
 
 	// UI-thread-only state.
 	segment int
@@ -185,6 +187,7 @@ func (s *Screen) Close() {
 	s.mu.Lock()
 	s.closed = true
 	s.audioGen++
+	s.htmlPreviewGen++
 	cancel := s.voiceStreamCancel
 	s.voiceStreamCancel = nil
 	player := s.audioPlayer

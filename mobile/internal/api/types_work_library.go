@@ -254,11 +254,14 @@ type LocalModelsView struct {
 }
 
 type ByokSummary struct {
-	Configured bool    `json:"configured"`
-	Provider   *string `json:"provider,omitempty"`
-	BaseURL    *string `json:"base_url,omitempty"`
-	Model      *string `json:"model,omitempty"`
-	APIKeyHint *string `json:"api_key_hint,omitempty"`
+	Configured    bool    `json:"configured"`
+	KeySaved      bool    `json:"key_saved"`
+	BaseURL       *string `json:"base_url,omitempty"`
+	Path          *string `json:"path,omitempty"`
+	Endpoint      *string `json:"endpoint,omitempty"`
+	Protocol      *string `json:"protocol,omitempty"`
+	ModelID       *string `json:"model_id,omitempty"`
+	ContextWindow *int    `json:"context_window,omitempty"`
 }
 
 type ModelSourceStatus struct {

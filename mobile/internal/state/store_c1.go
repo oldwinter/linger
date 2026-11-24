@@ -564,7 +564,7 @@ func (s *AppStore) RecheckLocalModels(ctx context.Context, computerID string) er
 	return nil
 }
 
-// SwitchModelSource switches a Local Computer's model source (local / managed / byok).
+// SwitchModelSource switches a Local Computer's model source (local / subscription / byok).
 func (s *AppStore) SwitchModelSource(ctx context.Context, computerID string, req api.ModelSourceSwitchRequest) (api.ModelSourceView, error) {
 	client := s.Client()
 	tenantID := s.Snapshot().TenantID

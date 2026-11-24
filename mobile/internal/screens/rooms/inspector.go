@@ -28,7 +28,10 @@ func (ctl *Controller) openInspector(roomID string, snap state.Snapshot) {
 	ctl.inspEditDesc = desc
 	ctl.inspectorOpen = true
 	ctl.mu.Unlock()
+	ctl.refreshInspectorData(roomID)
+}
 
+func (ctl *Controller) refreshInspectorData(roomID string) {
 	go func() {
 		cl := ctl.store.Client()
 		if cl == nil {
@@ -44,12 +47,15 @@ func (ctl *Controller) openInspector(roomID string, snap state.Snapshot) {
 			teamDoc = &td
 		}
 		ctl.mu.Lock()
-		ctl.inspMembers = members.Items
-		ctl.inspPins = pins
-		ctl.inspDocs = docs.Items
-		ctl.inspTeamMd = teamDoc
-		ctl.inspShares = shares
+		if ctl.inspectorRoomID == roomID {
+			ctl.inspMembers = members.Items
+			ctl.inspPins = pins
+			ctl.inspDocs = docs.Items
+			ctl.inspTeamMd = teamDoc
+			ctl.inspShares = shares
+		}
 		ctl.mu.Unlock()
+		ctl.store.Notify()
 	}()
 }
 
@@ -99,6 +105,7 @@ func (ctl *Controller) viewInspectorSheet(c *ui.Context, snap state.Snapshot) {
 							ctl.mu.Lock()
 							ctl.inspBusy = false
 							ctl.mu.Unlock()
+							ctl.store.Notify()
 						}()
 					}
 					delBtn := components.DangerTouchButton(c, "Delete Room", busy)
@@ -135,7 +142,7 @@ func (ctl *Controller) viewInspectorSheet(c *ui.Context, snap state.Snapshot) {
 										go func() {
 											if cl := ctl.store.Client(); cl != nil {
 												_ = cl.DeleteRoomMember(context.Background(), roomID, m.Actor.ID)
-												ctl.openInspector(roomID, snap)
+												ctl.refreshInspectorData(roomID)
 											}
 										}()
 									}
@@ -165,7 +172,7 @@ func (ctl *Controller) viewInspectorSheet(c *ui.Context, snap state.Snapshot) {
 										go func() {
 											if cl := ctl.store.Client(); cl != nil {
 												_, _ = cl.PutRoomMember(context.Background(), roomID, act.ID, "member")
-												ctl.openInspector(roomID, snap)
+												ctl.refreshInspectorData(roomID)
 											}
 										}()
 									}
@@ -217,7 +224,7 @@ func (ctl *Controller) viewInspectorSheet(c *ui.Context, snap state.Snapshot) {
 							go func() {
 								if cl := ctl.store.Client(); cl != nil {
 									_, _ = cl.CreateRoomHistoryShare(context.Background(), roomID, "")
-									ctl.openInspector(roomID, snap)
+									ctl.refreshInspectorData(roomID)
 								}
 							}()
 						}
@@ -241,7 +248,7 @@ func (ctl *Controller) viewInspectorSheet(c *ui.Context, snap state.Snapshot) {
 									go func() {
 										if cl := ctl.store.Client(); cl != nil {
 											_ = cl.RevokeRoomHistoryShare(context.Background(), roomID, sh.ID)
-											ctl.openInspector(roomID, snap)
+											ctl.refreshInspectorData(roomID)
 										}
 									}()
 								}

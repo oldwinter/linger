@@ -86,8 +86,10 @@ type Controller struct {
 	scanResult         string
 
 	// Model Source & BYOK form state
+	subRuntime    string
 	byokSheetOpen bool
 	byokMode      string
+	byokRuntime   string
 	byokBaseURL   string
 	byokPath      string
 	byokEndpoint  string
@@ -108,7 +110,8 @@ func NewController(store *state.AppStore, nav NavigationHooks) *Controller {
 		swipeStates:    map[string]*mobile.SwipeState{},
 		modelBusy:      map[string]string{},
 		byokMode:       "local",
-		byokProtocol:   "openai_chat_completions",
+		byokRuntime:    "pi",
+		byokProtocol:   "openai-chat",
 		byokPath:       "/v1",
 		byokEndpoint:   "/chat/completions",
 	}
