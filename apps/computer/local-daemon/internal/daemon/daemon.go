@@ -120,7 +120,7 @@ type Daemon struct {
 	localTools        LocalToolBinder
 	herdrPanes        HerdrPanes
 	// feishuMail runs TeamHub's Feishu Mail calls through the owner's lark-cli.
-	feishuMail *localtools.FeishuMail
+	feishuMail          *localtools.FeishuMail
 	browserConnections  BrowserConnections
 	computerPermissions ComputerPermissions
 	owners              []ComputerOwner
