@@ -45,6 +45,7 @@ import {
 import { moveLegacyUserData, type UserDataMove } from "./legacy-user-data.js";
 import { fileLogger, type Logger } from "./log.js";
 import { MacPermissions } from "./mac-permissions.js";
+import { MobileCompanionModule } from "./mobile-companion.js";
 import { EventBus, ModuleHost, type Module } from "./modules.js";
 import { parseServerUrl } from "./navigation.js";
 import { openWithXdg } from "./open-url.js";
@@ -286,6 +287,24 @@ async function main(): Promise<void> {
           },
         }
       : undefined;
+  const daemon = new ComputerDaemonModule({
+    spawn: spawnDaemon(
+      daemonExecutable(),
+      path.join(userData, "logs", "computer-daemon.log"),
+    ),
+    credentials,
+    directory: daemonDirectory,
+    // The bundled teamhub CLI, run by the app's own Node, so runtimes reply
+    // with a matching version and the computer needs no Node.
+    teamhubCliDirectory: path.join(here, "../teamhub-cli"),
+    defaultDisplayName,
+    env: daemonEnv(log),
+    ...(process.platform === "win32"
+      ? { protect: protectWithDaemon(daemonExecutable()) }
+      : {}),
+    ...desktopPermissions,
+  });
+  const power = new PowerGuardModule(electronPower());
   // The tray tooltip names the badge count the SPA sends over IPC.
   const tray = new TrayModule({ quit: () => void quit() });
   const modules: Module[] = [
@@ -315,27 +334,22 @@ async function main(): Promise<void> {
       },
       defaultDirectory: path.join(app.getPath("home"), "Linger"),
     }),
-    new ComputerDaemonModule({
-      spawn: spawnDaemon(
-        daemonExecutable(),
-        path.join(userData, "logs", "computer-daemon.log"),
-      ),
-      credentials,
-      directory: daemonDirectory,
-      // The bundled teamhub CLI, run by the app's own Node, so runtimes reply
-      // with a matching version and the computer needs no Node.
-      teamhubCliDirectory: path.join(here, "../teamhub-cli"),
-      defaultDisplayName,
-      env: daemonEnv(log),
-      ...(process.platform === "win32"
-        ? { protect: protectWithDaemon(daemonExecutable()) }
-        : {}),
-      ...desktopPermissions,
-    }),
+    daemon,
     status,
-    new PowerGuardModule(electronPower()),
+    power,
     windows,
     localServer,
+    new MobileCompanionModule({
+      preload: path.join(here, "../preload/mobile-companion.cjs"),
+      userData,
+      version: VERSION,
+      defaultHostName: defaultDisplayName,
+      localServer,
+      status,
+      daemon,
+      power,
+      sessionCookie: webSessionCookie,
+    }),
     new DiagnosticsModule({
       userData,
       logs: path.join(userData, "logs"),

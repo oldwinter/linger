@@ -45,6 +45,7 @@ const startTray = async () => {
       stubModule("Enrollment"),
       { ...stubModule("SetupWindow"), showApp: () => {} } as never,
       stubModule("QuickNote"),
+      { ...stubModule("MobileCompanion"), show: () => {} } as never,
       {
         ...stubModule("Updater"),
         state: () => ({ kind: "idle" as const }),

@@ -23,6 +23,15 @@ const savedEnrollment = z.object({
 });
 export type SavedEnrollment = z.infer<typeof savedEnrollment>;
 
+const mobileCompanionConfig = z.object({
+  enabled: z.boolean().default(false),
+  port: z.number().int().min(1024).max(65535).default(48210),
+  advertiseMdns: z.boolean().default(true),
+  tls: z.boolean().default(true),
+  customHost: z.string().trim().min(1).max(255).optional(),
+});
+export type MobileCompanionConfig = z.infer<typeof mobileCompanionConfig>;
+
 // Non-secret desktop settings. The Gateway credential is kept apart
 // (computer-credential.ts). Keys of older versions, such as sandboxMode,
 // are dropped on read.
@@ -77,6 +86,7 @@ const desktopConfig = z.object({
       height: z.number().int().positive(),
     })
     .optional(),
+  mobileCompanion: mobileCompanionConfig.optional().catch(undefined),
 });
 export type DesktopConfig = z.infer<typeof desktopConfig>;
 
