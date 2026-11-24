@@ -1102,7 +1102,7 @@ export async function stopLocalmodels(
   if (status.code === 0) {
     let last = status.stdout;
     const loading = libraryModelsIn(last, "loading");
-    if (!libraryModelsIn(last, "loaded") || !loading)
+    if (!unloadableLibraryModels(last) || !loading)
       failed.push("localmodels library status: no model list");
     // A load left running would make its model resident after the app is
     // gone. A cancel that fails because the load just finished is not a
@@ -1146,7 +1146,7 @@ export async function stopLocalmodels(
             `localmodels library cancel ${model}: still loading`,
         );
     }
-    await unloadAll(libraryModelsIn(last, "loaded") ?? []);
+    await unloadAll(unloadableLibraryModels(last) ?? []);
   }
   if (!options.keepController)
     await step([
@@ -1159,25 +1159,66 @@ export async function stopLocalmodels(
   await step(["stack", "down", "--json"]);
   if (failed.length) throw new Error(failed.join("; "));
 }
+const STOPPED_DOWNLOAD_ERROR_CODES = new Set([
+  "DOWNLOAD_FAILED",
+  "NETWORK_UNAVAILABLE",
+  "DISK_INSUFFICIENT",
+]);
+
+/**
+ * Reports whether a failed library model row represents a stopped download
+ * rather than a downloaded model whose server or load failed.
+ */
+export function isStoppedDownloadErrorCode(code: unknown): boolean {
+  return typeof code === "string" && STOPPED_DOWNLOAD_ERROR_CODES.has(code);
+}
+
+// Parses `library status` JSON output and returns valid model IDs matching
+// include, or undefined when stdout is not a status report.
+function libraryModels(
+  stdout: string,
+  include: (model: { id: string; state?: unknown; error?: unknown }) => boolean,
+): string[] | undefined {
+  try {
+    const models = (JSON.parse(stdout) as { models?: unknown }).models;
+    if (!Array.isArray(models)) return undefined;
+    return models.flatMap(
+      (model: { id?: unknown; state?: unknown; error?: unknown }) => {
+        if (
+          typeof model?.id !== "string" ||
+          !/^[a-z0-9][a-z0-9._-]*:[A-Za-z0-9._-]+$/.test(model.id)
+        )
+          return [];
+        return include({ id: model.id, state: model.state, error: model.error })
+          ? [model.id]
+          : [];
+      },
+    );
+  } catch {
+    return undefined;
+  }
+}
 // The ids of the models `library status` reports in state, or undefined
 // when its output is not a status report.
 function libraryModelsIn(
   stdout: string,
   state: "loaded" | "loading",
 ): string[] | undefined {
-  try {
-    const models = (JSON.parse(stdout) as { models?: unknown }).models;
-    if (!Array.isArray(models)) return undefined;
-    return models.flatMap((model: { id?: unknown; state?: unknown }) =>
-      model?.state === state &&
-      typeof model.id === "string" &&
-      /^[a-z0-9][a-z0-9._-]*:[A-Za-z0-9._-]+$/.test(model.id)
-        ? [model.id]
-        : [],
-    );
-  } catch {
-    return undefined;
-  }
+  return libraryModels(stdout, (model) => model.state === state);
+}
+// The ids of the models `library status` reports as loaded or failed after a
+// server/load failure (excluding stopped downloads, which hold no library
+// record to unload), or undefined when its output is not a status report.
+function unloadableLibraryModels(stdout: string): string[] | undefined {
+  return libraryModels(stdout, (model) => {
+    if (model.state === "loaded") return true;
+    if (model.state !== "failed") return false;
+    const errorCode =
+      model.error && typeof model.error === "object"
+        ? (model.error as { code?: unknown }).code
+        : undefined;
+    return !isStoppedDownloadErrorCode(errorCode);
+  });
 }
 // A failed step's structured cause: the library's error code, the tool's
 // error, or its exit status.

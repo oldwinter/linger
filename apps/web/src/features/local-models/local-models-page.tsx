@@ -1,6 +1,7 @@
 import {
   AiChipIcon,
   Alert02Icon,
+  ArrowDown01Icon,
   InformationCircleIcon,
   RefreshIcon,
 } from "@hugeicons/core-free-icons";
@@ -11,9 +12,17 @@ import {
   useQueryClient,
   useSuspenseQuery,
 } from "@tanstack/react-query";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 
+import { AutoHeight } from "@/components/ui/auto-height";
 import { Button } from "@/components/ui/button";
 import { FormFeedback } from "@/components/ui/form-feedback";
 import { Icon } from "@/components/ui/icon";
@@ -64,6 +73,11 @@ import {
   UnloadModelDialog,
 } from "./local-model-dialogs";
 import {
+  UpdateDriverDialog,
+  type DriverUpdateReason,
+} from "./local-model-driver-dialog";
+import { useDesktopDriverUpdate } from "./desktop-driver-update";
+import {
   actionErrorCopy,
   debugBannerCopy,
   hostBlockerCopy,
@@ -86,9 +100,10 @@ import {
   type LocalModelsView,
 } from "./local-models-queries";
 import {
+  buildModelGroups,
   downloadStopped,
-  featuredInklingEntry,
   formatGigabytes,
+  hasReadyLocalModels,
   hostBlocker,
   joinList,
   loadCheck,
@@ -99,6 +114,7 @@ import {
   modelEntries,
   poolFreeBytes,
   poolOf,
+  type ModelCardGroup,
   type ModelEntry,
   type ModelStatus,
 } from "./local-models-rules";
@@ -133,7 +149,8 @@ type Dialog =
   | { kind: "advanced" }
   | { kind: "makeRoom"; modelId: string }
   | { kind: "remove"; modelId: string }
-  | { kind: "unload"; modelId: string };
+  | { kind: "unload"; modelId: string }
+  | { kind: "updateDriver"; modelId?: string; reason: DriverUpdateReason };
 
 /**
  * The model states each confirmed action applies to, as the row offers it. A
@@ -227,6 +244,10 @@ export function ModelsPage() {
           computer={computer}
           computerId={computer.computer_id}
           displayName={computer.display_name}
+          isLocalDesktop={Boolean(
+            desktop?.status?.computerId &&
+            desktop.status.computerId === computer.computer_id,
+          )}
           key={computer.computer_id}
           onSelectComputer={select}
           ownedComputers={computers}
@@ -462,6 +483,7 @@ function ComputerModels({
   computerId,
   defaultComputerName,
   displayName,
+  isLocalDesktop = false,
   onOpenDefaultComputer,
   onSelectComputer,
   ownedComputers,
@@ -472,6 +494,7 @@ function ComputerModels({
   defaultComputerName?: string;
   /** Absent for a Computer outside the viewer's own inventory. */
   displayName?: string;
+  isLocalDesktop?: boolean;
   onOpenDefaultComputer?: () => void;
   onSelectComputer: (computerId: string) => void;
   ownedComputers: readonly InventoryComputer[];
@@ -847,6 +870,7 @@ function ComputerModels({
             computer={computer}
             dialog={dialog}
             guidance={guidance}
+            isLocalDesktop={isLocalDesktop}
             offline={offline}
             onRefresh={recheckMemory}
             onSwitchToByok={status ? () => changeTab("byok") : undefined}
@@ -944,6 +968,7 @@ function Library({
   computer,
   dialog,
   guidance,
+  isLocalDesktop = false,
   offline: computerOffline,
   onRefresh,
   onSwitchToByok,
@@ -960,6 +985,7 @@ function Library({
   computer?: InventoryComputer;
   dialog: Dialog | null;
   guidance: ReturnType<typeof memoryGuidance>;
+  isLocalDesktop?: boolean;
   offline: boolean;
   onRefresh: () => void;
   onSwitchToByok?: () => void;
@@ -990,7 +1016,12 @@ function Library({
     canManageAgents &&
     piReady &&
     (!status?.mode || status.mode === "local");
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedKey, setExpandedKey] = useState<string | null>(null);
+  const [selectedVariants, setSelectedVariants] = useState<
+    Record<string, string>
+  >({});
+  const [unavailableOpen, setUnavailableOpen] = useState(false);
+  const unavailablePanelId = useId();
   const [failure, setFailure] = useState<{
     code?: string;
     modelId: string;
@@ -1062,17 +1093,15 @@ function Library({
     () => (view.available ? modelEntries(view) : []),
     [view],
   );
-  const spotlightEntry = useMemo(
-    () => featuredInklingEntry(entries),
-    [entries],
-  );
-  const listEntries = useMemo(
-    () =>
-      spotlightEntry
-        ? entries.filter((entry) => entry.model.id !== spotlightEntry.model.id)
-        : entries,
-    [entries, spotlightEntry],
-  );
+  const sections = useMemo(() => buildModelGroups(entries), [entries]);
+  const hasUsableModels =
+    sections.onComputer.length > 0 ||
+    sections.available.length > 0 ||
+    Boolean(
+      sections.spotlight &&
+      sections.spotlight.defaultEntry.status !== "unavailable",
+    );
+  const showUnavailable = !hasUsableModels || unavailableOpen;
   const find = (modelId: string) =>
     entries.find((entry) => entry.model.id === modelId);
   const mutationKey = localModelActionMutationKey(tenantId, computerId);
@@ -1343,7 +1372,9 @@ function Library({
     !downloadStopped(entry.model) &&
     actionStatuses[action].includes(entry.status);
   const dialogEntry =
-    dialog && dialog.kind !== "advanced" ? find(dialog.modelId) : undefined;
+    dialog && "modelId" in dialog && dialog.modelId
+      ? find(dialog.modelId)
+      : undefined;
   const dialogPool = dialogEntry
     ? poolOf(view, dialogEntry.model.pool)
     : undefined;
@@ -1419,9 +1450,65 @@ function Library({
     entry.model.pi_model !== status.runtime_model &&
     entry.model.id !== status.runtime_model;
 
-  const renderModelRow = (entry: ModelEntry, inSpotlight = false) => {
+  const hasReadyModels = hasReadyLocalModels(entries);
+  const desktopDriver = useDesktopDriverUpdate(
+    isLocalDesktop && !offline && !readOnly,
+  );
+  const driverInstallState = desktopDriver?.installState;
+  const [driverBannerDismissed, setDriverBannerDismissed] = useState(false);
+  const resumedDriverVersionRef = useRef<string | null>(null);
+  const onRefreshRef = useRef(onRefresh);
+  useEffect(() => {
+    onRefreshRef.current = onRefresh;
+  }, [onRefresh]);
+
+  useEffect(() => {
+    if (
+      !isLocalDesktop ||
+      offline ||
+      readOnly ||
+      driverInstallState?.phase !== "completed"
+    ) {
+      return;
+    }
+    if (resumedDriverVersionRef.current === driverInstallState.version) return;
+    resumedDriverVersionRef.current = driverInstallState.version;
+    onRefreshRef.current();
+  }, [driverInstallState, isLocalDesktop, offline, readOnly]);
+
+  const resumeModelEntry =
+    driverInstallState?.phase === "completed" &&
+    driverInstallState.resumeModelId
+      ? find(driverInstallState.resumeModelId)
+      : undefined;
+  const resumeModelDownloadable = Boolean(
+    resumeModelEntry &&
+    resumeModelEntry.model.state === "absent" &&
+    resumeModelEntry.model.availability.downloadable,
+  );
+  const showDriverResumeBanner =
+    !driverBannerDismissed &&
+    (driverInstallState?.phase === "completed" ||
+      driverInstallState?.phase === "reboot_required");
+
+  function dismissDriverBanner() {
+    setDriverBannerDismissed(true);
+    void desktopDriver?.api.clearInstallState?.().catch(() => undefined);
+  }
+
+  const renderModelGroup = (group: ModelCardGroup, inSpotlight = false) => {
+    const selectedId = selectedVariants[group.key];
+    const entry =
+      (selectedId
+        ? group.variants.find((variant) => variant.model.id === selectedId)
+        : undefined) ?? group.defaultEntry;
     const modelId = entry.model.id;
     const canUseForAgents = canUseModelForAgents(entry);
+    const driverReason =
+      entry.status === "unavailable" &&
+      entry.model.availability.reason?.code === "DRIVER_UPDATE_REQUIRED"
+        ? entry.model.availability.reason
+        : undefined;
     return (
       <ModelRow
         anotherMeChatHref={anotherMeChatHref}
@@ -1430,9 +1517,10 @@ function Library({
         computer={computer}
         disabled={offline || readOnly || switching || busy(modelId)}
         entry={entry}
-        expanded={expandedId === modelId}
+        expanded={expandedKey === group.key}
+        hasReadyAlternatives={hasReadyModels}
         inSpotlight={inSpotlight}
-        key={modelId}
+        key={group.key}
         onAssignAgent={
           entry.model.pi_model && canSwitchAgents
             ? (agent) =>
@@ -1445,20 +1533,57 @@ function Library({
         onCancel={() => act({ action: "cancel", modelId })}
         onDownload={() => act({ action: "download", modelId })}
         onLoad={() => load(entry)}
+        onRecheck={!offline && !readOnly ? onRefresh : undefined}
         onRemove={() => setDialog({ kind: "remove", modelId })}
+        onSelectVariant={
+          group.variants.length > 1
+            ? (nextModelId) =>
+                setSelectedVariants((current) => ({
+                  ...current,
+                  [group.key]: nextModelId,
+                }))
+            : undefined
+        }
         onToggle={() =>
-          setExpandedId((current) => (current === modelId ? null : modelId))
+          setExpandedKey((current) =>
+            current === group.key ? null : group.key,
+          )
         }
         onUnload={() => unload(entry)}
+        onUpdateDriver={
+          driverReason
+            ? () =>
+                setDialog({
+                  kind: "updateDriver",
+                  modelId,
+                  reason: driverReason,
+                })
+            : undefined
+        }
         onUseForAgents={
           canUseForAgents ? () => onUseForAgents(modelId) : undefined
         }
+        rechecking={rechecking}
         requested={requests.get(modelId)}
+        showEngineBadge={sections.showEngineBadge}
         switchingForAgents={switchingModelId === modelId}
+        variants={group.variants}
         view={view}
       />
     );
   };
+
+  const spotlightNode = (
+    <FeaturedModelSpotlight>
+      {sections.spotlight ? renderModelGroup(sections.spotlight, true) : null}
+    </FeaturedModelSpotlight>
+  );
+  const unavailableLabel = t(
+    sections.unavailableAllMemory
+      ? m.sectionNeedsMoreMemory
+      : m.sectionUnavailable,
+    { count: sections.unavailable.length },
+  );
 
   return (
     <>
@@ -1524,6 +1649,74 @@ function Library({
                 })}
               </FormFeedback>
             </div>
+          ) : null}
+          {showDriverResumeBanner && driverInstallState ? (
+            <aside
+              aria-label={t(m.driverResumeBannerRegion)}
+              className={cn(
+                "mt-5 flex flex-col items-start justify-between gap-3 rounded-xl border px-4 py-3.5 sm:flex-row sm:items-center",
+                driverInstallState.phase === "completed"
+                  ? "border-[var(--app-status-success-border)] bg-[var(--app-status-success-surface)]"
+                  : "border-[var(--app-status-warning-border)] bg-[var(--app-status-warning-surface)]",
+              )}
+            >
+              <div className="min-w-0 flex-1">
+                <p
+                  className={cn(
+                    "text-sm font-medium",
+                    driverInstallState.phase === "completed"
+                      ? "text-app-success"
+                      : "text-app-warning",
+                  )}
+                >
+                  {driverInstallState.phase === "completed"
+                    ? t(m.driverResumeReadyTitle, {
+                        version: driverInstallState.version,
+                      })
+                    : t(m.driverResumeRebootTitle)}
+                </p>
+                <p className="mt-0.5 text-sm text-muted-foreground">
+                  {driverInstallState.phase === "completed"
+                    ? resumeModelEntry && resumeModelDownloadable
+                      ? t(m.driverResumeReadyModelBody, {
+                          model: resumeModelEntry.model.name,
+                        })
+                      : t(m.driverResumeReadyBody)
+                    : t(m.driverResumeRebootBody, {
+                        version: driverInstallState.version,
+                      })}
+                </p>
+              </div>
+              <div className="flex shrink-0 flex-wrap items-center gap-2">
+                {driverInstallState.phase === "completed" &&
+                resumeModelEntry &&
+                resumeModelDownloadable ? (
+                  <Button
+                    onClick={() => {
+                      dismissDriverBanner();
+                      act({
+                        action: "download",
+                        modelId: resumeModelEntry.model.id,
+                      });
+                    }}
+                    size="compact"
+                    tone="primary"
+                  >
+                    {t(m.driverResumeDownloadModel, {
+                      model: resumeModelEntry.model.name,
+                    })}
+                  </Button>
+                ) : null}
+                <Button
+                  data-voice-close
+                  onClick={dismissDriverBanner}
+                  size="compact"
+                  tone="secondary"
+                >
+                  {t(m.driverResumeDismiss)}
+                </Button>
+              </div>
+            </aside>
           ) : null}
           {debugCopy ? (
             <aside
@@ -1599,6 +1792,31 @@ function Library({
                     {t(m.switchToByok)}
                   </Button>
                 ) : null
+              ) : blocker.code === "DRIVER_UPDATE_REQUIRED" ? (
+                <div className="flex shrink-0 flex-wrap items-center gap-2">
+                  <Button
+                    onClick={() =>
+                      setDialog({
+                        kind: "updateDriver",
+                        reason: blocker,
+                      })
+                    }
+                    size="compact"
+                    tone="primary"
+                  >
+                    {t(m.updateDriverAction)}
+                  </Button>
+                  {!offline && !readOnly ? (
+                    <Button
+                      loading={rechecking}
+                      onClick={onRefresh}
+                      size="compact"
+                      tone="secondary"
+                    >
+                      {t(m.recheckMemory)}
+                    </Button>
+                  ) : null}
+                </div>
               ) : !offline && !readOnly ? (
                 <Button
                   className="shrink-0"
@@ -1653,11 +1871,63 @@ function Library({
               </EmptyState>
             </>
           ) : (
-            <section aria-label={t(m.title)} className="mt-5 grid gap-2.5">
-              <FeaturedModelSpotlight>
-                {spotlightEntry ? renderModelRow(spotlightEntry, true) : null}
-              </FeaturedModelSpotlight>
-              {listEntries.map((entry) => renderModelRow(entry))}
+            <section aria-label={t(m.title)} className="mt-5 grid gap-4">
+              {sections.spotlightPosition === "top" ? spotlightNode : null}
+              {sections.onComputer.length > 0 ? (
+                <div className="grid gap-2.5">
+                  <h2 className="text-xs font-medium text-muted-foreground">
+                    {t(m.sectionOnComputer)}
+                  </h2>
+                  {sections.onComputer.map((group) => renderModelGroup(group))}
+                </div>
+              ) : null}
+              {sections.available.length > 0 ? (
+                <div className="grid gap-2.5">
+                  <h2 className="text-xs font-medium text-muted-foreground">
+                    {t(m.sectionAvailable)}
+                  </h2>
+                  {sections.available.map((group) => renderModelGroup(group))}
+                </div>
+              ) : null}
+              {sections.spotlightPosition === "afterAvailable"
+                ? spotlightNode
+                : null}
+              {sections.unavailable.length > 0 ? (
+                <div className="grid gap-2.5">
+                  {hasUsableModels ? (
+                    <button
+                      aria-controls={unavailablePanelId}
+                      aria-expanded={showUnavailable}
+                      className="flex items-center gap-1.5 self-start rounded-md py-1 text-xs font-medium text-muted-foreground transition-colors duration-150 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+                      onClick={() => setUnavailableOpen((current) => !current)}
+                      type="button"
+                    >
+                      <Icon
+                        className={cn(
+                          "shrink-0 transition-transform duration-200 motion-reduce:transition-none",
+                          !showUnavailable && "-rotate-90",
+                        )}
+                        icon={ArrowDown01Icon}
+                        size={14}
+                      />
+                      <span>{unavailableLabel}</span>
+                    </button>
+                  ) : (
+                    <h2 className="text-xs font-medium text-muted-foreground">
+                      {unavailableLabel}
+                    </h2>
+                  )}
+                  {showUnavailable ? (
+                    <AutoHeight appear={hasUsableModels}>
+                      <div className="grid gap-2.5" id={unavailablePanelId}>
+                        {sections.unavailable.map((group) =>
+                          renderModelGroup(group),
+                        )}
+                      </div>
+                    </AutoHeight>
+                  ) : null}
+                </div>
+              ) : null}
             </section>
           )}
         </>
@@ -1665,6 +1935,18 @@ function Library({
 
       {dialog?.kind === "advanced" ? (
         <AdvancedDialog onClose={() => setDialog(null)} view={view} />
+      ) : null}
+      {dialog?.kind === "updateDriver" ? (
+        <UpdateDriverDialog
+          isLocalDesktop={isLocalDesktop}
+          model={dialogEntry?.model}
+          offline={offline}
+          onClose={() => setDialog(null)}
+          onRecheck={!offline && !readOnly ? onRefresh : undefined}
+          reason={dialog.reason}
+          rechecking={rechecking}
+          view={view}
+        />
       ) : null}
       {dialogEntry && makeRoom ? (
         <MakeRoomDialog

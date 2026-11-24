@@ -246,11 +246,17 @@ running (and on cold resume when `model-source.json` says `local`), such as
 after the desktop's quit stopped them, whenever the active model source is
 `local` (or not saved yet on a `local-models` setup): when a saved
 `runtime_model` is recorded, a ready binding checks `library status` so a
-quit-time `library unload` reloads that saved model and re-applies the local
-source under the same lock (never guessing an arbitrary idle model when no
-`runtime_model` is saved), while a stopped plan gets the same restore (`stack up`,
-falling back to `stack apply`), verifies whether a saved local model
-(`localmodels/` or `localmodels-library/`) is loaded, and sets the local source again. Library-model reload failures return a failure outcome that warm
+quit-time `library unload` or a `failed` server (`HEALTH_CHECK_FAILED` or other
+non-stopped-download failure, reset with `library unload` first) reloads that
+saved model and re-applies the local source under the same lock (never guessing
+an arbitrary idle model when no `runtime_model` is saved; stopped downloads
+return a degraded outcome without loading), while a stopped plan gets the same
+restore (`stack up`, falling back to `stack apply`), verifies whether a saved
+local model (`localmodels/` or `localmodels-library/`) is loaded, and sets the
+local source again. Quit-time `stopLocalmodels` (`localmodels-tool.ts`) unloads
+both `loaded` models and non-stopped-download `failed` models so a dead server
+resets to `idle` before `stack down`. Library-model reload failures return a
+failure outcome that warm
 and cold resume surface in `details.localModelsDegraded` so startup stays usable
 and the person can still reach the Models page. The first start after an app
 update onto a new checkout passes `degradeLocalModels` without `resume` (it

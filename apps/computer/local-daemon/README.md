@@ -211,8 +211,11 @@ downloaded model that Run's Agent names.
   (Pi catalog below), and waits until that model is loaded. A model no row of the last readable snapshot
   names (a BYOK or setup-stack model) costs no tool call and no wait; once
   the installer lock wait below has ended, neither does a model that
-  snapshot shows loaded. Otherwise the Daemon reads the status once. A downloaded model that is `idle` or `failed` is loaded with
-  `library load <model>` and never `--unload`, so the Daemon does not evict
+  snapshot shows loaded while its loopback engine `/health` (and saved local
+  loopback gateway `/health`, when configured) still answers. Otherwise the Daemon reads the status once; a refreshed `loaded` row is trusted unless the saved local gateway does not answer. A downloaded model that is `idle` or `failed` is loaded with
+  `library load <model>` (resetting a `HEALTH_CHECK_FAILED` row or a dead-gateway
+  `loaded` row with `library unload <model>` first, as `Act` also does for
+  owner-initiated loads) and never `--unload`, so the Daemon does not evict
   a model to make room: a load that does not fit is refused, and the Run
   fails with `local_model_unavailable` when the Agent Service's welcome names
   that service feature, else with `model_unavailable` for an older service;

@@ -4,6 +4,7 @@ import {
   LinkSquare02Icon,
   Tick02Icon,
 } from "@hugeicons/core-free-icons";
+import { NVIDIA_DRIVER_GUIDE_URL } from "@linger/service-kit/nvidia-driver";
 
 import { Button } from "@/components/ui/button";
 import { FormFeedback } from "@/components/ui/form-feedback";
@@ -222,7 +223,11 @@ export function ModelFacts({
   disabled = false,
   entry,
   hasPrimaryAssignAction = false,
+  hasReadyAlternatives = false,
   onAssignAgent,
+  onRecheck,
+  onUpdateDriver,
+  rechecking = false,
   view,
 }: {
   assignableAgents?: readonly AssignableLocalModelAgent[];
@@ -231,7 +236,11 @@ export function ModelFacts({
   disabled?: boolean;
   entry: ModelEntry;
   hasPrimaryAssignAction?: boolean;
+  hasReadyAlternatives?: boolean;
   onAssignAgent?: (agent: AssignableLocalModelAgent) => void;
+  onRecheck?: () => void;
+  onUpdateDriver?: () => void;
+  rechecking?: boolean;
   view: LocalModelsView;
 }) {
   const t = useT();
@@ -288,6 +297,10 @@ export function ModelFacts({
   const memorySize = formatGigabytes(model.memory_bytes, t);
   const memoryPlace =
     onComputer && pool ? poolLabel(view, pool, t) : plannedPlace;
+  const driverUpdateBlocked =
+    status === "unavailable" &&
+    model.availability.reason?.code === "DRIVER_UPDATE_REQUIRED";
+  const engineShortName = engineBadgeCopy(model.engine);
   return (
     <div>
       {model.error ? (
@@ -302,9 +315,59 @@ export function ModelFacts({
       ) : null}
       {status === "unavailable" ? (
         <div className="my-1.5">
-          <FormFeedback tone="danger">
-            <span className="font-medium">{t(m.factWhyNot)}: </span>
-            {unavailableCopy(model.availability.reason, reclaimable, t)}
+          <FormFeedback tone={driverUpdateBlocked ? "warning" : "danger"}>
+            <span className="grid gap-2">
+              <span
+                className={driverUpdateBlocked ? "text-foreground" : undefined}
+              >
+                <span className="font-medium">{t(m.factWhyNot)}: </span>
+                {unavailableCopy(
+                  model.availability.reason,
+                  reclaimable,
+                  t,
+                  engineShortName,
+                )}
+              </span>
+              {driverUpdateBlocked ? (
+                <span className="grid gap-1.5">
+                  <span className="flex flex-wrap items-center gap-2">
+                    {onUpdateDriver ? (
+                      <Button
+                        onClick={onUpdateDriver}
+                        size="compact"
+                        tone="primary"
+                      >
+                        {t(m.updateDriverAction)}
+                      </Button>
+                    ) : null}
+                    {onRecheck && !disabled ? (
+                      <Button
+                        loading={rechecking}
+                        onClick={onRecheck}
+                        size="compact"
+                        tone="secondary"
+                      >
+                        {t(m.driverCheckAgain)}
+                      </Button>
+                    ) : null}
+                    <a
+                      className="inline-flex items-center gap-1 text-xs font-medium text-app-link underline-offset-2 hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      href={NVIDIA_DRIVER_GUIDE_URL}
+                      rel="noopener noreferrer"
+                      target="_blank"
+                    >
+                      <span>{t(m.driverGuide)}</span>
+                      <Icon icon={LinkSquare02Icon} size={14} />
+                    </a>
+                  </span>
+                  {hasReadyAlternatives ? (
+                    <span className="text-xs text-muted-foreground">
+                      {t(m.driverOtherModelsReady)}
+                    </span>
+                  ) : null}
+                </span>
+              ) : null}
+            </span>
           </FormFeedback>
         </div>
       ) : null}
