@@ -1421,6 +1421,12 @@ describe("LiveVoiceWorker", () => {
     test.source().queueFrames = true;
     await answeredTurn(test);
     await vi.waitFor(() => expect(test.source().frames).toHaveLength(2));
+    for (let index = 0; index < 6; index++) test.track.frame(1);
+    await vi.waitFor(() =>
+      expect(
+        test.session().audio.filter((frame) => frame[0] === 1),
+      ).toHaveLength(6),
+    );
     test.session().emit({ type: "speech_started", itemId: "item-b" });
     await vi.waitFor(() =>
       expect(test.session().cancel).toHaveBeenCalledOnce(),
