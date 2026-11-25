@@ -160,15 +160,17 @@ export function ConnectedAppsPage() {
     !searchFilter && (!showSearch || !filteredApps || filteredApps.length > 0);
   const emptyMessage = hasSearch
     ? filter !== "all" || connectedOnly
-      ? `No connectors match “${trimmedQuery}” in this view.`
-      : `No connectors match “${trimmedQuery}”.`
+      ? t(m.noConnectorsMatchInView, { query: trimmedQuery })
+      : t(m.noConnectorsMatch, { query: trimmedQuery })
     : connectedOnly
       ? activeGroupEntry
-        ? `No connected apps in ${t(activeGroupEntry.group.title)} yet.`
+        ? t(m.noConnectedAppsInGroup, {
+            group: t(activeGroupEntry.group.title),
+          })
         : t(m.noConnectedApps)
       : activeGroupEntry
-        ? `No connectors in ${t(activeGroupEntry.group.title)} yet.`
-        : "No connectors available yet.";
+        ? t(m.noConnectorsInGroup, { group: t(activeGroupEntry.group.title) })
+        : t(m.noConnectorsAvailable);
 
   function setFilter(nextTab: string) {
     setSearchParams(
@@ -278,7 +280,7 @@ export function ConnectedAppsPage() {
               <label className="select-pill min-w-0 flex-1 cursor-text pr-1.5 focus-within:ring-2 focus-within:ring-app-focus sm:max-w-xs">
                 <Icon icon={Search01Icon} size={14} />
                 <input
-                  aria-label="Search connectors"
+                  aria-label={t(m.searchConnectors)}
                   className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-app-placeholder"
                   onChange={(event) => setSearchQuery(event.target.value)}
                   onKeyDown={(event) => {
@@ -287,14 +289,14 @@ export function ConnectedAppsPage() {
                       setSearchQuery("");
                     }
                   }}
-                  placeholder="Search connectors..."
+                  placeholder={t(m.searchConnectorsPlaceholder)}
                   role="searchbox"
                   type="text"
                   value={searchQuery}
                 />
                 {searchQuery ? (
                   <button
-                    aria-label="Clear search"
+                    aria-label={t(m.clearSearch)}
                     className="flex size-5 shrink-0 items-center justify-center rounded-sm text-app-muted hover:bg-app-hover hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
                     onClick={() => setSearchQuery("")}
                     type="button"
@@ -348,7 +350,7 @@ export function ConnectedAppsPage() {
                       size="compact"
                       tone="secondary"
                     >
-                      Show all connectors
+                      {t(m.showAllConnectors)}
                     </Button>
                   ) : null}
                 </div>

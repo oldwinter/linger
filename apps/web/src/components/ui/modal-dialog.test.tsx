@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -145,6 +151,46 @@ describe("ModalDialog", () => {
       unmount();
 
       expect(connectedWhenClosed).toEqual([true]);
+    } finally {
+      HTMLDialogElement.prototype.close = originalClose;
+    }
+  });
+
+  it("restores focus to the opener button on close and falls back to returnFocusTo if opener unmounted", async () => {
+    const originalClose = HTMLDialogElement.prototype.close;
+    HTMLDialogElement.prototype.close = function close(
+      this: HTMLDialogElement,
+    ) {
+      this.open = false;
+    };
+    try {
+      function Harness() {
+        const [open, setOpen] = useState(false);
+        return (
+          <>
+            <button onClick={() => setOpen(true)} type="button">
+              Open dialog
+            </button>
+            {open ? (
+              <ModalDialog onClose={() => setOpen(false)} title="Create Room">
+                <input aria-label="Room name" />
+              </ModalDialog>
+            ) : null}
+          </>
+        );
+      }
+
+      render(<Harness />);
+      const opener = screen.getByRole("button", { name: "Open dialog" });
+      opener.focus();
+      fireEvent.click(opener);
+      expect(screen.getByRole("textbox", { name: "Room name" })).toHaveFocus();
+
+      fireEvent(
+        screen.getByRole("dialog", { name: "Create Room" }),
+        new Event("cancel", { cancelable: true }),
+      );
+      await waitFor(() => expect(opener).toHaveFocus());
     } finally {
       HTMLDialogElement.prototype.close = originalClose;
     }

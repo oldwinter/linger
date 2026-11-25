@@ -1427,12 +1427,14 @@ function ComposerToolbar({
                 <Icon icon={PlusSignIcon} size={16} />
               </Button>
               <input
+                aria-hidden="true"
                 aria-label={t(composerMessages.chooseAttachments)}
                 className="sr-only"
                 disabled={disabled}
                 multiple
                 onChange={onFilesChange}
                 ref={fileInputRef}
+                tabIndex={-1}
                 type="file"
               />
             </>

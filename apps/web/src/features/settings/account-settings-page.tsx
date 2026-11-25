@@ -24,7 +24,7 @@ export function AccountSettingsPage() {
   return (
     <div className="mx-auto flex w-full max-w-(--app-settings-width) flex-col gap-8 pb-4">
       <SettingsPageHeading
-        description="Photo, name, bio, notifications, and browser preferences for this space."
+        description={t(settingsMessages.profilePageDescription)}
         title={t(settingsMessages.profile)}
       />
 

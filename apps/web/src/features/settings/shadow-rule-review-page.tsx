@@ -7,7 +7,11 @@ import { ModalDialog } from "@/components/ui/modal-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { commonMessages } from "@/i18n/common.messages";
+import type { Translate } from "@/i18n/language";
+import { useT } from "@/i18n/use-translation";
 
+import { myRulesMessages as m } from "./my-rules.messages";
 import {
   myRulesQueryKey,
   myRulesQueryOptions,
@@ -26,26 +30,23 @@ function formatReviewSummary(
   promoted: number,
   left: number,
   deleted: number,
+  t: Translate,
 ): string {
   if (deleted === 0) {
     return reviewResultCopy(promoted, left);
   }
   if (promoted === 0 && left === 0) {
-    return deleted === 1
-      ? "You deleted 1 rule."
-      : `You deleted ${deleted} rules.`;
+    return t(m.deletedSummary, { count: deleted });
   }
   if (promoted === 0) {
-    return `${reviewResultCopy(0, left)} ${deleted} deleted.`;
+    return `${reviewResultCopy(0, left)} ${t(m.deletedCountSuffix, { count: deleted })}`;
   }
-  const promotedLine =
-    promoted === 1 ? "You promoted 1 rule." : `You promoted ${promoted} rules.`;
+  const promotedLine = t(m.promotedSummary, { count: promoted });
   if (left === 0) {
-    return `${promotedLine} ${deleted} deleted.`;
+    return `${promotedLine} ${t(m.deletedCountSuffix, { count: deleted })}`;
   }
-  const leftLine =
-    left === 1 ? "1 stays in shadow." : `${left} stay in shadow.`;
-  return `${promotedLine} ${leftLine} ${deleted} deleted.`;
+  const leftLine = t(m.leftInShadowSummary, { count: left });
+  return `${promotedLine} ${leftLine} ${t(m.deletedCountSuffix, { count: deleted })}`;
 }
 
 /**
@@ -55,6 +56,7 @@ function formatReviewSummary(
  * from whatever is still waiting.
  */
 export function ShadowRuleReviewPage() {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const tenantId = requireRoomRouteParam(useParams().tenantId, "Tenant");
   const queryClient = useQueryClient();
@@ -133,41 +135,51 @@ export function ShadowRuleReviewPage() {
       : undefined;
   const difference = divergence
     ? shadowDivergenceLine(divergence)
-    : "Another Me has not differed from you on this rule yet.";
+    : t(m.noDifferenceYet);
 
   return (
     <div className="mx-auto flex w-full max-w-(--app-settings-width) flex-col gap-8 pb-4">
       <SettingsPageHeading
-        description="A newly learned rule waits in shadow until you promote it. Only then does it decide what Another Me does."
+        description={t(m.reviewDescription)}
         title={
           finished && visit && visit.length > 0
-            ? "Review finished"
-            : "Review new rules"
+            ? t(m.reviewFinishedTitle)
+            : t(m.reviewTitle)
         }
       />
       <Link
         className="text-sm text-muted-foreground hover:text-foreground"
         to={rulesPath}
       >
-        Back to My Rules
+        {t(m.backToMyRules)}
       </Link>
       {rules.isPending || (rules.data && visit === undefined) ? (
-        <div aria-busy="true" aria-label="Loading rules" role="status">
+        <div aria-busy="true" aria-label={t(m.loadingRules)} role="status">
           <Skeleton className="h-40 w-full" />
         </div>
       ) : rules.isError || !rules.data || !visit ? (
-        <p className="text-sm text-destructive" role="alert">
-          Rules could not be loaded.
-        </p>
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="text-sm text-destructive" role="alert">
+            {t(m.loadFailed)}
+          </p>
+          <Button
+            onClick={() => void rules.refetch()}
+            size="compact"
+            tone="secondary"
+          >
+            {t(commonMessages.tryAgain)}
+          </Button>
+        </div>
       ) : finished ? (
         <section className="flex flex-col gap-3">
           <h2 className="text-xl text-foreground">
             {visit.length === 0
-              ? "No new rules to review."
+              ? t(m.noNewRulesToReview)
               : formatReviewSummary(
                   promoted.length,
                   leftInShadow,
                   deleted.length,
+                  t,
                 )}
           </h2>
           {promoted.length > 0 ? (
@@ -183,11 +195,11 @@ export function ShadowRuleReviewPage() {
         </section>
       ) : (
         <section
-          aria-label={current?.text ?? "Rule"}
+          aria-label={current?.text ?? t(m.ruleFallbackLabel)}
           className="flex flex-col gap-4"
         >
           <p className="text-sm text-muted-foreground">
-            {index + 1} of {visit.length}
+            {t(m.ruleProgress, { current: index + 1, total: visit.length })}
           </p>
           {draft !== null ? (
             <form
@@ -198,7 +210,7 @@ export function ShadowRuleReviewPage() {
               }}
             >
               <textarea
-                aria-label="Rule text"
+                aria-label={t(m.ruleTextLabel)}
                 className="min-h-20 w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 disabled={command.isPending}
                 maxLength={200}
@@ -233,7 +245,7 @@ export function ShadowRuleReviewPage() {
                   tone="primary"
                   type="submit"
                 >
-                  Save
+                  {t(commonMessages.save)}
                 </Button>
                 <Button
                   disabled={command.isPending}
@@ -244,7 +256,7 @@ export function ShadowRuleReviewPage() {
                   size="compact"
                   tone="ghost"
                 >
-                  Cancel
+                  {t(commonMessages.cancel)}
                 </Button>
               </div>
             </form>
@@ -262,7 +274,7 @@ export function ShadowRuleReviewPage() {
                   size="compact"
                   tone="primary"
                 >
-                  Promote
+                  {t(m.promote)}
                 </Button>
                 <Button
                   disabled={command.isPending || !current}
@@ -275,9 +287,10 @@ export function ShadowRuleReviewPage() {
                   size="compact"
                   tone="secondary"
                 >
-                  Edit
+                  {t(commonMessages.edit)}
                 </Button>
                 <Button
+                  data-voice-risk="never"
                   disabled={command.isPending}
                   onClick={() => {
                     command.reset();
@@ -287,9 +300,10 @@ export function ShadowRuleReviewPage() {
                   size="compact"
                   tone="ghost"
                 >
-                  Leave in shadow
+                  {t(m.leaveInShadow)}
                 </Button>
                 <Button
+                  data-voice-risk="never"
                   disabled={command.isPending || !current}
                   onClick={() => {
                     command.reset();
@@ -298,20 +312,20 @@ export function ShadowRuleReviewPage() {
                   size="compact"
                   tone="danger"
                 >
-                  Delete
+                  {t(commonMessages.delete)}
                 </Button>
               </div>
             </>
           )}
           {command.isError ? (
             <p className="text-sm text-destructive" role="alert">
-              The change was not saved. Try again.
+              {t(m.changeNotSaved)}
             </p>
           ) : null}
           {deleteConfirmOpen && current ? (
             <ModalDialog
               closeOnBackdrop={!command.isPending}
-              description="This learned rule will be permanently removed and will not guide Another Me."
+              description={t(m.deleteRuleConfirmBody)}
               footer={
                 <>
                   <Button
@@ -319,9 +333,10 @@ export function ShadowRuleReviewPage() {
                     onClick={() => setDeleteConfirmOpen(false)}
                     tone="secondary"
                   >
-                    Cancel
+                    {t(commonMessages.cancel)}
                   </Button>
                   <Button
+                    data-voice-risk="never"
                     disabled={command.isPending}
                     loading={pendingKind === "delete"}
                     onClick={() => {
@@ -329,7 +344,7 @@ export function ShadowRuleReviewPage() {
                     }}
                     tone="danger"
                   >
-                    Delete rule
+                    {t(m.deleteRule)}
                   </Button>
                 </>
               }
@@ -337,7 +352,7 @@ export function ShadowRuleReviewPage() {
                 if (!command.isPending) setDeleteConfirmOpen(false);
               }}
               size="sm"
-              title="Delete rule?"
+              title={t(m.deleteRuleQuestion)}
             >
               {null}
             </ModalDialog>

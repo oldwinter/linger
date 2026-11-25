@@ -22,7 +22,7 @@ export function SecuritySettingsPage() {
   return (
     <div className="mx-auto flex w-full max-w-(--app-settings-width) flex-col gap-8 pb-4">
       <SettingsPageHeading
-        description="Manage your sign-in password and server API keys."
+        description={t(settingsMessages.securityPageDescription)}
         title={t(settingsMessages.security)}
       />
 

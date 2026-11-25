@@ -475,13 +475,13 @@ export function MeetingReader({
   ];
   const actionMenuItems: ActionMenuItem[] = [
     {
-      label: "Ask the recording",
+      label: t(m.askRecording),
       onSelect: () => void navigate(askMeetingPath(tenantId, entry.id)),
     },
     ...(meeting.summary_ready
       ? [
           {
-            label: "Keep as a page",
+            label: t(m.keepAsPage),
             onSelect: () => void navigate(keepMeetingPath(tenantId, entry.id)),
           },
         ]
@@ -489,7 +489,7 @@ export function MeetingReader({
     ...(todos.length > 0 && anotherMe.data?.room_id
       ? [
           {
-            label: "Turn to-dos into reminders",
+            label: t(m.turnTodosIntoReminders),
             onSelect: () =>
               void navigate(meetingRemindersPath(tenantId, entry.id)),
           },
@@ -498,7 +498,7 @@ export function MeetingReader({
     ...(meeting.summary_ready && story.length > 0
       ? [
           {
-            label: "Tell this story",
+            label: t(m.tellThisStory),
             onSelect: () => void navigate(meetingStoryPath(tenantId, entry.id)),
           },
         ]
@@ -506,7 +506,7 @@ export function MeetingReader({
     ...(meeting.summary_ready && decisions.length > 0
       ? [
           {
-            label: "Carry a decision",
+            label: t(m.carryDecision),
             onSelect: () =>
               void navigate(carryDecisionPath(tenantId, entry.id)),
           },

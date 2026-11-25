@@ -248,7 +248,7 @@ function PersonalInsightsPanel({
       ) : items.length === 0 ? (
         <div className="mt-4 space-y-1 text-sm text-muted-foreground">
           <p>{t(accountSettingsMessages.noInsights)}</p>
-          <p>Insights appear as Another Me learns how you work.</p>
+          <p>{t(accountSettingsMessages.insightsAppearHint)}</p>
         </div>
       ) : (
         <div className="mt-3 divide-y divide-border">
@@ -265,12 +265,14 @@ function PersonalInsightsPanel({
               </div>
               {armedId === item.id ? (
                 <div
-                  aria-label={`Confirm removing ${item.dimension} insight`}
+                  aria-label={t(accountSettingsMessages.confirmRemoveInsight, {
+                    dimension: item.dimension,
+                  })}
                   className="flex shrink-0 flex-wrap items-center gap-2"
                   role="group"
                 >
                   <span className="text-xs font-medium text-foreground">
-                    Remove?
+                    {t(accountSettingsMessages.removeInsightQuestion)}
                   </span>
                   <Button
                     data-voice-risk="never"
@@ -280,7 +282,7 @@ function PersonalInsightsPanel({
                     size="compact"
                     tone="danger"
                   >
-                    Confirm
+                    {t(accountSettingsMessages.confirmRemove)}
                   </Button>
                   <Button
                     disabled={deleting}
@@ -375,8 +377,7 @@ function AccountIdentityPanel({
           />
         </label>
         <p className="mt-2 text-xs text-muted-foreground">
-          Your edits are always kept. Automatic profile updates only fill in
-          fields you haven&apos;t edited.
+          {t(accountSettingsMessages.editsAlwaysKeptHint)}
         </p>
 
         {saveError ? (

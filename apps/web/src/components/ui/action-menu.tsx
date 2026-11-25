@@ -302,7 +302,10 @@ export function ActionMenu({
                         );
                       }}
                       onSelect={() => {
-                        if (!item.keepOpen) closeMenu();
+                        if (!item.keepOpen) {
+                          closeMenu();
+                          triggerRef.current?.focus();
+                        }
                         item.onSelect?.();
                       }}
                       ref={(node) => {

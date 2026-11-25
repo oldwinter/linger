@@ -7,7 +7,7 @@ import { clearRoomDrafts } from "@/features/rooms/room-drafts";
 import { clearTeamHubQueries } from "@/features/rooms/room-queries";
 import { clearGlobalSearchHistory } from "@/features/search/global-search-recent";
 import { clearAllRecentWikiPages } from "@/features/wiki/recent-wiki-pages";
-import { clearAllWikiDisplayState } from "@/features/wiki/wiki-display-state";
+import { clearAllWikiDisplayState } from "@/features/wiki/wiki-display-storage";
 
 export function clearLocalAuthenticatedState(queryClient: QueryClient) {
   resetMeetingPlaybackSession();

@@ -243,19 +243,19 @@ export function MeetingsPanel({ tenantId }: { tenantId: string }) {
           className="text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           to={dayShapePath(tenantId, today)}
         >
-          Shape of today
+          {t(m.shapeOfToday)}
         </Link>
         <Link
           className="text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           to={weekMemoryPath(tenantId)}
         >
-          The week in memory
+          {t(m.weekInMemory)}
         </Link>
         <Link
           className="text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           to={upNextPath(tenantId)}
         >
-          Up next
+          {t(m.upNext)}
         </Link>
       </div>
       <div>

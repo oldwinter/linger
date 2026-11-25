@@ -1,5 +1,5 @@
 import { replaceEqualDeep } from "@tanstack/react-query";
-import { useMemo, useRef } from "react";
+import { useMemo, useState } from "react";
 
 import {
   presentTeamHubMessageAttachments,
@@ -30,24 +30,25 @@ export function useRoomMessagePresentations({
   messages,
   roomMessagePresentations,
 }: RoomMessagePresentationInput) {
-  const previous = useRef<RoomMessagePresentations | undefined>(undefined);
-  return useMemo(() => {
-    previous.current = replaceEqualDeep(
-      previous.current,
+  const resolved = useMemo(
+    () =>
       resolveRoomMessagePresentations({
         deliveryPresentations,
         mentionOptions,
         messages,
         roomMessagePresentations,
       }),
-    );
-    return previous.current;
-  }, [
-    deliveryPresentations,
-    mentionOptions,
-    messages,
-    roomMessagePresentations,
-  ]);
+    [deliveryPresentations, mentionOptions, messages, roomMessagePresentations],
+  );
+  const [previous, setPrevious] = useState<RoomMessagePresentations>(resolved);
+  const presentations = useMemo(
+    () => replaceEqualDeep(previous, resolved),
+    [previous, resolved],
+  );
+  if (presentations !== previous) {
+    setPrevious(presentations);
+  }
+  return presentations;
 }
 
 export function resolveRoomMessagePresentations({

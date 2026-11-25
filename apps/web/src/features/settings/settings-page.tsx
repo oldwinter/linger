@@ -48,12 +48,12 @@ export function SettingsLayout() {
           />
           <SettingsLink
             icon={<Icon icon={Idea01Icon} size={14} />}
-            label="My Rules"
+            label={t(settingsMessages.myRules)}
             to="my-rules"
           />
           <SettingsLink
             icon={<Icon icon={KeyboardIcon} size={14} />}
-            label="Shortcuts"
+            label={t(settingsMessages.shortcuts)}
             to="shortcuts"
           />
           <SettingsLink
