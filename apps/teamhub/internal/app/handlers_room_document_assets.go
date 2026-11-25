@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"fmt"
 	"mime"
 	"net/http"
 	"strconv"
@@ -86,7 +87,18 @@ func (a *App) writeRoomDocumentAssetError(c *gin.Context, action string, err err
 	case errors.Is(err, document.ErrInvalidInput), errors.Is(err, document.ErrAssetContentMismatch):
 		a.writeError(c, http.StatusUnprocessableEntity, "DOCUMENT_ASSET_INVALID", "Document Asset input failed validation")
 	case errors.Is(err, artifactstore.ErrTooLarge), errors.As(err, new(*http.MaxBytesError)):
-		a.writeError(c, http.StatusRequestEntityTooLarge, "DOCUMENT_ASSET_TOO_LARGE", "Document Asset exceeds the configured limit")
+		limit := a.cfg.ArtifactMaxBytes
+		if a.documents != nil && a.documents.MaxAssetBytes() > 0 {
+			limit = a.documents.MaxAssetBytes()
+		}
+		code := "too_large"
+		a.writeErrorWithDetails(
+			c,
+			http.StatusRequestEntityTooLarge,
+			"DOCUMENT_ASSET_TOO_LARGE",
+			fmt.Sprintf("Document Asset exceeds the %s limit", formatUploadLimitBytes(limit)),
+			[]httpapi.ErrorDetail{{Field: "content", Code: &code, Reason: "exceeds the document asset size limit", LimitBytes: &limit}},
+		)
 	case errors.Is(err, document.ErrAssetQuotaExceeded):
 		a.writeError(c, http.StatusRequestEntityTooLarge, "DOCUMENT_ASSET_QUOTA_EXCEEDED", "Document Asset quota was exceeded")
 	case errors.Is(err, document.ErrAssetStorageCapacity):

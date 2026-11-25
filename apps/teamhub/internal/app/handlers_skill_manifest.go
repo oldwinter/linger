@@ -2,17 +2,26 @@ package app
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/agentregistry"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/idempotency"
+	httpapi "github.com/simplexai-labs/linger/contracts-go/teamhubpublic"
 )
 
 func (a *App) writeSkillPackageUploadError(c *gin.Context, err error) {
 	if errors.Is(err, agentregistry.ErrSkillPackageTooLarge) {
-		a.writeError(c, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", "Skill Package exceeds the configured limits")
+		code, limit := "too_large", a.cfg.SkillPackageMaxArchiveBytes
+		a.writeErrorWithDetails(
+			c,
+			http.StatusRequestEntityTooLarge,
+			"PAYLOAD_TOO_LARGE",
+			fmt.Sprintf("Skill Package exceeds the %s limit", formatUploadLimitBytes(limit)),
+			[]httpapi.ErrorDetail{{Field: "package", Code: &code, Reason: "exceeds the skill package size limit", LimitBytes: &limit}},
+		)
 		return
 	}
 	a.logger.Warn("reject Skill Package upload", "request_id", c.GetString("request_id"), "error", err)
