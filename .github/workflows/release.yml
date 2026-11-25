@@ -207,6 +207,9 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -euo pipefail
+          # Gradle 9 rejects read-only subproject directories in Go's module cache.
+          go mod download
+          chmod -R u+w "$(go env GOMODCACHE)/github.com/egoist"
           umask 077
           if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
             base64 -d <<<"$ANDROID_KEYSTORE_BASE64" >.release-keystore.p12

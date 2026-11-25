@@ -110,7 +110,12 @@ jobs:
         run: go install "github.com/egoist/mygo/cmd/mygo@${MYGO_VERSION}"
       - name: Build Android ARM64 APK
         working-directory: mobile
-        run: mygo build -platform android/arm64
+        run: |
+          set -euo pipefail
+          # Gradle 9 rejects read-only subproject directories in Go's module cache.
+          go mod download
+          chmod -R u+w "$(go env GOMODCACHE)/github.com/egoist"
+          mygo build -platform android/arm64
 
   desktop-companion-check:
     name: Desktop Companion Gateway Tests & Typecheck
