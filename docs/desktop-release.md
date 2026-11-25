@@ -1,5 +1,7 @@
 # Desktop Release
 
+> **LingerX fork (`oldwinter/linger`)**: Releases use `v<version>` tags (avoiding upstream `desktop-v*` tag collisions) via [`.github/workflows/release.yml`](../.github/workflows/release.yml), packaging `LingerX` for macOS Apple silicon, Linux x64, Windows x64, and Mobile Android ARM64 APK, signed with `oldwinter/linger`'s Ed25519 update key (`DESKTOP_UPDATE_KEY_PEM`) and Android release keystore (`ANDROID_KEYSTORE_*`). Installed LingerX builds stay fully isolated from upstream Linger (`LingerX.app` / `%LOCALAPPDATA%\Programs\LingerX`, bundle/app ID `dev.oldwinter.lingerx.desktop`, `<appData>/LingerX`, `~/.lingerx`, `~/LingerX`, and Mobile `dev.oldwinter.lingerx.mobile` / `lingerx://`).
+
 Linger desktop releases are published in the public
 [simplexai-labs/linger](https://github.com/simplexai-labs/linger) repository:
 pushing a `desktop-v<version>` tag there runs GitHub Actions

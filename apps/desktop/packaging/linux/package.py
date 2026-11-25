@@ -73,14 +73,14 @@ def stage_app(version, electron_version, root, cache):
     shutil.copytree(os.path.join(DESKTOP, "dist"), os.path.join(app_dir, "dist"),
                     ignore=shutil.ignore_patterns("*.map", "computer", "computer-tools"), symlinks=True)
     with open(os.path.join(app_dir, "package.json"), "w") as out:
-        json.dump({"name": "linger-desktop", "productName": "Linger", "version": version,
+        json.dump({"name": "lingerx-desktop", "productName": "LingerX", "version": version,
                    "type": "module", "main": "dist/main/index.mjs"}, out, indent=2)
     computer = os.path.join(resources, "computer")
     os.makedirs(computer)
     shutil.copy2(DAEMON, computer)
     computer_tools.copy(resources, TARGET)
     shutil.copy2(os.path.join(DESKTOP, "resources", "icon.png"), resources)
-    os.rename(os.path.join(root, "electron"), os.path.join(root, "linger"))
+    os.rename(os.path.join(root, "electron"), os.path.join(root, "lingerx"))
 
 
 def main():
@@ -98,7 +98,7 @@ def main():
     check_teamhub(TARGET)
     check_runtime(TARGET)
     os.makedirs(args.out, exist_ok=True)
-    name = f"Linger-{version}-{TARGET}"
+    name = f"LingerX-{version}-{TARGET}"
     workdir = tempfile.mkdtemp(prefix="linger-linux-")
     try:
         root = os.path.join(workdir, name)

@@ -214,7 +214,7 @@ runs:
       shell: bash
       run: |
         cd "$RELEASE_OUT/assets"
-        sha256sum "Linger-$DESKTOP_VERSION-windows-x64-setup.exe" > windows-setup.sha256
+        sha256sum "LingerX-$DESKTOP_VERSION-windows-x64-setup.exe" > windows-setup.sha256
     - name: Remove signing files
       if: always()
       shell: bash
@@ -225,35 +225,35 @@ runs:
     - uses: actions/upload-artifact@v7
       if: inputs.target == 'darwin-arm64'
       with:
-        path: ${{ env.RELEASE_OUT }}/assets/Linger-${{ env.DESKTOP_VERSION }}-macos-arm64.dmg
+        path: ${{ env.RELEASE_OUT }}/assets/LingerX-${{ env.DESKTOP_VERSION }}-macos-arm64.dmg
         archive: false
         if-no-files-found: error
         retention-days: 14
     - uses: actions/upload-artifact@v7
       if: inputs.target == 'darwin-arm64'
       with:
-        path: ${{ env.RELEASE_OUT }}/assets/Linger-${{ env.DESKTOP_VERSION }}-macos-arm64.app.tar.gz
+        path: ${{ env.RELEASE_OUT }}/assets/LingerX-${{ env.DESKTOP_VERSION }}-macos-arm64.app.tar.gz
         archive: false
         if-no-files-found: error
         retention-days: 14
     - uses: actions/upload-artifact@v7
       if: inputs.target == 'linux-x64'
       with:
-        path: ${{ env.RELEASE_OUT }}/assets/Linger-${{ env.DESKTOP_VERSION }}-linux-x64.tar.gz
+        path: ${{ env.RELEASE_OUT }}/assets/LingerX-${{ env.DESKTOP_VERSION }}-linux-x64.tar.gz
         archive: false
         if-no-files-found: error
         retention-days: 14
     - uses: actions/upload-artifact@v7
       if: inputs.target == 'win32-x64'
       with:
-        path: ${{ env.RELEASE_OUT }}/assets/Linger-${{ env.DESKTOP_VERSION }}-windows-x64-setup.exe
+        path: ${{ env.RELEASE_OUT }}/assets/LingerX-${{ env.DESKTOP_VERSION }}-windows-x64-setup.exe
         archive: false
         if-no-files-found: error
         retention-days: 14
     - uses: actions/upload-artifact@v7
       if: inputs.target == 'win32-x64'
       with:
-        path: ${{ env.RELEASE_OUT }}/assets/Linger-${{ env.DESKTOP_VERSION }}-windows-x64-portable.zip
+        path: ${{ env.RELEASE_OUT }}/assets/LingerX-${{ env.DESKTOP_VERSION }}-windows-x64-portable.zip
         archive: false
         if-no-files-found: error
         retention-days: 14

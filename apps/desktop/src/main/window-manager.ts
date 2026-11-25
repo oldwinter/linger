@@ -313,7 +313,7 @@ export class WindowManagerModule implements Module {
       minWidth: 800,
       minHeight: 560,
       show: false,
-      title: "Linger",
+      title: "LingerX",
       backgroundColor: CANVAS,
       icon: nativeImage.createFromBuffer(Buffer.from(iconPng)),
       ...chrome(process.platform),
@@ -655,7 +655,7 @@ export class WindowManagerModule implements Module {
         return {
           action: "allow",
           overrideBrowserWindowOptions: {
-            title: "Linger",
+            title: "LingerX",
             // The page asks for the size of its content, as in a browser.
             useContentSize: true,
             minWidth: VOICE_WINDOW_MIN.width,

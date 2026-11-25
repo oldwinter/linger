@@ -26,13 +26,14 @@ const order = (text: string, ...steps: string[]) => {
 
 it("stops an earlier release before an install replaces its files", () => {
   order(
-    block('Section "Linger"', "SectionEnd"),
+    block('Section "LingerX"', "SectionEnd"),
     "Call StopEarlierLinger",
     "Call CloseLinger",
     'RMDir /r "$INSTDIR\\resources"',
     'File /r "${STAGE}\\*"',
     'FileOpen $0 "${STOP_MARKER}" w',
   );
+  expect(script).not.toContain("Programs\\Simplex");
 });
 
 it("stops Linger before the uninstall removes it", () => {
@@ -74,7 +75,7 @@ it("stops every earlier release with this release's script", () => {
   expect(earlier).not.toContain("STOP_MARKER");
   order(
     earlier,
-    'IfFileExists "$INSTDIR\\Linger.exe" 0 done',
+    'IfFileExists "$INSTDIR\\LingerX.exe" 0 done',
     "${STAGE}\\resources\\app\\dist\\installer\\installer.js",
     'IfFileExists "$INSTDIR\\resources\\app\\dist\\installer\\distribution.json"',
     'CopyFiles /SILENT "$INSTDIR\\resources\\app\\dist\\installer\\distribution.json" "$PLUGINSDIR"',
@@ -108,11 +109,11 @@ it("reads /update and /relaunch from the command line", () => {
   expect(script).toContain('!include "FileFunc.nsh"');
 });
 
-it("starts Linger after an install only when asked to relaunch", () => {
+it("starts LingerX after an install only when asked to relaunch", () => {
   order(
     block("Function .onInstSuccess", "FunctionEnd"),
     "StrCmp $Relaunch 1 0 done",
-    "Exec '\"$INSTDIR\\Linger.exe\"'",
+    "Exec '\"$INSTDIR\\LingerX.exe\"'",
     "done:",
   );
 });
@@ -134,7 +135,7 @@ it("shows an update only its progress page", () => {
   order(
     block("Function ShowProgress", "FunctionEnd"),
     "$Updating",
-    "Updating Linger to ${VERSION}",
+    "Updating LingerX to ${VERSION}",
   );
   // A custom folder from /D= stays where it is.
   expect(script).toContain(
@@ -144,8 +145,8 @@ it("shows an update only its progress page", () => {
 
 it("starts the earlier app after a failed update only if no file was replaced", () => {
   order(
-    block('Section "Linger"', "SectionEnd"),
-    "Call RemoveLegacyInstall",
+    block('Section "LingerX"', "SectionEnd"),
+    "Call CloseLinger",
     "StrCpy $Replacing 1",
     'RMDir /r "$INSTDIR\\resources"',
   );
@@ -154,9 +155,9 @@ it("starts the earlier app after a failed update only if no file was replaced", 
     failed,
     "StrCmp $Updating 1 0 done",
     "StrCmp $Replacing 1 rerun",
-    'IfFileExists "$INSTDIR\\Linger.exe" 0 rerun',
+    'IfFileExists "$INSTDIR\\LingerX.exe" 0 rerun',
     "StrCmp $Relaunch 1 0 done",
-    "Exec '\"$INSTDIR\\Linger.exe\"'",
+    "Exec '\"$INSTDIR\\LingerX.exe\"'",
     "rerun:",
     "Run this setup again",
     "$EXEPATH",

@@ -329,7 +329,7 @@ class MacSigningTest(unittest.TestCase):
         root = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, root)
         stage = os.path.join(root, "stage")
-        app = os.path.join(stage, "Linger.app")
+        app = os.path.join(stage, "LingerX.app")
         out_dir = os.path.join(root, "out")
         os.makedirs(os.path.join(app, "Contents"))
         os.makedirs(out_dir)
@@ -392,7 +392,7 @@ class MacSigningTest(unittest.TestCase):
                 out.write(b"tar.gz")
 
         def fake_check_archive(archive_path, prefix, target):
-            self.assertEqual(prefix, "Linger.app/Contents/Resources/")
+            self.assertEqual(prefix, "LingerX.app/Contents/Resources/")
             with lock:
                 events.append(("check_archive", os.path.basename(archive_path), target))
 
@@ -400,12 +400,12 @@ class MacSigningTest(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             self.mac.emit_outputs(stage, app, root, out_dir, "1.2.3", "arm64", FakeSigning(), True)
 
-        notarize_app = events.index(("notarize", "Linger.app"))
-        build_dmg = events.index(("build_dmg", "Linger-1.2.3-arm64.dmg"))
-        sign_dmg = events.index(("sign_dmg", "Linger-1.2.3-arm64.dmg"))
-        notarize_dmg = events.index(("notarize", "Linger-1.2.3-arm64.dmg"))
-        pack_update = events.index(("update_archive", "Linger-1.2.3-arm64.app.tar.gz"))
-        check_update = events.index(("check_archive", "Linger-1.2.3-arm64.app.tar.gz", "darwin-arm64"))
+        notarize_app = events.index(("notarize", "LingerX.app"))
+        build_dmg = events.index(("build_dmg", "LingerX-1.2.3-arm64.dmg"))
+        sign_dmg = events.index(("sign_dmg", "LingerX-1.2.3-arm64.dmg"))
+        notarize_dmg = events.index(("notarize", "LingerX-1.2.3-arm64.dmg"))
+        pack_update = events.index(("update_archive", "LingerX-1.2.3-arm64.app.tar.gz"))
+        check_update = events.index(("check_archive", "LingerX-1.2.3-arm64.app.tar.gz", "darwin-arm64"))
 
         self.assertLess(notarize_app, build_dmg)
         self.assertLess(notarize_app, pack_update)
@@ -413,8 +413,8 @@ class MacSigningTest(unittest.TestCase):
         self.assertLess(sign_dmg, notarize_dmg)
         self.assertLess(pack_update, check_update)
         self.assertEqual(len(events), 6)
-        self.assertTrue(os.path.isfile(os.path.join(out_dir, "Linger-1.2.3-arm64.dmg")))
-        self.assertTrue(os.path.isfile(os.path.join(out_dir, "Linger-1.2.3-arm64.app.tar.gz")))
+        self.assertTrue(os.path.isfile(os.path.join(out_dir, "LingerX-1.2.3-arm64.dmg")))
+        self.assertTrue(os.path.isfile(os.path.join(out_dir, "LingerX-1.2.3-arm64.app.tar.gz")))
 
     def test_emit_outputs_fails_closed_if_notarized_app_lacks_stapled_ticket(self):
         for label, ticket_bytes in (("missing", None), ("empty", b"")):
@@ -448,7 +448,7 @@ class MacSigningTest(unittest.TestCase):
                 with self.assertRaises(SystemExit) as stopped:
                     self.mac.emit_outputs(stage, app, root, out_dir, "1.2.3", "arm64", FakeSigning(), True)
                 self.assertIn("CodeResources", str(stopped.exception))
-                self.assertEqual(events, [("notarize", "Linger.app")])
+                self.assertEqual(events, [("notarize", "LingerX.app")])
                 self.assertEqual(os.listdir(out_dir), [])
 
     def test_emit_outputs_without_notary_key_and_without_update_archive(self):
@@ -472,11 +472,11 @@ class MacSigningTest(unittest.TestCase):
             self.mac.emit_outputs(stage, app, root, out_dir, "1.2.3", "arm64",
                                   self.mac.Signing("rcodesign"), False)
         self.assertFalse(os.path.exists(os.path.join(app, "Contents", "CodeResources")))
-        self.assertEqual(events, [("build_dmg", "Linger-1.2.3-arm64.dmg")])
-        self.assertTrue(os.path.isfile(os.path.join(out_dir, "Linger-1.2.3-arm64.dmg")))
-        self.assertFalse(os.path.exists(os.path.join(out_dir, "Linger-1.2.3-arm64.app.tar.gz")))
+        self.assertEqual(events, [("build_dmg", "LingerX-1.2.3-arm64.dmg")])
+        self.assertTrue(os.path.isfile(os.path.join(out_dir, "LingerX-1.2.3-arm64.dmg")))
+        self.assertFalse(os.path.exists(os.path.join(out_dir, "LingerX-1.2.3-arm64.app.tar.gz")))
 
-        # Notarized build without --update-archive still notarizes/staples Linger.app first.
+        # Notarized build without --update-archive still notarizes/staples LingerX.app first.
         root, stage, app, out_dir = self._emit_fixture()
         ticket = os.path.join(app, "Contents", "CodeResources")
         events = []
@@ -504,13 +504,13 @@ class MacSigningTest(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             self.mac.emit_outputs(stage, app, root, out_dir, "1.2.3", "arm64", FakeSigning(), False)
         self.assertEqual(events, [
-            ("notarize", "Linger.app"),
-            ("build_dmg", "Linger-1.2.3-arm64.dmg"),
-            ("sign_dmg", "Linger-1.2.3-arm64.dmg"),
-            ("notarize", "Linger-1.2.3-arm64.dmg"),
+            ("notarize", "LingerX.app"),
+            ("build_dmg", "LingerX-1.2.3-arm64.dmg"),
+            ("sign_dmg", "LingerX-1.2.3-arm64.dmg"),
+            ("notarize", "LingerX-1.2.3-arm64.dmg"),
         ])
-        self.assertTrue(os.path.isfile(os.path.join(out_dir, "Linger-1.2.3-arm64.dmg")))
-        self.assertFalse(os.path.exists(os.path.join(out_dir, "Linger-1.2.3-arm64.app.tar.gz")))
+        self.assertTrue(os.path.isfile(os.path.join(out_dir, "LingerX-1.2.3-arm64.dmg")))
+        self.assertFalse(os.path.exists(os.path.join(out_dir, "LingerX-1.2.3-arm64.app.tar.gz")))
 
     def test_signing_notarize_waits_then_staples_and_handles_failures(self):
         calls = []

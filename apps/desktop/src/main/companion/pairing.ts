@@ -136,7 +136,7 @@ export function buildPairingUri(params: PairingUriParams): string {
   if (params.tailscale) {
     parts.push(`ts=${encodeURIComponent(params.tailscale)}`);
   }
-  return `linger://pair?${parts.join("&")}`;
+  return `lingerx://pair?${parts.join("&")}`;
 }
 
 export function extractSessionFromSetCookie(

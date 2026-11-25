@@ -42,7 +42,7 @@ func TestShortFingerprintAndValidation(t *testing.T) {
 
 func TestParseAndFormatPairingURI(t *testing.T) {
 	fp := testFingerprint("spki-demo-key")
-	raw := "linger://pair?v=1&host=192.168.1.42&port=48210&tls=1&fp=" + fp + "&code=pair_secret_xyz&name=Studio+Mac&ts=100.64.1.8"
+	raw := "lingerx://pair?v=1&host=192.168.1.42&port=48210&tls=1&fp=" + fp + "&code=pair_secret_xyz&name=Studio+Mac&ts=100.64.1.8"
 	got, err := ParsePairingURI(raw)
 	if err != nil {
 		t.Fatalf("ParsePairingURI: %v", err)
@@ -60,9 +60,22 @@ func TestParseAndFormatPairingURI(t *testing.T) {
 		t.Fatalf("TailscaleURL = %q", got.TailscaleURL())
 	}
 
+	// Legacy linger://pair links remain accepted for backwards compatibility.
+	legacyRaw := strings.Replace(raw, "lingerx://", "linger://", 1)
+	legacyGot, err := ParsePairingURI(legacyRaw)
+	if err != nil {
+		t.Fatalf("ParsePairingURI legacy: %v", err)
+	}
+	if legacyGot != got {
+		t.Fatalf("legacy mismatch:\ngot:  %+v\nwant: %+v", legacyGot, got)
+	}
+
 	formatted, err := FormatPairingURI(got)
 	if err != nil {
 		t.Fatalf("FormatPairingURI: %v", err)
+	}
+	if !strings.HasPrefix(formatted, "lingerx://pair?") {
+		t.Fatalf("expected lingerx://pair prefix, got %q", formatted)
 	}
 	reparsed, err := ParsePairingURI(formatted)
 	if err != nil {

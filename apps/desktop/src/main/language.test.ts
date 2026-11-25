@@ -31,7 +31,7 @@ describe("LanguageModule", () => {
 
     const other = await fixture(["fr-FR"]);
     expect(other.language.current()).toBe("en");
-    expect(other.language.t(trayMessages.quit)).toBe("Quit Linger");
+    expect(other.language.t(trayMessages.quit)).toBe("Quit LingerX");
     await other.host.stop("quit");
   });
 

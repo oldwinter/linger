@@ -34,7 +34,7 @@ with DSStore.open(sys.argv[1], "w+") as d:
         "scrollPositionX": 0.0, "scrollPositionY": 0.0,
     }
     d["."]["icvl"] = ("type", b"icnv")
-    d["Linger.app"]["Iloc"] = (160, 196)
+    d["LingerX.app"]["Iloc"] = (160, 196)
     d["Applications"]["Iloc"] = (480, 196)
     d[".background"]["Iloc"] = (160, 600)
 print("ok")
