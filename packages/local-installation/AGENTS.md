@@ -363,7 +363,10 @@ stale PID whose `kill(pid, 0)` returns `EPERM` and whose `/proc/<pid>` UID
 differs from the current user is treated as foreign and cleared without
 signalling it, and `EPERM` while signalling a leased process revalidates the
 lease before raising `NATIVE_PROCESS_SIGNAL_DENIED` with the service and PID.
-On macOS every identity check reads `ps` start times in the C locale.
+On macOS every identity check reads `ps` start times in the C locale, and
+`nativeLeaseProcesses` streams the current user's processes in one
+`ps ewwx -U <uid>` invocation so busy hosts with 1,000+ processes avoid
+multi-wave `kern.procargs2` contention and unbounded stdout buffering.
 Linger 0.1.2 recorded them in the locale it ran in; such a record is
 converted once to the C-locale birth when `ps` in the installer's own
 locale still prints the recorded birth for the live leader holding the

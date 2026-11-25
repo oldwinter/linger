@@ -401,6 +401,144 @@ export async function nativeProcessIdentity(
   }
 }
 
+const DARWIN_LEASE_ROW =
+  /^\s*(\d+)\s+((?:Sun|Mon|Tue|Wed|Thu|Fri|Sat)\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4}\s+\d+\s+\d+\s+\S+)\s+(.*)$/;
+
+/**
+ * Parses one line from macOS `ps ewwx -o pid=,lstart=,uid=,pgid=,stat=,command=`
+ * in the C locale, returning a verified lease match or a PID needing fallback
+ * inspection when the lease appears on a line with an unexpected prefix.
+ */
+export function parseDarwinLeaseLine(
+  line: string,
+  lease: string,
+  expectedUid: number | undefined,
+  selfPid: number,
+): { pid: number; birth?: string } | undefined {
+  const marker = `${leaseKey}=${lease}`;
+  if (!line.includes(marker)) return;
+  const match = DARWIN_LEASE_ROW.exec(line);
+  if (match) {
+    const pid = Number(match[1]);
+    if (!Number.isSafeInteger(pid) || pid === selfPid) return;
+    if (!match[3]?.includes(marker)) return;
+    const parsed = darwinProcessIdentity(match[2]!);
+    if (!parsed) return;
+    if (expectedUid !== undefined && parsed.uid !== expectedUid) return;
+    if (parsed.state.startsWith("Z")) return;
+    return { pid, birth: parsed.birth };
+  }
+  const fallbackPid = /^\s*(\d+)\s/.exec(line)?.[1];
+  if (!fallbackPid) return;
+  const pid = Number(fallbackPid);
+  if (!Number.isSafeInteger(pid) || pid === selfPid) return;
+  return { pid };
+}
+
+/**
+ * Streams macOS processes for the current user in one `ps ewwx` invocation so
+ * busy hosts (~1,000+ processes) avoid dozens of concurrent `ps -p` waves and
+ * `kern.procargs2` contention while keeping memory bounded regardless of total
+ * environment size.
+ */
+async function darwinLeaseProcesses(lease: string): Promise<{
+  owned: Array<{ pid: number; birth: string }>;
+  fallbackPids: number[];
+}> {
+  const env: NodeJS.ProcessEnv = { ...process.env, LC_ALL: "C", LANG: "C" };
+  delete env[leaseKey];
+  const uid = process.getuid?.();
+  const args =
+    uid !== undefined
+      ? [
+          "ewwx",
+          "-U",
+          String(uid),
+          "-o",
+          "pid=,lstart=,uid=,pgid=,stat=,command=",
+        ]
+      : ["ewwx", "-ao", "pid=,lstart=,uid=,pgid=,stat=,command="];
+  const child = spawn("/bin/ps", args, {
+    env,
+    windowsHide: true,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const lines = createInterface({ input: child.stdout, crlfDelay: Infinity });
+  let stderr = "";
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (chunk: string) => {
+    if (stderr.length < 4096) stderr += chunk;
+  });
+  let timedOut = false;
+  const status = new Promise<{
+    code: number | null;
+    signal: NodeJS.Signals | null;
+  }>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code, signal) => resolve({ code, signal }));
+  });
+  const timer = setTimeout(() => {
+    timedOut = true;
+    child.kill("SIGTERM");
+  }, 15_000);
+  const owned: Array<{ pid: number; birth: string }> = [];
+  const fallbackPids: number[] = [];
+  try {
+    const consume = (async () => {
+      for await (const line of lines) {
+        const match = parseDarwinLeaseLine(line, lease, uid, process.pid);
+        if (!match) continue;
+        if (match.birth) owned.push({ pid: match.pid, birth: match.birth });
+        else fallbackPids.push(match.pid);
+      }
+    })();
+    const [, exit] = await Promise.all([consume, status]);
+    if (timedOut) {
+      const detail = sanitizeInspectionStderr(stderr);
+      throw new Error(
+        detail
+          ? `Native process identity could not be inspected (timed out (SIGTERM): ${detail}).`
+          : "Native process identity could not be inspected (timed out (SIGTERM)).",
+      );
+    }
+    if (exit.code !== 0 && exit.code !== 1) {
+      const parts: string[] = [];
+      if (exit.code !== null) parts.push(`exit ${exit.code}`);
+      if (exit.signal) parts.push(`signal ${exit.signal}`);
+      const detail = sanitizeInspectionStderr(stderr);
+      const summary =
+        parts.length && detail
+          ? `${parts.join(", ")}: ${detail}`
+          : parts.join(", ") || detail;
+      throw new Error(
+        summary
+          ? `Native process identity could not be inspected (${summary}).`
+          : "Native process identity could not be inspected.",
+      );
+    }
+    return { owned, fallbackPids };
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.startsWith("Native process identity could not be inspected")
+    )
+      throw error;
+    const detail =
+      error instanceof Error
+        ? formatInspectionFailure(error as ExecFileException, stderr)
+        : "";
+    throw new Error(
+      detail
+        ? `Native process identity could not be inspected (${detail}).`
+        : "Native process identity could not be inspected.",
+      { cause: error },
+    );
+  } finally {
+    clearTimeout(timer);
+    lines.close();
+  }
+}
+
 export async function nativeLeaseProcesses(
   lease: string,
 ): Promise<Array<{ pid: number; birth: string }>> {
@@ -418,6 +556,19 @@ export async function nativeLeaseProcesses(
               },
             ],
     );
+  if (process.platform === "darwin") {
+    const { owned, fallbackPids } = await darwinLeaseProcesses(lease);
+    for (let offset = 0; offset < fallbackPids.length; offset += 8) {
+      const batch = await Promise.all(
+        fallbackPids.slice(offset, offset + 8).map(async (pid) => {
+          const birth = await nativeProcessIdentity(pid, lease, false);
+          return birth ? { pid, birth } : undefined;
+        }),
+      );
+      for (const value of batch) if (value) owned.push(value);
+    }
+    return owned;
+  }
   let candidates: number[];
   if (process.platform === "linux")
     // nativeProcessIdentity still checks the real owner and lease per candidate.
@@ -441,35 +592,6 @@ export async function nativeLeaseProcesses(
           ? [Number(pid)]
           : [];
       });
-  }
-  if (process.platform === "darwin") {
-    const leased: number[] = [];
-    // Batch the private environment lookup, then fetch a birth identity only
-    // for matching leases. One ps per host process makes ordinary down slow,
-    // and so does running a busy host's batches one at a time.
-    const batches: number[][] = [];
-    for (let offset = 0; offset < candidates.length; offset += 32)
-      batches.push(candidates.slice(offset, offset + 32));
-    for (let offset = 0; offset < batches.length; offset += 4) {
-      const listings = await Promise.all(
-        batches
-          .slice(offset, offset + 4)
-          .map((batch) =>
-            runProcess(
-              "/bin/ps",
-              ["eww", "-p", batch.join(","), "-o", "pid=,command="],
-              { timeoutMs: 5000 },
-            ),
-          ),
-      );
-      for (const listing of listings)
-        for (const line of listing.stdout.split("\n")) {
-          const pid = /^\s*(\d+)\s/.exec(line)?.[1];
-          if (pid && line.includes(`${leaseKey}=${lease}`))
-            leased.push(Number(pid));
-        }
-    }
-    candidates = leased;
   }
   const owned: Array<{ pid: number; birth: string }> = [];
   // Bound ps concurrency on hosts with many processes; their environment stays private.
