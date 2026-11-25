@@ -212,5 +212,22 @@ describe("parseDarwinLeaseLine", () => {
         9101,
       ),
     ).toBeUndefined();
+    // Prefix or suffix collisions on the lease token must not match.
+    expect(
+      parseDarwinLeaseLine(
+        `  9101 Thu Nov 26 03:43:27 2026 502 9100 S node app.js LINGER_NATIVE_PROCESS_LEASE=${lease}extra`,
+        lease,
+        502,
+        1,
+      ),
+    ).toBeUndefined();
+    expect(
+      parseDarwinLeaseLine(
+        `  9101 Thu Nov 26 03:43:27 2026 502 9100 S node app.js OTHER_LINGER_NATIVE_PROCESS_LEASE=${lease}`,
+        lease,
+        502,
+        1,
+      ),
+    ).toBeUndefined();
   });
 });

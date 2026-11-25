@@ -383,7 +383,7 @@ export async function nativeProcessIdentity(
       if (
         identity.code !== 0 ||
         environment.code !== 0 ||
-        !environment.stdout.includes(`${leaseKey}=${lease}`)
+        !hasDarwinLeaseToken(environment.stdout, `${leaseKey}=${lease}`)
       )
         return;
       const parsed = darwinProcessIdentity(identity.stdout);
@@ -404,6 +404,20 @@ export async function nativeProcessIdentity(
 const DARWIN_LEASE_ROW =
   /^\s*(\d+)\s+((?:Sun|Mon|Tue|Wed|Thu|Fri|Sat)\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4}\s+\d+\s+\d+\s+\S+)\s+(.*)$/;
 
+/** Checks that `marker` appears as a whole whitespace-delimited token in macOS `ps eww` output. */
+function hasDarwinLeaseToken(text: string, marker: string): boolean {
+  let start = text.indexOf(marker);
+  while (start !== -1) {
+    const before = start === 0 ? "" : text[start - 1]!;
+    const after = text[start + marker.length] ?? "";
+    const leftOk = before === "" || /\s/.test(before);
+    const rightOk = after === "" || /\s/.test(after);
+    if (leftOk && rightOk) return true;
+    start = text.indexOf(marker, start + 1);
+  }
+  return false;
+}
+
 /**
  * Parses one line from macOS `ps ewwx -o pid=,lstart=,uid=,pgid=,stat=,command=`
  * in the C locale, returning a verified lease match or a PID needing fallback
@@ -416,12 +430,12 @@ export function parseDarwinLeaseLine(
   selfPid: number,
 ): { pid: number; birth?: string } | undefined {
   const marker = `${leaseKey}=${lease}`;
-  if (!line.includes(marker)) return;
+  if (!hasDarwinLeaseToken(line, marker)) return;
   const match = DARWIN_LEASE_ROW.exec(line);
   if (match) {
     const pid = Number(match[1]);
     if (!Number.isSafeInteger(pid) || pid === selfPid) return;
-    if (!match[3]?.includes(marker)) return;
+    if (!match[3] || !hasDarwinLeaseToken(match[3], marker)) return;
     const parsed = darwinProcessIdentity(match[2]!);
     if (!parsed) return;
     if (expectedUid !== undefined && parsed.uid !== expectedUid) return;
@@ -483,11 +497,13 @@ async function darwinLeaseProcesses(lease: string): Promise<{
   }, 15_000);
   const owned: Array<{ pid: number; birth: string }> = [];
   const fallbackPids: number[] = [];
+  const seenPids = new Set<number>();
   try {
     const consume = (async () => {
       for await (const line of lines) {
         const match = parseDarwinLeaseLine(line, lease, uid, process.pid);
-        if (!match) continue;
+        if (!match || seenPids.has(match.pid)) continue;
+        seenPids.add(match.pid);
         if (match.birth) owned.push({ pid: match.pid, birth: match.birth });
         else fallbackPids.push(match.pid);
       }
