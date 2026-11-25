@@ -3,7 +3,6 @@ package library
 import (
 	"context"
 	"errors"
-	"fmt"
 	"mime"
 	"net/url"
 	"os"
@@ -480,34 +479,34 @@ func canonicalOriginTuple(u *url.URL) (string, string, bool) {
 func validateDocPreviewURL(previewURL, hostBaseURL string, allowPlainHTTP bool) error {
 	raw := strings.TrimSpace(previewURL)
 	if raw == "" {
-		return errors.New("preview URL is empty")
+		return errors.New(i18n.T("library.docs.preview_err.empty"))
 	}
 	u, err := url.Parse(raw)
 	if err != nil {
-		return fmt.Errorf("invalid preview URL: %w", err)
+		return errors.New(i18n.Tf("library.docs.preview_err.invalid", map[string]any{"err": err.Error()}))
 	}
 	scheme := strings.ToLower(u.Scheme)
 	switch scheme {
 	case "https":
 	case "http":
 		if !allowPlainHTTP {
-			return errors.New("plain HTTP document preview is disallowed")
+			return errors.New(i18n.T("library.docs.preview_err.plain_http"))
 		}
 	default:
-		return fmt.Errorf("disallowed preview URL scheme %q", u.Scheme)
+		return errors.New(i18n.Tf("library.docs.preview_err.scheme", map[string]any{"scheme": u.Scheme}))
 	}
 	s1, h1, ok1 := canonicalOriginTuple(u)
 	if !ok1 {
-		return errors.New("preview URL is missing a valid host")
+		return errors.New(i18n.T("library.docs.preview_err.missing_host"))
 	}
 	if strings.TrimSpace(hostBaseURL) != "" {
 		base, bErr := url.Parse(strings.TrimSpace(hostBaseURL))
 		if bErr != nil {
-			return errors.New("connected host origin is invalid")
+			return errors.New(i18n.T("library.docs.preview_err.invalid_host"))
 		}
 		s2, h2, ok2 := canonicalOriginTuple(base)
 		if !ok2 || s1 != s2 || h1 != h2 {
-			return errors.New("preview URL origin does not match connected host")
+			return errors.New(i18n.T("library.docs.preview_err.origin_mismatch"))
 		}
 	}
 	return nil
@@ -664,7 +663,7 @@ func (s *Screen) viewVersionsSheet(c *ui.Context) {
 						AlignItems(ui.Center).Justify(ui.SpaceBetween).Children(func() {
 						ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
 							ui.Text(c, i18n.Tf("library.docs.version_row", map[string]any{"num": v.VersionNumber, "name": v.Filename})).FontSize(13).FontWeight(600).TextColor(t.Text)
-							ui.Text(c, i18n.Tf("library.docs.version_meta", map[string]any{"source": v.Source, "bytes": v.SizeBytes})).FontSize(11).TextColor(t.TextMuted)
+							ui.Text(c, i18n.Tf("library.docs.version_meta", map[string]any{"source": i18n.DocVersionSourceLabel(v.Source), "bytes": v.SizeBytes})).FontSize(11).TextColor(t.TextMuted)
 						})
 						dl := components.SecondaryTouchButton(c, i18n.T("library.docs.load_btn"), false)
 						if dl.Clicked() {
@@ -679,7 +678,7 @@ func (s *Screen) viewVersionsSheet(c *ui.Context) {
 						ui.Row(c.Key(h.ID)).FillWidth().Padding(10, 10).Radius(10).Background(t.Surface).Border(1, t.Border).
 							AlignItems(ui.Center).Justify(ui.SpaceBetween).Children(func() {
 							ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
-								ui.Text(c, i18n.Tf("library.docs.history_row", map[string]any{"seq": h.PersistedSeq, "kind": h.Trigger})).FontSize(13).FontWeight(600).TextColor(t.Text)
+								ui.Text(c, i18n.Tf("library.docs.history_row", map[string]any{"seq": h.PersistedSeq, "kind": i18n.DocHistoryTriggerLabel(h.Trigger)})).FontSize(13).FontWeight(600).TextColor(t.Text)
 								ui.Text(c, h.CreatedBy.DisplayName).FontSize(11).TextColor(t.TextMuted)
 							})
 							rst := components.SecondaryTouchButton(c, i18n.T("library.docs.restore_btn"), false)
@@ -918,7 +917,7 @@ func (s *Screen) viewLinkShareSheet(c *ui.Context) {
 				}
 				ui.Row(c).Gap(6).Children(func() {
 					components.StatusPill(c, i18n.Tf("library.docs.link_status", map[string]any{"status": i18n.StatusLabel(status)}), components.ToneInfo)
-					components.StatusPill(c, i18n.Tf("library.docs.link_role", map[string]any{"role": role}), components.ToneNeutral)
+					components.StatusPill(c, i18n.Tf("library.docs.link_role", map[string]any{"role": i18n.DocLinkRoleLabel(role)}), components.ToneNeutral)
 				})
 				if shareURL != "" {
 					ui.Text(c, shareURL).FontSize(12).TextColor(t.TextMuted)

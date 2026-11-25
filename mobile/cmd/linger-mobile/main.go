@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -50,22 +51,28 @@ func main() {
 	}
 
 	cfgStore := config.NewStore(prefsBackend, secretsBackend)
+	var themeOverride *config.ThemePreference
 	if rawTheme := strings.TrimSpace(*flagTheme); rawTheme != "" {
 		if pref, ok := config.ParseThemePreference(rawTheme); ok {
-			_ = cfgStore.SetPreferences(withTheme(cfgStore.Preferences(), pref))
+			themeOverride = &pref
+		} else {
+			fmt.Fprintf(os.Stderr, "linger-mobile: ignoring invalid --theme %q (expected system, light, or dark)\n", rawTheme)
 		}
 	}
-	forcedLang := false
+	var langOverride *config.LanguagePreference
 	if rawLang := strings.TrimSpace(*flagLang); rawLang != "" {
 		if pref, ok := config.ParseLanguagePreference(rawLang); ok {
-			_ = cfgStore.SetPreferences(withLanguage(cfgStore.Preferences(), pref))
-			forcedLang = true
+			langOverride = &pref
+		} else {
+			fmt.Fprintf(os.Stderr, "linger-mobile: ignoring invalid --lang %q (expected system, en, or zh-Hans)\n", rawLang)
 		}
 	}
 
 	appStore := state.NewAppStore(state.Options{
-		ConfigStore: cfgStore,
-		DataDir:     dataDir,
+		ConfigStore:      cfgStore,
+		DataDir:          dataDir,
+		ThemeOverride:    themeOverride,
+		LanguageOverride: langOverride,
 	})
 	appShell := shell.New(appStore, func() bool {
 		return mygo.Theme.IsDark()
@@ -109,13 +116,7 @@ func main() {
 		})
 
 		initPrefs := appStore.Snapshot().Prefs
-		if forcedLang || initPrefs.Language != config.LanguageSystem {
-			target := ""
-			if initPrefs.Language != config.LanguageSystem {
-				target = i18n.ResolveLocale(initPrefs.Language, "")
-			}
-			mygo.App.SetLocale(target)
-		}
+		mygo.App.SetLocale(i18n.MyGoLocaleTarget(initPrefs.Language))
 		i18n.SetPreference(initPrefs.Language)
 		mygo.Theme.SetSource(theme.ToMyGoSource(initPrefs.Theme))
 		mygo.SystemBars.SetStyle(theme.ToSystemBarStyle(initPrefs.Theme))
@@ -126,8 +127,18 @@ func main() {
 			}
 		}
 
+		windowTitleForStore := func() string {
+			snap := appStore.Snapshot()
+			hostName := ""
+			if snap.Phase == state.PhaseConnected && snap.ActiveHost != nil {
+				hostName = strings.TrimSpace(snap.ActiveHost.Name)
+			}
+			return i18n.WindowTitle(hostName)
+		}
+
+		lastTitle := windowTitleForStore()
 		win := mygo.NewWindow(mygo.WindowOptions{
-			Title:           i18n.WindowTitle(""),
+			Title:           lastTitle,
 			BackgroundColor: theme.BackgroundHex(initPrefs.Theme, mygo.Theme.IsDark()),
 			Width:           420,
 			Height:          800,
@@ -135,9 +146,17 @@ func main() {
 			MinHeight:       568,
 			Content:         ui.View(appShell.View),
 		})
+		syncWindowTitle := func() {
+			if next := windowTitleForStore(); next != lastTitle {
+				lastTitle = next
+				win.SetTitle(next)
+			}
+		}
 		appShell.SetWindow(win)
 		appStore.SetNotifier(func() {
-			win.Update(func() {})
+			win.Update(func() {
+				syncWindowTitle()
+			})
 		})
 		appStore.SetOnThemeChanged(func(pref config.ThemePreference) {
 			mygo.Theme.SetSource(theme.ToMyGoSource(pref))
@@ -147,13 +166,12 @@ func main() {
 			})
 		})
 		appStore.SetOnLanguageChanged(func(pref config.LanguagePreference) {
-			target := ""
-			if pref != config.LanguageSystem {
-				target = i18n.ResolveLocale(pref, "")
+			mygo.App.SetLocale(i18n.MyGoLocaleTarget(pref))
+			if pref == config.LanguageSystem {
+				i18n.RefreshSystemLocale(mygo.App.Locale())
 			}
-			mygo.App.SetLocale(target)
 			win.Update(func() {
-				win.SetTitle(i18n.WindowTitle(""))
+				syncWindowTitle()
 			})
 		})
 		mygo.Theme.OnUpdated(func() {
@@ -163,7 +181,7 @@ func main() {
 		})
 		mygo.App.OnLocaleChanged(func(locale string) {
 			i18n.RefreshSystemLocale(locale)
-			win.SetTitle(i18n.WindowTitle(""))
+			syncWindowTitle()
 			win.Update(func() {})
 		})
 
@@ -189,14 +207,4 @@ func main() {
 	})
 
 	mygo.App.Run()
-}
-
-func withTheme(p config.AppPreferences, pref config.ThemePreference) config.AppPreferences {
-	p.Theme = pref
-	return p
-}
-
-func withLanguage(p config.AppPreferences, pref config.LanguagePreference) config.AppPreferences {
-	p.Language = pref
-	return p
 }

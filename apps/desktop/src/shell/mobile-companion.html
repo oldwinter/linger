@@ -656,7 +656,12 @@
           sub.appendChild(plat);
 
           const mode = document.createElement("span");
-          mode.textContent = device.sessionMode;
+          mode.textContent =
+            device.sessionMode === "dedicated"
+              ? t("sessionDedicated")
+              : device.sessionMode === "delegated"
+                ? t("sessionDelegated")
+                : device.sessionMode;
           sub.appendChild(mode);
 
           const live = document.createElement("span");
@@ -712,7 +717,11 @@
           const mdns = state.mdnsActive ? t("mdnsSuffix") : "";
           statusBadge.appendChild(
             document.createTextNode(
-              t("statusRunning", { port: state.listenPort, proto, mdns }),
+              t("statusRunning", {
+                port: String(state.listenPort),
+                proto,
+                mdns,
+              }),
             ),
           );
         } else if (state.error) {

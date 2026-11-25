@@ -1,5 +1,11 @@
+import { readFileSync } from "node:fs";
+import vm from "node:vm";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import zhCN from "../i18n/locales/zh-CN.json" with { type: "json" };
+import { localizePage } from "../i18n/page.js";
+import { mobileCompanionMessages } from "../shell/mobile-companion.messages.js";
 import { LanguageModule } from "./language.js";
 import {
   MOBILE_COMPANION_IPC,
@@ -26,6 +32,7 @@ const fake = vi.hoisted(() => {
   };
   const windows: FakeWindow[] = [];
   const clipboardWrites: string[] = [];
+  const themeState = { darkMode: false };
   const localInstanceRef: {
     current: {
       origin: string;
@@ -77,6 +84,7 @@ const fake = vi.hoisted(() => {
     pages,
     windows,
     clipboardWrites,
+    themeState,
     localInstanceRef,
     localIdentityRef,
     FakeWindow,
@@ -110,6 +118,11 @@ vi.mock("electron", () => ({
     ) => fake.handlers.set(channel, handler),
     removeHandler: (channel: string) => fake.handlers.delete(channel),
   },
+  nativeTheme: {
+    get shouldUseDarkColors() {
+      return fake.themeState.darkMode;
+    },
+  },
   session: { fromPartition: () => fake.pages },
 }));
 vi.mock("../shell/messages.html", () => ({
@@ -130,6 +143,7 @@ beforeEach(() => {
   fake.protocolHandlers.clear();
   fake.windows.length = 0;
   fake.clipboardWrites.length = 0;
+  fake.themeState.darkMode = false;
   fake.localInstanceRef.current = null;
   fake.localIdentityRef.current = null;
 });
@@ -398,6 +412,109 @@ describe("MobileCompanionModule", () => {
       expect(sessionCookieSpy).not.toHaveBeenCalled();
     } finally {
       await f.host.stop("quit");
+    }
+  });
+
+  it("renders listen port without commas, maps sessionMode, localizes IPC errors, and matches dark background", async () => {
+    fake.themeState.darkMode = true;
+    const fDark = await createFixture();
+    try {
+      expect(fDark.window.options.backgroundColor).toBe("#141413");
+
+      // IPC errors localize dynamically when Desktop language switches from en to zh-CN.
+      await expect(fDark.invokeRun({ op: "pairing.open" })).rejects.toThrow(
+        "Enable Mobile Companion before opening pairing.",
+      );
+      fDark.language.choose("zh-CN");
+      await expect(fDark.invokeRun({ op: "pairing.open" })).rejects.toThrow(
+        zhCN.mobileCompanion.errEnableBeforePairing,
+      );
+
+      const randomPort = 49152 + Math.floor(Math.random() * 10000);
+      await fDark.invokeRun({
+        op: "config.update",
+        patch: {
+          enabled: true,
+          port: randomPort,
+          tls: false,
+          advertiseMdns: false,
+        },
+      });
+      await expect(fDark.invokeRun({ op: "pairing.copyUri" })).rejects.toThrow(
+        zhCN.mobileCompanion.errPairingNotOpen,
+      );
+      fDark.language.choose("en");
+      await expect(fDark.invokeRun({ op: "pairing.copyUri" })).rejects.toThrow(
+        "Pairing is not currently open.",
+      );
+    } finally {
+      await fDark.host.stop("quit");
+    }
+
+    fake.themeState.darkMode = false;
+    const fLight = await createFixture();
+    try {
+      expect(fLight.window.options.backgroundColor).toBe("#fcfcfa");
+    } finally {
+      await fLight.host.stop("quit");
+    }
+
+    // Verify real HTML template passes String(state.listenPort), maps sessionMode, and formats :48210 cleanly.
+    const rawHtml = readFileSync(
+      new URL("../shell/mobile-companion.html", import.meta.url),
+      "utf8",
+    );
+    const rawMessages = readFileSync(
+      new URL("../shell/messages.html", import.meta.url),
+      "utf8",
+    );
+    expect(rawHtml).toContain("port: String(state.listenPort)");
+    expect(rawHtml).toContain('t("sessionDedicated")');
+    expect(rawHtml).toContain('t("sessionDelegated")');
+
+    for (const lang of ["en", "zh-CN"] as const) {
+      const page = localizePage(
+        rawHtml,
+        rawMessages,
+        mobileCompanionMessages,
+        lang,
+      );
+      const jsonMatch =
+        /<script type="application\/json" id="linger-messages">([\s\S]*?)<\/script>/u.exec(
+          page,
+        );
+      const runtimeMatch = /<script>([\s\S]*?)<\/script>/u.exec(rawMessages);
+      expect(jsonMatch).not.toBeNull();
+      expect(runtimeMatch).not.toBeNull();
+      const catalogJson = jsonMatch![1]!.replaceAll("\\u003c", "<");
+      const sandbox: Record<string, unknown> = {
+        document: {
+          getElementById: (id: string) =>
+            id === "linger-messages" ? { textContent: catalogJson } : null,
+          querySelectorAll: () => [],
+        },
+        Intl,
+      };
+      vm.runInNewContext(`${runtimeMatch![1]!}\nthis.__t = t;`, sandbox);
+      const tFn = sandbox.__t as (
+        name: string,
+        values?: Record<string, unknown>,
+      ) => string;
+      const statusText = tFn("statusRunning", {
+        port: String(48210),
+        proto: tFn("protoHttps"),
+        mdns: "",
+      });
+      expect(statusText).toContain(":48210");
+      expect(statusText).not.toContain("48,210");
+      if (lang === "zh-CN") {
+        expect(tFn("sessionDedicated")).toBe(
+          zhCN.mobileCompanion.sessionDedicated,
+        );
+        expect(tFn("sessionDelegated")).toBe(
+          zhCN.mobileCompanion.sessionDelegated,
+        );
+      }
     }
   });
 });

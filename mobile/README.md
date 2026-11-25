@@ -95,8 +95,8 @@ Supported CLI flags (`mobile/cmd/linger-mobile/main.go`):
 - `--tls-fp`: Base64url SHA-256 SPKI fingerprint for TLS 1.3 pinning.
 - `--pair-uri`: Open Connection Hub directly with a `linger://pair?...` URI.
 - `--data-dir`: Isolated directory for preferences, secrets, and SQLite cache.
-- `--theme`: Force `system`, `light`, or `dark` (live OS sync when `system`).
-- `--lang`: Force UI language (`system`, `en`, or `zh-Hans`; overrides `MYGO_LOCALE`).
+- `--theme`: Force session theme override (`system`, `light`, or `dark`; live OS sync when `system`, does not overwrite saved preferences).
+- `--lang`: Force session language override (`system`, `en`, or `zh-Hans`; overrides `MYGO_LOCALE`, does not overwrite saved preferences).
 - `--plain-http`: Explicitly opt in to plaintext HTTP (Tailscale / local dev).
 
 ### 3. Connection Methods

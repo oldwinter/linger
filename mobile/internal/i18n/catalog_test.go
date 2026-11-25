@@ -3,9 +3,13 @@ package i18n
 import (
 	"encoding/json"
 	"io/fs"
+	"os"
+	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -160,5 +164,184 @@ func TestLocalePreferenceResolutionAndFormatting(t *testing.T) {
 	}
 	if got := FormatElapsed(125); got != "2\u52065\u79d2" {
 		t.Fatalf("zh-Hans FormatElapsed(125) = %q", got)
+	}
+}
+
+func TestConcurrentLocaleTransitionsInvariant(t *testing.T) {
+	t.Cleanup(func() {
+		SetSystemLocaleFunc(nil)
+		SetPreference(config.LanguageSystem)
+	})
+	SetSystemLocaleFunc(func() string { return "zh-CN" })
+
+	errCh := make(chan string, 16)
+	stop := make(chan struct{})
+	var readersWG, writersWG sync.WaitGroup
+
+	// Readers verify lock-free atomic consistency between pref and active.
+	for r := 0; r < 4; r++ {
+		readersWG.Add(1)
+		go func() {
+			defer readersWG.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					snap := currentState.Load()
+					if snap == nil {
+						select {
+						case errCh <- "nil snapshot":
+						default:
+						}
+						return
+					}
+					if snap.pref == config.LanguageEN && snap.active != LocaleEN {
+						select {
+						case errCh <- "divergent EN state: " + snap.active:
+						default:
+						}
+						return
+					}
+					if snap.pref == config.LanguageZhHans && snap.active != LocaleZhHans {
+						select {
+						case errCh <- "divergent zh-Hans state: " + snap.active:
+						default:
+						}
+						return
+					}
+				}
+			}
+		}()
+	}
+
+	for w := 0; w < 3; w++ {
+		writersWG.Add(1)
+		go func(id int) {
+			defer writersWG.Done()
+			for i := 0; i < 1000; i++ {
+				switch (i + id) % 5 {
+				case 0:
+					SetPreference(config.LanguageEN)
+				case 1:
+					SetPreference(config.LanguageZhHans)
+				case 2:
+					SetPreference(config.LanguageSystem)
+				case 3:
+					RefreshSystemLocale("zh-CN")
+				default:
+					RefreshSystemLocale("en-US")
+				}
+			}
+		}(w)
+	}
+	writersWG.Wait()
+	close(stop)
+	readersWG.Wait()
+	close(errCh)
+	for msg := range errCh {
+		t.Fatal(msg)
+	}
+}
+
+func TestNoUnusedCatalogKeys(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("cannot resolve caller path")
+	}
+	mobileRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+	var corpus strings.Builder
+	for _, sub := range []string{"cmd", "internal"} {
+		root := filepath.Join(mobileRoot, sub)
+		err := filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() || !strings.HasSuffix(d.Name(), ".go") || strings.HasSuffix(d.Name(), "_test.go") {
+				return nil
+			}
+			data, rErr := os.ReadFile(p)
+			if rErr != nil {
+				return rErr
+			}
+			corpus.Write(data)
+			corpus.WriteByte('\n')
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walk %s: %v", root, err)
+		}
+	}
+	src := corpus.String()
+	enMap := loadRawCatalog(t, LocaleEN)
+	var unused []string
+	for k := range enMap {
+		if k == "@@locale" {
+			continue
+		}
+		if !strings.Contains(src, `"`+k+`"`) {
+			unused = append(unused, k)
+		}
+	}
+	sort.Strings(unused)
+	if len(unused) > 0 {
+		t.Fatalf("unused catalog keys in non-test Go source (%d): %v", len(unused), unused)
+	}
+}
+
+func TestLabelHelpersAndWindowTitle(t *testing.T) {
+	t.Cleanup(func() {
+		SetSystemLocaleFunc(nil)
+		SetPreference(config.LanguageSystem)
+	})
+
+	if got := MyGoLocaleTarget(config.LanguageSystem); got != "" {
+		t.Fatalf("MyGoLocaleTarget(system) = %q, want empty", got)
+	}
+	if got := MyGoLocaleTarget(config.LanguageEN); got != LocaleEN {
+		t.Fatalf("MyGoLocaleTarget(en) = %q", got)
+	}
+	if got := MyGoLocaleTarget(config.LanguageZhHans); got != LocaleZhHans {
+		t.Fatalf("MyGoLocaleTarget(zh-Hans) = %q", got)
+	}
+
+	SetPreference(config.LanguageEN)
+	if !strings.Contains(WindowTitle("Studio Mac"), "Studio Mac") {
+		t.Fatalf("WindowTitle(Studio Mac) EN = %q", WindowTitle("Studio Mac"))
+	}
+
+	SetPreference(config.LanguageZhHans)
+	if !strings.Contains(WindowTitle("Studio Mac"), "Studio Mac") || WindowTitle("Studio Mac") == WindowTitle("") {
+		t.Fatalf("WindowTitle(Studio Mac) ZH = %q", WindowTitle("Studio Mac"))
+	}
+
+	checks := []struct {
+		name string
+		got  string
+		raw  string
+	}{
+		{"ServerURLModeLabel", ServerURLModeLabel("local"), "local"},
+		{"LocalModelActionLabel", LocalModelActionLabel("make_room_load"), "make_room_load"},
+		{"BrowserModeLabel", BrowserModeLabel("extension"), "extension"},
+		{"ReactionLabel", ReactionLabel("thumbs_up"), "thumbs_up"},
+		{"MemoryKindLabel", MemoryKindLabel("daily"), "daily"},
+		{"DocLinkRoleLabel", DocLinkRoleLabel("viewer"), "viewer"},
+		{"DocVersionSourceLabel", DocVersionSourceLabel("editor"), "editor"},
+		{"DocHistoryTriggerLabel", DocHistoryTriggerLabel("checkpoint"), "checkpoint"},
+		{"WorkActivityKindLabel", WorkActivityKindLabel("state_transitioned"), "state_transitioned"},
+		{"TaskControlLabel", TaskControlLabel("run"), "run"},
+		{"RuleSourceLabel", RuleSourceLabel("learned"), "learned"},
+		{"BiometricKindLabel", BiometricKindLabel("face"), "face"},
+		{"AgentActionLabel", AgentActionLabel("update"), "update"},
+		{"SearchSourceLabel", SearchSourceLabel("work_item"), "work_item"},
+		{"StatusLabel", StatusLabel("browser_unavailable"), "browser_unavailable"},
+	}
+	for _, tc := range checks {
+		if tc.got == "" || tc.got == tc.raw {
+			t.Errorf("%s(%q) in zh-Hans = %q (expected localized label)", tc.name, tc.raw, tc.got)
+		}
+	}
+	if got := ServerURLModeLabel("custom_mode"); got != "custom_mode" {
+		t.Errorf("unknown fallback = %q, want custom_mode", got)
 	}
 }

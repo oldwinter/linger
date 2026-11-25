@@ -16,7 +16,6 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/mobile"
 	"github.com/oldwinter/linger/mobile/internal/components"
-	"github.com/oldwinter/linger/mobile/internal/config"
 	"github.com/oldwinter/linger/mobile/internal/i18n"
 	"github.com/oldwinter/linger/mobile/internal/screens/connect"
 	"github.com/oldwinter/linger/mobile/internal/screens/library"
@@ -104,15 +103,6 @@ func New(store *state.AppStore, systemDark func() bool) *Shell {
 		Store:         store,
 		OnOpenRoom:    s.OpenRoom,
 		OnOpenConnect: s.OpenConnect,
-		OnThemeChanged: func(pref config.ThemePreference) {
-			_ = store.SetThemePreference(pref)
-		},
-		OnLanguageChanged: func(pref config.LanguagePreference) {
-			_ = store.SetLanguagePreference(pref)
-		},
-		OnBiometricChanged: func(enabled bool) {
-			_ = store.SetBiometricPreference(enabled)
-		},
 		OnComposerReturnChanged: func(sendOnEnter bool) {
 			store.SetComposerReturnSends(sendOnEnter)
 		},

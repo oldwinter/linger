@@ -438,7 +438,7 @@ func (h *Hub) viewPairDesktop(c *ui.Context, snap state.Snapshot, busy bool) {
 					}
 				}
 				ui.Column(c).FillWidth().Padding(8, 10).Radius(8).Background(theme.Extra(t).MutedBg).Gap(4).Children(func() {
-					ui.Text(c, i18n.Tf("connect.parsed_host", map[string]any{"host": parsed.Name, "name": parsed.PrimaryURL()})).FontSize(12).FontWeight(600).TextColor(t.Text)
+					ui.Text(c, i18n.Tf("connect.parsed_host", map[string]any{"name": parsed.Name, "url": parsed.PrimaryURL()})).FontSize(12).FontWeight(600).TextColor(t.Text)
 					components.StatusPill(c, shortFP, tone)
 				})
 			} else {

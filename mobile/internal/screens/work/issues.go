@@ -580,9 +580,13 @@ func (s *Screen) viewWorkItemDetailSheet(c *ui.Context) {
 						for i, entry := range s.detailTimeline {
 							if entry.Activity != nil {
 								act := entry.Activity
-								desc := act.Kind
+								desc := i18n.WorkActivityKindLabel(act.Kind)
 								if act.FromState != nil && act.ToState != nil {
-									desc = fmt.Sprintf("%s: %s -> %s", act.Kind, formatWorkItemState(*act.FromState), formatWorkItemState(*act.ToState))
+									desc = i18n.Tf("work.issues.activity_transition", map[string]any{
+										"kind": desc,
+										"from": formatWorkItemState(*act.FromState),
+										"to":   formatWorkItemState(*act.ToState),
+									})
 								}
 								ui.Row(c.Key(i)).FillWidth().Gap(6).Children(func() {
 									ui.Text(c, "\u2022 "+act.Actor.DisplayName+" \u2014 "+desc).FontSize(12).TextColor(t.TextMuted)
@@ -610,7 +614,7 @@ func (s *Screen) viewTaskDetailsSection(c *ui.Context, wi api.WorkItem) {
 				components.StatusPill(c, i18n.Tf("work.issues.status_line", map[string]any{"status": i18n.StatusLabel(s.detailTaskExec.Status)}), components.ToneInfo)
 				components.StatusPill(c, i18n.Tf("work.issues.gen_line", map[string]any{"gen": s.detailTaskExec.Generation}), components.ToneNeutral)
 				if s.detailTaskExec.DesiredControl != "" && s.detailTaskExec.DesiredControl != "none" {
-					components.StatusPill(c, i18n.Tf("work.issues.control_line", map[string]any{"control": s.detailTaskExec.DesiredControl}), components.ToneWarning)
+					components.StatusPill(c, i18n.Tf("work.issues.control_line", map[string]any{"control": i18n.TaskControlLabel(s.detailTaskExec.DesiredControl)}), components.ToneWarning)
 				}
 			})
 		} else if wi.TaskExecution != nil {

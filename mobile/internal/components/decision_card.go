@@ -427,7 +427,7 @@ func renderAgentChangeCard(
 		_ = json.Unmarshal(card.AgentChange, &v)
 	}
 	if v.AgentName != "" {
-		ui.Text(c, i18n.Tf("decision.agent_label", map[string]any{"name": v.AgentName, "harness": v.Action})).FontSize(13).FontWeight(600).TextColor(t.Text)
+		ui.Text(c, i18n.Tf("decision.agent_label", map[string]any{"name": v.AgentName, "action": i18n.AgentActionLabel(v.Action)})).FontSize(13).FontWeight(600).TextColor(t.Text)
 	}
 	for i, ch := range v.Changes {
 		ui.Column(c.Key(i)).FillWidth().Padding(8, 10).Radius(8).Background(ex.MutedBg).Gap(2).Children(func() {

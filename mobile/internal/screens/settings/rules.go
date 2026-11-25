@@ -90,7 +90,7 @@ func (s *Screen) viewRulesSection(c *ui.Context) {
 								Radius(10).Background(theme.Extra(t).MutedBg).Border(1, t.Border).Children(func() {
 								ui.Text(c, r.Text).FontSize(14).FontWeight(600).TextColor(t.Text)
 								ui.Row(c).FillWidth().Wrap().Gap(6).Children(func() {
-									components.StatusPill(c, i18n.Tf("settings.rules.source_prefix", map[string]any{"src": r.Source}), components.ToneNeutral)
+									components.StatusPill(c, i18n.Tf("settings.rules.source_prefix", map[string]any{"src": i18n.RuleSourceLabel(r.Source)}), components.ToneNeutral)
 									components.StatusPill(c, i18n.Tf("settings.rules.mandate_prefix", map[string]any{"mandate": i18n.RuleMandateLabel(r.Mandate)}), components.ToneInfo)
 									if r.Pinned {
 										components.StatusPill(c, i18n.T("settings.rules.pinned"), components.ToneSuccess)

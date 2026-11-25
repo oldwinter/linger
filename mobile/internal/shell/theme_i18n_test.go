@@ -143,8 +143,15 @@ func TestShellLiveThemeSystemLightDarkSwitching(t *testing.T) {
 	if got := cfgStore.Preferences().Theme; got != config.ThemeDark {
 		t.Fatalf("persisted theme = %q, want dark", got)
 	}
-	if len(themeEvents) < 2 || themeEvents[len(themeEvents)-1] != config.ThemeDark {
-		t.Fatalf("expected OnThemeChanged callbacks ending in dark, got %v", themeEvents)
+	if len(themeEvents) != 2 || themeEvents[0] != config.ThemeLight || themeEvents[1] != config.ThemeDark {
+		t.Fatalf("expected exactly [light dark] OnThemeChanged callbacks (deduplicated), got %v", themeEvents)
+	}
+	// Redundant write of already-active ThemeDark must be a no-op.
+	if err := store.SetThemePreference(config.ThemeDark); err != nil {
+		t.Fatalf("redundant SetThemePreference: %v", err)
+	}
+	if len(themeEvents) != 2 {
+		t.Fatalf("expected redundant SetThemePreference not to fire OnThemeChanged, got %v", themeEvents)
 	}
 }
 
@@ -174,6 +181,10 @@ func TestShellLiveLanguageSwitchingAndSystemLocale(t *testing.T) {
 	var langEvents []config.LanguagePreference
 	store.SetOnLanguageChanged(func(pref config.LanguagePreference) {
 		langEvents = append(langEvents, pref)
+		// Simulate main.go calling mygo.App.SetLocale(target) before i18n resolves System.
+		if pref == config.LanguageSystem {
+			sysLocale.Store("zh-CN")
+		}
 	})
 
 	appShell := shell.New(store, func() bool { return false })
@@ -228,6 +239,76 @@ func TestShellLiveLanguageSwitchingAndSystemLocale(t *testing.T) {
 	tt.Frame()
 	if !tt.HasText("Rooms") || !tt.HasText("More") {
 		t.Fatalf("expected English UI restored in 1 frame, texts=%v", tt.Texts())
+	}
+
+	// Switch back from English -> System: click Language row's "System" (near "English", not Theme row's "System").
+	enRect, ok := tt.Find("English")
+	if !ok {
+		t.Fatal("cannot find English option")
+	}
+	var sysLang *ui.AccessInfo
+	for _, a := range tt.AccessAll() {
+		if a.Name == "System" && a.Bounds.W > 0 && a.Bounds.Y >= enRect.Y-4 && a.Bounds.Y <= enRect.Y+enRect.H+4 {
+			cp := a
+			sysLang = &cp
+			break
+		}
+	}
+	if sysLang == nil {
+		t.Fatalf("cannot find Language System option aligned with English (%+v)", enRect)
+	}
+	tt.ClickAt(sysLang.Bounds.X+sysLang.Bounds.W/2, sysLang.Bounds.Y+sysLang.Bounds.H/2)
+	if got := i18n.ActiveLocale(); got != i18n.LocaleZhHans {
+		t.Fatalf("switching en -> system did not immediately resolve OS locale: got %q, want %q", got, i18n.LocaleZhHans)
+	}
+	tt.Frame()
+	if !tt.HasText(zhRooms) {
+		t.Fatalf("expected Chinese UI restored immediately after clicking System, texts=%v", tt.Texts())
+	}
+}
+
+func TestSessionOverridesDoNotPersistAndStoreToastsLocalized(t *testing.T) {
+	restoreI18nState(t)
+
+	cfgStore := config.NewStore(config.NewMemoryPreferencesBackend(), config.NewMemorySecretsBackend())
+	themeOver := config.ThemeDark
+	langOver := config.LanguageZhHans
+	store := state.NewAppStore(state.Options{
+		ConfigStore:      cfgStore,
+		DataDir:          t.TempDir(),
+		ThemeOverride:    &themeOver,
+		LanguageOverride: &langOver,
+	})
+	defer store.Disconnect()
+
+	snap := store.Snapshot()
+	if snap.Prefs.Theme != config.ThemeDark || snap.Prefs.Language != config.LanguageZhHans {
+		t.Fatalf("session overrides not applied in snapshot: %+v", snap.Prefs)
+	}
+	disk := cfgStore.Preferences()
+	if disk.Theme != config.ThemeSystem || disk.Language != config.LanguageSystem {
+		t.Fatalf("session overrides leaked to persisted config: %+v", disk)
+	}
+
+	// Changing unrelated preference preserves active session overrides without writing them to disk.
+	if err := store.SetBiometricPreference(true); err != nil {
+		t.Fatalf("SetBiometricPreference: %v", err)
+	}
+	diskAfter := cfgStore.Preferences()
+	if !diskAfter.BiometricLock || diskAfter.Theme != config.ThemeSystem || diskAfter.Language != config.LanguageSystem {
+		t.Fatalf("unexpected persisted preferences after biometric toggle: %+v", diskAfter)
+	}
+	if store.Snapshot().Prefs.Theme != config.ThemeDark || store.Snapshot().Prefs.Language != config.LanguageZhHans {
+		t.Fatalf("session overrides dropped after biometric toggle: %+v", store.Snapshot().Prefs)
+	}
+
+	// Verify store_c1 toasts use localized catalog strings.
+	if err := store.MarkAllRoomsRead(context.Background()); err != nil {
+		t.Fatalf("MarkAllRoomsRead: %v", err)
+	}
+	wantToast := i18n.Tp(i18n.LocaleZhHans, "state.toast.all_caught_up", nil)
+	if got := store.Snapshot().StatusMessage; got != wantToast {
+		t.Fatalf("MarkAllRoomsRead StatusMessage = %q, want %q", got, wantToast)
 	}
 }
 

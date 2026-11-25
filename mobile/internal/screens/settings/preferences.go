@@ -43,7 +43,7 @@ func (s *Screen) viewPreferencesSection(c *ui.Context) {
 				if bioChecked && !bioSupported {
 					bioSub = i18n.T("settings.prefs.biometric_unavailable")
 				} else if bioSupported && bioKind != biometrics.None {
-					bioSub = i18n.Tf("settings.prefs.biometric_enabled_via", map[string]any{"name": string(bioKind)})
+					bioSub = i18n.Tf("settings.prefs.biometric_enabled_via", map[string]any{"name": i18n.BiometricKindLabel(string(bioKind))})
 				}
 				bioOn := prefs.BiometricLock
 				ui.Row(c).FillWidth().MinHeight(44).AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {

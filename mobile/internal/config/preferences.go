@@ -39,13 +39,13 @@ func ParseLanguagePreference(raw string) (LanguagePreference, bool) {
 		return LanguageSystem, true
 	case "en":
 		return LanguageEN, true
-	case "zh", "zh-hans", "zh-cn", "zh-sg":
+	case "zh":
 		return LanguageZhHans, true
 	default:
 		if strings.HasPrefix(norm, "en-") {
 			return LanguageEN, true
 		}
-		if strings.HasPrefix(norm, "zh-hans-") {
+		if strings.HasPrefix(norm, "zh-") {
 			return LanguageZhHans, true
 		}
 		return LanguageSystem, false

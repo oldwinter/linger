@@ -5,6 +5,7 @@ import {
   BrowserWindow,
   clipboard,
   ipcMain,
+  nativeTheme,
   session,
   type IpcMainInvokeEvent,
   type Session,
@@ -267,7 +268,7 @@ export class MobileCompanionModule implements Module {
       minHeight: 540,
       show: false,
       title,
-      backgroundColor: "#fcfcfa",
+      backgroundColor: nativeTheme.shouldUseDarkColors ? "#141413" : "#fcfcfa",
       ...(process.platform === "darwin" ? {} : { autoHideMenuBar: true }),
       webPreferences: {
         preload: this.#options.preload,
@@ -376,7 +377,12 @@ export class MobileCompanionModule implements Module {
       }
       case "pairing.open": {
         if (!this.#gateway?.running()) {
-          throw new Error("Enable Mobile Companion before opening pairing.");
+          throw new Error(
+            this.#ctx
+              ?.get<LanguageModule>("Language")
+              .t(mobileCompanionMessages.errEnableBeforePairing) ??
+              "Enable Mobile Companion before opening pairing.",
+          );
         }
         this.#pairing?.openPairingWindow();
         return;
@@ -388,7 +394,12 @@ export class MobileCompanionModule implements Module {
       case "pairing.copyUri": {
         const current = this.state();
         if (!current.pairing?.pairingUri) {
-          throw new Error("Pairing is not currently open.");
+          throw new Error(
+            this.#ctx
+              ?.get<LanguageModule>("Language")
+              .t(mobileCompanionMessages.errPairingNotOpen) ??
+              "Pairing is not currently open.",
+          );
         }
         clipboard.writeText(current.pairing.pairingUri);
         return;

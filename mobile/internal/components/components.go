@@ -337,19 +337,6 @@ func DangerTouchButton(c *ui.Context, label string, disabled bool) ui.Element {
 	return btn
 }
 
-// Plural formats a count with grammatically correct singular or plural noun.
-func Plural(n int64, singular, plural string) string {
-	if n == 1 || n == -1 {
-		return fmt.Sprintf("%d %s", n, singular)
-	}
-	return fmt.Sprintf("%d %s", n, plural)
-}
-
-// PluralInt formats an int count with grammatically correct singular or plural noun.
-func PluralInt(n int, singular, plural string) string {
-	return Plural(int64(n), singular, plural)
-}
-
 // FormField renders a labeled single-line mobile text input with >=44pt touch target.
 func FormField(c *ui.Context, label, placeholder string, value *string, secret bool) ui.Element {
 	t := c.Theme()

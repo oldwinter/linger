@@ -94,7 +94,7 @@ func (s *Screen) viewMemorySegment(c *ui.Context) {
 				row.Children(func() {
 					ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
 						ui.Text(c, entry.Title).FontSize(15).FontWeight(600).TextColor(t.Text).Grow(1).Basis(0).MaxLines(1)
-						components.StatusPill(c, firstWikiStr(entry.Kind, i18n.T("library.memory.journal_kind")), components.ToneInfo)
+						components.StatusPill(c, i18n.MemoryKindLabel(entry.Kind), components.ToneInfo)
 					})
 					if entry.Summary != "" {
 						ui.Text(c, entry.Summary).FontSize(12).TextColor(t.TextMuted).MaxLines(2)
@@ -149,7 +149,7 @@ func (s *Screen) viewMemoryDetailSheet(c *ui.Context) {
 			ui.Column(c).FillWidth().Padding(12, 16, 28, 16).Gap(12).Children(func() {
 				ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
 					ui.Text(c, entry.Title).FontSize(18).Bold().TextColor(t.Text).Grow(1).Basis(0)
-					components.StatusPill(c, entry.Kind, components.ToneInfo)
+					components.StatusPill(c, i18n.MemoryKindLabel(entry.Kind), components.ToneInfo)
 				})
 				if entry.Path != "" {
 					ui.Text(c, entry.Path).FontSize(11).TextColor(t.TextMuted)

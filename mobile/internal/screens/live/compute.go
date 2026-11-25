@@ -45,7 +45,7 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 				components.StatusPill(c, i18n.Tf("live.compute.daemon", map[string]any{"status": i18n.StatusLabel(cs.DaemonConnection)}), components.ToneInfo)
 				components.StatusPill(c, i18n.Tf("live.compute.active_ops", map[string]any{"count": cs.ActiveOperations}), components.ToneNeutral)
 				components.StatusPill(c, i18n.Tf("live.compute.server", map[string]any{"status": i18n.StatusLabel(cs.LocalServerPhase)}), components.ToneNeutral)
-				components.StatusPill(c, i18n.Tf("live.compute.url", map[string]any{"url": cs.ServerURLMode}), components.ToneNeutral)
+				components.StatusPill(c, i18n.Tf("live.compute.url", map[string]any{"url": i18n.ServerURLModeLabel(cs.ServerURLMode)}), components.ToneNeutral)
 				if cs.PreventSleep {
 					components.StatusPill(c, i18n.T("live.compute.awake_guard"), components.ToneSuccess)
 				}
@@ -388,7 +388,7 @@ func (ctl *Controller) actOnLocalModelAsync(computerID, modelID, action string, 
 			mygo.Haptics.Success()
 			ctl.setNotice(i18n.Tf("live.compute.toast.model_accepted", map[string]any{
 				"id":     modelID,
-				"action": action,
+				"action": i18n.LocalModelActionLabel(key),
 			}))
 		}
 		ctl.store.Notify()
@@ -553,7 +553,7 @@ func (ctl *Controller) viewBrowserSheet(c *ui.Context, snap state.Snapshot) {
 			ui.Column(c).FillWidth().Padding(10, 16, 24, 16).Gap(10).Children(func() {
 				ui.Text(c, i18n.T("live.compute.browser_title")).FontSize(18).Bold().TextColor(t.Text)
 				if st != nil {
-					components.StatusPill(c, i18n.StatusLabel(st.State)+" ("+st.Mode+")", components.ToneInfo)
+					components.StatusPill(c, i18n.StatusLabel(st.State)+" ("+i18n.BrowserModeLabel(st.Mode)+")", components.ToneInfo)
 				}
 				components.FormField(c, i18n.T("live.compute.chrome_profile"), i18n.T("common.default"), &ctl.browserProfile, false)
 				ui.Row(c).FillWidth().Gap(8).Children(func() {

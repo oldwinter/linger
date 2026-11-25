@@ -441,6 +441,10 @@
     "customHostPlaceholder": "mac.tailnet.ts.net",
     "requireTls": "强制使用 TLS 1.3",
     "advertiseMdns": "通过 mDNS 局域网广播",
-    "portError": "端口必须为 1024 到 65535 之间的整数。"
+    "portError": "端口必须为 1024 到 65535 之间的整数。",
+    "errEnableBeforePairing": "请先启用移动端伴侣网关，再开启配对。",
+    "errPairingNotOpen": "当前未开启配对窗口。",
+    "sessionDedicated": "独立会话",
+    "sessionDelegated": "代理会话"
   }
 }

@@ -358,7 +358,7 @@ func (s *AppStore) MarkAllRoomsRead(ctx context.Context) error {
 			_ = s.MarkRoomRead(ctx, r.ID)
 		}
 	}
-	s.SetStatusMessage("All rooms marked caught up")
+	s.SetStatusMessage(i18n.T("state.toast.all_caught_up"))
 	return nil
 }
 
@@ -505,7 +505,7 @@ func (s *AppStore) CancelRun(ctx context.Context, roomID, runID string) error {
 	s.rebuildWorkingRoomsLocked()
 	s.transientError = ""
 	s.mu.Unlock()
-	s.SetStatusMessage("Run cancellation requested")
+	s.SetStatusMessage(i18n.T("state.toast.run_cancel_requested"))
 	return nil
 }
 
@@ -519,7 +519,7 @@ func (s *AppStore) RedeliverRunInputs(ctx context.Context, roomID, runID string)
 		s.SetTransientError(err.Error())
 		return err
 	}
-	s.SetStatusMessage("Unconfirmed inputs redelivered")
+	s.SetStatusMessage(i18n.T("state.toast.inputs_redelivered"))
 	return nil
 }
 
@@ -632,7 +632,7 @@ func (s *AppStore) handleLiveRoomEvent(ctx context.Context, ev api.RoomEventEnve
 				}
 			}
 			if !updated && p.Status == "active" {
-				agentName := "Agent"
+				agentName := i18n.T("role.agent")
 				agentID := ""
 				if ev.Actor != nil {
 					agentName = ev.Actor.DisplayName

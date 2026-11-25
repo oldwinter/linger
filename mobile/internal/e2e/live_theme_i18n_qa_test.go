@@ -81,9 +81,9 @@ func trEN(key string) string { return i18n.Tp("en", key, nil) }
 func trZH(key string) string { return i18n.Tp("zh-Hans", key, nil) }
 
 func TestLiveThemeI18nQA(t *testing.T) {
-	outDir := "/tmp/linger-mobile-theme-i18n-qa"
-	if err := os.RemoveAll(outDir); err != nil {
-		t.Fatalf("RemoveAll(%s): %v", outDir, err)
+	outDir := strings.TrimSpace(os.Getenv("LINGER_QA_OUT_DIR"))
+	if outDir == "" {
+		outDir = t.TempDir()
 	}
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll(%s): %v", outDir, err)

@@ -62,7 +62,7 @@ func (ctl *Controller) viewChat(c *ui.Context, snap state.Snapshot, roomID, pare
 			msg := i18n.Tf("chat.working_banner", map[string]any{"actor": run.Agent.DisplayName, "elapsed": formatElapsed(run.CreatedAt)})
 			if run.Status == "aborted" {
 				tone = components.ToneWarning
-				msg = i18n.Tf("chat.stopped_banner", map[string]any{"actor": run.Agent.DisplayName, "elapsed": i18n.StatusLabel(run.Status)})
+				msg = i18n.Tf("chat.stopped_banner", map[string]any{"actor": run.Agent.DisplayName, "status": i18n.StatusLabel(run.Status)})
 			}
 			ui.Box(c.Key("run_banner_"+run.RunID)).FillWidth().Padding(6, 12, 0, 12).Children(func() {
 				components.StatusBanner(c, tone, msg, i18n.T("chat.watch_live"), func() {
@@ -771,7 +771,7 @@ func (ctl *Controller) viewReactionSheet(c *ui.Context, roomID string) {
 	for _, q := range quick {
 		q := q
 		actions = append(actions, mobile.Action{
-			Label: q.label + " " + q.id,
+			Label: q.label + " " + i18n.ReactionLabel(q.id),
 			OnTap: func() {
 				ctl.mu.Lock()
 				target := ctl.reactTargetMsg

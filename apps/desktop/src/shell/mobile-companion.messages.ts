@@ -47,4 +47,8 @@ export const mobileCompanionMessages = defineMessages("mobileCompanion", {
   requireTls: "Require TLS 1.3",
   advertiseMdns: "Advertise via mDNS",
   portError: "Port must be an integer between 1024 and 65535.",
+  errEnableBeforePairing: "Enable Mobile Companion before opening pairing.",
+  errPairingNotOpen: "Pairing is not currently open.",
+  sessionDedicated: "Dedicated",
+  sessionDelegated: "Delegated",
 });

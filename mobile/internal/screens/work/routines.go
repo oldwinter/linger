@@ -335,7 +335,7 @@ func (s *Screen) viewRoutineFormSheet(c *ui.Context) {
 							ui.Text(c, i18n.T("work.routines.weekdays_label")).FontSize(12).FontWeight(600).TextColor(t.TextMuted)
 							ui.Row(c).FillWidth().Wrap().Gap(6).Children(func() {
 								for i, dayKey := range weekdayAPIValues {
-									lbl := i18n.T("work.routines.weekday." + dayKey)
+									lbl := i18n.WeekdayLabel(dayKey)
 									on := s.routineWeekdays[i]
 									bg := theme.Extra(t).MutedBg
 									fg := t.TextMuted
@@ -631,7 +631,7 @@ func formatRoutineCadence(rt api.Routine) string {
 	case "weekly":
 		dayLabels := make([]string, 0, len(cad.Weekdays))
 		for _, wd := range cad.Weekdays {
-			dayLabels = append(dayLabels, i18n.T("work.routines.weekday."+strings.ToLower(wd)))
+			dayLabels = append(dayLabels, i18n.WeekdayLabel(wd))
 		}
 		return i18n.Tf("work.routines.summary.weekly", map[string]any{"days": strings.Join(dayLabels, ", "), "time": hhmm})
 	case "every_n_hours":

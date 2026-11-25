@@ -24,12 +24,16 @@ const (
 //go:embed locales/*.json
 var localesFS embed.FS
 
+type localeSnapshot struct {
+	pref   config.LanguagePreference
+	active string
+}
+
 var (
 	catalog       *mygoi18n.Catalog
-	prefState     atomic.Value
-	activeState   atomic.Value
-	sysLocaleMu   sync.RWMutex
+	stateMu       sync.Mutex
 	sysLocaleFunc func() string
+	currentState  atomic.Pointer[localeSnapshot]
 )
 
 func init() {
@@ -43,13 +47,25 @@ func init() {
 	}
 	mygoi18n.Register(cat)
 	catalog = cat
-	prefState.Store(config.LanguageSystem)
-	activeState.Store(LocaleEN)
+	currentState.Store(&localeSnapshot{
+		pref:   config.LanguageSystem,
+		active: LocaleEN,
+	})
 }
 
 // SupportedLanguages returns the canonical BCP 47 language tags shipped by Linger Mobile.
 func SupportedLanguages() []string {
 	return []string{LocaleEN, LocaleZhHans}
+}
+
+// MyGoLocaleTarget returns the target locale string for mygo.App.SetLocale
+// (an empty string clears any forced override so MyGo follows OS locale).
+func MyGoLocaleTarget(pref config.LanguagePreference) string {
+	norm := config.NormalizeLanguagePreference(string(pref))
+	if norm == config.LanguageSystem {
+		return ""
+	}
+	return ResolveLocale(norm, "")
 }
 
 // Catalog returns the registered MyGo ICU catalog.
@@ -66,72 +82,84 @@ func NormalizeSystemLocale(raw string) string {
 	return LocaleEN
 }
 
-// ResolveLocale resolves a user preference plus optional OS locale into a shipped catalog tag.
-func ResolveLocale(pref config.LanguagePreference, systemLocale string) string {
+func resolveWithReader(pref config.LanguagePreference, systemLocale string, fn func() string) string {
 	switch config.NormalizeLanguagePreference(string(pref)) {
 	case config.LanguageEN:
 		return LocaleEN
 	case config.LanguageZhHans:
 		return LocaleZhHans
 	default:
-		if systemLocale == "" {
-			sysLocaleMu.RLock()
-			fn := sysLocaleFunc
-			sysLocaleMu.RUnlock()
-			if fn != nil {
-				systemLocale = fn()
-			}
+		if systemLocale == "" && fn != nil {
+			systemLocale = fn()
 		}
 		return NormalizeSystemLocale(systemLocale)
 	}
 }
 
-// SetSystemLocaleFunc registers the live OS locale reader (called once the runtime is ready).
-func SetSystemLocaleFunc(fn func() string) {
-	sysLocaleMu.Lock()
-	sysLocaleFunc = fn
-	sysLocaleMu.Unlock()
-	RefreshSystemLocale("")
+// ResolveLocale resolves a user preference plus optional OS locale into a shipped catalog tag.
+func ResolveLocale(pref config.LanguagePreference, systemLocale string) string {
+	stateMu.Lock()
+	fn := sysLocaleFunc
+	stateMu.Unlock()
+	return resolveWithReader(pref, systemLocale, fn)
 }
 
-// SetPreference updates the active language preference and resolves the active catalog tag.
+// SetSystemLocaleFunc registers the live OS locale reader (called once the runtime is ready).
+func SetSystemLocaleFunc(fn func() string) {
+	stateMu.Lock()
+	sysLocaleFunc = fn
+	cur := currentState.Load()
+	pref := cur.pref
+	if pref == config.LanguageSystem {
+		next := resolveWithReader(pref, "", fn)
+		currentState.Store(&localeSnapshot{pref: pref, active: next})
+	}
+	stateMu.Unlock()
+}
+
+// SetPreference updates the active language preference and resolved active catalog tag atomically.
 func SetPreference(pref config.LanguagePreference) string {
 	norm := config.NormalizeLanguagePreference(string(pref))
-	prefState.Store(norm)
-	resolved := ResolveLocale(norm, "")
-	activeState.Store(resolved)
+	stateMu.Lock()
+	fn := sysLocaleFunc
+	resolved := resolveWithReader(norm, "", fn)
+	currentState.Store(&localeSnapshot{pref: norm, active: resolved})
+	stateMu.Unlock()
 	return resolved
 }
 
 // RefreshSystemLocale re-evaluates the active locale when LanguageSystem is selected.
 func RefreshSystemLocale(osLocale string) (changed bool, resolved string) {
-	pref := ActivePreference()
-	if pref != config.LanguageSystem {
-		cur := ActiveLocale()
-		return false, cur
+	stateMu.Lock()
+	defer stateMu.Unlock()
+	cur := currentState.Load()
+	if cur.pref != config.LanguageSystem {
+		return false, cur.active
 	}
-	next := ResolveLocale(pref, osLocale)
-	prev := ActiveLocale()
-	activeState.Store(next)
-	return next != prev, next
+	next := resolveWithReader(cur.pref, osLocale, sysLocaleFunc)
+	if next != cur.active {
+		currentState.Store(&localeSnapshot{pref: cur.pref, active: next})
+		return true, next
+	}
+	return false, cur.active
 }
 
-// ActivePreference returns the current LanguagePreference.
+// ActivePreference returns the current LanguagePreference lock-free.
 func ActivePreference() config.LanguagePreference {
-	v, _ := prefState.Load().(config.LanguagePreference)
-	if v == "" {
+	snap := currentState.Load()
+	if snap == nil || snap.pref == "" {
 		return config.LanguageSystem
 	}
-	return v
+	return snap.pref
 }
 
-// ActiveLocale returns the currently active resolved catalog tag ("en" or "zh-Hans").
+// ActiveLocale returns the currently active resolved catalog tag ("en" or "zh-Hans") lock-free.
 func ActiveLocale() string {
-	v, _ := activeState.Load().(string)
-	if v == "" {
+	snap := currentState.Load()
+	if snap == nil || snap.active == "" {
 		return LocaleEN
 	}
-	return v
+	return snap.active
 }
 
 // T formats a zero-argument key in the active locale (hitting MyGo's zero-alloc fast cache).

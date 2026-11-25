@@ -87,6 +87,10 @@ func TestParseThemeAndLanguagePreference(t *testing.T) {
 		{"zh", LanguageZhHans, true},
 		{"zh-Hans", LanguageZhHans, true},
 		{"zh_CN", LanguageZhHans, true},
+		{"zh-TW", LanguageZhHans, true},
+		{"zh-HK", LanguageZhHans, true},
+		{"zh-Hant", LanguageZhHans, true},
+		{"zh-Hant-TW", LanguageZhHans, true},
 		{"fr-FR", LanguageSystem, false},
 	}
 	for _, tc := range langCases {

@@ -92,9 +92,11 @@ type Snapshot struct {
 
 // Options configures AppStore construction.
 type Options struct {
-	ConfigStore *config.Store
-	DataDir     string
-	OnNotify    func() // invokes Window.Update / redraw on state mutation
+	ConfigStore      *config.Store
+	DataDir          string
+	OnNotify         func() // invokes Window.Update / redraw on state mutation
+	ThemeOverride    *config.ThemePreference
+	LanguageOverride *config.LanguagePreference
 }
 
 // AppStore owns all runtime services and thread-safe application state.
@@ -109,6 +111,8 @@ type AppStore struct {
 	Routers [5]*ui.Router
 
 	mu              sync.RWMutex
+	sessionTheme    *config.ThemePreference
+	sessionLang     *config.LanguagePreference
 	connGen         uint64
 	connectCancel   context.CancelFunc
 	refreshRunning  bool
@@ -172,13 +176,27 @@ func NewAppStore(opts Options) *AppStore {
 		cfgStore = config.NewStore(nil, nil)
 	}
 	prefs := cfgStore.Preferences()
-	if prefs.Language != config.LanguageSystem {
+	var sessTheme *config.ThemePreference
+	if opts.ThemeOverride != nil {
+		norm := config.NormalizeThemePreference(string(*opts.ThemeOverride))
+		sessTheme = &norm
+		prefs.Theme = norm
+	}
+	var sessLang *config.LanguagePreference
+	if opts.LanguageOverride != nil {
+		norm := config.NormalizeLanguagePreference(string(*opts.LanguageOverride))
+		sessLang = &norm
+		prefs.Language = norm
+	}
+	if opts.LanguageOverride != nil || prefs.Language != config.LanguageSystem {
 		i18n.SetPreference(prefs.Language)
 	}
 	s := &AppStore{
 		cfg:               cfgStore,
 		dataDir:           opts.DataDir,
 		onNotify:          opts.OnNotify,
+		sessionTheme:      sessTheme,
+		sessionLang:       sessLang,
 		phase:             PhaseDisconnected,
 		sseState:          realtime.StateDisconnected,
 		online:            true,
@@ -249,10 +267,26 @@ func (s *AppStore) notify() {
 	}
 }
 
+func (s *AppStore) effectivePreferencesLocked() config.AppPreferences {
+	prefs := s.cfg.Preferences()
+	if s.sessionTheme != nil {
+		prefs.Theme = *s.sessionTheme
+	}
+	if s.sessionLang != nil {
+		prefs.Language = *s.sessionLang
+	}
+	return prefs
+}
+
+func (s *AppStore) effectivePreferences() config.AppPreferences {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.effectivePreferencesLocked()
+}
+
 // Snapshot returns a thread-safe point-in-time snapshot for UI rendering.
 func (s *AppStore) Snapshot() Snapshot {
 	hosts := s.cfg.Hosts()
-	prefs := s.cfg.Preferences()
 	var activeHost *config.HostProfile
 	if ah, ok := s.cfg.ActiveHost(); ok {
 		cp := ah
@@ -261,6 +295,7 @@ func (s *AppStore) Snapshot() Snapshot {
 
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	prefs := s.effectivePreferencesLocked()
 
 	var cursors map[string]int64
 	if s.stream != nil {
@@ -478,24 +513,46 @@ func (s *AppStore) SetBiometricLocked(locked bool) {
 
 // UpdatePreferences persists new AppPreferences and fires theme/language callbacks when changed.
 func (s *AppStore) UpdatePreferences(prefs config.AppPreferences) error {
-	prev := s.cfg.Preferences()
 	prefs.Theme = config.NormalizeThemePreference(string(prefs.Theme))
 	prefs.Language = config.NormalizeLanguagePreference(string(prefs.Language))
-	if err := s.cfg.SetPreferences(prefs); err != nil {
-		return err
+
+	s.mu.Lock()
+	prev := s.effectivePreferencesLocked()
+	prevDisk := s.cfg.Preferences()
+	if prefs == prev && i18n.ActivePreference() == prefs.Language {
+		s.mu.Unlock()
+		return nil
 	}
-	if prefs.Language != prev.Language || i18n.ActivePreference() != prefs.Language {
-		i18n.SetPreference(prefs.Language)
+	disk := prefs
+	themeChanged := prefs.Theme != prev.Theme
+	langChanged := prefs.Language != prev.Language
+	if themeChanged {
+		s.sessionTheme = nil
+	} else {
+		disk.Theme = prevDisk.Theme
 	}
-	s.mu.RLock()
+	if langChanged {
+		s.sessionLang = nil
+	} else {
+		disk.Language = prevDisk.Language
+	}
 	onTheme := s.onThemeChanged
 	onLang := s.onLanguageChanged
-	s.mu.RUnlock()
-	if onTheme != nil && prefs.Theme != prev.Theme {
+	s.mu.Unlock()
+
+	if disk != prevDisk {
+		if err := s.cfg.SetPreferences(disk); err != nil {
+			return err
+		}
+	}
+	if themeChanged && onTheme != nil {
 		onTheme(prefs.Theme)
 	}
-	if onLang != nil && prefs.Language != prev.Language {
+	if langChanged && onLang != nil {
 		onLang(prefs.Language)
+	}
+	if langChanged || i18n.ActivePreference() != prefs.Language {
+		i18n.SetPreference(prefs.Language)
 	}
 	s.notify()
 	return nil
@@ -503,21 +560,21 @@ func (s *AppStore) UpdatePreferences(prefs config.AppPreferences) error {
 
 // SetThemePreference updates the Town Light/Dark/System theme preference.
 func (s *AppStore) SetThemePreference(pref config.ThemePreference) error {
-	p := s.cfg.Preferences()
+	p := s.effectivePreferences()
 	p.Theme = config.NormalizeThemePreference(string(pref))
 	return s.UpdatePreferences(p)
 }
 
 // SetLanguagePreference updates the System/English/Simplified Chinese language preference.
 func (s *AppStore) SetLanguagePreference(pref config.LanguagePreference) error {
-	p := s.cfg.Preferences()
+	p := s.effectivePreferences()
 	p.Language = config.NormalizeLanguagePreference(string(pref))
 	return s.UpdatePreferences(p)
 }
 
 // SetBiometricPreference toggles Biometric App Lock.
 func (s *AppStore) SetBiometricPreference(enabled bool) error {
-	p := s.cfg.Preferences()
+	p := s.effectivePreferences()
 	p.BiometricLock = enabled
 	if !enabled {
 		s.SetBiometricLocked(false)
