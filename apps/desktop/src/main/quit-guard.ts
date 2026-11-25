@@ -35,10 +35,12 @@ export function createQuitGuard(options: QuitGuardOptions): QuitGuard {
       let proceed: boolean;
       try {
         proceed = await options.confirmBusyQuit();
+      } catch {
+        return;
       } finally {
         confirming = false;
       }
-      if (!proceed) return;
+      if (!proceed || quitting) return;
     }
     confirmed = true;
     options.requestAppQuit();
@@ -50,12 +52,17 @@ export function createQuitGuard(options: QuitGuardOptions): QuitGuard {
       return;
     }
     const automatic = options.isAutomaticQuit();
+    if (!automatic && confirming) {
+      event.preventDefault();
+      return;
+    }
     if (!automatic && !confirmed && options.isBusy()) {
       event.preventDefault();
       void requestQuit();
       return;
     }
     quitting = true;
+    confirmed = false;
     event.preventDefault();
     options.prepareQuit();
     void options.stopHost(automatic ? "update" : "quit").finally(() => {

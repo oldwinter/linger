@@ -182,4 +182,56 @@ describe("createQuitGuard", () => {
     await flush();
     expect(f.exitApp).toHaveBeenCalledOnce();
   });
+
+  it("handles a rejected confirmation dialog without crashing and allows retrying quit", async () => {
+    let failOnce = true;
+    const f = setup({
+      busy: true,
+      confirm: async () => {
+        if (failOnce) {
+          failOnce = false;
+          throw new Error("dialog closed unexpectedly");
+        }
+        return true;
+      },
+    });
+    const first = { preventDefault: vi.fn() };
+    f.guard.handleBeforeQuit(first);
+    await flush();
+
+    expect(first.preventDefault).toHaveBeenCalledOnce();
+    expect(f.stopHost).not.toHaveBeenCalled();
+    expect(f.exitApp).not.toHaveBeenCalled();
+
+    const second = { preventDefault: vi.fn() };
+    f.guard.handleBeforeQuit(second);
+    await flush();
+    expect(f.confirmBusyQuit).toHaveBeenCalledTimes(2);
+    expect(f.stopHost).toHaveBeenCalledExactlyOnceWith("quit");
+    expect(f.exitApp).toHaveBeenCalledOnce();
+  });
+
+  it("keeps blocking non-automatic before-quit while confirmation is open even if tasks finish", async () => {
+    let resolveConfirm!: (value: boolean) => void;
+    const f = setup({
+      busy: true,
+      confirm: () =>
+        new Promise<boolean>((resolve) => {
+          resolveConfirm = resolve;
+        }),
+    });
+    f.guard.handleBeforeQuit({ preventDefault: vi.fn() });
+    // Tasks finish while the user is still reading the prompt.
+    f.state.busy = false;
+    const second = { preventDefault: vi.fn() };
+    f.guard.handleBeforeQuit(second);
+
+    expect(second.preventDefault).toHaveBeenCalledOnce();
+    expect(f.stopHost).not.toHaveBeenCalled();
+
+    resolveConfirm(false);
+    await flush();
+    expect(f.stopHost).not.toHaveBeenCalled();
+    expect(f.exitApp).not.toHaveBeenCalled();
+  });
 });

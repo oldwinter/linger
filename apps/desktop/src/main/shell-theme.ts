@@ -32,5 +32,11 @@ export function onShellThemeChange(
   if (!nativeTheme || typeof nativeTheme.on !== "function") return () => {};
   const handle = (): void => listener(currentShellColors());
   nativeTheme.on("updated", handle);
-  return () => nativeTheme.off?.("updated", handle);
+  return () => {
+    if (typeof nativeTheme.off === "function") {
+      nativeTheme.off("updated", handle);
+    } else if (typeof nativeTheme.removeListener === "function") {
+      nativeTheme.removeListener("updated", handle);
+    }
+  };
 }
