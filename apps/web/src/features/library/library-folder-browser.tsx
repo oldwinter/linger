@@ -18,7 +18,7 @@ import type {
 } from "@/features/teamhub/teamhub-types";
 import { commonMessages } from "@/i18n/common.messages";
 import { formatLocale } from "@/i18n/language";
-import { useT, useTranslation } from "@/i18n/use-translation";
+import { RichMessage, useT, useTranslation } from "@/i18n/use-translation";
 import { formatDateTime, formatUpdatedAt } from "@/lib/date-format";
 
 import type { PendingDocumentUpload } from "./library-upload-queue";
@@ -370,6 +370,7 @@ export function RenameFolderDialog({
   onChange: (name: string) => void;
   onSubmit: () => void;
 }) {
+  const t = useT();
   const trimmed = name.trim();
 
   function submit(event?: FormEvent) {
@@ -383,22 +384,22 @@ export function RenameFolderDialog({
       footer={
         <>
           <Button onClick={onCancel} tone="secondary">
-            Cancel
+            {t(commonMessages.cancel)}
           </Button>
           <Button disabled={!trimmed} onClick={() => submit()} tone="primary">
-            Save
+            {t(commonMessages.save)}
           </Button>
         </>
       }
       onClose={onCancel}
       size="sm"
-      title="Rename folder"
+      title={t(m.renameFolder)}
     >
       <form className="px-5 py-4" onSubmit={submit}>
         <label className="block text-sm font-medium text-app-body">
-          Folder name
+          {t(m.folderName)}
           <input
-            aria-label="Folder name"
+            aria-label={t(m.folderName)}
             className="mt-1 h-9 w-full rounded-md border border-app-border bg-transparent px-3 text-sm placeholder:text-app-placeholder focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             maxLength={255}
             onChange={(event) => onChange(event.target.value)}
@@ -432,21 +433,29 @@ export function DeleteFolderDialog({
   onConfirm: () => void;
   pending: boolean;
 }) {
+  const t = useT();
   return (
     <ModalDialog
       closeOnBackdrop={!pending}
       description={
-        <>
-          Delete <strong>{name}</strong>? This action cannot be undone.
-        </>
+        <RichMessage
+          message={m.deleteFolderBody}
+          tags={{ name: (text) => <strong>{text}</strong> }}
+          values={{ name }}
+        />
       }
       footer={
         <>
           <Button disabled={pending} onClick={onCancel} tone="secondary">
-            Cancel
+            {t(commonMessages.cancel)}
           </Button>
-          <Button loading={pending} onClick={onConfirm} tone="danger">
-            Delete folder
+          <Button
+            data-voice-risk="never"
+            loading={pending}
+            onClick={onConfirm}
+            tone="danger"
+          >
+            {t(m.deleteFolderConfirm)}
           </Button>
         </>
       }
@@ -454,7 +463,7 @@ export function DeleteFolderDialog({
         if (!pending) onCancel();
       }}
       size="sm"
-      title="Delete folder"
+      title={t(m.deleteFolderTitle)}
     >
       {null}
     </ModalDialog>

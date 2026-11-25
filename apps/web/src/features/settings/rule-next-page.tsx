@@ -5,7 +5,10 @@ import { Link, useParams } from "react-router";
 import { Button } from "@/components/ui/button";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
 
+import { myRulesMessages as m } from "./my-rules.messages";
 import {
   myRulesQueryKey,
   myRulesQueryOptions,
@@ -20,6 +23,7 @@ import { nextTimeChange, ruleFromBook } from "./rule-next";
 export function RuleNextPage() {
   const { client } = useTeamHubRuntime();
   const queryClient = useQueryClient();
+  const t = useT();
   const params = useParams();
   const tenantId = requireRoomRouteParam(params.tenantId, "Tenant");
   const ruleId = requireRoomRouteParam(params.ruleId, "Rule");
@@ -45,9 +49,7 @@ export function RuleNextPage() {
       queryClient.setQueryData(myRulesQueryKey(tenantId), next);
     } catch (cause) {
       setError(
-        cause instanceof Error
-          ? cause.message
-          : "This rule could not start deciding.",
+        cause instanceof Error ? cause.message : t(m.ruleNextCouldNotDecide),
       );
     } finally {
       setPending(false);
@@ -57,32 +59,48 @@ export function RuleNextPage() {
   return (
     <div className="mx-auto flex w-full max-w-(--app-settings-width) flex-col gap-6 pb-4">
       <header>
-        <h1 className="text-2xl text-foreground">What this changes next</h1>
+        <h1 className="text-2xl text-foreground">{t(m.ruleNextTitle)}</h1>
         <p className="mt-1.5 text-sm text-muted-foreground">
-          A shadow rule only watches. Letting it decide means the next matching
-          thing follows it.
+          {t(m.ruleNextSubtitle)}
         </p>
       </header>
       {rules.isPending ? (
         <p className="text-sm text-muted-foreground" role="status">
-          Loading this rule.
+          {t(m.ruleNextLoading)}
         </p>
-      ) : rules.isError || !rule ? (
+      ) : rules.isError ? (
+        <div className="flex flex-col items-start gap-3" role="alert">
+          <p className="text-sm text-destructive">
+            {rules.error instanceof Error && rules.error.message
+              ? rules.error.message
+              : t(m.ruleNextLoadFailed)}
+          </p>
+          <Button
+            disabled={rules.isFetching}
+            onClick={() => void rules.refetch()}
+            size="compact"
+            tone="secondary"
+            type="button"
+          >
+            {t(commonMessages.tryAgain)}
+          </Button>
+        </div>
+      ) : !rule ? (
         <p className="text-sm text-muted-foreground" role="status">
-          This rule is not in your book.
+          {t(m.ruleNextNotInBook)}
         </p>
       ) : (
         <>
           <h2 className="text-lg text-foreground">{rule.text}</h2>
           {rule.status === "active" ? (
             <p className="text-sm text-foreground" role="status">
-              This rule already decides.
+              {t(m.ruleNextAlreadyDecides)}
             </p>
           ) : (
             <>
               {changes.length ? (
                 <ul
-                  aria-label="What changes next"
+                  aria-label={t(m.ruleNextListLabel)}
                   className="flex flex-col gap-3"
                 >
                   {changes.map((divergence) => (
@@ -96,8 +114,7 @@ export function RuleNextPage() {
                 </ul>
               ) : (
                 <p className="text-sm text-muted-foreground">
-                  Nothing has come up yet where this would have decided
-                  differently. The next match follows this rule once it decides.
+                  {t(m.ruleNextEmpty)}
                 </p>
               )}
               {error ? (
@@ -110,7 +127,7 @@ export function RuleNextPage() {
                 onClick={() => void decide()}
                 type="button"
               >
-                {pending ? "Letting it decide" : "Let this rule decide"}
+                {t(pending ? m.ruleNextPending : m.ruleNextAction)}
               </Button>
             </>
           )}
@@ -120,7 +137,7 @@ export function RuleNextPage() {
         className="text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         to={rulesPath}
       >
-        Back to My Rules
+        {t(m.backToMyRules)}
       </Link>
     </div>
   );

@@ -19,7 +19,10 @@ export type UploadErrorText = string | Message<string>;
 
 export interface UploadFailure {
   filename: string;
+  id?: string;
   message: UploadErrorText;
+  parentId?: string;
+  source?: UploadSource;
 }
 
 /** One reason, or the entries of a batch that failed. */
@@ -92,6 +95,24 @@ export const tenantUploads = {
       ...current,
       uploads: current.uploads.filter((upload) => !uploadIds.has(upload.id)),
     }));
+  },
+  removeFailure(tenantId: string, failureId: string) {
+    update(tenantId, (current) => {
+      if (
+        !current.error ||
+        typeof current.error === "string" ||
+        !("failures" in current.error)
+      ) {
+        return current;
+      }
+      const remaining = current.error.failures.filter(
+        (failure) => failure.id !== failureId,
+      );
+      return {
+        ...current,
+        error: remaining.length > 0 ? { failures: remaining } : null,
+      };
+    });
   },
   setActive(tenantId: string, active: boolean) {
     update(tenantId, (current) => ({ ...current, active }));

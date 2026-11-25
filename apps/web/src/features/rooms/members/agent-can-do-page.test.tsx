@@ -83,4 +83,66 @@ describe("What an agent can do", () => {
       manifest_version: "1.0.0",
     });
   });
+
+  it("separates always-on built-in skills from custom configurable skills", async () => {
+    const runtime = createTestTeamHubRuntime();
+    runtime.seed.tenantAgents = runtime.seed.tenantAgents.map((agent) =>
+      agent.actor.id === "actor-codex"
+        ? {
+            ...agent,
+            skill_bindings: [
+              {
+                enabled: true,
+                is_default: true,
+                manifest_version: "1.0.0",
+                name: "TeamHub Basics",
+                skill_id: "skill-teamhub-basics",
+              },
+            ],
+          }
+        : agent,
+    );
+    runtime.server.on(
+      "GET",
+      "/v0/tenants/{tenantId}/agents/{agentId}/skill-bindings",
+      () => ({
+        agent_actor_id: "actor-codex",
+        binding_version: 1,
+        items: [],
+      }),
+    );
+    const router = createMemoryRouter(
+      [
+        {
+          element: <AgentCanDoPage />,
+          path: "/t/:tenantId/agents/:agentId/can-do",
+        },
+      ],
+      {
+        initialEntries: ["/t/tenant-northstar/agents/actor-codex/can-do"],
+      },
+    );
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <TeamHubRuntimeProvider runtime={runtime}>
+          <RouterProvider router={router} />
+        </TeamHubRuntimeProvider>
+      </QueryClientProvider>,
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Included by default" }),
+    ).toBeVisible();
+    expect(screen.getByText("TeamHub Basics")).toBeVisible();
+    expect(screen.getByText("Always on")).toBeVisible();
+    expect(
+      screen.getByText(
+        "No custom skills added yet. Add custom skills in Agent Info to turn them on or off here.",
+      ),
+    ).toBeVisible();
+  });
 });

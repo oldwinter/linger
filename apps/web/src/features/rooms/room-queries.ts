@@ -10,7 +10,10 @@ import {
   TeamHubError,
   type TeamHubClient,
 } from "@/features/teamhub/teamhub-client";
-import { teamHubData } from "@/features/teamhub/teamhub-api";
+import {
+  startSilentAuthenticationRequest,
+  teamHubData,
+} from "@/features/teamhub/teamhub-api";
 import { teamHubClientErrorMessages } from "@/features/teamhub/teamhub-client-errors.messages";
 import { collectTeamHubCursorPages } from "@/features/teamhub/teamhub-cursor-pages";
 import type {
@@ -190,17 +193,36 @@ export function teamHubSessionQueryOptions(client: TeamHubClient) {
   });
 }
 
-export function teamHubIdentityQueryOptions(client: TeamHubClient) {
+interface AuthProbeOptions {
+  silentAuth?: boolean;
+}
+
+function runAuthProbe<T>(
+  options: AuthProbeOptions | undefined,
+  run: () => T,
+): T {
+  return options?.silentAuth ? startSilentAuthenticationRequest(run) : run();
+}
+
+export function teamHubIdentityQueryOptions(
+  client: TeamHubClient,
+  options?: AuthProbeOptions,
+) {
   return queryOptions({
-    queryFn: () => teamHubData(client.api.GET("/v0/me")),
+    queryFn: () =>
+      teamHubData(runAuthProbe(options, () => client.api.GET("/v0/me"))),
     queryKey: teamHubIdentityQueryKey,
     staleTime: 30_000,
   });
 }
 
-export function teamHubTenantsQueryOptions(client: TeamHubClient) {
+export function teamHubTenantsQueryOptions(
+  client: TeamHubClient,
+  options?: AuthProbeOptions,
+) {
   return queryOptions({
-    queryFn: () => teamHubData(client.api.GET("/v0/tenants")),
+    queryFn: () =>
+      teamHubData(runAuthProbe(options, () => client.api.GET("/v0/tenants"))),
     queryKey: teamHubTenantsQueryKey,
     staleTime: 30_000,
   });
@@ -209,13 +231,16 @@ export function teamHubTenantsQueryOptions(client: TeamHubClient) {
 export function teamHubTenantQueryOptions(
   client: TeamHubClient,
   tenantId: string,
+  options?: AuthProbeOptions,
 ) {
   return queryOptions({
     queryFn: async () => {
       const tenant = await teamHubData(
-        client.api.GET("/v0/tenants/{tenantId}", {
-          params: { path: { tenantId } },
-        }),
+        runAuthProbe(options, () =>
+          client.api.GET("/v0/tenants/{tenantId}", {
+            params: { path: { tenantId } },
+          }),
+        ),
       );
       return requireScope(tenant.id === tenantId, tenant);
     },
@@ -307,14 +332,17 @@ export function anotherMeQueryOptions(client: TeamHubClient, tenantId: string) {
 export function tenantRoomsQueryOptions(
   client: TeamHubClient,
   tenantId: string,
+  options?: AuthProbeOptions,
 ) {
   return queryOptions({
     queryFn: () =>
       collectTeamHubCursorPages(async (page) => {
         const rooms = await teamHubData(
-          client.api.GET("/v0/tenants/{tenantId}/rooms", {
-            params: { path: { tenantId }, query: page },
-          }),
+          runAuthProbe(options, () =>
+            client.api.GET("/v0/tenants/{tenantId}/rooms", {
+              params: { path: { tenantId }, query: page },
+            }),
+          ),
         );
         return requireScope(
           rooms.items.every((room) => room.tenant_id === tenantId),

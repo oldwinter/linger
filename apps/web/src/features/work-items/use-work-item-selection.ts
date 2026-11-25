@@ -27,17 +27,21 @@ const EMPTY_SELECTION: ReadonlySet<string> = new Set();
  * the visible set leaves the selection.
  */
 export function useWorkItemSelection({
+  initialSelectedIds,
   items,
   tenantId,
 }: {
+  /** Optional IDs restored when returning from a sub-page like Side by side. */
+  initialSelectedIds?: readonly string[];
   /** The cards the board shows, in display order. */
   items: readonly TeamHubWorkItem[];
   tenantId: string;
 }) {
   const { client } = useTeamHubRuntime();
   const queryClient = useQueryClient();
-  const [selectedIds, setSelectedIds] =
-    useState<ReadonlySet<string>>(EMPTY_SELECTION);
+  const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(() =>
+    initialSelectedIds?.length ? new Set(initialSelectedIds) : EMPTY_SELECTION,
+  );
   const [pending, setPending] = useState(false);
   const [outcome, setOutcome] = useState<WorkItemArchiveOutcome | null>(null);
   const visibleIdsKey = items.map((item) => item.id).join("\n");

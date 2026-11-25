@@ -8,6 +8,8 @@ import { TeamHubError } from "@/features/teamhub/teamhub-error";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import { dayKey } from "@/lib/date-format";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
 
 import { useMeetings } from "@/features/memory/memory-queries";
 import { roomMembersQueryOptions } from "@/features/rooms/room-queries";
@@ -20,6 +22,7 @@ import { loadNoteFromThatDay } from "./note-from-that-day";
 import { tenantWorkItemTargetQueryOptions } from "./work-item-queries";
 import { dashboardWorkItemPath } from "./work-item-routes";
 import { workItemActivityText, workRoomPath } from "./work-item-story";
+import { workItemsMessages as m } from "./work-items.messages";
 import {
   workOpenedDuringMeeting,
   workOpenedDuringMeetingText,
@@ -30,6 +33,7 @@ import {
  * The Dashboard stays the board; this page does not change the Work Item.
  */
 export function WorkItemStoryPage() {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const params = useParams();
   const tenantId = requireRoomRouteParam(params.tenantId, "Tenant");
@@ -95,7 +99,7 @@ export function WorkItemStoryPage() {
         {itemQuery.isPending ||
         (!itemQuery.isError && timelineQuery.isPending) ? (
           <p className="text-sm text-muted-foreground" role="status">
-            Loading this Work Item.
+            {t(m.loadingWorkItem)}
           </p>
         ) : itemQuery.isError &&
           !(
@@ -104,7 +108,7 @@ export function WorkItemStoryPage() {
           ) ? (
           <div className="space-y-3" role="alert">
             <p className="text-sm text-app-danger">
-              {itemQuery.error.message || "This Work Item could not be loaded."}
+              {itemQuery.error.message || t(m.workItemLoadFailed)}
             </p>
             <Button
               disabled={itemQuery.isFetching}
@@ -115,18 +119,20 @@ export function WorkItemStoryPage() {
               size="compact"
               tone="secondary"
             >
-              {itemQuery.isFetching ? "Retrying…" : "Retry"}
+              {itemQuery.isFetching ? t(m.retrying) : t(commonMessages.retry)}
             </Button>
           </div>
         ) : !item ? (
           <p className="text-sm text-muted-foreground" role="status">
-            This Work Item is not on the Dashboard.
+            {t(m.workItemNotOnDashboard)}
           </p>
         ) : (
           <>
             <header>
               <p className="text-xs text-muted-foreground">
-                {item.kind === "issue" ? "Issue" : "Task"} #{item.number}
+                {t(item.kind === "issue" ? m.issueNumber : m.taskNumber, {
+                  number: item.number,
+                })}
               </p>
               <h1 className="mt-1 text-xl text-foreground">{item.title}</h1>
               {openedDuring ? (
@@ -136,19 +142,19 @@ export function WorkItemStoryPage() {
                     className="underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     to={openedDuring.href}
                   >
-                    Open that meeting
+                    {t(m.openThatMeeting)}
                   </Link>
                 </p>
               ) : null}
               <p className="mt-3 whitespace-pre-wrap text-sm text-foreground">
                 {item.description.trim()
                   ? item.description
-                  : "No description yet."}
+                  : t(m.noDescriptionYet)}
               </p>
               {noteQuery.data ? (
                 <blockquote className="mt-4 border-l-2 border-border pl-3">
                   <p className="text-xs text-muted-foreground">
-                    Your Pocket note from that day
+                    {t(m.pocketNoteFromThatDay)}
                   </p>
                   <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">
                     {noteQuery.data}
@@ -171,7 +177,7 @@ export function WorkItemStoryPage() {
             </header>
             {timelineQuery.error ? (
               <p className="text-sm text-destructive" role="alert">
-                The story could not be loaded.
+                {t(m.storyLoadFailed)}
               </p>
             ) : (
               <section aria-labelledby="work-item-story-heading">
@@ -179,7 +185,7 @@ export function WorkItemStoryPage() {
                   className="text-sm text-foreground"
                   id="work-item-story-heading"
                 >
-                  What happened
+                  {t(m.whatHappened)}
                 </h2>
                 {timelineQuery.data?.items.length ? (
                   <ol className="mt-3 flex flex-col gap-3">
@@ -195,7 +201,7 @@ export function WorkItemStoryPage() {
                           <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">
                             {entry.comment.body.trim()
                               ? entry.comment.body
-                              : "A comment was removed."}
+                              : t(m.commentWasRemoved)}
                           </p>
                         </li>
                       ) : (
@@ -210,7 +216,7 @@ export function WorkItemStoryPage() {
                   </ol>
                 ) : (
                   <p className="mt-3 text-sm text-muted-foreground">
-                    Nothing has been recorded yet.
+                    {t(m.nothingRecordedYet)}
                   </p>
                 )}
               </section>
@@ -220,7 +226,7 @@ export function WorkItemStoryPage() {
                 className="text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 to={workRoomPath(tenantId, roomId)}
               >
-                Open the Room doing this work
+                {t(m.openWorkRoom)}
               </Link>
             ) : null}
           </>
@@ -229,7 +235,7 @@ export function WorkItemStoryPage() {
           className="text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           to={dashboardWorkItemPath(tenantId, workItemId)}
         >
-          Back to the Dashboard
+          {t(m.backToDashboard)}
         </Link>
       </div>
     </main>

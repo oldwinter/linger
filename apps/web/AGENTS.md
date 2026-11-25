@@ -179,7 +179,9 @@ build:assets` to check the initial JS budget.
 - The Another Me Chat opens with a danger banner while TeamHub's Another Me
   carries `background_failure` (three or more failed background model calls
   in a row), worded from its reason code (an unknown code reads as unknown).
-  It cannot be dismissed and goes once a background call completes.
+  It links directly to Models or Computers settings for recovery, can be
+  dismissed for the current failure batch (reappearing if failures keep
+  climbing or the reason changes), and clears once a background call completes.
 - Switching between Meeting and Voice Mode ends the previous session and
   releases its microphone before the new mode starts. Meeting saving can
   continue in the background. The sidebar Meeting entry spins only while a

@@ -101,6 +101,7 @@ export function AgentAvatarEditor({
       {onImageChange ? (
         <input
           accept="image/jpeg,image/png,image/webp"
+          aria-hidden="true"
           aria-label={t(agentInfoMessages.avatarImageFile)}
           className="sr-only"
           disabled={disabled}

@@ -190,7 +190,7 @@ describe("useLibraryBulkActions", () => {
     await waitFor(() =>
       expect(result.current.outcome).toEqual({
         failed: false,
-        message: "Moved to trash 1 document.",
+        message: "Deleted 1 document.",
       }),
     );
     expect(result.current.selectedDocumentIds.size).toBe(0);

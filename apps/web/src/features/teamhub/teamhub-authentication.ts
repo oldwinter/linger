@@ -4,6 +4,29 @@ export type TeamHubAuthenticationEventKind =
 
 export type TeamHubAuthenticationReason = "session-expired";
 
+let explicitSignOutDepth = 0;
+const explicitSignOutListeners = new Set<() => void>();
+
+/**
+ * Suppresses local session-expired alerts while an intentional logout is
+ * revoking the Session and tearing down protected views in this tab.
+ */
+export function beginTeamHubSignOut(): () => void {
+  explicitSignOutDepth += 1;
+  for (const listener of explicitSignOutListeners) listener();
+  let ended = false;
+  return () => {
+    if (ended) return;
+    ended = true;
+    explicitSignOutDepth = Math.max(0, explicitSignOutDepth - 1);
+  };
+}
+
+export function subscribeTeamHubSignOut(listener: () => void): () => void {
+  explicitSignOutListeners.add(listener);
+  return () => explicitSignOutListeners.delete(listener);
+}
+
 interface TeamHubAuthenticationEvent {
   kind: TeamHubAuthenticationEventKind;
   reason?: TeamHubAuthenticationReason;
@@ -108,6 +131,9 @@ export function announceTeamHubAuthenticationRequired(
 export function reportTeamHubAuthenticationRequired(
   reason: TeamHubAuthenticationReason = "session-expired",
 ) {
+  if (explicitSignOutDepth > 0) {
+    return;
+  }
   teamHubAuthenticationSignals.publish("authentication-required", reason);
 }
 

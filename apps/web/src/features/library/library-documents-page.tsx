@@ -17,6 +17,7 @@ import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubDocumentTreeSummary } from "@/features/teamhub/teamhub-types";
 import { MeetingsPanel } from "@/features/memory/meetings-panel";
+import { commonMessages } from "@/i18n/common.messages";
 import { useT } from "@/i18n/use-translation";
 
 import {
@@ -325,22 +326,22 @@ export function LibraryDocumentsPage() {
               }}
             />
             <nav
-              aria-label="Library time views"
+              aria-label={t(m.libraryTimeViews)}
               className="mb-5 flex flex-wrap items-center gap-2"
             >
               <Link
-                className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:border-border-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="inline-flex min-h-8 items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:border-border-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 to={dayReviewPath(tenantId)}
               >
                 <Icon icon={Calendar03Icon} size={14} />
-                This day
+                {t(m.thisDay)}
               </Link>
               <Link
-                className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:border-border-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="inline-flex min-h-8 items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:border-border-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 to={libraryWeekPath(tenantId)}
               >
                 <Icon icon={Clock01Icon} size={14} />
-                What changed this week
+                {t(m.whatChangedThisWeek)}
               </Link>
             </nav>
             <RecentDocumentCards
@@ -389,6 +390,7 @@ export function LibraryDocumentsPage() {
                       : undefined
                   }
                   error={treeModel.error}
+                  failedUploads={treeModel.failedUploads}
                   fileType={fileType}
                   folderActions={
                     tab === "owned"
@@ -408,8 +410,11 @@ export function LibraryDocumentsPage() {
                   }}
                   onCopy={copy.beginCopy}
                   onDismissError={treeModel.onDismissError}
+                  onDismissFailedUpload={treeModel.onDismissFailedUpload}
                   onFileTypeChange={setFileType}
                   onOpenFolder={openFolder}
+                  onRetryAllFailedUploads={treeModel.onRetryAllFailedUploads}
+                  onRetryFailedUpload={treeModel.onRetryFailedUpload}
                   onSearchQueryChange={setSearchQuery}
                   onSortByChange={setSortBy}
                   onToggleSelected={bulk.toggle}
@@ -420,6 +425,7 @@ export function LibraryDocumentsPage() {
                   tab={tab}
                   tenantId={tenantId}
                   trail={trail}
+                  uploadsActive={Boolean(treeModel.creating)}
                 />
               </>
             )}
@@ -454,15 +460,16 @@ function LibraryBulkBar({
   outcome: LibraryBulkOutcome | null;
   pending: boolean;
 }) {
+  const t = useT();
   if (count === 0 && !outcome) return null;
   return (
     <div
-      aria-label="Selected documents"
+      aria-label={t(m.selectedDocuments)}
       className="flex flex-wrap items-center gap-2 border-b border-app-border pb-2 text-sm"
       role="group"
     >
       {count > 0 ? (
-        <span className="text-app-body">{count} selected</span>
+        <span className="text-app-body">{t(m.selectedCount, { count })}</span>
       ) : null}
       <Button
         disabled={pending || !canMove}
@@ -470,15 +477,16 @@ function LibraryBulkBar({
         size="compact"
         tone="secondary"
       >
-        Move to folder
+        {t(m.moveToFolder)}
       </Button>
       <Button
+        data-voice-risk="never"
         disabled={pending || !canTrash}
         onClick={onTrash}
         size="compact"
         tone="danger"
       >
-        Trash
+        {t(commonMessages.delete)}
       </Button>
       <Button
         disabled={pending || !canCopy}
@@ -486,11 +494,11 @@ function LibraryBulkBar({
         size="compact"
         tone="secondary"
       >
-        Copy links
+        {t(m.copyLinks)}
       </Button>
       {count > 0 ? (
         <Button onClick={onClear} size="compact" tone="ghost">
-          Clear selection
+          {t(m.clearSelection)}
         </Button>
       ) : null}
       {outcome ? (

@@ -18,7 +18,7 @@ export async function loadNoteFromThatDay(
   client: TeamHubClient,
   tenantId: string,
   day: string,
-): Promise<string | undefined> {
+): Promise<string | null> {
   let cursor: string | undefined;
   const seen = new Set<string>();
   while (true) {
@@ -31,7 +31,7 @@ export async function loadNoteFromThatDay(
       }),
     );
     const match = page.items.find((item) => item.date === day);
-    if (match) return noteFromThatDay([match], day);
+    if (match) return noteFromThatDay([match], day) ?? null;
     const oldest = page.items.at(-1)?.date;
     if (
       (oldest && oldest < day) ||
@@ -39,7 +39,7 @@ export async function loadNoteFromThatDay(
       !page.page.next_cursor ||
       seen.has(page.page.next_cursor)
     ) {
-      return;
+      return null;
     }
     seen.add(page.page.next_cursor);
     cursor = page.page.next_cursor;

@@ -9,7 +9,10 @@ import type {
   TeamHubProactiveRuleBook,
 } from "@/features/teamhub/teamhub-types";
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
-import type { TestRouteHandler } from "@/test/teamhub-test-server";
+import {
+  teamHubErrorResponse,
+  type TestRouteHandler,
+} from "@/test/teamhub-test-server";
 
 import { RuleNextPage } from "./rule-next-page";
 
@@ -100,5 +103,59 @@ describe("RuleNextPage", () => {
     );
     expect(await screen.findByText("This rule already decides.")).toBeVisible();
     expect(promote).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows an error with Retry instead of not-found when loading rules fails with 503", async () => {
+    const runtime = createTestTeamHubRuntime();
+    let attempts = 0;
+    runtime.server.on(
+      "GET",
+      "/v0/tenants/{tenantId}/me/proactive-rules",
+      () => {
+        attempts += 1;
+        if (attempts === 1) {
+          return teamHubErrorResponse(
+            503,
+            "TEAMHUB_UNAVAILABLE",
+            "Rules service unavailable.",
+          );
+        }
+        return book("shadow");
+      },
+    );
+    const router = createMemoryRouter(
+      [
+        {
+          element: <RuleNextPage />,
+          path: "/t/:tenantId/settings/rule-changes/:ruleId",
+        },
+      ],
+      {
+        initialEntries: [
+          `/t/tenant-northstar/settings/rule-changes/${shadowId}`,
+        ],
+      },
+    );
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <TeamHubRuntimeProvider runtime={runtime}>
+          <RouterProvider router={router} />
+        </TeamHubRuntimeProvider>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Rules service unavailable.",
+    );
+    expect(screen.queryByText("This rule is not in your book.")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(
+      await screen.findByRole("button", { name: "Let this rule decide" }),
+    ).toBeVisible();
   });
 });

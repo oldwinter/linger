@@ -19,7 +19,9 @@ import {
 } from "@/test/document-scenarios";
 
 import { DocumentLinkSharing } from "./document-link-sharing";
+import { DocumentShareDialog } from "./document-share-dialog";
 import { UnifiedDocumentPage } from "./room-document-surface";
+import { roomDocumentsQueryKey } from "../room-queries";
 
 const share = zhCN.documentShare;
 
@@ -213,5 +215,98 @@ describe("Document sharing in the language on screen", () => {
     expect(
       screen.getByRole("button", { name: share.resetLink }),
     ).toHaveAttribute("data-voice-risk", "confirm");
+  });
+
+  it("invalidates Room Files queries immediately when removing a Document from a Room", async () => {
+    const runtime = createDocumentTestRuntime();
+    const document = seedNativeDocument(runtime, "unbind-refresh-doc");
+    let bound = true;
+    runtime.server.on(
+      "GET",
+      "/v0/documents/{documentId}/collaborators",
+      () => ({
+        caller_content_role: "owner",
+        can_manage_collaborators: true,
+        management_capabilities: {
+          can_change_ownership: true,
+          can_update_external_policy: true,
+          can_update_link_policy: true,
+        },
+        schema_version: 2,
+        sources: bound
+          ? [
+              {
+                label: "Launch Room",
+                source: {
+                  created_at: "2026-08-29T08:00:00Z",
+                  provenance: {
+                    binding_kind: "room",
+                    context_id: "room-launch",
+                    kind: "context_binding",
+                    schema_version: 2,
+                  },
+                  role: "editor",
+                  schema_version: 2,
+                  source_id: "room-binding-launch",
+                  source_kind: "context",
+                  source_version: 7,
+                  status: "active",
+                  updated_at: "2026-08-29T08:00:00Z",
+                },
+              },
+            ]
+          : [],
+      }),
+    );
+    runtime.server.on(
+      "POST",
+      "/v0/documents/{documentId}/room-bindings/{roomId}/remove",
+      () => {
+        bound = false;
+        return {
+          binding_id: "room-binding-launch",
+          document_id: document.id,
+          room_id: "room-launch",
+          status: "removed",
+        };
+      },
+    );
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TeamHubRuntimeProvider runtime={runtime}>
+          <DocumentShareDialog
+            client={runtime.client}
+            documentId={document.id}
+            onClose={vi.fn()}
+            ownerActorId={document.owner.id}
+            tenantId="tenant-northstar"
+          />
+        </TeamHubRuntimeProvider>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Remove from Room" }),
+    );
+    const confirmDialog = await screen.findByRole("dialog", {
+      name: "Remove from Launch Room?",
+    });
+    const confirmButton = Array.from(
+      confirmDialog.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("Remove"));
+    expect(confirmButton).toBeDefined();
+    fireEvent.click(confirmButton!);
+
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: roomDocumentsQueryKey("tenant-northstar", "room-launch"),
+      }),
+    );
   });
 });

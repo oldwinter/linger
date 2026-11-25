@@ -7,9 +7,11 @@ export const authMessages = defineMessages("auth", {
   localAccountSignIn: "Sign in with this computer's account",
   or: "or",
   email: "Email",
+  emailPlaceholder: "you@company.com",
   password: "Password",
   showPassword: "Show password",
   hidePassword: "Hide password",
+  language: "Interface language",
   signIn: "Sign in",
   logIn: "Log in",
   working: "Working...",
@@ -28,6 +30,7 @@ export const authMessages = defineMessages("auth", {
   sessionNotEstablished:
     "Linger could not establish a browser session. Use the secure workspace address or contact your workspace administrator.",
   invalidEmail: "Enter a valid email address.",
+  invalidCredentials: "Email or password is incorrect.",
   desktopAccountUnavailable:
     "This computer's account could not be used. Log in with your email and password.",
   teamHubUnreachable: "TeamHub could not be reached. Try again.",

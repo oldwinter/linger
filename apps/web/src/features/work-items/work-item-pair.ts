@@ -1,3 +1,12 @@
+import {
+  createWorkItemDashboardFilters,
+  workItemDashboardFiltersSearch,
+} from "./work-item-dashboard-filters";
+import {
+  createWorkItemDashboardSort,
+  workItemDashboardSortSearch,
+} from "./work-item-sort";
+
 const stateLabel: Record<string, string> = {
   in_progress: "in progress",
   open: "open",
@@ -13,12 +22,38 @@ export interface WorkItemPairFacts {
   title: string;
 }
 
+/** Route state carried between the Dashboard and Side-by-Side comparison. */
+export interface WorkItemPairNavigationState {
+  boardSearch?: string;
+  selectedIds?: readonly string[];
+}
+
+export function sanitizeWorkItemBoardSearch(
+  rawSearch: string | null | undefined,
+): string {
+  if (!rawSearch) return "";
+  const cleaned = rawSearch.startsWith("?") ? rawSearch.slice(1) : rawSearch;
+  if (!cleaned) return "";
+  const params = new URLSearchParams(cleaned);
+  const filters = createWorkItemDashboardFilters(params);
+  const sort = createWorkItemDashboardSort(params.get("sort"));
+  return workItemDashboardSortSearch(
+    workItemDashboardFiltersSearch(filters),
+    sort,
+  );
+}
+
 export function workItemPairPath(
   tenantId: string,
   leftId: string,
   rightId: string,
+  boardSearch?: string,
 ) {
   const params = new URLSearchParams({ left: leftId, right: rightId });
+  const safeBoardSearch = sanitizeWorkItemBoardSearch(boardSearch);
+  if (safeBoardSearch) {
+    params.set("from", safeBoardSearch.replace(/^\?/u, ""));
+  }
   return `/t/${encodeURIComponent(tenantId)}/dashboard/side-by-side?${params}`;
 }
 

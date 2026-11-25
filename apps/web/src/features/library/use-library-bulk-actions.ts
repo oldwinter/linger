@@ -6,8 +6,11 @@ import type {
   TeamHubDocumentPlacementNode,
   TeamHubDocumentTreeSummary,
 } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import { translate } from "@/i18n/language";
 import { writeClipboardText } from "@/lib/clipboard";
 
+import { libraryMessages as m } from "./library.messages";
 import { selectedDocumentsMarkdown } from "./library-selection-links";
 import { removeRecentDocument } from "./recent-documents";
 import { useRecentDocumentsAccountId } from "./use-recent-documents";
@@ -190,9 +193,9 @@ export function useLibraryBulkActions({
           tenantId,
         }),
       );
-      setOutcome({ failed: false, message: "Copied" });
+      setOutcome({ failed: false, message: translate(commonMessages.copied) });
     } catch {
-      setOutcome({ failed: true, message: "Copy failed" });
+      setOutcome({ failed: true, message: translate(m.copyFailed) });
     }
   }
 
@@ -222,19 +225,23 @@ function describeOutcome(
   total: number,
   failed: readonly TeamHubDocumentTreeSummary[],
 ): LibraryBulkOutcome {
-  const verb = kind === "move" ? "Moved" : "Moved to trash";
   const succeeded = total - failed.length;
+  const documents = translate(m.bulkDocumentCount, { count: total });
+  const names = failed.map((document) => document.title).join(", ");
+  if (kind === "move") {
+    return {
+      failed: failed.length > 0,
+      message:
+        failed.length === 0
+          ? translate(m.bulkMoved, { documents })
+          : translate(m.bulkMovedPartial, { documents, names, succeeded }),
+    };
+  }
   return {
     failed: failed.length > 0,
     message:
       failed.length === 0
-        ? `${verb} ${documentCount(total)}.`
-        : `${verb} ${succeeded} of ${documentCount(total)}. Failed: ${failed
-            .map((document) => document.title)
-            .join(", ")}.`,
+        ? translate(m.bulkDeleted, { documents })
+        : translate(m.bulkDeletedPartial, { documents, names, succeeded }),
   };
-}
-
-function documentCount(count: number) {
-  return count === 1 ? "1 document" : `${count} documents`;
 }

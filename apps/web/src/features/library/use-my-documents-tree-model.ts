@@ -92,6 +92,7 @@ export function useMyDocumentsTreeModel({
     documentsById: treeState.documentsById,
     error: error ?? uploads.uploadError,
     externalDrop: uploads.externalDrop,
+    failedUploads: uploads.failedUploads,
     focusedNodeId: treeState.focusedNodeId,
     folders: treeState.folders,
     importRef: create.importRef,
@@ -142,6 +143,10 @@ export function useMyDocumentsTreeModel({
       setError(null);
       tenantUploads.setError(tenantId, null);
     },
+    onDismissFailedUpload: uploads.dismissFailedUpload,
+    onRetryAllFailedUploads: () => void uploads.retryAllFailedUploads(),
+    onRetryFailedUpload: (failureId: string) =>
+      void uploads.retryFailedUpload(failureId),
     onExternalDropFiles: (batch: Promise<UploadBatch>, parentId?: string) => {
       revealFolder(parentId);
       void uploads.importDroppedDocuments(batch, parentId);

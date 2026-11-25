@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { anotherMeQueryKey } from "../room-queries";
@@ -62,7 +62,14 @@ describe("Another Me background failure banner", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Background tasks failed 3 times in a row: your Runtime is incompatible, or its model isn't available to your account. Update your local CLI or Linger, or check its model setting.",
     );
-    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.getByRole("link", { name: "Check Models" })).toHaveAttribute(
+      "href",
+      "/t/tenant-1/settings/models",
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Dismiss background failure alert" }),
+    );
+    expect(screen.queryByRole("alert")).toBeNull();
 
     await answer({
       ...chat,
@@ -76,6 +83,9 @@ describe("Another Me background failure banner", () => {
         "Background tasks failed 4 times in a row: your Runtime needs you to sign in again.",
       ),
     );
+    expect(
+      screen.getByRole("link", { name: "Check Computers" }),
+    ).toHaveAttribute("href", "/t/tenant-1/settings/computers");
 
     await answer(chat);
     await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());

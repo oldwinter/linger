@@ -16,7 +16,8 @@ import type {
   TeamHubDocumentPlacementNode,
   TeamHubDocumentTreeSummary,
 } from "@/features/teamhub/teamhub-types";
-import { useT } from "@/i18n/use-translation";
+import { commonMessages } from "@/i18n/common.messages";
+import { RichMessage, useT } from "@/i18n/use-translation";
 
 import { DocumentDeleteDialog } from "./document-delete-dialog";
 import { documentFileName } from "./document-display-name";
@@ -47,6 +48,7 @@ export function MyDocumentsTreeView({
 }: MyDocumentsTreeModel & {
   collapseCollectionInitially?: boolean;
 }) {
+  const t = useT();
   const rename = useDocumentRename(model.tenantId);
   const { collectionCollapsed, revealCollection, toggleCollection } =
     useOwnedCollectionCollapsed(
@@ -85,10 +87,11 @@ export function MyDocumentsTreeView({
         <ModalDialog
           closeOnBackdrop={!deletingFolderPending}
           description={
-            <>
-              Delete <strong>{confirmingDeleteFolder.name}</strong>? This action
-              cannot be undone.
-            </>
+            <RichMessage
+              message={m.deleteFolderBody}
+              tags={{ name: (text) => <strong>{text}</strong> }}
+              values={{ name: confirmingDeleteFolder.name }}
+            />
           }
           footer={
             <>
@@ -97,20 +100,21 @@ export function MyDocumentsTreeView({
                 onClick={model.onCancelDeleteFolder}
                 tone="secondary"
               >
-                Cancel
+                {t(commonMessages.cancel)}
               </Button>
               <Button
+                data-voice-risk="never"
                 loading={deletingFolderPending}
                 onClick={model.onConfirmDeleteFolder}
                 tone="danger"
               >
-                Delete folder
+                {t(m.deleteFolderConfirm)}
               </Button>
             </>
           }
           onClose={model.onCancelDeleteFolder}
           size="sm"
-          title="Delete folder"
+          title={t(m.deleteFolderTitle)}
         >
           {null}
         </ModalDialog>

@@ -98,8 +98,7 @@ describe("the Dashboard in the language on screen", () => {
     }
 
     const card = await screen.findByRole("link", { name: /Ship release/ });
-    // Priorities and people come from TeamHub as they are.
-    expect(within(card).getByText("High")).toBeVisible();
+    expect(within(card).getByText(words.priorityHigh)).toBeVisible();
     expect(
       within(card).getByRole("group", {
         name: words.assignedTo.replace("{names}", "Codex"),
