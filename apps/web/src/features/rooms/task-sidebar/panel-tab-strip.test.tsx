@@ -56,9 +56,9 @@ describe("PanelTabStrip", () => {
     expect(selectedTab).toHaveAttribute("data-active", "true");
     expect(selectedTab.parentElement).toHaveClass(
       "h-7",
-      "min-w-[96px]",
-      "max-w-[200px]",
-      "flex-1",
+      "min-w-[140px]",
+      "max-w-[220px]",
+      "shrink-0",
       "rounded-full",
       "bg-card",
     );
@@ -100,8 +100,8 @@ describe("PanelTabStrip", () => {
     expect(onActivate).toHaveBeenCalledWith("file:doc-1");
     expect(selectedTab).toHaveFocus();
     fireEvent.click(add);
-    expect(screen.getByRole("menuitem", { name: "Documents" })).toBeVisible();
-    fireEvent.click(screen.getByRole("menuitem", { name: "Documents" }));
+    expect(screen.getByRole("menuitem", { name: "Files" })).toBeVisible();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Files" }));
     expect(onCreate).toHaveBeenCalledWith("file");
   });
 
@@ -187,7 +187,7 @@ describe("PanelTabStrip", () => {
     expect(add).toBeEnabled();
     fireEvent.click(add);
     expect(screen.getByRole("menu", { name: "Add panel view" })).toBeVisible();
-    fireEvent.click(screen.getByRole("menuitem", { name: "Documents" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Files" }));
     expect(onCreate).toHaveBeenCalledWith("file");
 
     fireEvent.click(screen.getByRole("button", { name: "Maximize sidebar" }));

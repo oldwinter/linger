@@ -917,6 +917,57 @@
   margin-right: 8px;
 }
 
+.room-document-formatting-popover {
+  max-width: calc(100vw - 24px);
+}
+
+.room-document-formatting-popover .bn-formatting-toolbar,
+.room-document-blocknote .bn-formatting-toolbar {
+  max-width: calc(100vw - 24px);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.room-document-formatting-popover .bn-formatting-toolbar::-webkit-scrollbar,
+.room-document-blocknote .bn-formatting-toolbar::-webkit-scrollbar {
+  display: none;
+}
+
+.room-document-formatting-popover .bn-formatting-toolbar > *,
+.room-document-blocknote .bn-formatting-toolbar > * {
+  flex-shrink: 0;
+}
+
+@media (max-width: 48rem), (pointer: coarse) {
+  .room-document-header-actions
+    > button:is(.ui-button-icon, .ui-button-icon-compact) {
+    width: 36px;
+    height: 36px;
+    padding: 8px;
+  }
+
+  .room-document-header-actions > .room-document-mode-trigger {
+    height: 36px;
+  }
+
+  /* Dock the floating formatting toolbar at the bottom on mobile/touch so
+     line-1 selections never collide with the sticky document header. */
+  .room-document-formatting-popover {
+    position: fixed !important;
+    inset: auto auto calc(12px + env(safe-area-inset-bottom, 0px)) 50% !important;
+    z-index: 45 !important;
+    max-width: calc(100vw - 24px) !important;
+    transform: translateX(-50%) !important;
+  }
+
+  .room-document-formatting-popover
+    .bn-formatting-toolbar
+    :is(button, [role="button"]) {
+    min-width: 36px;
+    min-height: 36px;
+  }
+}
+
 /* Match the active text's highlight without clipping mention menus. An inset
    edge follows the card's rounded border, so it cannot bleed past the corners
    the way an overlaid bar did. */

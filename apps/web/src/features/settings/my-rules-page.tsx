@@ -26,7 +26,11 @@ import type {
   TeamHubProactiveRuleBook,
 } from "@/features/teamhub/teamhub-types";
 import { dashboardWorkItemPath } from "@/features/work-items/work-item-routes";
+import { commonMessages } from "@/i18n/common.messages";
+import type { Message } from "@/i18n/messages";
+import { useT } from "@/i18n/use-translation";
 
+import { myRulesMessages as m } from "./my-rules.messages";
 import {
   myRulesQueryKey,
   myRulesQueryOptions,
@@ -37,26 +41,27 @@ import { ruleNextPath } from "./rule-next";
 import { shadowRuleIds } from "./shadow-rule-review";
 import { SettingsPageHeading } from "./settings-page-heading";
 
-const actionLabel: Record<TeamHubProactiveAction, string> = {
-  notify: "Tell now",
-  track: "Follow up later",
-  silent: "Stay silent",
+const actionLabel: Record<TeamHubProactiveAction, Message<string>> = {
+  notify: m.actionNotify,
+  track: m.actionTrack,
+  silent: m.actionSilent,
 };
 
-const mandateLabel: Record<TeamHubProactiveMandate, string> = {
-  none: "Only remind",
-  create: "Create a Work Item",
-  create_and_delegate: "Create and delegate",
+const mandateLabel: Record<TeamHubProactiveMandate, Message<string>> = {
+  none: m.mandateNone,
+  create: m.mandateCreate,
+  create_and_delegate: m.mandateCreateAndDelegate,
 };
 
 const leaningLabel = {
-  remind_directly: "Tell now",
-  track_for_follow_up: "Follow up later",
-  stay_silent: "Stay silent",
+  remind_directly: m.actionNotify,
+  track_for_follow_up: m.actionTrack,
+  stay_silent: m.actionSilent,
 } as const;
 
 /** Another Me's rules for one Human: what it learned and what they decided. */
 export function MyRulesPage() {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const tenantId = requireRoomRouteParam(useParams().tenantId, "Tenant");
   const queryClient = useQueryClient();
@@ -82,10 +87,7 @@ export function MyRulesPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-(--app-settings-width) flex-col gap-8 pb-4">
-      <SettingsPageHeading
-        description="How Another Me decides what to tell you, learned from your replies. Only active rules decide; a newly learned rule waits in shadow until you promote it. Another Me acts beyond reminding only where you allow it on an active rule."
-        title="My Rules"
-      />
+      <SettingsPageHeading description={t(m.description)} title={t(m.title)} />
       {identity.data ? (
         <section
           aria-labelledby="my-rules-quiet"
@@ -95,7 +97,7 @@ export function MyRulesPage() {
             className="text-sm font-medium text-foreground"
             id="my-rules-quiet"
           >
-            Reminders on this computer
+            {t(m.remindersOnComputer)}
           </h2>
           <QuietRemindersControl
             accountId={identity.data.account.id}
@@ -106,7 +108,7 @@ export function MyRulesPage() {
       {rules.isPending ? (
         <div
           aria-busy="true"
-          aria-label="Loading rules"
+          aria-label={t(m.loadingRules)}
           className="rounded-2xl border border-border bg-background p-6"
           role="status"
         >
@@ -115,14 +117,14 @@ export function MyRulesPage() {
       ) : rules.isError ? (
         <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-border bg-background p-6">
           <p className="text-sm text-destructive" role="alert">
-            Rules could not be loaded.
+            {t(m.loadFailed)}
           </p>
           <Button
             onClick={() => void rules.refetch()}
             size="compact"
             tone="secondary"
           >
-            Try again
+            {t(commonMessages.tryAgain)}
           </Button>
         </div>
       ) : (
@@ -157,6 +159,7 @@ function RuleBook({
   reviewPath: string;
   tenantId: string;
 }) {
+  const t = useT();
   const [armedRuleId, setArmedRuleId] = useState<string | null>(null);
   const shadowCount = shadowRuleIds(book).length;
   return (
@@ -170,27 +173,24 @@ function RuleBook({
             className="text-sm font-medium text-foreground"
             id="my-rules-rules"
           >
-            Rules
+            {t(m.rulesHeading)}
           </h2>
           {shadowCount > 0 ? (
             <Link
               className="text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               to={reviewPath}
             >
-              {`Review ${shadowCount} new ${shadowCount === 1 ? "rule" : "rules"}`}
+              {t(m.reviewNewRulesCount, { count: shadowCount })}
             </Link>
           ) : null}
         </div>
         {commandError ? (
           <p className="text-sm text-destructive" role="alert">
-            The change was not saved. Try again.
+            {t(m.changeNotSaved)}
           </p>
         ) : null}
         {book.rules.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No rules yet. When you tell Another Me how you want a kind of thing
-            handled, it learns a rule that night.
-          </p>
+          <p className="text-sm text-muted-foreground">{t(m.noRulesYet)}</p>
         ) : (
           <ul className="flex flex-col divide-y divide-border">
             {book.rules.map((rule) => (
@@ -232,15 +232,14 @@ function RuleBook({
             className="text-sm font-medium text-foreground"
             id="my-rules-clues"
           >
-            Clues
+            {t(m.cluesHeading)}
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Hints from single replies. A clue never decides; once the same kind
-            shows up again, it becomes a rule.
+            {t(m.cluesDescription)}
           </p>
         </div>
         {book.clues.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No clues right now.</p>
+          <p className="text-sm text-muted-foreground">{t(m.noClues)}</p>
         ) : (
           <ul className="flex flex-col divide-y divide-border">
             {book.clues.map((clue) => (
@@ -253,7 +252,10 @@ function RuleBook({
                   {[clue.kind, clue.time].filter(Boolean).join(", ")}
                 </span>
                 <span className="ml-auto text-muted-foreground">
-                  {leaningLabel[clue.leaning]} · seen {clue.seen}
+                  {t(m.clueLeaningSeen, {
+                    count: clue.seen,
+                    leaning: t(leaningLabel[clue.leaning]),
+                  })}
                 </span>
               </li>
             ))}
@@ -287,6 +289,7 @@ function RuleRow({
   rule: TeamHubProactiveRule;
   tenantId: string;
 }) {
+  const t = useT();
   const [draft, setDraft] = useState<string | null>(null);
   const savingRef = useRef(false);
   const shadow = rule.status === "shadow";
@@ -317,77 +320,80 @@ function RuleRow({
       className="flex flex-col gap-2 py-3 first:pt-1 last:pb-0"
     >
       {draft === null ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="min-w-0 flex-1 text-sm break-words text-foreground">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <span className="w-full min-w-0 text-sm break-words text-foreground sm:flex-1">
             {rule.text}
           </span>
-          <StatusPill tone={shadow ? "warning" : "success"}>
-            {shadow ? "Shadow" : "Active"}
-          </StatusPill>
-          {rule.pinned ? <StatusPill>Pinned</StatusPill> : null}
-          {rule.source === "user" ? (
-            <StatusPill>Edited by you</StatusPill>
-          ) : null}
-          <span className="flex items-center gap-0.5">
-            {shadow ? (
-              <Link
-                className="text-xs text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                to={ruleNextPath(tenantId, rule.id)}
-              >
-                What this changes next
-              </Link>
+          <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
+            <StatusPill tone={shadow ? "warning" : "success"}>
+              {shadow ? t(m.statusShadow) : t(m.statusActive)}
+            </StatusPill>
+            {rule.pinned ? <StatusPill>{t(m.statusPinned)}</StatusPill> : null}
+            {rule.source === "user" ? (
+              <StatusPill>{t(m.statusEditedByYou)}</StatusPill>
             ) : null}
-            {shadow ? (
+            <span className="flex flex-wrap items-center gap-1 sm:gap-0.5">
+              {shadow ? (
+                <Link
+                  className="text-xs text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  to={ruleNextPath(tenantId, rule.id)}
+                >
+                  {t(m.whatThisChangesNext)}
+                </Link>
+              ) : null}
+              {shadow ? (
+                <Button
+                  disabled={busy}
+                  loading={pendingAction === "promote"}
+                  onClick={() =>
+                    void onCommand({ kind: "promote", ruleId: rule.id })
+                  }
+                  size="compact"
+                  tone="subtle"
+                >
+                  {pendingAction === "promote" ? null : (
+                    <Icon icon={ArrowUp02Icon} size={14} />
+                  )}
+                  {t(m.promote)}
+                </Button>
+              ) : null}
               <Button
+                aria-label={rule.pinned ? t(m.unpinRule) : t(m.pinRule)}
                 disabled={busy}
-                loading={pendingAction === "promote"}
+                loading={pendingAction === "pin"}
                 onClick={() =>
-                  void onCommand({ kind: "promote", ruleId: rule.id })
+                  void onCommand({
+                    kind: "pin",
+                    ruleId: rule.id,
+                    pinned: !rule.pinned,
+                  })
                 }
-                size="compact"
-                tone="subtle"
+                size="compactIcon"
+                tone="ghost"
               >
-                {pendingAction === "promote" ? null : (
-                  <Icon icon={ArrowUp02Icon} size={14} />
-                )}
-                Promote
+                <Icon icon={rule.pinned ? PinOffIcon : PinIcon} size={14} />
               </Button>
-            ) : null}
-            <Button
-              aria-label={rule.pinned ? "Unpin rule" : "Pin rule"}
-              disabled={busy}
-              loading={pendingAction === "pin"}
-              onClick={() =>
-                void onCommand({
-                  kind: "pin",
-                  ruleId: rule.id,
-                  pinned: !rule.pinned,
-                })
-              }
-              size="compactIcon"
-              tone="ghost"
-            >
-              <Icon icon={rule.pinned ? PinOffIcon : PinIcon} size={14} />
-            </Button>
-            <Button
-              aria-label="Edit rule"
-              disabled={busy}
-              onClick={() => setDraft(rule.text)}
-              size="compactIcon"
-              tone="ghost"
-            >
-              <Icon icon={PencilEdit02Icon} size={14} />
-            </Button>
-            <Button
-              aria-label="Delete rule"
-              disabled={busy}
-              onClick={onArm}
-              size="compactIcon"
-              tone="ghost"
-            >
-              <Icon icon={Delete02Icon} size={14} />
-            </Button>
-          </span>
+              <Button
+                aria-label={t(m.editRule)}
+                disabled={busy}
+                onClick={() => setDraft(rule.text)}
+                size="compactIcon"
+                tone="ghost"
+              >
+                <Icon icon={PencilEdit02Icon} size={14} />
+              </Button>
+              <Button
+                aria-label={t(m.deleteRule)}
+                data-voice-risk="never"
+                disabled={busy}
+                onClick={onArm}
+                size="compactIcon"
+                tone="ghost"
+              >
+                <Icon icon={Delete02Icon} size={14} />
+              </Button>
+            </span>
+          </div>
         </div>
       ) : (
         <form
@@ -398,7 +404,7 @@ function RuleRow({
           }}
         >
           <textarea
-            aria-label="Rule text"
+            aria-label={t(m.ruleTextLabel)}
             className="min-h-16 w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             disabled={busy}
             maxLength={200}
@@ -428,7 +434,7 @@ function RuleRow({
           />
           <div className="flex justify-end gap-2">
             <Button disabled={busy} onClick={cancelEdit} tone="ghost">
-              Cancel
+              {t(commonMessages.cancel)}
             </Button>
             <Button
               disabled={busy || !draft.trim()}
@@ -436,27 +442,30 @@ function RuleRow({
               tone="primary"
               type="submit"
             >
-              Save
+              {t(commonMessages.save)}
             </Button>
           </div>
         </form>
       )}
       {armed && draft === null ? (
         <div
-          aria-label="Confirm rule deletion"
+          aria-label={t(m.confirmRuleDeletion)}
           className="flex flex-wrap items-center gap-2"
           role="group"
         >
-          <span className="text-sm text-foreground">Delete rule?</span>
+          <span className="text-sm text-foreground">
+            {t(m.deleteRuleQuestion)}
+          </span>
           <Button
-            aria-label="Confirm delete rule"
+            aria-label={t(m.confirmDeleteRule)}
+            data-voice-risk="never"
             disabled={busy}
             loading={pendingAction === "delete"}
             onClick={confirmDelete}
             size="compact"
             tone="danger"
           >
-            Confirm
+            {t(m.confirm)}
           </Button>
           <Button
             disabled={busy}
@@ -464,15 +473,15 @@ function RuleRow({
             size="compact"
             tone="ghost"
           >
-            Cancel
+            {t(commonMessages.cancel)}
           </Button>
         </div>
       ) : null}
       {shadow ? null : (
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          <span>When this rule applies, Another Me may</span>
+          <span>{t(m.mandatePrefix)}</span>
           <Select
-            aria-label="Mandate"
+            aria-label={t(m.mandateLabel)}
             disabled={busy}
             onValueChange={(mandate) =>
               void onCommand({
@@ -487,7 +496,7 @@ function RuleRow({
             {(["none", "create", "create_and_delegate"] as const).map(
               (mandate) => (
                 <SelectItem key={mandate} value={mandate}>
-                  {mandateLabel[mandate]}
+                  {t(mandateLabel[mandate])}
                 </SelectItem>
               ),
             )}
@@ -496,7 +505,7 @@ function RuleRow({
       )}
       {mandates.length > 0 ? (
         <ul
-          aria-label="Actions taken under this rule"
+          aria-label={t(m.actionsTakenUnderRule)}
           className="flex flex-col gap-1 text-xs text-muted-foreground"
         >
           {mandates.map((mandate) => (
@@ -508,25 +517,31 @@ function RuleRow({
                 #{mandate.number} {mandate.title}
               </Link>
               :{" "}
-              {mandate.strength === "create_and_delegate"
-                ? "created and delegated"
-                : "created"}{" "}
-              for {mandate.event_source}
-              {mandate.revoked ? " · mandate revoked" : ""}
+              {t(m.mandateForSource, {
+                action: t(
+                  mandate.strength === "create_and_delegate"
+                    ? m.mandateCreatedAndDelegated
+                    : m.mandateCreated,
+                ),
+                source: mandate.event_source,
+              })}
+              {mandate.revoked ? t(m.mandateRevoked) : ""}
             </li>
           ))}
         </ul>
       ) : null}
       {shadow && divergences.length > 0 ? (
         <ul
-          aria-label="Where this rule would have decided differently"
+          aria-label={t(m.divergencesLabel)}
           className="flex flex-col gap-1 text-xs text-muted-foreground"
         >
           {divergences.map((divergence) => (
             <li key={divergence.id}>
-              {divergence.matter}: would{" "}
-              {actionLabel[divergence.shadow_action].toLowerCase()}, Another Me
-              chose to {actionLabel[divergence.taken_action].toLowerCase()}
+              {t(m.divergenceLine, {
+                matter: divergence.matter,
+                shadow: t(actionLabel[divergence.shadow_action]).toLowerCase(),
+                taken: t(actionLabel[divergence.taken_action]).toLowerCase(),
+              })}
             </li>
           ))}
         </ul>

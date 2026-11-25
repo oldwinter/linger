@@ -7,7 +7,7 @@ import { sidePanelMessages as m } from "./side-panel.messages";
 const ALL_PANEL_CREATE_ITEMS = [
   {
     kind: "file",
-    label: m.documents,
+    label: m.filesTab,
   },
   {
     kind: "agentInfo",

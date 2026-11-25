@@ -882,19 +882,19 @@ function RoomHeader({
   const roomActions = [
     {
       icon: FileAddIcon,
-      label: "Add a document",
+      label: t(roomSurfaceMessages.addDocumentAction),
       path: roomAddDocumentPath(tenantId, roomId),
     },
     ...(room.kind === "room"
       ? [
           {
             icon: WorkflowSquare01Icon,
-            label: "How work moves",
+            label: t(roomSurfaceMessages.howWorkMoves),
             path: workMovesPath(tenantId, roomId),
           },
           {
             icon: UserGroupIcon,
-            label: "Who can manage",
+            label: t(roomSurfaceMessages.whoCanManage),
             path: whoManagesPath(tenantId, roomId),
           },
         ]
@@ -903,7 +903,7 @@ function RoomHeader({
       ? [
           {
             icon: StopIcon,
-            label: "Steer this run",
+            label: t(roomSurfaceMessages.steerThisRun),
             path: steerRunPath(tenantId, roomId),
           },
         ]
@@ -912,7 +912,7 @@ function RoomHeader({
       ? [
           {
             icon: Share08Icon,
-            label: "Hand off",
+            label: t(roomSurfaceMessages.handOff),
             path: handOffPath(tenantId, roomId),
           },
         ]
@@ -921,12 +921,16 @@ function RoomHeader({
       ? [
           {
             icon: Clock01Icon,
-            label: "Routines",
+            label: t(roomSurfaceMessages.routinesAction),
             onSelect: onOpenRoutines,
           },
           {
             icon: room.participation === "left" ? Login01Icon : Logout01Icon,
-            label: room.participation === "left" ? "Come back" : "Step out",
+            label: t(
+              room.participation === "left"
+                ? roomSurfaceMessages.comeBack
+                : roomSurfaceMessages.stepOut,
+            ),
             path: stepOutPath(tenantId, roomId),
           },
         ]
@@ -1037,11 +1041,11 @@ function RoomHeader({
         </Suspense>
         {!compact ? (
           <Button
-            aria-label="Search this Room"
+            aria-label={t(roomSurfaceMessages.searchThisRoom)}
             className="!rounded-lg border-0 text-app-muted"
             onClick={() => onOpenSearch?.({ id: roomId, name: room.name })}
             size="compactIcon"
-            title="Search this Room"
+            title={t(roomSurfaceMessages.searchThisRoom)}
             tone="ghost"
           >
             <Icon icon={Search01Icon} size={16} />
@@ -1072,7 +1076,7 @@ function RoomHeader({
               ? [
                   {
                     icon: <Icon icon={Search01Icon} size={14} />,
-                    label: "Search this Room",
+                    label: t(roomSurfaceMessages.searchThisRoom),
                     onSelect: () =>
                       onOpenSearch?.({ id: roomId, name: room.name }),
                   },

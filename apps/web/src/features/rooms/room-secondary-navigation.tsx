@@ -471,6 +471,7 @@ export function RoomSecondaryNavigation({
           ) : null}
           <PocketNoteLauncher
             anotherMeRoomId={anotherMeRoomId}
+            onOpen={onCloseMobile}
             tenantId={tenant.id}
           />
           <RecordingEntry
@@ -520,45 +521,47 @@ export function RoomSecondaryNavigation({
         ref={listRef}
       >
         <div
-          aria-label="Room shortcuts"
-          className="mx-2 flex items-center gap-1"
+          aria-label={t(roomListMessages.roomShortcuts)}
+          className="mx-2 flex items-center gap-0.5"
           role="group"
         >
           <Link
             aria-keyshortcuts="Control+j Meta+j"
-            aria-label="Jump anywhere"
-            className="flex h-7 min-w-0 flex-1 items-center justify-center gap-1 rounded-lg px-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label={t(roomListMessages.jumpAnywhere)}
+            className="flex h-7 min-w-0 flex-1 items-center justify-center gap-1 rounded-lg px-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             onClick={onCloseMobile}
-            title={`Jump anywhere (${jumpShortcutLabel()})`}
+            title={t(roomListMessages.jumpAnywhereShortcut, {
+              shortcut: jumpShortcutLabel(),
+            })}
             to={jumpPath(tenant.id)}
           >
-            <span className="truncate">Jump</span>
+            <span className="truncate">{t(roomListMessages.jump)}</span>
             <span
               aria-hidden="true"
-              className="shrink-0 text-2xs text-app-subtle"
+              className="hidden shrink-0 text-2xs text-app-subtle md:inline"
             >
               {jumpShortcutLabel()}
             </span>
           </Link>
           <span aria-hidden="true" className="h-3 w-px shrink-0 bg-border/60" />
           <Link
-            aria-label="Who is awake"
-            className="flex h-7 min-w-0 flex-1 items-center justify-center rounded-lg px-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label={t(roomListMessages.whoIsAwake)}
+            className="flex h-7 min-w-0 flex-1 items-center justify-center rounded-lg px-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             onClick={onCloseMobile}
-            title="Who is awake"
+            title={t(roomListMessages.whoIsAwake)}
             to={whoIsAwakePath(tenant.id)}
           >
-            <span className="truncate">Awake</span>
+            <span className="truncate">{t(roomListMessages.awake)}</span>
           </Link>
           <span aria-hidden="true" className="h-3 w-px shrink-0 bg-border/60" />
           <Link
-            aria-label="Surprise me"
-            className="flex h-7 min-w-0 flex-1 items-center justify-center rounded-lg px-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label={t(roomListMessages.surpriseMe)}
+            className="flex h-7 min-w-0 flex-1 items-center justify-center rounded-lg px-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             onClick={onCloseMobile}
-            title="Surprise me"
+            title={t(roomListMessages.surpriseMe)}
             to={surprisePath(tenant.id)}
           >
-            <span className="truncate">Surprise</span>
+            <span className="truncate">{t(roomListMessages.surprise)}</span>
           </Link>
         </div>
         {onCollapse ? searchButton : null}
@@ -615,13 +618,13 @@ export function RoomSecondaryNavigation({
               action={
                 <>
                   <Button
-                    aria-label="Mark all Rooms as read"
+                    aria-label={t(roomListMessages.markAllRoomsAsRead)}
                     className="border-0 text-app-muted"
                     disabled={unreadRoomCount === 0}
                     loading={markAllRead.running}
                     onClick={() => void markAllRead.markAll(chats)}
                     size="compactIcon"
-                    title="Mark all as read"
+                    title={t(roomListMessages.markAllAsRead)}
                     tone="ghost"
                   >
                     <Icon icon={TickDouble02Icon} size={16} />
@@ -798,17 +801,21 @@ export function RoomSecondaryNavigation({
   );
 }
 
-const filterChoices: Array<{
-  label: string;
-  mode: RoomFilterMode;
-  title: string;
-}> = [
-  { label: "All", mode: "all", title: "Show all Rooms" },
-  { label: "Unread", mode: "unread", title: "Show only unread Rooms" },
+const filterChoices = [
   {
-    label: "Mentions",
-    mode: "mentions",
-    title: "Show only Rooms with unread mentions",
+    label: roomListMessages.filterAll,
+    mode: "all" as RoomFilterMode,
+    title: roomListMessages.showAllRooms,
+  },
+  {
+    label: roomListMessages.filterUnread,
+    mode: "unread" as RoomFilterMode,
+    title: roomListMessages.showUnreadRooms,
+  },
+  {
+    label: roomListMessages.filterMentions,
+    mode: "mentions" as RoomFilterMode,
+    title: roomListMessages.showMentionRooms,
   },
 ];
 
@@ -824,9 +831,10 @@ function RoomFilterChoice({
   mode: RoomFilterMode;
   onChange: (mode: RoomFilterMode) => void;
 }) {
+  const t = useT();
   return (
     <div
-      aria-label="Room filter"
+      aria-label={t(roomListMessages.roomFilter)}
       className="mx-2 mb-1 flex items-center gap-0.5 rounded-lg bg-card p-0.5 shadow-outline"
       role="group"
     >
@@ -845,10 +853,10 @@ function RoomFilterChoice({
             onClick={() =>
               onChange(active && choice.mode !== "all" ? "all" : choice.mode)
             }
-            title={active ? "Show all Rooms" : choice.title}
+            title={active ? t(roomListMessages.showAllRooms) : t(choice.title)}
             type="button"
           >
-            {choice.label}
+            {t(choice.label)}
           </button>
         );
       })}
@@ -863,17 +871,22 @@ function FilterEmptyState({
   mode: Exclude<RoomFilterMode, "all">;
   onShowAll: () => void;
 }) {
+  const t = useT();
   return (
     <div className="rounded-lg px-2 py-3">
       <p className="text-xs leading-4 text-muted-foreground">
-        {mode === "unread" ? "No unread Rooms" : "No unread mentions"}
+        {t(
+          mode === "unread"
+            ? roomListMessages.noUnreadRooms
+            : roomListMessages.noUnreadMentions,
+        )}
       </p>
       <button
         className="mt-1 text-xs font-medium text-foreground underline underline-offset-2 transition-colors hover:text-app-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         onClick={onShowAll}
         type="button"
       >
-        Show all Rooms
+        {t(roomListMessages.showAllRooms)}
       </button>
     </div>
   );
@@ -1245,7 +1258,9 @@ function AnotherMeCard({
           : ((channel + 0.055) / 1.055) ** 2.4)
     );
   }, 0);
-  const darkText = luminance > 0.179;
+  // Pick whichever ink (--app-ink #1a1a16, luminance ~0.0097, or white surface)
+  // gives higher WCAG contrast so mid-tone accents stay legible.
+  const darkText = luminance > 0.218;
   // Dark text is the ink #1a1a16, whose relative luminance is about 0.0097.
   const contrast = darkText
     ? (luminance + 0.05) / 0.0597

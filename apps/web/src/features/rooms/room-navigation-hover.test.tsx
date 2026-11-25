@@ -78,16 +78,14 @@ describe("collapsed navigation hover targets", () => {
       desktopMessageRule?.style.getPropertyValue("--message-actions-room"),
     ).toBe("112px");
 
-    const coarseMedia = rules.find(
-      (rule): rule is CSSMediaRule =>
-        rule instanceof CSSMediaRule &&
-        rule.conditionText === "(pointer: coarse)",
-    );
-    const coarseCardRule = coarseMedia
-      ? styleRules(coarseMedia.cssRules).find(
-          (rule) => rule.selectorText === ".room-message-card",
-        )
-      : undefined;
+    const coarseCardRule = rules
+      .filter(
+        (rule): rule is CSSMediaRule =>
+          rule instanceof CSSMediaRule &&
+          rule.conditionText.includes("pointer: coarse"),
+      )
+      .flatMap((rule) => styleRules(rule.cssRules))
+      .find((rule) => rule.selectorText === ".room-message-card");
     expect(
       coarseCardRule?.style.getPropertyValue("--message-actions-room"),
     ).toBe("0px");

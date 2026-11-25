@@ -76,6 +76,12 @@ export function PanelTabStrip({
   const t = useT();
   const { scrollRef, preview, clearDrag, onDragOver, onDrop, onDragStart } =
     usePanelTabDrag({ activeTabId, launcherOpen, onReorder, tabs });
+  useEffect(() => {
+    if (!activeTabId || launcherOpen) return;
+    document
+      .getElementById(`panel-tab-${activeTabId}`)
+      ?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [activeTabId, launcherOpen]);
   const resizeLabel = t(maximized ? m.restoreSidebar : m.maximizeSidebar);
   const hideLabel = t(roomSurfaceMessages.hideSidebar);
   const resizeIcon = maximized ? ArrowShrink01Icon : ArrowExpand01Icon;
@@ -168,10 +174,10 @@ export function PanelTabStrip({
             const { label, name: visibleLabel } = panelTabText(tab, t);
             return (
               <div
-                className={`panel-tab-item group relative flex h-7 min-w-[96px] max-w-[200px] flex-1 items-stretch rounded-full motion-safe:transition-transform motion-safe:duration-150 motion-safe:ease-out ${isGhost ? "outline outline-1 outline-dashed outline-app-focus bg-app-hover [&>button]:opacity-25" : ""} ${
+                className={`panel-tab-item group relative flex h-7 shrink-0 items-stretch rounded-full motion-safe:transition-transform motion-safe:duration-150 motion-safe:ease-out ${isGhost ? "outline outline-1 outline-dashed outline-app-focus bg-app-hover [&>button]:opacity-25" : ""} ${
                   selected
-                    ? "bg-card text-foreground shadow-outline"
-                    : "bg-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                    ? "min-w-[140px] max-w-[220px] bg-card text-foreground shadow-outline"
+                    : "min-w-[116px] max-w-[180px] bg-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground"
                 }`}
                 key={tab.id}
                 data-drag-placeholder={isGhost ? "true" : undefined}

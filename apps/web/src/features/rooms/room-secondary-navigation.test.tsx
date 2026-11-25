@@ -944,7 +944,7 @@ describe("Another Me card", () => {
     ["FFFFFF", "var(--app-ink)", "0.82"],
     ["8DA488", "var(--app-ink)", "1"],
     ["010101", "var(--app-surface)", "0.82"],
-    ["777777", "var(--app-ink)", "1"],
+    ["777777", "var(--app-surface)", "1"],
     ["6E3CED", "var(--app-surface)", "1"],
   ])("keeps text readable on avatar background %s", (color, text, opacity) => {
     const record = vi

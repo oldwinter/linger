@@ -20,6 +20,9 @@ import { HighlightedText } from "@/features/search/search-highlight";
 import { markdownPlainText } from "@/features/teamhub/markdown-plain-text";
 import type { TeamHubMessagePinList } from "@/features/teamhub/teamhub-types";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { useT } from "@/i18n/use-translation";
+
+import { roomSurfaceMessages as m } from "../../room-surface.messages";
 
 import { roomPinsQueryOptions } from "../../room-queries";
 import { PinnedMessageLinkCopy } from "./pinned-message-link-copy";
@@ -41,6 +44,7 @@ export function PinnedMessagesControl({
   roomName: string;
   tenantId: string;
 }) {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -185,14 +189,14 @@ export function PinnedMessagesControl({
       <Button
         aria-expanded={open}
         aria-haspopup="dialog"
-        aria-label="Pinned messages"
+        aria-label={t(m.pinnedMessages)}
         className="!rounded-lg border-0 text-app-muted"
         onClick={() => setOpen((current) => !current)}
         size="compactIcon"
         title={
           pinnedCount > 0
-            ? `Pinned messages (${pinnedCount})`
-            : "Pinned messages"
+            ? t(m.pinnedMessagesCount, { count: pinnedCount })
+            : t(m.pinnedMessages)
         }
         tone="ghost"
       >
@@ -210,7 +214,7 @@ export function PinnedMessagesControl({
       {open
         ? createPortal(
             <div
-              aria-label="Pinned messages"
+              aria-label={t(m.pinnedMessages)}
               className="app-popover-card fixed z-50 flex w-80 flex-col p-2 outline-none"
               ref={panelRef}
               role="dialog"
@@ -219,14 +223,17 @@ export function PinnedMessagesControl({
               <div className="flex shrink-0 items-center justify-between px-1 pb-1">
                 <div className="flex items-baseline gap-1.5">
                   <h2 className="text-sm font-medium text-foreground">
-                    Pinned
+                    {t(m.pinnedHeading)}
                   </h2>
                   {filtering ? (
                     <span
                       aria-live="polite"
                       className="text-2xs text-app-subtle"
                     >
-                      {search.count} of {pins.length}
+                      {t(m.pinnedCountOf, {
+                        shown: search.count,
+                        total: pins.length,
+                      })}
                     </span>
                   ) : null}
                 </div>
@@ -238,11 +245,12 @@ export function PinnedMessagesControl({
                     tenantId={tenantId}
                   />
                   <Button
-                    aria-label="Close pinned messages"
+                    aria-label={t(m.closePinnedMessages)}
                     className="!rounded-lg border-0 text-app-muted"
+                    data-voice-close=""
                     onClick={closePanel}
                     size="compactIcon"
-                    title="Close pinned messages"
+                    title={t(m.closePinnedMessages)}
                     tone="ghost"
                   >
                     <Icon icon={Cancel01Icon} size={14} />
@@ -253,10 +261,10 @@ export function PinnedMessagesControl({
                 <label className="mb-1 flex h-8 shrink-0 items-center gap-2 rounded-lg border border-border bg-card px-2.5 text-muted-foreground transition-colors hover:border-border-hover focus-within:border-foreground focus-within:ring-2 focus-within:ring-ring/40">
                   <Icon icon={Search01Icon} size={14} />
                   <input
-                    aria-label="Search pinned messages"
+                    aria-label={t(m.searchPinnedMessages)}
                     className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-app-placeholder"
                     onChange={(event) => changeQuery(event.target.value)}
-                    placeholder="Search pinned messages"
+                    placeholder={t(m.searchPinnedMessages)}
                     ref={searchInputRef}
                     role="searchbox"
                     type="text"
@@ -264,7 +272,7 @@ export function PinnedMessagesControl({
                   />
                   {query ? (
                     <button
-                      aria-label="Clear pinned message search"
+                      aria-label={t(m.clearPinnedSearch)}
                       className="flex size-5 shrink-0 items-center justify-center rounded-full hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
                       onClick={() => changeQuery("")}
                       type="button"
@@ -276,7 +284,7 @@ export function PinnedMessagesControl({
               ) : null}
               {isPending ? (
                 <p className="px-1 py-2 text-xs text-app-subtle">
-                  Loading pinned messages
+                  {t(m.loadingPinnedMessages)}
                 </p>
               ) : isError ? (
                 <Button
@@ -285,11 +293,11 @@ export function PinnedMessagesControl({
                   size="compact"
                   tone="secondary"
                 >
-                  Retry pinned messages
+                  {t(m.retryPinnedMessages)}
                 </Button>
               ) : pins.length === 0 ? (
                 <p className="px-1 py-2 text-xs text-app-subtle">
-                  No pinned messages yet.
+                  {t(m.noPinnedMessages)}
                 </p>
               ) : (
                 // The scroller stays mounted so clearing the filter can put the
@@ -302,14 +310,14 @@ export function PinnedMessagesControl({
                   {filtering && search.count === 0 ? (
                     <div className="flex flex-col items-center gap-2 px-2 py-6 text-center">
                       <p className="text-xs text-app-muted">
-                        No pinned messages match “{query.trim()}”.
+                        {t(m.noPinnedMatch, { query: query.trim() })}
                       </p>
                       <Button
                         onClick={() => changeQuery("")}
                         size="compact"
                         tone="secondary"
                       >
-                        Clear search
+                        {t(m.clearSearch)}
                       </Button>
                     </div>
                   ) : (
