@@ -6,26 +6,25 @@ package rooms
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/mobile"
 	"github.com/oldwinter/linger/mobile/internal/api"
 	"github.com/oldwinter/linger/mobile/internal/components"
+	"github.com/oldwinter/linger/mobile/internal/i18n"
 	"github.com/oldwinter/linger/mobile/internal/state"
 	"github.com/oldwinter/linger/mobile/internal/theme"
 )
 
 // NavigationHooks connects Rooms actions to other tabs without tight coupling.
 type NavigationHooks struct {
-	OnOpenConnect      func()
-	OnOpenSettingsKey  func(kind, key string)
-	OnOpenCompute      func(computerID, section string)
+	OnOpenConnect     func()
+	OnOpenSettingsKey func(kind, key string)
+	OnOpenCompute     func(computerID, section string)
 }
 
 // Controller manages Tab 1 Rooms state, sheets, inspector, run watch, and composer state.
@@ -74,11 +73,11 @@ type Controller struct {
 	htmlWebView *mygo.WebView
 
 	// Mail Canvas modal
-	mailOpen   bool
-	mailDocID  string
-	mailState  *api.MailCanvasState
-	mailBusy   bool
-	mailError  string
+	mailOpen  bool
+	mailDocID string
+	mailState *api.MailCanvasState
+	mailBusy  bool
+	mailError string
 
 	// Room Inspector sheet
 	inspectorOpen   bool
@@ -165,12 +164,12 @@ func (ctl *Controller) Route(c *ui.Context, r *ui.Route, snap state.Snapshot) {
 	case r.Match("/rooms/{roomId}/runs/{runId}"):
 		roomID := r.Param("roomId")
 		runID := r.Param("runId")
-		r.Title("Live Run")
+		r.Title(i18n.T("rooms.title.live_run"))
 		ctl.ViewRunWatch(c, snap, roomID, runID)
 	case r.Match("/rooms/{roomId}/thread/{threadId}"):
 		parentID := r.Param("roomId")
 		threadID := r.Param("threadId")
-		r.Title("Thread")
+		r.Title(i18n.T("rooms.title.thread"))
 		ctl.ensureRoomLoaded(threadID)
 		ctl.viewChat(c, snap, threadID, parentID, true)
 	case r.Match("/rooms/{roomId}"):
@@ -179,7 +178,7 @@ func (ctl *Controller) Route(c *ui.Context, r *ui.Route, snap state.Snapshot) {
 		ctl.ensureRoomLoaded(roomID)
 		ctl.viewChat(c, snap, roomID, "", false)
 	default:
-		r.Title("Rooms")
+		r.Title(i18n.T("tab.rooms"))
 		ctl.viewRoomList(c, snap)
 	}
 }
@@ -205,20 +204,20 @@ func (ctl *Controller) viewRoomList(c *ui.Context, snap state.Snapshot) {
 	scroll.Children(func() {
 		ui.Column(c).FillWidth().Padding(10, 14, 24, 14).Gap(10).Children(func() {
 			if snap.OfflineViewingCache {
-				components.StatusBanner(c, components.ToneWarning, "Offline — viewing cached data", "Reconnect", func() {
+				components.StatusBanner(c, components.ToneWarning, i18n.T("rooms.offline_banner"), i18n.T("rooms.reconnect"), func() {
 					if snap.ActiveHost != nil {
 						go func() { _ = ctl.store.ConnectHost(context.Background(), snap.ActiveHost.ID) }()
 					}
 				})
 			} else if snap.TransientError != "" {
-				components.StatusBanner(c, components.ToneDanger, snap.TransientError, "Connect", func() {
+				components.StatusBanner(c, components.ToneDanger, snap.TransientError, i18n.T("nav.connect"), func() {
 					if ctl.nav.OnOpenConnect != nil {
 						ctl.nav.OnOpenConnect()
 					}
 				})
 			}
 			if notice != "" {
-				components.StatusBanner(c, components.ToneSuccess, notice, "OK", func() {
+				components.StatusBanner(c, components.ToneSuccess, notice, i18n.T("common.ok"), func() {
 					ctl.mu.Lock()
 					ctl.inlineNotice = ""
 					ctl.mu.Unlock()
@@ -226,9 +225,9 @@ func (ctl *Controller) viewRoomList(c *ui.Context, snap state.Snapshot) {
 			}
 
 			if snap.ActiveHost == nil && len(snap.Rooms) == 0 {
-				components.EmptyState(c, theme.IconRooms, "Connect a Linger Host",
-					"Pair your Linger Desktop over LAN or Tailscale to watch live Rooms and collaborate with Agents.",
-					"Open Connection Hub", func() {
+				components.EmptyState(c, theme.IconRooms, i18n.T("rooms.connect_host_title"),
+					i18n.T("rooms.connect_host_body"),
+					i18n.T("rooms.open_hub"), func() {
 						if ctl.nav.OnOpenConnect != nil {
 							ctl.nav.OnOpenConnect()
 						}
@@ -239,9 +238,9 @@ func (ctl *Controller) viewRoomList(c *ui.Context, snap state.Snapshot) {
 			// Action bar: Catch-Up Walk + New Room / DM
 			unreadCount := countUnreadRooms(snap.Rooms)
 			ui.Row(c).FillWidth().Gap(8).Children(func() {
-				catchLabel := "Catch-Up Walk"
+				catchLabel := i18n.T("rooms.catch_up")
 				if unreadCount > 0 {
-					catchLabel = fmt.Sprintf("Catch-Up (%d)", unreadCount)
+					catchLabel = i18n.Tf("rooms.catch_up_count", map[string]any{"count": unreadCount})
 				}
 				catchBtn := components.SecondaryTouchButton(c, catchLabel, false)
 				catchBtn.Grow(1).Basis(0)
@@ -250,7 +249,7 @@ func (ctl *Controller) viewRoomList(c *ui.Context, snap state.Snapshot) {
 					ctl.catchUpOpen = true
 					ctl.mu.Unlock()
 				}
-				newBtn := components.PrimaryTouchButton(c, "New Room", snap.ActiveHost == nil)
+				newBtn := components.PrimaryTouchButton(c, i18n.T("rooms.new_room"), snap.ActiveHost == nil)
 				newBtn.Grow(1).Basis(0)
 				if newBtn.Clicked() {
 					ctl.mu.Lock()
@@ -260,14 +259,20 @@ func (ctl *Controller) viewRoomList(c *ui.Context, snap state.Snapshot) {
 			})
 
 			// Narrow-screen-safe (320px+) horizontal segmented filter pills.
-			if components.SegmentedControl(c, &filter, "All", "Unread", "Working", "Direct", "Rooms") {
+			if components.SegmentedControl(c, &filter,
+				i18n.T("rooms.filter.all"),
+				i18n.T("rooms.filter.unread"),
+				i18n.T("rooms.filter.working"),
+				i18n.T("rooms.filter.direct"),
+				i18n.T("rooms.filter.rooms"),
+			) {
 				ctl.SetFilter(filter)
 			}
 
 			filtered := filterRooms(snap.Rooms, snap.WorkingRoomIDs, filter)
 			if len(filtered) == 0 {
-				components.EmptyState(c, theme.IconRooms, "No matching Rooms",
-					"Try switching filter or pull down to refresh.", "Show All", func() {
+				components.EmptyState(c, theme.IconRooms, i18n.T("rooms.empty_filtered_title"),
+					i18n.T("rooms.empty_filtered_body"), i18n.T("rooms.show_all"), func() {
 						ctl.SetFilter(0)
 					})
 				return
@@ -278,13 +283,13 @@ func (ctl *Controller) viewRoomList(c *ui.Context, snap state.Snapshot) {
 				working := snap.WorkingRoomIDs[rm.ID]
 				pinned := rm.PinnedAt != nil
 				left := rm.Participation != nil && *rm.Participation == "left"
-				pinLabel := "Pin"
+				pinLabel := i18n.T("rooms.action.pin")
 				if pinned {
-					pinLabel = "Unpin"
+					pinLabel = i18n.T("rooms.action.unpin")
 				}
-				muteLabel := "Snooze"
+				muteLabel := i18n.T("rooms.action.snooze")
 				if left {
-					muteLabel = "Rejoin"
+					muteLabel = i18n.T("rooms.action.rejoin")
 				}
 
 				mobile.SwipeRow(c.Key(rm.ID), ctl.swipeStateFor(rm.ID), mobile.SwipeOptions{
@@ -299,7 +304,7 @@ func (ctl *Controller) viewRoomList(c *ui.Context, snap state.Snapshot) {
 					},
 					Trailing: []mobile.SwipeAction{
 						{
-							Label: "Read",
+							Label: i18n.T("rooms.action.read"),
 							OnTap: func() {
 								mygo.Haptics.Light()
 								go func() { _ = ctl.store.MarkRoomRead(context.Background(), rm.ID) }()
@@ -320,7 +325,7 @@ func (ctl *Controller) viewRoomList(c *ui.Context, snap state.Snapshot) {
 				}, func() {
 					row := ui.Row(c).FillWidth().MinHeight(68).Padding(10, 12).Gap(10).
 						Radius(12).Background(t.Surface).Border(1, t.Border).AlignItems(ui.Center).
-						Role(ui.RoleButton).Label(fmt.Sprintf("Room %s, %d unread", rm.Name, rm.UnreadMessageCount))
+						Role(ui.RoleButton).Label(i18n.Tf("rooms.a11y_row", map[string]any{"name": rm.Name, "unread": rm.UnreadMessageCount}))
 					row.Children(func() {
 						// Avatar or member mosaic
 						renderRoomAvatarMosaic(c, rm)
@@ -331,26 +336,26 @@ func (ctl *Controller) viewRoomList(c *ui.Context, snap state.Snapshot) {
 									title = "★ " + title
 								}
 								ui.Text(c, title).FontSize(15).FontWeight(600).TextColor(t.Text).Grow(1).Basis(0).MaxLines(1)
-								ts := formatRelativeTime(rm.UpdatedAt)
+								ts := i18n.FormatRoomTime(rm.UpdatedAt)
 								if rm.LatestMessage != nil {
-									ts = formatRelativeTime(rm.LatestMessage.CreatedAt)
+									ts = i18n.FormatRoomTime(rm.LatestMessage.CreatedAt)
 								}
 								ui.Text(c, ts).FontSize(11).TextColor(t.TextMuted).NoWrap()
 							})
-							preview := "No messages yet"
+							preview := i18n.T("rooms.no_messages")
 							if rm.LatestMessage != nil && strings.TrimSpace(rm.LatestMessage.RawMessage) != "" {
 								preview = rm.LatestMessage.Author.DisplayName + ": " + rm.LatestMessage.RawMessage
 							}
 							ui.Text(c, preview).FontSize(13).TextColor(t.TextMuted).MaxLines(1)
 							ui.Row(c).FillWidth().Wrap().AlignItems(ui.Center).Gap(6).Children(func() {
 								if working {
-									components.StatusPill(c, "Working ●", components.ToneInfo)
+									components.StatusPill(c, i18n.T("rooms.working_dot"), components.ToneInfo)
 								}
 								if rm.UnreadMessageCount > 0 {
-									components.StatusPill(c, fmt.Sprintf("%d unread", rm.UnreadMessageCount), components.ToneWarning)
+									components.StatusPill(c, i18n.Tf("rooms.unread_count", map[string]any{"count": rm.UnreadMessageCount}), components.ToneWarning)
 								}
 								if left {
-									components.StatusPill(c, "Snoozed", components.ToneNeutral)
+									components.StatusPill(c, i18n.T("rooms.snoozed"), components.ToneNeutral)
 								}
 							})
 						})
@@ -395,7 +400,7 @@ func (ctl *Controller) viewCatchUpSheet(c *ui.Context, snap state.Snapshot) {
 	t := c.Theme()
 	mobile.Sheet(c, &ctl.catchUpOpen, mobile.SheetOptions{
 		Detents: []float32{0.65, 0.92},
-		Label:   "Catch-Up Walk",
+		Label:   i18n.T("rooms.catch_up"),
 	}, func() {
 		var unread []api.RoomListItem
 		for _, rm := range snap.Rooms {
@@ -406,9 +411,9 @@ func (ctl *Controller) viewCatchUpSheet(c *ui.Context, snap state.Snapshot) {
 		ui.Scroll(c).FillWidth().Grow(1).Basis(0).Children(func() {
 			ui.Column(c).FillWidth().Padding(12, 16, 24, 16).Gap(10).Children(func() {
 				ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
-					ui.Text(c, "Catch-Up Walk").FontSize(18).Bold().TextColor(t.Text)
+					ui.Text(c, i18n.T("rooms.catch_up")).FontSize(18).Bold().TextColor(t.Text)
 					if len(unread) > 0 {
-						markBtn := components.SecondaryTouchButton(c, "Mark All Caught Up", false)
+						markBtn := components.SecondaryTouchButton(c, i18n.T("rooms.catchup_mark_all"), false)
 						if markBtn.Clicked() {
 							mygo.Haptics.Success()
 							go func() { _ = ctl.store.MarkAllRoomsRead(context.Background()) }()
@@ -417,8 +422,8 @@ func (ctl *Controller) viewCatchUpSheet(c *ui.Context, snap state.Snapshot) {
 					}
 				})
 				if len(unread) == 0 {
-					components.EmptyState(c, theme.IconCheck, "All caught up",
-						"Zero unread messages across your Rooms.", "Done", func() {
+					components.EmptyState(c, theme.IconCheck, i18n.T("rooms.catchup_done_title"),
+						i18n.T("rooms.catchup_done_body"), i18n.T("common.done"), func() {
 							ctl.catchUpOpen = false
 						})
 					return
@@ -429,8 +434,8 @@ func (ctl *Controller) viewCatchUpSheet(c *ui.Context, snap state.Snapshot) {
 					if rm.LatestMessage != nil {
 						preview = rm.LatestMessage.Author.DisplayName + ": " + rm.LatestMessage.RawMessage
 					}
-					components.SectionCard(c, rm.Name, components.Plural(rm.UnreadMessageCount, "unread message", "unread messages"), func() {
-						btn := components.PrimaryTouchButton(c, "Jump", false)
+					components.SectionCard(c, rm.Name, i18n.Tf("rooms.catchup_unread_msg", map[string]any{"count": rm.UnreadMessageCount}), func() {
+						btn := components.PrimaryTouchButton(c, i18n.T("rooms.catchup_jump"), false)
 						if btn.Clicked() {
 							ctl.catchUpOpen = false
 							ctl.OpenRoom(rm.ID)
@@ -450,7 +455,7 @@ func (ctl *Controller) viewNewRoomSheet(c *ui.Context, snap state.Snapshot) {
 	t := c.Theme()
 	mobile.Sheet(c, &ctl.newRoomOpen, mobile.SheetOptions{
 		Detents: []float32{0.72, 0.92},
-		Label:   "New Room or Direct Message",
+		Label:   i18n.T("rooms.new_modal_a11y"),
 	}, func() {
 		ctl.mu.Lock()
 		mode := ctl.newRoomMode
@@ -459,28 +464,28 @@ func (ctl *Controller) viewNewRoomSheet(c *ui.Context, snap state.Snapshot) {
 
 		ui.Scroll(c).FillWidth().Grow(1).Basis(0).Children(func() {
 			ui.Column(c).FillWidth().Padding(12, 16, 24, 16).Gap(12).Children(func() {
-				ui.Text(c, "Start a Conversation").FontSize(18).Bold().TextColor(t.Text)
-				if components.SegmentedControl(c, &mode, "Group Room", "Direct Message") {
+				ui.Text(c, i18n.T("rooms.new_modal_title")).FontSize(18).Bold().TextColor(t.Text)
+				if components.SegmentedControl(c, &mode, i18n.T("rooms.new_kind_group"), i18n.T("rooms.new_kind_dm")) {
 					ctl.mu.Lock()
 					ctl.newRoomMode = mode
 					ctl.mu.Unlock()
 				}
 
 				if mode == 0 {
-					components.FormField(c, "Room Name", "e.g. Mobile Launch", &ctl.newRoomName, false)
-					components.FormField(c, "Description (optional)", "Shared goal or topic", &ctl.newRoomDesc, false)
+					components.FormField(c, i18n.T("rooms.new_name_label"), i18n.T("rooms.new_name_placeholder"), &ctl.newRoomName, false)
+					components.FormField(c, i18n.T("rooms.new_desc_label"), i18n.T("rooms.new_desc_placeholder"), &ctl.newRoomDesc, false)
 					if len(snap.Actors) > 0 {
-						ui.Text(c, "Invite Members & Agents").FontSize(12).FontWeight(600).TextColor(t.TextMuted)
+						ui.Text(c, i18n.T("rooms.invite_members")).FontSize(12).FontWeight(600).TextColor(t.TextMuted)
 						for _, act := range snap.Actors {
 							act := act
 							checked := ctl.selectedPeers[act.ID]
-							chk := ui.Checkbox(c.Key(act.ID), &checked, fmt.Sprintf("%s (%s)", act.DisplayName, act.Kind)).MinHeight(38)
+							chk := ui.Checkbox(c.Key(act.ID), &checked, act.DisplayName+" ("+i18n.ActorRoleLabel(act.Kind)+")").MinHeight(38)
 							if chk.Changed() {
 								ctl.selectedPeers[act.ID] = checked
 							}
 						}
 					}
-					btn := components.PrimaryTouchButton(c, "Create Room", creating || strings.TrimSpace(ctl.newRoomName) == "")
+					btn := components.PrimaryTouchButton(c, i18n.T("rooms.create_room_btn"), creating || strings.TrimSpace(ctl.newRoomName) == "")
 					btn.FillWidth()
 					if btn.Clicked() {
 						name := strings.TrimSpace(ctl.newRoomName)
@@ -504,7 +509,7 @@ func (ctl *Controller) viewNewRoomSheet(c *ui.Context, snap state.Snapshot) {
 									ctl.newRoomDesc = ""
 									ctl.selectedPeers = map[string]bool{}
 									ctl.newRoomOpen = false
-									ctl.inlineNotice = "Created room " + rm.Name
+									ctl.inlineNotice = i18n.Tf("rooms.toast.created", map[string]any{"name": rm.Name})
 								}
 								ctl.mu.Unlock()
 								if err == nil {
@@ -514,19 +519,19 @@ func (ctl *Controller) viewNewRoomSheet(c *ui.Context, snap state.Snapshot) {
 						}()
 					}
 				} else {
-					ui.Text(c, "Select an Agent or Member to open a Direct Room").FontSize(13).TextColor(t.TextMuted)
+					ui.Text(c, i18n.T("rooms.dm_select_hint")).FontSize(13).TextColor(t.TextMuted)
 					for _, act := range snap.Actors {
 						act := act
 						row := ui.Row(c.Key("dm_"+act.ID)).FillWidth().MinHeight(52).Padding(8, 10).Gap(10).
 							Radius(10).Background(t.Surface).Border(1, t.Border).AlignItems(ui.Center).
-							Role(ui.RoleButton).Label("Direct message " + act.DisplayName)
+							Role(ui.RoleButton).Label(i18n.Tf("rooms.dm_a11y", map[string]any{"name": act.DisplayName}))
 						row.Children(func() {
 							components.AvatarBadge(c, act.DisplayName, 34)
 							ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
 								ui.Text(c, act.DisplayName).FontSize(14).FontWeight(600).TextColor(t.Text)
-								ui.Text(c, act.Kind).FontSize(12).TextColor(t.TextMuted)
+								ui.Text(c, i18n.ActorRoleLabel(act.Kind)).FontSize(12).TextColor(t.TextMuted)
 							})
-							ui.Text(c, "Open ›").FontSize(13).TextColor(t.Accent)
+							ui.Text(c, i18n.T("common.open")+" ›").FontSize(13).TextColor(t.Accent)
 						})
 						if row.Clicked() && !creating {
 							ctl.mu.Lock()
@@ -645,25 +650,5 @@ func roomTitle(snap state.Snapshot, roomID string) string {
 			return rm.Name
 		}
 	}
-	return "Room"
-}
-
-func formatRelativeTime(ts time.Time) string {
-	if ts.IsZero() {
-		return ""
-	}
-	d := time.Since(ts)
-	if d < 0 {
-		d = 0
-	}
-	switch {
-	case d < time.Minute:
-		return "now"
-	case d < time.Hour:
-		return fmt.Sprintf("%dm", int(d.Minutes()))
-	case d < 24*time.Hour:
-		return fmt.Sprintf("%dh", int(d.Hours()))
-	default:
-		return ts.Format("Jan 2")
-	}
+	return i18n.T("rooms.title.room_fallback")
 }

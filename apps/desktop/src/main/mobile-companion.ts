@@ -14,7 +14,11 @@ import { z } from "zod";
 import { readLocalIdentity } from "@linger/local-installation/account";
 import { loadInstance } from "@linger/local-installation/instance";
 
+import { localizePage } from "../i18n/page.js";
+import messagesHtml from "../shell/messages.html";
 import mobileCompanionHtml from "../shell/mobile-companion.html";
+import { mobileCompanionMessages } from "../shell/mobile-companion.messages.js";
+import type { LanguageModule } from "./language.js";
 import {
   MOBILE_COMPANION_IPC,
   type MobileCompanionCommand,
@@ -122,6 +126,7 @@ export class MobileCompanionModule implements Module {
   readonly name = "MobileCompanion";
   readonly dependsOn = [
     "Config",
+    "Language",
     "LocalServer",
     "Status",
     "ComputerDaemon",
@@ -220,6 +225,13 @@ export class MobileCompanionModule implements Module {
         this.#updateMdnsAnnouncement();
         this.#pushState();
       }),
+      ctx.bus.on("language.changed", () => {
+        const win = this.#window;
+        if (!win || win.isDestroyed()) return;
+        const lang = ctx.get<LanguageModule>("Language");
+        win.setTitle(lang.t(mobileCompanionMessages.title));
+        void win.loadURL(MOBILE_COMPANION_URL).catch(() => undefined);
+      }),
     );
 
     if (this.#config().enabled) {
@@ -244,13 +256,17 @@ export class MobileCompanionModule implements Module {
       return;
     }
 
+    const title =
+      this.#ctx
+        ?.get<LanguageModule>("Language")
+        .t(mobileCompanionMessages.title) ?? "Mobile Companion";
     const window = new BrowserWindow({
       width: 560,
       height: 740,
       minWidth: 460,
       minHeight: 540,
       show: false,
-      title: "Mobile Companion",
+      title,
       backgroundColor: "#fcfcfa",
       ...(process.platform === "darwin" ? {} : { autoHideMenuBar: true }),
       webPreferences: {
@@ -721,7 +737,15 @@ export class MobileCompanionModule implements Module {
     if (new URL(request.url).host !== "mobile-companion") {
       return new Response(null, { status: 404 });
     }
-    return new Response(mobileCompanionHtml, {
+    const language =
+      this.#ctx?.get<LanguageModule>("Language").current() ?? "en";
+    const page = localizePage(
+      mobileCompanionHtml,
+      messagesHtml,
+      mobileCompanionMessages,
+      language,
+    );
+    return new Response(page, {
       headers: { "content-type": "text/html; charset=utf-8" },
     });
   }

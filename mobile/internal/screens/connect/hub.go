@@ -19,6 +19,7 @@ import (
 	"github.com/oldwinter/linger/mobile/internal/components"
 	"github.com/oldwinter/linger/mobile/internal/config"
 	"github.com/oldwinter/linger/mobile/internal/discovery"
+	"github.com/oldwinter/linger/mobile/internal/i18n"
 	"github.com/oldwinter/linger/mobile/internal/state"
 	"github.com/oldwinter/linger/mobile/internal/theme"
 )
@@ -62,7 +63,8 @@ type Hub struct {
 	swipeStates map[string]*mobile.SwipeState
 
 	// Optional window reference for mobile camera QR scan trigger.
-	win *mygo.Window
+	win         *mygo.Window
+	onOpenPrefs func()
 }
 
 // NewHub constructs a Connection Hub bound to store.
@@ -71,6 +73,13 @@ func NewHub(store *state.AppStore) *Hub {
 		store:       store,
 		swipeStates: map[string]*mobile.SwipeState{},
 	}
+}
+
+// SetOnOpenPreferences registers a navigation callback from the offline quick-switch card to Preferences.
+func (h *Hub) SetOnOpenPreferences(fn func()) {
+	h.mu.Lock()
+	h.onOpenPrefs = fn
+	h.mu.Unlock()
 }
 
 // SetWindow attaches the host mygo.Window used when launching camera preview on mobile.
@@ -140,6 +149,7 @@ func (h *Hub) View(c *ui.Context) {
 	inlineErr := h.inlineError
 	inlineNotice := h.inlineNotice
 	busy := h.busy
+	openPrefs := h.onOpenPrefs
 	h.mu.Unlock()
 
 	t := c.Theme()
@@ -148,16 +158,16 @@ func (h *Hub) View(c *ui.Context) {
 		ui.Column(c).FillWidth().Padding(12, 16, 24, 16).Gap(12).Children(func() {
 			// Active transient error or status banners (cleared automatically on recovery).
 			if snap.TransientError != "" {
-				components.StatusBanner(c, components.ToneDanger, snap.TransientError, "Dismiss", func() {
+				components.StatusBanner(c, components.ToneDanger, snap.TransientError, i18n.T("common.dismiss"), func() {
 					h.store.ClearTransientError()
 				})
 			} else if inlineErr != "" {
-				components.StatusBanner(c, components.ToneDanger, inlineErr, "Dismiss", func() {
+				components.StatusBanner(c, components.ToneDanger, inlineErr, i18n.T("common.dismiss"), func() {
 					h.setInlineError("")
 				})
 			}
 			if inlineNotice != "" {
-				components.StatusBanner(c, components.ToneSuccess, inlineNotice, "OK", func() {
+				components.StatusBanner(c, components.ToneSuccess, inlineNotice, i18n.T("common.ok"), func() {
 					h.setInlineNotice("")
 				})
 			}
@@ -165,8 +175,19 @@ func (h *Hub) View(c *ui.Context) {
 			// Active connection hero card.
 			h.viewConnectionOverviewCard(c, snap)
 
+			// Offline-ready quick Theme & Language pills before/after pairing.
+			components.AppearanceQuickCard(c, snap.Prefs,
+				func(pref config.ThemePreference) {
+					_ = h.store.SetThemePreference(pref)
+				},
+				func(pref config.LanguagePreference) {
+					_ = h.store.SetLanguagePreference(pref)
+				},
+				openPrefs,
+			)
+
 			// Narrow-screen-safe segmented switcher.
-			if components.SegmentedControl(c, &seg, "Saved Hosts", "Pair Desktop", "Direct Login") {
+			if components.SegmentedControl(c, &seg, i18n.T("connect.tab.saved"), i18n.T("connect.tab.pair"), i18n.T("connect.tab.direct")) {
 				h.mu.Lock()
 				h.segment = seg
 				h.inlineError = ""
@@ -184,7 +205,7 @@ func (h *Hub) View(c *ui.Context) {
 
 			// Footer link to diagnostics.
 			ui.Row(c).FillWidth().Justify(ui.Center).Padding(4, 0).Children(func() {
-				btn := components.SecondaryTouchButton(c, "Connection Diagnostics", false)
+				btn := components.SecondaryTouchButton(c, i18n.T("connect.diagnostics_title"), false)
 				btn.FillWidth()
 				if btn.Clicked() {
 					h.OpenDiagnostics()
@@ -202,15 +223,15 @@ func (h *Hub) View(c *ui.Context) {
 
 func (h *Hub) viewConnectionOverviewCard(c *ui.Context, snap state.Snapshot) {
 	t := c.Theme()
-	title := "No Active Host"
+	title := i18n.T("connect.no_active_host")
 	hostName := ""
-	subtitle := "Pair a Linger Desktop on LAN/Tailscale or sign in directly."
+	subtitle := i18n.T("connect.no_active_subtitle")
 	if snap.ActiveHost != nil {
 		title = snap.ActiveHost.Name
 		hostName = snap.ActiveHost.Name
 		subtitle = snap.ActiveHost.PrimaryURL
 		if snap.ActiveVia == "fallback" && snap.ActiveHost.TailscaleURL != "" {
-			subtitle = snap.ActiveHost.TailscaleURL + " (Tailscale failover)"
+			subtitle = snap.ActiveHost.TailscaleURL + i18n.T("connect.tailscale_failover")
 		}
 	}
 
@@ -224,24 +245,25 @@ func (h *Hub) viewConnectionOverviewCard(c *ui.Context, snap state.Snapshot) {
 		})
 	}, func() {
 		if snap.ActiveHost == nil {
-			ui.Text(c, "Zero desktop configuration is needed on the same Wi-Fi: open Mobile Companion in Linger Desktop's tray menu.").
+			ui.Text(c, i18n.T("connect.zero_config_hint")).
 				FontSize(13).TextColor(t.TextMuted)
 			return
 		}
 		ui.Row(c).FillWidth().Wrap().Gap(6).Children(func() {
-			modeLabel := "Companion"
+			modeLabel := i18n.T("connect.mode.companion")
 			if snap.ActiveHost.Mode == config.HostModeDirect {
-				modeLabel = "Direct TeamHub"
+				modeLabel = i18n.T("connect.mode.direct")
 			}
 			components.StatusPill(c, modeLabel, components.ToneInfo)
 			if tlsPinned {
 				if sf, err := discovery.ShortFingerprint(snap.ActiveHost.TLSFingerprint); err == nil {
-					components.StatusPill(c, "Pin "+sf[:9], components.ToneSuccess)
+					components.StatusPill(c, i18n.Tf("connect.pin_short", map[string]any{"pin": sf[:9]}), components.ToneSuccess)
 				}
 			} else if plainHTTP {
-				components.StatusPill(c, "Plain HTTP (opt-in)", components.ToneWarning)
+				components.StatusPill(c, i18n.T("connect.plain_http_opt_in"), components.ToneWarning)
 			}
-			components.StatusPill(c, "SSE "+string(snap.SSEState), func() components.Tone {
+			sseLabel := i18n.Tf("conn.badge.sse_status", map[string]any{"status": i18n.SSEStatusLabel(string(snap.SSEState))})
+			components.StatusPill(c, sseLabel, func() components.Tone {
 				if snap.SSEState == "connected" {
 					return components.ToneSuccess
 				}
@@ -253,10 +275,11 @@ func (h *Hub) viewConnectionOverviewCard(c *ui.Context, snap state.Snapshot) {
 			if ver != "" && ver[0] >= '0' && ver[0] <= '9' {
 				ver = "v" + ver
 			}
-			ui.Text(c, fmt.Sprintf("Desktop %s · Runtime %s · %s",
-				ver, snap.CompanionStatus.RuntimeState,
-				components.PluralInt(snap.CompanionStatus.ActiveOperations, "active op", "active ops"))).
-				FontSize(12).TextColor(t.TextMuted)
+			ui.Text(c, i18n.Tf("connect.desktop_summary", map[string]any{
+				"version":  ver,
+				"runtime":  i18n.StatusLabel(snap.CompanionStatus.RuntimeState),
+				"opsCount": snap.CompanionStatus.ActiveOperations,
+			})).FontSize(12).TextColor(t.TextMuted)
 		}
 	})
 }
@@ -264,15 +287,15 @@ func (h *Hub) viewConnectionOverviewCard(c *ui.Context, snap state.Snapshot) {
 func (h *Hub) viewSavedHosts(c *ui.Context, snap state.Snapshot, busy bool) {
 	t := c.Theme()
 	if len(snap.Hosts) == 0 {
-		components.EmptyState(c, theme.IconHost, "No saved hosts yet",
-			"Pair with Linger Desktop via LAN radar, QR link, or 6-digit PIN.",
-			"Pair a Desktop", func() {
+		components.EmptyState(c, theme.IconHost, i18n.T("connect.no_saved_hosts"),
+			i18n.T("connect.no_saved_subtitle"),
+			i18n.T("connect.pair_a_desktop"), func() {
 				h.SelectSegment(1)
 			})
 		return
 	}
 
-	components.SectionCard(c, "Saved Desktop & Remote Hosts", "Swipe left on a host to switch or remove; tap for actions.", nil, func() {
+	components.SectionCard(c, i18n.T("connect.saved_title"), i18n.T("connect.saved_subtitle"), nil, func() {
 		ui.Column(c).FillWidth().Gap(8).Children(func() {
 			for _, host := range snap.Hosts {
 				host := host
@@ -281,13 +304,13 @@ func (h *Hub) viewSavedHosts(c *ui.Context, snap state.Snapshot, busy bool) {
 				mobile.SwipeRow(c.Key(host.ID), sw, mobile.SwipeOptions{
 					Trailing: []mobile.SwipeAction{
 						{
-							Label: "Switch",
+							Label: i18n.T("common.switch"),
 							OnTap: func() {
 								h.connectAsync(host.ID)
 							},
 						},
 						{
-							Label:       "Remove",
+							Label:       i18n.T("common.remove"),
 							Destructive: true,
 							OnTap: func() {
 								h.unpairAsync(host.ID)
@@ -301,7 +324,7 @@ func (h *Hub) viewSavedHosts(c *ui.Context, snap state.Snapshot, busy bool) {
 							return t.Accent
 						}
 						return t.Border
-					}()).AlignItems(ui.Center).Role(ui.RoleButton).Label("Host " + host.Name)
+					}()).AlignItems(ui.Center).Role(ui.RoleButton).Label(i18n.Tf("connect.host_a11y", map[string]any{"name": host.Name}))
 
 					row.Children(func() {
 						components.AvatarBadge(c, host.Name, 36)
@@ -309,20 +332,20 @@ func (h *Hub) viewSavedHosts(c *ui.Context, snap state.Snapshot, busy bool) {
 							ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(6).Children(func() {
 								ui.Text(c, host.Name).FontSize(14).FontWeight(600).TextColor(t.Text).MaxLines(1)
 								if isActive {
-									components.StatusPill(c, "Active", components.ToneSuccess)
+									components.StatusPill(c, i18n.T("common.active"), components.ToneSuccess)
 								}
 							})
 							ui.Text(c, host.PrimaryURL).FontSize(12).TextColor(t.TextMuted).MaxLines(1)
 							ui.Row(c).FillWidth().Wrap().Gap(6).Children(func() {
 								if host.TLS && host.TLSFingerprint != "" {
-									components.StatusPill(c, "TLS Pinned", components.ToneSuccess)
+									components.StatusPill(c, i18n.T("conn.badge.tls_pinned"), components.ToneSuccess)
 								} else if !host.TLS {
-									components.StatusPill(c, "Plain HTTP", components.ToneWarning)
+									components.StatusPill(c, i18n.T("conn.badge.plain_http"), components.ToneWarning)
 								} else {
-									components.StatusPill(c, "HTTPS", components.ToneInfo)
+									components.StatusPill(c, i18n.T("conn.badge.https"), components.ToneInfo)
 								}
 								if host.LastRTTMs > 0 {
-									components.StatusPill(c, fmt.Sprintf("%dms", host.LastRTTMs), components.ToneNeutral)
+									components.StatusPill(c, i18n.Tf("connect.ms", map[string]any{"ms": fmt.Sprintf("%d", host.LastRTTMs)}), components.ToneNeutral)
 								}
 							})
 						})
@@ -344,13 +367,13 @@ func (h *Hub) viewPairDesktop(c *ui.Context, snap state.Snapshot, busy bool) {
 	t := c.Theme()
 
 	// 1. LAN Discovery Radar (mDNS _linger._tcp.local.)
-	components.SectionCard(c, "Nearby on LAN (mDNS)", "Discovers _linger._tcp.local. hosts on local Wi-Fi.", func() {
-		components.StatusPill(c, fmt.Sprintf("%d found", len(snap.Discovered)), components.ToneInfo)
+	components.SectionCard(c, i18n.T("connect.mdns_title"), i18n.T("connect.mdns_subtitle"), func() {
+		components.StatusPill(c, i18n.Tf("connect.mdns_found", map[string]any{"count": len(snap.Discovered)}), components.ToneInfo)
 	}, func() {
 		if len(snap.Discovered) == 0 {
 			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(10).Padding(4, 0).Children(func() {
 				theme.IconBox(c, 22, t.TextMuted, theme.IconRadar)
-				ui.Text(c, "Listening for Linger Desktop on LAN. Ensure Mobile Companion is enabled in Desktop tray.").
+				ui.Text(c, i18n.T("connect.mdns_empty")).
 					Grow(1).Basis(0).FontSize(13).TextColor(t.TextMuted)
 			})
 		} else {
@@ -365,16 +388,16 @@ func (h *Hub) viewPairDesktop(c *ui.Context, snap state.Snapshot, busy bool) {
 							ui.Text(c, dh.BaseURL()).FontSize(12).TextColor(t.TextMuted).MaxLines(1)
 							ui.Row(c).Wrap().Gap(4).Children(func() {
 								if dh.TLS {
-									components.StatusPill(c, "TLS 1.3", components.ToneSuccess)
+									components.StatusPill(c, i18n.T("connect.tls13"), components.ToneSuccess)
 								} else {
-									components.StatusPill(c, "Plain HTTP", components.ToneWarning)
+									components.StatusPill(c, i18n.T("conn.badge.plain_http"), components.ToneWarning)
 								}
 								if dh.PairingOpen {
-									components.StatusPill(c, "Pairing Open", components.ToneInfo)
+									components.StatusPill(c, i18n.T("connect.pairing_open"), components.ToneInfo)
 								}
 							})
 						})
-						pairBtn := components.PrimaryTouchButton(c, "PIN Pair", busy)
+						pairBtn := components.PrimaryTouchButton(c, i18n.T("connect.pin_pair"), busy)
 						if pairBtn.Clicked() {
 							// Never auto-opt-in to plain HTTP from mDNS TXT tls=0;
 							// require explicit user confirmation inside the PIN sheet.
@@ -387,12 +410,12 @@ func (h *Hub) viewPairDesktop(c *ui.Context, snap state.Snapshot, busy bool) {
 
 		// Manual LAN/Tailscale IP + PIN entry
 		ui.Divider(c)
-		components.FormField(c, "Or probe Desktop URL manually (LAN / Tailscale)", "https://192.168.1.42:48210", &h.manualHostURL, false)
+		components.FormField(c, i18n.T("connect.manual_url_label"), i18n.T("connect.manual_url_placeholder"), &h.manualHostURL, false)
 		ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
-			ui.Text(c, "Allow plain HTTP (Tailscale/dev only)").FontSize(12).TextColor(t.TextMuted).Grow(1).Basis(0)
+			ui.Text(c, i18n.T("connect.allow_plain_http_probe")).FontSize(12).TextColor(t.TextMuted).Grow(1).Basis(0)
 			mobile.Switch(c, &h.manualPlain)
 		})
-		probeBtn := components.SecondaryTouchButton(c, "Probe & Pair with 6-Digit PIN", busy || strings.TrimSpace(h.manualHostURL) == "")
+		probeBtn := components.SecondaryTouchButton(c, i18n.T("connect.probe_pin_button"), busy || strings.TrimSpace(h.manualHostURL) == "")
 		probeBtn.FillWidth()
 		if probeBtn.Clicked() {
 			h.openPINProbe(strings.TrimSpace(h.manualHostURL), strings.TrimSpace(h.manualHostURL), h.manualPlain)
@@ -400,22 +423,22 @@ func (h *Hub) viewPairDesktop(c *ui.Context, snap state.Snapshot, busy bool) {
 	})
 
 	// 2. Scan or Paste linger://pair?... Link
-	components.SectionCard(c, "Scan or Paste Pairing Link", "QR codes pin Desktop's TLS SPKI fingerprint automatically.", nil, func() {
-		components.FormField(c, "Pairing URI", "linger://pair?v=1&host=...&fp=...&code=...", &h.pairURI, false)
+	components.SectionCard(c, i18n.T("connect.qr_title"), i18n.T("connect.qr_subtitle"), nil, func() {
+		components.FormField(c, i18n.T("connect.pairing_uri_label"), i18n.T("connect.pairing_uri_placeholder"), &h.pairURI, false)
 
 		// Live parsed preview + ShortFingerprint display.
 		if trimmed := strings.TrimSpace(h.pairURI); trimmed != "" {
 			if parsed, err := discovery.ParsePairingURI(trimmed); err == nil {
-				shortFP := "Plain HTTP (no TLS pin)"
+				shortFP := i18n.T("connect.plain_http_no_pin")
 				tone := components.ToneWarning
 				if parsed.TLS {
 					if sf, sfErr := discovery.ShortFingerprint(parsed.TLSFingerprint); sfErr == nil {
-						shortFP = "TLS Pin: " + sf
+						shortFP = i18n.Tf("connect.tls_pin_value", map[string]any{"pin": sf})
 						tone = components.ToneSuccess
 					}
 				}
 				ui.Column(c).FillWidth().Padding(8, 10).Radius(8).Background(theme.Extra(t).MutedBg).Gap(4).Children(func() {
-					ui.Text(c, fmt.Sprintf("Host: %s (%s)", parsed.Name, parsed.PrimaryURL())).FontSize(12).FontWeight(600).TextColor(t.Text)
+					ui.Text(c, i18n.Tf("connect.parsed_host", map[string]any{"host": parsed.Name, "name": parsed.PrimaryURL()})).FontSize(12).FontWeight(600).TextColor(t.Text)
 					components.StatusPill(c, shortFP, tone)
 				})
 			} else {
@@ -424,17 +447,17 @@ func (h *Hub) viewPairDesktop(c *ui.Context, snap state.Snapshot, busy bool) {
 		}
 
 		ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
-			ui.Text(c, "Allow plain HTTP pairing link (tls=0)").FontSize(12).TextColor(t.TextMuted).Grow(1).Basis(0)
+			ui.Text(c, i18n.T("connect.allow_plain_http_uri")).FontSize(12).TextColor(t.TextMuted).Grow(1).Basis(0)
 			mobile.Switch(c, &h.pairPlainHTTP)
 		})
 
 		ui.Row(c).FillWidth().Gap(8).Children(func() {
-			scanBtn := components.SecondaryTouchButton(c, "Scan QR", busy)
+			scanBtn := components.SecondaryTouchButton(c, i18n.T("connect.scan_qr"), busy)
 			scanBtn.Grow(1).Basis(0)
 			if scanBtn.Clicked() {
 				h.triggerCameraScan()
 			}
-			pairBtn := components.PrimaryTouchButton(c, "Pair Link", busy || strings.TrimSpace(h.pairURI) == "")
+			pairBtn := components.PrimaryTouchButton(c, i18n.T("connect.pair_link"), busy || strings.TrimSpace(h.pairURI) == "")
 			pairBtn.Grow(1).Basis(0)
 			if pairBtn.Clicked() {
 				h.pairURIAsync(h.pairURI, h.pairPlainHTTP)
@@ -445,16 +468,16 @@ func (h *Hub) viewPairDesktop(c *ui.Context, snap state.Snapshot, busy bool) {
 
 func (h *Hub) viewDirectLogin(c *ui.Context, busy bool) {
 	t := c.Theme()
-	components.SectionCard(c, "Direct TeamHub Login", "Connect directly to a remote or self-hosted TeamHub URL over HTTPS.", nil, func() {
-		components.FormField(c, "Server URL", "https://linger.example.com", &h.directURL, false)
-		components.FormField(c, "Email", "you@example.com", &h.directEmail, false)
-		components.FormField(c, "Password", "Account password", &h.directPassword, true)
+	components.SectionCard(c, i18n.T("connect.direct_title"), i18n.T("connect.direct_subtitle"), nil, func() {
+		components.FormField(c, i18n.T("connect.server_url"), i18n.T("connect.server_url_placeholder"), &h.directURL, false)
+		components.FormField(c, i18n.T("connect.email"), i18n.T("connect.email_placeholder"), &h.directEmail, false)
+		components.FormField(c, i18n.T("connect.password"), i18n.T("connect.password_placeholder"), &h.directPassword, true)
 		ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
-			ui.Text(c, "Allow plain HTTP (local dev / Tailscale only)").FontSize(12).TextColor(t.TextMuted).Grow(1).Basis(0)
+			ui.Text(c, i18n.T("connect.allow_plain_http_direct")).FontSize(12).TextColor(t.TextMuted).Grow(1).Basis(0)
 			mobile.Switch(c, &h.directPlain)
 		})
 		canSubmit := !busy && strings.TrimSpace(h.directURL) != "" && strings.TrimSpace(h.directEmail) != "" && h.directPassword != ""
-		signInBtn := components.PrimaryTouchButton(c, "Sign In", !canSubmit)
+		signInBtn := components.PrimaryTouchButton(c, i18n.T("connect.sign_in"), !canSubmit)
 		signInBtn.FillWidth()
 		if signInBtn.Clicked() {
 			h.directLoginAsync(h.directURL, h.directEmail, h.directPassword, h.directPlain)
@@ -469,13 +492,13 @@ func (h *Hub) viewHostActionSheet(c *ui.Context) {
 
 	actions := []mobile.Action{
 		{
-			Label: "Connect / Switch",
+			Label: i18n.T("connect.action.connect_switch"),
 			OnTap: func() {
 				h.connectAsync(host.ID)
 			},
 		},
 		{
-			Label: "Diagnostics",
+			Label: i18n.T("connect.action.diagnostics"),
 			OnTap: func() {
 				h.OpenDiagnostics()
 			},
@@ -483,14 +506,14 @@ func (h *Hub) viewHostActionSheet(c *ui.Context) {
 	}
 	if host.Mode == config.HostModeCompanion {
 		actions = append(actions, mobile.Action{
-			Label: "Rotate Device Token",
+			Label: i18n.T("connect.action.rotate_token"),
 			OnTap: func() {
 				h.rotateTokenAsync()
 			},
 		})
 	}
 	actions = append(actions, mobile.Action{
-		Label:       "Unpair & Remove Host",
+		Label:       i18n.T("connect.action.unpair_remove"),
 		Destructive: true,
 		OnTap: func() {
 			h.unpairAsync(host.ID)
@@ -500,7 +523,7 @@ func (h *Hub) viewHostActionSheet(c *ui.Context) {
 	mobile.ActionSheet(c, &h.actionSheetOpen, mobile.ActionSheetOptions{
 		Title:   host.Name,
 		Message: host.PrimaryURL,
-		Cancel:  "Cancel",
+		Cancel:  i18n.T("common.cancel"),
 	}, actions...)
 }
 
@@ -508,7 +531,7 @@ func (h *Hub) viewPINSheet(c *ui.Context) {
 	t := c.Theme()
 	mobile.Sheet(c, &h.pinSheetOpen, mobile.SheetOptions{
 		Detents: []float32{0.68, 0.90},
-		Label:   "PIN Pairing",
+		Label:   i18n.T("connect.pin_sheet_a11y"),
 	}, func() {
 		h.mu.Lock()
 		targetURL := h.pinTargetURL
@@ -522,7 +545,7 @@ func (h *Hub) viewPINSheet(c *ui.Context) {
 
 		ui.Scroll(c).FillWidth().Grow(1).Basis(0).Children(func() {
 			ui.Column(c).FillWidth().Padding(12, 16, 24, 16).Gap(12).Children(func() {
-				ui.Text(c, "Pair with 6-Digit PIN").FontSize(18).Bold().TextColor(t.Text)
+				ui.Text(c, i18n.T("connect.pin_sheet_title")).FontSize(18).Bold().TextColor(t.Text)
 				ui.Text(c, fmt.Sprintf("%s (%s)", hostName, targetURL)).FontSize(13).TextColor(t.TextMuted)
 
 				if pinErr != "" {
@@ -539,10 +562,10 @@ func (h *Hub) viewPINSheet(c *ui.Context) {
 				isHTTPS := strings.HasPrefix(strings.ToLower(strings.TrimSpace(targetURL)), "https://")
 				if !isHTTPS && !plain {
 					components.StatusBanner(c, components.ToneWarning,
-						"This host advertised plain HTTP (no TLS encryption or SPKI fingerprint). Enable explicit opt-in below only on a trusted Tailscale or local dev network.", "", nil)
+						i18n.T("connect.pin_plain_http_warn"), "", nil)
 					optIn := false
 					ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
-						ui.Text(c, "Allow plain HTTP for this pairing").FontSize(12).FontWeight(600).TextColor(t.Text).Grow(1).Basis(0)
+						ui.Text(c, i18n.T("connect.allow_plain_http_pairing")).FontSize(12).FontWeight(600).TextColor(t.Text).Grow(1).Basis(0)
 						sw := mobile.Switch(c, &optIn)
 						if sw.Changed() && optIn {
 							h.openPINProbe(targetURL, hostName, true)
@@ -551,17 +574,17 @@ func (h *Hub) viewPINSheet(c *ui.Context) {
 				} else if tofu != nil && tofu.ShortCode != "" {
 					ui.Column(c).FillWidth().Padding(12, 12).Radius(10).Background(theme.Extra(t).OKTint).
 						Border(1, t.Success.Alpha(0.35)).Gap(4).Children(func() {
-						ui.Text(c, "Verify Desktop TLS Fingerprint").FontSize(12).FontWeight(600).TextColor(t.Success)
+						ui.Text(c, i18n.T("connect.verify_tls_title")).FontSize(12).FontWeight(600).TextColor(t.Success)
 						ui.Text(c, tofu.ShortCode).FontSize(18).Bold().TextColor(t.Text)
-						ui.Text(c, "Confirm this code matches Linger Desktop before entering the PIN.").
+						ui.Text(c, i18n.T("connect.verify_tls_hint")).
 							FontSize(12).TextColor(t.TextMuted)
 					})
 				} else if plain {
 					components.StatusBanner(c, components.ToneWarning,
-						"Plain HTTP mode (no TLS fingerprint). Use only on trusted Tailscale or local dev.", "", nil)
+						i18n.T("connect.plain_http_mode_hint"), "", nil)
 				}
 
-				components.FormField(c, "6-Digit PIN from Desktop", "123456", &h.pinCode, false)
+				components.FormField(c, i18n.T("connect.pin_input_label"), "123456", &h.pinCode, false)
 
 				confirmedFP := ""
 				tofuReady := false
@@ -574,7 +597,7 @@ func (h *Hub) viewPINSheet(c *ui.Context) {
 					tofuReady = plain && tofu != nil
 				}
 				canPair := !busy && tofuReady && len(strings.TrimSpace(h.pinCode)) == 6
-				btn := components.PrimaryTouchButton(c, "Confirm & Pair", !canPair)
+				btn := components.PrimaryTouchButton(c, i18n.T("connect.confirm_pair"), !canPair)
 				btn.FillWidth()
 				if btn.Clicked() {
 					h.pairPINAsync(targetURL, h.pinCode, confirmedFP, plain)
@@ -588,7 +611,7 @@ func (h *Hub) viewDiagnosticsSheet(c *ui.Context, snap state.Snapshot) {
 	t := c.Theme()
 	mobile.Sheet(c, &h.diagOpen, mobile.SheetOptions{
 		Detents: []float32{0.65, 0.92},
-		Label:   "Connection Diagnostics",
+		Label:   i18n.T("connect.diagnostics_title"),
 	}, func() {
 		diagText := h.store.DiagnosticsText()
 		h.mu.Lock()
@@ -598,8 +621,8 @@ func (h *Hub) viewDiagnosticsSheet(c *ui.Context, snap state.Snapshot) {
 		ui.Scroll(c).FillWidth().Grow(1).Basis(0).Children(func() {
 			ui.Column(c).FillWidth().Padding(12, 16, 24, 16).Gap(12).Children(func() {
 				ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Children(func() {
-					ui.Text(c, "Connection Diagnostics").FontSize(18).Bold().TextColor(t.Text)
-					components.StatusPill(c, string(snap.Phase), func() components.Tone {
+					ui.Text(c, i18n.T("connect.diagnostics_title")).FontSize(18).Bold().TextColor(t.Text)
+					components.StatusPill(c, i18n.SSEStatusLabel(string(snap.Phase)), func() components.Tone {
 						if snap.Phase == state.PhaseConnected {
 							return components.ToneSuccess
 						}
@@ -617,18 +640,18 @@ func (h *Hub) viewDiagnosticsSheet(c *ui.Context, snap state.Snapshot) {
 				})
 
 				ui.Row(c).FillWidth().Gap(8).Children(func() {
-					shareBtn := components.PrimaryTouchButton(c, "Share Diagnostics", false)
+					shareBtn := components.PrimaryTouchButton(c, i18n.T("connect.share_diagnostics"), false)
 					shareBtn.Grow(1).Basis(0)
 					if shareBtn.Clicked() {
 						go func() {
 							err := mygo.Share(mygo.ShareOptions{Text: diagText})
 							var msg string
 							if errors.Is(err, errors.ErrUnsupported) {
-								msg = "System share sheet is unavailable in desktop preview; diagnostics are shown above."
+								msg = i18n.T("connect.share_unavailable")
 							} else if err != nil {
-								msg = "Share failed: " + err.Error()
+								msg = i18n.Tf("connect.share_failed", map[string]any{"err": err.Error()})
 							} else {
-								msg = "Diagnostics shared."
+								msg = i18n.T("connect.diagnostics_shared")
 							}
 							h.enqueueUI(func() {
 								h.mu.Lock()
@@ -637,7 +660,7 @@ func (h *Hub) viewDiagnosticsSheet(c *ui.Context, snap state.Snapshot) {
 							})
 						}()
 					}
-					closeBtn := components.SecondaryTouchButton(c, "Close", false)
+					closeBtn := components.SecondaryTouchButton(c, i18n.T("common.close"), false)
 					closeBtn.Grow(1).Basis(0)
 					if closeBtn.Clicked() {
 						h.diagOpen = false
@@ -676,21 +699,21 @@ func (h *Hub) triggerCameraScan() {
 	win := h.win
 	h.mu.Unlock()
 	if win == nil {
-		h.setInlineError("QR camera scan is available on iOS and Android devices; paste a linger://pair link here.")
+		h.setInlineError(i18n.T("connect.qr_unavailable_mobile"))
 		return
 	}
 	cam, err := camera.New(win, camera.Options{Front: false})
 	if err != nil {
 		if errors.Is(err, errors.ErrUnsupported) {
-			h.setInlineError("Camera scanning is unavailable on desktop preview; paste a linger://pair link above.")
+			h.setInlineError(i18n.T("connect.qr_unavailable_preview"))
 		} else {
-			h.setInlineError("Camera unavailable: " + err.Error())
+			h.setInlineError(i18n.Tf("connect.camera_unavailable", map[string]any{"err": err.Error()}))
 		}
 		return
 	}
 	// Release immediately until full live QR frame decoder overlay is wired on physical mobile builds.
 	cam.Destroy()
-	h.setInlineNotice("Camera ready; paste or scan linger://pair URI.")
+	h.setInlineNotice(i18n.T("connect.camera_ready"))
 }
 
 func (h *Hub) openPINProbe(targetURL, hostName string, allowPlain bool) {
@@ -749,7 +772,7 @@ func (h *Hub) pairPINAsync(targetURL, pin, confirmedFP string, allowPlain bool) 
 				h.pinCode = ""
 				h.segment = 0
 				h.inlineError = ""
-				h.inlineNotice = "Paired with " + prof.Name
+				h.inlineNotice = i18n.Tf("connect.toast.paired", map[string]any{"name": prof.Name})
 			}
 			h.mu.Unlock()
 		})
@@ -773,7 +796,7 @@ func (h *Hub) pairURIAsync(rawURI string, allowPlain bool) {
 				h.pairURI = ""
 				h.segment = 0
 				h.inlineError = ""
-				h.inlineNotice = "Paired with " + prof.Name
+				h.inlineNotice = i18n.Tf("connect.toast.paired", map[string]any{"name": prof.Name})
 			}
 			h.mu.Unlock()
 		})
@@ -797,7 +820,7 @@ func (h *Hub) directLoginAsync(rawURL, email, password string, allowPlain bool) 
 				h.directPassword = ""
 				h.segment = 0
 				h.inlineError = ""
-				h.inlineNotice = "Signed in to " + prof.Name
+				h.inlineNotice = i18n.Tf("connect.toast.signed_in", map[string]any{"name": prof.Name})
 			}
 			h.mu.Unlock()
 		})
@@ -819,7 +842,7 @@ func (h *Hub) connectAsync(hostID string) {
 				h.inlineError = err.Error()
 			} else {
 				h.inlineError = ""
-				h.inlineNotice = "Connected"
+				h.inlineNotice = i18n.T("connect.toast.connected")
 			}
 			h.mu.Unlock()
 		})
@@ -840,7 +863,7 @@ func (h *Hub) rotateTokenAsync() {
 			if err != nil {
 				h.inlineError = err.Error()
 			} else {
-				h.inlineNotice = "Device token rotated"
+				h.inlineNotice = i18n.T("connect.toast.token_rotated")
 			}
 			h.mu.Unlock()
 		})
@@ -861,7 +884,7 @@ func (h *Hub) unpairAsync(hostID string) {
 			if err != nil {
 				h.inlineError = err.Error()
 			} else {
-				h.inlineNotice = "Host removed"
+				h.inlineNotice = i18n.T("connect.toast.host_removed")
 			}
 			h.mu.Unlock()
 		})

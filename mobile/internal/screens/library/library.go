@@ -7,7 +7,7 @@ package library
 
 import (
 	"context"
-	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -21,6 +21,7 @@ import (
 	"github.com/oldwinter/linger/mobile/internal/api"
 	"github.com/oldwinter/linger/mobile/internal/cache"
 	"github.com/oldwinter/linger/mobile/internal/components"
+	"github.com/oldwinter/linger/mobile/internal/i18n"
 	"github.com/oldwinter/linger/mobile/internal/realtime"
 	"github.com/oldwinter/linger/mobile/internal/state"
 	"github.com/oldwinter/linger/mobile/internal/theme"
@@ -35,13 +36,13 @@ const (
 
 // SearchHit represents a merged global search match from offline FTS5 or live TeamHub API.
 type SearchHit struct {
-	ID         string
-	Kind       string // "message" | "document" | "work_item" | "room" | "pocket_note" | "routine"
-	Source     string // "Live" | "Offline Cache"
-	RoomID     string
-	Title      string
-	Subtitle   string
-	EntityID   string
+	ID       string
+	Kind     string // "message" | "document" | "work_item" | "room" | "pocket_note" | "routine"
+	Source   string // "Live" | "Offline Cache"
+	RoomID   string
+	Title    string
+	Subtitle string
+	EntityID string
 }
 
 // Deps supplies host services, file/media pickers, and callbacks for Library.
@@ -348,15 +349,15 @@ func (s *Screen) View(c *ui.Context) {
 		ui.Column(c).FillWidth().Padding(10, 14, 8, 14).Gap(8).Shrink(0).Children(func() {
 			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
 				sf := ui.SearchField(c, &s.searchQuery).Grow(1).Basis(0).
-					Placeholder("Search messages, docs, offline cache...").
-					Label("Global Library Search")
+					Placeholder(i18n.T("library.search.placeholder")).
+					Label(i18n.T("library.search.a11y"))
 				if sf.Changed() {
 					s.runLocalFTS5Search(s.searchQuery)
 				}
 				if sf.Submitted() {
 					s.submitLiveSearch()
 				}
-				searchBtn := components.PrimaryTouchButton(c, "Search", s.searchBusy || strings.TrimSpace(s.searchQuery) == "")
+				searchBtn := components.PrimaryTouchButton(c, i18n.T("library.search.btn"), s.searchBusy || strings.TrimSpace(s.searchQuery) == "")
 				searchBtn.Shrink(0)
 				if searchBtn.Clicked() {
 					s.submitLiveSearch()
@@ -368,11 +369,14 @@ func (s *Screen) View(c *ui.Context) {
 			} else {
 				ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
 					ui.Column(c).Grow(1).Basis(0).Children(func() {
-						components.SegmentedControl(c, &s.segment, "Docs", "Wiki", "Memory")
+						components.SegmentedControl(c, &s.segment,
+							i18n.T("library.tab.docs"),
+							i18n.T("library.tab.wiki"),
+							i18n.T("library.tab.memory"))
 					})
-					refLabel := "Sync"
+					refLabel := i18n.T("common.sync")
 					if loading {
-						refLabel = "..."
+						refLabel = i18n.T("common.syncing")
 					}
 					refBtn := components.SecondaryTouchButton(c, refLabel, loading)
 					if refBtn.Clicked() {
@@ -418,13 +422,19 @@ func (s *Screen) View(c *ui.Context) {
 	s.viewVoiceCaptureSheet(c)
 }
 
-var searchFilterLabels = []string{"All", "Messages", "Documents", "Offline Cache"}
+var searchFilterKeys = []string{
+	"library.search.filter_all",
+	"library.search.filter_messages",
+	"library.search.filter_docs",
+	"library.search.filter_offline",
+}
 
 func (s *Screen) viewSearchFilterChips(c *ui.Context) {
 	t := c.Theme()
 	ui.ScrollHorizontal(c).FillWidth().Children(func() {
 		ui.Row(c).Gap(6).Role(ui.RoleTabList).Children(func() {
-			for i, lbl := range searchFilterLabels {
+			for i, key := range searchFilterKeys {
+				lbl := i18n.T(key)
 				on := s.searchFilter == i
 				bg := theme.Extra(t).MutedBg
 				fg := t.TextMuted
@@ -469,7 +479,7 @@ func (s *Screen) runLocalFTS5Search(q string) {
 		hits = append(hits, SearchHit{
 			ID:       "fts:" + r.EntityType + ":" + r.EntityID,
 			Kind:     r.EntityType,
-			Source:   "Offline Cache",
+			Source:   "offline_cache",
 			RoomID:   r.RoomID,
 			EntityID: r.EntityID,
 			Title:    r.Title,
@@ -518,10 +528,10 @@ func (s *Screen) submitLiveSearch() {
 					msgHits = append(msgHits, SearchHit{
 						ID:       "msg:" + hit.Message.ID,
 						Kind:     "message",
-						Source:   "Live",
+						Source:   "live",
 						RoomID:   hit.Room.ID,
 						EntityID: hit.Message.ID,
-						Title:    hit.Room.Name + " · " + hit.Message.Author.DisplayName,
+						Title:    hit.Room.Name + " \u00b7 " + hit.Message.Author.DisplayName,
 						Subtitle: hit.Message.RawMessage,
 					})
 				}
@@ -542,10 +552,10 @@ func (s *Screen) submitLiveSearch() {
 				docHits = append(docHits, SearchHit{
 					ID:       "doc:" + doc.ID,
 					Kind:     "document",
-					Source:   "Live",
+					Source:   "live",
 					EntityID: doc.ID,
 					Title:    doc.Title,
-					Subtitle: doc.Format + " · " + doc.Status,
+					Subtitle: i18n.DocKindLabel(doc.Format) + " \u00b7 " + i18n.StatusLabel(doc.Status),
 				})
 			}
 		}()
@@ -601,7 +611,7 @@ func (s *Screen) matchSearchFilter(h SearchHit) bool {
 	case 2: // Documents
 		return h.Kind == "document"
 	case 3: // Offline Cache
-		return h.Source == "Offline Cache"
+		return h.Source == "offline_cache"
 	default:
 		return true
 	}
@@ -615,43 +625,47 @@ func (s *Screen) viewGlobalSearchResults(c *ui.Context) {
 	ui.Scroll(c).FillWidth().Grow(1).Basis(0).Children(func() {
 		ui.Column(c).FillWidth().Padding(12, 16, 24, 16).Gap(10).Children(func() {
 			if s.searchErr != "" {
-				components.StatusBanner(c, components.ToneWarning, s.searchErr, "Retry", s.submitLiveSearch)
+				components.StatusBanner(c, components.ToneWarning, s.searchErr, i18n.T("common.retry"), s.submitLiveSearch)
 			}
 			if s.searchBusy && len(hits) == 0 {
 				components.LoadingSkeleton(c, 3)
 				return
 			}
 			if len(hits) == 0 {
-				title := fmt.Sprintf("No matches for %q", q)
-				sub := "Try another keyword or clear filters to search all sources."
+				title := i18n.Tf("library.search.empty_title", map[string]any{"query": strconv.Quote(q)})
+				sub := i18n.T("library.search.empty_filtered")
 				if !s.searchSubmitted {
-					sub = "No offline SQLite matches found. Tap Search to query TeamHub live."
+					sub = i18n.T("library.search.empty_offline")
 				}
-				components.EmptyState(c, theme.IconLibrary, title, sub, "Clear Search", func() {
+				components.EmptyState(c, theme.IconLibrary, title, sub, i18n.T("library.search.clear_btn"), func() {
 					s.searchQuery = ""
 					s.runLocalFTS5Search("")
 				})
 				return
 			}
 
-			ui.Text(c, fmt.Sprintf("%d results for %q", len(hits), q)).
-				FontSize(12).FontWeight(600).TextColor(t.TextMuted)
+			ui.Text(c, i18n.Tf("library.search.count", map[string]any{
+				"count": len(hits),
+				"query": strconv.Quote(q),
+			})).FontSize(12).FontWeight(600).TextColor(t.TextMuted)
 
 			for _, hit := range hits {
 				hit := hit
+				kindLabel := i18n.SearchSourceLabel(hit.Kind)
+				srcLabel := i18n.SearchSourceLabel(hit.Source)
 				row := ui.Column(c.Key(hit.ID)).FillWidth().Padding(12, 12).Gap(5).
 					Radius(12).Background(t.Surface).Border(1, t.Border).
-					Role(ui.RoleButton).Label(hit.Kind + " " + hit.Title)
+					Role(ui.RoleButton).Label(kindLabel + " " + hit.Title)
 				row.Children(func() {
 					ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
 						ui.Text(c, hit.Title).FontSize(14).FontWeight(600).TextColor(t.Text).Grow(1).Basis(0).MaxLines(1)
 						ui.Row(c).Gap(4).Shrink(0).Children(func() {
-							components.StatusPill(c, hit.Kind, components.ToneInfo)
+							components.StatusPill(c, kindLabel, components.ToneInfo)
 							srcTone := components.ToneNeutral
-							if hit.Source == "Live" {
+							if hit.Source == "live" {
 								srcTone = components.ToneSuccess
 							}
-							components.StatusPill(c, hit.Source, srcTone)
+							components.StatusPill(c, srcLabel, srcTone)
 						})
 					})
 					if strings.TrimSpace(hit.Subtitle) != "" {

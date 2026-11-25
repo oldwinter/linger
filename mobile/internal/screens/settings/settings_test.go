@@ -245,7 +245,7 @@ func TestSettingsProactiveShadowRulePromotionAndEdit(t *testing.T) {
 	clickOrScroll(t, tt, "Save Rule")
 	waitUntil(t, 2*time.Second, func() bool {
 		settle(tt)
-		return tt.HasText("\u4f18\u5148\u5904\u7406")
+		return !tt.HasText("Save Rule") && tt.HasText("\u4f18\u5148\u5904\u7406")
 	})
 
 	// Test Mandate ActionSheet
@@ -253,7 +253,7 @@ func TestSettingsProactiveShadowRulePromotionAndEdit(t *testing.T) {
 	clickOrScroll(t, tt, "Create Work Item")
 	waitUntil(t, 2*time.Second, func() bool {
 		settle(tt)
-		return tt.HasText("Mandate: create")
+		return tt.HasText("Mandate: Create Work Item")
 	})
 }
 

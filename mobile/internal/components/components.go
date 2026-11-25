@@ -8,6 +8,7 @@ import (
 	"unicode"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/oldwinter/linger/mobile/internal/i18n"
 	"github.com/oldwinter/linger/mobile/internal/theme"
 )
 
@@ -178,9 +179,9 @@ func AvatarBadge(c *ui.Context, name string, size float32) ui.Element {
 	}
 	initials := avatarInitials(name)
 	bg := theme.AvatarColor(name)
-	return ui.Row(c).Size(size, size).Radius(size/2).Background(bg).Shrink(0).
+	return ui.Row(c).Size(size, size).Radius(size / 2).Background(bg).Shrink(0).
 		AlignItems(ui.Center).Justify(ui.Center).Label(name).Children(func() {
-		ui.Text(c, initials).FontSize(size * 0.38).Bold().TextColor(ui.RGB(255, 255, 255)).NoWrap()
+		ui.Text(c, initials).FontSize(size * 0.38).Bold().TextColor(theme.Extra(c.Theme()).OnAvatar).NoWrap()
 	})
 }
 
@@ -212,30 +213,30 @@ func avatarInitials(name string) string {
 func ConnectionHealthChip(c *ui.Context, hostName string, connected, tlsPinned, plainHTTP bool, rttMs int, onTap func()) ui.Element {
 	t := c.Theme()
 	tone := ToneWarning
-	label := "Disconnected"
+	label := i18n.T("conn.badge.disconnected")
 	if connected {
 		switch {
 		case tlsPinned:
 			tone = ToneSuccess
-			label = "TLS Pinned"
+			label = i18n.T("conn.badge.tls_pinned")
 		case plainHTTP:
 			tone = ToneWarning
-			label = "Plain HTTP"
+			label = i18n.T("conn.badge.plain_http")
 		default:
 			tone = ToneInfo
-			label = "HTTPS"
+			label = i18n.T("conn.badge.https")
 		}
 		if rttMs > 0 {
-			label = fmt.Sprintf("%s · %dms", label, rttMs)
+			label = i18n.Tf("conn.badge.with_rtt", map[string]any{"label": label, "ms": fmt.Sprintf("%d", rttMs)})
 		}
 	} else if hostName != "" {
 		tone = ToneWarning
-		label = "Reconnecting"
+		label = i18n.T("conn.badge.reconnecting")
 	}
 	bg, fg := toneColors(t, tone)
 	chip := ui.Row(c).MinHeight(32).Padding(4, 10).Radius(999).Background(bg).
 		Border(1, fg.Alpha(0.28)).AlignItems(ui.Center).Gap(6).Shrink(0).
-		Role(ui.RoleButton).Label("Connection status: " + label)
+		Role(ui.RoleButton).Label(i18n.Tf("conn.badge.a11y", map[string]any{"label": label}))
 	chip.Children(func() {
 		ui.Box(c).Size(7, 7).Radius(4).Background(fg).Shrink(0)
 		ui.Text(c, label).FontSize(11).FontWeight(600).TextColor(fg).NoWrap()
@@ -253,7 +254,7 @@ func ErrorInline(c *ui.Context, message string, onRetry func()) {
 	}
 	StatusBanner(c, ToneDanger, message, func() string {
 		if onRetry != nil {
-			return "Retry"
+			return i18n.T("common.retry")
 		}
 		return ""
 	}(), onRetry)
@@ -265,7 +266,7 @@ func LoadingSkeleton(c *ui.Context, rows int) {
 		rows = 3
 	}
 	ex := theme.Extra(c.Theme())
-	ui.Column(c).FillWidth().Gap(10).Role(ui.RoleStatus).Label("Loading").Children(func() {
+	ui.Column(c).FillWidth().Gap(10).Role(ui.RoleStatus).Label(i18n.T("common.loading")).Children(func() {
 		for i := range rows {
 			ui.Column(c.Key(i)).FillWidth().Background(c.Theme().Surface).Radius(12).
 				Border(1, c.Theme().Border).Padding(14, 14).Gap(8).Children(func() {

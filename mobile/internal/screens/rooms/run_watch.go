@@ -11,6 +11,7 @@ import (
 	"github.com/egoist/mygo/ui/mobile"
 	"github.com/oldwinter/linger/mobile/internal/api"
 	"github.com/oldwinter/linger/mobile/internal/components"
+	"github.com/oldwinter/linger/mobile/internal/i18n"
 	"github.com/oldwinter/linger/mobile/internal/state"
 	"github.com/oldwinter/linger/mobile/internal/theme"
 )
@@ -115,8 +116,8 @@ func (ctl *Controller) ViewRunWatch(c *ui.Context, snap state.Snapshot, roomID, 
 		statusTone = components.ToneDanger
 	}
 
-	agentName := "Agent Run"
-	elapsed := "live"
+	agentName := i18n.T("run.title")
+	elapsed := i18n.T("run.live_pill")
 	if runMeta != nil {
 		if runMeta.Agent.DisplayName != "" {
 			agentName = runMeta.Agent.DisplayName
@@ -129,21 +130,21 @@ func (ctl *Controller) ViewRunWatch(c *ui.Context, snap state.Snapshot, roomID, 
 	ui.Scroll(c).FillWidth().Grow(1).Basis(0).Children(func() {
 		ui.Column(c).FillWidth().Padding(12, 14, 24, 14).Gap(12).Children(func() {
 			// Run Header & Remote Control Actions
-			components.SectionCard(c, agentName, fmt.Sprintf("Run %s · %s", runID, elapsed), func() {
-				components.StatusPill(c, statusLabel, statusTone)
+			components.SectionCard(c, agentName, i18n.Tf("run.header", map[string]any{"id": runID, "status": elapsed}), func() {
+				components.StatusPill(c, i18n.StatusLabel(statusLabel), statusTone)
 			}, func() {
 				if statusDetail != "" {
 					ui.Text(c, statusDetail).FontSize(13).TextColor(t.TextMuted)
 				}
 				if failureCode != "" {
-					components.ErrorInline(c, "Execution failure: "+failureCode, nil)
+					components.ErrorInline(c, i18n.Tf("run.failure_prefix", map[string]any{"err": failureCode}), nil)
 				}
 				ui.Row(c).FillWidth().Wrap().Gap(8).Children(func() {
-					syncBtn := components.SecondaryTouchButton(c, "Sync Events", false)
+					syncBtn := components.SecondaryTouchButton(c, i18n.T("run.sync_events"), false)
 					if syncBtn.Clicked() {
 						go func() { _ = ctl.store.SyncRunPresentation(context.Background(), roomID, runID) }()
 					}
-					stopBtn := components.DangerTouchButton(c, "Stop Run", runMeta != nil && runMeta.Status != "active")
+					stopBtn := components.DangerTouchButton(c, i18n.T("run.stop_run"), runMeta != nil && runMeta.Status != "active")
 					if stopBtn.Clicked() {
 						ctl.mu.Lock()
 						ctl.watchRoomID = roomID
@@ -151,13 +152,13 @@ func (ctl *Controller) ViewRunWatch(c *ui.Context, snap state.Snapshot, roomID, 
 						ctl.cancelConfirmOpen = true
 						ctl.mu.Unlock()
 					}
-					bgBtn := components.SecondaryTouchButton(c, "Background Tasks", false)
+					bgBtn := components.SecondaryTouchButton(c, i18n.T("run.background_tasks"), false)
 					if bgBtn.Clicked() {
 						ctl.openBackgroundTasks(roomID)
 					}
 				})
 				if unconfirmedCount > 0 || (runMeta != nil && runMeta.Status != "active") {
-					redeliverBtn := components.SecondaryTouchButton(c, "Redeliver Unconfirmed Inputs", false)
+					redeliverBtn := components.SecondaryTouchButton(c, i18n.T("run.redeliver_inputs"), false)
 					redeliverBtn.FillWidth()
 					if redeliverBtn.Clicked() {
 						go func() { _ = ctl.store.RedeliverRunInputs(context.Background(), roomID, runID) }()
@@ -167,7 +168,7 @@ func (ctl *Controller) ViewRunWatch(c *ui.Context, snap state.Snapshot, roomID, 
 
 			// Structured Plan Checklist (plan.updated)
 			if len(planSteps) > 0 {
-				components.SectionCard(c, "Execution Plan", planExplanation, nil, func() {
+				components.SectionCard(c, i18n.T("run.plan_title"), planExplanation, nil, func() {
 					ui.Column(c).FillWidth().Gap(6).Children(func() {
 						for i, step := range planSteps {
 							ui.Row(c.Key(i)).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
@@ -190,9 +191,9 @@ func (ctl *Controller) ViewRunWatch(c *ui.Context, snap state.Snapshot, roomID, 
 			}
 
 			// Expandable Tool / Activity Timeline
-			components.SectionCard(c, fmt.Sprintf("Tool & Activity Timeline (%d)", len(activities)), "Tap an activity to inspect details and output", nil, func() {
+			components.SectionCard(c, i18n.Tf("run.activities_title", map[string]any{"count": len(activities)}), i18n.T("run.activities_subtitle"), nil, func() {
 				if len(activities) == 0 {
-					ui.Text(c, "Waiting for runtime activities...").FontSize(13).TextColor(t.TextMuted)
+					ui.Text(c, i18n.T("run.activities_empty")).FontSize(13).TextColor(t.TextMuted)
 					return
 				}
 				ui.Column(c).FillWidth().Gap(8).Children(func() {
@@ -203,9 +204,9 @@ func (ctl *Controller) ViewRunWatch(c *ui.Context, snap state.Snapshot, roomID, 
 						ctl.mu.Unlock()
 
 						tone := components.ToneInfo
-						stateTxt := "running"
+						stateTxt := i18n.StatusLabel("running")
 						if act.Outcome != "" {
-							stateTxt = act.Outcome
+							stateTxt = i18n.StatusLabel(act.Outcome)
 							if act.Outcome == "succeeded" {
 								tone = components.ToneSuccess
 							} else {
@@ -214,7 +215,7 @@ func (ctl *Controller) ViewRunWatch(c *ui.Context, snap state.Snapshot, roomID, 
 						}
 
 						box := ui.Column(c.Key(act.ID)).FillWidth().Padding(10, 10).Radius(10).Background(ex.MutedBg).
-							Border(1, t.Border).Gap(6).Role(ui.RoleButton).Label("Activity " + act.Title)
+							Border(1, t.Border).Gap(6).Role(ui.RoleButton).Label(i18n.Tf("run.activity_a11y", map[string]any{"title": act.Title}))
 						box.Children(func() {
 							ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(6).Children(func() {
 								ui.Text(c, act.Title).FontSize(13).FontWeight(600).TextColor(t.Text).Grow(1).Basis(0).MaxLines(1)
@@ -251,7 +252,7 @@ func (ctl *Controller) ViewRunWatch(c *ui.Context, snap state.Snapshot, roomID, 
 
 			// Incremental Streaming Output via ui/markdown.Stream while active, markdown.View once complete.
 			if streamOut.Len() > 0 {
-				components.SectionCard(c, "Streaming Output", "Live presentation output", nil, func() {
+				components.SectionCard(c, i18n.T("run.streaming_title"), i18n.T("run.streaming_subtitle"), nil, func() {
 					if isLive {
 						markdown.Stream(c, streamOut.String(), &markdown.Options{WrapCode: true})
 					} else {
@@ -264,11 +265,11 @@ func (ctl *Controller) ViewRunWatch(c *ui.Context, snap state.Snapshot, roomID, 
 
 	// Cancel Run Confirmation ActionSheet + Haptics.Warning
 	mobile.ActionSheet(c, &ctl.cancelConfirmOpen, mobile.ActionSheetOptions{
-		Title:   "Stop Agent Run?",
-		Message: "The active Agent turn will be interrupted immediately.",
-		Cancel:  "Keep Running",
+		Title:   i18n.T("run.stop_dialog_title"),
+		Message: i18n.T("run.stop_dialog_body"),
+		Cancel:  i18n.T("run.keep_running"),
 	}, mobile.Action{
-		Label:       "Stop Run Now",
+		Label:       i18n.T("run.stop_now"),
 		Destructive: true,
 		OnTap: func() {
 			mygo.Haptics.Warning()
@@ -302,22 +303,22 @@ func (ctl *Controller) viewBackgroundTasksSheet(c *ui.Context, roomID string) {
 	t := c.Theme()
 	mobile.Sheet(c, &ctl.bgTasksOpen, mobile.SheetOptions{
 		Detents: []float32{0.55, 0.85},
-		Label:   "Background Tasks",
+		Label:   i18n.T("run.background_tasks"),
 	}, func() {
 		ctl.mu.Lock()
 		tasks := append([]api.RoomBackgroundTask(nil), ctl.bgTasks...)
 		ctl.mu.Unlock()
 		ui.Scroll(c).FillWidth().Grow(1).Basis(0).Children(func() {
 			ui.Column(c).FillWidth().Padding(12, 16, 24, 16).Gap(10).Children(func() {
-				ui.Text(c, fmt.Sprintf("Background Tasks (%d)", len(tasks))).FontSize(18).Bold().TextColor(t.Text)
+				ui.Text(c, i18n.Tf("run.bg_title", map[string]any{"count": len(tasks)})).FontSize(18).Bold().TextColor(t.Text)
 				if len(tasks) == 0 {
-					ui.Text(c, "No active background tasks in this Room.").FontSize(13).TextColor(t.TextMuted)
+					ui.Text(c, i18n.T("run.bg_empty")).FontSize(13).TextColor(t.TextMuted)
 					return
 				}
 				for _, task := range tasks {
 					task := task
 					components.SectionCard(c, task.Title, task.Requirement, func() {
-						cancelBtn := components.DangerTouchButton(c, "Cancel", false)
+						cancelBtn := components.DangerTouchButton(c, i18n.T("common.cancel"), false)
 						if cancelBtn.Clicked() {
 							mygo.Haptics.Warning()
 							go func() {

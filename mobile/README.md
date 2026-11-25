@@ -1,6 +1,6 @@
 # Linger Mobile Companion
 
-Linger Mobile is a native iOS, Android, and macOS/desktop-preview companion app for [Linger](../README.md), written in Go with [MyGo](https://github.com/egoist/mygo) (`github.com/egoist/mygo`). It connects directly to your Linger Desktop Companion Gateway over TLS 1.3 with SPKI certificate pinning—or to a remote/Tailscale TeamHub server—to monitor live Agents, approve Decision Cards, manage Local Models, capture Pocket Notes offline, and browse Documents, Personal Wiki, and Memory on the go.
+Linger Mobile is a native iOS, Android, and macOS/desktop-preview companion app for [Linger](../README.md), written in Go with [MyGo](https://github.com/egoist/mygo) (`github.com/egoist/mygo`). It connects directly to your Linger Desktop Companion Gateway over TLS 1.3 with SPKI certificate pinning—or to a remote/Tailscale TeamHub server—to monitor live Agents, approve Decision Cards, manage Local Models, capture Pocket Notes offline, and browse Documents, Personal Wiki, and Memory on the go, with live **System / Town Light / Town Dark** theming and **System / English / Simplified Chinese (`zh-Hans`)** localization.
 
 For the full design rationale and wire-protocol specification, see [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md).
 
@@ -30,11 +30,11 @@ For the full design rationale and wire-protocol specification, see [docs/ARCHITE
    - **Personal Wiki**: interactive pan/zoom Knowledge Graph canvas (`ui.Painter`) with category filters, accessible node chips, and wiki page detail sheet.
    - **Memory**: Daily, Weekly, and Meeting journals plus active Voice Capture transcript stream and question-to-task handoff.
 5. **More (Tab 5)**:
-   - **Overview**: Desktop host status card, multi-host switcher, Connection Hub launcher, one-tap Bearer token rotation, diagnostics export, and Unpair / Sign Out.
+   - **Overview**: Desktop host status card, **Appearance & Language** quick-switch card (`System` / `Town Light` / `Town Dark` and `System` / `English` / `Simplified Chinese`), multi-host switcher, Connection Hub launcher, one-tap Bearer token rotation, diagnostics export, and Unpair / Sign Out (appearance & language controls remain accessible even before pairing or offline).
    - **My Rules**: active and shadow Proactive Rules review (Promote, Pin, Edit, Mandate, Delete).
    - **Profile**: Account Profile editor, Personal Profile Markdown viewer/editor, and Personal Insights management.
    - **Connectors**: External Apps/Connections with per-Agent access grants, Web Search backend keys/default selection, and Voice provider key management (`Soniox`, `xAI`).
-   - **Prefs**: Biometric App Lock (Face ID / Touch ID), Town Light / Town Dark / System appearance, density, haptics, Composer Return Key preference, and SQLite offline cache stats + clear action.
+   - **Prefs**: Biometric App Lock (Face ID / Touch ID), live Theme (`System` synced with OS appearance + `SystemBars`, `Town Light`, `Town Dark`) and Language (`System`, `English`, `Simplified Chinese` via native MyGo `i18n` ICU MessageFormat catalogs and `mygo.App.SetLocale`), density, haptics, Composer Return Key preference, and SQLite offline cache stats + clear action.
 
 ---
 
@@ -80,12 +80,12 @@ From `mobile/`:
 make preview
 ```
 
-To jump straight into a running Companion Gateway or pairing URI in an isolated preview directory:
+To jump straight into a running Companion Gateway or pairing URI in an isolated preview directory (or switch theme/language immediately from the Connect Hub quick pills before pairing):
 
 ```sh
 make preview ARGS="--pair-uri 'linger://pair?...' --data-dir /tmp/linger-preview"
-# or with an already-minted token:
-make preview ARGS="--host-url https://127.0.0.1:48210 --token lmc_... --tls-fp <spki-fp> --theme dark --data-dir /tmp/linger-preview"
+# or with an already-minted token, explicit theme, and Simplified Chinese locale:
+make preview ARGS="--host-url https://127.0.0.1:48210 --token lmc_... --tls-fp <spki-fp> --theme dark --lang zh-Hans --data-dir /tmp/linger-preview"
 ```
 
 Supported CLI flags (`mobile/cmd/linger-mobile/main.go`):
@@ -95,7 +95,8 @@ Supported CLI flags (`mobile/cmd/linger-mobile/main.go`):
 - `--tls-fp`: Base64url SHA-256 SPKI fingerprint for TLS 1.3 pinning.
 - `--pair-uri`: Open Connection Hub directly with a `linger://pair?...` URI.
 - `--data-dir`: Isolated directory for preferences, secrets, and SQLite cache.
-- `--theme`: Force `system`, `light`, or `dark`.
+- `--theme`: Force `system`, `light`, or `dark` (live OS sync when `system`).
+- `--lang`: Force UI language (`system`, `en`, or `zh-Hans`; overrides `MYGO_LOCALE`).
 - `--plain-http`: Explicitly opt in to plaintext HTTP (Tailscale / local dev).
 
 ### 3. Connection Methods
@@ -126,8 +127,8 @@ make build-release
 The `go test -race -count=1 ./...` suite includes:
 
 - **Cross-Stack E2E (`internal/e2e/companion_gateway_e2e_test.go`)**: Boots a real TeamHub-compatible HTTP/SSE upstream and the real Node `apps/desktop/src/main/companion/standalone.ts` TLS 1.3 gateway, proving SPKI pinning rejection/acceptance, QR & PIN pairing, 5-attempt `PAIRING_LOCKED`, live `/v0/events` SSE delivery, all 5 tabs' `/v0/*` proxy flows, SQLite offline Pocket Note outbox drain, token rotation (`401` on old token), unpair instant SSE termination, and CSRF/Host/forbidden-path `403` defenses.
-- **Golden UI Snapshots**: Pixel-verified `390x844` Light & Dark Town theme snapshots across all 5 tabs and Connection Hub.
-- **Desktop Companion Tests**: Run `make check-desktop` from the repository root to validate the Electron gateway, mDNS responder, pairing store, QR generator, TLS material, and tray wiring.
+- **Golden UI & Bilingual Safety Tests**: Pixel-verified `390x844` Town Light & Town Dark snapshots in both English and Simplified Chinese (`zh-Hans`), plus `320x640` / `390x844` / `420x800` Chinese viewport overflow checks (`internal/shell/theme_i18n_test.go`) and ICU MessageFormat catalog parity & plural/interpolation checks (`internal/i18n/catalog_test.go`).
+- **Desktop Companion Tests**: Run `make check-desktop` from the repository root to validate the Electron gateway, mDNS responder, pairing store, QR generator, TLS material, tray wiring, and bilingual Mobile Companion pairing window (`apps/desktop/src/shell/mobile-companion.html`).
 
 ---
 

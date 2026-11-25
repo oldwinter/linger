@@ -2,7 +2,6 @@ package live
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/egoist/mygo"
@@ -10,6 +9,7 @@ import (
 	"github.com/egoist/mygo/ui/mobile"
 	"github.com/oldwinter/linger/mobile/internal/api"
 	"github.com/oldwinter/linger/mobile/internal/components"
+	"github.com/oldwinter/linger/mobile/internal/i18n"
 	"github.com/oldwinter/linger/mobile/internal/state"
 	"github.com/oldwinter/linger/mobile/internal/theme"
 )
@@ -18,8 +18,8 @@ func (ctl *Controller) viewAgents(c *ui.Context, snap state.Snapshot) {
 	t := c.Theme()
 
 	ui.Row(c).FillWidth().Justify(ui.SpaceBetween).AlignItems(ui.Center).Gap(8).Children(func() {
-		ui.Text(c, fmt.Sprintf("Tenant Agents (%d)", len(snap.Agents))).FontSize(15).FontWeight(600).TextColor(t.Text)
-		createBtn := components.PrimaryTouchButton(c, "Create Agent", snap.ActiveHost == nil)
+		ui.Text(c, i18n.Tf("live.agents.title", map[string]any{"count": len(snap.Agents)})).FontSize(15).FontWeight(600).TextColor(t.Text)
+		createBtn := components.PrimaryTouchButton(c, i18n.T("live.agents.create_btn"), snap.ActiveHost == nil)
 		if createBtn.Clicked() {
 			ctl.mu.Lock()
 			ctl.newAgentName = ""
@@ -33,8 +33,8 @@ func (ctl *Controller) viewAgents(c *ui.Context, snap state.Snapshot) {
 	})
 
 	if len(snap.Agents) == 0 {
-		components.EmptyState(c, theme.IconHost, "No Agents configured",
-			"Create an Agent from scratch or from a Template.", "Create Agent", func() {
+		components.EmptyState(c, theme.IconHost, i18n.T("live.agents.empty_title"),
+			i18n.T("live.agents.empty_body"), i18n.T("live.agents.create_btn"), func() {
 				ctl.mu.Lock()
 				ctl.createAgentOpen = true
 				ctl.mu.Unlock()
@@ -60,7 +60,7 @@ func (ctl *Controller) viewAgents(c *ui.Context, snap state.Snapshot) {
 		mobile.SwipeRow(c.Key("ag_"+ag.Actor.ID), ctl.swipeStateFor("ag_"+ag.Actor.ID), mobile.SwipeOptions{
 			Trailing: []mobile.SwipeAction{
 				{
-					Label: "DM",
+					Label: i18n.T("live.agents.dm_btn"),
 					OnTap: func() {
 						ctl.openDirectAgentChat(ag.Actor.ID)
 					},
@@ -69,13 +69,13 @@ func (ctl *Controller) viewAgents(c *ui.Context, snap state.Snapshot) {
 		}, func() {
 			row := ui.Row(c).FillWidth().MinHeight(64).Padding(10, 12).Gap(10).
 				Radius(12).Background(t.Surface).Border(1, t.Border).AlignItems(ui.Center).
-				Role(ui.RoleButton).Label("Agent " + ag.Actor.DisplayName)
+				Role(ui.RoleButton).Label(i18n.Tf("live.agents.a11y_prefix", map[string]any{"name": ag.Actor.DisplayName}))
 			row.Children(func() {
 				components.AvatarBadge(c, ag.Actor.DisplayName, 40)
 				ui.Column(c).Grow(1).Basis(0).Gap(3).Children(func() {
 					ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(6).Children(func() {
 						ui.Text(c, ag.Actor.DisplayName).FontSize(15).FontWeight(600).TextColor(t.Text).MaxLines(1)
-						components.StatusPill(c, statusText, statusTone)
+						components.StatusPill(c, i18n.StatusLabel(statusText), statusTone)
 					})
 					if ag.Description != "" {
 						ui.Text(c, ag.Description).FontSize(12).TextColor(t.TextMuted).MaxLines(1)
@@ -85,7 +85,7 @@ func (ctl *Controller) viewAgents(c *ui.Context, snap state.Snapshot) {
 							components.StatusPill(c, ag.Runtime.Model, components.ToneNeutral)
 						}
 						if len(ag.SkillBindings) > 0 {
-							components.StatusPill(c, fmt.Sprintf("%d skills", len(ag.SkillBindings)), components.ToneInfo)
+							components.StatusPill(c, i18n.Tf("live.agents.skills_count", map[string]any{"count": len(ag.SkillBindings)}), components.ToneInfo)
 						}
 					})
 				})
@@ -98,15 +98,15 @@ func (ctl *Controller) viewAgents(c *ui.Context, snap state.Snapshot) {
 	}
 
 	if len(snap.AgentTemplates) > 0 {
-		components.SectionCard(c, fmt.Sprintf("Templates (%d)", len(snap.AgentTemplates)), "Tap to create a new Agent from a template", nil, func() {
+		components.SectionCard(c, i18n.Tf("live.agents.templates_title", map[string]any{"count": len(snap.AgentTemplates)}), i18n.T("live.agents.templates_subtitle"), nil, func() {
 			for _, tpl := range snap.AgentTemplates {
 				tpl := tpl
-				ui.Row(c.Key("tpl_"+tpl.TemplateID)).FillWidth().MinHeight(48).AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
+				ui.Row(c.Key("tpl_" + tpl.TemplateID)).FillWidth().MinHeight(48).AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
 					ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
 						ui.Text(c, tpl.Name).FontSize(14).FontWeight(600).TextColor(t.Text)
 						ui.Text(c, tpl.Description).FontSize(12).TextColor(t.TextMuted).MaxLines(1)
 					})
-					useBtn := components.SecondaryTouchButton(c, "Use", false)
+					useBtn := components.SecondaryTouchButton(c, i18n.T("live.agents.use_btn"), false)
 					if useBtn.Clicked() {
 						ctl.mu.Lock()
 						ctl.newAgentName = tpl.Name
@@ -151,7 +151,7 @@ func (ctl *Controller) viewAgentDetailSheet(c *ui.Context, snap state.Snapshot) 
 	t := c.Theme()
 	mobile.Sheet(c, &ctl.agentSheetOpen, mobile.SheetOptions{
 		Detents: []float32{0.78, 0.94},
-		Label:   "Agent Editor",
+		Label:   i18n.T("live.agents.editor_title"),
 	}, func() {
 		ctl.mu.Lock()
 		ag := ctl.selectedAgent
@@ -178,24 +178,24 @@ func (ctl *Controller) viewAgentDetailSheet(c *ui.Context, snap state.Snapshot) 
 			ui.Column(c).FillWidth().Padding(10, 16, 24, 16).Gap(12).Children(func() {
 				ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
 					ui.Text(c, ag.Actor.DisplayName).FontSize(18).Bold().TextColor(t.Text)
-					dmBtn := components.PrimaryTouchButton(c, "Direct Chat", busy)
+					dmBtn := components.PrimaryTouchButton(c, i18n.T("rooms.direct_chat_title"), busy)
 					if dmBtn.Clicked() {
 						ctl.agentSheetOpen = false
 						ctl.openDirectAgentChat(ag.Actor.ID)
 					}
 				})
 
-				components.FormField(c, "Name", "Agent name", &ctl.agentEditName, false)
-				components.FormField(c, "Description", "Short role summary", &ctl.agentEditDesc, false)
-				components.FormField(c, "Runtime Model", "e.g. localmodels/qwen3-4b:Q4_K_M", &ctl.agentEditModel, false)
-				ui.Text(c, "Instructions").FontSize(12).FontWeight(600).TextColor(t.TextMuted)
-				ui.TextArea(c, &ctl.agentEditInstr).FillWidth().MinHeight(88).Placeholder("System prompt instructions").Label("Instructions")
+				components.FormField(c, i18n.T("live.agents.name_label"), i18n.T("live.agents.name_placeholder"), &ctl.agentEditName, false)
+				components.FormField(c, i18n.T("live.agents.desc_label"), i18n.T("live.agents.desc_placeholder"), &ctl.agentEditDesc, false)
+				components.FormField(c, i18n.T("live.agents.model_label"), i18n.T("live.agents.model_placeholder"), &ctl.agentEditModel, false)
+				ui.Text(c, i18n.T("live.agents.instructions_label")).FontSize(12).FontWeight(600).TextColor(t.TextMuted)
+				ui.TextArea(c, &ctl.agentEditInstr).FillWidth().MinHeight(88).Placeholder(i18n.T("live.agents.instructions_placeholder")).Label(i18n.T("live.agents.instructions_label"))
 
 				saveBtn := components.PrimaryTouchButton(c, func() string {
 					if busy {
-						return "Saving..."
+						return i18n.T("common.saving")
 					}
-					return "Save Agent Changes"
+					return i18n.T("live.agents.save_changes")
 				}(), busy || strings.TrimSpace(ctl.agentEditName) == "")
 				saveBtn.FillWidth()
 				if saveBtn.Clicked() {
@@ -203,14 +203,14 @@ func (ctl *Controller) viewAgentDetailSheet(c *ui.Context, snap state.Snapshot) 
 				}
 
 				// Skill Bindings manager against tenant skill-manifests
-				components.SectionCard(c, fmt.Sprintf("Skill Bindings (%d available)", len(snap.SkillManifests)), "Toggle skills bound to this Agent", nil, func() {
+				components.SectionCard(c, i18n.Tf("live.agents.skills_title", map[string]any{"count": len(snap.SkillManifests)}), i18n.T("live.agents.skills_subtitle"), nil, func() {
 					if len(snap.SkillManifests) == 0 {
-						ui.Text(c, "No skill manifests found in this workspace.").FontSize(12).TextColor(t.TextMuted)
+						ui.Text(c, i18n.T("live.agents.skills_empty")).FontSize(12).TextColor(t.TextMuted)
 					}
 					for _, sk := range snap.SkillManifests {
 						sk := sk
 						on := boundByID[sk.SkillID]
-						ui.Row(c.Key("sb_"+sk.SkillID)).FillWidth().MinHeight(44).AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
+						ui.Row(c.Key("sb_" + sk.SkillID)).FillWidth().MinHeight(44).AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
 							ui.Column(c).Grow(1).Basis(0).Gap(1).Children(func() {
 								ui.Text(c, sk.Name).FontSize(13).FontWeight(600).TextColor(t.Text)
 								ui.Text(c, sk.Description).FontSize(11).TextColor(t.TextMuted).MaxLines(1)
@@ -223,7 +223,7 @@ func (ctl *Controller) viewAgentDetailSheet(c *ui.Context, snap state.Snapshot) 
 					}
 				})
 
-				delBtn := components.DangerTouchButton(c, "Delete Agent", busy)
+				delBtn := components.DangerTouchButton(c, i18n.T("live.agents.delete_btn"), busy)
 				delBtn.FillWidth()
 				if delBtn.Clicked() {
 					ctl.mu.Lock()
@@ -239,26 +239,26 @@ func (ctl *Controller) viewCreateAgentSheet(c *ui.Context, snap state.Snapshot) 
 	t := c.Theme()
 	mobile.Sheet(c, &ctl.createAgentOpen, mobile.SheetOptions{
 		Detents: []float32{0.75, 0.92},
-		Label:   "Create Agent",
+		Label:   i18n.T("live.agents.create_btn"),
 	}, func() {
 		ctl.mu.Lock()
 		busy := ctl.agentBusy
 		ctl.mu.Unlock()
 		ui.Scroll(c).FillWidth().Grow(1).Basis(0).Children(func() {
 			ui.Column(c).FillWidth().Padding(10, 16, 24, 16).Gap(12).Children(func() {
-				ui.Text(c, "Create New Agent").FontSize(18).Bold().TextColor(t.Text)
-				components.FormField(c, "Name", "e.g. Release Reviewer", &ctl.newAgentName, false)
-				components.FormField(c, "Description", "What this agent helps with", &ctl.newAgentDesc, false)
-				components.FormField(c, "Model (optional)", "localmodels/qwen3-4b:Q4_K_M", &ctl.newAgentModel, false)
-				ui.Text(c, "Instructions").FontSize(12).FontWeight(600).TextColor(t.TextMuted)
-				ui.TextArea(c, &ctl.newAgentInstr).FillWidth().MinHeight(88).Placeholder("Agent system instructions").Label("New Agent Instructions")
+				ui.Text(c, i18n.T("live.agents.create_sheet_title")).FontSize(18).Bold().TextColor(t.Text)
+				components.FormField(c, i18n.T("live.agents.name_label"), i18n.T("live.agents.create_name_placeholder"), &ctl.newAgentName, false)
+				components.FormField(c, i18n.T("live.agents.desc_label"), i18n.T("live.agents.create_desc_placeholder"), &ctl.newAgentDesc, false)
+				components.FormField(c, i18n.T("live.agents.create_model_label"), "localmodels/qwen3-4b:Q4_K_M", &ctl.newAgentModel, false)
+				ui.Text(c, i18n.T("live.agents.instructions_label")).FontSize(12).FontWeight(600).TextColor(t.TextMuted)
+				ui.TextArea(c, &ctl.newAgentInstr).FillWidth().MinHeight(88).Placeholder(i18n.T("live.agents.create_instructions_placeholder")).Label(i18n.T("live.agents.instructions_label"))
 
 				canCreate := !busy && strings.TrimSpace(ctl.newAgentName) != "" && strings.TrimSpace(ctl.newAgentInstr) != ""
 				btn := components.PrimaryTouchButton(c, func() string {
 					if busy {
-						return "Creating..."
+						return i18n.T("common.creating")
 					}
-					return "Create Agent"
+					return i18n.T("live.agents.create_btn")
 				}(), !canCreate)
 				btn.FillWidth()
 				if btn.Clicked() {
@@ -273,16 +273,16 @@ func (ctl *Controller) viewDeleteAgentConfirm(c *ui.Context) {
 	ctl.mu.Lock()
 	ag := ctl.selectedAgent
 	ctl.mu.Unlock()
-	name := "Agent"
+	name := i18n.T("role.agent")
 	if ag != nil {
 		name = ag.Actor.DisplayName
 	}
 	mobile.ActionSheet(c, &ctl.deleteAgentOpen, mobile.ActionSheetOptions{
-		Title:   "Delete " + name + "?",
-		Message: "This removes the Agent from the workspace.",
-		Cancel:  "Cancel",
+		Title:   i18n.Tf("live.agents.delete_title", map[string]any{"name": name}),
+		Message: i18n.T("live.agents.delete_body"),
+		Cancel:  i18n.T("common.cancel"),
 	}, mobile.Action{
-		Label:       "Delete Agent",
+		Label:       i18n.T("live.agents.delete_btn"),
 		Destructive: true,
 		OnTap: func() {
 			if ag == nil {
@@ -300,7 +300,7 @@ func (ctl *Controller) viewDeleteAgentConfirm(c *ui.Context) {
 					ctl.agentSheetOpen = false
 					ctl.selectedAgent = nil
 					ctl.mu.Unlock()
-					ctl.setNotice("Deleted agent " + name)
+					ctl.setNotice(i18n.Tf("live.agents.toast.deleted", map[string]any{"name": name}))
 				})
 			}()
 		},
@@ -347,7 +347,7 @@ func (ctl *Controller) saveAgentChangesAsync(tenantID string, ag api.TenantAgent
 				cp := updated
 				ctl.selectedAgent = &cp
 				ctl.mu.Unlock()
-				ctl.setNotice("Saved " + name)
+				ctl.setNotice(i18n.Tf("live.agents.toast.saved", map[string]any{"name": name}))
 			} else {
 				ctl.store.SetTransientError(err.Error())
 			}
@@ -386,7 +386,7 @@ func (ctl *Controller) createAgentAsync(tenantID string) {
 					ctl.createAgentOpen = false
 					ctl.agentBusy = false
 					ctl.mu.Unlock()
-					ctl.setNotice("Created agent " + agentName)
+					ctl.setNotice(i18n.Tf("live.agents.toast.created", map[string]any{"name": agentName}))
 				})
 				return
 			}

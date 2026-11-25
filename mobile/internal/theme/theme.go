@@ -49,6 +49,7 @@ type ExtraTokens struct {
 	DangerTint ui.Color
 	WarnTint   ui.Color
 	OKTint     ui.Color
+	OnAvatar   ui.Color
 }
 
 var (
@@ -60,6 +61,7 @@ var (
 		DangerTint: ui.RGBA(198, 57, 11, 0.10),
 		WarnTint:   ui.RGBA(199, 123, 0, 0.12),
 		OKTint:     ui.RGBA(75, 132, 46, 0.12),
+		OnAvatar:   ui.Hex("#FFFFFF"),
 	}
 	townDarkExtra = ExtraTokens{
 		SidebarBg:  ui.Hex("#1C1C18"),
@@ -69,6 +71,7 @@ var (
 		DangerTint: ui.RGBA(255, 133, 95, 0.18),
 		WarnTint:   ui.RGBA(229, 160, 50, 0.16),
 		OKTint:     ui.RGBA(117, 184, 83, 0.16),
+		OnAvatar:   ui.Hex("#F5F4EE"),
 	}
 )
 

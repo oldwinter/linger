@@ -2,13 +2,13 @@ package settings
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/mobile"
 	"github.com/oldwinter/linger/mobile/internal/api"
 	"github.com/oldwinter/linger/mobile/internal/components"
+	"github.com/oldwinter/linger/mobile/internal/i18n"
 	"github.com/oldwinter/linger/mobile/internal/theme"
 )
 
@@ -25,21 +25,21 @@ func (s *Screen) viewIntegrationsSection(c *ui.Context) {
 	ui.Scroll(c).FillWidth().Grow(1).Basis(0).TrackScroll(&s.scroll[SectionIntegrations]).Children(func() {
 		ui.Column(c).FillWidth().Padding(12, 16, 28, 16).Gap(12).Children(func() {
 			if s.integError != "" {
-				components.StatusBanner(c, components.ToneDanger, s.integError, "Dismiss", func() {
+				components.StatusBanner(c, components.ToneDanger, s.integError, i18n.T("common.dismiss"), func() {
 					s.integError = ""
 				})
 			}
 			if s.integNotice != "" {
-				components.StatusBanner(c, components.ToneSuccess, s.integNotice, "OK", func() {
+				components.StatusBanner(c, components.ToneSuccess, s.integNotice, i18n.T("common.ok"), func() {
 					s.integNotice = ""
 				})
 			}
 
 			// 1. External Apps & Connections
-			components.SectionCard(c, fmt.Sprintf("External Connections (%d)", len(conns)),
-				fmt.Sprintf("%d catalog apps available", len(apps.Apps)), nil, func() {
+			components.SectionCard(c, i18n.Tf("settings.integrations.ext_title", map[string]any{"count": len(conns)}),
+				i18n.Tf("settings.integrations.ext_sub", map[string]any{"count": len(apps.Apps)}), nil, func() {
 					if len(conns) == 0 {
-						ui.Text(c, "No external connections authorized yet.").FontSize(13).TextColor(t.TextMuted)
+						ui.Text(c, i18n.T("settings.integrations.ext_empty")).FontSize(13).TextColor(t.TextMuted)
 					} else {
 						ui.Column(c).FillWidth().Gap(10).Children(func() {
 							for _, conn := range conns {
@@ -59,37 +59,37 @@ func (s *Screen) viewIntegrationsSection(c *ui.Context) {
 										} else if conn.Status == "disconnected" || conn.Status == "error" {
 											tone = components.ToneDanger
 										}
-										components.StatusPill(c, conn.Status, tone)
+										components.StatusPill(c, i18n.StatusLabel(conn.Status), tone)
 									})
 
 									if conn.StatusCheckedAt != nil {
-										ui.Text(c, "Checked: "+conn.StatusCheckedAt.UTC().Format("Jan 2 15:04:05 UTC")).
+										ui.Text(c, i18n.Tf("settings.integrations.checked_prefix", map[string]any{"time": i18n.FormatDateTimeUTC(*conn.StatusCheckedAt)})).
 											FontSize(11).TextColor(t.TextMuted)
 									}
 
 									ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Children(func() {
-										ui.Text(c, "Auto-Reminders").FontSize(12).TextColor(t.TextMuted)
+										ui.Text(c, i18n.T("settings.integrations.auto_reminders")).FontSize(12).TextColor(t.TextMuted)
 										autoRem := conn.AutoReminders
-										sw := mobile.Switch(c, &autoRem).Label("Auto Reminders " + conn.Provider).Disabled(busy)
+										sw := mobile.Switch(c, &autoRem).Label(i18n.Tf("settings.integrations.auto_reminders_a11y", map[string]any{"name": conn.Provider})).Disabled(busy)
 										if sw.Changed() {
 											s.toggleConnAutoRemindersAsync(conn.ID, autoRem)
 										}
 									})
 
 									ui.Row(c).FillWidth().Wrap().Gap(6).Children(func() {
-										chkLbl := "Check Status"
+										chkLbl := i18n.T("settings.integrations.check_status")
 										if busy {
-											chkLbl = "Checking..."
+											chkLbl = i18n.T("settings.integrations.checking")
 										}
 										chkBtn := components.PrimaryTouchButton(c, chkLbl, busy)
 										if chkBtn.Clicked() {
 											s.checkConnStatusAsync(conn)
 										}
-										grantBtn := components.SecondaryTouchButton(c, "Agent Grants", busy)
+										grantBtn := components.SecondaryTouchButton(c, i18n.T("settings.integrations.agent_grants"), busy)
 										if grantBtn.Clicked() {
 											s.openAgentGrantsSheet(conn)
 										}
-										disBtn := components.DangerTouchButton(c, "Disconnect", busy)
+										disBtn := components.DangerTouchButton(c, i18n.T("settings.integrations.disconnect"), busy)
 										if disBtn.Clicked() {
 											cp := conn
 											s.connDisconnItem = &cp
@@ -103,9 +103,13 @@ func (s *Screen) viewIntegrationsSection(c *ui.Context) {
 				})
 
 			// 2. Web Search Backends
-			components.SectionCard(c, "Web Search Backends", "Default search: "+ws.DefaultSearch, nil, func() {
+			defSearch := ws.DefaultSearch
+			if defSearch == "" {
+				defSearch = i18n.T("common.none")
+			}
+			components.SectionCard(c, i18n.T("settings.integrations.search_title"), i18n.Tf("settings.integrations.search_sub", map[string]any{"name": defSearch}), nil, func() {
 				if len(ws.Backends) == 0 {
-					ui.Text(c, "No search backends reported.").FontSize(13).TextColor(t.TextMuted)
+					ui.Text(c, i18n.T("settings.integrations.search_empty")).FontSize(13).TextColor(t.TextMuted)
 					return
 				}
 				ui.Column(c).FillWidth().Gap(10).Children(func() {
@@ -113,29 +117,29 @@ func (s *Screen) viewIntegrationsSection(c *ui.Context) {
 						b := b
 						isDefault := ws.DefaultSearch == b.ID
 						buf := s.searchKeyBuf(b.ID)
-						ui.Column(c.Key("ws:" + b.ID)).FillWidth().Padding(10, 12).Gap(8).
+						ui.Column(c.Key("ws:"+b.ID)).FillWidth().Padding(10, 12).Gap(8).
 							Radius(10).Background(theme.Extra(t).MutedBg).Border(1, t.Border).Children(func() {
 							ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
 								ui.Text(c, b.Name).FontSize(14).FontWeight(600).TextColor(t.Text).Grow(1).Basis(0)
 								ui.Row(c).Gap(4).Children(func() {
 									if isDefault {
-										components.StatusPill(c, "Default", components.ToneSuccess)
+										components.StatusPill(c, i18n.T("settings.integrations.default_badge"), components.ToneSuccess)
 									}
-									components.StatusPill(c, b.KeyState, components.ToneNeutral)
+									components.StatusPill(c, i18n.StatusLabel(b.KeyState), components.ToneNeutral)
 								})
 							})
 							ui.Text(c, b.Description).FontSize(12).TextColor(t.TextMuted)
 
 							if !isDefault && (b.Keyless || b.Status == "ready") {
-								defBtn := components.SecondaryTouchButton(c, "Set as Default", false)
+								defBtn := components.SecondaryTouchButton(c, i18n.T("settings.integrations.set_default"), false)
 								if defBtn.Clicked() {
 									s.setDefaultWebSearchAsync(b.ID)
 								}
 							}
 							if ws.CanSaveKeys && !b.Keyless {
-								components.FormField(c, b.Name+" API Key", "Enter secret key", buf, true)
+								components.FormField(c, i18n.Tf("settings.integrations.api_key_for", map[string]any{"name": b.Name}), i18n.T("settings.integrations.api_key_ph"), buf, true)
 								ui.Row(c).FillWidth().Gap(8).Children(func() {
-									saveBtn := components.PrimaryTouchButton(c, "Save Key", strings.TrimSpace(*buf) == "")
+									saveBtn := components.PrimaryTouchButton(c, i18n.T("settings.integrations.save_key"), strings.TrimSpace(*buf) == "")
 									saveBtn.Grow(1).Basis(0)
 									if saveBtn.Clicked() {
 										keyVal := strings.TrimSpace(*buf)
@@ -143,7 +147,7 @@ func (s *Screen) viewIntegrationsSection(c *ui.Context) {
 										s.saveWebSearchKeyAsync(b.ID, keyVal)
 									}
 									if b.KeyState == "saved" {
-										rmBtn := components.DangerTouchButton(c, "Remove Key", false)
+										rmBtn := components.DangerTouchButton(c, i18n.T("settings.integrations.remove_key"), false)
 										if rmBtn.Clicked() {
 											s.deleteWebSearchKeyAsync(b.ID)
 										}
@@ -156,26 +160,26 @@ func (s *Screen) viewIntegrationsSection(c *ui.Context) {
 			})
 
 			// 3. Voice Media Policy & Provider Keys
-			components.SectionCard(c, "Voice Infrastructure & Keys", "Speech-to-text & Live voice providers", nil, func() {
+			components.SectionCard(c, i18n.T("settings.integrations.voice_title"), i18n.T("settings.integrations.voice_sub"), nil, func() {
 				if vp == nil {
-					ui.Text(c, "Voice policy unavailable.").FontSize(13).TextColor(t.TextMuted)
+					ui.Text(c, i18n.T("settings.integrations.voice_unavailable")).FontSize(13).TextColor(t.TextMuted)
 					return
 				}
 				ui.Row(c).FillWidth().Wrap().Gap(6).Children(func() {
 					if vp.VoiceMediaSupported {
-						components.StatusPill(c, "Transcription Ready", components.ToneSuccess)
+						components.StatusPill(c, i18n.T("settings.integrations.stt_ready"), components.ToneSuccess)
 					} else {
-						components.StatusPill(c, "Transcription Off", components.ToneNeutral)
+						components.StatusPill(c, i18n.T("settings.integrations.stt_off"), components.ToneNeutral)
 					}
 					if vp.LiveEnabled != nil && *vp.LiveEnabled {
-						components.StatusPill(c, "Live Voice Enabled", components.ToneSuccess)
+						components.StatusPill(c, i18n.T("settings.integrations.live_on"), components.ToneSuccess)
 					} else {
-						components.StatusPill(c, "Live Voice Off", components.ToneNeutral)
+						components.StatusPill(c, i18n.T("settings.integrations.live_off"), components.ToneNeutral)
 					}
 				})
 
-				s.viewVoiceKeyEditor(c, "Soniox (Transcription)", "soniox", vp.SonioxKey, &s.sonioxKeyInput)
-				s.viewVoiceKeyEditor(c, "xAI (Live Voice)", "xai", vp.XaiKey, &s.xaiKeyInput)
+				s.viewVoiceKeyEditor(c, i18n.T("settings.integrations.soniox_label"), "soniox", vp.SonioxKey, &s.sonioxKeyInput)
+				s.viewVoiceKeyEditor(c, i18n.T("settings.integrations.xai_label"), "xai", vp.XaiKey, &s.xaiKeyInput)
 			})
 		})
 	})
@@ -191,7 +195,7 @@ func (s *Screen) viewVoiceKeyEditor(c *ui.Context, title, provider string, st *a
 		}
 		canSave = st.CanSave
 	}
-	ui.Column(c.Key("vk:" + provider)).FillWidth().Padding(10, 12).Gap(8).
+	ui.Column(c.Key("vk:"+provider)).FillWidth().Padding(10, 12).Gap(8).
 		Radius(10).Background(theme.Extra(t).MutedBg).Border(1, t.Border).Children(func() {
 		ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Children(func() {
 			ui.Text(c, title).FontSize(13).FontWeight(600).TextColor(t.Text)
@@ -199,17 +203,17 @@ func (s *Screen) viewVoiceKeyEditor(c *ui.Context, title, provider string, st *a
 			if src == "saved" || src == "environment" {
 				tone = components.ToneSuccess
 			}
-			components.StatusPill(c, "Key: "+src, tone)
+			components.StatusPill(c, i18n.Tf("settings.integrations.key_source", map[string]any{"source": i18n.StatusLabel(src)}), tone)
 		})
 		if !canSave && src == "environment" {
-			ui.Text(c, "Managed by server environment variable.").FontSize(12).TextColor(t.TextMuted)
+			ui.Text(c, i18n.T("settings.integrations.env_managed")).FontSize(12).TextColor(t.TextMuted)
 			return
 		}
-		components.FormField(c, title+" API Key", "sk-...", buf, true)
+		components.FormField(c, i18n.Tf("settings.integrations.api_key_for", map[string]any{"name": title}), "sk-...", buf, true)
 		busy := s.voiceKeyBusy == provider
-		lbl := "Save & Validate " + strings.ToUpper(provider) + " Key"
+		lbl := i18n.Tf("settings.integrations.save_validate", map[string]any{"name": strings.ToUpper(provider)})
 		if busy {
-			lbl = "Validating..."
+			lbl = i18n.T("settings.integrations.validating")
 		}
 		btn := components.PrimaryTouchButton(c, lbl, busy || !canSave || strings.TrimSpace(*buf) == "")
 		btn.FillWidth()
@@ -248,7 +252,10 @@ func (s *Screen) checkConnStatusAsync(conn api.ExternalConnectionC2) {
 				return
 			}
 			s.replaceConnection(updated)
-			s.integNotice = updated.Provider + " status: " + updated.Status
+			s.integNotice = i18n.Tf("settings.integrations.toast.status_checked", map[string]any{
+				"provider": updated.Provider,
+				"status":   i18n.StatusLabel(updated.Status),
+			})
 		})
 	}()
 }
@@ -299,7 +306,7 @@ func (s *Screen) viewAgentGrantsSheet(c *ui.Context) {
 	t := c.Theme()
 	mobile.Sheet(c, &s.grantsSheetOpen, mobile.SheetOptions{
 		Detents: []float32{0.58, 0.85},
-		Label:   "Agent Connection Grants",
+		Label:   i18n.T("settings.integrations.grants_sheet_a11y"),
 	}, func() {
 		conn := s.grantsConn
 		if conn == nil {
@@ -307,13 +314,13 @@ func (s *Screen) viewAgentGrantsSheet(c *ui.Context) {
 		}
 		ui.Scroll(c).FillWidth().Grow(1).Basis(0).Children(func() {
 			ui.Column(c).FillWidth().Padding(14, 16, 24, 16).Gap(10).Children(func() {
-				ui.Text(c, "Agent Grants · "+conn.Provider).FontSize(18).Bold().TextColor(t.Text)
+				ui.Text(c, i18n.Tf("settings.integrations.grants_title", map[string]any{"app": conn.Provider})).FontSize(18).Bold().TextColor(t.Text)
 				if s.grantsBusy {
 					components.LoadingSkeleton(c, 2)
 					return
 				}
 				if len(s.grantsAgents) == 0 {
-					ui.Text(c, "No agents available to grant.").FontSize(13).TextColor(t.TextMuted)
+					ui.Text(c, i18n.T("settings.integrations.grants_empty")).FontSize(13).TextColor(t.TextMuted)
 					return
 				}
 				for _, ag := range s.grantsAgents {
@@ -322,7 +329,7 @@ func (s *Screen) viewAgentGrantsSheet(c *ui.Context) {
 						Background(t.Surface).Border(1, t.Border).AlignItems(ui.Center).Justify(ui.SpaceBetween).Children(func() {
 						ui.Text(c, ag.AgentDisplayName).FontSize(14).FontWeight(600).TextColor(t.Text)
 						granted := ag.Granted
-						sw := mobile.Switch(c, &granted).Label("Grant " + ag.AgentDisplayName)
+						sw := mobile.Switch(c, &granted).Label(i18n.Tf("settings.integrations.grant_a11y", map[string]any{"name": ag.AgentDisplayName}))
 						if sw.Changed() {
 							s.setAgentGrantAsync(conn.ID, ag.AgentActorID, granted)
 						}
@@ -361,11 +368,11 @@ func (s *Screen) viewDisconnectConfirmSheet(c *ui.Context) {
 		return
 	}
 	mobile.ActionSheet(c, &s.connDisconnSheet, mobile.ActionSheetOptions{
-		Title:   "Disconnect " + conn.Provider + "?",
-		Message: "Agents will lose access to this connection.",
-		Cancel:  "Cancel",
+		Title:   i18n.Tf("settings.integrations.disconnect_title", map[string]any{"name": conn.Provider}),
+		Message: i18n.T("settings.integrations.disconnect_body"),
+		Cancel:  i18n.T("common.cancel"),
 	}, mobile.Action{
-		Label:       "Disconnect",
+		Label:       i18n.T("settings.integrations.disconnect"),
 		Destructive: true,
 		OnTap:       func() { s.disconnectConnAsync(*conn) },
 	})
@@ -387,7 +394,7 @@ func (s *Screen) disconnectConnAsync(conn api.ExternalConnectionC2) {
 			}
 			s.replaceConnection(updated)
 			s.connDisconnItem = nil
-			s.integNotice = "Disconnected " + conn.Provider
+			s.integNotice = i18n.Tf("settings.integrations.toast.disconnected", map[string]any{"name": conn.Provider})
 		})
 	}()
 }
@@ -419,7 +426,7 @@ func (s *Screen) setDefaultWebSearchAsync(backendID string) {
 				s.mu.Lock()
 				s.webSearch = ws
 				s.mu.Unlock()
-				s.integNotice = "Default search set to " + backendID
+				s.integNotice = i18n.Tf("settings.integrations.toast.default_search", map[string]any{"name": backendID})
 			})
 		}
 	}()
@@ -440,7 +447,7 @@ func (s *Screen) saveWebSearchKeyAsync(backendID, apiKey string) {
 				s.mu.Lock()
 				s.webSearch = ws
 				s.mu.Unlock()
-				s.integNotice = "Saved API key for " + backendID
+				s.integNotice = i18n.Tf("settings.integrations.toast.saved_key", map[string]any{"name": backendID})
 			})
 		}
 	}()
@@ -461,7 +468,7 @@ func (s *Screen) deleteWebSearchKeyAsync(backendID string) {
 				s.mu.Lock()
 				s.webSearch = ws
 				s.mu.Unlock()
-				s.integNotice = "Removed API key for " + backendID
+				s.integNotice = i18n.Tf("settings.integrations.toast.removed_key", map[string]any{"name": backendID})
 			})
 		}
 	}()
@@ -495,7 +502,7 @@ func (s *Screen) saveVoiceKeyAsync(provider, apiKey string) {
 				s.voicePolicy.XaiKey = &cp
 			}
 			s.mu.Unlock()
-			s.integNotice = "Validated and saved " + strings.ToUpper(provider) + " key"
+			s.integNotice = i18n.Tf("settings.integrations.toast.validated_voice", map[string]any{"name": strings.ToUpper(provider)})
 		})
 	}()
 }

@@ -22,6 +22,7 @@ import (
 	"github.com/oldwinter/linger/mobile/internal/cache"
 	"github.com/oldwinter/linger/mobile/internal/config"
 	"github.com/oldwinter/linger/mobile/internal/discovery"
+	"github.com/oldwinter/linger/mobile/internal/i18n"
 	"github.com/oldwinter/linger/mobile/internal/realtime"
 )
 
@@ -47,33 +48,33 @@ const (
 
 // Snapshot is an immutable read-only copy of AppStore state consumed by views.
 type Snapshot struct {
-	ActiveTab       int
-	Hosts           []config.HostProfile
-	ActiveHost      *config.HostProfile
-	Prefs           config.AppPreferences
-	Phase           ConnectionPhase
-	SSEState        realtime.StreamState
-	Online          bool
-	Suspended       bool
-	BiometricLocked bool
-	RTTMs           int
-	ActiveVia       string
-	LastHeartbeat   time.Time
-	StatusMessage   string
-	TransientError  string
-	Discovered      []discovery.DiscoveredHost
-	CompanionStatus *api.CompanionStatus
-	Identity        *api.CurrentIdentity
-	Tenants         []api.Tenant
-	TenantID        string
-	Rooms           []api.RoomListItem
-	ActiveRuns      []api.RoomRunStatus
-	WorkItems       []api.WorkItem
-	Routines        []api.Routine
-	PocketNotes     []api.PocketNote
-	Documents       []api.Document
-	Computers       []api.LocalComputer
-	LocalModels     *api.LocalModelsView
+	ActiveTab           int
+	Hosts               []config.HostProfile
+	ActiveHost          *config.HostProfile
+	Prefs               config.AppPreferences
+	Phase               ConnectionPhase
+	SSEState            realtime.StreamState
+	Online              bool
+	Suspended           bool
+	BiometricLocked     bool
+	RTTMs               int
+	ActiveVia           string
+	LastHeartbeat       time.Time
+	StatusMessage       string
+	TransientError      string
+	Discovered          []discovery.DiscoveredHost
+	CompanionStatus     *api.CompanionStatus
+	Identity            *api.CurrentIdentity
+	Tenants             []api.Tenant
+	TenantID            string
+	Rooms               []api.RoomListItem
+	ActiveRuns          []api.RoomRunStatus
+	WorkItems           []api.WorkItem
+	Routines            []api.Routine
+	PocketNotes         []api.PocketNote
+	Documents           []api.Document
+	Computers           []api.LocalComputer
+	LocalModels         *api.LocalModelsView
 	CacheStats          cache.CacheStats
 	StreamCursors       map[string]int64
 	PendingPairURI      string
@@ -98,9 +99,11 @@ type Options struct {
 
 // AppStore owns all runtime services and thread-safe application state.
 type AppStore struct {
-	cfg      *config.Store
-	dataDir  string
-	onNotify func()
+	cfg               *config.Store
+	dataDir           string
+	onNotify          func()
+	onThemeChanged    func(config.ThemePreference)
+	onLanguageChanged func(config.LanguagePreference)
 
 	// UI routers (one independent navigation stack per tab, read/mutated on UI thread).
 	Routers [5]*ui.Router
@@ -124,24 +127,24 @@ type AppStore struct {
 	transientError  string
 	pendingPairURI  string
 
-	client          *api.Client
-	stream          *realtime.StreamManager
-	streamCancel    context.CancelFunc
-	presentation    *realtime.RunPresentationTracker
-	cacheStore      *cache.Store
-	browser         *discovery.Browser
-	browserCancel   context.CancelFunc
-	discovered      []discovery.DiscoveredHost
-	companionStatus *api.CompanionStatus
-	identity        *api.CurrentIdentity
-	tenants         []api.Tenant
-	tenantID        string
-	rooms           []api.RoomListItem
-	activeRuns      []api.RoomRunStatus
-	workItems       []api.WorkItem
-	routines        []api.Routine
-	pocketNotes     []api.PocketNote
-	documents       []api.Document
+	client              *api.Client
+	stream              *realtime.StreamManager
+	streamCancel        context.CancelFunc
+	presentation        *realtime.RunPresentationTracker
+	cacheStore          *cache.Store
+	browser             *discovery.Browser
+	browserCancel       context.CancelFunc
+	discovered          []discovery.DiscoveredHost
+	companionStatus     *api.CompanionStatus
+	identity            *api.CurrentIdentity
+	tenants             []api.Tenant
+	tenantID            string
+	rooms               []api.RoomListItem
+	activeRuns          []api.RoomRunStatus
+	workItems           []api.WorkItem
+	routines            []api.Routine
+	pocketNotes         []api.PocketNote
+	documents           []api.Document
 	computers           []api.LocalComputer
 	localModels         *api.LocalModelsView
 	cacheStats          cache.CacheStats
@@ -169,12 +172,15 @@ func NewAppStore(opts Options) *AppStore {
 		cfgStore = config.NewStore(nil, nil)
 	}
 	prefs := cfgStore.Preferences()
+	if prefs.Language != config.LanguageSystem {
+		i18n.SetPreference(prefs.Language)
+	}
 	s := &AppStore{
-		cfg:             cfgStore,
-		dataDir:         opts.DataDir,
-		onNotify:        opts.OnNotify,
-		phase:           PhaseDisconnected,
-		sseState:        realtime.StateDisconnected,
+		cfg:               cfgStore,
+		dataDir:           opts.DataDir,
+		onNotify:          opts.OnNotify,
+		phase:             PhaseDisconnected,
+		sseState:          realtime.StateDisconnected,
 		online:            true,
 		biometricLocked:   prefs.BiometricLock,
 		agentAvailability: map[string]api.TenantAgentAvailabilitySnapshot{},
@@ -210,6 +216,20 @@ func NewAppStore(opts Options) *AppStore {
 func (s *AppStore) SetNotifier(fn func()) {
 	s.mu.Lock()
 	s.onNotify = fn
+	s.mu.Unlock()
+}
+
+// SetOnThemeChanged registers a runtime callback invoked whenever ThemePreference changes.
+func (s *AppStore) SetOnThemeChanged(fn func(config.ThemePreference)) {
+	s.mu.Lock()
+	s.onThemeChanged = fn
+	s.mu.Unlock()
+}
+
+// SetOnLanguageChanged registers a runtime callback invoked whenever LanguagePreference changes.
+func (s *AppStore) SetOnLanguageChanged(fn func(config.LanguagePreference)) {
+	s.mu.Lock()
+	s.onLanguageChanged = fn
 	s.mu.Unlock()
 }
 
@@ -390,6 +410,17 @@ func (s *AppStore) SetStatusMessage(msg string) {
 	s.notify()
 }
 
+// SetRTTMs overrides the measured connection RTT in milliseconds (used by deterministic UI snapshots).
+func (s *AppStore) SetRTTMs(ms int) {
+	if ms < 0 {
+		ms = 0
+	}
+	s.mu.Lock()
+	s.rttMs = ms
+	s.mu.Unlock()
+	s.notify()
+}
+
 // EnqueueUI schedules fn to run on the UI thread before the next frame renders.
 func (s *AppStore) EnqueueUI(fn func()) {
 	if fn == nil {
@@ -445,10 +476,26 @@ func (s *AppStore) SetBiometricLocked(locked bool) {
 	s.notify()
 }
 
-// UpdatePreferences persists new AppPreferences.
+// UpdatePreferences persists new AppPreferences and fires theme/language callbacks when changed.
 func (s *AppStore) UpdatePreferences(prefs config.AppPreferences) error {
+	prev := s.cfg.Preferences()
+	prefs.Theme = config.NormalizeThemePreference(string(prefs.Theme))
+	prefs.Language = config.NormalizeLanguagePreference(string(prefs.Language))
 	if err := s.cfg.SetPreferences(prefs); err != nil {
 		return err
+	}
+	if prefs.Language != prev.Language || i18n.ActivePreference() != prefs.Language {
+		i18n.SetPreference(prefs.Language)
+	}
+	s.mu.RLock()
+	onTheme := s.onThemeChanged
+	onLang := s.onLanguageChanged
+	s.mu.RUnlock()
+	if onTheme != nil && prefs.Theme != prev.Theme {
+		onTheme(prefs.Theme)
+	}
+	if onLang != nil && prefs.Language != prev.Language {
+		onLang(prefs.Language)
 	}
 	s.notify()
 	return nil
@@ -457,7 +504,14 @@ func (s *AppStore) UpdatePreferences(prefs config.AppPreferences) error {
 // SetThemePreference updates the Town Light/Dark/System theme preference.
 func (s *AppStore) SetThemePreference(pref config.ThemePreference) error {
 	p := s.cfg.Preferences()
-	p.Theme = pref
+	p.Theme = config.NormalizeThemePreference(string(pref))
+	return s.UpdatePreferences(p)
+}
+
+// SetLanguagePreference updates the System/English/Simplified Chinese language preference.
+func (s *AppStore) SetLanguagePreference(pref config.LanguagePreference) error {
+	p := s.cfg.Preferences()
+	p.Language = config.NormalizeLanguagePreference(string(pref))
 	return s.UpdatePreferences(p)
 }
 
@@ -550,7 +604,7 @@ func (s *AppStore) PairWithURI(ctx context.Context, rawURI string, allowPlainHTT
 		return config.HostProfile{}, err
 	}
 	if !payload.TLS && !allowPlainHTTP {
-		err := errors.New("plain HTTP pairing requires explicit opt-in")
+		err := errors.New(i18n.T("state.err.plain_http_required"))
 		s.SetTransientError(err.Error())
 		return config.HostProfile{}, err
 	}
@@ -615,7 +669,7 @@ func (s *AppStore) ProbePINHost(ctx context.Context, baseURL string, allowPlainH
 func (s *AppStore) PairWithPIN(ctx context.Context, baseURL, pin, confirmedFP string, allowPlainHTTP bool) (config.HostProfile, error) {
 	pin = strings.TrimSpace(pin)
 	if len(pin) != 6 {
-		err := errors.New("pairing PIN must be 6 digits")
+		err := errors.New(i18n.T("state.err.pin_six_digits"))
 		s.SetTransientError(err.Error())
 		return config.HostProfile{}, err
 	}
@@ -697,7 +751,7 @@ func (s *AppStore) LoginDirect(ctx context.Context, rawURL, email, password stri
 		return config.HostProfile{}, err
 	}
 	if capturedCookie == "" {
-		err := errors.New("server did not return a teamhub_session cookie")
+		err := errors.New(i18n.T("state.err.no_session_cookie"))
 		s.SetTransientError(err.Error())
 		return config.HostProfile{}, err
 	}
@@ -763,7 +817,7 @@ func (s *AppStore) saveAndActivateHost(ctx context.Context, profile config.HostP
 		return err
 	}
 	s.ClearTransientError()
-	s.SetStatusMessage("Connected to " + profile.Name)
+	s.SetStatusMessage(i18n.Tf("state.toast.connected_to", map[string]any{"name": profile.Name}))
 	return s.ConnectHost(ctx, profile.ID)
 }
 
@@ -774,11 +828,11 @@ func (s *AppStore) saveAndActivateHost(ctx context.Context, profile config.HostP
 func (s *AppStore) ConnectHost(ctx context.Context, hostID string) error {
 	profile, ok := s.cfg.Host(hostID)
 	if !ok {
-		return fmt.Errorf("state: host %q not found", hostID)
+		return errors.New(i18n.Tf("state.err.host_not_found", map[string]any{"id": hostID}))
 	}
 	token, err := s.cfg.LoadSecret(hostID)
 	if err != nil {
-		s.SetTransientError("Missing credentials for " + profile.Name + "; pair or sign in again.")
+		s.SetTransientError(i18n.Tf("state.err.missing_credentials", map[string]any{"name": profile.Name}))
 		return err
 	}
 
@@ -900,7 +954,7 @@ func (s *AppStore) ConnectHost(ctx context.Context, hostID string) error {
 			s.mu.Lock()
 			if s.connGen == myGen {
 				s.phase = PhaseExpired
-				s.transientError = "Session expired or device revoked. Pair or sign in again."
+				s.transientError = i18n.T("state.err.session_expired_device")
 			}
 			s.mu.Unlock()
 			s.notify()
@@ -989,7 +1043,7 @@ func (s *AppStore) Disconnect() {
 func (s *AppStore) RefreshActiveHost(ctx context.Context) error {
 	client := s.Client()
 	if client == nil {
-		return errors.New("state: not connected")
+		return errors.New(i18n.T("state.err.not_connected"))
 	}
 
 	me, err := client.GetMe(ctx)
@@ -1169,7 +1223,7 @@ func (s *AppStore) RotateActiveToken(ctx context.Context) error {
 	client := s.Client()
 	ah, ok := s.cfg.ActiveHost()
 	if client == nil || !ok || ah.Mode != config.HostModeCompanion {
-		return errors.New("token rotation requires an active Companion connection")
+		return errors.New(i18n.T("state.err.token_rotation_companion"))
 	}
 	resp, err := client.RotateCompanionToken(ctx)
 	if err != nil {
@@ -1181,7 +1235,7 @@ func (s *AppStore) RotateActiveToken(ctx context.Context) error {
 		return err
 	}
 	s.ClearTransientError()
-	s.SetStatusMessage("Device token rotated")
+	s.SetStatusMessage(i18n.T("state.toast.token_rotated"))
 	return nil
 }
 
@@ -1206,7 +1260,7 @@ func (s *AppStore) UnpairHost(ctx context.Context, hostID string) error {
 		return err
 	}
 	s.ClearTransientError()
-	s.SetStatusMessage("Removed " + host.Name)
+	s.SetStatusMessage(i18n.Tf("state.toast.removed_host", map[string]any{"name": host.Name}))
 	return nil
 }
 
@@ -1214,37 +1268,49 @@ func (s *AppStore) UnpairHost(ctx context.Context, hostID string) error {
 func (s *AppStore) DiagnosticsText() string {
 	snap := s.Snapshot()
 	var b strings.Builder
-	b.WriteString("Linger Mobile Companion Diagnostics\n")
+	b.WriteString(i18n.T("state.diag.title") + "\n")
 	b.WriteString("===================================\n")
-	b.WriteString(fmt.Sprintf("Platform: %s/%s\n", runtime.GOOS, runtime.GOARCH))
-	b.WriteString(fmt.Sprintf("Phase: %s | SSE: %s | Online: %v\n", snap.Phase, snap.SSEState, snap.Online))
+	b.WriteString(i18n.Tf("state.diag.platform", map[string]any{"goos": runtime.GOOS, "goarch": runtime.GOARCH}) + "\n")
+	b.WriteString(i18n.Tf("state.diag.phase", map[string]any{"phase": string(snap.Phase), "sse": string(snap.SSEState), "online": fmt.Sprintf("%v", snap.Online)}) + "\n")
 	if snap.ActiveHost != nil {
-		shortFP := "none"
+		shortFP := i18n.T("common.none")
 		if snap.ActiveHost.TLSFingerprint != "" {
 			if sf, err := discovery.ShortFingerprint(snap.ActiveHost.TLSFingerprint); err == nil {
 				shortFP = sf
 			}
 		}
-		b.WriteString(fmt.Sprintf("Active Host: %s (%s)\n", snap.ActiveHost.Name, snap.ActiveHost.Mode))
-		b.WriteString(fmt.Sprintf("Primary URL: %s\n", snap.ActiveHost.PrimaryURL))
+		b.WriteString(i18n.Tf("state.diag.active_host", map[string]any{"name": snap.ActiveHost.Name, "mode": string(snap.ActiveHost.Mode)}) + "\n")
+		b.WriteString(i18n.Tf("state.diag.primary_url", map[string]any{"url": snap.ActiveHost.PrimaryURL}) + "\n")
 		if snap.ActiveHost.TailscaleURL != "" {
-			b.WriteString(fmt.Sprintf("Tailscale URL: %s\n", snap.ActiveHost.TailscaleURL))
+			b.WriteString(i18n.Tf("state.diag.tailscale_url", map[string]any{"url": snap.ActiveHost.TailscaleURL}) + "\n")
 		}
-		b.WriteString(fmt.Sprintf("Transport: TLS=%v PlainHTTP=%v Pin=%s Via=%s RTT=%dms\n",
-			snap.ActiveHost.TLS, snap.ActiveHost.AllowPlainHTTP, shortFP, snap.ActiveVia, snap.RTTMs))
+		b.WriteString(i18n.Tf("state.diag.transport", map[string]any{
+			"tls":   fmt.Sprintf("%v", snap.ActiveHost.TLS),
+			"plain": fmt.Sprintf("%v", snap.ActiveHost.AllowPlainHTTP),
+			"pin":   shortFP,
+			"via":   snap.ActiveVia,
+			"rtt":   snap.RTTMs,
+		}) + "\n")
 	} else {
-		b.WriteString("Active Host: none\n")
+		b.WriteString(i18n.T("state.diag.active_host_none") + "\n")
 	}
 	if snap.CompanionStatus != nil {
-		b.WriteString(fmt.Sprintf("Desktop: v%s runtime=%s daemon=%s ops=%d devices=%d\n",
-			snap.CompanionStatus.DesktopVersion, snap.CompanionStatus.RuntimeState,
-			snap.CompanionStatus.DaemonConnection, snap.CompanionStatus.ActiveOperations,
-			snap.CompanionStatus.PairedDevicesCount))
+		b.WriteString(i18n.Tf("state.diag.desktop", map[string]any{
+			"version": snap.CompanionStatus.DesktopVersion,
+			"runtime": snap.CompanionStatus.RuntimeState,
+			"daemon":  snap.CompanionStatus.DaemonConnection,
+			"ops":     snap.CompanionStatus.ActiveOperations,
+			"devices": snap.CompanionStatus.PairedDevicesCount,
+		}) + "\n")
 	}
-	b.WriteString(fmt.Sprintf("SSE Cursors: %d tracked rooms\n", len(snap.StreamCursors)))
-	b.WriteString(fmt.Sprintf("SQLite Cache: rooms=%d messages=%d work_items=%d docs=%d outbox=%d\n",
-		snap.CacheStats.Rooms, snap.CacheStats.Messages, snap.CacheStats.WorkItems,
-		snap.CacheStats.Documents, snap.CacheStats.Outbox))
+	b.WriteString(i18n.Tf("state.diag.sse_cursors", map[string]any{"count": len(snap.StreamCursors)}) + "\n")
+	b.WriteString(i18n.Tf("state.diag.sqlite_cache", map[string]any{
+		"rooms":    snap.CacheStats.Rooms,
+		"messages": snap.CacheStats.Messages,
+		"work":     snap.CacheStats.WorkItems,
+		"docs":     snap.CacheStats.Documents,
+		"outbox":   snap.CacheStats.Outbox,
+	}) + "\n")
 	return b.String()
 }
 
@@ -1310,11 +1376,11 @@ func (s *AppStore) startRealtime(client *api.Client, gen uint64) {
 			case realtime.StateReconnecting:
 				s.phase = PhaseReconnecting
 				if err != nil {
-					s.transientError = "Reconnecting live stream: " + err.Error()
+					s.transientError = i18n.Tf("state.toast.reconnecting_stream", map[string]any{"err": err.Error()})
 				}
 			case realtime.StateExpired:
 				s.phase = PhaseExpired
-				s.transientError = "Session expired. Please reconnect."
+				s.transientError = i18n.T("state.toast.session_expired")
 			}
 			s.mu.Unlock()
 			if st == realtime.StateConnected {
@@ -1351,7 +1417,7 @@ func (s *AppStore) startRealtime(client *api.Client, gen uint64) {
 			}
 			s.phase = PhaseExpired
 			s.sseState = realtime.StateExpired
-			s.transientError = "Session expired: " + message
+			s.transientError = i18n.Tf("state.toast.session_expired_err", map[string]any{"err": message})
 			s.mu.Unlock()
 			s.notify()
 		},
@@ -1427,9 +1493,9 @@ func (s *AppStore) hydrateFromCache(ctx context.Context, cs *cache.Store, tenant
 func defaultDeviceName() string {
 	host, err := os.Hostname()
 	if err == nil && strings.TrimSpace(host) != "" {
-		return "Linger Mobile (" + strings.TrimSpace(host) + ")"
+		return i18n.WindowTitle(strings.TrimSpace(host))
 	}
-	return "Linger Mobile"
+	return i18n.T("app.title")
 }
 
 func firstNonEmpty(values ...string) string {

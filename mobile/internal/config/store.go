@@ -68,10 +68,11 @@ type HostProfile struct {
 
 // AppPreferences stores user-level mobile client settings.
 type AppPreferences struct {
-	Theme         ThemePreference `json:"theme"`
-	BiometricLock bool            `json:"biometric_lock"`
-	CompactMode   bool            `json:"compact_mode"`
-	ActiveHostID  string          `json:"active_host_id,omitempty"`
+	Theme         ThemePreference    `json:"theme"`
+	Language      LanguagePreference `json:"language"`
+	BiometricLock bool               `json:"biometric_lock"`
+	CompactMode   bool               `json:"compact_mode"`
+	ActiveHostID  string             `json:"active_host_id,omitempty"`
 }
 
 // PreferencesBackend persists non-secret JSON values by key.
@@ -356,7 +357,7 @@ func NewStore(prefs PreferencesBackend, secrets SecretsBackend) *Store {
 	s := &Store{
 		prefs:   prefs,
 		secrets: secrets,
-		app:     AppPreferences{Theme: ThemeSystem},
+		app:     AppPreferences{Theme: ThemeSystem, Language: LanguageSystem},
 	}
 	s.Load()
 	return s
@@ -374,11 +375,10 @@ func (s *Store) Load() {
 		s.hosts = nil
 	}
 
-	app := AppPreferences{Theme: ThemeSystem}
+	app := AppPreferences{Theme: ThemeSystem, Language: LanguageSystem}
 	if s.prefs.Get(prefsAppKey, &app) {
-		if app.Theme != ThemeSystem && app.Theme != ThemeLight && app.Theme != ThemeDark {
-			app.Theme = ThemeSystem
-		}
+		app.Theme = NormalizeThemePreference(string(app.Theme))
+		app.Language = NormalizeLanguagePreference(string(app.Language))
 	}
 	s.app = app
 }
@@ -514,9 +514,8 @@ func (s *Store) Preferences() AppPreferences {
 
 // SetPreferences validates and persists app preferences.
 func (s *Store) SetPreferences(p AppPreferences) error {
-	if p.Theme != ThemeSystem && p.Theme != ThemeLight && p.Theme != ThemeDark {
-		p.Theme = ThemeSystem
-	}
+	p.Theme = NormalizeThemePreference(string(p.Theme))
+	p.Language = NormalizeLanguagePreference(string(p.Language))
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.app = p

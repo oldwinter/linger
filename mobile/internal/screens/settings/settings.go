@@ -20,6 +20,7 @@ import (
 	"github.com/oldwinter/linger/mobile/internal/cache"
 	"github.com/oldwinter/linger/mobile/internal/components"
 	"github.com/oldwinter/linger/mobile/internal/config"
+	"github.com/oldwinter/linger/mobile/internal/i18n"
 	"github.com/oldwinter/linger/mobile/internal/state"
 )
 
@@ -41,6 +42,7 @@ type Deps struct {
 	OnOpenRoom              func(roomID string)
 	OnOpenConnect           func()
 	OnThemeChanged          func(config.ThemePreference)
+	OnLanguageChanged       func(config.LanguagePreference)
 	OnBiometricChanged      func(bool)
 	OnSignOut               func()
 	OnClearCache            func(ctx context.Context) error
@@ -74,12 +76,12 @@ type Screen struct {
 	bioSupported    bool
 
 	// UI-thread-only state.
-	section         int
-	scroll          [5]ui.ScrollState
-	hostBusy        bool
-	hostNotice      string
-	hostError       string
-	unpairConfirm   bool
+	section       int
+	scroll        [5]ui.ScrollState
+	hostBusy      bool
+	hostNotice    string
+	hostError     string
+	unpairConfirm bool
 
 	// Rules UI state.
 	ruleBusyID       string
@@ -95,35 +97,35 @@ type Screen struct {
 	ruleDeleteItem   *api.ProactiveRule
 
 	// Profile & Insights UI state.
-	acctName          string
-	acctBio           string
-	acctOrg           string
-	acctInitialized   bool
-	acctSaving        bool
-	acctErr           string
-	acctNotice        string
-	ppEditing         bool
-	ppMarkdownDraft   string
-	ppSaving          bool
-	ppErr             string
-	mdOpts            markdown.Options
-	insightDelSheet   bool
-	insightDelItem    *api.PersonalInsight
+	acctName        string
+	acctBio         string
+	acctOrg         string
+	acctInitialized bool
+	acctSaving      bool
+	acctErr         string
+	acctNotice      string
+	ppEditing       bool
+	ppMarkdownDraft string
+	ppSaving        bool
+	ppErr           string
+	mdOpts          markdown.Options
+	insightDelSheet bool
+	insightDelItem  *api.PersonalInsight
 
 	// Integrations UI state.
-	integBusyID       string
-	integError        string
-	integNotice       string
-	grantsSheetOpen   bool
-	grantsConn        *api.ExternalConnectionC2
-	grantsAgents      []api.ExternalConnectionAgentAccess
-	grantsBusy        bool
-	connDisconnSheet  bool
-	connDisconnItem   *api.ExternalConnectionC2
-	searchKeyInputs   map[string]*string
-	sonioxKeyInput    string
-	xaiKeyInput       string
-	voiceKeyBusy      string
+	integBusyID      string
+	integError       string
+	integNotice      string
+	grantsSheetOpen  bool
+	grantsConn       *api.ExternalConnectionC2
+	grantsAgents     []api.ExternalConnectionAgentAccess
+	grantsBusy       bool
+	connDisconnSheet bool
+	connDisconnItem  *api.ExternalConnectionC2
+	searchKeyInputs  map[string]*string
+	sonioxKeyInput   string
+	xaiKeyInput      string
+	voiceKeyBusy     string
 
 	// Security & Preferences UI state.
 	hapticsEnabled     bool
@@ -271,8 +273,13 @@ func (s *Screen) View(c *ui.Context) {
 
 	ui.Column(c).Fill().Background(t.Background).Children(func() {
 		ui.Column(c).FillWidth().Padding(10, 14, 8, 14).Gap(8).Shrink(0).Children(func() {
-			// Full-width 5-section segmented bar so all labels ("Overview", "My Rules", "Profile", "Connectors", "Prefs") render cleanly without clipping.
-			components.SegmentedControl(c, &s.section, "Overview", "My Rules", "Profile", "Connectors", "Prefs")
+			components.SegmentedControl(c, &s.section,
+				i18n.T("settings.tab.overview"),
+				i18n.T("settings.tab.rules"),
+				i18n.T("settings.tab.profile"),
+				i18n.T("settings.tab.connectors"),
+				i18n.T("settings.tab.prefs"),
+			)
 			if syncErr != "" {
 				components.ErrorInline(c, syncErr, func() {
 					go s.Refresh(context.Background())
@@ -330,43 +337,43 @@ func (s *Screen) viewOverviewSection(c *ui.Context, loading bool) {
 	ui.Scroll(c).FillWidth().Grow(1).Basis(0).TrackScroll(&s.scroll[SectionOverview]).Children(func() {
 		ui.Column(c).FillWidth().Padding(12, 16, 28, 16).Gap(12).Children(func() {
 			if s.hostError != "" {
-				components.StatusBanner(c, components.ToneDanger, s.hostError, "Dismiss", func() {
+				components.StatusBanner(c, components.ToneDanger, s.hostError, i18n.T("common.dismiss"), func() {
 					s.hostError = ""
 				})
 			}
 			if s.hostNotice != "" {
-				components.StatusBanner(c, components.ToneSuccess, s.hostNotice, "OK", func() {
+				components.StatusBanner(c, components.ToneSuccess, s.hostNotice, i18n.T("common.ok"), func() {
 					s.hostNotice = ""
 				})
 			}
 
 			// Desktop Host Card & Switcher
-			hostName := "No Desktop Host Connected"
-			hostSub := "Pair Linger Desktop or sign in to TeamHub"
-			transportLabel := "Disconnected"
+			hostName := i18n.T("settings.host.none_title")
+			hostSub := i18n.T("settings.host.none_subtitle")
+			transportLabel := i18n.T("settings.host.disconnected")
 			transportTone := components.ToneWarning
 			if snap.ActiveHost != nil {
 				hostName = snap.ActiveHost.Name
 				hostSub = snap.ActiveHost.PrimaryURL
 				switch {
 				case snap.ActiveVia == "fallback" && snap.ActiveHost.TailscaleURL != "":
-					transportLabel = "Tailscale"
+					transportLabel = i18n.T("settings.host.tailscale")
 					transportTone = components.ToneInfo
 					hostSub = snap.ActiveHost.TailscaleURL
 				case snap.ActiveHost.TLS && snap.ActiveHost.TLSFingerprint != "":
-					transportLabel = "LAN TLS Pinned"
+					transportLabel = i18n.T("settings.host.lan_tls")
 					transportTone = components.ToneSuccess
 				case snap.ActiveHost.TLS:
-					transportLabel = "Direct HTTPS"
+					transportLabel = i18n.T("settings.host.direct_https")
 					transportTone = components.ToneInfo
 				default:
-					transportLabel = "Plaintext HTTP"
+					transportLabel = i18n.T("settings.host.plain_http")
 					transportTone = components.ToneWarning
 				}
 			} else if s.client() != nil {
-				hostName = "Connected Host"
+				hostName = i18n.T("settings.host.connected_fallback")
 				hostSub = s.client().BaseURL()
-				transportLabel = "Connected"
+				transportLabel = i18n.T("settings.host.connected")
 				transportTone = components.ToneSuccess
 			}
 
@@ -376,18 +383,18 @@ func (s *Screen) viewOverviewSection(c *ui.Context, loading bool) {
 				ui.Row(c).FillWidth().Wrap().Gap(6).Children(func() {
 					components.StatusPill(c, transportLabel, transportTone)
 					if snap.RTTMs > 0 {
-						components.StatusPill(c, fmt.Sprintf("RTT %dms", snap.RTTMs), components.ToneNeutral)
+						components.StatusPill(c, i18n.Tf("settings.host.rtt", map[string]any{"ms": fmt.Sprintf("%d", snap.RTTMs)}), components.ToneNeutral)
 					}
 					if snap.SSEState != "" {
 						sseTone := components.ToneNeutral
 						if snap.SSEState == "connected" {
 							sseTone = components.ToneSuccess
 						}
-						components.StatusPill(c, "SSE "+string(snap.SSEState), sseTone)
+						components.StatusPill(c, i18n.Tf("conn.badge.sse_status", map[string]any{"status": i18n.SSEStatusLabel(string(snap.SSEState))}), sseTone)
 					}
 				})
 
-				manageBtn := components.PrimaryTouchButton(c, "Manage Hosts / Pair New Desktop", false)
+				manageBtn := components.PrimaryTouchButton(c, i18n.T("settings.host.manage_hosts"), false)
 				manageBtn.FillWidth()
 				if manageBtn.Clicked() && s.deps.OnOpenConnect != nil {
 					s.deps.OnOpenConnect()
@@ -396,9 +403,9 @@ func (s *Screen) viewOverviewSection(c *ui.Context, loading bool) {
 				ui.Row(c).FillWidth().Wrap().Gap(8).Children(func() {
 					isCompanion := snap.ActiveHost == nil || snap.ActiveHost.Mode == config.HostModeCompanion
 					if isCompanion && s.client() != nil {
-						rotLbl := "Rotate Token"
+						rotLbl := i18n.T("settings.host.rotate_token")
 						if s.hostBusy {
-							rotLbl = "Rotating..."
+							rotLbl = i18n.T("settings.host.rotating")
 						}
 						rotBtn := components.SecondaryTouchButton(c, rotLbl, s.hostBusy)
 						rotBtn.Grow(1).Basis(0)
@@ -407,7 +414,7 @@ func (s *Screen) viewOverviewSection(c *ui.Context, loading bool) {
 						}
 					}
 
-					expBtn := components.SecondaryTouchButton(c, "Export Diagnostics", false)
+					expBtn := components.SecondaryTouchButton(c, i18n.T("settings.host.export_diag"), false)
 					expBtn.Grow(1).Basis(0)
 					if expBtn.Clicked() {
 						s.exportDiagnostics()
@@ -415,7 +422,7 @@ func (s *Screen) viewOverviewSection(c *ui.Context, loading bool) {
 				})
 
 				if snap.ActiveHost != nil || s.client() != nil {
-					signOutBtn := components.DangerTouchButton(c, "Unpair / Sign Out", s.hostBusy)
+					signOutBtn := components.DangerTouchButton(c, i18n.T("settings.host.unpair_signout"), s.hostBusy)
 					signOutBtn.FillWidth()
 					if signOutBtn.Clicked() {
 						s.unpairConfirm = true
@@ -423,11 +430,31 @@ func (s *Screen) viewOverviewSection(c *ui.Context, loading bool) {
 				}
 			})
 
+			// Quick-access Appearance & Language card (works offline & before pairing).
+			components.SectionCard(c, i18n.T("appearance.title"), i18n.T("appearance.quick_subtitle"), nil, func() {
+				components.ThemeSegmentedSelector(c, snap.Prefs.Theme, func(next config.ThemePreference) {
+					if s.deps.Store != nil {
+						_ = s.deps.Store.SetThemePreference(next)
+					}
+					if s.deps.OnThemeChanged != nil {
+						s.deps.OnThemeChanged(next)
+					}
+				})
+				components.LanguageSegmentedSelector(c, snap.Prefs.Language, func(next config.LanguagePreference) {
+					if s.deps.Store != nil {
+						_ = s.deps.Store.SetLanguagePreference(next)
+					}
+					if s.deps.OnLanguageChanged != nil {
+						s.deps.OnLanguageChanged(next)
+					}
+				})
+			})
+
 			// Quick Hub Directory
-			components.SectionCard(c, "Workspace & Device Settings", "Jump directly to any section", func() {
-				refLbl := "Sync"
+			components.SectionCard(c, i18n.T("settings.nav.title"), i18n.T("settings.nav.subtitle"), func() {
+				refLbl := i18n.T("common.sync")
 				if loading {
-					refLbl = "Syncing..."
+					refLbl = i18n.T("common.syncing")
 				}
 				refBtn := components.SecondaryTouchButton(c, refLbl, loading)
 				refBtn.MinHeight(34).Padding(4, 12)
@@ -435,19 +462,19 @@ func (s *Screen) viewOverviewSection(c *ui.Context, loading bool) {
 					go s.Refresh(context.Background())
 				}
 			}, func() {
-				s.hubRow(c, "My Rules & Shadow Review", fmt.Sprintf("%d active · %d shadow", activeRuleCount, shadowCount), func() {
+				s.hubRow(c, i18n.T("settings.nav.rules_title"), i18n.Tf("settings.nav.rules_sub", map[string]any{"active": activeRuleCount, "shadow": shadowCount}), func() {
 					s.section = SectionRules
 				})
 				ui.Divider(c)
-				s.hubRow(c, "Profile & Personal Insights", components.PluralInt(insightCount, "insight", "insights")+" recorded", func() {
+				s.hubRow(c, i18n.T("settings.nav.profile_title"), i18n.Tf("settings.nav.profile_sub", map[string]any{"count": insightCount}), func() {
 					s.section = SectionProfile
 				})
 				ui.Divider(c)
-				s.hubRow(c, "Connectors, Search & Voice Keys", components.PluralInt(connCount, "external connection", "external connections"), func() {
+				s.hubRow(c, i18n.T("settings.nav.connectors_title"), i18n.Tf("settings.nav.connectors_sub", map[string]any{"count": connCount}), func() {
 					s.section = SectionIntegrations
 				})
 				ui.Divider(c)
-				s.hubRow(c, "Security, Theme & Offline Cache", "Biometrics, Town theme, SQLite stats", func() {
+				s.hubRow(c, i18n.T("settings.nav.prefs_title"), i18n.T("settings.nav.prefs_sub"), func() {
 					s.section = SectionPreferences
 				})
 			})
@@ -481,7 +508,7 @@ func (s *Screen) rotateTokenAsync() {
 		} else if client := s.client(); client != nil {
 			_, err = client.RotateCompanionToken(context.Background())
 		} else {
-			err = errors.New("no active host connection")
+			err = errors.New(i18n.T("settings.err.no_active_host"))
 		}
 		s.enqueueUI(func() {
 			s.hostBusy = false
@@ -489,28 +516,28 @@ func (s *Screen) rotateTokenAsync() {
 				s.hostError = err.Error()
 				return
 			}
-			s.hostNotice = "Device bearer token rotated"
-			s.toast("Token rotated")
+			s.hostNotice = i18n.T("state.toast.token_rotated")
+			s.toast(i18n.T("settings.toast.token_rotated"))
 		})
 	}()
 }
 
 func (s *Screen) exportDiagnostics() {
-	diag := "Linger Mobile Diagnostics\n"
+	diag := i18n.T("settings.diag.header") + "\n"
 	if s.deps.Store != nil {
 		diag = s.deps.Store.DiagnosticsText()
 	} else if c := s.client(); c != nil {
-		diag += fmt.Sprintf("Endpoint: %s | RTT: %dms\n", c.BaseURL(), c.LastRTT().Milliseconds())
+		diag += i18n.Tf("settings.diag.endpoint", map[string]any{"url": c.BaseURL(), "ms": fmt.Sprintf("%d", c.LastRTT().Milliseconds())}) + "\n"
 	}
 	go func() {
 		err := s.share(mygo.ShareOptions{Text: diag})
 		s.enqueueUI(func() {
 			if errors.Is(err, errors.ErrUnsupported) {
-				s.hostNotice = "Diagnostics ready; system share sheet is unavailable in desktop preview."
+				s.hostNotice = i18n.T("settings.diag.preview_ready")
 			} else if err != nil && !errors.Is(err, mygo.ErrCanceled) {
 				s.hostError = err.Error()
 			} else if err == nil {
-				s.hostNotice = "Diagnostics exported"
+				s.hostNotice = i18n.T("settings.toast.diag_exported")
 			}
 		})
 	}()
@@ -518,11 +545,11 @@ func (s *Screen) exportDiagnostics() {
 
 func (s *Screen) viewUnpairConfirm(c *ui.Context) {
 	mobile.ActionSheet(c, &s.unpairConfirm, mobile.ActionSheetOptions{
-		Title:   "Unpair or Sign Out?",
-		Message: "Revokes credentials for this host on this device.",
-		Cancel:  "Cancel",
+		Title:   i18n.T("settings.signout.title"),
+		Message: i18n.T("settings.signout.body"),
+		Cancel:  i18n.T("common.cancel"),
 	}, mobile.Action{
-		Label:       "Unpair & Sign Out",
+		Label:       i18n.T("settings.signout.confirm"),
 		Destructive: true,
 		OnTap:       s.performSignOut,
 	})
@@ -547,7 +574,7 @@ func (s *Screen) performSignOut() {
 		}
 		s.enqueueUI(func() {
 			s.hostBusy = false
-			s.hostNotice = "Signed out"
+			s.hostNotice = i18n.T("settings.toast.signed_out")
 			if s.deps.OnSignOut != nil {
 				s.deps.OnSignOut()
 			}
