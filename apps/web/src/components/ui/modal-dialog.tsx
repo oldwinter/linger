@@ -26,6 +26,18 @@ const focusableSelector = [
   '[tabindex]:not([tabindex="-1"])',
 ].join(", ");
 
+function isFocusableTarget(
+  element: HTMLElement | null,
+): element is HTMLElement {
+  return Boolean(
+    element &&
+    element.isConnected &&
+    !element.closest("[inert]") &&
+    !element.hasAttribute("disabled") &&
+    element.getAttribute("aria-disabled") !== "true",
+  );
+}
+
 function firstFocusable(root: Element | null): HTMLElement | null {
   if (!root) {
     return null;
@@ -134,29 +146,33 @@ export function ModalDialog({
         dialog.removeAttribute("open");
       }
       if (focusWasInside) {
-        const target =
-          opener && opener.isConnected
+        const fallback = resolveReturnFocus();
+        // Defer past StrictMode's synchronous effect replay so only a real
+        // unmount restores focus, without stomping explicit caller focus.
+        queueMicrotask(() => {
+          if (dialog.isConnected) return;
+          const active = document.activeElement;
+          if (
+            active !== null &&
+            active !== document.body &&
+            active !== document.documentElement
+          ) {
+            return;
+          }
+          const target = isFocusableTarget(opener)
             ? opener
-            : (() => {
-                const fallback = resolveReturnFocus();
-                return fallback && fallback.isConnected ? fallback : null;
-              })();
-        if (target) {
-          // Defer past StrictMode's synchronous effect replay so only a real
-          // unmount restores focus, without stomping explicit caller focus.
-          queueMicrotask(() => {
-            if (dialog.isConnected) return;
-            const active = document.activeElement;
-            if (
-              active !== null &&
-              active !== document.body &&
-              active !== document.documentElement
-            ) {
-              return;
-            }
-            if (target.isConnected) target.focus();
-          });
-        }
+            : isFocusableTarget(fallback)
+              ? fallback
+              : (() => {
+                  const openDialogs =
+                    document.querySelectorAll<HTMLDialogElement>(
+                      "dialog[open]",
+                    );
+                  const outerDialog = openDialogs[openDialogs.length - 1];
+                  return outerDialog ? firstFocusable(outerDialog) : null;
+                })();
+          if (target) target.focus();
+        });
       }
     };
   }, [initialOpener]);

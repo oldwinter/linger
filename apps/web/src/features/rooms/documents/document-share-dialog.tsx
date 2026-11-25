@@ -18,6 +18,7 @@ import {
   documentQueryKey,
   roomDocumentsQueryKey,
   tenantRoomsQueryKey,
+  tenantRoomsQueryOptions,
 } from "@/features/rooms/room-queries";
 import { ActorAvatar } from "@/features/rooms/members/actor-avatar";
 import { writeClipboardText } from "@/lib/clipboard";
@@ -109,10 +110,24 @@ export function DocumentShareDialog({
   const cachedRooms = queryClient.getQueryData<TeamHubRoomPage>(
     tenantRoomsQueryKey(tenantId),
   )?.items;
+  const needsRoomNameLookup = Boolean(
+    share.data?.sources.some(
+      (item) =>
+        item.source.source_kind === "context" &&
+        item.source.provenance.binding_kind === "room" &&
+        Boolean(item.source.provenance.context_id) &&
+        (!item.label.trim() || item.label.trim().toLowerCase() === "chat"),
+    ),
+  );
+  const roomsQuery = useQuery({
+    ...tenantRoomsQueryOptions(client, tenantId),
+    enabled: needsRoomNameLookup && !cachedRooms?.length,
+  });
+  const knownRooms = roomsQuery.data?.items ?? cachedRooms;
   const resolvedShare = useMemo(() => {
-    if (!share.data || !cachedRooms?.length) return share.data;
+    if (!share.data || !knownRooms?.length) return share.data;
     const roomNameById = new Map<string, string>();
-    for (const room of cachedRooms) {
+    for (const room of knownRooms) {
       const displayName =
         room.direct_peer?.display_name?.trim() || room.name.trim();
       if (displayName) roomNameById.set(room.id, displayName);
@@ -139,7 +154,7 @@ export function DocumentShareDialog({
         return { ...item, label: resolvedName };
       }),
     };
-  }, [cachedRooms, share.data]);
+  }, [knownRooms, share.data]);
 
   async function copyCanonicalLink() {
     if (!share.data?.general_access?.canonical_url) return;
@@ -181,7 +196,12 @@ export function DocumentShareDialog({
           ),
         ),
       );
-      await share.refetch();
+      await Promise.all([
+        share.refetch(),
+        queryClient.invalidateQueries({
+          queryKey: documentQueryKey(tenantId, documentId),
+        }),
+      ]);
     } catch {
       setActionError(translate(m.inviteFailed));
     } finally {
@@ -214,6 +234,9 @@ export function DocumentShareDialog({
         queryClient.invalidateQueries({
           queryKey: ["teamhub", "library-documents"],
         }),
+        queryClient.invalidateQueries({
+          queryKey: ["teamhub", tenantId, "library-documents"],
+        }),
       ]);
     } catch {
       const message = translate(m.removeFromRoomFailed);
@@ -242,7 +265,12 @@ export function DocumentShareDialog({
           },
         ),
       );
-      await share.refetch();
+      await Promise.all([
+        share.refetch(),
+        queryClient.invalidateQueries({
+          queryKey: documentQueryKey(tenantId, documentId),
+        }),
+      ]);
     } catch {
       setActionError(translate(m.permissionUpdateFailed));
     } finally {
@@ -264,7 +292,12 @@ export function DocumentShareDialog({
           },
         ),
       );
-      await share.refetch();
+      await Promise.all([
+        share.refetch(),
+        queryClient.invalidateQueries({
+          queryKey: documentQueryKey(tenantId, documentId),
+        }),
+      ]);
     } catch {
       setActionError(translate(m.removeCollaboratorFailed));
     } finally {
@@ -718,9 +751,7 @@ function RoomBindingSection({
       setSelected(null);
     } catch (cause) {
       setRemoveError(
-        cause instanceof Error
-          ? cause.message
-          : "The Document could not be removed from this Room.",
+        cause instanceof Error ? cause.message : t(m.removeFromRoomFailed),
       );
     } finally {
       setRemoving(false);

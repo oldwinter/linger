@@ -195,4 +195,64 @@ describe("ModalDialog", () => {
       HTMLDialogElement.prototype.close = originalClose;
     }
   });
+
+  it("restores focus inside a remaining parent dialog when a nested modal's opener unmounts", async () => {
+    const originalClose = HTMLDialogElement.prototype.close;
+    HTMLDialogElement.prototype.close = function close(
+      this: HTMLDialogElement,
+    ) {
+      this.open = false;
+    };
+    try {
+      function NestedUnmountHarness() {
+        const [hasRow, setHasRow] = useState(true);
+        const [confirmOpen, setConfirmOpen] = useState(false);
+        return (
+          <ModalDialog onClose={vi.fn()} title="Share">
+            <button type="button">Invite</button>
+            {hasRow ? (
+              <button onClick={() => setConfirmOpen(true)} type="button">
+                Remove from Room
+              </button>
+            ) : null}
+            {confirmOpen ? (
+              <ModalDialog
+                onClose={() => setConfirmOpen(false)}
+                title="Confirm remove"
+              >
+                <button
+                  onClick={() => {
+                    setHasRow(false);
+                    setConfirmOpen(false);
+                  }}
+                  type="button"
+                >
+                  Remove
+                </button>
+              </ModalDialog>
+            ) : null}
+          </ModalDialog>
+        );
+      }
+
+      render(<NestedUnmountHarness />);
+      const trigger = screen.getByRole("button", { name: "Remove from Room" });
+      trigger.focus();
+      fireEvent.click(trigger);
+
+      const confirm = screen.getByRole("button", { name: "Remove" });
+      confirm.focus();
+      fireEvent.click(confirm);
+
+      await waitFor(() =>
+        expect(
+          screen
+            .getByRole("dialog", { name: "Share" })
+            .contains(document.activeElement),
+        ).toBe(true),
+      );
+    } finally {
+      HTMLDialogElement.prototype.close = originalClose;
+    }
+  });
 });

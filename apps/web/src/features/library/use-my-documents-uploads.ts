@@ -104,12 +104,12 @@ export function useMyDocumentsUploads({
     parentId: string | undefined,
     openUploadedDocument: boolean,
     preservedFailures: readonly UploadFailure[] = [],
-  ) {
+  ): Promise<UploadFailure[] | undefined> {
     setExternalDrop(null);
-    if (creating) return;
+    if (creating) return undefined;
     if (uploadsActive) {
       tenantUploads.setError(tenantId, m.uploadBusy);
-      return;
+      return undefined;
     }
     setError(null);
     tenantUploads.setError(
@@ -126,7 +126,7 @@ export function useMyDocumentsUploads({
         tenantId,
         combined.length > 0 ? { failures: combined } : m.noSupportedFiles,
       );
-      return;
+      return combined;
     }
     setCreating("import");
     tenantUploads.setActive(tenantId, true);
@@ -210,6 +210,7 @@ export function useMyDocumentsUploads({
           `/t/${encodeURIComponent(tenantId)}/documents/${encodeURIComponent(uploadedDocumentId)}`,
         );
       }
+      return failures;
     } catch (importError) {
       tenantUploads.setError(
         tenantId,
@@ -217,6 +218,7 @@ export function useMyDocumentsUploads({
           ? importError.message
           : m.documentNotImported,
       );
+      return undefined;
     } finally {
       tenantUploads.remove(
         tenantId,
@@ -257,30 +259,32 @@ export function useMyDocumentsUploads({
     const retryable = failedUploads.filter((failure) => failure.source);
     if (retryable.length === 0) return;
     const nonRetryable = failedUploads.filter((failure) => !failure.source);
-    // Group by target parentId; for a single parent run one batch directly.
-    const [first] = retryable;
-    if (retryable.every((failure) => failure.parentId === first!.parentId)) {
-      await importDocuments(
+    // Group retries by destination parentId while keeping all other failed
+    // entries (non-retryable, unretried, or newly failed) visible across batches.
+    const groups = new Map<string | undefined, UploadFailure[]>();
+    for (const failure of retryable) {
+      const list = groups.get(failure.parentId) ?? [];
+      list.push(failure);
+      groups.set(failure.parentId, list);
+    }
+    let remaining: UploadFailure[] = [...nonRetryable, ...retryable];
+    for (const [targetParentId, group] of groups) {
+      const groupIds = new Set(group.map((failure) => failure.id));
+      const preserved = remaining.filter(
+        (failure) => !groupIds.has(failure.id),
+      );
+      const nextFailures = await importDocuments(
         {
           folderPaths: [],
           readFailures: [],
-          sources: retryable.map((failure) => failure.source!),
+          sources: group.map((failure) => failure.source!),
         },
-        first!.parentId,
+        targetParentId,
         false,
-        nonRetryable,
+        preserved,
       );
-      return;
-    }
-    let carried: readonly UploadFailure[] = nonRetryable;
-    for (const failure of retryable) {
-      await importDocuments(
-        { folderPaths: [], readFailures: [], sources: [failure.source!] },
-        failure.parentId,
-        false,
-        carried,
-      );
-      carried = [];
+      if (!nextFailures) break;
+      remaining = nextFailures;
     }
   }
 
@@ -323,7 +327,10 @@ function uploadFailureReason(error: unknown, file: File) {
       error.code === "DOCUMENT_ASSET_TOO_LARGE")
   ) {
     const limit = Array.isArray(error.details)
-      ? error.details.find((detail) => detail.code === "too_large")?.limit_bytes
+      ? (error.details.find((detail) => detail.code === "too_large")
+          ?.limit_bytes ??
+        error.details.find((detail) => typeof detail.limit_bytes === "number")
+          ?.limit_bytes)
       : undefined;
     if (limit !== undefined) {
       return translate(m.uploadTooLarge, {

@@ -43,6 +43,9 @@ export const chatMessages = defineMessages("chat", {
   loadingEarlierMessages: "Loading earlier Messages",
   jumpToLatest: "Jump to latest messages",
   roomTimeline: "Room timeline",
+  earlierConversation: "Earlier conversation",
+  backToNow: "Back to now",
+  roomAtTime: "The room at {time}",
   // Room notices.
   noticeAgentCreated:
     "<author>{author}</author> created <agent>{agent}</agent> and added it to this Room",

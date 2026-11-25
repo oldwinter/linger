@@ -1,9 +1,16 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { resetLanguageForTest, setLanguage } from "@/i18n/language";
+import zhCN from "@/i18n/locales/zh-CN.json";
 
 import { EarlierConversationBar } from "./earlier-conversation-bar";
 
 describe("EarlierConversationBar", () => {
+  afterEach(() => {
+    resetLanguageForTest();
+  });
+
   it("steps back and then returns to the live room", () => {
     const onEarlier = vi.fn();
     const onNow = vi.fn();
@@ -35,6 +42,28 @@ describe("EarlierConversationBar", () => {
     ).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Back to now" }));
     expect(onNow).toHaveBeenCalledOnce();
+  });
+
+  it("renders localized labels in zh-CN", async () => {
+    await setLanguage("zh-CN");
+    render(
+      <EarlierConversationBar
+        beganAt="10:00"
+        canGoEarlier
+        onEarlier={vi.fn()}
+        onNow={vi.fn()}
+        rewound
+      />,
+    );
+    expect(
+      screen.getByRole("button", { name: zhCN.chat.earlierConversation }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: zhCN.chat.backToNow }),
+    ).toBeVisible();
+    expect(
+      screen.getByText(zhCN.chat.roomAtTime.replace("{time}", "10:00")),
+    ).toBeVisible();
   });
 
   it("stays hidden while the room is one conversation", () => {

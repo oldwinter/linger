@@ -522,20 +522,22 @@ export function RoomSecondaryNavigation({
       >
         <div
           aria-label={t(roomListMessages.roomShortcuts)}
-          className="mx-2 flex items-center gap-0.5"
+          className="mx-1.5 flex items-center gap-0.5 min-[360px]:mx-2"
           role="group"
         >
           <Link
             aria-keyshortcuts="Control+j Meta+j"
             aria-label={t(roomListMessages.jumpAnywhere)}
-            className="flex h-7 min-w-0 flex-1 items-center justify-center gap-1 rounded-lg px-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex h-7 min-w-0 flex-auto items-center justify-center gap-1 rounded-lg px-1 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-[360px]:px-1.5 min-[360px]:text-xs"
             onClick={onCloseMobile}
             title={t(roomListMessages.jumpAnywhereShortcut, {
               shortcut: jumpShortcutLabel(),
             })}
             to={jumpPath(tenant.id)}
           >
-            <span className="truncate">{t(roomListMessages.jump)}</span>
+            <span className="truncate whitespace-nowrap">
+              {t(roomListMessages.jump)}
+            </span>
             <span
               aria-hidden="true"
               className="hidden shrink-0 text-2xs text-app-subtle md:inline"
@@ -546,22 +548,26 @@ export function RoomSecondaryNavigation({
           <span aria-hidden="true" className="h-3 w-px shrink-0 bg-border/60" />
           <Link
             aria-label={t(roomListMessages.whoIsAwake)}
-            className="flex h-7 min-w-0 flex-1 items-center justify-center rounded-lg px-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex h-7 min-w-0 flex-auto items-center justify-center rounded-lg px-1 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-[360px]:px-1.5 min-[360px]:text-xs"
             onClick={onCloseMobile}
             title={t(roomListMessages.whoIsAwake)}
             to={whoIsAwakePath(tenant.id)}
           >
-            <span className="truncate">{t(roomListMessages.awake)}</span>
+            <span className="truncate whitespace-nowrap">
+              {t(roomListMessages.awake)}
+            </span>
           </Link>
           <span aria-hidden="true" className="h-3 w-px shrink-0 bg-border/60" />
           <Link
             aria-label={t(roomListMessages.surpriseMe)}
-            className="flex h-7 min-w-0 flex-1 items-center justify-center rounded-lg px-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex h-7 min-w-0 flex-auto items-center justify-center rounded-lg px-1 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-[360px]:px-1.5 min-[360px]:text-xs"
             onClick={onCloseMobile}
             title={t(roomListMessages.surpriseMe)}
             to={surprisePath(tenant.id)}
           >
-            <span className="truncate">{t(roomListMessages.surprise)}</span>
+            <span className="truncate whitespace-nowrap">
+              {t(roomListMessages.surprise)}
+            </span>
           </Link>
         </div>
         {onCollapse ? searchButton : null}

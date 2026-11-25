@@ -577,7 +577,10 @@ function HintPopover({
 function skillUploadErrorMessage(error: unknown, t: Translate = translate) {
   if (error instanceof TeamHubError && error.code === "PAYLOAD_TOO_LARGE") {
     const limit = Array.isArray(error.details)
-      ? error.details.find((detail) => detail.code === "too_large")?.limit_bytes
+      ? (error.details.find((detail) => detail.code === "too_large")
+          ?.limit_bytes ??
+        error.details.find((detail) => typeof detail.limit_bytes === "number")
+          ?.limit_bytes)
       : undefined;
     if (limit !== undefined) {
       return t(agentInfoMessages.skillTooLarge, { limit: formatBytes(limit) });

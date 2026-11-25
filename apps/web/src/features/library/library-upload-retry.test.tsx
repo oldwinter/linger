@@ -11,6 +11,10 @@ import {
 } from "@/features/teamhub/teamhub-runtime";
 import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
 
+import {
+  resetTenantUploadsForTest,
+  tenantUploads,
+} from "./library-upload-queue";
 import { useMyDocumentsUploads } from "./use-my-documents-uploads";
 
 function createWrapper(queryClient: QueryClient, runtime: TeamHubRuntime) {
@@ -47,12 +51,13 @@ describe("Library upload failure formatting and retry", () => {
             code: "PAYLOAD_TOO_LARGE",
             details: [
               {
-                field: "file",
+                code: "too_large",
+                field: "content",
                 limit_bytes: 25 * 1024 * 1024,
-                reason: "too_large",
+                reason: "exceeds the document size limit",
               },
             ],
-            message: "document exceeds 25 MB limit",
+            message: "Document content exceeds the configured limit",
             status: 413,
           });
         }
@@ -87,7 +92,7 @@ describe("Library upload failure formatting and retry", () => {
     await waitFor(() => expect(result.current.failedUploads).toHaveLength(1));
     expect(result.current.failedUploads[0]).toMatchObject({
       filename: "spec.md",
-      message: expect.stringContaining("25 MB"),
+      message: "11 B exceeds the 25 MB limit.",
     });
     expect(result.current.failedUploads[0]?.source?.file).toBe(file);
 
@@ -98,5 +103,80 @@ describe("Library upload failure formatting and retry", () => {
 
     await waitFor(() => expect(result.current.failedUploads).toHaveLength(0));
     expect(uploadSpy).toHaveBeenCalledTimes(2);
+    resetTenantUploadsForTest();
+  });
+
+  it("preserves non-retryable and earlier failed entries across multi-parent retryAllFailedUploads", async () => {
+    resetTenantUploadsForTest();
+    const runtime = createTestTeamHubRuntime();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const fileA = new File(["alpha"], "alpha.md", { type: "text/markdown" });
+    const fileB = new File(["beta"], "beta.md", { type: "text/markdown" });
+
+    vi.spyOn(runtime.client, "uploadPersonalWikiDocument").mockImplementation(
+      async (_tenantId, input) => {
+        if (input.file.name === "alpha.md") {
+          throw new Error("alpha still failing");
+        }
+        return {
+          id: "doc-beta",
+          status: "active",
+          tenant_id: "tenant-northstar",
+          title: "beta.md",
+        } as unknown as Awaited<
+          ReturnType<typeof runtime.client.uploadPersonalWikiDocument>
+        >;
+      },
+    );
+
+    tenantUploads.setError("tenant-northstar", {
+      failures: [
+        {
+          filename: "unreadable.md",
+          id: "fail-nonretryable",
+          message: "Could not read file",
+        },
+        {
+          filename: "alpha.md",
+          id: "fail-alpha",
+          message: "alpha initial fail",
+          parentId: "folder-a",
+          source: { file: fileA, folderPath: [] },
+        },
+        {
+          filename: "beta.md",
+          id: "fail-beta",
+          message: "beta initial fail",
+          parentId: "folder-b",
+          source: { file: fileB, folderPath: [] },
+        },
+      ],
+    });
+
+    const { result } = renderHook(
+      () =>
+        useMyDocumentsUploads({
+          creating: null,
+          expandFolder: vi.fn(),
+          items: [],
+          onChanged: vi.fn(async () => undefined),
+          setCreating: vi.fn(),
+          setError: vi.fn(),
+          tenantId: "tenant-northstar",
+        }),
+      { wrapper: createWrapper(queryClient, runtime) },
+    );
+
+    await act(async () => {
+      await result.current.retryAllFailedUploads();
+    });
+
+    await waitFor(() => expect(result.current.failedUploads).toHaveLength(2));
+    expect(
+      result.current.failedUploads.map((failure) => failure.filename),
+    ).toEqual(["unreadable.md", "alpha.md"]);
+    resetTenantUploadsForTest();
   });
 });

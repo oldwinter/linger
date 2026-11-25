@@ -309,4 +309,83 @@ describe("Document sharing in the language on screen", () => {
       }),
     );
   });
+
+  it("resolves generic Chat direct-room binding labels even when rooms cache is cold", async () => {
+    const runtime = createDocumentTestRuntime();
+    const document = seedNativeDocument(runtime, "cold-direct-room-doc");
+    runtime.server.on(
+      "GET",
+      "/v0/documents/{documentId}/collaborators",
+      () => ({
+        caller_content_role: "owner",
+        can_manage_collaborators: true,
+        management_capabilities: {
+          can_change_ownership: true,
+          can_update_external_policy: true,
+          can_update_link_policy: true,
+        },
+        schema_version: 2,
+        sources: [
+          {
+            label: "Chat",
+            source: {
+              created_at: "2026-08-29T08:00:00Z",
+              provenance: {
+                binding_kind: "room",
+                context_id: "room-direct-linger",
+                kind: "context_binding",
+                schema_version: 2,
+              },
+              role: "editor",
+              schema_version: 2,
+              source_id: "room-binding-direct",
+              source_kind: "context",
+              source_version: 2,
+              status: "active",
+              updated_at: "2026-08-29T08:00:00Z",
+            },
+          },
+        ],
+      }),
+    );
+    runtime.server.on("GET", "/v0/tenants/{tenantId}/rooms", () => ({
+      items: [
+        {
+          created_at: "2026-08-29T08:00:00Z",
+          direct_peer: {
+            display_name: "Linger",
+            id: "actor-linger",
+            kind: "agent",
+          },
+          id: "room-direct-linger",
+          kind: "direct",
+          name: "Chat",
+          tenant_id: "tenant-northstar",
+          updated_at: "2026-08-29T08:00:00Z",
+        },
+      ],
+      page: { has_more: false },
+    }));
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TeamHubRuntimeProvider runtime={runtime}>
+          <DocumentShareDialog
+            client={runtime.client}
+            documentId={document.id}
+            onClose={vi.fn()}
+            ownerActorId={document.owner.id}
+            tenantId="tenant-northstar"
+          />
+        </TeamHubRuntimeProvider>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("Linger")).toBeVisible();
+    expect(screen.queryByText("Chat")).toBeNull();
+  });
 });
