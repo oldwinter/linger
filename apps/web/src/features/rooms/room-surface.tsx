@@ -108,7 +108,6 @@ import {
 import { readPanelSidebarWidth } from "./task-sidebar/panel-width";
 import { AuthenticatedRouteLoading } from "./route-loading-surface";
 import { RoomPresentationBoundary } from "./room-presentation-boundary";
-import { GENERAL_AGENT_DEFAULT_NAME } from "./general-agent-defaults";
 import { MobileNavigationButton } from "./mobile-navigation";
 import { roomAddDocumentPath } from "./room-add-document";
 import { roomSurfaceMessages } from "./room-surface.messages";
@@ -375,7 +374,10 @@ function RoomSurfaceContent({
   const livePeerName = actorItems.find(
     (actor) => actor.id === room.direct_peer?.id,
   )?.display_name;
-  const roomTitle = isDirectRoom && livePeerName ? livePeerName : room.name;
+  // Deleted Agents leave the active actors catalog; fall back to direct_peer so
+  // the header, delete dialog, and sidebar always agree on the Direct Room name.
+  const peerName = livePeerName || room.direct_peer?.display_name;
+  const roomTitle = isDirectRoom && peerName ? peerName : room.name;
   const presentationRoom =
     roomTitle === room.name ? room : { ...room, name: roomTitle };
   // Cmd/Ctrl+F finds inside the open Room, at the same scope the header's
@@ -634,7 +636,7 @@ function RoomSurfaceContent({
             {deleteOpen ? (
               <RoomDeleteDialog
                 onClose={() => setDeleteOpen(false)}
-                room={room}
+                room={presentationRoom}
                 tenantId={tenantId}
               />
             ) : null}
@@ -859,12 +861,6 @@ function RoomHeader({
   const isDirectRoom = room.kind === "direct";
   const headerPeer =
     room.direct_peer?.kind === "agent" ? room.direct_peer : undefined;
-  const headerName =
-    headerPeer?.display_name &&
-    (room.name === headerPeer.display_name ||
-      room.name === GENERAL_AGENT_DEFAULT_NAME)
-      ? headerPeer.display_name
-      : room.name;
   const headerRef = useRef<HTMLElement>(null);
   const [compact, setCompact] = useState(false);
 
@@ -965,12 +961,12 @@ function RoomHeader({
             when that page is already active. */}
         <div
           className="relative flex h-8 min-w-0 max-w-full items-center gap-2 rounded-full bg-card pl-1 pr-3 shadow-outline transition-colors duration-150 hover:bg-accent"
-          title={headerName}
+          title={room.name}
         >
           <button
             type="button"
             aria-expanded={detailsOpen}
-            aria-label={`${detailsOpen ? "Close" : "Open"} ${headerName} details`}
+            aria-label={`${detailsOpen ? "Close" : "Open"} ${room.name} details`}
             className="flex shrink-0 items-center justify-center rounded-full after:absolute after:inset-0 after:rounded-full after:content-[''] focus-visible:outline-none focus-visible:after:outline-2 focus-visible:after:outline-app-focus"
             onClick={() => {
               if (detailsOpen) onTogglePanel();
@@ -983,7 +979,7 @@ function RoomHeader({
                 <ActorAvatar
                   actorId={headerPeer.id}
                   kind="agent"
-                  name={headerName}
+                  name={room.name}
                   size="xs"
                 />
                 {directAgent && directAgentAvailability ? (
@@ -1004,7 +1000,7 @@ function RoomHeader({
             aria-label={room.name}
             className="pointer-events-none min-w-0 truncate text-sm leading-[18px] font-medium text-foreground"
           >
-            {headerName}
+            {room.name}
           </h1>
         </div>
         {isDirectRoom && room.direct_peer_active === false ? (
@@ -1043,7 +1039,7 @@ function RoomHeader({
           <Button
             aria-label="Search this Room"
             className="!rounded-lg border-0 text-app-muted"
-            onClick={() => onOpenSearch?.({ id: roomId, name: headerName })}
+            onClick={() => onOpenSearch?.({ id: roomId, name: room.name })}
             size="compactIcon"
             title="Search this Room"
             tone="ghost"
@@ -1054,7 +1050,7 @@ function RoomHeader({
         <PinnedMessagesControl
           onJump={onJumpToPinnedMessage}
           roomId={roomId}
-          roomName={headerName}
+          roomName={room.name}
           tenantId={tenantId}
         />
         {!compact && canDeleteDeletedAgentRoom ? (
@@ -1078,7 +1074,7 @@ function RoomHeader({
                     icon: <Icon icon={Search01Icon} size={14} />,
                     label: "Search this Room",
                     onSelect: () =>
-                      onOpenSearch?.({ id: roomId, name: headerName }),
+                      onOpenSearch?.({ id: roomId, name: room.name }),
                   },
                 ]
               : []),
@@ -1095,7 +1091,7 @@ function RoomHeader({
                 ]
               : []),
           ]}
-          name={headerName}
+          name={room.name}
           roomId={roomId}
           tenantId={tenantId}
         />

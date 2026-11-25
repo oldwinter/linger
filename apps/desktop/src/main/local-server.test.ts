@@ -31,6 +31,7 @@ import {
 
 import { NODE_RUNTIME_VERSION } from "../../../../scripts/local-computer-node-distributions.mjs";
 import { rename } from "node:fs/promises";
+import { composeProject } from "@linger/local-installation/instance";
 
 import { CredentialStore } from "./computer-credential.js";
 import { EnrollmentModule } from "./enrollment.js";
@@ -505,6 +506,7 @@ const fixture = (
   const loadServer = vi.fn();
   const enroll = vi.fn(async () => {});
   const unenroll = vi.fn(async () => {});
+  const syncLocalGatewayUrl = vi.fn(() => false);
   let context: ModuleContext | undefined;
   const signIn = vi.fn(async () => {});
   // The installed server proves itself unless a test says otherwise.
@@ -554,6 +556,7 @@ const fixture = (
         ...stubModule("Enrollment"),
         enroll,
         unenroll,
+        syncLocalGatewayUrl,
         start: async (ctx: ModuleContext) => {
           context = ctx;
         },
@@ -576,6 +579,7 @@ const fixture = (
     bus,
     enroll,
     unenroll,
+    syncLocalGatewayUrl,
     config: () => context!.config.get(),
     signIn,
     proveServer,
@@ -3107,6 +3111,116 @@ describe("LocalServerModule", () => {
       await f.host.stop("quit");
     }
   });
+
+  it("pre-checks both the install home and Computer daemon directory on Windows before unpacking", async () => {
+    const checked: string[] = [];
+    const daemonDir = "C:\\Users\\me\\AppData\\Roaming\\Linger\\computer";
+    const winCheckout = (home: string) => {
+      checkout(home);
+      writeFileSync(
+        path.join(path.dirname(home), "installer", "distribution.json"),
+        JSON.stringify({
+          platform: "win32",
+          arch: "x64",
+          nativeSources: [{ target: "win32-x64" }],
+        }),
+      );
+    };
+    const f = fixture(
+      (home) => ({
+        ...withCheckout(home),
+        platform: "win32",
+        arch: "x64",
+        daemonDirectory: daemonDir,
+        checkPrivateLocation: async (directory) => {
+          checked.push(directory);
+          if (directory === daemonDir) {
+            throw Object.assign(
+              new Error(
+                `Windows private path validation failed: ${daemonDir} is inside a folder other accounts on this computer can rename or replace (ancestor: C:\\Users\\me\\AppData\\Roaming, sid: S-1-5-21-1-2-3-1007).`,
+              ),
+              {
+                code: "WINDOWS_PRIVATE_PATH_UNSAFE",
+                reason: "UNSAFE_PARENT_ACCESS",
+              },
+            );
+          }
+        },
+      }),
+      {},
+      winCheckout,
+    );
+    await f.host.start();
+    try {
+      await expect(f.module.begin()).rejects.toThrow(
+        `Desktop Computer directory validation failed: Windows private path validation failed: ${daemonDir}`,
+      );
+      expect(checked).toEqual([f.home, daemonDir]);
+      expect(f.module.status()).toMatchObject({
+        phase: "failed",
+        step: "prepare",
+      });
+      // Daemon directory refusal must not masquerade as an install-location refusal.
+      expect(f.module.status().refusal).toBeUndefined();
+      // Installer never launched because preflight stopped in prepare.
+      expect(existsSync(path.join(f.home, "installer", "args.json"))).toBe(
+        false,
+      );
+    } finally {
+      await f.host.stop("quit");
+    }
+  });
+
+  it("preserves the Windows private-path refusal when home preflight fails", async () => {
+    const winCheckout = (home: string) => {
+      checkout(home);
+      writeFileSync(
+        path.join(path.dirname(home), "installer", "distribution.json"),
+        JSON.stringify({
+          platform: "win32",
+          arch: "x64",
+          nativeSources: [{ target: "win32-x64" }],
+        }),
+      );
+    };
+    const f = fixture(
+      (home) => ({
+        ...withCheckout(home),
+        platform: "win32",
+        arch: "x64",
+        daemonDirectory: "C:\\Users\\me\\AppData\\Roaming\\Linger\\computer",
+        checkPrivateLocation: async () => {
+          throw Object.assign(
+            new Error(
+              "Windows private path validation failed: home is inside a folder other accounts on this computer can rename or replace (ancestor: C:\\Users\\me, sid: S-1-5-21-1-2-3-1007).",
+            ),
+            {
+              code: "WINDOWS_PRIVATE_PATH_UNSAFE",
+              reason: "UNSAFE_PARENT_ACCESS",
+            },
+          );
+        },
+      }),
+      {},
+      winCheckout,
+    );
+    await f.host.start();
+    try {
+      await expect(f.module.begin()).rejects.toThrow(
+        "Windows private path validation failed",
+      );
+      expect(f.module.status()).toMatchObject({
+        phase: "failed",
+        step: "prepare",
+        refusal: {
+          code: "WINDOWS_PRIVATE_PATH_UNSAFE",
+          reason: "UNSAFE_PARENT_ACCESS",
+        },
+      });
+    } finally {
+      await f.host.stop("quit");
+    }
+  });
 });
 
 describe("LocalServerModule install location", () => {
@@ -3478,6 +3592,74 @@ describe("LocalServerModule after a restart", () => {
     expect(f.module.status()).toMatchObject({
       origin: "http://localhost:3001",
     });
+    await f.host.stop("quit");
+  });
+
+  it("syncs the local Runner Gateway URL when node-services moved to a new port on resume", async () => {
+    const writeDesktopInstance = (
+      home: string,
+      webPort: number,
+      nodeServicesPort: number,
+    ) => {
+      const instanceRoot = path.join(home, "instances", LOCAL_INSTANCE);
+      mkdirSync(instanceRoot, { recursive: true, mode: 0o700 });
+      chmodSync(instanceRoot, 0o700);
+      const file = path.join(instanceRoot, "instance.json");
+      writeFileSync(
+        file,
+        JSON.stringify({
+          schemaVersion: 1,
+          name: LOCAL_INSTANCE,
+          mode: "source-native",
+          root: instanceRoot,
+          project: composeProject(instanceRoot, LOCAL_INSTANCE),
+          origin: `http://localhost:${webPort}`,
+          port: webPort,
+          releaseDir: "/source",
+          computerConfig: path.join(instanceRoot, "computer", "config.json"),
+          computerExecutable: "/source/computer/linger-computer",
+          source: {
+            repo: "/source",
+            ports: {
+              web: webPort,
+              teamhub: 59891,
+              nodeServices: nodeServicesPort,
+              document: 59903,
+              postgres: 62622,
+            },
+          },
+        }),
+        { mode: 0o600 },
+      );
+      chmodSync(file, 0o600);
+    };
+    const f = fixture({}, enrolled, (home) => {
+      record(home);
+      writeDesktopInstance(home, 3000, 59894);
+    });
+    await f.host.start();
+    await waitForInstaller(() => expect(f.module.status().phase).toBe("ready"));
+    expect(f.syncLocalGatewayUrl).toHaveBeenCalledWith(
+      "ws://127.0.0.1:59894/v1/runner-gateway",
+    );
+    await f.host.stop("quit");
+  });
+
+  it("reports ownsWindow true before resume finishes and false for a remote server", async () => {
+    const f = fixture({}, enrolled, (home) => {
+      record(home);
+      writeFileSync(path.join(home, "resume-fails"), "");
+    });
+    await f.host.start();
+    // Even while resume fails/prepares and servesWindow() is false, ownsWindow()
+    // identifies this window as pointing at the installed local server.
+    await waitForInstaller(() =>
+      expect(f.module.status().phase).toBe("failed"),
+    );
+    expect(await f.module.servesWindow()).toBe(false);
+    expect(await f.module.ownsWindow()).toBe(true);
+    f.host.ctx.config.update({ serverUrl: "https://remote.example.com" });
+    expect(await f.module.ownsWindow()).toBe(false);
     await f.host.stop("quit");
   });
 
@@ -5031,6 +5213,7 @@ describe("LocalServerModule on Windows", () => {
     const f = fixture(
       {
         platform: "win32",
+        checkPrivateLocation: async () => {},
         sourceArchive: { file, sha256: archive.sha256 },
         rename: async (from, to) => {
           moves.push(path.basename(to));
@@ -5082,6 +5265,7 @@ describe("LocalServerModule on Windows", () => {
     const f = fixture(
       {
         platform: "win32",
+        checkPrivateLocation: async () => {},
         sourceArchive: { file, sha256: archive.sha256 },
         rename: async () => {
           moves++;

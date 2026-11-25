@@ -59,8 +59,11 @@ func newJoinProviderFixture(t *testing.T, runtime string) joinProviderFixture {
 	fixture := joinProviderFixture{launchLog: filepath.Join(root, "launches"), release: filepath.Join(root, "release"), pidFile: filepath.Join(root, "pid")}
 	script := filepath.Join(root, runtime)
 	fake := joinCodexScript
-	if runtime == "claude" {
+	switch runtime {
+	case "claude":
 		fake = joinClaudeScript
+	case "pi":
+		fake = joinPiScript
 	}
 	if err := os.WriteFile(script, []byte(fake), 0o700); err != nil {
 		t.Fatal(err)
@@ -76,7 +79,7 @@ func newJoinProviderFixture(t *testing.T, runtime string) joinProviderFixture {
 		TenantID: "tenant-1", OwnerActorID: "owner-1", AgentID: "agent-1", ScopeID: "context-1",
 		Timeout: 30 * time.Second,
 	}
-	if runtime == "claude" {
+	if runtime == "claude" || runtime == "pi" {
 		spec.CreateProviderSessionID = joinClaudeSession
 	} else {
 		spec.ResumeSessionID = "thread-1"
@@ -142,6 +145,36 @@ while IFS= read -r line; do
 done
 `
 
+const joinPiScript = `#!/bin/sh
+echo x >> "$LAUNCH_LOG"
+session_dir=""
+session_id=""
+while [ $# -gt 0 ]; do
+ case "$1" in
+ --session-dir) session_dir="$2"; shift 2 ;;
+ --session-id) session_id="$2"; shift 2 ;;
+ *) shift ;;
+ esac
+done
+while IFS= read -r line; do
+ rid=$(printf '%s' "$line" | "$LINGER_TEST_SED" -n 's/.*"id":"\([^"]*\)".*/\1/p')
+ case "$line" in
+ *'"type":"get_state"'*)
+   while [ ! -f "$RELEASE_GATE" ]; do "$LINGER_TEST_SLEEP" 0.05; done
+   printf '{"type":"response","id":"%s","command":"get_state","success":true,"data":{"sessionId":"%s","isStreaming":false,"isCompacting":false,"pendingMessageCount":0}}\n' "$rid" "$session_id" ;;
+ *'"type":"prompt"'*)
+   printf '{"type":"session","id":"%s","cwd":"%s"}\n' "$session_id" "$PWD" > "$session_dir/fixture_${session_id}.jsonl"
+   printf '{"type":"response","id":"%s","command":"prompt","success":true,"data":{"disposition":"started"}}\n' "$rid"
+   printf '{"type":"agent_start"}\n'
+   printf '{"type":"message_start","message":{"role":"assistant"}}\n'
+   printf '{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"done"}}\n'
+   printf '{"type":"message_end","message":{"role":"assistant","model":"fixture/model","stopReason":"stop","content":[{"type":"text","text":"done"}]}}\n'
+   printf '{"type":"agent_end"}\n'
+   printf '{"type":"agent_settled","aborted":false}\n' ;;
+ esac
+done
+`
+
 func (f joinProviderFixture) launches(t *testing.T) int {
 	t.Helper()
 	data, err := os.ReadFile(f.launchLog)
@@ -198,6 +231,7 @@ func TestProviderPrepareJoinedStartAdoptsPreparedProcessWithRealRuntimeHome(t *t
 	d := fixture.daemon
 	d.openMCPProxies = mcpproxy.Open
 	spec := fixture.spec
+	spec.Prompt = "hello"
 	spec.MCPRelays = json.RawMessage(`[]`)
 	d.operationResolver = joinProviderResolver{spec: spec}
 	if err := d.handleProviderPrepare(context.Background(), fixture.stream, providerPrepareCommand("prepare-real")); err != nil {
@@ -343,7 +377,7 @@ func TestProviderPrepareJoinedStartCancelWhileJoiningEmitsOneTerminal(t *testing
 // Every hint is a fresh prepare. Once a compatible process is parked, a
 // later prepare answers already_ready and starts nothing.
 func TestProviderPrepareRepeatedHintsReuseTheParkedProcess(t *testing.T) {
-	for _, runtime := range []string{"codex", "claude"} {
+	for _, runtime := range []string{"codex", "claude", "pi"} {
 		t.Run(runtime, func(t *testing.T) {
 			fixture := newJoinProviderFixture(t, runtime)
 			d := fixture.daemon
@@ -504,5 +538,45 @@ func TestProviderPreparedProcessOutlivesPresence(t *testing.T) {
 	spawns, resumes := joinPrepareThenRun(t, fixture, 300*time.Millisecond)
 	if spawns != 1 || resumes != 1 {
 		t.Fatalf("spawns=%d resumes=%d, want the prepared process adopted", spawns, resumes)
+	}
+}
+
+// A Pi start that arrives while its Context's prepare is still booting Pi must
+// join the prepare and adopt the parked process without spawning a second one.
+func TestProviderPreparePiJoinedStartAdoptsPreparedProcess(t *testing.T) {
+	fixture := newJoinProviderFixture(t, "pi")
+	d := fixture.daemon
+	d.openMCPProxies = mcpproxy.Open
+	spec := fixture.spec
+	spec.Prompt, spec.MCPRelays = "hello", json.RawMessage(`[]`)
+	d.operationResolver = joinProviderResolver{spec: spec}
+
+	session := map[string]any{"provider": "pi", "sessionId": joinClaudeSession, "lingerMaterialized": false}
+	prepare := providerPrepareCommand("prepare-pi-join")
+	prepare.RuntimeType = "pi"
+	prepare.Payload = mustJSON(map[string]any{"prepare_id": "prepare-pi-join", "runtime": map[string]any{"type": "pi"}, "session": session})
+	if err := d.handleProviderPrepare(context.Background(), fixture.stream, prepare); err != nil {
+		t.Fatal(err)
+	}
+	fixture.waitForLaunch(t)
+
+	start := startFromPrepare(prepareCommand("operation-pi-join"))
+	start.RuntimeType, start.ExecutionContextKey = "pi", "context-1"
+	start.Payload = mustJSON(map[string]any{"kind": "run.start", "runtime": map[string]any{"type": "pi"}, "session": session, "input": map[string]any{"type": "text", "text": "hello"}, "run_resources": map[string]any{"mcp_servers": []any{}}})
+	if err := d.handleOperationStart(context.Background(), fixture.stream, start); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fixture.release, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if terminal := fixture.waitForTerminal(t); terminal.Type != protocol.EventOperationCompleted {
+		t.Fatalf("terminal=%s payload=%s, want operation.completed", terminal.Type, terminal.Payload)
+	}
+	if payload := waitForProviderPrepared(t, fixture.stream, "prepare-pi-join"); payload["outcome"] != "ready" {
+		t.Fatalf("prepare payload=%v, want ready", payload)
+	}
+	d.WaitForOperations()
+	if got := fixture.launches(t); got != 1 {
+		t.Fatalf("Pi spawns=%d, want one shared by the prepare and its start", got)
 	}
 }

@@ -105,6 +105,9 @@ export const computersMessages = defineMessages("computers", {
   statusSignInRequired: "Sign-in required",
   statusCouldNotCheck: "Could not check",
   statusChecking: "Checking",
+  statusDownloadingModel: "Downloading model",
+  statusLoadingModel: "Loading model",
+  statusModelNeeded: "Model needed",
 
   // The Agents on a Computer.
   noAgents: "No Agents on this computer yet. Create one from Chats.",

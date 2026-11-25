@@ -145,3 +145,147 @@ it("asks the Daemon about Pi commands and MCP calls and blocks unless allowed", 
     reason: "bash was not approved",
   });
 });
+
+it("synchronizes managed MCP servers dynamically and reports structured verdicts", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "linger-pi-sync-mcp-"));
+  try {
+    const configPath = path.join(root, "linger-mcp.json");
+    const entry = new URL("../tools/pi-mcp.mjs", import.meta.url).href;
+    const mod = (await import(entry)) as {
+      MCP_SYNC_COMMAND: string;
+      MCP_SYNC_DIALOG: string;
+      mountManagedMcp: (
+        pi: Record<string, unknown>,
+        configPath: string,
+        mountExtension: (pi: Record<string, unknown>) => Promise<void>,
+      ) => Promise<void>;
+    };
+    const writeConfig = (mcpServers: Record<string, unknown>) =>
+      writeFile(configPath, JSON.stringify({ mcpServers }), { mode: 0o600 });
+    const proxy = (port: number, name: string) => ({
+      type: "http",
+      url: `http://127.0.0.1:${port}/mcp/tok/${name}`,
+    });
+    await writeConfig({});
+
+    type EventHandler = (event: unknown, ctx: unknown) => Promise<void> | void;
+    type CommandHandler = (args: string, ctx: unknown) => Promise<void>;
+    const registered = new Map<string, Record<string, unknown>>();
+    const handlers = new Map<string, EventHandler[]>();
+    const commands = new Map<string, { handler: CommandHandler }>();
+    const notifications: string[] = [];
+    let nextNotice: { message: string; type: "warning" | "error" } | undefined;
+
+    const emit = async (event: string, payload: unknown) => {
+      // Real Pi exposes ExtensionContext.ui as a getter-only property.
+      const ui = {
+        get notify() {
+          return (_message: string, type: string) => notifications.push(type);
+        },
+      };
+      const ctx = {
+        get ui() {
+          return ui;
+        },
+      };
+      for (const handler of handlers.get(event) ?? []) {
+        await handler(payload, ctx);
+      }
+    };
+
+    const fakePi = {
+      on: (event: string, handler: EventHandler) => {
+        handlers.set(event, [...(handlers.get(event) ?? []), handler]);
+      },
+      getMcpServers: () =>
+        [...registered.entries()].map(([name, config]) => ({
+          name,
+          config: structuredClone(config),
+          extensionPath: entry,
+        })),
+      registerMcpServer: (name: string, config: Record<string, unknown>) => {
+        registered.set(name, structuredClone(config));
+        void emit("mcp_servers_change", { servers: fakePi.getMcpServers() });
+      },
+      unregisterMcpServer: (name: string) => {
+        if (registered.delete(name)) {
+          void emit("mcp_servers_change", { servers: fakePi.getMcpServers() });
+        }
+      },
+      registerCommand: (name: string, def: { handler: CommandHandler }) => {
+        commands.set(name, def);
+      },
+    };
+
+    await mod.mountManagedMcp(fakePi, configPath, async (mcpPi) => {
+      (mcpPi.on as typeof fakePi.on)(
+        "mcp_servers_change",
+        async (_ev, rawCtx) => {
+          const { ui } = rawCtx as {
+            ui: { notify: (message: string, type: string) => void };
+          };
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          if (nextNotice) {
+            const notice = nextNotice;
+            nextNotice = undefined;
+            ui.notify(notice.message, notice.type);
+          }
+        },
+      );
+    });
+    expect(registered.size).toBe(0);
+
+    const runSync = async () => {
+      let verdict: { title: string; payload: unknown } | undefined;
+      await commands.get(mod.MCP_SYNC_COMMAND)!.handler("", {
+        ui: {
+          input: async (title: string, placeholder: string) => {
+            verdict = { title, payload: JSON.parse(placeholder) };
+            return "ok";
+          },
+        },
+      });
+      return verdict;
+    };
+
+    const ok = { title: mod.MCP_SYNC_DIALOG, payload: { ok: true } };
+    await writeConfig({
+      computer: proxy(4101, "computer"),
+      docs: proxy(4101, "docs"),
+    });
+    expect(await runSync()).toEqual(ok);
+    expect([...registered.keys()].sort()).toEqual(["computer", "docs"]);
+
+    // Replace one server and drop the other.
+    await writeConfig({ computer: proxy(4102, "computer") });
+    expect(await runSync()).toEqual(ok);
+    expect([...registered.keys()]).toEqual(["computer"]);
+    expect(registered.get("computer")?.url).toBe(proxy(4102, "computer").url);
+
+    // Per-server connection warnings pass through without failing warm attach.
+    nextNotice = {
+      type: "warning",
+      message: "MCP servers need attention:\n  flaky: failed",
+    };
+    await writeConfig({
+      computer: proxy(4102, "computer"),
+      flaky: proxy(4102, "flaky"),
+    });
+    expect(await runSync()).toEqual(ok);
+
+    // Hard runtime errors fail the verdict so the Daemon falls back cleanly.
+    nextNotice = { type: "error", message: "MCP failed to load: boom" };
+    await writeConfig({
+      computer: proxy(4102, "computer"),
+      flaky: proxy(4102, "flaky"),
+      broken: proxy(4102, "broken"),
+    });
+    expect(await runSync()).toEqual({
+      title: mod.MCP_SYNC_DIALOG,
+      payload: { ok: false, error: "MCP failed to load: boom" },
+    });
+    expect(notifications).toEqual(["warning", "error"]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 30_000);
