@@ -73,6 +73,8 @@ export const computersMessages = defineMessages("computers", {
   add: "Add",
   optionalApp: "{description} · optional",
   notInstalled: "Not installed",
+  needsNewerLinger: "Needs a newer Linger",
+  needsNewerLingerHint: "Update Linger on {computer} to add {app}",
   lastSeenSignedOut: "Last seen signed out",
   lastCheckFailed: "Last check failed",
   lastSeenOutdated: "Last seen outdated",
