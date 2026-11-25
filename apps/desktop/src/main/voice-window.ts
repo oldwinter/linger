@@ -43,12 +43,31 @@ export const voiceWindowPosition = (
 // Hiding or minimizing the main window would otherwise throttle the page's
 // timers, which keep the call and the recording going. A window is counted
 // from when it is adopted to when it closes, so a closing window cannot lift
-// the hold its replacement took.
-const holds = new WeakMap<WebContents, number>();
+// the hold its replacement took, and an opener that already disables
+// background throttling keeps throttling disabled once the window closes.
+const holds = new WeakMap<
+  WebContents,
+  { count: number; restoreThrottling: boolean }
+>();
 const hold = (opener: WebContents, delta: 1 | -1): void => {
-  const count = (holds.get(opener) ?? 0) + delta;
-  holds.set(opener, count);
-  if (!opener.isDestroyed()) opener.setBackgroundThrottling(count <= 0);
+  const current = holds.get(opener);
+  if (delta === 1) {
+    const restoreThrottling =
+      current && current.count > 0
+        ? current.restoreThrottling
+        : (opener.getBackgroundThrottling?.() ?? true);
+    holds.set(opener, {
+      count: (current?.count ?? 0) + 1,
+      restoreThrottling,
+    });
+    if (!opener.isDestroyed()) opener.setBackgroundThrottling(false);
+    return;
+  }
+  const count = Math.max(0, (current?.count ?? 0) - 1);
+  const restoreThrottling = current?.restoreThrottling ?? true;
+  holds.set(opener, { count, restoreThrottling });
+  if (count === 0 && !opener.isDestroyed())
+    opener.setBackgroundThrottling(restoreThrottling);
 };
 
 // What the page's `window.open` produced. The open handler cannot tell which
