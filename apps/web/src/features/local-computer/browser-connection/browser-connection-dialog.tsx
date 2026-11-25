@@ -5,17 +5,17 @@ import { type FormEvent, useState } from "react";
 import { Link, useInRouterContext } from "react-router";
 
 import { Button } from "@/components/ui/button";
-import { Field } from "@/components/ui/field";
+import { fieldControlClassName } from "@/components/ui/field";
 import { FormFeedback } from "@/components/ui/form-feedback";
 import { ModalDialog } from "@/components/ui/modal-dialog";
 import { Select, SelectItem } from "@/components/ui/select";
-import { StatusPill } from "@/components/ui/status-pill";
 import { TeamHubError } from "@/features/teamhub/teamhub-error";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubBrowserConnectionStatus } from "@/features/teamhub/teamhub-types";
 import { commonMessages } from "@/i18n/common.messages";
 import { RichMessage, useT } from "@/i18n/use-translation";
 
+import { StatusDot } from "../computer-row";
 import { computersMessages } from "../computers.messages";
 import { localComputersQueryOptions } from "../local-computer-queries";
 import {
@@ -40,14 +40,11 @@ type PendingAction = "configure" | "disconnect" | null;
 export function BrowserConnectionDialog({
   computerId: lockedComputerId,
   onClose,
-  reason,
   tenantId,
 }: {
   /** Connects only this Computer, such as the one a chat card names. */
   computerId?: string;
   onClose: () => void;
-  /** Why the guide opened, such as an Agent waiting for Chrome. */
-  reason?: string;
   tenantId: string;
 }) {
   const t = useT();
@@ -144,64 +141,64 @@ export function BrowserConnectionDialog({
   const savedConnectionInvalid =
     status.error instanceof TeamHubError &&
     status.error.code === "BROWSER_CONNECTION_INVALID";
+  const linked = online && !unsupported && isLinked(current);
   const showForm =
     online &&
     (status.isSuccess || savedConnectionInvalid) &&
     !unsupported &&
-    (editing || !isLinked(current));
+    (editing || !linked);
+  const failureText = failure
+    ? browserConnectionErrorMessage(failure.error, t)
+    : null;
 
   return (
     <ModalDialog
-      description={t(computersMessages.connectMyBrowserIntro)}
+      description={
+        computer ? (
+          <RichMessage
+            message={computersMessages.connectChromeIntro}
+            tags={{
+              name: (text) => (
+                <span className="font-medium text-foreground">{text}</span>
+              ),
+            }}
+            values={{ computer: computer.display_name }}
+          />
+        ) : undefined
+      }
       onClose={requestClose}
       size="sm"
-      title={t(computersMessages.connectMyBrowser)}
+      title={t(computersMessages.connectChrome)}
     >
-      <div className="space-y-5 px-5 py-4">
-        {reason ? (
-          <p className="text-sm font-medium text-foreground">{reason}</p>
-        ) : null}
-
-        {inventory.isPending ? (
-          <p className="text-sm text-muted-foreground" role="status">
-            {t(computersMessages.loadingComputers)}
-          </p>
-        ) : inventory.isError ? (
-          <FormFeedback tone="danger">
-            {t(computersMessages.cannotLoadComputers)}
-          </FormFeedback>
-        ) : !computer ? (
-          <FormFeedback tone="info">
-            {lockedComputerId ? (
-              t(computersMessages.computerNoLongerConnected)
-            ) : (
-              <>
-                You don&apos;t have a Local Computer yet. Connect one in{" "}
-                <ComputersSettingsLink
-                  onNavigate={requestClose}
-                  tenantId={tenantId}
-                />{" "}
-                first. Cloud Computers can&apos;t use your browser.
-              </>
-            )}
-          </FormFeedback>
-        ) : (
-          <div className="space-y-5">
-            {lockedComputerId ? (
-              <p className="text-sm text-foreground">
-                <RichMessage
-                  message={computersMessages.computerNamed}
-                  tags={{
-                    name: (text) => <span className="font-medium">{text}</span>,
-                  }}
-                  values={{ computer: computer.display_name }}
-                />
-              </p>
-            ) : (
-              <label className="block">
-                <span className="mb-1.5 block text-sm font-medium text-foreground">
-                  {t(computersMessages.computer)}
-                </span>
+      <div className="px-5 py-4">
+        <div className="space-y-3">
+          {inventory.isPending ? (
+            <p className="text-sm text-muted-foreground" role="status">
+              {t(computersMessages.loadingComputers)}
+            </p>
+          ) : inventory.isError ? (
+            <FormFeedback tone="danger">
+              {t(computersMessages.cannotLoadComputers)}
+            </FormFeedback>
+          ) : !computer ? (
+            <FormFeedback tone="info">
+              {lockedComputerId ? (
+                t(computersMessages.computerNoLongerConnected)
+              ) : (
+                <>
+                  You don&apos;t have a Local Computer yet. Connect one in{" "}
+                  <ComputersSettingsLink
+                    onNavigate={requestClose}
+                    tenantId={tenantId}
+                  />{" "}
+                  first. Cloud Computers can&apos;t use your browser.
+                </>
+              )}
+            </FormFeedback>
+          ) : (
+            <>
+              {/* The subtitle already names the only Computer there is. */}
+              {!lockedComputerId && computers.length > 1 ? (
                 <Select
                   aria-label={t(computersMessages.computer)}
                   className="ui-field-control w-full text-sm"
@@ -219,166 +216,139 @@ export function BrowserConnectionDialog({
                     </SelectItem>
                   ))}
                 </Select>
-              </label>
-            )}
+              ) : null}
 
-            <BrowserConnectionStatusSection
-              current={current}
-              error={status.error}
-              loading={online && status.isPending}
-              online={online}
-            />
+              <BrowserConnectionNotice
+                current={current}
+                error={status.error}
+                loading={online && status.isPending}
+                online={online}
+              />
 
-            {online &&
-            current &&
-            !unsupported &&
-            isLinked(current) &&
-            !editing ? (
-              confirmingDisconnect ? (
-                <div
-                  aria-label="Confirm browser disconnection"
-                  className="flex flex-wrap items-center gap-2"
-                  role="group"
-                >
-                  <span className="text-sm text-foreground">
-                    Disconnect Chrome?
-                  </span>
-                  <Button
-                    disabled={pending !== null}
-                    loading={pending === "disconnect"}
-                    onClick={() =>
-                      void run("disconnect", () =>
-                        disconnectBrowserConnection(
-                          client,
-                          tenantId,
-                          computer.computer_id,
-                        ),
-                      ).finally(() => setConfirmingDisconnect(false))
-                    }
-                    tone="danger"
-                  >
-                    {pending === "disconnect"
-                      ? t(computersMessages.disconnecting)
-                      : t(computersMessages.disconnect)}
-                  </Button>
-                  <Button
-                    disabled={pending !== null}
-                    onClick={() => setConfirmingDisconnect(false)}
-                    tone="ghost"
-                  >
-                    {t(commonMessages.cancel)}
-                  </Button>
-                </div>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    disabled={pending !== null}
-                    onClick={() => {
-                      setFailure(null);
-                      setConfirmingDisconnect(false);
-                      setEditing(true);
-                    }}
-                  >
-                    {t(computersMessages.reconfigure)}
-                  </Button>
-                  <Button
-                    disabled={pending !== null}
-                    onClick={() => {
-                      setFailure(null);
-                      setConfirmingDisconnect(true);
-                    }}
-                    tone="danger"
-                  >
-                    {t(computersMessages.disconnect)}
-                  </Button>
-                </div>
-              )
-            ) : null}
-
-            {showForm ? (
-              <form className="space-y-4" onSubmit={submit}>
-                <ol className="list-decimal space-y-1.5 pl-5 text-sm text-foreground">
-                  <li>
-                    <RichMessage
-                      message={computersMessages.installExtensionStep}
-                      tags={{
-                        link: (text) => (
-                          <a
-                            className="inline-flex items-center gap-1 font-medium text-app-link underline-offset-2 hover:underline"
-                            href={PLAYWRIGHT_EXTENSION_URL}
-                            rel="noreferrer"
-                            target="_blank"
-                          >
-                            {text}
-                            <Icon icon={LinkSquare02Icon} size={14} />
-                          </a>
-                        ),
-                      }}
-                    />
-                  </li>
-                  <li>
-                    <RichMessage
-                      message={computersMessages.copyTokenStep}
-                      tags={{
-                        code: (text) => (
-                          <code className="break-all text-xs">{text}</code>
-                        ),
-                      }}
-                    />
-                  </li>
-                  <li>{t(computersMessages.pasteTokenStep)}</li>
-                </ol>
-                <Field
-                  autoCapitalize="off"
-                  autoComplete="off"
-                  autoCorrect="off"
-                  data-1p-ignore=""
-                  data-lpignore="true"
+              {linked && current && !editing ? (
+                <LinkedBrowser
+                  confirmingDisconnect={confirmingDisconnect}
+                  disconnecting={pending === "disconnect"}
                   disabled={pending !== null}
-                  label={t(computersMessages.extensionToken)}
-                  name="playwright-extension-token"
-                  onChange={(event) => {
+                  onCancelDisconnect={() => setConfirmingDisconnect(false)}
+                  onConfirmDisconnect={() =>
+                    void run("disconnect", () =>
+                      disconnectBrowserConnection(
+                        client,
+                        tenantId,
+                        computer.computer_id,
+                      ),
+                    ).finally(() => setConfirmingDisconnect(false))
+                  }
+                  onReplace={() => {
                     setFailure(null);
-                    setPastedToken(event.target.value);
+                    setConfirmingDisconnect(false);
+                    setEditing(true);
                   }}
-                  placeholder={t(computersMessages.pasteToken)}
-                  spellCheck={false}
-                  type="password"
-                  value={pastedToken}
+                  onRequestDisconnect={() => {
+                    setFailure(null);
+                    setConfirmingDisconnect(true);
+                  }}
+                  status={current}
                 />
-                <div className="flex justify-end gap-2">
-                  {editing ? (
-                    <Button
-                      disabled={pending !== null}
-                      onClick={() => {
-                        setPastedToken("");
-                        setEditing(false);
-                      }}
-                    >
-                      {t(commonMessages.cancel)}
-                    </Button>
-                  ) : null}
-                  <Button
-                    disabled={pending !== null || !pastedToken.trim()}
-                    loading={pending === "configure"}
-                    tone="primary"
-                    type="submit"
-                  >
-                    {pending === "configure"
-                      ? t(computersMessages.connectingUpToMinute)
-                      : t(computersMessages.connect)}
-                  </Button>
-                </div>
-              </form>
-            ) : null}
+              ) : null}
 
-            {failure ? (
-              <FormFeedback tone="danger">
-                {browserConnectionErrorMessage(failure.error, t)}
-              </FormFeedback>
-            ) : null}
-          </div>
-        )}
+              {showForm ? (
+                <form className="space-y-3" onSubmit={submit}>
+                  <div>
+                    <div className="ui-field-frame">
+                      <input
+                        aria-describedby={
+                          failureText ? "browser-token-error" : undefined
+                        }
+                        aria-invalid={failureText ? true : undefined}
+                        aria-label={t(computersMessages.extensionToken)}
+                        autoCapitalize="off"
+                        autoComplete="off"
+                        autoCorrect="off"
+                        className={fieldControlClassName}
+                        data-1p-ignore=""
+                        data-lpignore="true"
+                        disabled={pending !== null}
+                        name="playwright-extension-token"
+                        onChange={(event) => {
+                          setFailure(null);
+                          setPastedToken(event.target.value);
+                        }}
+                        placeholder={t(
+                          computersMessages.pasteTokenFromExtension,
+                        )}
+                        spellCheck={false}
+                        type="password"
+                        value={pastedToken}
+                      />
+                    </div>
+                    {failureText ? (
+                      <p
+                        className="mt-1.5 text-xs text-destructive"
+                        id="browser-token-error"
+                        role="alert"
+                      >
+                        {failureText}
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="flex gap-2">
+                    {editing ? (
+                      <Button
+                        className="flex-1"
+                        disabled={pending !== null}
+                        onClick={() => {
+                          setPastedToken("");
+                          setFailure(null);
+                          setEditing(false);
+                        }}
+                        size="large"
+                      >
+                        {t(commonMessages.cancel)}
+                      </Button>
+                    ) : null}
+                    <Button
+                      className="flex-1"
+                      disabled={pending !== null || !pastedToken.trim()}
+                      loading={pending === "configure"}
+                      size="large"
+                      tone="primary"
+                      type="submit"
+                    >
+                      {pending === "configure"
+                        ? t(computersMessages.connectingUpToMinute)
+                        : t(computersMessages.connect)}
+                    </Button>
+                  </div>
+                </form>
+              ) : failureText ? (
+                <FormFeedback tone="danger">{failureText}</FormFeedback>
+              ) : null}
+            </>
+          )}
+        </div>
+
+        {showForm ? (
+          <p className="mt-4 border-t border-border pt-3 text-sm text-muted-foreground">
+            <RichMessage
+              message={computersMessages.noExtensionYet}
+              tags={{
+                link: (text) => (
+                  <a
+                    className="inline-flex items-center gap-1 font-medium text-app-link underline-offset-2 hover:underline"
+                    href={PLAYWRIGHT_EXTENSION_URL}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    {text}
+                    <Icon icon={LinkSquare02Icon} size={14} />
+                  </a>
+                ),
+              }}
+            />
+          </p>
+        ) : null}
       </div>
     </ModalDialog>
   );
@@ -409,7 +379,11 @@ function ComputersSettingsLink({
   );
 }
 
-function BrowserConnectionStatusSection({
+/**
+ * What stands in the way of a connection. A Computer that can simply be
+ * connected shows nothing: the form below is the whole message.
+ */
+function BrowserConnectionNotice({
   current,
   error,
   loading,
@@ -442,21 +416,103 @@ function BrowserConnectionStatusSection({
       </FormFeedback>
     );
   }
-  return <BrowserConnectionSummary status={current} />;
+  if (current.state === "unsupported") {
+    return (
+      <p className="text-sm text-muted-foreground" role="status">
+        {browserConnectionStateCopy(current.state, t).label}
+      </p>
+    );
+  }
+  return null;
 }
 
-function BrowserConnectionSummary({
+/** A saved user Chrome connection, healthy or not, with its two actions. */
+function LinkedBrowser({
+  confirmingDisconnect,
+  disabled,
+  disconnecting,
+  onCancelDisconnect,
+  onConfirmDisconnect,
+  onReplace,
+  onRequestDisconnect,
   status,
 }: {
+  confirmingDisconnect: boolean;
+  disabled: boolean;
+  disconnecting: boolean;
+  onCancelDisconnect: () => void;
+  onConfirmDisconnect: () => void;
+  onReplace: () => void;
+  onRequestDisconnect: () => void;
   status: TeamHubBrowserConnectionStatus;
 }) {
   const t = useT();
   const copy = browserConnectionStateCopy(status.state, t);
+  const healthy = copy.tone === "success";
   return (
-    <div className="space-y-2" role="status">
-      <StatusPill tone={copy.tone}>{copy.short}</StatusPill>
-      <p className="text-sm text-foreground">{copy.label}</p>
-      {status.message ? (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-3 rounded-lg bg-muted py-1.5 pr-1.5 pl-3">
+        <span
+          className="flex items-center gap-2 text-sm text-foreground"
+          role="status"
+        >
+          <StatusDot tone={copy.tone} />
+          {copy.short}
+        </span>
+        {confirmingDisconnect ? null : (
+          <span className="flex gap-1">
+            <Button
+              disabled={disabled}
+              onClick={onReplace}
+              size="compact"
+              tone="ghost"
+            >
+              {t(computersMessages.replaceToken)}
+            </Button>
+            <Button
+              disabled={disabled}
+              onClick={onRequestDisconnect}
+              size="compact"
+              tone="ghost"
+            >
+              {t(computersMessages.disconnect)}
+            </Button>
+          </span>
+        )}
+      </div>
+      {confirmingDisconnect ? (
+        <div
+          aria-label="Confirm browser disconnection"
+          className="flex flex-wrap items-center gap-2"
+          role="group"
+        >
+          <span className="text-sm text-foreground">Disconnect Chrome?</span>
+          <Button
+            disabled={disabled}
+            loading={disconnecting}
+            onClick={onConfirmDisconnect}
+            size="compact"
+            tone="danger"
+          >
+            {disconnecting
+              ? t(computersMessages.disconnecting)
+              : t(computersMessages.disconnect)}
+          </Button>
+          <Button
+            disabled={disabled}
+            onClick={onCancelDisconnect}
+            size="compact"
+            tone="ghost"
+          >
+            {t(commonMessages.cancel)}
+          </Button>
+        </div>
+      ) : null}
+      {/* A healthy connection needs no explanation; a broken one says what to do. */}
+      {healthy ? null : (
+        <p className="text-sm text-muted-foreground">{copy.label}</p>
+      )}
+      {!healthy && status.message ? (
         <p className="text-sm text-muted-foreground">{status.message}</p>
       ) : null}
     </div>

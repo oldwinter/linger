@@ -82,3 +82,7 @@
   hold, so opening a page adds no request; the strip stays out of the page
   while nothing has been stored. `recent-wiki-pages.ts` owns the store and is
   registered in the This browser preferences.
+
+- Profile timeline upper bounds such as `≤2020` display as `–2020`. Keep the
+  stored period and editor Markdown intact so the source's date certainty is
+  retained. Sorting uses the stored period.
