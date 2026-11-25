@@ -101,9 +101,10 @@ export async function refuseRewrittenShellText(event, hook = shellTextHook) {
   return reason ? { block: true, reason } : undefined;
 }
 
-const mcpExtension = createMcpExtension({
-  loadConfig: () =>
-    loadManagedMcpConfig(process.env.LINGER_PI_MANAGED_MCP_CONFIG),
+const managedMcpExtension = createMcpExtension({
+  // Managed servers register through the extension API so a resident process
+  // can attach or replace them between Runs without restarting Pi.
+  loadConfig: () => ({ servers: [], autoEnableCodemode: false, errors: [] }),
   updateConfig: () => {
     throw new Error("Operation MCP configuration is immutable");
   },
@@ -112,6 +113,11 @@ const mcpExtension = createMcpExtension({
 // PERMISSION_REVIEW names the Daemon's review dialog. Pi forwards the dialog
 // over RPC; the Daemon answers with a JSON verdict, {"allow", "message"}.
 export const PERMISSION_REVIEW = "linger.permission_review";
+
+// MCP_SYNC_COMMAND reloads the managed MCP config file into a resident Pi
+// process before a Run adopts it; MCP_SYNC_DIALOG reports its structured result.
+export const MCP_SYNC_COMMAND = "linger-sync-mcp";
+export const MCP_SYNC_DIALOG = "linger.mcp_sync";
 
 // reviewedTool reports whether a call goes to the Daemon's permission review:
 // commands and MCP tools.
@@ -145,6 +151,127 @@ export async function reviewToolCall(event, ui, signal) {
   };
 }
 
+/**
+ * Mounts Pi's MCP extension behind the managed config file and registers the
+ * sync command a resident Pi process uses when a Run attaches or changes its
+ * MCP servers.
+ */
+export async function mountManagedMcp(
+  pi,
+  configPath,
+  mountExtension = managedMcpExtension,
+) {
+  const pendingChanges = [];
+  let syncError = "";
+  const shadow = (target, props) =>
+    Object.create(
+      target,
+      Object.fromEntries(
+        Object.entries(props).map(([key, value]) => [
+          key,
+          { value, enumerable: true, configurable: true },
+        ]),
+      ),
+    );
+  const mcpPi = shadow(pi, {
+    on: (event, handler) => {
+      if (event !== "mcp_servers_change") return pi.on(event, handler);
+      return pi.on(event, (ev, ctx) => {
+        let pending;
+        try {
+          // Only hard runtime errors fail warm attach; per-server connection
+          // warnings pass through just as they do on a cold start.
+          const wrappedUi = shadow(ctx.ui, {
+            notify: (message, type) => {
+              if (type === "error") {
+                const text = String(message ?? "").trim();
+                if (text)
+                  syncError = syncError ? `${syncError}\n${text}` : text;
+              }
+              ctx.ui.notify(message, type);
+            },
+          });
+          pending = Promise.resolve(
+            handler(ev, shadow(ctx, { ui: wrappedUi })),
+          );
+        } catch (error) {
+          pending = Promise.reject(error);
+        }
+        pendingChanges.push(pending);
+        return pending;
+      });
+    },
+  });
+
+  await mountExtension(mcpPi);
+  for (const entry of loadManagedMcpConfig(configPath).servers) {
+    pi.registerMcpServer(entry.name, entry.config);
+  }
+
+  const awaitChanges = async (mutated, phase) => {
+    if (mutated === 0) return;
+    if (pendingChanges.length === 0) {
+      throw new Error(`MCP server change handler did not run on ${phase}`);
+    }
+    await Promise.all(pendingChanges.splice(0));
+  };
+
+  const sync = async () => {
+    const desired = new Map(
+      loadManagedMcpConfig(configPath).servers.map((entry) => [
+        entry.name,
+        entry.config,
+      ]),
+    );
+    pendingChanges.length = 0;
+    let removed = 0;
+    for (const existing of pi.getMcpServers()) {
+      const wanted = desired.get(existing.name);
+      if (
+        wanted &&
+        JSON.stringify(existing.config) === JSON.stringify(wanted)
+      ) {
+        continue;
+      }
+      pi.unregisterMcpServer(existing.name);
+      removed += 1;
+    }
+    await awaitChanges(removed, "removal");
+
+    syncError = "";
+    pendingChanges.length = 0;
+    const remaining = new Map(
+      pi
+        .getMcpServers()
+        .map((server) => [server.name, JSON.stringify(server.config)]),
+    );
+    let added = 0;
+    for (const [name, config] of desired) {
+      if (remaining.get(name) === JSON.stringify(config)) continue;
+      pi.registerMcpServer(name, config);
+      added += 1;
+    }
+    await awaitChanges(added, "registration");
+    return syncError ? { ok: false, error: syncError } : { ok: true };
+  };
+
+  pi.registerCommand(MCP_SYNC_COMMAND, {
+    description: "Synchronize managed MCP servers for the adopted Run",
+    handler: async (_args, ctx) => {
+      let verdict;
+      try {
+        verdict = await sync();
+      } catch (error) {
+        verdict = {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+      await ctx.ui.input(MCP_SYNC_DIALOG, JSON.stringify(verdict));
+    },
+  });
+}
+
 // The Daemon loads this extension for the shell text check, permission
 // review, MCP servers, or any of them. The review hook is always on, because
 // a resident Pi process may serve a reviewed Run after one without review.
@@ -156,5 +283,7 @@ export default async function managedExtension(pi) {
       (await refuseRewrittenShellText(event)) ??
       reviewToolCall(event, ctx.ui, ctx.signal),
   );
-  if (process.env.LINGER_PI_MANAGED_MCP_CONFIG) await mcpExtension(pi);
+  if (process.env.LINGER_PI_MANAGED_MCP_CONFIG) {
+    await mountManagedMcp(pi, process.env.LINGER_PI_MANAGED_MCP_CONFIG);
+  }
 }

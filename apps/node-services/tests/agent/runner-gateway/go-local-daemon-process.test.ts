@@ -17,13 +17,20 @@ import {
   readdir,
   readFile,
   rm,
+  stat,
   symlink,
   writeFile,
 } from "node:fs/promises";
-import { createServer, request as httpRequest } from "node:http";
+import {
+  createServer,
+  request as httpRequest,
+  type IncomingMessage,
+  type ServerResponse,
+} from "node:http";
 import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 import { afterAll, afterEach, expect, it, vi } from "vitest";
@@ -280,7 +287,7 @@ const publishContextView = async (
 };
 
 processTest(
-  "runs Memory and Wiki on a Pi-only Daemon with whatever model Pi defaults to",
+  "runs Memory and Wiki on a Pi-only Daemon using an Another Me's configured model or Pi's catalog default",
   async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "go-daemon-pi-model-"));
     const computerId = "computer-pi-background";
@@ -291,6 +298,10 @@ processTest(
     const anotherMe = {
       tenantId: owner.tenantId,
       agentActorId: "actor-pi-background",
+    };
+    const ownKeyAnotherMe = {
+      tenantId: owner.tenantId,
+      agentActorId: "actor-pi-own-key",
     };
     const piModel = "fixture-local/model";
     const token = runnerToken(computerId, owner.tenantId, owner.ownerActorId);
@@ -308,9 +319,19 @@ processTest(
           agentId: "agent-pi-background",
           agentActorId: anotherMe.agentActorId,
         },
+        {
+          tenantId: owner.tenantId,
+          ownerActorId: "human-pi-own-key",
+          computerId,
+          runtimeType: "pi",
+          agentId: "agent-pi-own-key",
+          agentActorId: ownKeyAnotherMe.agentActorId,
+          model: "fixture-own-key/hosted",
+        },
       ],
     });
     const inputs: string[] = [];
+    const authHeaders: Array<string | undefined> = [];
     const sessionErrors: string[] = [];
     const server = createServer((request, response) => {
       if (request.method !== "POST" || request.url !== "/v1/chat/completions") {
@@ -323,6 +344,7 @@ processTest(
       });
       request.once("end", () => {
         inputs.push(input);
+        authHeaders.push(request.headers.authorization);
         const content = input.includes("Memory fixture evidence")
           ? '{"answer":"memory"}'
           : "Wiki fixture reply.";
@@ -476,17 +498,15 @@ processTest(
       ).resolves.toEqual({ output: "Wiki fixture reply.", model: piModel });
       expect(inputs).toHaveLength(2);
       expect(inputs[1]).toContain("Wiki fixture evidence");
-      // Background calls follow Pi's default, whichever provider serves it.
-      await writeFile(
-        path.join(profile, "settings.json"),
-        JSON.stringify({
-          defaultProvider: "fixture-own-key",
-          defaultModel: "hosted",
-        }),
-      );
+      // Configured Another Me placements override Pi's default model and switch providers.
       await expect(
         model.chain(
-          { kind: "wiki", key: "fixture-own-key", anotherMe, signal },
+          {
+            kind: "wiki",
+            key: "fixture-own-key",
+            anotherMe: ownKeyAnotherMe,
+            signal,
+          },
           (chain) => chain.text({ step: "write", input: "Own key evidence" }),
         ),
       ).resolves.toEqual({
@@ -495,6 +515,11 @@ processTest(
       });
       expect(inputs).toHaveLength(3);
       expect(inputs[2]).toContain("Own key evidence");
+      expect(authHeaders).toEqual([
+        "Bearer fixture",
+        "Bearer fixture",
+        "Bearer fixture-own-key",
+      ]);
       expect(inputs.every((input) => !input.includes('"tools":[{'))).toBe(true);
     } finally {
       model.close();
@@ -1941,7 +1966,7 @@ processTest(
       await writeFile(
         codex,
         `#!/bin/sh
-if [ "$1" = "--version" ]; then echo "codex-cli 0.100.0"; exit 0; fi
+if [ "$1" = "--version" ]; then echo "codex-cli 0.171.0"; exit 0; fi
 case "$CODEX_HOME" in
   */runtime-homes/codex/*) ;;
   *)
@@ -2234,109 +2259,135 @@ exec ${JSON.stringify(process.execPath)} ${JSON.stringify(codexFixture)} --persi
   30_000,
 );
 
-processTest(
-  "a Claude presence prepare reaches the real Go Daemon with run_context, and the following run adopts that process",
-  async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "linger-presence-"));
-    cleanups.push(() => rm(root, { recursive: true, force: true }));
-    // The Daemon finds the TeamHub CLI at ../cli beside its binary. The fake
-    // Claude never runs it; it only has to exist for the CLI environment.
-    const binary = path.join(root, "bin", "linger-computer-daemon");
-    await mkdir(path.join(root, "cli"), { recursive: true });
-    await writeFile(path.join(root, "cli", "teamhub"), "#!/bin/sh\nexit 0\n", {
+interface PresenceHarnessOptions {
+  readonly runtimeType: "claude" | "pi";
+  readonly modelId: string;
+  readonly reviewPermissions?: boolean;
+  readonly resolveMcpServers?: (port: number) => Promise<
+    ReadonlyArray<{
+      readonly name: string;
+      readonly relay_url: string;
+      readonly relay_token: string;
+      readonly tool_names: string[];
+      readonly expires_at: string;
+    }>
+  >;
+  readonly onHttpRequest?: (
+    request: IncomingMessage,
+    response: ServerResponse,
+  ) => Promise<boolean>;
+  readonly setup: (
+    root: string,
+    port: number,
+  ) => Promise<{
+    readonly executable: string;
+    readonly enabledRuntimes?: readonly string[];
+    readonly pathEntries?: readonly string[];
+  }>;
+}
+
+const openPresenceHarness = async (options: PresenceHarnessOptions) => {
+  const root = await mkdtemp(
+    path.join(os.tmpdir(), `linger-presence-${options.runtimeType}-`),
+  );
+  const daemon: { child?: ChildProcess } = {};
+  cleanups.push(async () => {
+    const running = daemon.child;
+    if (running && running.exitCode === null && running.signalCode === null) {
+      running.kill("SIGTERM");
+      await new Promise<void>((r) => running.once("exit", () => r()));
+    }
+    await rm(root, { recursive: true, force: true });
+  });
+  const binary = path.join(root, "bin/linger-computer-daemon");
+  const state = path.join(root, "state");
+  const workspace = path.join(root, "workspace");
+  await Promise.all([
+    mkdir(path.join(root, "cli"), { recursive: true }),
+    mkdir(state, { mode: 0o700 }),
+    mkdir(workspace, { mode: 0o700 }),
+    installDaemonBinary(binary),
+  ]);
+  await Promise.all([
+    writeFile(path.join(root, "cli/teamhub"), "#!/bin/sh\nexit 0\n", {
       mode: 0o700,
-    });
-    await installDaemonBinary(binary);
-    const computerId = "computer-presence";
-    const tenantId = "tenant-acme";
-    const ownerActorId = "actor-alice";
-    const agentId = "agent-presence";
-    const token = runnerToken(computerId, tenantId, ownerActorId);
-    const cliIssuer = fixtureAgentCliCredentialIssuer();
-    const gateway: RunnerGateway = createPlacingGateway({
-      contextContent: await serveContextContent(() => gateway),
-      agentCliCredentialIssuer: cliIssuer.issuer,
-      computerDaemonIdentityVerifier: createComputerDaemonIdentityVerifier(),
-    });
-    // The same HTTP origin serves the TeamHub credential issuance fixture.
-    const server = createServer((request, response) => {
-      void (async () => {
-        if (
-          request.method === "POST" &&
-          request.url === `/internal/agents/${agentId}/access-credentials`
-        ) {
-          for await (const _chunk of request) {
-            // The issuance body is not part of this scenario.
-          }
-          response.writeHead(201, { "content-type": "application/json" });
-          response.end(
-            JSON.stringify({
-              credential_id: "credential_presence",
-              agent_id: agentId,
-              tenant_id: tenantId,
-              access_token: `th_agent_${"p".repeat(43)}`,
-              expires_at: new Date(
-                Date.now() + 48 * 60 * 60 * 1000,
-              ).toISOString(),
-            }),
-          );
-          return;
+    }),
+    writeFile(path.join(root, "security"), "#!/bin/sh\nexit 44\n", {
+      mode: 0o700,
+    }),
+  ]);
+  const computerId = `computer-presence-${options.runtimeType}`;
+  const tenantId = "tenant-acme";
+  const ownerActorId = "actor-alice";
+  const agentId = `agent-presence-${options.runtimeType}`;
+  const grantId = `grant-presence-${options.runtimeType}`;
+  const token = runnerToken(computerId, tenantId, ownerActorId);
+  const cliIssuer = fixtureAgentCliCredentialIssuer();
+  const gateway: RunnerGateway = createPlacingGateway({
+    contextContent: await serveContextContent(() => gateway),
+    agentCliCredentialIssuer: cliIssuer.issuer,
+    computerDaemonIdentityVerifier: createComputerDaemonIdentityVerifier(),
+  });
+  const server = createServer((request, response) => {
+    void (async () => {
+      if (
+        request.method === "POST" &&
+        request.url === `/internal/agents/${agentId}/access-credentials`
+      ) {
+        for await (const _chunk of request) {
+          // The issuance body is not part of this scenario.
         }
-        response.writeHead(404).end();
-      })();
-    });
-    await new Promise<void>((resolve) =>
-      server.listen(0, "127.0.0.1", resolve),
-    );
-    const sessionErrors: unknown[] = [];
-    const handle = attachRunnerGatewayWebSocket({
-      server,
-      gateway,
-      credentialAuthenticators: [
-        createTestRunnerCredentialAuthority([
-          {
-            runnerId: computerId,
-            token,
-            credentialGeneration: 0,
-            tenantOwners: [{ tenantId, ownerActorId }],
-          },
-        ]),
-      ],
-      onSessionError: (error) => sessionErrors.push(error),
-    });
-    cleanups.push(async () => {
-      await handle.close();
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-    });
-    const sendSpy = vi.spyOn(WebSocketPeer.prototype, "send");
-    cleanups.push(async () => sendSpy.mockRestore());
-    const port = (server.address() as AddressInfo).port;
-    cliIssuer.bind(`http://127.0.0.1:${port}`);
-    const state = path.join(root, "state");
-    const workspace = path.join(root, "workspace");
-    await mkdir(state, { mode: 0o700 });
-    await mkdir(workspace, { mode: 0o700 });
-    // The shared fake Claude, wrapped to count the session processes it starts
-    // and record whether each one saw the TeamHub CLI profile.
-    const claude = path.join(root, "claude");
-    await writeFile(`${claude}-fake`, fakeClaudeScript(), { mode: 0o700 });
-    await writeFile(
-      claude,
-      `#!/bin/sh
-for argument in "$@"; do
-  case "$argument" in --session-id|--resume) echo "spawn profile=$TEAMHUB_PROFILE" >> "$0.spawns" ;; esac
-done
-exec "$0-fake" "$@"
-`,
-      { mode: 0o700 },
-    );
-    await writeFile(path.join(root, "security"), "#!/bin/sh\nexit 44\n", {
-      mode: 0o700,
-    });
-    const credential = path.join(root, "runner-token");
-    await writeFile(credential, token, { mode: 0o600 });
-    const config = path.join(root, "computer.json");
-    await writeFile(
+        response.writeHead(201, { "content-type": "application/json" }).end(
+          JSON.stringify({
+            credential_id: `credential_${options.runtimeType}`,
+            agent_id: agentId,
+            tenant_id: tenantId,
+            access_token: `th_agent_${"p".repeat(43)}`,
+            expires_at: new Date(Date.now() + 48 * 3600_000).toISOString(),
+          }),
+        );
+        return;
+      }
+      if (await options.onHttpRequest?.(request, response)) return;
+      response.writeHead(404).end();
+    })();
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  const sessionErrors: unknown[] = [];
+  const handle = attachRunnerGatewayWebSocket({
+    server,
+    gateway,
+    credentialAuthenticators: [
+      createTestRunnerCredentialAuthority([
+        {
+          runnerId: computerId,
+          token,
+          credentialGeneration: 0,
+          tenantOwners: [{ tenantId, ownerActorId }],
+        },
+      ]),
+    ],
+    onSessionError: (error) => sessionErrors.push(error),
+  });
+  cleanups.push(async () => {
+    await handle.close();
+    server.closeAllConnections();
+    await new Promise<void>((r) => server.close(() => r()));
+  });
+  const sendSpy = vi.spyOn(WebSocketPeer.prototype, "send");
+  cleanups.push(async () => sendSpy.mockRestore());
+  const port = (server.address() as AddressInfo).port;
+  cliIssuer.bind(`http://127.0.0.1:${port}`);
+
+  const { executable, enabledRuntimes, pathEntries } = await options.setup(
+    root,
+    port,
+  );
+  const credential = path.join(root, "runner-token");
+  const config = path.join(root, "computer.json");
+  await Promise.all([
+    writeFile(credential, token, { mode: 0o600 }),
+    writeFile(
       config,
       JSON.stringify({
         runner_id: computerId,
@@ -2346,10 +2397,11 @@ exec "$0-fake" "$@"
           token_file: credential,
         },
         state_directory: state,
-        runtime_paths: { claude },
+        ...(enabledRuntimes ? { enabled_runtimes: enabledRuntimes } : {}),
+        runtime_paths: { [options.runtimeType]: executable },
         workspace_grants: [
           {
-            grant_id: "grant-presence",
+            grant_id: grantId,
             tenant_id: tenantId,
             root_path: workspace,
             mode: "workspace-write",
@@ -2358,146 +2410,154 @@ exec "$0-fake" "$@"
         ],
       }),
       { mode: 0o600 },
-    );
-    let stderr = "";
-    const child = startDaemon(binary, config, root, (value) => {
+    ),
+  ]);
+  let stderr = "";
+  const daemonChild = startDaemon(
+    binary,
+    config,
+    root,
+    (value) => {
       stderr += value;
-    });
-    cleanups.push(async () => {
-      if (child.exitCode !== null || child.signalCode !== null) return;
-      child.kill("SIGTERM");
-      await new Promise<void>((resolve) => child.once("exit", () => resolve()));
-    });
-    await vi.waitFor(
-      () => {
-        if (child.exitCode !== null || sessionErrors.length > 0)
-          throw new Error(
-            `Daemon failed: ${sessionErrors.map(String).join("; ")}; ${stderr}`,
-          );
-        expect(connectedComputers(gateway, computerId)).toEqual([
-          expect.objectContaining({ computerId, status: "online" }),
-        ]);
-      },
-      { timeout: 20_000, interval: 100 },
-    );
-    await gateway.ensureReadyLocalAgentRunner({
-      placement: {
-        type: "local",
-        tenantId,
-        ownerActorId,
-        computerId,
-        runtimeType: "claude",
-        workspaceGrantId: "grant-presence",
-        assignmentRevision: 1,
-      },
-      modelId: "claude-default",
-      agentId,
-    });
-    const context = {
-      computerId,
+    },
+    pathEntries,
+  );
+  daemon.child = daemonChild;
+  await vi.waitFor(
+    () => {
+      if (daemonChild.exitCode !== null || sessionErrors.length > 0)
+        throw new Error(
+          `Daemon failed: ${sessionErrors.map(String).join("; ")}; ${stderr}`,
+        );
+      expect(connectedComputers(gateway, computerId)).toEqual([
+        expect.objectContaining({ computerId, status: "online" }),
+      ]);
+    },
+    { timeout: 25_000, interval: 100 },
+  );
+  await gateway.ensureReadyLocalAgentRunner({
+    placement: {
+      type: "local",
       tenantId,
+      ownerActorId,
+      computerId,
+      runtimeType: options.runtimeType,
+      workspaceGrantId: grantId,
+      assignmentRevision: 1,
+    },
+    modelId: options.modelId,
+    agentId,
+  });
+  const context = {
+    computerId,
+    tenantId,
+    agentId,
+    runnerRevision: 1,
+    workspaceGrantId: grantId,
+    executionContextKey: `context-presence-${options.runtimeType}`,
+    runtimeInstanceId: `runtime-context-presence-${options.runtimeType}`,
+    viewDigest: "a".repeat(64),
+  };
+  context.viewDigest = await publishContextView(gateway, context);
+  const contextViewRef = { view_digest: context.viewDigest };
+  const provider = new RemoteRuntimeProvider({
+    dispatcher: gateway,
+    target: {
+      tenantId,
+      ownerActorId,
+      runnerId: computerId,
       agentId,
-      runnerRevision: 1,
-      workspaceGrantId: "grant-presence",
-      executionContextKey: "context-presence",
-      runtimeInstanceId: "runtime-context-presence",
-      viewDigest: "a".repeat(64),
-    };
-    context.viewDigest = await publishContextView(gateway, context);
-    const contextViewRef = { view_digest: context.viewDigest };
-    const provider = new RemoteRuntimeProvider({
-      dispatcher: gateway,
-      target: {
+      workspaceGrantId: context.workspaceGrantId,
+      executionContextKey: context.executionContextKey,
+      runtimeInstanceId: context.runtimeInstanceId,
+      contextViewRef,
+    },
+    runtime: { type: options.runtimeType, model: options.modelId },
+    ...(options.reviewPermissions
+      ? { onPermissionReview: async () => ({}) }
+      : {}),
+    beforePresencePrepare: (signal) =>
+      gateway.ensureAgentCliCredential({
+        computerId,
         tenantId,
-        ownerActorId,
-        runnerId: computerId,
         agentId,
+        runnerRevision: context.runnerRevision,
         workspaceGrantId: context.workspaceGrantId,
-        executionContextKey: context.executionContextKey,
-        runtimeInstanceId: context.runtimeInstanceId,
-        contextViewRef,
-      },
-      runtime: { type: "claude", model: "claude-default" },
-      // A reviewed Run: its prepare must carry the same authorization flags.
-      onPermissionReview: async () => ({}),
-      // No credential is installed before presence: the prepare must wait for it.
-      beforePresencePrepare: (signal) =>
-        gateway.ensureAgentCliCredential({
-          computerId,
-          tenantId,
-          agentId,
-          runnerRevision: context.runnerRevision,
-          workspaceGrantId: context.workspaceGrantId,
-          signal,
-        }),
-      contextRunResources: {
-        currentContextViewRef: () => contextViewRef,
-        resolve: async () => ({ mcp_servers: [] }),
-      },
-    });
-    cleanups.push(() => provider.close());
-    const session = await provider.createSession({
-      workingDirectory: workspace,
-      threadName: "Presence",
-      sandboxMode: "workspace-write",
-      resources: { mcpServers: [] },
-    });
+        signal,
+      }),
+    contextRunResources: {
+      currentContextViewRef: () => contextViewRef,
+      resolve: async () => ({
+        mcp_servers: [...((await options.resolveMcpServers?.(port)) ?? [])],
+      }),
+    },
+  });
+  cleanups.push(() => provider.close());
+  const session = await provider.createSession({
+    workingDirectory: workspace,
+    threadName: "Presence",
+    sandboxMode: "workspace-write",
+    resources: { mcpServers: [] },
+  });
 
+  const prepareAndWait = async (
+    expected: Record<string, unknown> = {},
+    readyTimeoutMs = 15_000,
+  ) => {
     provider.prepareForPresence(session);
     const envelopes = () => sendSpy.mock.calls.map(([envelope]) => envelope);
     const prepare = await vi.waitFor(
       () => {
         const found = envelopes().find(
-          (envelope) =>
-            envelope.type === "prepare" && envelope.target === "provider",
+          (e) => e.type === "prepare" && e.target === "provider",
         );
         if (!found) throw new Error("No provider.prepare yet");
         return found;
       },
-      { timeout: 10_000, interval: 50 },
+      { timeout: 15_000, interval: 50 },
     );
-    // The prestarted process must see the CLI credential the Run uses.
     const credentialPut = envelopes().findIndex(
-      (envelope) =>
-        envelope.type === "execute" && envelope.kind === "cli_credential",
+      (e) => e.type === "execute" && e.kind === "cli_credential",
     );
     expect(credentialPut).toBeGreaterThanOrEqual(0);
     expect(credentialPut).toBeLessThan(envelopes().indexOf(prepare));
     expect(prepare).toMatchObject({
-      runtime_type: "claude",
+      runtime_type: options.runtimeType,
       session,
-      run_context: { permission_review: true },
+      ...expected,
     });
-    if (prepare?.type !== "prepare" || prepare?.target !== "provider")
+    if (prepare.type !== "prepare" || prepare.target !== "provider")
       throw new Error("Expected a provider.prepare");
     await vi.waitFor(
       () =>
-        expect(stderr).toContain(
+        expect(stderr, stderr).toContain(
           `runner.provider.prepare phase=ready prepare_id=${prepare.prepare_id}`,
         ),
-      { timeout: 10_000, interval: 50 },
+      { timeout: readyTimeoutMs, interval: 100 },
     );
-
+  };
+  const runPrompt = async (runId: string, text: string, timeoutMs = 30_000) => {
     const run = await provider.startRun(
       session,
       {
         type: "text",
-        text: "hello",
+        text,
         cliRunContext: {
-          run_id: "run-presence",
+          run_id: runId,
           scope: { kind: "room", id: "room-presence" },
         },
       },
       {
         runContext: {
-          executionRunRef: "run-presence",
+          executionRunRef: runId,
           sourceInboxIds: ["room:room-presence"],
         },
       },
     );
-    await within(run.wait(), "presence-prepared Claude run", 15_000);
-    // Resident events go to the Runtime home's diagnostics log.
-    const diagnostics = (
+    return within(run.wait(), runId, timeoutMs);
+  };
+  const readDiagnostics = async () =>
+    (
       await Promise.all(
         (
           await execFileAsync("find", [root, "-name", "runner-diagnostics.log"])
@@ -2508,16 +2568,379 @@ exec "$0-fake" "$@"
           .map((file) => readFile(file, "utf8")),
       )
     ).join("");
+  const readSpawns = async () =>
+    (await readFile(`${executable}.spawns`, "utf8")).trim().split("\n");
+
+  return {
+    prepareAndWait,
+    runPrompt,
+    readDiagnostics,
+    readSpawns,
+    sessionErrors,
+  };
+};
+
+processTest(
+  "a Claude presence prepare reaches the real Go Daemon with run_context, and the following run adopts that process",
+  async () => {
+    const harness = await openPresenceHarness({
+      runtimeType: "claude",
+      modelId: "claude-default",
+      // A reviewed Run: its prepare must carry the same authorization flags.
+      reviewPermissions: true,
+      setup: async (root) => {
+        const claude = path.join(root, "claude");
+        await writeFile(`${claude}-fake`, fakeClaudeScript(), { mode: 0o700 });
+        await writeFile(
+          claude,
+          `#!/bin/sh\nfor a in "$@"; do case "$a" in --session-id|--resume) echo "spawn profile=$TEAMHUB_PROFILE" >> "$0.spawns" ;; esac; done\nexec "$0-fake" "$@"\n`,
+          { mode: 0o700 },
+        );
+        return { executable: claude };
+      },
+    });
+    await harness.prepareAndWait({ run_context: { permission_review: true } });
+    await harness.runPrompt("run-presence", "hello", 15_000);
+    const diagnostics = await harness.readDiagnostics();
     expect(diagnostics).toContain("claude resident adopted");
     expect(diagnostics).not.toContain("claude resident recycled");
-    const spawns = (await readFile(`${claude}.spawns`, "utf8"))
-      .trim()
-      .split("\n");
-    // The single, prestarted process already had the Agent CLI environment.
-    expect(spawns).toEqual(["spawn profile=runtime"]);
-    expect(sessionErrors).toEqual([]);
+    expect(await harness.readSpawns()).toEqual(["spawn profile=runtime"]);
+    expect(harness.sessionErrors).toEqual([]);
   },
   60_000,
+);
+
+const stagePiComputerTools = async (root: string): Promise<void> => {
+  const computerRoot = path.resolve(process.cwd(), "../computer");
+  const tools = path.join(root, "cli/computer-tools");
+  const piEntry = path.join(
+    computerRoot,
+    "node_modules/@earendil-works/pi-coding-agent/dist/index.js",
+  );
+  await mkdir(path.join(root, "runtime/bin"), { recursive: true });
+  await symlink(process.execPath, path.join(root, "runtime/bin/node"));
+
+  const quickjs = [
+    "LICENSE",
+    "package.json",
+    "quickjs.wasm",
+    "dist/index.js",
+    "dist/extensions.js",
+    "dist/version.js",
+    "dist/wasi-shim.js",
+  ];
+  const generated: ReadonlyArray<readonly [string, string]> = [
+    [
+      "node_modules/@earendil-works/pi-coding-agent/package.json",
+      '{"type":"module"}\n',
+    ],
+    [
+      "node_modules/@earendil-works/pi-coding-agent/dist/index.js",
+      `export * from ${JSON.stringify(pathToFileURL(piEntry).href)};\n`,
+    ],
+    [
+      "node_modules/@playwright/mcp/cli.js",
+      `require("node:readline").createInterface({input:process.stdin}).on("line",(l)=>{if(!l.trim())return;const r=JSON.parse(l);if(r.id==null)return;const res=r.method==="initialize"?{protocolVersion:"2025-03-26",capabilities:{tools:{}},serverInfo:{name:"fixture",version:"1.0.0"}}:r.method==="tools/list"?{tools:[]}:{};process.stdout.write(JSON.stringify({jsonrpc:"2.0",id:r.id,result:res})+"\\n");});\n`,
+    ],
+  ];
+  const copied: ReadonlyArray<readonly [string, string]> = [
+    ["extensions/pi-mcp.mjs", path.join(computerRoot, "tools/pi-mcp.mjs")],
+    ...quickjs.map(
+      (f) =>
+        [
+          `node_modules/quickjs-wasi/${f}`,
+          path.join(computerRoot, "node_modules/quickjs-wasi", f),
+        ] as const,
+    ),
+  ];
+  await Promise.all([
+    ...generated.map(async ([rel, body]) => {
+      const target = path.join(tools, rel);
+      await mkdir(path.dirname(target), { recursive: true });
+      await writeFile(target, body);
+    }),
+    ...copied.map(async ([rel, src]) => {
+      const target = path.join(tools, rel);
+      await mkdir(path.dirname(target), { recursive: true });
+      await copyFile(src, target);
+    }),
+  ]);
+  const assets = await Promise.all(
+    [...generated, ...copied].map(async ([p]) => ({
+      path: p,
+      size_bytes: (await stat(path.join(tools, p))).size,
+    })),
+  );
+  await writeFile(
+    path.join(tools, "manifest.json"),
+    JSON.stringify({
+      schema_version: 1,
+      versions: {
+        playwright: "0.0.83",
+        pi: "1.2.0",
+        cua: "0.35.4",
+        quickjs: "3.6.2",
+      },
+      playwright_entry: "node_modules/@playwright/mcp/cli.js",
+      pi_extension: "extensions/pi-mcp.mjs",
+      assets,
+    }),
+  );
+};
+
+processTest(
+  "prestarts Pi on presence and dynamically attaches MCP servers on first Run",
+  async () => {
+    const relayToken = "r".repeat(36);
+    const mcpSpecs = {
+      echo: {
+        path: "/mcp",
+        name: "echo",
+        tool: "ping",
+        prefix: "pong",
+        note: "warm-pi",
+      },
+      second: {
+        path: "/mcp2",
+        name: "second",
+        tool: "greet",
+        prefix: "hello",
+        note: "second-turn",
+      },
+    } as const;
+    let phase: keyof typeof mcpSpecs = "echo";
+    interface RecordedLlmRequest {
+      readonly messages: ReadonlyArray<{
+        readonly role?: string;
+        readonly content?: unknown;
+      }>;
+      readonly tools?: ReadonlyArray<{
+        readonly function?: { readonly name?: string };
+      }>;
+    }
+    const llmRequests: RecordedLlmRequest[] = [];
+    const mcpCalls: Array<{
+      readonly server: string;
+      readonly name: string;
+      readonly arguments: Record<string, unknown>;
+    }> = [];
+    const readBody = async (req: IncomingMessage): Promise<string> => {
+      req.setEncoding("utf8");
+      let body = "";
+      for await (const chunk of req) body += chunk;
+      return body;
+    };
+    const sse = (delta: object, finish: string) => {
+      const chunk = (d: object, finish_reason: string | null) =>
+        JSON.stringify({
+          id: "fixture",
+          object: "chat.completion.chunk",
+          created: 1,
+          model: "model",
+          choices: [{ index: 0, delta: d, finish_reason }],
+        });
+      return `data: ${chunk(delta, null)}\n\ndata: ${chunk({}, finish)}\n\ndata: [DONE]\n\n`;
+    };
+
+    const harness = await openPresenceHarness({
+      runtimeType: "pi",
+      modelId: "fixture-local/model",
+      resolveMcpServers: async (port) => {
+        const active = mcpSpecs[phase];
+        return [
+          {
+            name: active.name,
+            relay_url: `http://127.0.0.1:${port}${active.path}`,
+            relay_token: relayToken,
+            tool_names: [active.tool],
+            expires_at: new Date(Date.now() + 3600_000).toISOString(),
+          },
+        ];
+      },
+      onHttpRequest: async (request, response) => {
+        const spec = Object.values(mcpSpecs).find(
+          (s) => s.path === request.url,
+        );
+        if (spec) {
+          if (request.headers.authorization !== `Bearer ${relayToken}`) {
+            response.writeHead(401).end();
+            return true;
+          }
+          if (request.method === "DELETE") {
+            response.writeHead(200).end();
+            return true;
+          }
+          if (request.method !== "POST") {
+            response.writeHead(405).end();
+            return true;
+          }
+          const rpc = JSON.parse(await readBody(request)) as {
+            id?: string | number;
+            method?: string;
+            params?: { name?: string; arguments?: Record<string, unknown> };
+          };
+          if (rpc.id === undefined || rpc.id === null) {
+            response.writeHead(202).end();
+            return true;
+          }
+          let result: unknown = {};
+          if (rpc.method === "initialize") {
+            result = {
+              protocolVersion: "2025-03-26",
+              capabilities: { tools: {} },
+              serverInfo: { name: spec.name, version: "1.0.0" },
+            };
+          } else if (rpc.method === "tools/list") {
+            result = {
+              tools: [
+                {
+                  name: spec.tool,
+                  description: spec.tool,
+                  inputSchema: {
+                    type: "object",
+                    properties: { note: { type: "string" } },
+                    required: ["note"],
+                  },
+                },
+              ],
+            };
+          } else if (rpc.method === "tools/call") {
+            const args = rpc.params?.arguments ?? {};
+            mcpCalls.push({
+              server: spec.name,
+              name: String(rpc.params?.name ?? ""),
+              arguments: args,
+            });
+            const note = typeof args.note === "string" ? args.note : "";
+            result = {
+              content: [{ type: "text", text: `${spec.prefix}:${note}` }],
+            };
+          }
+          response
+            .writeHead(200, { "content-type": "application/json" })
+            .end(JSON.stringify({ jsonrpc: "2.0", id: rpc.id, result }));
+          return true;
+        }
+        if (
+          request.method === "POST" &&
+          request.url === "/v1/chat/completions"
+        ) {
+          const parsed = JSON.parse(
+            await readBody(request),
+          ) as RecordedLlmRequest;
+          llmRequests.push(parsed);
+          const last = parsed.messages.at(-1);
+          const active = mcpSpecs[phase];
+          const body =
+            last?.role !== "tool"
+              ? sse(
+                  {
+                    role: "assistant",
+                    tool_calls: [
+                      {
+                        index: 0,
+                        id: `call_${active.tool}`,
+                        type: "function",
+                        function: {
+                          name: `mcp__${active.name}__${active.tool}`,
+                          arguments: JSON.stringify({ note: active.note }),
+                        },
+                      },
+                    ],
+                  },
+                  "tool_calls",
+                )
+              : sse(
+                  {
+                    role: "assistant",
+                    content: `final:${typeof last.content === "string" ? last.content : JSON.stringify(last.content)}`,
+                  },
+                  "stop",
+                );
+          response
+            .writeHead(200, { "content-type": "text/event-stream" })
+            .end(body);
+          return true;
+        }
+        return false;
+      },
+      setup: async (root, port) => {
+        const profile = path.join(root, ".pi/agent");
+        const realPi = path.resolve(
+          process.cwd(),
+          "../computer/node_modules/.bin/pi",
+        );
+        const pi = path.join(root, "pi-wrapper");
+        await Promise.all([
+          mkdir(profile, { recursive: true }),
+          stagePiComputerTools(root),
+        ]);
+        await Promise.all([
+          writeFile(
+            pi,
+            `#!/bin/sh\nfor a in "$@"; do case "$a" in --session-id) echo "spawn profile=$TEAMHUB_PROFILE" >> "$0.spawns" ;; esac; done\nexec "${realPi}" "$@"\n`,
+            { mode: 0o700 },
+          ),
+          writeFile(
+            path.join(profile, "settings.json"),
+            JSON.stringify({
+              defaultProvider: "fixture-local",
+              defaultModel: "model",
+            }),
+          ),
+          writeFile(
+            path.join(profile, "models.json"),
+            JSON.stringify({
+              providers: {
+                "fixture-local": {
+                  baseUrl: `http://127.0.0.1:${port}/v1`,
+                  api: "openai-completions",
+                  apiKey: "fixture",
+                  models: [{ id: "model" }],
+                },
+              },
+            }),
+          ),
+        ]);
+        return {
+          executable: pi,
+          enabledRuntimes: ["pi"],
+          pathEntries: [path.dirname(process.execPath), "/usr/bin", "/bin"],
+        };
+      },
+    });
+
+    await harness.prepareAndWait({}, 45_000);
+    expect(llmRequests).toEqual([]);
+    expect(mcpCalls).toEqual([]);
+
+    const toolNames = (index: number) =>
+      (llmRequests[index]?.tools ?? []).map((t) => t.function?.name);
+    const first = await harness.runPrompt("run-pi-presence", "call ping");
+    expect(toolNames(0)).toEqual(
+      expect.arrayContaining(["mcp__echo__ping", "mcp__computer__ui_exec"]),
+    );
+    expect(first.finalResponse).toContain("final:pong:warm-pi");
+
+    // A second Run with a different MCP set swaps servers in place without restarting Pi.
+    phase = "second";
+    const second = await harness.runPrompt("run-pi-presence-2", "call greet");
+    expect(toolNames(2)).toContain("mcp__second__greet");
+    expect(toolNames(2)).not.toContain("mcp__echo__ping");
+    expect(second.finalResponse).toContain("final:hello:second-turn");
+    expect(mcpCalls).toEqual([
+      { server: "echo", name: "ping", arguments: { note: "warm-pi" } },
+      { server: "second", name: "greet", arguments: { note: "second-turn" } },
+    ]);
+    expect(llmRequests).toHaveLength(4);
+
+    const diagnostics = await harness.readDiagnostics();
+    expect(diagnostics, diagnostics).toContain("pi resident adopted");
+    expect(diagnostics, diagnostics).not.toContain("pi resident recycled");
+    expect(await harness.readSpawns()).toEqual(["spawn profile=runtime"]);
+    expect(harness.sessionErrors).toEqual([]);
+  },
+  90_000,
 );
 
 // Process-level Operation recovery. The real Go Daemon and websocket run
@@ -3565,7 +3988,7 @@ const observeOperationEvents = (operation: RunnerOperation) => {
 };
 
 const fakeCodexScript = (hangMarker: string): string => `#!/bin/sh
-if [ "$1" = "--version" ]; then echo "codex-cli 0.100.0"; exit 0; fi
+if [ "$1" = "--version" ]; then echo "codex-cli 0.171.0"; exit 0; fi
 case "$CODEX_HOME" in
   */runtime-homes/codex/*) ;;
   *)
@@ -3659,8 +4082,14 @@ if [ -f '${hangMarker}' ]; then
   exit 0
 fi
 if [ "$steer_mode" = "1" ]; then
-  read_request
-  reply '{"turnId":"turn-go-canary"}'
+  if read_request; then
+    reply '{"turnId":"turn-go-canary"}'
+    client_id=$(printf '%s' "$line" | /usr/bin/sed -n 's/.*"clientUserMessageId":"\\([^"]*\\)".*/\\1/p')
+    if [ -n "$client_id" ]; then
+      printf '{"jsonrpc":"2.0","method":"item/started","params":{"threadId":"thread-go-canary","turnId":"turn-go-canary","item":{"type":"userMessage","id":"user-%s","clientId":"%s","content":[]}}}\\n' "$client_id" "$client_id"
+      printf '{"jsonrpc":"2.0","method":"item/completed","params":{"threadId":"thread-go-canary","turnId":"turn-go-canary","item":{"type":"userMessage","id":"user-%s","clientId":"%s","content":[]}}}\\n' "$client_id" "$client_id"
+    fi
+  fi
 fi
 if [ -f "$0.name-delay" ]; then
   read_thread_name

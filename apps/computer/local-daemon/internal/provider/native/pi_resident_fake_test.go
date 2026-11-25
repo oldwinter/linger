@@ -16,10 +16,13 @@ import (
 const (
 	piResidentLogEnv      = "PI_RESIDENT_LOG"
 	piResidentExitHangEnv = "PI_RESIDENT_EXIT_HANG"
+	piResidentSyncMCPEnv  = "PI_RESIDENT_SYNC_MCP"
+	piResidentThinkingEnv = "PI_RESIDENT_THINKING_MODEL"
 )
 
 type piResidentFakeState struct {
 	*piFakeProcess
+	reader    *bufio.Reader
 	mu        sync.Mutex
 	pending   int
 	streaming bool
@@ -54,6 +57,7 @@ func piResidentFake(args []string) int {
 	}
 	f.log("spawn")
 	reader := bufio.NewReader(os.Stdin)
+	f.reader = reader
 	for {
 		line, err := reader.ReadBytes('\n')
 		if err == io.EOF {
@@ -69,11 +73,12 @@ func piResidentFake(args []string) int {
 			ID      string `json:"id"`
 			Type    string `json:"type"`
 			Message string `json:"message"`
+			Level   string `json:"level"`
 		}
 		if json.Unmarshal(line, &command) != nil {
 			return 22
 		}
-		if code := f.handle(command.ID, command.Type, command.Message); code >= 0 {
+		if code := f.handle(command.ID, command.Type, command.Message, command.Level); code >= 0 {
 			return code
 		}
 	}
@@ -90,14 +95,48 @@ func joinLines(args []string) string {
 	return out
 }
 
-func (f *piResidentFakeState) handle(id, kind, message string) int {
+func (f *piResidentFakeState) handle(id, kind, message, level string) int {
 	switch kind {
 	case "get_state":
 		f.mu.Lock()
 		state := map[string]any{"sessionId": f.sessionID, "isStreaming": f.streaming, "isCompacting": false, "pendingMessageCount": f.pending}
 		f.mu.Unlock()
+		if os.Getenv(piResidentThinkingEnv) != "" {
+			state["thinkingLevel"] = "off"
+			state["model"] = map[string]any{
+				"provider":         "fixture",
+				"id":               "clamped",
+				"reasoning":        true,
+				"thinkingLevelMap": map[string]any{"off": nil, "minimal": nil, "low": "low", "medium": nil, "high": nil},
+			}
+		}
 		f.reply(id, kind, state)
+	case "set_thinking_level":
+		f.log("thinking:" + level)
+		f.reply(id, kind, nil)
+	case "get_commands":
+		commands := []map[string]any{}
+		if os.Getenv(piResidentSyncMCPEnv) != "" {
+			commands = append(commands, map[string]any{"name": piMCPSyncCommand, "source": "extension"})
+		}
+		f.reply(id, kind, map[string]any{"commands": commands})
 	case "prompt":
+		if message == "/"+piMCPSyncCommand && os.Getenv(piResidentSyncMCPEnv) != "" {
+			mode := os.Getenv(piResidentSyncMCPEnv)
+			configBytes, _ := os.ReadFile(os.Getenv(piMCPConfigEnvKey))
+			f.log("sync_mcp:" + string(configBytes))
+			verdict := map[string]any{"ok": true}
+			if mode == "fail" {
+				verdict = map[string]any{"ok": false, "error": "fixture MCP sync rejected"}
+			}
+			encoded, _ := json.Marshal(verdict)
+			f.send(map[string]any{"type": "extension_ui_request", "id": "sync-" + id, "method": "input", "title": piMCPSyncDialog, "placeholder": string(encoded)})
+			if _, err := f.reader.ReadBytes('\n'); err != nil {
+				return 26
+			}
+			f.reply(id, kind, map[string]any{"disposition": "handled"})
+			return -1
+		}
 		f.log("prompt:" + message)
 		f.cleared = false
 		f.reply(id, kind, map[string]any{"disposition": "started"})

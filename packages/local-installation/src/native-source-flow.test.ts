@@ -40,7 +40,12 @@ import {
   prepareNativeDependencies,
   prepareNativeVoiceTools,
 } from "./native-dependencies.js";
-import { readLiveKitSettings, startNativeLiveKit } from "./native-livekit.js";
+import {
+  prepareLiveKitSettings,
+  readLiveKitSettings,
+  startNativeLiveKit,
+} from "./native-livekit.js";
+import { PortAllocationError } from "./ports.js";
 import { updateUserKeys } from "./user-environment.js";
 import {
   NATIVE_RUNTIME_DIRECTORY,
@@ -80,11 +85,15 @@ vi.mock("./native-dependencies.js", () => ({
   prepareNativeDependencies: vi.fn(),
   prepareNativeVoiceTools: vi.fn(),
 }));
-vi.mock("./native-livekit.js", async (original) => ({
-  ...(await original<typeof import("./native-livekit.js")>()),
-  readLiveKitSettings: vi.fn(),
-  startNativeLiveKit: vi.fn(),
-}));
+vi.mock("./native-livekit.js", async (original) => {
+  const actual = await original<typeof import("./native-livekit.js")>();
+  return {
+    ...actual,
+    prepareLiveKitSettings: vi.fn(actual.prepareLiveKitSettings),
+    readLiveKitSettings: vi.fn(),
+    startNativeLiveKit: vi.fn(),
+  };
+});
 // Setting the model source runs the localmodels tool, which these tests never
 // install.
 vi.mock("./byok-source.js", async (original) => ({
@@ -2261,6 +2270,87 @@ for (const tools of ["absent", "failed"] as const)
       expect(events).toContain("voice tools download failed");
     expect(events).not.toContain("soniox-1");
   });
+
+test("voice stays off and the install continues when LiveKit UDP port allocation fails", async () => {
+  vi.mocked(prepareLiveKitSettings).mockRejectedValueOnce(
+    new PortAllocationError("udp", "127.0.0.1 bind: EADDRINUSE", 54_321),
+  );
+  const { events, services, env } = await installVoice("bundled", {
+    SONIOX_API_KEY: "soniox-1",
+  });
+  for (const options of services)
+    expect(JSON.parse(options.settings!).voice).toBe("off");
+  expect(startNativeLiveKit).not.toHaveBeenCalled();
+  expect(env("teamhub").TEAMHUB_VOICE_MEDIA).toBe("off");
+  expect(env("teamhub").LIVEKIT_URL).toBeUndefined();
+  expect(events).toContain(
+    "Voice stays off: LiveKit could not reserve a local port",
+  );
+  expect(events).toContain("UDP: 127.0.0.1 bind: EADDRINUSE (port 54321)");
+});
+
+test("voice still stays off on LiveKit port exhaustion even when checkout .env defines LIVEKIT_URL", async () => {
+  const f = await fixture();
+  await writeFile(
+    path.join(f.repo, ".env"),
+    "LIVEKIT_URL=ws://127.0.0.1:17880\n",
+  );
+  const bin = path.join(f.home, "voice");
+  vi.mocked(prepareNativeVoiceTools).mockResolvedValue({
+    bin,
+    livekit: path.join(bin, "livekit-server"),
+  });
+  vi.mocked(readLiveKitSettings).mockResolvedValue({
+    httpPort: 30000,
+    rtcPort: 30001,
+    apiKey: "APIabcdef123456",
+    apiSecret: "s".repeat(64),
+  });
+  vi.mocked(prepareLiveKitSettings).mockRejectedValueOnce(
+    new PortAllocationError("udp", "127.0.0.1 bind: EADDRINUSE", 54_322),
+  );
+  const events: string[] = [];
+  const outcome = await installNativeSource({
+    home: f.home,
+    repo: f.repo,
+    name: "native-voice-checkout-env",
+    setupChoice: "pi",
+    externalComputer: false,
+    signal: new AbortController().signal,
+    onEvent: (event) => events.push(event.message),
+  });
+  expect(outcome.code, outcome.message).toBe(0);
+  const services = vi
+    .mocked(startNativeProcess)
+    .mock.calls.map(([options]) => options)
+    .filter((options) => options.name !== "postgres");
+  for (const options of services)
+    expect(JSON.parse(options.settings!).voice).toBe("off");
+  expect(startNativeLiveKit).not.toHaveBeenCalled();
+  const teamhub = services.find((options) => options.name === "teamhub")!;
+  expect(teamhub.env.TEAMHUB_VOICE_MEDIA).toBe("off");
+  expect(events.join("")).toContain(
+    "Voice stays off: LiveKit could not reserve a local port",
+  );
+});
+
+test("non-port LiveKit configuration errors still fail preflight", async () => {
+  const f = await fixture();
+  vi.mocked(prepareLiveKitSettings).mockRejectedValueOnce(
+    new Error("disk permission denied"),
+  );
+  const outcome = await installNativeSource({
+    home: f.home,
+    repo: f.repo,
+    name: "native-voice-error",
+    setupChoice: "pi",
+    externalComputer: true,
+    signal: new AbortController().signal,
+    onEvent: () => {},
+  });
+  expect(outcome.code).toBe(1);
+  expect(outcome.message).toContain("disk permission denied");
+});
 
 test("a changed voice key leaves the voice setting alone", async () => {
   const first = await installVoice("bundled", { XAI_API_KEY: "xai-1" });

@@ -593,15 +593,20 @@ the current SID and ACL, not POSIX permission bits. Writing a separate credentia
 does not change the permissions of an existing parent directory.
 
 The installer and the Daemon refuse a private path when another account can
-replace one of its parent directories. One exception applies: the Codex Windows
-sandbox may hold that right on a parent, such as AppData. The sandbox acts
+replace one of its parent directories, naming the offending ancestor path and
+SID. Ancestors trust the current user, `SYSTEM`, `BUILTIN\Administrators`,
+`TrustedInstaller`, built-in Administrator/Domain/Enterprise Admin SIDs
+(`S-1-5-21-*-*-*-500|512|519`), and direct individual/domain/Entra members of
+local `BUILTIN\Administrators` (excluding broad well-known groups). One
+additional exception applies on ancestor access rules: the Codex Windows
+sandbox may hold replace rights on a parent, such as AppData. The sandbox acts
 through the `CodexSandboxUsers` group and the capability SIDs in
-`%USERPROFILE%\.codex\cap_sid`. A sandboxed Codex command can therefore replace
-such a parent; Linger accepts this so it installs beside Codex. Private paths
-themselves still grant access only to the current user and SYSTEM. Their
-owner is the current user or, when that user is an administrator,
-Administrators, which owns what an elevated process (Run as administrator,
-the built-in Administrator) creates.
+`%USERPROFILE%\.codex\cap_sid` (or `%CODEX_HOME%\cap_sid`). A sandboxed Codex
+command can therefore replace such a parent; Linger accepts this so it installs
+beside Codex. Private paths themselves still grant access only to the current
+user and SYSTEM. Their owner is the current user or, when that user is an
+administrator, Administrators, which owns what an elevated process (Run as
+administrator, the built-in Administrator) creates.
 
 Process recovery uses the creation time and a held process handle, so a reused
 process ID is never mistaken for the original. Ordinary tasks are held by a Job
@@ -1105,14 +1110,22 @@ with its dependencies resolves its own jiti first. Node reads `NODE_PATH` at
 startup, so the extension then restores the value Pi inherited, and the
 commands Pi starts never resolve a package from the bundle.
 
-The same extension carries Pi's permission review, so the Daemon loads it for a
-Run with permission review even without MCP servers. Its `tool_call` hook opens
-an RPC `input` dialog titled `linger.permission_review` for each `bash` and
-`mcp__*` call, with the call as JSON. The Daemon answers it with a JSON verdict
-from the Run's permission review, with `bash` reviewed as a shell command. A
-Run without review gets an allow verdict, because a resident Pi process may
-serve both kinds of Run. A missing or unreadable verdict blocks the call. The
-Daemon cancels any other extension dialog.
+The same extension carries Pi's permission review and dynamic MCP attachment, so
+resident Pi processes and provider pre-starts load it with an empty managed MCP
+config file and `mcp__*` in `--tools`. On Room-presence `provider.prepare`, Pi
+starts with a 40-second timeout, verifies `get_state` and applies any clamped
+thinking level, then parks without submitting a prompt. When a Run adopts a
+parked Pi process whose MCP server set changed, the Daemon writes the new
+front-rewritten `linger-mcp.json`, verifies `get_commands` exposes
+`linger-sync-mcp`, runs `/linger-sync-mcp` and reads the structured verdict from
+its `linger.mcp_sync` RPC dialog before submitting the prompt; an attachment
+failure recycles the process and falls back to a cold spawn. Its `tool_call`
+hook opens an RPC `input` dialog titled `linger.permission_review` for each
+`bash` and `mcp__*` call, with the call as JSON. The Daemon answers it with a
+JSON verdict from the Run's permission review, with `bash` reviewed as a shell
+command. A Run without review gets an allow verdict, because a resident Pi
+process may serve both kinds of Run. A missing or unreadable verdict blocks the
+call. The Daemon cancels any other extension dialog.
 
 The compatibility probe of the pinned Playwright catalog is
 `TestPinnedPlaywrightCatalog`; it needs `LINGER_PLAYWRIGHT_COMPAT_ENTRY` and

@@ -19,15 +19,28 @@ ancestor counts as well, because its holder can rename that folder, except on
 a volume root, which can be neither renamed nor removed. A folder directly on
 a data drive with the stock root ACL therefore passes, and a folder nested in
 one that inherits Modify for Authenticated Users does not. The Daemon's
-`privatefs` treats the volume root the same way. A refusal leaves the
-installer as its code and reason (`windowsPrivateRefusal`), never as its
-words: in the `startFailure` line on stdout when the installer manager cannot
-start, and in the `--user-keys` outcome. The Desktop setup page branches on
-`UNSAFE_PARENT_ACCESS` to say where to install instead. Repair skips propagation when the protected
-DACL already grants inheritable FullControl to the owner and SYSTEM on a
-directory, or FullControl to both on a file. Private paths with partial rights
-still receive the full repair. Rewriting a directory DACL propagates to its
-existing children and can time out on a large cache tree.
+`privatefs` treats the volume root and trusted ancestor principals the same
+way: ancestors trust the current user, `SYSTEM`, `BUILTIN\Administrators`,
+`TrustedInstaller`, built-in Administrator/Domain/Enterprise Admin SIDs
+(`S-1-5-21-*-*-*-500|512|519`), direct individual/domain/Entra members of local
+`BUILTIN\Administrators` (never broad groups such as `Everyone`, `Users`, or
+`Authenticated Users`), and Codex Windows sandbox principals on access rules.
+Private targets themselves remain strictly owner-only. `windowsPrivateLocation`
+runs the same check non-destructively without creating folders or changing
+ACLs. The PowerShell script checks `$ExecutionContext.SessionState.LanguageMode`
+first, emits Win32 P/Invoke stubs in memory via `Reflection.Emit` instead of
+compiling C# through `Add-Type`, and reports the offending ancestor path and SID
+or sanitized exception/worker diagnostics (never raw stderr prose). A refusal leaves the installer as its code and reason
+(`windowsPrivateRefusal`), never as its words: in the `startFailure` line on
+stdout when the installer manager cannot start, in the `--user-keys` outcome,
+and in the `--inspect` failure outcome (`inspectSetup` propagates the
+`WINDOWS_PRIVATE_PATH_UNSAFE` refusal instead of wrapping it as
+`LOCALMODELS_SETUP_UNAVAILABLE`). The Desktop setup page branches on `UNSAFE_PARENT_ACCESS` to say where
+to install instead. Repair skips propagation when the protected DACL already
+grants inheritable FullControl to the owner and SYSTEM on a directory, or
+FullControl to both on a file. Private paths with partial rights still receive
+the full repair. Rewriting a directory DACL propagates to its existing children
+and can time out on a large cache tree.
 
 Launch the fixed private-path scripts with PowerShell `-Command`. Encoding
 the whole script lengthens the Windows command line and can stall startup.
@@ -57,8 +70,9 @@ package's `.env` is not read. Voice keys are normally saved in the app
 (TeamHub); a key in `user.env` overrides it. Whenever the distribution has
 voice tools for this computer, Native prepares them and runs LiveKit with
 the key pair and ports in the instance's `livekit.env`, with or without a
-voice key; without them, or when they fail to prepare, TeamHub gets
-`TEAMHUB_VOICE_MEDIA=off` and the install continues. The services' `voice`
+voice key; without them, or when they fail to prepare or LiveKit cannot
+reserve a local port, TeamHub gets `TEAMHUB_VOICE_MEDIA=off` and the install
+continues. The services' `voice`
 setting tracks only the tools, so a key change never restarts them through
 it. A native process restarts when its generated environment changes.
 The desktop passes the system proxy it resolved for Soniox as
@@ -86,7 +100,10 @@ the environment file.
 Every port the installer chooses (`ports.ts`) must be free on both
 127.0.0.1 and ::1 with nothing answering there: `localhost` resolves to ::1
 first on macOS, and a program on ::1 alone would answer for a service that
-bound 127.0.0.1 without an error. The web static host listens on both.
+bound 127.0.0.1 without an error. UDP allocation holds the bound IPv4 socket
+while checking ::1 instead of closing and rebinding 127.0.0.1, and falls back
+to unprivileged non-ephemeral ports when OS ephemeral UDP ports fail or
+collide. The web static host listens on both.
 Creating an instance also reserves other instances' saved LiveKit HTTP and RTC
 ports, even while their voice services are stopped. Each
 start re-checks a stopped service's ports and moves one another program took
@@ -145,7 +162,11 @@ never served a connection, holds no data, and is initialized again.
 A running PostgreSQL whose configuration changed restarts like LiveKit and
 TeamHub: a release that repins the PostgreSQL archive unpacks it into a new
 component folder, so the server an earlier release left running differs in
-its executable path and must not stop the install.
+its executable path and must not stop the install. Startup readiness waits up
+to 120 seconds (logging elapsed progress every 15 seconds) while `postgres`
+stays alive so slow disks and Windows antivirus scanning do not time out during
+initial data-directory fsync, while still failing immediately if `postgres`
+exits.
 
 On Windows `postgres.exe` refuses a token with Administrators enabled. When
 the installer runs elevated (Run as administrator, the built-in
@@ -324,7 +345,11 @@ parallel with the process listing; process-only inspections need no port lookup.
 On POSIX, a start that finds the recorded supervisor gone but processes
 still carrying its lease (the app was killed with it) ends them as a stop
 does and starts the service again. A live recorded PID or process group
-without the lease proves nothing and is refused, never signalled.
+without the lease proves nothing and is refused, never signalled; on Linux, a
+stale PID whose `kill(pid, 0)` returns `EPERM` and whose `/proc/<pid>` UID
+differs from the current user is treated as foreign and cleared without
+signalling it, and `EPERM` while signalling a leased process revalidates the
+lease before raising `NATIVE_PROCESS_SIGNAL_DENIED` with the service and PID.
 On macOS every identity check reads `ps` start times in the C locale.
 Linger 0.1.2 recorded them in the locale it ran in; such a record is
 converted once to the C-locale birth when `ps` in the installer's own

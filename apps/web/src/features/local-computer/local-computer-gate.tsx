@@ -31,7 +31,7 @@ import {
 } from "./computer-readiness";
 import { computerSetupMessages } from "./computer-setup.messages";
 import { computersMessages } from "./computers.messages";
-import { useDesktopComputer } from "./desktop-computer";
+import { useCliInstallAvailable, useDesktopComputer } from "./desktop-computer";
 import { DesktopComputerSetup } from "./desktop-computer-setup";
 import { localComputersQueryOptions } from "./local-computer-queries";
 import { LocalRuntimeAuthenticationGuidance } from "./local-runtime-authentication-guidance";
@@ -64,6 +64,7 @@ export function LocalComputerGate({
   const t = useT();
   const { client } = useTeamHubRuntime();
   const desktop = useDesktopComputer();
+  const cliInstallAvailable = useCliInstallAvailable();
   const [platform, setPlatform] = useState(browserComputerPlatform);
   // The desktop preloads this page hidden so "Open Linger" can reveal a
   // rendered Room, and the realtime stream is closed while hidden, so the gate
@@ -81,6 +82,9 @@ export function LocalComputerGate({
   const computer = gateComputer(computers.data?.items ?? []);
   const online = computer?.status === "online" && !computer.upgrade_required;
   const ready = online && hasReadyRuntime(computer);
+  const desktopOnlyStep = Boolean(
+    desktop && (!computer || !cliInstallAvailable),
+  );
   const command = computerCommand();
 
   return (
@@ -138,13 +142,21 @@ export function LocalComputerGate({
           </p>
         ) : (
           <ol className="divide-y divide-border px-6">
-            {desktop && !computer ? (
+            {desktopOnlyStep && desktop ? (
               <GateStep
                 number={1}
-                state="current"
+                state={online ? "done" : "current"}
                 title={t(computerSetupMessages.connectThisComputer)}
               >
-                <DesktopComputerSetup desktop={desktop} />
+                {online && computer ? (
+                  <p className="mt-2 text-xs text-app-success" role="status">
+                    {t(computersMessages.computerOnline, {
+                      computer: computer.display_name,
+                    })}
+                  </p>
+                ) : (
+                  <DesktopComputerSetup desktop={desktop} />
+                )}
               </GateStep>
             ) : (
               <>
@@ -173,7 +185,7 @@ export function LocalComputerGate({
               </>
             )}
             <GateStep
-              number={desktop && !computer ? 2 : 3}
+              number={desktopOnlyStep ? 2 : 3}
               state={online ? "current" : "next"}
               title={t(computersMessages.setUpAiApp)}
             >
@@ -273,6 +285,9 @@ function AppSetup({
   const missing = appOrder.filter(
     (app) => appStatus(computer, app) === "not_installed",
   );
+  const outdated = appOrder.filter(
+    (app) => appStatus(computer, app) === "incompatible",
+  );
   const signIn = appOrder.filter(
     (app) => appStatus(computer, app) === "authentication_required",
   );
@@ -296,11 +311,19 @@ function AppSetup({
         </div>
       ))}
       {signIn.length === 0 ? (
-        <LocalRuntimeInstallGuidance
-          computerName={computer.display_name}
-          platform={computer.platform}
-          runtimeTypes={missing}
-        />
+        <>
+          <LocalRuntimeInstallGuidance
+            action="update"
+            computerName={computer.display_name}
+            platform={computer.platform}
+            runtimeTypes={outdated}
+          />
+          <LocalRuntimeInstallGuidance
+            computerName={computer.display_name}
+            platform={computer.platform}
+            runtimeTypes={missing}
+          />
+        </>
       ) : null}
       <p className="text-xs text-muted-foreground">
         <RichMessage

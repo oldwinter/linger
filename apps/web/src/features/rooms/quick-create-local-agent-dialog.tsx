@@ -7,14 +7,26 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { ModalDialog } from "@/components/ui/modal-dialog";
 import { Select, SelectItem } from "@/components/ui/select";
+import { Spinner } from "@/components/ui/spinner";
+import { appNames } from "@/features/local-computer/computer-readiness";
 import { ComputerSetupInstructions } from "@/features/local-computer/computer-setup-instructions";
-import { useDesktopComputer } from "@/features/local-computer/desktop-computer";
+import { computerSetupMessages } from "@/features/local-computer/computer-setup.messages";
+import {
+  useCliInstallAvailable,
+  useDesktopComputer,
+} from "@/features/local-computer/desktop-computer";
 import { DesktopComputerSetup } from "@/features/local-computer/desktop-computer-setup";
 import { subscribeLocalComputerEnrollment } from "@/features/local-computer/local-computer-enrollment-events";
 import { localComputersQueryKey } from "@/features/local-computer/local-computer-queries";
 import { LocalRuntimeAuthenticationGuidance } from "@/features/local-computer/local-runtime-authentication-guidance";
 import { LocalRuntimeInstallGuidance } from "@/features/local-computer/local-runtime-install-guidance";
+import { LocalRuntimeUpdateGuidance } from "@/features/local-computer/local-runtime-update-guidance";
+import {
+  classifyPiLocalModelsState,
+  PiRuntimeSetupGuidance,
+} from "@/features/local-computer/pi-runtime-setup-guidance";
 import { ServerConnection } from "@/features/local-computer/server-connection";
+import { localModelsQueryOptions } from "@/features/local-models/local-models-queries";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type {
   TeamHubAgentReasoningEffort,
@@ -64,6 +76,7 @@ export function QuickCreateLocalAgentDialog({
   const [effort, setEffort] = useState<TeamHubAgentReasoningEffort>();
   const [target, setTarget] = useState<LocalAgentTarget>();
   const desktop = useDesktopComputer();
+  const cliInstallAvailable = useCliInstallAvailable();
   const desktopComputerId = desktop?.status?.computerId;
   const [connection, setConnection] = useState<{
     knownIds: ReadonlySet<string>;
@@ -168,6 +181,16 @@ export function QuickCreateLocalAgentDialog({
     : selectedRuntime?.status === "authentication_required"
       ? selectedRuntime
       : undefined;
+  const localModels = useQuery({
+    ...localModelsQueryOptions(client, tenantId, selectedComputerId),
+    enabled: Boolean(
+      !setupOpen &&
+      selectedComputerId &&
+      selectedRuntime?.type === "pi" &&
+      selectedRuntime.status === "authentication_required",
+    ),
+  });
+  const piModelsState = classifyPiLocalModelsState(localModels.data);
 
   function selectComputer(value: string) {
     setComputerId(value);
@@ -179,7 +202,7 @@ export function QuickCreateLocalAgentDialog({
   // Where the downloaded models of the selected Computer are managed.
   const modelsLink = (text: string) => (
     <Link
-      className="font-medium text-foreground underline underline-offset-2"
+      className="whitespace-nowrap font-medium text-foreground underline underline-offset-2"
       onClick={onClose}
       to={`/t/${encodeURIComponent(tenantId)}/settings/models?computer=${encodeURIComponent(selectedComputerId)}`}
     >
@@ -321,24 +344,26 @@ export function QuickCreateLocalAgentDialog({
                 >
                   {t(createAgentMessages.computer)}
                 </label>
-                <Button
-                  size="compact"
-                  tone="ghost"
-                  onClick={() =>
-                    setConnection({
-                      knownIds: new Set(
-                        computers.data?.items.map(
-                          (computer) => computer.computer_id,
+                {cliInstallAvailable ? (
+                  <Button
+                    size="compact"
+                    tone="ghost"
+                    onClick={() =>
+                      setConnection({
+                        knownIds: new Set(
+                          computers.data?.items.map(
+                            (computer) => computer.computer_id,
+                          ),
                         ),
-                      ),
-                    })
-                  }
-                >
-                  <span className="inline-flex items-center gap-1.5 text-app-info">
-                    <Icon icon={Add01Icon} size={14} />{" "}
-                    {t(createAgentMessages.connectNewComputer)}
-                  </span>
-                </Button>
+                      })
+                    }
+                  >
+                    <span className="inline-flex items-center gap-1.5 text-app-info">
+                      <Icon icon={Add01Icon} size={14} />{" "}
+                      {t(createAgentMessages.connectNewComputer)}
+                    </span>
+                  </Button>
+                ) : null}
               </div>
               <Select
                 id="local-agent-computer"
@@ -446,7 +471,47 @@ export function QuickCreateLocalAgentDialog({
                   </Select>
                 </label>
                 {!selectedModel && !loginRuntime ? (
-                  selectedRuntime?.type === "pi" ? (
+                  selectedComputer &&
+                  selectedRuntime?.status === "incompatible" ? (
+                    <LocalRuntimeUpdateGuidance
+                      computerName={selectedComputer.display_name}
+                      diagnosticMessage={selectedRuntime.message}
+                      platform={selectedComputer.platform}
+                      runtimeType={selectedRuntime.type}
+                      version={selectedRuntime.version}
+                    />
+                  ) : selectedComputer &&
+                    selectedRuntime?.status === "unknown" ? (
+                    <div
+                      className="flex items-center gap-2 rounded-lg border border-border bg-muted/40 p-3 text-xs text-muted-foreground"
+                      role="status"
+                    >
+                      <Spinner size={14} />
+                      <span>
+                        {t(computerSetupMessages.checkingRuntimeBody, {
+                          app: appNames[selectedRuntime.type],
+                          computer: selectedComputer.display_name,
+                        })}
+                      </span>
+                    </div>
+                  ) : selectedComputer &&
+                    selectedRuntime?.status === "error" ? (
+                    <div
+                      className="rounded-lg border border-[var(--app-status-warning-border)] bg-[var(--app-status-warning-surface)] p-3 text-xs text-app-body"
+                      role="alert"
+                    >
+                      <p className="font-medium text-foreground">
+                        {t(computerSetupMessages.runtimeCheckFailedTitle, {
+                          app: appNames[selectedRuntime.type],
+                        })}
+                      </p>
+                      {selectedRuntime.message ? (
+                        <p className="mt-1 font-mono text-muted-foreground">
+                          {selectedRuntime.message}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : selectedRuntime?.type === "pi" ? (
                     <p className="text-xs text-muted-foreground" role="status">
                       <RichMessage
                         message={createAgentMessages.downloadModel}
@@ -473,13 +538,23 @@ export function QuickCreateLocalAgentDialog({
           </>
         )}
         {loginComputer && loginRuntime ? (
-          <div className="text-xs text-app-muted" role="status">
-            <LocalRuntimeAuthenticationGuidance
+          !setupOpen && loginRuntime.type === "pi" ? (
+            <PiRuntimeSetupGuidance
               computer={loginComputer}
               computerName={loginComputer.display_name}
-              runtimeType={loginRuntime.type}
+              isLoadingModels={localModels.isLoading}
+              modelsLink={modelsLink}
+              state={piModelsState}
             />
-          </div>
+          ) : (
+            <div className="text-xs text-app-muted" role="status">
+              <LocalRuntimeAuthenticationGuidance
+                computer={loginComputer}
+                computerName={loginComputer.display_name}
+                runtimeType={loginRuntime.type}
+              />
+            </div>
+          )
         ) : null}
       </div>
     </ModalDialog>

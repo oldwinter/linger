@@ -84,10 +84,16 @@ Gateway and runs Agents. The daemon exits with the app.
   status summary, tray menu and tray icons, drawn from the logo PNGs in
   `resources/tray/` with a status badge.
 - `src/main/local-server.ts`: LocalServer, the setup page's Quick Install
-  path. It fetches the pinned Node runtime (sources in the download region's
+  path. On Windows, install preflight checks both the install home and the
+  Computer daemon directory (`<userData>/computer`) non-destructively via
+  `windowsPrivateLocation` before fetching Node or unpacking, so ancestor ACL
+  refusals fail immediately with the offending ancestor path and SID instead of
+  after enrollment. It fetches the pinned Node runtime (sources in the download region's
   order, `scripts/installs/README.md`) and unpacks the linger source package
   into the install location (the default home, or a folder picked under
-  Customize; tar runs inside the target with relative paths, and the
+  Customize; tar runs inside the target with relative paths, falling back to
+  the pure-Node extractor when `tar.exe` is missing with `ENOENT` on stripped
+  Windows images, and the
   finished folder is moved into place with `renameRetrying`, which waits out
   Windows' short-lived locks on new files) and starts the bundled
   `dist/installer/installer.js` headless (`--no-open`), which runs every
@@ -271,10 +277,14 @@ Gateway and runs Agents. The daemon exits with the app.
   origin (`details.origin`, or the setup job's `origin`). The record, the
   window's `serverUrl` and the `savedEnrollments` entry follow it together
   (`setServer` with the previous origin emits `server.moved`, not
-  `server.changed`), so the Computer stays enrolled: it reaches TeamHub
-  through the gateway URL TeamHub gave it, and the session cookies are not
-  port-scoped. The record and `serverUrl` change only together, so a later
-  launch still resumes. A source folder removed since, or
+  `server.changed`), so the Computer stays enrolled and the session cookies
+  are not port-scoped. When `node-services` also (or independently) moved off
+  a taken port, `LocalServer` reads the instance's `source.ports.nodeServices`
+  after resume or a fast-ready move and updates the saved loopback `gatewayUrl`
+  in `credential.json` through `Enrollment.syncLocalGatewayUrl` (emitting
+  `computer.changed` to restart the daemon on the new port without changing the
+  Computer identity or token; remote gateway URLs are never rewritten). The
+  record and `serverUrl` change only together, so a later launch still resumes. A source folder removed since, or
   one the installer no longer accepts as a Linger checkout (such as one the
   earlier Simplex app unpacked, or this package's own folder with files
   missing since), is unpacked again from the app's package first and
@@ -384,8 +394,14 @@ Gateway and runs Agents. The daemon exits with the app.
   `*.input.json`, keys, cookies, databases) never go in, every saved voice key
   is replaced wherever a log printed it, and every text passes through `redact`
   plus a secret-key JSON filter, and the person's home folder becomes `~`. It
-  includes daemon connection/status summary fields. It imports no Electron API,
-  so it is tested with Windows paths on any platform.
+  includes daemon connection/status summary fields. It also bundles the newest
+  bounded `localmodels` stack run records
+  (`runtime/localmodels/state/stacks/*.run.json` and `.progress`), local
+  deployment records (`runtime/localmodels/state/deployments/local/*.json`),
+  and deployment engine logs (`runtime/localmodels/models/deployments/*/server.log`),
+  capped in count and byte size and excluding `byok.json`, `api-key`, and model
+  weights. It imports no Electron API, so it is tested with Windows paths on
+  any platform.
 - `src/main/diagnostics-upload.ts`: "Send Diagnostics" on the setup page, the
   start failure page and the tray, shown only while a receiver is set up
   (`diagnosticsUploadUrl` in `config.json`, else `HOSTED_DIAGNOSTICS_UPLOAD_URL`, which `build.mjs` bakes
@@ -516,7 +532,11 @@ Gateway and runs Agents. The daemon exits with the app.
   RTX DCH WHQL downloads (allowlisted CDN, Windows Authenticode check, elevated
   `-s -noreboot -noeula` install, `PowerGuard` sleep block, and `config.json`
   `pendingDriverUpdate` post-reboot resume) with `getInstallState` /
-  `onInstallState` / `startInstall` / `clearInstallState`.
+  `onInstallState` / `startInstall` / `clearInstallState`; and
+  `localServer.owned()` reports whether the window points at this app's own
+  local installation regardless of startup/resume readiness, so the SPA can hide
+  CLI daemon download entry points even during hot start or install-time
+  preload.
 - `src/shared/api.ts`, `src/shared/shell.ts`: preload contract types and IPC
   channel names.
 - `src/main/computer-daemon.ts`: ComputerDaemon. While the computer is

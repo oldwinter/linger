@@ -33,13 +33,17 @@ import {
   readLocalIdentity,
   readLocalLogin,
 } from "@linger/local-installation/account";
+import { extractArchiveFallback } from "@linger/local-installation/archive";
 import { downloadInRegion } from "@linger/local-installation/region";
 import { latestLegacyBackup } from "@linger/local-installation/legacy-database";
 import { legacyMigrationPending } from "@linger/local-installation/home";
 import { loadInstance } from "@linger/local-installation/instance";
 import { foldersInUse } from "@linger/local-installation/native-process";
 import { normalizeFailurePunctuation } from "@linger/local-installation/localmodels-failure";
-import { validateSourceRepository } from "@linger/local-installation/source-checkout";
+import {
+  localRunnerGatewayUrl,
+  validateSourceRepository,
+} from "@linger/local-installation/source-checkout";
 import type { LegacyInstanceSkipped } from "@linger/local-installation/legacy-migration";
 import {
   type SetupChoice,
@@ -64,6 +68,7 @@ import {
 import { redact } from "@linger/local-installation/redaction";
 import { isInkling2MiniModelId } from "@linger/service-kit/featured-models";
 import {
+  windowsPrivateLocation,
   windowsPrivateRefusal,
   type WindowsPrivateRefusal,
 } from "@linger/local-installation/windows-private";
@@ -391,6 +396,13 @@ export interface LocalServerOptions {
   readonly pollMs?: number;
   // The free space a picked folder needs; LOCATION_FREE_BYTES by default.
   readonly freeBytes?: number;
+  // Where the Desktop Computer daemon stores its config and state
+  // (<userData>/computer); validated on Windows during setup preflight so
+  // ancestor ACL refusals fail immediately instead of after installation.
+  readonly daemonDirectory?: string;
+  // Checks Windows private-path safety for a candidate directory without
+  // creating it or mutating ACLs; windowsPrivateLocation by default on Windows.
+  readonly checkPrivateLocation?: (directory: string) => Promise<void>;
   // How long setup waits for the Another Me; AGENTS_TIMEOUT_MS by default.
   readonly agentsTimeoutMs?: number;
   // Opens the runtime's sign-in page in the browser.
@@ -1247,6 +1259,34 @@ export class LocalServerModule implements Module {
         );
         if (error) throw new Error(error);
       }
+      // On Windows, pre-check both the install home and the Computer daemon
+      // directory (<userData>/computer) before unpacking so ancestor ACL
+      // refusals fail immediately instead of after installation and enrollment.
+      if ((this.#options.platform ?? process.platform) === "win32") {
+        const checkPrivate =
+          this.#options.checkPrivateLocation ?? windowsPrivateLocation;
+        await this.#timed("private_paths", async () => {
+          await checkPrivate(home);
+          const daemonDirectory = this.#options.daemonDirectory;
+          if (
+            daemonDirectory &&
+            path.resolve(daemonDirectory) !== path.resolve(home)
+          ) {
+            try {
+              await checkPrivate(daemonDirectory);
+            } catch (error) {
+              // Do not tag a daemon-directory refusal as an install-location
+              // refusal; moving the install folder does not move <userData>.
+              const detail =
+                error instanceof Error ? error.message : String(error);
+              throw new Error(
+                `Desktop Computer directory validation failed: ${detail}`,
+                { cause: error },
+              );
+            }
+          }
+        });
+      }
       const node = await this.#timed("node", () => this.#ensureNode(signal));
       const keysChanged = Object.keys(plan.keys ?? {}).length > 0;
       if (keysChanged)
@@ -1413,7 +1453,9 @@ export class LocalServerModule implements Module {
       this.#set(
         "failed",
         message,
-        windowsPrivateRefusal((error as { refusal?: unknown } | null)?.refusal),
+        windowsPrivateRefusal(
+          (error as { refusal?: unknown } | null)?.refusal ?? error,
+        ),
         localServerFailure((error as { code?: unknown } | null)?.code),
       );
       throw error;
@@ -1549,6 +1591,18 @@ export class LocalServerModule implements Module {
     this.#signInWake = undefined;
     this.#opened = undefined;
     this.#signInMethod = undefined;
+  }
+
+  // Whether the window is pointed at this app's own local installation
+  // regardless of startup phase (installing, preparing/resuming, or ready),
+  // unlike servesWindow(), which also requires readiness and TeamHub proof
+  // before posting the owner password.
+  async ownsWindow(): Promise<boolean> {
+    const serverUrl = this.#ctx?.config.get().serverUrl;
+    if (!serverUrl) return false;
+    if (this.#origin && sameOrigin(this.#origin, serverUrl)) return true;
+    const record = await this.#readRecord();
+    return Boolean(record && sameOrigin(record.origin, serverUrl));
   }
 
   // Whether the window shows the Linger this app installed here and its
@@ -2394,25 +2448,13 @@ export class LocalServerModule implements Module {
     unpacked: string,
     signal: AbortSignal,
   ): Promise<void> {
-    await removeRetrying(unpacked);
-    await mkdir(unpacked, { recursive: true, mode: 0o700 });
-    // Windows' tar may not read zstd; Node's zlib does, and tar reads stdin.
-    if (file.endsWith(".zst")) {
-      await run(
-        tarCommand(),
-        ["-xf", "-", "--strip-components=1"],
-        unpacked,
-        signal,
-        createReadStream(file, { signal }).pipe(createZstdDecompress()),
-      );
-      return;
-    }
-    await run(
-      tarCommand(),
-      ["-xf", path.relative(unpacked, file), "--strip-components=1"],
-      unpacked,
-      signal,
-    );
+    await unpackArchive(file, unpacked, signal, {
+      onFallback: (command) =>
+        this.#ctx?.log.warn("local_server.tar_fallback", {
+          command,
+          archive: path.basename(file),
+        }),
+    });
   }
 
   // Moves a finished `unpacked` folder to `directory`. One that is already
@@ -2776,6 +2818,7 @@ export class LocalServerModule implements Module {
               to: moved,
             });
             this.#ready(moved, previous, "port_moved");
+            await this.#syncLocalGateway(currentRecord.home, moved, previous);
             reachable = true;
           }
         }
@@ -2839,6 +2882,11 @@ export class LocalServerModule implements Module {
           from: currentRecord.version,
         });
       this.#ready(origin, currentRecord.origin, "resume_ready");
+      await this.#syncLocalGateway(
+        currentRecord.home,
+        origin,
+        currentRecord.origin,
+      );
       this.#set("ready", "Linger is running on this computer.");
       this.#ctx?.log.info("local_server.resume_succeeded", {
         total_ms: Date.now() - startedAt,
@@ -3203,6 +3251,38 @@ export class LocalServerModule implements Module {
     } catch {
       return undefined;
     }
+  }
+
+  // Reads the desktop instance's current Runner Gateway URL from instance.json.
+  async #readInstanceGatewayUrl(home: string): Promise<string | undefined> {
+    try {
+      const instance = await loadInstance({ name: LOCAL_INSTANCE, home });
+      const port = instance?.source?.ports.nodeServices;
+      return port === undefined ? undefined : localRunnerGatewayUrl(port);
+    } catch {
+      return undefined;
+    }
+  }
+
+  // Keeps the enrolled desktop daemon pointed at this instance's Runner
+  // Gateway when the installer reassigned node-services off a taken port.
+  async #syncLocalGateway(
+    home: string,
+    origin: string,
+    previous?: string,
+  ): Promise<void> {
+    const serverUrl = this.#ctx?.config.get().serverUrl;
+    if (
+      !serverUrl ||
+      (!sameOrigin(serverUrl, origin) &&
+        (!previous || !sameOrigin(serverUrl, previous)))
+    )
+      return;
+    const gatewayUrl = await this.#readInstanceGatewayUrl(home);
+    if (!gatewayUrl) return;
+    this.#ctx
+      ?.get<EnrollmentModule>("Enrollment")
+      .syncLocalGatewayUrl(gatewayUrl);
   }
 
   // Kept in the default home, wherever the installation went.
@@ -4436,10 +4516,81 @@ const isFile = async (file: string): Promise<boolean> => {
 
 // Windows' own bsdtar reads both the tar.gz source package and the Node zip;
 // a GNU tar earlier on PATH (Git for Windows) reads neither "C:" paths nor zips.
-const tarCommand = (): string =>
-  process.platform === "win32"
-    ? path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe")
-    : "tar";
+export function tarCommand(
+  platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  if (platform !== "win32") return "tar";
+  const systemRoot =
+    env.SystemRoot?.trim() || env.windir?.trim() || "C:\\Windows";
+  return path.win32.join(systemRoot, "System32", "tar.exe");
+}
+
+export interface UnpackArchiveOptions {
+  readonly command?: string;
+  readonly platform?: NodeJS.Platform;
+  readonly runCommand?: typeof run;
+  readonly fallback?: typeof extractArchiveFallback;
+  readonly onFallback?: (command: string) => void;
+}
+
+// Unpacks `file` (stripping its single top-level directory) into an empty
+// `unpacked` folder. If system tar is missing (for example on stripped Windows
+// images without System32\tar.exe), falls back to the pure-Node extractor and
+// surfaces an actionable error if that also fails.
+export async function unpackArchive(
+  file: string,
+  unpacked: string,
+  signal: AbortSignal,
+  options: UnpackArchiveOptions = {},
+): Promise<void> {
+  const platform = options.platform ?? process.platform;
+  const command = options.command ?? tarCommand(platform);
+  const runCommand = options.runCommand ?? run;
+  const fallback = options.fallback ?? extractArchiveFallback;
+  await removeRetrying(unpacked);
+  await mkdir(unpacked, { recursive: true, mode: 0o700 });
+  try {
+    // Windows' tar may not read zstd; Node's zlib does, and tar reads stdin.
+    if (file.endsWith(".zst")) {
+      await runCommand(
+        command,
+        ["-xf", "-", "--strip-components=1"],
+        unpacked,
+        signal,
+        createReadStream(file, { signal }).pipe(createZstdDecompress()),
+      );
+      return;
+    }
+    await runCommand(
+      command,
+      ["-xf", path.relative(unpacked, file), "--strip-components=1"],
+      unpacked,
+      signal,
+    );
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") throw error;
+    options.onFallback?.(command);
+    await removeRetrying(unpacked);
+    await mkdir(unpacked, { recursive: true, mode: 0o700 });
+    try {
+      await fallback(file, unpacked, { strip: 1, signal });
+    } catch (fallbackError) {
+      const detail =
+        fallbackError instanceof Error
+          ? fallbackError.message
+          : String(fallbackError);
+      const hint =
+        platform === "win32"
+          ? "Restore Windows tar.exe or reinstall Linger."
+          : "Install tar or reinstall Linger.";
+      throw new Error(
+        `Failed to unpack ${path.basename(file)}: ${command} was not found (ENOENT) and the built-in extractor failed (${detail}). ${hint}`,
+        { cause: fallbackError },
+      );
+    }
+  }
+}
 
 // Resolves once the child exited and closed its stdio, so nothing of it
 // still holds the files it wrote.

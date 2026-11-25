@@ -88,7 +88,9 @@ class RecordingDispatcher implements RunnerOperationDispatcher {
 
 const createProvider = (
   dispatcher: RunnerOperationDispatcher,
-  runtime: { type: "codex" | "claude" } = { type: "codex" },
+  runtime: { type: "codex" | "claude" | "pi" | "antigravity" } = {
+    type: "codex",
+  },
   resolveGate?: Promise<void>,
   logger?: AgentLogger,
   reviews: Pick<
@@ -210,6 +212,21 @@ describe("RemoteCodexProvider provider prepare", () => {
       acceptedInputSinceMs: 0,
     });
     expect(claude.prepares).toHaveLength(0);
+
+    const pi = new RecordingDispatcher();
+    const piProvider = createProvider(pi, { type: "pi" });
+    const piSession = await piProvider.resumeSession(
+      {
+        provider: "pi",
+        sessionId: "uuid-pi-1",
+        lingerMaterialized: true,
+      },
+      sessionOptions(),
+    );
+    piProvider.prepareForAcceptedInput(piSession, {
+      acceptedInputSinceMs: 0,
+    });
+    expect(pi.prepares).toHaveLength(0);
 
     const repeated = new RecordingDispatcher();
     const repeatedProvider = createProvider(repeated);
@@ -345,6 +362,51 @@ describe("RemoteCodexProvider presence prepare", () => {
     expect(dispatcher.prepares[0]!.options.session).toMatchObject({
       sessionId: "12345678-1234-4234-8234-123456789012",
     });
+  });
+
+  it("sends a Pi presence prepare with the session id the following run.start sends", async () => {
+    const dispatcher = new RecordingDispatcher();
+    const provider = createProvider(dispatcher, { type: "pi" });
+    const session = await provider.createSession(sessionOptions());
+
+    provider.prepareForPresence(session);
+    expect(dispatcher.prepares).toHaveLength(1);
+    expect(dispatcher.prepares[0]!.options.runtime).toEqual({ type: "pi" });
+
+    await provider.startRun(session, { type: "text", text: "work" }, runSpec());
+    const [start] = runStartTargets(dispatcher);
+    if (start?.request.kind !== "run.start") throw new Error("no run.start");
+    expect(dispatcher.prepares[0]!.options.session).toEqual(
+      start.request.session,
+    );
+    expect(dispatcher.prepares[0]!.options.session).toMatchObject({
+      provider: "pi",
+      lingerMaterialized: false,
+    });
+  });
+
+  it("skips presence prepare for a Pi session without an id and for Antigravity", async () => {
+    for (const [runtimeType, override, reason] of [
+      ["pi", { provider: "pi" }, "session_not_started"],
+      ["antigravity", undefined, "runtime_unsupported"],
+    ] as const) {
+      const dispatcher = new RecordingDispatcher();
+      const logger = { log: vi.fn(), child: () => logger };
+      const provider = createProvider(
+        dispatcher,
+        { type: runtimeType },
+        undefined,
+        logger,
+      );
+      const created = await provider.createSession(sessionOptions());
+      provider.prepareForPresence(override ?? created);
+      expect(dispatcher.prepares).toHaveLength(0);
+      expect(logger.log).toHaveBeenCalledWith(
+        "info",
+        "runner.provider.prepare_skipped",
+        { source: "room_presence", reason },
+      );
+    }
   });
 
   it("prepares a Codex Context that has no thread yet with the session its first Run sends", async () => {

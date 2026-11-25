@@ -163,14 +163,14 @@ type SteerError struct {
 	Message      string
 }
 
-// PrepareProvider is the run.start of spec without input: it parks a Codex
-// or Claude process for the spec's session without submitting a turn. The
+// PrepareProvider is the run.start of spec without input: it parks a Codex,
+// Claude, or Pi process for the spec's session without submitting a turn. The
 // Run's attachments, its MCP servers and prompt, are connected when the Run
 // adopts the process, so a prepare carries none. A compatible resident is
 // left parked as it is.
 func (e Executor) PrepareProvider(ctx context.Context, spec OperationSpec) (Result, error) {
-	if spec.Provider != "codex" && spec.Provider != "claude" {
-		return Result{}, errors.New("provider prepare is supported only for Codex and Claude")
+	if spec.Provider != "codex" && spec.Provider != "claude" && spec.Provider != "pi" {
+		return Result{}, errors.New("provider prepare is supported only for Codex, Claude, and Pi")
 	}
 	spec.OperationKind = operationProviderPrepareKind
 	spec.Prompt = ""

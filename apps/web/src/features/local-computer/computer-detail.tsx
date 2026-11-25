@@ -80,6 +80,7 @@ export function ComputerDetail({
   agents,
   browserConnection,
   canDoHref,
+  cliInstallAvailable = true,
   computer: latestComputer,
   localModelsHref,
   onConnect,
@@ -94,6 +95,8 @@ export function ComputerDetail({
   browserConnection?: (variant: "chip" | "row") => ReactNode;
   /** Where the owner asks macOS what this computer may do. */
   canDoHref?: string;
+  /** Whether the active server ships the standalone CLI daemon (`linger-computer`). */
+  cliInstallAvailable?: boolean;
   computer: LocalComputer;
   /** Where this Computer's Local models page is; the page owns the route. */
   localModelsHref?: string;
@@ -152,11 +155,12 @@ export function ComputerDetail({
     >
       <ComputerSummary
         browserChip={browserConnection?.("chip")}
+        cliInstallAvailable={cliInstallAvailable}
         computer={computer}
         displayStatus={displayStatus}
         onConnect={onConnect}
         onSetUp={openSetup}
-        onUpdate={() => setUpdateOpen(true)}
+        onUpdate={cliInstallAvailable ? () => setUpdateOpen(true) : undefined}
         readiness={readiness}
       />
       {canDoHref && computer.platform === "darwin" ? (
@@ -187,6 +191,7 @@ export function ComputerDetail({
         {appOrder.map((app) => (
           <AppRow
             app={app}
+            cliInstallAvailable={cliInstallAvailable}
             computer={computer}
             key={app}
             onSetUp={() => openSetup(app)}
@@ -236,7 +241,9 @@ export function ComputerDetail({
         defaultOpen={false}
         title={t(computersMessages.advanced)}
         trailing={
-          isUpgradeRecommended(computer) && !computer.upgrade_required ? (
+          cliInstallAvailable &&
+          isUpgradeRecommended(computer) &&
+          !computer.upgrade_required ? (
             <span className="rounded-md bg-[var(--app-status-warning-surface)] px-1.5 text-xs text-app-warning">
               {t(computersMessages.update)}
             </span>
@@ -244,9 +251,10 @@ export function ComputerDetail({
         }
       >
         <AdvancedRows
+          cliInstallAvailable={cliInstallAvailable}
           computer={computer}
           onRemove={onRemove}
-          onUpdate={() => setUpdateOpen(true)}
+          onUpdate={cliInstallAvailable ? () => setUpdateOpen(true) : undefined}
         />
       </Group>
       {setup ? (
@@ -258,7 +266,7 @@ export function ComputerDetail({
           onClose={() => setSetup(null)}
         />
       ) : null}
-      {updateOpen ? (
+      {cliInstallAvailable && updateOpen ? (
         <ModalDialog
           footer={
             <Button data-voice-close onClick={() => setUpdateOpen(false)}>
@@ -296,6 +304,7 @@ export function ComputerDetail({
 
 function ComputerSummary({
   browserChip,
+  cliInstallAvailable,
   computer,
   displayStatus,
   onConnect,
@@ -304,19 +313,22 @@ function ComputerSummary({
   readiness,
 }: {
   browserChip?: ReactNode;
+  cliInstallAvailable: boolean;
   computer: LocalComputer;
   displayStatus: ComputerDisplayStatus;
   onConnect?: () => void;
   onSetUp: (app: TeamHubLocalRuntimeType, choosable?: boolean) => void;
-  onUpdate: () => void;
+  onUpdate?: () => void;
   readiness: ComputerReadiness;
 }) {
   const t = useT();
   const action =
     readiness.kind === "update" ? (
-      <Button onClick={onUpdate} tone="primary">
-        {t(computersMessages.update)}
-      </Button>
+      onUpdate ? (
+        <Button onClick={onUpdate} tone="primary">
+          {t(computersMessages.update)}
+        </Button>
+      ) : null
     ) : readiness.kind === "signIn" ? (
       <Button onClick={() => onSetUp(readiness.app)} tone="primary">
         {t(computersMessages.signInToApp, { app: appNames[readiness.app] })}
@@ -326,7 +338,12 @@ function ComputerSummary({
         {t(computersMessages.updateApp, { app: appNames[readiness.app] })}
       </Button>
     ) : readiness.kind === "check" ? (
-      <RuntimeCheckCard align="end" app={readiness.app} computer={computer}>
+      <RuntimeCheckCard
+        align="end"
+        app={readiness.app}
+        cliInstallAvailable={cliInstallAvailable}
+        computer={computer}
+      >
         <Button tone="primary">{t(computersMessages.checkAgain)}</Button>
       </RuntimeCheckCard>
     ) : readiness.kind === "setUp" ? (
@@ -368,7 +385,11 @@ function ComputerSummary({
         {action}
       </div>
       {readiness.kind === "offline" ? (
-        <OfflineSteps computer={computer} onConnect={onConnect} />
+        <OfflineSteps
+          cliInstallAvailable={cliInstallAvailable}
+          computer={computer}
+          onConnect={onConnect}
+        />
       ) : (
         <div
           className={cn(
@@ -519,9 +540,11 @@ function SummaryStatus({
 }
 
 function OfflineSteps({
+  cliInstallAvailable,
   computer,
   onConnect,
 }: {
+  cliInstallAvailable: boolean;
   computer: LocalComputer;
   onConnect?: () => void;
 }) {
@@ -540,32 +563,36 @@ function OfflineSteps({
           {t(computersMessages.turnOn)}
         </span>
       </Hint>
-      <Icon
-        className="text-muted-foreground/60"
-        icon={ArrowRight01Icon}
-        size={14}
-      />
-      <HintCard
-        focusable
-        content={
-          <>
-            <span className="block text-sm font-medium text-foreground">
-              {t(computersMessages.stillOffline)}
+      {cliInstallAvailable ? (
+        <>
+          <Icon
+            className="text-muted-foreground/60"
+            icon={ArrowRight01Icon}
+            size={14}
+          />
+          <HintCard
+            focusable
+            content={
+              <>
+                <span className="block text-sm font-medium text-foreground">
+                  {t(computersMessages.stillOffline)}
+                </span>
+                {t(computersMessages.runInTerminalOn, {
+                  computer: computer.display_name,
+                })}
+                <CommandLine command={`${computerCommand()} daemon start`} />
+              </>
+            }
+          >
+            <span className={step}>
+              <span className={bubble}>
+                <Icon icon={PlayIcon} size={12} />
+              </span>
+              {t(computersMessages.startApp)}
             </span>
-            {t(computersMessages.runInTerminalOn, {
-              computer: computer.display_name,
-            })}
-            <CommandLine command={`${computerCommand()} daemon start`} />
-          </>
-        }
-      >
-        <span className={step}>
-          <span className={bubble}>
-            <Icon icon={PlayIcon} size={12} />
-          </span>
-          {t(computersMessages.startApp)}
-        </span>
-      </HintCard>
+          </HintCard>
+        </>
+      ) : null}
       {onConnect ? (
         <>
           <Icon
@@ -658,11 +685,13 @@ function MarkDot({ tone }: { tone: "neutral" | "warning" }) {
 
 function AppRow({
   app,
+  cliInstallAvailable,
   computer,
   onSetUp,
   online,
 }: {
   app: TeamHubLocalRuntimeType;
+  cliInstallAvailable: boolean;
   computer: LocalComputer;
   onSetUp: () => void;
   online: boolean;
@@ -713,7 +742,12 @@ function AppRow({
       {t(computersMessages.update)}
     </Button>
   ) : (
-    <RuntimeCheckCard app={app} computer={computer} focusable>
+    <RuntimeCheckCard
+      app={app}
+      cliInstallAvailable={cliInstallAvailable}
+      computer={computer}
+      focusable
+    >
       <span className="inline-flex text-muted-foreground">
         <Icon icon={InformationCircleIcon} size={16} />
       </span>
@@ -778,12 +812,14 @@ function RuntimeCheckCard({
   align,
   app,
   children,
+  cliInstallAvailable,
   computer,
   focusable = false,
 }: {
   align?: "start" | "end";
   app: TeamHubLocalRuntimeType;
   children: ReactNode;
+  cliInstallAvailable: boolean;
   computer: LocalComputer;
   focusable?: boolean;
 }) {
@@ -797,10 +833,14 @@ function RuntimeCheckCard({
           <span className="block text-sm font-medium text-foreground">
             {runtimeMessage(computer, app, t)}
           </span>
-          {t(computersMessages.checkAgainOn, {
-            computer: computer.display_name,
-          })}
-          <CommandLine command={`${computerCommand()} runtime check`} />
+          {cliInstallAvailable ? (
+            <>
+              {t(computersMessages.checkAgainOn, {
+                computer: computer.display_name,
+              })}
+              <CommandLine command={`${computerCommand()} runtime check`} />
+            </>
+          ) : null}
         </>
       }
     >
@@ -831,13 +871,15 @@ function WorkspaceRows({ computer }: { computer: LocalComputer }) {
 }
 
 function AdvancedRows({
+  cliInstallAvailable,
   computer,
   onRemove,
   onUpdate,
 }: {
+  cliInstallAvailable: boolean;
   computer: LocalComputer;
   onRemove?: () => void;
-  onUpdate: () => void;
+  onUpdate?: () => void;
 }) {
   const t = useT();
   const command = computerCommand();
@@ -858,7 +900,8 @@ function AdvancedRows({
           <span className="rounded-md bg-muted px-2 py-0.5 text-xs text-secondary-foreground">
             {computer.daemon_version ?? t(computersMessages.notReported)}
           </span>
-          {computer.upgrade_required || isUpgradeRecommended(computer) ? (
+          {onUpdate &&
+          (computer.upgrade_required || isUpgradeRecommended(computer)) ? (
             <button
               className="inline-flex items-center gap-1.5 rounded-md bg-[var(--app-status-warning-surface)] px-2 py-0.5 text-xs text-app-warning"
               onClick={onUpdate}
@@ -880,34 +923,36 @@ function AdvancedRows({
           {computer.computer_id}
         </span>
       </div>
-      <div className={cn(row, "items-start py-1.5")}>
-        <span className={cn(label, "pt-1.5")}>
-          {t(computersMessages.troubleshoot)}
-        </span>
-        <span className="flex flex-wrap gap-1">
-          {tools.map(([icon, name, toolCommand]) => (
-            <HintCard
-              content={
-                <>
-                  <span className="block text-sm font-medium text-foreground">
-                    {t(name)}
-                  </span>
-                  {t(computersMessages.runInTerminalOn, {
-                    computer: computer.display_name,
-                  })}
-                  <CommandLine command={toolCommand} />
-                </>
-              }
-              key={name.id}
-            >
-              <Button tone="ghost">
-                <Icon icon={icon} size={14} />
-                {t(name)}
-              </Button>
-            </HintCard>
-          ))}
-        </span>
-      </div>
+      {cliInstallAvailable ? (
+        <div className={cn(row, "items-start py-1.5")}>
+          <span className={cn(label, "pt-1.5")}>
+            {t(computersMessages.troubleshoot)}
+          </span>
+          <span className="flex flex-wrap gap-1">
+            {tools.map(([icon, name, toolCommand]) => (
+              <HintCard
+                content={
+                  <>
+                    <span className="block text-sm font-medium text-foreground">
+                      {t(name)}
+                    </span>
+                    {t(computersMessages.runInTerminalOn, {
+                      computer: computer.display_name,
+                    })}
+                    <CommandLine command={toolCommand} />
+                  </>
+                }
+                key={name.id}
+              >
+                <Button tone="ghost">
+                  <Icon icon={icon} size={14} />
+                  {t(name)}
+                </Button>
+              </HintCard>
+            ))}
+          </span>
+        </div>
+      ) : null}
       {onRemove ? (
         <div className={row}>
           <span className={label} />

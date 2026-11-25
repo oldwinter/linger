@@ -48,6 +48,11 @@ export async function windowsElevated(
   );
 }
 
+// Slow HDDs and Windows antivirus scanning can hold PostgreSQL in initial
+// data-directory fsync past 30 seconds while the server process stays alive.
+const POSTGRES_READY_TIMEOUT_MS = 120_000;
+const POSTGRES_READY_PROGRESS_MS = 15_000;
+
 // Prepares the instance's private PostgreSQL. A database from before Linger
 // is set aside with its data for a fresh one, and `legacyBackup` names the
 // folder it went to.
@@ -207,7 +212,9 @@ export async function prepareNativeDatabase(options: {
       "--dbname",
       "postgres",
     ];
-    const deadline = Date.now() + 30_000;
+    const startedAt = Date.now();
+    const deadline = startedAt + POSTGRES_READY_TIMEOUT_MS;
+    let nextProgressAt = startedAt + POSTGRES_READY_PROGRESS_MS;
     for (;;) {
       signal.throwIfAborted();
       if (!(await inspectNativeProcess(instance.root, "postgres")).running)
@@ -218,8 +225,17 @@ export async function prepareNativeDatabase(options: {
         { env, signal, timeoutMs: 5_000 },
       );
       if (ready.code === 0) break;
-      if (Date.now() >= deadline)
-        throw new Error("Native PostgreSQL did not become ready.");
+      const now = Date.now();
+      if (now >= deadline)
+        throw new Error(
+          `Native PostgreSQL did not become ready within ${Math.round(POSTGRES_READY_TIMEOUT_MS / 1000)}s (pg_isready exit ${ready.code}); inspect its instance log.`,
+        );
+      if (now >= nextProgressAt) {
+        options.onOutput(
+          `Waiting for native PostgreSQL to become ready (${Math.floor((now - startedAt) / 1000)}s elapsed)...\n`,
+        );
+        nextProgressAt = now + POSTGRES_READY_PROGRESS_MS;
+      }
       await delay(200, undefined, { signal });
     }
     const present = await command("psql", [

@@ -132,17 +132,28 @@ func waitForProviderPrepared(t *testing.T, stream *fakeStream, prepareID string)
 func TestProviderPrepareUnsupportedRuntimeIsNotEligibleWithoutSpawn(t *testing.T) {
 	backend := &providerPrepareBackend{}
 	d, stream := providerPrepareFixture(t, backend)
-	command := providerPrepareCommand("prepare-pi")
-	command.RuntimeType = "pi"
+	command := providerPrepareCommand("prepare-antigravity")
+	command.RuntimeType = "antigravity"
 	if err := d.handleProviderPrepare(context.Background(), stream, command); err != nil {
 		t.Fatal(err)
 	}
-	payload := waitForProviderPrepared(t, stream, "prepare-pi")
+	payload := waitForProviderPrepared(t, stream, "prepare-antigravity")
 	if payload["outcome"] != "not_eligible" || payload["reason"] == nil {
 		t.Fatalf("payload=%v, want not_eligible with a reason", payload)
 	}
 	if got := len(backend.executions()); got != 0 {
 		t.Fatalf("provider executions=%d, want none", got)
+	}
+}
+
+func TestProviderPrepareTimeoutGivesPiStartupRoom(t *testing.T) {
+	if got := providerPrepareTimeoutFor("pi"); got != piProviderPrepareTimeout || got <= providerPrepareTimeout {
+		t.Fatalf("pi timeout = %s, want %s > %s", got, piProviderPrepareTimeout, providerPrepareTimeout)
+	}
+	for _, runtimeType := range []string{"codex", "claude"} {
+		if got := providerPrepareTimeoutFor(runtimeType); got != providerPrepareTimeout {
+			t.Fatalf("%s timeout = %s, want %s", runtimeType, got, providerPrepareTimeout)
+		}
 	}
 }
 
