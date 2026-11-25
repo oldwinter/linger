@@ -6,6 +6,7 @@ import type { Message, MessageSource } from "@linger/service-kit/messages";
 import { describe, expect, it } from "vitest";
 
 import { offlineMessages } from "../shell/offline.messages.js";
+import { quickNoteMessages } from "../shell/quick-note.messages.js";
 import { setupMessages } from "../shell/setup.messages.js";
 import { titlebarMessages } from "../shell/titlebar.messages.js";
 import { LANGUAGES, SOURCE_LANGUAGE, catalogFor } from "./language.js";
@@ -57,6 +58,28 @@ describe("desktop message catalogs", () => {
   it("finds the message modules of the shell", () => {
     expect(source.size).toBeGreaterThan(0);
     for (const id of source.keys()) expect(id.split(".")).toHaveLength(2);
+  });
+
+  it("uses the canonical LingerX brand name across all desktop messages", () => {
+    const legacyBrand = /\bLinger\b/u;
+    const englishOffenders = [...source.entries()]
+      .filter(([, text]) => forms(text).some((form) => legacyBrand.test(form)))
+      .map(([id]) => id);
+    expect(englishOffenders).toEqual([]);
+
+    for (const language of LANGUAGES.filter((l) => l !== SOURCE_LANGUAGE)) {
+      const translatedOffenders = Object.entries(catalogFor(language) ?? {})
+        .flatMap(([namespace, messages]) =>
+          Object.entries(messages).map(
+            ([name, text]) => [`${namespace}.${name}`, text] as const,
+          ),
+        )
+        .filter(([, text]) =>
+          forms(text).some((form) => legacyBrand.test(form)),
+        )
+        .map(([id]) => id);
+      expect(translatedOffenders).toEqual([]);
+    }
   });
 
   describe.each(LANGUAGES.filter((language) => language !== SOURCE_LANGUAGE))(
@@ -127,6 +150,7 @@ describe("desktop message catalogs", () => {
 describe.each([
   ["setup.html", setupMessages],
   ["offline.html", offlineMessages],
+  ["quick-note.html", quickNoteMessages],
   ["titlebar.html", titlebarMessages],
 ] as const)("%s", (file, messages) => {
   const page = readFileSync(path.join(SRC, "shell", file), "utf8");

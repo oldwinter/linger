@@ -499,7 +499,7 @@ export function legacyMigrationResult(
   return {
     skipped,
     ...(own && {
-      failure: `Linger could not convert this computer's installation from the earlier Simplex app. ${own.reason}`,
+      failure: `LingerX could not convert this computer's installation from the earlier Simplex app. ${own.reason}`,
     }),
   };
 }
@@ -1260,7 +1260,7 @@ export class LocalServerModule implements Module {
   async #install(plan: LocalServerPlan): Promise<void> {
     const status = this.status();
     if (!status.available)
-      throw new Error("Running Linger on this computer is not supported here");
+      throw new Error("Running LingerX on this computer is not supported here");
     const signal = this.#abort.signal;
     const home = this.#location ?? this.#home;
     this.#attempt += 1;
@@ -1328,7 +1328,7 @@ export class LocalServerModule implements Module {
       this.#advance(
         "download",
         0,
-        this.#downloadsSource() ? "Downloading Linger…" : "Unpacking Linger…",
+        this.#downloadsSource() ? "Downloading LingerX…" : "Unpacking LingerX…",
       );
       const repo = await this.#timed("source", () =>
         this.#ensureSource(home, signal),
@@ -1473,7 +1473,7 @@ export class LocalServerModule implements Module {
       await this.#timed("await_agents", () =>
         this.#awaitAgents(job.origin, signal),
       );
-      this.#set("ready", "Linger is running on this computer.");
+      this.#set("ready", "LingerX is running on this computer.");
     } catch (error) {
       this.#endSignIn();
       if (signal.aborted) return;
@@ -1655,7 +1655,7 @@ export class LocalServerModule implements Module {
   // every call so the password is never kept in memory.
   async account(): Promise<LocalAccount> {
     const record = await this.#readRecord();
-    if (!record) throw new Error("Linger is not installed on this computer.");
+    if (!record) throw new Error("LingerX is not installed on this computer.");
     return readLocalAccount(
       path.join(record.home, "instances", LOCAL_INSTANCE),
     );
@@ -1667,7 +1667,7 @@ export class LocalServerModule implements Module {
     const record = await this.#windowRecord();
     if (!record)
       throw new Error(
-        "This window is not showing the Linger on this computer.",
+        "This window is not showing the LingerX on this computer.",
       );
     const account = await this.account();
     try {
@@ -1992,7 +1992,7 @@ export class LocalServerModule implements Module {
     if (macos && !atLeast(macos, MIN_MACOS))
       return Promise.reject(
         new Error(
-          `Linger needs macOS ${MIN_MACOS} or later. This Mac runs macOS ${macos}. Update macOS in System Settings > General > Software Update, then try again.`,
+          `LingerX needs macOS ${MIN_MACOS} or later. This Mac runs macOS ${macos}. Update macOS in System Settings > General > Software Update, then try again.`,
         ),
       );
     this.#node ??= this.#fetchNode(signal).catch((error: unknown) => {
@@ -2117,7 +2117,7 @@ export class LocalServerModule implements Module {
           this.#advance(
             "download",
             (bytes.completed / bytes.total) * 0.05,
-            "Downloading Linger…",
+            "Downloading LingerX…",
             bytes,
           ),
       );
@@ -2185,7 +2185,7 @@ export class LocalServerModule implements Module {
         (await nativeRuntimeVerified(directory))
       )
         return;
-      this.#advance("download", 0.05, "Unpacking Linger services…");
+      this.#advance("download", 0.05, "Unpacking LingerX services…");
       await removeRetrying(directory);
       if (bundle.layout === "directory")
         await this.#copyBundled(
@@ -2318,7 +2318,7 @@ export class LocalServerModule implements Module {
     if (this.#options.checkout || !bundle) return;
     const store = path.join(repo, DEPENDENCY_STORE);
     if (existsSync(store)) return;
-    const message = "Downloading Linger dependencies…";
+    const message = "Downloading LingerX dependencies…";
     this.#advance("download", 0.05, message);
     try {
       await this.#unpack(
@@ -2725,19 +2725,19 @@ export class LocalServerModule implements Module {
       if (this.#daemonConnection === "identity_conflict") {
         this.#ctx?.log.warn("local_server.computer_identity_conflict");
         throw new Error(
-          "This computer's local identity is already connected to another Computer registration. Choose Reconnect This Computer in the Linger menu, or remove the duplicate Computer and try again.",
+          "This computer's local identity is already connected to another Computer registration. Choose Reconnect This Computer in the LingerX menu, or remove the duplicate Computer and try again.",
         );
       }
       if (this.#daemonConnection === "auth_failed") {
         this.#ctx?.log.warn("local_server.computer_auth_failed");
         throw new Error(
-          "This computer's sign-in expired before it could connect. Choose Reconnect This Computer in the Linger menu, then try again.",
+          "This computer's sign-in expired before it could connect. Choose Reconnect This Computer in the LingerX menu, then try again.",
         );
       }
       if (this.#daemonConnection === "upgrade_required") {
         this.#ctx?.log.warn("local_server.computer_upgrade_required");
         throw new Error(
-          "This computer's Linger app is too old for the server. Update Linger, then try again.",
+          "This computer's LingerX app is too old for the server. Update LingerX, then try again.",
         );
       }
       // The Another Me has an Agent once the server created it; there is no
@@ -2823,11 +2823,11 @@ export class LocalServerModule implements Module {
       if (update) {
         // The services restart even if they still answer.
         this.#preparing = "updating";
-        this.#set("preparing", "Updating Linger on this computer…");
+        this.#set("preparing", "Updating LingerX on this computer…");
         windows?.showUpdating();
       } else {
         this.#preparing = "starting";
-        this.#set("preparing", "Starting Linger on this computer…");
+        this.#set("preparing", "Starting LingerX on this computer…");
         // The window would show the server as unreachable until it is back.
         const checkStartedAt = Date.now();
         let reachable = await this.#reachable(currentRecord.origin);
@@ -2898,7 +2898,7 @@ export class LocalServerModule implements Module {
           !(await this.#reachable(origin))
         )
           throw new Error(
-            "Linger could not restart on this version. The earlier version is still installed; try again.",
+            "LingerX could not restart on this version. The earlier version is still installed; try again.",
           );
         await this.#moved({ ...currentRecord, origin }, repo);
       } else if (origin !== currentRecord.origin)
@@ -2919,7 +2919,7 @@ export class LocalServerModule implements Module {
         origin,
         currentRecord.origin,
       );
-      this.#set("ready", "Linger is running on this computer.");
+      this.#set("ready", "LingerX is running on this computer.");
       this.#ctx?.log.info("local_server.resume_succeeded", {
         total_ms: Date.now() - startedAt,
       });
@@ -3547,12 +3547,12 @@ export function computerNotOnline(
   computer: ReportedComputer | undefined,
 ): string {
   if (!computer)
-    return "This computer did not come online on Linger: the server does not list this computer. Choose Reconnect This Computer in the Linger tray menu, then try again.";
+    return "This computer did not come online on LingerX: the server does not list this computer. Choose Reconnect This Computer in the LingerX tray menu, then try again.";
   if (computer.status !== "online")
-    return "This computer did not come online on Linger: its Computer service is not connected. computer-daemon.log in the logs says why.";
+    return "This computer did not come online on LingerX: its Computer service is not connected. computer-daemon.log in the logs says why.";
   if (computer.upgrade_required)
-    return "This computer's Computer service is too old for the server. Update Linger, then try again.";
-  return "This computer did not come online on Linger.";
+    return "This computer's Computer service is too old for the server. Update LingerX, then try again.";
+  return "This computer did not come online on LingerX.";
 }
 
 export const anotherMeMissing = (
@@ -3563,13 +3563,13 @@ export const anotherMeMissing = (
   const waited = `Your Another Me was not created after ${minutes} minute${minutes === 1 ? "" : "s"}. The server creates it once this computer is connected with a signed-in AI runtime (Codex, Claude Code or Pi).`;
   const reason = ((): string => {
     if (computer === null)
-      return "Linger could not read this computer's status from the server.";
+      return "LingerX could not read this computer's status from the server.";
     if (!computer)
-      return "The server does not list this computer: it never connected, or it shares no folder with agents. Choose Reconnect This Computer in the Linger tray menu, then try again.";
+      return "The server does not list this computer: it never connected, or it shares no folder with agents. Choose Reconnect This Computer in the LingerX tray menu, then try again.";
     if (computer.status !== "online")
       return "The server sees this computer as offline: its Computer service is not connected. computer-daemon.log in the logs says why.";
     if (computer.upgrade_required)
-      return "This computer's Computer service is too old for the server. Update Linger, then try again.";
+      return "This computer's Computer service is too old for the server. Update LingerX, then try again.";
     if (
       !computer.workspace_grants?.some(
         (grant) => grant.mode === "workspace-write",
@@ -3594,7 +3594,7 @@ export const anotherMeMissing = (
     return [
       "No signed-in AI runtime is reported by this computer.",
       ...(found.length ? [`It found ${found.join("; ")}.`] : []),
-      "Install Codex or Claude Code and sign in to it in a terminal (codex login, or claude), then restart Linger and try again.",
+      "Install Codex or Claude Code and sign in to it in a terminal (codex login, or claude), then restart LingerX and try again.",
     ].join(" ");
   })();
   return `${waited}\n${reason}`;
@@ -3758,7 +3758,7 @@ export function formatInstallJobFailure(
 // setup binding gives.
 const LOCAL_MODEL_NOT_READY: Record<string, string> = {
   "pi-extensions-unavailable":
-    "The local model's Pi can't load extensions, which every Linger run needs.",
+    "The local model's Pi can't load extensions, which every LingerX run needs.",
   "deployment-unavailable": "The local model service isn't running.",
   "acceptance-unavailable": "The local model stack hasn't passed its checks.",
   "gateway-ownership": "The local model gateway isn't running.",
@@ -4348,7 +4348,7 @@ export async function readLocalAccount(root: string): Promise<LocalAccount> {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     throw new Error(
-      `The account file of Linger on this computer is missing (${path.join(root, "local-account.json")}).`,
+      `The account file of LingerX on this computer is missing (${path.join(root, "local-account.json")}).`,
       { cause: error },
     );
   }
@@ -4359,7 +4359,7 @@ export class SignInRejectedError extends Error {
   readonly status: number;
 
   constructor(status: number) {
-    super(`Signing in to Linger failed (${status})`);
+    super(`Signing in to LingerX failed (${status})`);
     this.name = "SignInRejectedError";
     this.status = status;
   }
@@ -4378,7 +4378,7 @@ export const signInFailure = (error: unknown): string => {
     (error instanceof Error &&
       (error.name === "TimeoutError" || error.name === "AbortError"))
   )
-    return "Linger on this computer is not responding.";
+    return "LingerX on this computer is not responding.";
   return error instanceof Error ? error.message : String(error);
 };
 
@@ -4397,7 +4397,7 @@ export class LocalServerUnverifiedError extends Error {
   readonly reason: string;
 
   constructor(reason: string, options?: ErrorOptions) {
-    super("Linger on this computer is not responding.", options);
+    super("LingerX on this computer is not responding.", options);
     this.name = "LocalServerUnverifiedError";
     this.reason = reason;
   }
@@ -4467,7 +4467,7 @@ export const signInWithPassword = async (
     .getSetCookie()
     .map(parseSetCookie)
     .filter((cookie) => cookie !== undefined);
-  if (!cookies.length) throw new Error("Signing in to Linger failed");
+  if (!cookies.length) throw new Error("Signing in to LingerX failed");
   for (const cookie of cookies) await setCookie(cookie);
 };
 
@@ -4519,7 +4519,7 @@ export const checkLocation = async (
   try {
     await writeFile(probe, "", { flag: "wx" });
   } catch {
-    return "Linger can't write to this folder. Choose another one.";
+    return "LingerX can't write to this folder. Choose another one.";
   } finally {
     await rm(probe, { force: true });
   }
@@ -4614,8 +4614,8 @@ export async function unpackArchive(
           : String(fallbackError);
       const hint =
         platform === "win32"
-          ? "Restore Windows tar.exe or reinstall Linger."
-          : "Install tar or reinstall Linger.";
+          ? "Restore Windows tar.exe or reinstall LingerX."
+          : "Install tar or reinstall LingerX.";
       throw new Error(
         `Failed to unpack ${path.basename(file)}: ${command} was not found (ENOENT) and the built-in extractor failed (${detail}). ${hint}`,
         { cause: fallbackError },

@@ -167,7 +167,7 @@ export const daemonConfig = (
   return {
     runner_id: credential.computerId,
     display_name:
-      config.displayName || options.defaultDisplayName || "Linger Desktop",
+      config.displayName || options.defaultDisplayName || "LingerX Desktop",
     gateway: { url: credential.gatewayUrl, token_env: TOKEN_ENV },
     state_directory: platformPath.join(options.directory, "state"),
     ...(Object.keys(runtimePaths).length > 0

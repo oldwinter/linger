@@ -176,7 +176,7 @@ export const uploadDiagnostics = async (
   );
   if (!ticket.success)
     throw new DiagnosticsUploadError(
-      "The server gave an answer this version of Linger doesn't understand",
+      "The server gave an answer this version of LingerX doesn't understand",
       false,
     );
   const headers: Record<string, string> = {};

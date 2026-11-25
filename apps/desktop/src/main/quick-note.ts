@@ -10,9 +10,14 @@ import { z } from "zod";
 
 import type { components } from "@linger/wire-contracts/teamhub-public/types";
 
+import { localizePage } from "../i18n/page.js";
+import messagesHtml from "../shell/messages.html";
 import quickNoteHtml from "../shell/quick-note.html";
+import { quickNoteMessages } from "../shell/quick-note.messages.js";
 import { QUICK_NOTE_IPC, type QuickNoteResult } from "../shared/quick-note.js";
+import type { LanguageModule } from "./language.js";
 import type { Module, ModuleContext } from "./modules.js";
+import { currentShellColors, onShellThemeChange } from "./shell-theme.js";
 
 type Schemas = components["schemas"];
 type PocketNotePage = Schemas["PocketNotePage"];
@@ -35,16 +40,11 @@ export interface QuickNoteOptions {
   readonly sessionCookie: (serverUrl: string) => Promise<string | undefined>;
 }
 
-const signedOut: QuickNoteResult = {
-  ok: false,
-  message: "Your Linger session ended. Sign in again, then try once more.",
-};
-
 // The tray's "New Note" capture window. It appends the typed text to today's
 // Pocket Note through TeamHub, using the web session's cookie.
 export class QuickNoteModule implements Module {
   readonly name = "QuickNote";
-  readonly dependsOn = ["Config"];
+  readonly dependsOn = ["Config", "Language"];
   readonly #options: QuickNoteOptions;
   #ctx: ModuleContext | undefined;
   #window: BrowserWindow | undefined;
@@ -79,6 +79,16 @@ export class QuickNoteModule implements Module {
       () => ipcMain.removeHandler(QUICK_NOTE_IPC.submit),
       () => ipcMain.removeListener(QUICK_NOTE_IPC.cancel, cancel),
       () => pages.protocol.unhandle("app"),
+      onShellThemeChange((colors) => {
+        if (this.#window && !this.#window.isDestroyed())
+          this.#window.setBackgroundColor(colors.content);
+      }),
+      ctx.bus.on("language.changed", () => {
+        if (this.#window && !this.#window.isDestroyed()) {
+          this.#window.setTitle(this.#t(quickNoteMessages.pageTitle));
+          this.#window.webContents.reload();
+        }
+      }),
     );
   }
 
@@ -104,8 +114,8 @@ export class QuickNoteModule implements Module {
       fullscreenable: false,
       alwaysOnTop: true,
       show: false,
-      title: "New Note",
-      backgroundColor: "#ffffff",
+      title: this.#t(quickNoteMessages.pageTitle),
+      backgroundColor: currentShellColors().content,
       ...(process.platform === "darwin" ? {} : { autoHideMenuBar: true }),
       webPreferences: {
         preload: this.#options.preload,
@@ -136,16 +146,17 @@ export class QuickNoteModule implements Module {
     const run = this.#submitQueue.then(async (): Promise<QuickNoteResult> => {
       const parsed = noteInput.safeParse(value);
       if (!parsed.success)
-        return { ok: false, message: "This note is too long." };
+        return { ok: false, message: this.#t(quickNoteMessages.tooLong) };
       const note = parsed.data.trim();
-      if (!note) return { ok: false, message: "Write something first." };
+      if (!note)
+        return { ok: false, message: this.#t(quickNoteMessages.empty) };
       try {
         const result = await this.#appendToToday(note);
         if (result.ok) this.#closeSoon();
         return result;
       } catch (error) {
         this.#ctx?.log.warn("quick_note.failed", { error: String(error) });
-        return { ok: false, message: "Couldn't save the note. Try again." };
+        return { ok: false, message: this.#t(quickNoteMessages.saveFailed) };
       }
     });
     this.#submitQueue = run.catch(() => undefined);
@@ -156,9 +167,10 @@ export class QuickNoteModule implements Module {
     const ctx = this.#ctx!;
     const { serverUrl, tenantId } = ctx.config.get();
     if (!serverUrl || !tenantId)
-      return { ok: false, message: "Connect this computer in Linger first." };
+      return { ok: false, message: this.#t(quickNoteMessages.notConnected) };
     const cookie = await this.#options.sessionCookie(serverUrl);
-    if (!cookie) return { ok: false, message: "Sign in to Linger first." };
+    if (!cookie)
+      return { ok: false, message: this.#t(quickNoteMessages.notSignedIn) };
     const request = (
       pathname: string,
       init: { method?: string; body?: unknown } = {},
@@ -178,23 +190,28 @@ export class QuickNoteModule implements Module {
       });
     const base = `/v0/tenants/${encodeURIComponent(tenantId)}/me/pocket-notes`;
     const page = await request(base);
-    if (page.status === 401) return signedOut;
+    if (page.status === 401)
+      return { ok: false, message: this.#t(quickNoteMessages.sessionEnded) };
     if (!page.ok)
-      return { ok: false, message: "Couldn't read today's note. Try again." };
+      return { ok: false, message: this.#t(quickNoteMessages.readFailed) };
     const body = (await page.json()) as PocketNotePage;
     if (typeof body.today !== "string" || !Array.isArray(body.items))
-      return { ok: false, message: "Couldn't read today's note. Try again." };
+      return { ok: false, message: this.#t(quickNoteMessages.readFailed) };
     const today = body.items.find((item) => item.date === body.today)?.text;
     const text = today ? `${today.trimEnd()}\n\n${note}` : note;
     if (text.length > MAXIMUM_NOTE_LENGTH)
-      return { ok: false, message: "This note is too long for today's page." };
+      return {
+        ok: false,
+        message: this.#t(quickNoteMessages.tooLongForToday),
+      };
     const saved = await request(`${base}/today`, {
       method: "PUT",
       body: { text } satisfies PocketNoteUpdateRequest,
     });
-    if (saved.status === 401) return signedOut;
+    if (saved.status === 401)
+      return { ok: false, message: this.#t(quickNoteMessages.sessionEnded) };
     if (!saved.ok)
-      return { ok: false, message: "Couldn't save the note. Try again." };
+      return { ok: false, message: this.#t(quickNoteMessages.saveFailed) };
     ctx.log.info("quick_note.saved", {});
     return { ok: true };
   }
@@ -221,10 +238,20 @@ export class QuickNoteModule implements Module {
     return session.fromPartition(PARTITION);
   }
 
+  get #t() {
+    return this.#ctx!.get<LanguageModule>("Language").t;
+  }
+
   #serve(request: Request): Response {
     if (new URL(request.url).host !== "quick-note")
       return new Response(null, { status: 404 });
-    return new Response(quickNoteHtml, {
+    const page = localizePage(
+      quickNoteHtml,
+      messagesHtml,
+      quickNoteMessages,
+      this.#ctx!.get<LanguageModule>("Language").current(),
+    );
+    return new Response(page, {
       headers: { "content-type": "text/html; charset=utf-8" },
     });
   }

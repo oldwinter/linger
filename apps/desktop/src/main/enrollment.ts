@@ -148,12 +148,12 @@ export const enrollComputer = async (input: EnrollInput): Promise<Enrolled> => {
     if (code === "DAEMON_IDENTITY_IN_USE")
       throw new EnrollmentError(
         "DAEMON_IDENTITY_IN_USE",
-        "This computer is already connected to another Linger account. Sign in to that account to reconnect it, or remove this Computer from that account first.",
+        "This computer is already connected to another LingerX account. Sign in to that account to reconnect it, or remove this Computer from that account first.",
       );
     if (code === "LOCAL_COMPUTER_IDENTITY_MISMATCH")
       throw new EnrollmentError(
         "DAEMON_IDENTITY_MISMATCH",
-        "This Computer registration belongs to another local identity. Remove the old Computer in Linger first, then reconnect.",
+        "This Computer registration belongs to another local identity. Remove the old Computer in LingerX first, then reconnect.",
       );
     throw rejected("Creating the enrollment", created.status);
   }

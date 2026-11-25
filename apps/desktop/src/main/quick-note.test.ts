@@ -3,6 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QUICK_NOTE_IPC } from "../shared/quick-note.js";
 
 const fake = vi.hoisted(() => {
+  /* eslint-disable @typescript-eslint/no-require-imports */
+  const { EventEmitter } =
+    require("node:events") as typeof import("node:events");
+  /* eslint-enable @typescript-eslint/no-require-imports */
   interface MockEvent {
     readonly sender?: unknown;
     readonly senderFrame?: { readonly url: string } | null;
@@ -11,7 +15,20 @@ const fake = vi.hoisted(() => {
 
   const handlers = new Map<string, Handler>();
   const listeners = new Map<string, Handler>();
-  const pages = { protocol: { handle: () => {}, unhandle: () => {} } };
+  let protocolHandler: ((request: Request) => Response) | undefined;
+  const pages = {
+    protocol: {
+      handle: (_scheme: string, fn: (request: Request) => Response) => {
+        protocolHandler = fn;
+      },
+      unhandle: () => {
+        protocolHandler = undefined;
+      },
+    },
+  };
+  const theme = Object.assign(new EventEmitter(), {
+    shouldUseDarkColors: false,
+  });
   const windows: FakeWindow[] = [];
 
   class FakeWindow {
@@ -19,6 +36,7 @@ const fake = vi.hoisted(() => {
     readonly webContents = {
       on: () => {},
       setWindowOpenHandler: () => {},
+      reload: vi.fn(),
     };
     readonly events = new Map<string, () => void>();
     loadURL = vi.fn(async () => {});
@@ -27,6 +45,8 @@ const fake = vi.hoisted(() => {
     close = vi.fn(() => this.events.get("closed")?.());
     destroy = vi.fn();
     isDestroyed = vi.fn(() => false);
+    setBackgroundColor = vi.fn();
+    setTitle = vi.fn();
 
     constructor(options: Record<string, unknown>) {
       this.options = options;
@@ -42,7 +62,15 @@ const fake = vi.hoisted(() => {
     }
   }
 
-  return { handlers, listeners, pages, windows, FakeWindow };
+  return {
+    handlers,
+    listeners,
+    pages,
+    theme,
+    windows,
+    FakeWindow,
+    getProtocolHandler: () => protocolHandler,
+  };
 });
 
 vi.mock("electron", () => ({
@@ -65,10 +93,19 @@ vi.mock("electron", () => ({
         fake.listeners.delete(channel);
     },
   },
+  nativeTheme: fake.theme,
   session: { fromPartition: () => fake.pages },
 }));
-vi.mock("../shell/quick-note.html", () => ({ default: "<html></html>" }));
+vi.mock("../shell/quick-note.html", () => ({
+  default: '<html lang="en"><script>/* quick-note */</script></html>',
+}));
+vi.mock("../shell/messages.html", () => ({
+  default: "<script>/* messages */</script>",
+}));
 
+import zhCN from "../i18n/locales/zh-CN.json" with { type: "json" };
+
+const { LanguageModule } = await import("./language.js");
 const { QUICK_NOTE_URL, QuickNoteModule } = await import("./quick-note.js");
 const { stubModule, testHost } = await import("./test-support.js");
 
@@ -92,16 +129,20 @@ const fixture = async (
   options: {
     cookie?: string | undefined;
     tenantId?: string | undefined;
+    systemLanguages?: string[];
   } = {},
 ) => {
   const sessionCookie = vi.fn(async () =>
     "cookie" in options ? options.cookie : COOKIE,
   );
+  const language = new LanguageModule({
+    systemLanguages: () => options.systemLanguages ?? ["en-US"],
+  });
   const module = new QuickNoteModule({
     preload: "/preload/quick-note.cjs",
     sessionCookie,
   });
-  const host = testHost([stubModule("Config"), module], {
+  const host = testHost([stubModule("Config"), language, module], {
     serverUrl: SERVER,
     tenantId: "tenantId" in options ? options.tenantId : TENANT,
     computerId: "computer-1",
@@ -117,7 +158,7 @@ const fixture = async (
       },
       text,
     );
-  return { host, module, sessionCookie, window, invoke };
+  return { host, language, module, sessionCookie, window, invoke };
 };
 
 const respond = (given: readonly Response[]) => {
@@ -139,6 +180,8 @@ beforeEach(() => {
   fake.handlers.clear();
   fake.listeners.clear();
   fake.windows.length = 0;
+  fake.theme.shouldUseDarkColors = false;
+  fake.theme.removeAllListeners("updated");
 });
 
 afterEach(() => {
@@ -222,7 +265,7 @@ describe("QuickNoteModule", () => {
 
     expect(await f.invoke("A new idea")).toEqual({
       ok: false,
-      message: "Sign in to Linger first.",
+      message: "Sign in to LingerX first.",
     });
     expect(f.sessionCookie).toHaveBeenCalledWith(SERVER);
     expect(fetchMock).not.toHaveBeenCalled();
@@ -235,7 +278,7 @@ describe("QuickNoteModule", () => {
 
     expect(await f.invoke("A new idea")).toEqual({
       ok: false,
-      message: "Connect this computer in Linger first.",
+      message: "Connect this computer in LingerX first.",
     });
     expect(fetchMock).not.toHaveBeenCalled();
     await f.host.stop("quit");
@@ -247,8 +290,34 @@ describe("QuickNoteModule", () => {
 
     expect(await f.invoke("A new idea")).toEqual({
       ok: false,
-      message: "Your Linger session ended. Sign in again, then try once more.",
+      message: "Your LingerX session ended. Sign in again, then try once more.",
     });
+    await f.host.stop("quit");
+  });
+
+  it("localizes the page, window title, and errors in zh-CN and follows OS dark mode", async () => {
+    fake.theme.shouldUseDarkColors = true;
+    const f = await fixture({
+      cookie: undefined,
+      systemLanguages: ["zh-CN"],
+    });
+
+    expect(f.window.options.title).toBe(zhCN.quickNote.pageTitle);
+    expect(f.window.options.backgroundColor).toBe("#161614");
+    expect(await f.invoke("A new idea")).toEqual({
+      ok: false,
+      message: zhCN.quickNote.notSignedIn,
+    });
+
+    const served = await fake.getProtocolHandler()!(
+      new Request(QUICK_NOTE_URL),
+    ).text();
+    expect(served).toContain('<html lang="zh-CN"');
+    expect(served).toContain(zhCN.quickNote.label);
+
+    fake.theme.shouldUseDarkColors = false;
+    fake.theme.emit("updated");
+    expect(f.window.setBackgroundColor).toHaveBeenLastCalledWith("#ffffff");
     await f.host.stop("quit");
   });
 

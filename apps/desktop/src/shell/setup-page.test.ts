@@ -396,7 +396,7 @@ describe("setup page Quick Install recommendation", () => {
     for (const [code, expectWhy, expectSub] of [
       [
         "gateway-port-in-use",
-        "Another program is using the port Linger's local model gateway needs. Close the program using that port.",
+        "Another program is using the port LingerX's local model gateway needs. Close the program using that port.",
         "On hold: free the gateway port, then Check again.",
       ],
       [
@@ -515,11 +515,11 @@ describe("setup page Quick Install recommendation", () => {
       ],
       [
         { ...small, reasons: [reason({ code: "gpu-ownership-unknown" })] },
-        "Linger couldn't tell which programs are using the GPU, so it can't share it. Close programs that use the GPU.",
+        "LingerX couldn't tell which programs are using the GPU, so it can't share it. Close programs that use the GPU.",
       ],
       [
         { ...small, reasons: [reason({ code: "facts-unavailable" })] },
-        "Linger couldn't read this computer's memory, disk or GPU.",
+        "LingerX couldn't read this computer's memory, disk or GPU.",
       ],
       [
         {
@@ -582,14 +582,14 @@ describe("setup page Quick Install recommendation", () => {
             }),
           ],
         },
-        "Linger couldn't read the CUDA version from your NVIDIA driver (requires CUDA 12.4 or newer). Update or reinstall your NVIDIA driver, then choose Check again.",
+        "LingerX couldn't read the CUDA version from your NVIDIA driver (requires CUDA 12.4 or newer). Update or reinstall your NVIDIA driver, then choose Check again.",
       ],
       [
         {
           ...small,
           reasons: [reason({ code: "cuda-driver-version-unknown" })],
         },
-        "Linger couldn't read the CUDA version from your NVIDIA driver. Update or reinstall your NVIDIA driver, then choose Check again.",
+        "LingerX couldn't read the CUDA version from your NVIDIA driver. Update or reinstall your NVIDIA driver, then choose Check again.",
       ],
       [
         { ...small, reasons: [reason({ code: "unsupported-platform" })] },
@@ -629,7 +629,7 @@ describe("setup page Quick Install recommendation", () => {
       "Not available on this computer",
     );
     expect($("local-model-needs").textContent).toBe(
-      "Linger couldn't tell which programs are using the GPU, so it can't share it. Close programs that use the GPU.",
+      "LingerX couldn't tell which programs are using the GPU, so it can't share it. Close programs that use the GPU.",
     );
     expect(($("local-install") as HTMLButtonElement).disabled).toBe(true);
     expect(document.body.textContent).not.toContain(TOOL_WORDS);
@@ -1155,7 +1155,7 @@ describe("setup page slow runtime lookup", () => {
     );
     expect($("installing-waiting").hidden).toBe(true);
     expect($("installing-error").textContent).toBe(
-      "Checking the AI runtime did not finish in 10 minutes. Try Again picks up the same check; if it stops again, save diagnostics and send them to Linger support.",
+      "Checking the AI runtime did not finish in 10 minutes. Try Again picks up the same check; if it stops again, save diagnostics and send them to LingerX support.",
     );
     expect($("installing-actions").hidden).toBe(false);
     expect($("local-retry").hidden).toBe(false);
@@ -1340,7 +1340,7 @@ describe("setup page refused install location", () => {
     const { push } = await openPage(failed(folder, "UNSAFE_PARENT_ACCESS"));
     expect($("installing-error").textContent).toBe(message(folder));
     expect($("installing-plan").textContent).toBe(
-      "Go back and set the install location to the drive itself (Linger installs into D:\\Linger) or an empty folder directly on the drive.",
+      "Go back and set the install location to the drive itself (LingerX installs into D:\\Linger) or an empty folder directly on the drive.",
     );
     // The hint leaves with the failure.
     push(state("installing"));

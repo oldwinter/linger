@@ -744,7 +744,7 @@ describe("LocalServerModule", () => {
     await f.host.start();
     expect(f.module.status().available).toBe(true);
     await expect(f.module.begin()).rejects.toThrow(
-      "Linger needs macOS 14.0 or later. This Mac runs macOS 13.2. Update macOS in System Settings > General > Software Update, then try again.",
+      "LingerX needs macOS 14.0 or later. This Mac runs macOS 13.2. Update macOS in System Settings > General > Software Update, then try again.",
     );
     expect(f.module.status()).toMatchObject({
       phase: "failed",
@@ -3588,7 +3588,7 @@ describe("LocalServerModule install location", () => {
         expect(f.module.status().location).toEqual({
           path: f.home,
           custom: false,
-          error: "Linger can't write to this folder. Choose another one.",
+          error: "LingerX can't write to this folder. Choose another one.",
         });
       } finally {
         chmodSync(locked, 0o700);
@@ -4302,7 +4302,7 @@ describe("LocalServerModule after a restart", () => {
       expect(f.module.status().phase).toBe("failed"),
     );
     expect(f.showStartFailed).toHaveBeenCalledWith(
-      "The local model's Pi can't load extensions, which every Linger run needs. The upstream tool could not verify the local stack binding. Try Again to apply the approved local model plan again, or Set Up Again to review a new plan or choose another AI runtime.",
+      "The local model's Pi can't load extensions, which every LingerX run needs. The upstream tool could not verify the local stack binding. Try Again to apply the approved local model plan again, or Set Up Again to review a new plan or choose another AI runtime.",
     );
     await f.host.stop("quit");
   });
@@ -5138,7 +5138,7 @@ describe("proveLocalServer", () => {
     ).rejects.toMatchObject({
       name: "LocalServerUnverifiedError",
       reason,
-      message: "Linger on this computer is not responding.",
+      message: "LingerX on this computer is not responding.",
     });
   });
 
@@ -5261,25 +5261,25 @@ describe("signInFailure", () => {
       cause: Object.assign(new Error("connect"), { code: "ECONNREFUSED" }),
     });
     expect(signInFailure(refused)).toBe(
-      "Linger on this computer is not responding.",
+      "LingerX on this computer is not responding.",
     );
     expect(
       signInFailure(
         new DOMException("The operation timed out", "TimeoutError"),
       ),
-    ).toBe("Linger on this computer is not responding.");
+    ).toBe("LingerX on this computer is not responding.");
     expect(signInFailure(new DOMException("aborted", "AbortError"))).toBe(
-      "Linger on this computer is not responding.",
+      "LingerX on this computer is not responding.",
     );
     expect(signInFailure(new LocalServerUnverifiedError("wrong proof"))).toBe(
-      "Linger on this computer is not responding.",
+      "LingerX on this computer is not responding.",
     );
     // A message that merely mentions 401 is not a rejected password.
-    expect(signInFailure(new Error("Signing in to Linger failed (401)"))).toBe(
-      "Signing in to Linger failed (401)",
+    expect(signInFailure(new Error("Signing in to LingerX failed (401)"))).toBe(
+      "Signing in to LingerX failed (401)",
     );
     expect(signInFailure(new SignInRejectedError(500))).toBe(
-      "Signing in to Linger failed (500)",
+      "Signing in to LingerX failed (500)",
     );
   });
 });
@@ -5313,7 +5313,7 @@ describe("anotherMeMissing", () => {
     [null, "could not read this computer's status"],
     [undefined, "does not list this computer"],
     [{ ...online, status: "offline" }, "computer-daemon.log"],
-    [{ ...online, upgrade_required: true }, "Update Linger"],
+    [{ ...online, upgrade_required: true }, "Update LingerX"],
     [{ ...online, workspace_grants: [{ mode: "read-only" }] }, "no folder"],
     [
       {
@@ -5511,7 +5511,7 @@ describe("LocalServerModule owner account", () => {
     );
     expect(await f.module.servesWindow()).toBe(false);
     await expect(f.module.signInWithAccount()).rejects.toThrow(
-      "This window is not showing the Linger on this computer.",
+      "This window is not showing the LingerX on this computer.",
     );
     expect(f.signIn).not.toHaveBeenCalled();
     await f.host.stop("quit");
@@ -5524,11 +5524,11 @@ describe("LocalServerModule owner account", () => {
     ],
     [
       new TypeError("fetch failed"),
-      "Linger on this computer is not responding.",
+      "LingerX on this computer is not responding.",
     ],
     [
       new LocalServerUnverifiedError("wrong proof"),
-      "Linger on this computer is not responding.",
+      "LingerX on this computer is not responding.",
     ],
   ])("says what to do when signing in fails (%s)", async (error, message) => {
     const f = fixture({}, enrolled, installed(OWNER));
@@ -5586,7 +5586,7 @@ describe("LocalServerModule owner account", () => {
     await waitForInstaller(() => expect(f.module.status().phase).toBe("ready"));
     expect(await f.module.servesWindow()).toBe(false);
     await expect(f.module.signInWithAccount()).rejects.toThrow(
-      "Linger on this computer is not responding.",
+      "LingerX on this computer is not responding.",
     );
     expect(f.signIn).not.toHaveBeenCalled();
     await f.host.stop("quit");
@@ -5601,7 +5601,7 @@ describe("LocalServerModule owner account", () => {
     await f.host.start();
     expect(await f.module.servesWindow()).toBe(false);
     await expect(f.module.signInWithAccount()).rejects.toThrow(
-      "This window is not showing the Linger on this computer.",
+      "This window is not showing the LingerX on this computer.",
     );
     expect(f.signIn).not.toHaveBeenCalled();
     await f.host.stop("quit");
@@ -5612,7 +5612,7 @@ describe("LocalServerModule owner account", () => {
     await f.host.start();
     expect(await f.module.servesWindow()).toBe(false);
     await expect(f.module.account()).rejects.toThrow(
-      "Linger is not installed on this computer.",
+      "LingerX is not installed on this computer.",
     );
     await f.host.stop("quit");
   });
@@ -5621,7 +5621,7 @@ describe("LocalServerModule owner account", () => {
     [
       "missing",
       installed(),
-      /^The account file of Linger on this computer is missing \(.*local-account\.json\)\.$/,
+      /^The account file of LingerX on this computer is missing \(.*local-account\.json\)\.$/,
     ],
     [
       "not provisioned",
@@ -5695,7 +5695,7 @@ describe("legacyMigrationResult", () => {
     ).toEqual({
       skipped: own,
       failure:
-        "Linger could not convert this computer's installation from the earlier Simplex app. Another Linger installer is using it.",
+        "LingerX could not convert this computer's installation from the earlier Simplex app. Another Linger installer is using it.",
     });
   });
 

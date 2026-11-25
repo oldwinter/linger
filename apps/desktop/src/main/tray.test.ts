@@ -26,19 +26,24 @@ vi.mock("electron", () => ({
 
 vi.mock("./tray-icon.js", () => ({ renderTrayIcon: () => Buffer.alloc(0) }));
 
+import zhCN from "../i18n/locales/zh-CN.json" with { type: "json" };
+
 const { LanguageModule } = await import("./language.js");
 const { TrayModule } = await import("./tray.js");
 const { EventBus } = await import("./modules.js");
 const { stubModule, testHost } = await import("./test-support.js");
 
-const startTray = async () => {
+const startTray = async (systemLanguages: string[] = ["en-US"]) => {
   const status = { label: "Online · Idle", tone: "online" as const };
   const bus = new EventBus();
+  const language = new LanguageModule({
+    systemLanguages: () => systemLanguages,
+  });
   const tray = new TrayModule({ quit: () => {} });
   const host = testHost(
     [
       stubModule("Config"),
-      new LanguageModule({ systemLanguages: () => ["en-US"] }),
+      language,
       { ...stubModule("Status"), current: () => ({ ...status }) } as never,
       { ...stubModule("PowerGuard"), alwaysOn: () => false } as never,
       stubModule("WindowManager"),
@@ -60,6 +65,7 @@ const startTray = async () => {
   return {
     bus,
     host,
+    language,
     status,
     tray,
     toolTip: () => fake.toolTips.at(-1),
@@ -82,9 +88,18 @@ describe("TrayModule tooltip", () => {
     f.tray.setUnreadCount(1);
     expect(f.toolTip()).toBe("LingerX · Online · Idle · 1 unread mention");
     f.tray.setUnreadCount(1_234);
-    expect(f.toolTip()).toBe("LingerX · Online · Idle · 1234 unread mentions");
+    expect(f.toolTip()).toBe("LingerX · Online · Idle · 1,234 unread mentions");
     f.tray.setUnreadCount(0);
     expect(f.toolTip()).toBe("LingerX · Online · Idle");
+    await f.host.stop("quit");
+  });
+
+  it("localizes the unread mention count in zh-CN", async () => {
+    const f = await startTray(["zh-CN"]);
+    f.tray.setUnreadCount(3);
+    expect(f.toolTip()).toBe(
+      `LingerX · Online · Idle · ${zhCN.tray.unreadMentions.other.replace("{count}", "3")}`,
+    );
     await f.host.stop("quit");
   });
 

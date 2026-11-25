@@ -6,18 +6,40 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'"
     />
-    <title>New Note</title>
+    <title data-t="pageTitle"></title>
     <style>
       :root {
         --canvas: #ffffff;
+        --surface: #ffffff;
         --ink: #202020;
         --body: #404040;
         --muted: #737373;
         --border: #d4d4d4;
         --focus: #202020;
+        --focus-ring: rgba(32, 32, 32, 0.14);
+        --action: #202020;
+        --action-hover: #333333;
+        --action-ink: #ffffff;
         --ok: #2f9e44;
         --error: #b5320a;
-        color-scheme: light;
+        color-scheme: light dark;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --canvas: #161614;
+          --surface: #1f1f1c;
+          --ink: #f2f1ed;
+          --body: #d4d3cd;
+          --muted: #9c9a90;
+          --border: #35352f;
+          --focus: #f2f1ed;
+          --focus-ring: rgba(242, 241, 237, 0.22);
+          --action: #f2f1ed;
+          --action-hover: #ffffff;
+          --action-ink: #161614;
+          --ok: #6ee787;
+          --error: #ff855f;
+        }
       }
       * {
         box-sizing: border-box;
@@ -35,6 +57,9 @@
           14px/1.5 -apple-system,
           BlinkMacSystemFont,
           "Segoe UI",
+          "PingFang SC",
+          "Microsoft YaHei",
+          "Noto Sans CJK SC",
           system-ui,
           sans-serif;
         -webkit-font-smoothing: antialiased;
@@ -48,6 +73,7 @@
       label {
         color: var(--muted);
         font-size: 12px;
+        font-weight: 500;
       }
       textarea {
         flex: 1;
@@ -57,11 +83,16 @@
         border-radius: 8px;
         outline: none;
         resize: none;
+        background: var(--surface);
         color: var(--ink);
         font: inherit;
       }
+      textarea::placeholder {
+        color: var(--muted);
+      }
       textarea:focus {
         border-color: var(--focus);
+        box-shadow: 0 0 0 3px var(--focus-ring);
       }
       .footer {
         display: flex;
@@ -93,11 +124,19 @@
         padding: 6px 14px;
         border: 0;
         border-radius: 7px;
-        background: #202020;
-        color: #ffffff;
+        background: var(--action);
+        color: var(--action-ink);
         font: inherit;
         font-size: 13px;
+        font-weight: 500;
         cursor: pointer;
+      }
+      button:hover:not(:disabled) {
+        background: var(--action-hover);
+      }
+      button:focus-visible {
+        outline: 2px solid var(--focus);
+        outline-offset: 2px;
       }
       button:disabled {
         opacity: 0.5;
@@ -107,17 +146,17 @@
   </head>
   <body>
     <main>
-      <label for="note">Add to today's Pocket Note</label>
+      <label for="note" data-t="label"></label>
       <textarea
         id="note"
         autofocus
         spellcheck="true"
-        placeholder="What's on your mind?"
+        data-t-placeholder="placeholder"
       ></textarea>
       <div class="footer">
-        <p id="status" role="status"></p>
-        <span class="hint">Cmd/Ctrl+Enter to save · Esc to cancel</span>
-        <button id="save" type="button">Save</button>
+        <p id="status" role="status" aria-live="polite"></p>
+        <span class="hint" data-t="shortcutHint"></span>
+        <button id="save" type="button" data-t="save"></button>
       </div>
     </main>
     <script>
@@ -140,22 +179,22 @@
         if (busy) return;
         const text = note.value.trim();
         if (!text) {
-          show("Write something first.", "error");
+          show(t("empty"), "error");
           note.focus();
           return;
         }
         setBusy(true);
-        show("Saving…", "muted");
+        show(t("saving"), "muted");
         try {
           const result = await window.lingerQuickNote.submit(text);
           if (result.ok) {
             note.value = "";
-            show("Saved to today's Pocket Note.", "ok");
+            show(t("saved"), "ok");
             return;
           }
           show(result.message, "error");
         } catch {
-          show("Couldn't save the note. Try again.", "error");
+          show(t("saveFailed"), "error");
         } finally {
           setBusy(false);
           note.focus();

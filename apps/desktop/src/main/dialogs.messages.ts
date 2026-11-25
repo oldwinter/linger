@@ -2,10 +2,11 @@ import { defineMessages } from "@linger/service-kit/messages";
 
 // The main process's native dialogs, windows and notifications.
 export const dialogMessages = defineMessages("dialogs", {
-  quitConfirm: "Quit LingerX and stop the running tasks?",
+  quitConfirm: "Quit LingerX while tasks are running?",
   quitConfirmDetail:
-    "Until you open LingerX again, tasks from your phone or the web can't run on this computer.",
-  quitAndStop: "Quit and Stop Tasks",
+    "Quitting closes LingerX, interrupts in-flight tasks on this computer, and unloads local models. Local background services stay running, and queued tasks may resume when you reopen LingerX.",
+  quitAndStop: "Quit LingerX",
+  keepRunning: "Keep Running",
   cancel: "Cancel",
   startFailed: "LingerX failed to start: {error}",
   setupTitle: "Set Up LingerX",

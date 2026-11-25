@@ -1,21 +1,21 @@
 import { defineMessages } from "@linger/service-kit/messages";
 
-// The setup window (setup.html): installing Linger on this computer or
+// The setup window (setup.html): installing LingerX on this computer or
 // connecting it to a team server, then the permissions it asks for.
 export const setupMessages = defineMessages("setup", {
-  pageTitle: "Set Up Linger",
+  pageTitle: "Set Up LingerX",
 
   // Welcome and the install plan.
   welcomeEyebrow: "Private to this computer",
-  welcomeTitle: "Set up Linger",
+  welcomeTitle: "Set up LingerX",
   welcomeLeadLocal: "Runs on this computer, just for you. Takes a few minutes.",
-  welcomeLeadTeam: "Connect this computer to your team's Linger.",
+  welcomeLeadTeam: "Connect this computer to your team's LingerX.",
   modelSource: "Model source",
   modelSourceHint: "Where your agents get their models.",
   localModel: "Local model",
   subscription: "Subscription",
   byokTooltip:
-    "Bring Your Own Key — Connect your own OpenAI-compatible or Anthropic API endpoint, key, and model through Linger's local Bifrost gateway.",
+    "Bring Your Own Key — Connect your own OpenAI-compatible or Anthropic API endpoint, key, and model through LingerX's local Bifrost gateway.",
   localModelToggle: "Run tasks on a local model",
   aiRuntime: "AI runtime",
   runtimeHint: "Runs your tasks.",
@@ -71,7 +71,7 @@ export const setupMessages = defineMessages("setup", {
   recommendedRuntime: "Recommended: {runtime}.",
   subscriptionHint: "Sign in with your ChatGPT or Claude subscription.",
   locationHint:
-    "Go back and set the install location to the drive itself (Linger installs into {folder}) or an empty folder directly on the drive.",
+    "Go back and set the install location to the drive itself (LingerX installs into {folder}) or an empty folder directly on the drive.",
 
   // Featured partner model spotlight (Inkling 2 Mini by Thinking Machines).
   featuredModelName: "Inkling 2 Mini",
@@ -80,7 +80,7 @@ export const setupMessages = defineMessages("setup", {
     "26.4B Looped MoE · 3.4B active · Vision & Agentic Coding · Apache 2.0",
   featuredModelSelected: "Selected for Quick Install on this computer.",
   featuredModelLibraryNote:
-    "Featured in Linger's local model library · Switchable anytime in Settings → Models",
+    "Featured in LingerX's local model library · Switchable anytime in Settings → Models",
   featuredModelCustomizeNote:
     "Featured: Inkling 2 Mini by Thinking Machines · Switchable anytime in Settings → Models",
   featuredModelAriaLabel:
@@ -110,12 +110,12 @@ export const setupMessages = defineMessages("setup", {
     "Other programs are using the memory it needs{counts}. Close other programs.",
   reasonGpuSharing: "Other work is running on the GPU. Close it.",
   reasonGpuOwnership:
-    "Linger couldn't tell which programs are using the GPU, so it can't share it. Close programs that use the GPU.",
+    "LingerX couldn't tell which programs are using the GPU, so it can't share it. Close programs that use the GPU.",
   reasonGatewayPortInUse:
-    "Another program is using the port Linger's local model gateway needs. Close the program using that port.",
+    "Another program is using the port LingerX's local model gateway needs. Close the program using that port.",
   reasonHarnessUnavailable:
     "The Pi runtime required for local models isn't ready right now. Check your connection or permissions.",
-  reasonFacts: "Linger couldn't read this computer's memory, disk or GPU.",
+  reasonFacts: "LingerX couldn't read this computer's memory, disk or GPU.",
   reasonCudaUpdate:
     "Your NVIDIA driver supports CUDA {has}, but local models require CUDA {needs} or newer. Update your NVIDIA graphics driver (no CUDA Toolkit needed), then choose Check again.",
   reasonCudaUpdateDriver:
@@ -138,7 +138,7 @@ export const setupMessages = defineMessages("setup", {
   driverInstalling:
     "Installing NVIDIA driver {version}… Your screen may blink briefly.",
   driverRebootRequired:
-    "NVIDIA driver {version} installed. Restart Windows to finish, then reopen Linger.",
+    "NVIDIA driver {version} installed. Restart Windows to finish, then reopen LingerX.",
   driverInstallComplete:
     "NVIDIA driver {version} installed. Rechecking your computer…",
   driverUacCancelled:
@@ -150,9 +150,9 @@ export const setupMessages = defineMessages("setup", {
   driverInstallFailed:
     "Automatic driver update didn't finish. Use NVIDIA App or download directly from NVIDIA.",
   reasonCudaUnknownNeeds:
-    "Linger couldn't read the CUDA version from your NVIDIA driver (requires CUDA {needs} or newer). Update or reinstall your NVIDIA driver, then choose Check again.",
+    "LingerX couldn't read the CUDA version from your NVIDIA driver (requires CUDA {needs} or newer). Update or reinstall your NVIDIA driver, then choose Check again.",
   reasonCudaUnknown:
-    "Linger couldn't read the CUDA version from your NVIDIA driver. Update or reinstall your NVIDIA driver, then choose Check again.",
+    "LingerX couldn't read the CUDA version from your NVIDIA driver. Update or reinstall your NVIDIA driver, then choose Check again.",
   reasonUnsupported: "Local models don't run on this system.",
   reasonPlanHeld:
     "Another app is holding the memory it needs, such as another AI app. Quit it.",
@@ -177,7 +177,7 @@ export const setupMessages = defineMessages("setup", {
   pathVolcano: "Volcano Engine Ark",
   pathNone: "No path. The base URL already has it.",
   endpointNone: "No endpoint. The base URL is the full address.",
-  noAnswer: "Linger did not answer.",
+  noAnswer: "LingerX did not answer.",
   showSuggestions: "Show {field} suggestions",
   baseUrl: "Base URL",
   baseUrlPlaceholder: "Base URL (https://…)",
@@ -212,15 +212,15 @@ export const setupMessages = defineMessages("setup", {
     "Sends {format} (the {runtime} format) requests to <url>{url}</url>",
 
   // Installing.
-  installingTitle: "Installing Linger",
+  installingTitle: "Installing LingerX",
   installStopped: "Installation stopped",
-  startingLinger: "Starting Linger",
-  preparingUpdate: "Updating Linger on this computer…",
-  preparingStart: "Starting Linger on this computer…",
+  startingLinger: "Starting LingerX",
+  preparingUpdate: "Updating LingerX on this computer…",
+  preparingStart: "Starting LingerX on this computer…",
   dataKept: "Your data is kept. Fix the problem and try again.",
   takesMinutes: "This takes a few minutes. You can keep working.",
   stepPrepare: "Checking this computer",
-  stepDownload: "Downloading Linger {version}",
+  stepDownload: "Downloading LingerX {version}",
   stepServices: "Setting up AI and local services",
   stepWorkspace: "Setting up your account",
   stepSignIn: "Sign in to {runtime}",
@@ -231,7 +231,7 @@ export const setupMessages = defineMessages("setup", {
   waitingRuntime:
     "Checking the AI runtime on this computer. On some computers this takes a few minutes; the bar moves on once it finishes.",
   runtimeLookupTimedOut:
-    "Checking the AI runtime did not finish in 10 minutes. Try Again picks up the same check; if it stops again, save diagnostics and send them to Linger support.",
+    "Checking the AI runtime did not finish in 10 minutes. Try Again picks up the same check; if it stops again, save diagnostics and send them to LingerX support.",
   runtimeLookupUnreachable:
     "Lost the connection to the installer while checking the AI runtime. Try Again to reconnect; your data is kept.",
   showDetails: "Show Details",
@@ -239,7 +239,7 @@ export const setupMessages = defineMessages("setup", {
   showLogs: "Show Logs",
   saveDiagnostics: "Save Diagnostics",
   sendDiagnostics: "Send Diagnostics",
-  savedDiagnostics: "Saved {file}. Send this file to Linger support.",
+  savedDiagnostics: "Saved {file}. Send this file to LingerX support.",
   back: "Back",
   tryAgain: "Try Again",
 
@@ -252,7 +252,7 @@ export const setupMessages = defineMessages("setup", {
   signInLeadClaude:
     "Your agents run on Claude Code. Authorize it with your Claude account to continue.",
   signInWaiting: "Waiting for authorization in your browser…",
-  signInContinues: "Linger continues by itself once you've signed in.",
+  signInContinues: "LingerX continues by itself once you've signed in.",
   deviceCode: "Enter this code on the sign-in page:",
   deviceCodeSetting:
     "Turn on device code sign-in for Codex in ChatGPT first: Settings → Security.",
@@ -261,9 +261,9 @@ export const setupMessages = defineMessages("setup", {
   openInBrowser: "Open in browser",
   copyLink: "Copy link",
   browserFailed:
-    "Linger couldn't open a browser. Copy the link and open it in a browser on this computer.",
+    "LingerX couldn't open a browser. Copy the link and open it in a browser on this computer.",
   browserFailedDevice:
-    "Linger couldn't open a browser. Copy the link and open it in any browser, on this computer or another device.",
+    "LingerX couldn't open a browser. Copy the link and open it in any browser, on this computer or another device.",
   useDeviceCode: "Use a code on another device",
   useBrowserHere: "Use the browser on this computer",
   signInFailed: "Sign-in did not finish.",
@@ -294,13 +294,13 @@ export const setupMessages = defineMessages("setup", {
   sendFailed: "Couldn't send diagnostics",
   sendCollecting: "Collecting logs and settings…",
   sendConfirmLead: {
-    one: "{count} file, {size}: logs and settings of this app and of Linger on this computer. Passwords, tokens, keys and your home folder path are removed first; credential files and your data are never included. Only the people who run {host} can read the report.",
+    one: "{count} file, {size}: logs and settings of this app and of LingerX on this computer. Passwords, tokens, keys and your home folder path are removed first; credential files and your data are never included. Only the people who run {host} can read the report.",
     other:
-      "{count} files, {size}: logs and settings of this app and of Linger on this computer. Passwords, tokens, keys and your home folder path are removed first; credential files and your data are never included. Only the people who run {host} can read the report.",
+      "{count} files, {size}: logs and settings of this app and of LingerX on this computer. Passwords, tokens, keys and your home folder path are removed first; credential files and your data are never included. Only the people who run {host} can read the report.",
   },
   sendUploading: "Uploading to {host}… {percent}%",
   sendSentLead:
-    "Give this report ID to Linger support so they can find your report.",
+    "Give this report ID to LingerX support so they can find your report.",
   sendByHand: "You can still use Save Diagnostics and send the file by hand.",
   send: "Send",
   copyReportId: "Copy Report ID",
@@ -309,7 +309,7 @@ export const setupMessages = defineMessages("setup", {
   close: "Close",
 
   // Ready.
-  readyTitle: "Linger is ready",
+  readyTitle: "LingerX is ready",
   readyLead: "Running on this computer, just for you.",
   computerConnected: "This computer is connected",
   accountTitle: "Your account on this computer",
@@ -322,18 +322,18 @@ export const setupMessages = defineMessages("setup", {
   accountNote: "Use these to log in again if you log out.",
   accountReveal: "Open account file location",
   legacyNote:
-    "Your data from the earlier Simplex app can't be upgraded to Linger, so this is a fresh workspace. The earlier data was moved, not deleted, to {folder}.",
-  openLinger: "Open Linger",
+    "Your data from the earlier Simplex app can't be upgraded to LingerX, so this is a fresh workspace. The earlier data was moved, not deleted, to {folder}.",
+  openLinger: "Open LingerX",
 
   // Connecting to a team server.
   stepOf: "Step {step} of {total}",
-  serverTitle: "Where is your team's Linger?",
-  serverLead: "Enter the address your team uses for Linger.",
+  serverTitle: "Where is your team's LingerX?",
+  serverLead: "Enter the address your team uses for LingerX.",
   serverAddress: "Server address",
   serverHint: "Ask your admin if you're not sure.",
   signInTitle: "Sign in to your account",
   signInLead:
-    "Linger opens in its own window. Sign in there, and this window moves on by itself.",
+    "LingerX opens in its own window. Sign in there, and this window moves on by itself.",
   account: "Account",
   signedIn: "Signed in",
   waiting: "Waiting…",
@@ -371,10 +371,11 @@ export const setupMessages = defineMessages("setup", {
   allowed: "Allowed",
   openSettings: "Open Settings",
   allow: "Allow…",
-  preventSleep: "Prevent sleep",
-  preventSleepHint: "Keep this computer awake for incoming tasks.",
+  preventSleep: "Keep awake while idle",
+  preventSleepHint:
+    "Active tasks already stay awake automatically. Turn this on to stay awake even while idle for incoming remote tasks.",
   openAtLogin: "Open at login",
   openAtLoginMenuBar: "Start in the menu bar when you log in.",
   openAtLoginTray: "Start in the system tray when you log in.",
-  startUsing: "Start Using Linger",
+  startUsing: "Start Using LingerX",
 });

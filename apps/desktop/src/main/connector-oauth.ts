@@ -61,7 +61,7 @@ export class ConnectorOAuth {
             "Referrer-Policy": "no-referrer",
           })
           .end(
-            "<!doctype html><html lang=en><meta charset=utf-8><title>Linger authorization</title><h1>Go back to Linger</h1><p>Linger received the authorization response. Check the connector status in the app. You can close this tab.</p>",
+            "<!doctype html><html lang=en><meta charset=utf-8><title>LingerX authorization</title><h1>Go back to LingerX</h1><p>LingerX received the authorization response. Check the connector status in the app. You can close this tab.</p>",
           );
         attempt.onReturn(
           account && /^[a-zA-Z0-9_-]{1,256}$/.test(account)
