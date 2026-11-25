@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/egoist/mygo/ui/golden"
 	"github.com/oldwinter/linger/mobile/internal/config"
 	"github.com/oldwinter/linger/mobile/internal/discovery"
 	"github.com/oldwinter/linger/mobile/internal/screens/connect"
@@ -179,7 +178,7 @@ func TestConnectionHubGoldenSnapshots(t *testing.T) {
 		})
 	}
 	ttLight := testutil.NewPhoneTester(lightView, testutil.StandardMobileViewports[1])
-	golden.Match(t, ttLight, "testdata/connect_pair_light_390x844.png")
+	testutil.MatchGolden(t, ttLight, "testdata/connect_pair_light_390x844.png")
 
 	darkView := func(c *ui.Context) {
 		c.SetTheme(theme.TownDark())
@@ -188,5 +187,5 @@ func TestConnectionHubGoldenSnapshots(t *testing.T) {
 		})
 	}
 	ttDark := testutil.NewPhoneTester(darkView, testutil.StandardMobileViewports[1])
-	golden.Match(t, ttDark, "testdata/connect_pair_dark_390x844.png")
+	testutil.MatchGolden(t, ttDark, "testdata/connect_pair_dark_390x844.png")
 }

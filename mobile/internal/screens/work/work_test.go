@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/egoist/mygo/ui/golden"
 	"github.com/oldwinter/linger/mobile/internal/api"
 	"github.com/oldwinter/linger/mobile/internal/cache"
 	"github.com/oldwinter/linger/mobile/internal/screens/work"
@@ -66,6 +65,7 @@ func focusField(t *testing.T, tt *ui.Tester, label string) {
 		info, ok := tt.AccessByRole(ui.RoleTextField, label)
 		if ok && !info.Offscreen && info.Bounds.W > 0 && info.Bounds.H > 0 && info.Bounds.Y >= 40 && info.Bounds.Y+info.Bounds.H <= 810 {
 			tt.ClickAt(info.Bounds.X+info.Bounds.W/2, info.Bounds.Y+info.Bounds.H/2)
+			tt.Key(0, ui.KeyEnd)
 			tt.Frame()
 			return
 		}
@@ -452,7 +452,7 @@ func TestWorkGoldenSnapshots(t *testing.T) {
 			scr.View(c)
 		})
 	}, testutil.StandardMobileViewports[1])
-	golden.Match(t, ttLight, "testdata/work_issues_light_390x844.png")
+	testutil.MatchGolden(t, ttLight, "testdata/work_issues_light_390x844.png")
 
 	ttDark := testutil.NewPhoneTester(func(c *ui.Context) {
 		c.SetTheme(theme.TownDark())
@@ -460,5 +460,5 @@ func TestWorkGoldenSnapshots(t *testing.T) {
 			scr.View(c)
 		})
 	}, testutil.StandardMobileViewports[1])
-	golden.Match(t, ttDark, "testdata/work_issues_dark_390x844.png")
+	testutil.MatchGolden(t, ttDark, "testdata/work_issues_dark_390x844.png")
 }

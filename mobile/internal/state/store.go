@@ -125,6 +125,7 @@ type AppStore struct {
 	suspended       bool
 	biometricLocked bool
 	rttMs           int
+	rttPinned       bool
 	activeVia       string
 	lastHB          time.Time
 	statusMessage   string
@@ -452,6 +453,7 @@ func (s *AppStore) SetRTTMs(ms int) {
 	}
 	s.mu.Lock()
 	s.rttMs = ms
+	s.rttPinned = true
 	s.mu.Unlock()
 	s.notify()
 }
@@ -984,7 +986,9 @@ func (s *AppStore) ConnectHost(ctx context.Context, hostID string) error {
 			s.mu.Lock()
 			if s.connGen == myGen {
 				s.activeVia = res.Target.Via
-				s.rttMs = int(res.RTT.Milliseconds())
+				if !s.rttPinned {
+					s.rttMs = int(res.RTT.Milliseconds())
+				}
 			}
 			s.mu.Unlock()
 		}
@@ -1053,7 +1057,9 @@ func (s *AppStore) ConnectHost(ctx context.Context, hostID string) error {
 	if s.connGen == myGen {
 		s.phase = PhaseConnected
 		s.offlineViewingCache = false
-		s.rttMs = profile.LastRTTMs
+		if !s.rttPinned {
+			s.rttMs = profile.LastRTTMs
+		}
 		s.activeVia = client.ActiveVia()
 		s.transientError = ""
 	}
@@ -1242,7 +1248,9 @@ func (s *AppStore) RefreshActiveHost(ctx context.Context) error {
 		s.roomMessages[roomID] = msgs
 	}
 	s.rebuildPendingDecisionsLocked()
-	s.rttMs = int(client.LastRTT().Milliseconds())
+	if !s.rttPinned {
+		s.rttMs = int(client.LastRTT().Milliseconds())
+	}
 	s.offlineViewingCache = false
 	s.transientError = ""
 	cs := s.cacheStore

@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/egoist/mygo/ui/golden"
 	"github.com/oldwinter/linger/mobile/internal/config"
 	"github.com/oldwinter/linger/mobile/internal/i18n"
 	"github.com/oldwinter/linger/mobile/internal/screens/live"
@@ -32,11 +31,30 @@ func restoreI18nState(t *testing.T) {
 	})
 }
 
-func assertVisibleControlsHaveValidBounds(t *testing.T, tt *ui.Tester, screenName string, vpWidth, vpHeight int) {
+func assertVisibleControlsHaveValidBounds(t *testing.T, tt *ui.Tester, screenName string, vp testutil.MobileViewport) {
 	t.Helper()
+	vpWidth := vp.Width
+	vpHeight := vp.Height
+	nodes := tt.AccessAll()
+	scrollTop := vp.Top + 60
+	bottomBarTop := float32(0)
+	hasBottomTabBar := false
+	for _, info := range nodes {
+		if !info.Offscreen && info.Role == ui.RoleTab && info.Bounds.W >= 20 && info.Bounds.H >= 20 && info.Bounds.Y >= float32(vpHeight)-vp.Bottom-90 {
+			if !hasBottomTabBar || info.Bounds.Y > bottomBarTop {
+				bottomBarTop = info.Bounds.Y
+				hasBottomTabBar = true
+			}
+		}
+	}
+	scrollBottom := float32(vpHeight) - vp.Bottom - 4
+	if hasBottomTabBar {
+		scrollBottom = bottomBarTop - 8
+	}
+
 	var tabRects []ui.Rect
 	var tabCount int
-	for _, info := range tt.AccessAll() {
+	for _, info := range nodes {
 		if info.Offscreen {
 			continue
 		}
@@ -46,7 +64,8 @@ func assertVisibleControlsHaveValidBounds(t *testing.T, tt *ui.Tester, screenNam
 				t.Fatalf("%s (%dx%d): tab %q overflows viewport width: %+v",
 					screenName, vpWidth, vpHeight, info.Name, info.Bounds)
 			}
-			foldClipped := info.Bounds.Y <= 60 || info.Bounds.Y+info.Bounds.H >= float32(vpHeight)-90
+			isBottomTab := hasBottomTabBar && info.Bounds.Y >= bottomBarTop-1
+			foldClipped := !isBottomTab && (info.Bounds.Y <= scrollTop || info.Bounds.Y+info.Bounds.H >= scrollBottom-2)
 			if !foldClipped && (info.Bounds.W < 20 || info.Bounds.H < 20) {
 				t.Fatalf("%s (%dx%d): tab %q crushed too small: %+v",
 					screenName, vpWidth, vpHeight, info.Name, info.Bounds)
@@ -62,7 +81,7 @@ func assertVisibleControlsHaveValidBounds(t *testing.T, tt *ui.Tester, screenNam
 			tabRects = append(tabRects, info.Bounds)
 		}
 		if info.Role == ui.RoleButton && info.Bounds.W > 0 && info.Bounds.H > 0 {
-			foldClipped := info.Bounds.Y <= 60 || info.Bounds.Y+info.Bounds.H >= float32(vpHeight)-90
+			foldClipped := info.Bounds.Y <= scrollTop || info.Bounds.Y+info.Bounds.H >= scrollBottom-2
 			if info.Bounds.W < 20 || (!foldClipped && info.Bounds.H < 20) {
 				t.Fatalf("%s (%dx%d): visible button %q too small %+v",
 					screenName, vpWidth, vpHeight, info.Name, info.Bounds)
@@ -408,7 +427,7 @@ func TestChineseLayoutSafetyAcrossPhoneViewports(t *testing.T) {
 			// Connect Hub
 			appShell.OpenConnect()
 			settleFrame(tt)
-			assertVisibleControlsHaveValidBounds(t, tt, "ConnectHub", vp.Width, vp.Height)
+			assertVisibleControlsHaveValidBounds(t, tt, "ConnectHub", vp)
 
 			// Rooms
 			store.SetActiveTab(state.TabRooms)
@@ -417,7 +436,7 @@ func TestChineseLayoutSafetyAcrossPhoneViewports(t *testing.T) {
 			if !tt.HasText(i18n.Tp(i18n.LocaleZhHans, "rooms.catch_up", nil)) {
 				t.Fatalf("%s: expected Chinese Catch-Up button, texts=%v", vp.Name, tt.Texts())
 			}
-			assertVisibleControlsHaveValidBounds(t, tt, "Rooms", vp.Width, vp.Height)
+			assertVisibleControlsHaveValidBounds(t, tt, "Rooms", vp)
 
 			// Live (Compute)
 			store.SetActiveTab(state.TabLive)
@@ -426,7 +445,7 @@ func TestChineseLayoutSafetyAcrossPhoneViewports(t *testing.T) {
 			if !tt.HasText(i18n.Tp(i18n.LocaleZhHans, "live.compute.desktop_title", nil)) {
 				t.Fatalf("%s: expected Chinese Desktop Companion Host, texts=%v", vp.Name, tt.Texts())
 			}
-			assertVisibleControlsHaveValidBounds(t, tt, "Live", vp.Width, vp.Height)
+			assertVisibleControlsHaveValidBounds(t, tt, "Live", vp)
 
 			// Work
 			store.SetActiveTab(state.TabWork)
@@ -434,7 +453,7 @@ func TestChineseLayoutSafetyAcrossPhoneViewports(t *testing.T) {
 			if !tt.HasText(i18n.Tp(i18n.LocaleZhHans, "work.tab.routines", nil)) || !tt.HasText(i18n.Tp(i18n.LocaleZhHans, "work.tab.pocket", nil)) {
 				t.Fatalf("%s: expected Chinese Work segments, texts=%v", vp.Name, tt.Texts())
 			}
-			assertVisibleControlsHaveValidBounds(t, tt, "Work", vp.Width, vp.Height)
+			assertVisibleControlsHaveValidBounds(t, tt, "Work", vp)
 
 			// Library
 			store.SetActiveTab(state.TabLibrary)
@@ -442,7 +461,7 @@ func TestChineseLayoutSafetyAcrossPhoneViewports(t *testing.T) {
 			if !tt.HasText(i18n.Tp(i18n.LocaleZhHans, "library.tab.docs", nil)) || !tt.HasText(i18n.Tp(i18n.LocaleZhHans, "library.tab.wiki", nil)) || !tt.HasText(i18n.Tp(i18n.LocaleZhHans, "library.tab.memory", nil)) {
 				t.Fatalf("%s: expected Chinese Library segments, texts=%v", vp.Name, tt.Texts())
 			}
-			assertVisibleControlsHaveValidBounds(t, tt, "Library", vp.Width, vp.Height)
+			assertVisibleControlsHaveValidBounds(t, tt, "Library", vp)
 
 			// More Overview & Prefs
 			store.SetActiveTab(state.TabMore)
@@ -452,11 +471,11 @@ func TestChineseLayoutSafetyAcrossPhoneViewports(t *testing.T) {
 			if !tt.HasText(i18n.Tp(i18n.LocaleZhHans, "appearance.title", nil)) {
 				t.Fatalf("%s: expected Chinese Appearance card in More Overview, texts=%v", vp.Name, tt.Texts())
 			}
-			assertVisibleControlsHaveValidBounds(t, tt, "MoreOverview", vp.Width, vp.Height)
+			assertVisibleControlsHaveValidBounds(t, tt, "MoreOverview", vp)
 
 			appShell.Settings().SelectSection(settings.SectionPreferences)
 			settleFrame(tt)
-			assertVisibleControlsHaveValidBounds(t, tt, "MorePrefs", vp.Width, vp.Height)
+			assertVisibleControlsHaveValidBounds(t, tt, "MorePrefs", vp)
 		})
 	}
 }
@@ -491,12 +510,12 @@ func TestShellChineseGoldenSnapshotsLightAndDark(t *testing.T) {
 	appOffline.OpenConnect()
 	ttConnLight := testutil.NewPhoneTester(appOffline.View, vp)
 	settleFrame(ttConnLight)
-	golden.Match(t, ttConnLight, "testdata/shell_connect_zh_light_390x844.png")
+	testutil.MatchGolden(t, ttConnLight, "testdata/shell_connect_zh_light_390x844.png")
 
 	_ = store.SetThemePreference(config.ThemeDark)
 	ttConnDark := testutil.NewPhoneTester(appOffline.View, vp)
 	settleFrame(ttConnDark)
-	golden.Match(t, ttConnDark, "testdata/shell_connect_zh_dark_390x844.png")
+	testutil.MatchGolden(t, ttConnDark, "testdata/shell_connect_zh_dark_390x844.png")
 	appOffline.Close()
 
 	// 2. Hydrated Shell: Rooms + More Overview in Chinese (Light & Dark)
@@ -513,12 +532,12 @@ func TestShellChineseGoldenSnapshotsLightAndDark(t *testing.T) {
 	store.Routers[state.TabRooms] = ui.NewRouter("/rooms")
 	ttRoomsLight := testutil.NewPhoneTester(appHydrated.View, vp)
 	settleFrame(ttRoomsLight)
-	golden.Match(t, ttRoomsLight, "testdata/shell_rooms_zh_light_390x844.png")
+	testutil.MatchGolden(t, ttRoomsLight, "testdata/shell_rooms_zh_light_390x844.png")
 
 	_ = store.SetThemePreference(config.ThemeDark)
 	ttRoomsDark := testutil.NewPhoneTester(appHydrated.View, vp)
 	settleFrame(ttRoomsDark)
-	golden.Match(t, ttRoomsDark, "testdata/shell_rooms_zh_dark_390x844.png")
+	testutil.MatchGolden(t, ttRoomsDark, "testdata/shell_rooms_zh_dark_390x844.png")
 
 	moreCfg := config.NewStore(config.NewMemoryPreferencesBackend(), config.NewMemorySecretsBackend())
 	_ = moreCfg.SetPreferences(config.AppPreferences{
@@ -545,10 +564,10 @@ func TestShellChineseGoldenSnapshotsLightAndDark(t *testing.T) {
 	moreApp.Settings().SelectSection(settings.SectionOverview)
 	ttMoreLight := testutil.NewPhoneTester(moreApp.View, vp)
 	settleFrame(ttMoreLight)
-	golden.Match(t, ttMoreLight, "testdata/shell_more_zh_light_390x844.png")
+	testutil.MatchGolden(t, ttMoreLight, "testdata/shell_more_zh_light_390x844.png")
 
 	_ = moreStore.SetThemePreference(config.ThemeDark)
 	ttMoreDark := testutil.NewPhoneTester(moreApp.View, vp)
 	settleFrame(ttMoreDark)
-	golden.Match(t, ttMoreDark, "testdata/shell_more_zh_dark_390x844.png")
+	testutil.MatchGolden(t, ttMoreDark, "testdata/shell_more_zh_dark_390x844.png")
 }
