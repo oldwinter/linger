@@ -17,6 +17,7 @@ on:
   pull_request:
     paths:
       - .github/workflows/codex-canary.yml
+      - .github/actions/native-runtimes/**
 
 permissions:
   contents: read
@@ -35,37 +36,24 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
-      # The native linux-x64 build, as the localmodels kit installs it, not
-      # the npm wrapper that would need Node at run time.
-      - name: Install Codex
+      - uses: ./.github/actions/native-runtimes
         id: codex
-        env:
-          REQUESTED: ${{ inputs.version }}
-        run: |
-          set -euo pipefail
-          version=${REQUESTED:-$(npm view @openai/codex dist-tags.latest)}
-          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::not a stable Codex version: $version"; exit 1; }
-          dir="$RUNNER_TEMP/codex"
-          mkdir -p "$dir"
-          (cd "$dir" && npm pack --silent "@openai/codex@$version-linux-x64" >/dev/null && tar -xzf ./*.tgz)
-          executable="$dir/package/vendor/x86_64-unknown-linux-musl/bin/codex"
-          "$executable" --version
-          echo "version=$version" >>"$GITHUB_OUTPUT"
-          echo "executable=$executable" >>"$GITHUB_OUTPUT"
+        with:
+          codex: ${{ inputs.version || 'latest' }}
       - name: Authentication probe without an auth file
         working-directory: apps/computer/local-daemon
         env:
-          LINGER_CODEX_COMPAT_EXECUTABLE: ${{ steps.codex.outputs.executable }}
+          LINGER_CODEX_COMPAT_EXECUTABLE: ${{ steps.codex.outputs.codex-executable }}
         run: go test ./internal/provider -run '^TestNativeCodexAuthenticationWithoutAuthFile$' -count=1 -v
       - name: First run with a tool, then resume in a new process
         env:
-          LINGER_CODEX_COMPAT_EXECUTABLE: ${{ steps.codex.outputs.executable }}
+          LINGER_CODEX_COMPAT_EXECUTABLE: ${{ steps.codex.outputs.codex-executable }}
         run: pnpm --filter @linger/computer exec vitest run --config vitest.config.ts tests/codex-native-compat.test.ts
       - name: Report a scheduled failure
         if: failure() && github.event_name == 'schedule'
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.codex.outputs.version }}
+          VERSION: ${{ steps.codex.outputs.codex-version }}
           RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail

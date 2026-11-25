@@ -246,6 +246,25 @@ jobs:
         with:
           app: computer-go
           changes-result: ${{ needs.changes.result }}
+      # The Codex and Claude Code the pinned localmodels kit installs, so a
+      # Daemon change or a kit pin that breaks the managed Runtimes fails this
+      # required check. The daily canaries cover the newest releases.
+      - id: pins
+        run: jq -r '.localmodelsTool.runtimeVersions | "codex=\(.codex)", "claude=\(.claude)"' apps/desktop/distribution/linux-x64.json >>"$GITHUB_OUTPUT"
+      - uses: ./.github/actions/native-runtimes
+        id: runtimes
+        with:
+          codex: ${{ steps.pins.outputs.codex }}
+          claude: ${{ steps.pins.outputs.claude }}
+      - name: Native compatibility of the pinned Runtimes
+        env:
+          LINGER_CODEX_COMPAT_EXECUTABLE: ${{ steps.runtimes.outputs.codex-executable }}
+          LINGER_CLAUDE_COMPAT_EXECUTABLE: ${{ steps.runtimes.outputs.claude-executable }}
+        run: |
+          set -euo pipefail
+          (cd apps/computer/local-daemon && go test ./internal/provider -count=1 -v \
+            -run '^(TestNativeCodexAuthenticationWithoutAuthFile|TestNativeClaudeAuthenticationDoesNotCallModel|TestNativeClaudeFirstRunResume)$')
+          pnpm --filter @linger/computer exec vitest run --config vitest.config.ts tests/codex-native-compat.test.ts
 
   # The daemon ships on Windows, and its Windows-only files build and run only
   # there. The same paths as check (computer-go) select it.

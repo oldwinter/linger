@@ -1,0 +1,97 @@
+name: Native Runtimes
+description: Install the native linux-x64 Codex and Claude Code builds the localmodels kit installs, at given versions, for the Daemon's native compatibility tests.
+
+inputs:
+  codex:
+    description: Codex version, `latest` for npm's newest stable release, or empty to skip Codex.
+    default: ""
+  claude:
+    description: Claude Code version, `stable` for Anthropic's stable channel, or empty to skip Claude Code.
+    default: ""
+
+outputs:
+  codex-version:
+    description: The Codex version installed.
+    value: ${{ steps.resolve.outputs.codex }}
+  codex-executable:
+    description: The native Codex executable.
+    value: ${{ steps.install.outputs.codex }}
+  claude-version:
+    description: The Claude Code version installed.
+    value: ${{ steps.resolve.outputs.claude }}
+  claude-executable:
+    description: The native Claude Code executable.
+    value: ${{ steps.install.outputs.claude }}
+
+runs:
+  using: composite
+  steps:
+    # Versions reach the shell only through env and must be a stable x.y.z
+    # before they name a download.
+    - id: resolve
+      shell: bash
+      env:
+        CODEX: ${{ inputs.codex }}
+        CLAUDE: ${{ inputs.claude }}
+        CLAUDE_BASE: https://downloads.claude.ai/claude-code-releases
+      run: |
+        set -euo pipefail
+        stable='^[0-9]+\.[0-9]+\.[0-9]+$'
+        if [ -n "$CODEX" ]; then
+          [ "$CODEX" != latest ] || CODEX=$(npm view @openai/codex dist-tags.latest)
+          [[ "$CODEX" =~ $stable ]] || { echo "::error::not a stable Codex version: $CODEX"; exit 1; }
+        fi
+        if [ -n "$CLAUDE" ]; then
+          [ "$CLAUDE" != stable ] || CLAUDE=$(curl -fsSL "$CLAUDE_BASE/stable")
+          [[ "$CLAUDE" =~ $stable ]] || { echo "::error::not a stable Claude Code version: $CLAUDE"; exit 1; }
+        fi
+        echo "codex=$CODEX" >>"$GITHUB_OUTPUT"
+        echo "claude=$CLAUDE" >>"$GITHUB_OUTPUT"
+    # Each build is hundreds of MB and a version's files never change. Like the
+    # repository's other caches, pull requests only restore; pushes and
+    # scheduled runs save.
+    - id: cache
+      uses: actions/cache/restore@v6
+      with:
+        path: ~/.cache/linger-native-runtimes
+        key: native-runtimes-${{ runner.os }}-codex-${{ steps.resolve.outputs.codex }}-claude-${{ steps.resolve.outputs.claude }}
+    - id: install
+      shell: bash
+      env:
+        CODEX: ${{ steps.resolve.outputs.codex }}
+        CLAUDE: ${{ steps.resolve.outputs.claude }}
+        CLAUDE_BASE: https://downloads.claude.ai/claude-code-releases
+      run: |
+        set -euo pipefail
+        cache="$HOME/.cache/linger-native-runtimes"
+        if [ -n "$CODEX" ]; then
+          dir="$cache/codex/$CODEX"
+          executable="$dir/package/vendor/x86_64-unknown-linux-musl/bin/codex"
+          if [ ! -x "$executable" ]; then
+            rm -rf "$dir" && mkdir -p "$dir"
+            # npm checks the tarball against the registry's integrity hash.
+            (cd "$dir" && npm pack --silent "@openai/codex@$CODEX-linux-x64" >/dev/null && tar -xzf ./*.tgz && rm ./*.tgz)
+          fi
+          "$executable" --version | grep -qx "codex-cli $CODEX" || { echo "::error::Codex does not report $CODEX"; exit 1; }
+          echo "codex=$executable" >>"$GITHUB_OUTPUT"
+        fi
+        if [ -n "$CLAUDE" ]; then
+          dir="$cache/claude/$CLAUDE"
+          mkdir -p "$dir"
+          # A cached binary is checked against the checksum stored beside it
+          # when it was downloaded, so a hit needs no release server.
+          if ! (cd "$dir" && sha256sum -c --status claude.sha256 2>/dev/null); then
+            checksum=$(curl -fsSL "$CLAUDE_BASE/$CLAUDE/manifest.json" | jq -er '.platforms["linux-x64"].checksum')
+            curl -fsSL -o "$dir/claude" "$CLAUDE_BASE/$CLAUDE/linux-x64/claude"
+            echo "$checksum  claude" >"$dir/claude.sha256"
+            (cd "$dir" && sha256sum -c claude.sha256)
+          fi
+          chmod +x "$dir/claude"
+          "$dir/claude" --version | grep -q "^$CLAUDE " || { echo "::error::Claude Code does not report $CLAUDE"; exit 1; }
+          echo "claude=$dir/claude" >>"$GITHUB_OUTPUT"
+        fi
+    - if: steps.cache.outputs.cache-hit != 'true' && github.event_name != 'pull_request'
+      uses: actions/cache/save@v6
+      with:
+        path: ~/.cache/linger-native-runtimes
+        key: native-runtimes-${{ runner.os }}-codex-${{ steps.resolve.outputs.codex }}-claude-${{ steps.resolve.outputs.claude }}
