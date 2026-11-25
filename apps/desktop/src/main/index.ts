@@ -43,12 +43,6 @@ import {
   type SourceArchive,
   type SourceDependencies,
 } from "./local-server.js";
-import { defaultBridgeStateDirectory } from "./legacy-bridge.js";
-import {
-  migrateLegacyComputer,
-  retireLegacyBridge,
-} from "./legacy-migration.js";
-import { moveLegacyUserData, type UserDataMove } from "./legacy-user-data.js";
 import { fileLogger, type Logger } from "./log.js";
 import { MacPermissions } from "./mac-permissions.js";
 import { MobileCompanionModule } from "./mobile-companion.js";
@@ -74,34 +68,16 @@ declare const __SOURCE_DEPENDENCIES__: SourceDependencies | null;
 const VERSION = __DESKTOP_VERSION__;
 const here = path.dirname(fileURLToPath(import.meta.url));
 
-let userDataMove: UserDataMove | undefined;
-// Development overrides; installed builds use the platform defaults.
+// Development overrides; installed builds keep LingerX isolated from upstream Linger.
 if (process.env.LINGER_DESKTOP_USER_DATA)
   app.setPath("userData", path.resolve(process.env.LINGER_DESKTOP_USER_DATA));
-// The installed app's data folder holds the Computer's credential, identity
-// and enrollment. Installs from before the rename move theirs here once.
 else if (app.isPackaged) {
-  const userData = path.join(app.getPath("appData"), "Linger");
-  try {
-    userDataMove = moveLegacyUserData(
-      path.join(app.getPath("appData"), "Simplex"),
-      userData,
-    );
-  } catch (error) {
-    // A blocked move already says which folder to close; anything else keeps
-    // its own message.
-    dialog.showErrorBox(
-      "Linger could not start",
-      error instanceof Error ? error.message : String(error),
-    );
-    app.exit(1);
-  }
-  app.setPath("userData", userData);
+  app.setPath("userData", path.join(app.getPath("appData"), "LingerX"));
 }
 
 // Windows shows notifications only for an app id that a Start menu shortcut
 // carries. The installer makes the shortcut; the app writes the id into it.
-const APP_USER_MODEL_ID = "com.simplexai.linger.desktop.preview";
+const APP_USER_MODEL_ID = "dev.oldwinter.lingerx.desktop";
 if (process.platform === "win32") app.setAppUserModelId(APP_USER_MODEL_ID);
 
 // `--quit` (the uninstaller) asks a running Linger to quit, and starts
@@ -119,17 +95,6 @@ async function main(): Promise<void> {
   const log = fileLogger(path.join(userData, "logs"), {
     stderr: !app.isPackaged,
   });
-  if (userDataMove?.outcome === "kept")
-    log.warn("desktop.legacy_user_data_kept", {
-      legacy: userDataMove.legacy,
-      user_data: userDataMove.userData,
-    });
-  else if (userDataMove)
-    log.info("desktop.legacy_user_data_moved", {
-      legacy: userDataMove.legacy,
-      user_data: userDataMove.userData,
-      ...(userDataMove.setAside ? { set_aside: userDataMove.setAside } : {}),
-    });
   if (process.platform === "win32" && app.isPackaged)
     markStartMenuShortcut({
       appData: app.getPath("appData"),
@@ -154,18 +119,6 @@ async function main(): Promise<void> {
   const daemonDirectory = path.join(userData, "computer");
   const credentials = new CredentialStore(
     path.join(daemonDirectory, "credential.json"),
-  );
-  // Earlier versions ran agents through the bridge and runtime-host.
-  await retireLegacyBridge(defaultBridgeStateDirectory(), VERSION, log);
-  migrateLegacyComputer(
-    {
-      bridgeStateDirectory: defaultBridgeStateDirectory(),
-      runtimeDirectory: path.join(userData, "runtime"),
-      daemonStateDirectory: path.join(daemonDirectory, "state"),
-    },
-    config,
-    credentials,
-    log,
   );
 
   // The default LINGER_HOME of the installer.
@@ -377,7 +330,7 @@ async function main(): Promise<void> {
         });
         return result.canceled ? undefined : result.filePaths[0];
       },
-      defaultDirectory: path.join(app.getPath("home"), "Linger"),
+      defaultDirectory: path.join(app.getPath("home"), "LingerX"),
     }),
     daemon,
     status,
@@ -485,7 +438,7 @@ async function main(): Promise<void> {
   } catch (error) {
     log.error("desktop.start_failed", { error: String(error) });
     dialog.showErrorBox(
-      "Linger",
+      "LingerX",
       language.t(dialogMessages.startFailed, { error: String(error) }),
     );
     app.exit(1);

@@ -133,7 +133,7 @@ The `go test -race -count=1 ./...` suite includes:
 
 ## Building for iOS & Android
 
-`mobile/mygo.json` declares the app bundle identifier (`ai.linger.mobile`), `linger://` URL scheme, iOS Bonjour/Camera/Face ID Info.plist permissions, Android permissions (`minSdk: 26`), and MyGo native plugins (`sqlite`, `preferences`, `biometrics`, `camera`, `imagepicker`).
+`mobile/mygo.json` declares the app name (`LingerX`), bundle identifier (`dev.oldwinter.lingerx.mobile`), `lingerx://` URL scheme (while still parsing legacy `linger://pair` links), iOS Bonjour/Camera/Face ID Info.plist permissions, Android permissions (`minSdk: 26`), and MyGo native plugins (`sqlite`, `preferences`, `biometrics`, `camera`, `imagepicker`). Android ARM64 release APKs are built and attached alongside Desktop installers in [`.github/workflows/release.yml`](../.github/workflows/release.yml).
 
 Install the pinned MyGo CLI:
 

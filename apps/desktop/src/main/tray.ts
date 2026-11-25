@@ -104,7 +104,7 @@ export class TrayModule implements Module, DesktopTrayHost {
     try {
       if (headlessDisplay()) throw new Error("No display");
       this.#tray = new Tray(this.#icon());
-      this.#tray.setToolTip("Linger");
+      this.#tray.setToolTip("LingerX");
       // Windows and Linux open the window on click; macOS shows the menu.
       if (process.platform !== "darwin")
         this.#tray.on("click", () => setup.showApp());

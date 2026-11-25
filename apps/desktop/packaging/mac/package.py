@@ -63,17 +63,18 @@ sys.path.insert(0, os.path.dirname(HERE))
 from archive import sha256, tar_gz  # noqa: E402
 import computer_tools  # noqa: E402
 from native_bundle import check_runtime, check_teamhub, refresh  # noqa: E402
-BUNDLE_ID = "com.simplexai.linger.desktop.preview"
+APP_NAME = "LingerX"
+BUNDLE_ID = "dev.oldwinter.lingerx.desktop"
 # Prompt text for the privacy permissions tasks and voice need. Without
 # NSAppleEventsUsageDescription macOS refuses Apple Events without asking.
 # The microphone text replaces Electron's generic one; the prompt itself also
 # needs the audio-input entitlement in entitlements.plist.
 PRIVACY_USAGE = {
-    "NSMicrophoneUsageDescription": "Linger uses the microphone for voice conversations and meeting recordings you start.",
-    "NSAppleEventsUsageDescription": "Tasks you send to Linger can control apps on this Mac for you.",
-    "NSDownloadsFolderUsageDescription": "Tasks you send to Linger can read and organize your downloads.",
-    "NSDocumentsFolderUsageDescription": "Tasks you send to Linger can read and edit your documents.",
-    "NSDesktopFolderUsageDescription": "Tasks you send to Linger can read and edit files on your desktop.",
+    "NSMicrophoneUsageDescription": "LingerX uses the microphone for voice conversations and meeting recordings you start.",
+    "NSAppleEventsUsageDescription": "Tasks you send to LingerX can control apps on this Mac for you.",
+    "NSDownloadsFolderUsageDescription": "Tasks you send to LingerX can read and organize your downloads.",
+    "NSDocumentsFolderUsageDescription": "Tasks you send to LingerX can read and edit your documents.",
+    "NSDesktopFolderUsageDescription": "Tasks you send to LingerX can read and edit files on your desktop.",
 }
 # macOS refuses to open the app on an older system. The bundled PostgreSQL and
 # LiveKit's ffmpeg are built for 14.0; keep in step with MIN_MACOS in
@@ -114,12 +115,12 @@ def electron_zip(version, arch, cache):
 
 
 def extract_app(zip_path, destination):
-    """Copies Electron.app to destination/Linger.app, keeping symlinks and modes."""
+    """Copies Electron.app to destination/LingerX.app, keeping symlinks and modes."""
     with zipfile.ZipFile(zip_path) as archive:
         for info in archive.infolist():
             if not info.filename.startswith("Electron.app/"):
                 continue
-            target = os.path.join(destination, "Linger.app" + info.filename[len("Electron.app"):])
+            target = os.path.join(destination, f"{APP_NAME}.app" + info.filename[len("Electron.app"):])
             mode = info.external_attr >> 16
             if info.filename.endswith("/"):
                 os.makedirs(target, exist_ok=True)
@@ -132,7 +133,7 @@ def extract_app(zip_path, destination):
                 with open(target, "wb") as out:
                     out.write(data)
                 os.chmod(target, (mode & 0o777) or 0o644)
-    return os.path.join(destination, "Linger.app")
+    return os.path.join(destination, f"{APP_NAME}.app")
 
 
 def update_plist(path, **values):
@@ -187,7 +188,7 @@ def stage_app(arch, version, electron_version, workdir, cache):
 
     shutil.copytree(dist, os.path.join(app_dir, "dist"), ignore=ignore, symlinks=True)
     with open(os.path.join(app_dir, "package.json"), "w") as out:
-        json.dump({"name": "linger-desktop", "productName": "Linger", "version": version,
+        json.dump({"name": "lingerx-desktop", "productName": APP_NAME, "version": version,
                    "type": "module", "main": "dist/main/index.mjs"}, out, indent=2)
     computer = os.path.join(resources, "computer")
     os.makedirs(computer)
@@ -195,9 +196,9 @@ def stage_app(arch, version, electron_version, workdir, cache):
     computer_tools.copy(resources, target)
     write_icon(resources)
 
-    os.rename(os.path.join(contents, "MacOS", "Electron"), os.path.join(contents, "MacOS", "Linger"))
-    update_plist(os.path.join(contents, "Info.plist"), CFBundleName="Linger",
-                 CFBundleDisplayName="Linger", CFBundleExecutable="Linger",
+    os.rename(os.path.join(contents, "MacOS", "Electron"), os.path.join(contents, "MacOS", APP_NAME))
+    update_plist(os.path.join(contents, "Info.plist"), CFBundleName=APP_NAME,
+                 CFBundleDisplayName=APP_NAME, CFBundleExecutable=APP_NAME,
                  CFBundleIdentifier=BUNDLE_ID, CFBundleShortVersionString=version,
                  CFBundleVersion=version, LSMinimumSystemVersion=MINIMUM_MACOS,
                  **PRIVACY_USAGE)
@@ -206,7 +207,7 @@ def stage_app(arch, version, electron_version, workdir, cache):
         if not (name.startswith("Electron Helper") and name.endswith(".app")):
             continue
         suffix = name[len("Electron Helper"):-len(".app")]
-        helper = f"Linger Helper{suffix}"
+        helper = f"{APP_NAME} Helper{suffix}"
         old = os.path.join(frameworks, name)
         os.rename(os.path.join(old, "Contents", "MacOS", name[:-4]),
                   os.path.join(old, "Contents", "MacOS", helper))
@@ -486,19 +487,19 @@ def emit_outputs(stage, app, workdir, out_dir, version, arch, signing, include_u
                 "(Contents/CodeResources); Linger.app must be stapled before building the DMG"
             )
 
-    output = os.path.join(out_dir, f"Linger-{version}-{arch}.dmg")
+    output = os.path.join(out_dir, f"{APP_NAME}-{version}-{arch}.dmg")
 
     def make_dmg():
-        build_dmg(stage, workdir, output, f"Linger {version}")
+        build_dmg(stage, workdir, output, f"{APP_NAME} {version}")
         signing.sign_dmg(output)
         signing.notarize(output)
         print(f"{output} {os.path.getsize(output)} sha256={sha256(output)}", flush=True)
 
     if include_update_archive:
         def make_update():
-            archive = os.path.join(out_dir, f"Linger-{version}-{arch}.app.tar.gz")
+            archive = os.path.join(out_dir, f"{APP_NAME}-{version}-{arch}.app.tar.gz")
             update_archive(app, archive)
-            computer_tools.check_archive(archive, "Linger.app/Contents/Resources/", f"darwin-{arch}")
+            computer_tools.check_archive(archive, f"{APP_NAME}.app/Contents/Resources/", f"darwin-{arch}")
 
         # Both threads only read the already-signed, stapled bundle and write
         # separate outputs.

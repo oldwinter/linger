@@ -1,6 +1,6 @@
-import { homedir } from "node:os";
 import path from "node:path";
 import type { InstallerEvent } from "./events.js";
+import { lingerHome } from "./home.js";
 import { localmodelsFailure } from "./localmodels-failure.js";
 import { runLocalmodels } from "./localmodels-tool.js";
 import {
@@ -252,9 +252,7 @@ export async function inspectSetup(
   options: SetupOptions = {},
 ): Promise<SetupReport> {
   options.signal?.throwIfAborted();
-  const home = path.resolve(
-    options.home ?? path.join(options.userHome ?? homedir(), ".simplexai"),
-  );
+  const home = path.resolve(options.home ?? lingerHome({}, options.userHome));
   const targetHome = path.resolve(options.targetHome ?? home);
   let failure: string | undefined;
   try {

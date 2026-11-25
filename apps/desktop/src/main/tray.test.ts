@@ -70,9 +70,9 @@ describe("TrayModule tooltip", () => {
   it("keeps the status alone while nothing is unread", async () => {
     const f = await startTray();
 
-    expect(f.toolTip()).toBe("Linger · Online · Idle");
+    expect(f.toolTip()).toBe("LingerX · Online · Idle");
     f.tray.setUnreadCount(0);
-    expect(f.toolTip()).toBe("Linger · Online · Idle");
+    expect(f.toolTip()).toBe("LingerX · Online · Idle");
     await f.host.stop("quit");
   });
 
@@ -80,11 +80,11 @@ describe("TrayModule tooltip", () => {
     const f = await startTray();
 
     f.tray.setUnreadCount(1);
-    expect(f.toolTip()).toBe("Linger · Online · Idle · 1 unread mention");
+    expect(f.toolTip()).toBe("LingerX · Online · Idle · 1 unread mention");
     f.tray.setUnreadCount(1_234);
-    expect(f.toolTip()).toBe("Linger · Online · Idle · 1234 unread mentions");
+    expect(f.toolTip()).toBe("LingerX · Online · Idle · 1234 unread mentions");
     f.tray.setUnreadCount(0);
-    expect(f.toolTip()).toBe("Linger · Online · Idle");
+    expect(f.toolTip()).toBe("LingerX · Online · Idle");
     await f.host.stop("quit");
   });
 
@@ -94,7 +94,7 @@ describe("TrayModule tooltip", () => {
     f.status.label = "Running 2 Tasks";
     f.bus.emit("status.changed", { tone: "busy", label: f.status.label });
 
-    expect(f.toolTip()).toBe("Linger · Running 2 Tasks");
+    expect(f.toolTip()).toBe("LingerX · Running 2 Tasks");
     await f.host.stop("quit");
   });
 
@@ -105,7 +105,7 @@ describe("TrayModule tooltip", () => {
     f.status.label = "Running 2 Tasks";
     f.bus.emit("status.changed", { tone: "busy", label: f.status.label });
 
-    expect(f.toolTip()).toBe("Linger · Running 2 Tasks · 3 unread mentions");
+    expect(f.toolTip()).toBe("LingerX · Running 2 Tasks · 3 unread mentions");
     await f.host.stop("quit");
   });
 });

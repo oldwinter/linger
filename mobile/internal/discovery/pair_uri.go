@@ -18,9 +18,11 @@ import (
 const (
 	// DefaultCompanionPort is the locked Companion Gateway default port.
 	DefaultCompanionPort = 48210
-	// PairingScheme is the registered custom URL scheme for Linger Mobile.
-	PairingScheme = "linger"
-	// PairingHost is the authority component of linger://pair URIs.
+	// PairingScheme is the registered custom URL scheme for LingerX Mobile.
+	PairingScheme = "lingerx"
+	// LegacyPairingScheme keeps pairing links from earlier Linger builds accepted.
+	LegacyPairingScheme = "linger"
+	// PairingHost is the authority component of lingerx://pair URIs.
 	PairingHost = "pair"
 	// CompanionProtocolVersion is the locked Companion wire protocol version.
 	CompanionProtocolVersion = 1
@@ -112,7 +114,7 @@ func ParsePairingURI(raw string) (PairingPayload, error) {
 	if err != nil {
 		return PairingPayload{}, fmt.Errorf("discovery: invalid pairing URI: %w", err)
 	}
-	if !strings.EqualFold(u.Scheme, PairingScheme) {
+	if !strings.EqualFold(u.Scheme, PairingScheme) && !strings.EqualFold(u.Scheme, LegacyPairingScheme) {
 		return PairingPayload{}, fmt.Errorf("discovery: unsupported pairing scheme %q", u.Scheme)
 	}
 	if !strings.EqualFold(u.Host, PairingHost) || (u.Path != "" && u.Path != "/") {

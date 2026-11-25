@@ -272,7 +272,7 @@ describe("PairingManager", () => {
       tailscale: "100.64.0.8",
     });
     expect(uri).toBe(
-      "linger://pair?v=1&host=192.168.1.10&port=48210&tls=1&fp=FP_VAL&code=SECRET_CODE&name=My%20MacBook&ts=100.64.0.8",
+      "lingerx://pair?v=1&host=192.168.1.10&port=48210&tls=1&fp=FP_VAL&code=SECRET_CODE&name=My%20MacBook&ts=100.64.0.8",
     );
 
     expect(constantTimeEqual("abc", "abc")).toBe(true);

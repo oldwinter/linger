@@ -59,7 +59,7 @@ export function markStartMenuShortcut(
     "Windows",
     "Start Menu",
     "Programs",
-    "Linger.lnk",
+    "LingerX.lnk",
   );
   if (!(deps.exists ?? existsSync)(shortcut)) return false;
   let existing: ShortcutDetails;

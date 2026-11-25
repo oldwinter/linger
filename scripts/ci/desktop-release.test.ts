@@ -43,50 +43,51 @@ afterEach(() => {
 
 describe("desktop-release.sh version", () => {
   it("reads a release tag", () => {
-    const result = run(["version", "desktop-v0.16.33"]);
+    const result = run(["version", "v0.16.33"]);
     expect(result.status).toBe(0);
     expect(result.stdout).toBe(
-      "tag=desktop-v0.16.33\nversion=0.16.33\nprerelease=false\n",
+      "tag=v0.16.33\nversion=0.16.33\nprerelease=false\n",
     );
   });
 
   it("marks a hyphenated version as a prerelease", () => {
-    const result = run(["version", "desktop-v0.16.33-rc.1"]);
+    const result = run(["version", "v0.16.33-rc.1"]);
     expect(result.stdout).toBe(
-      "tag=desktop-v0.16.33-rc.1\nversion=0.16.33-rc.1\nprerelease=true\n",
+      "tag=v0.16.33-rc.1\nversion=0.16.33-rc.1\nprerelease=true\n",
     );
   });
 
   it("gives a bare version from a manual run its tag", () => {
-    expect(run(["version", "1.2.3"]).stdout).toContain("tag=desktop-v1.2.3\n");
+    expect(run(["version", "1.2.3"]).stdout).toContain("tag=v1.2.3\n");
   });
 
-  it.each([
-    "v0.16.33",
-    "cli-v0.16.33",
-    "desktop-v0.16",
-    "desktop-v0.16.33-",
-    "",
-  ])("rejects %j", (tag) => {
-    const result = run(["version", tag]);
-    expect(result.status).toBe(1);
-    expect(result.stdout).toBe("");
-  });
+  it.each(["desktop-v0.16.33", "cli-v0.16.33", "v0.16", "v0.16.33-", ""])(
+    "rejects %j",
+    (tag) => {
+      const result = run(["version", tag]);
+      expect(result.status).toBe(1);
+      expect(result.stdout).toBe("");
+    },
+  );
 });
 
 describe("desktop-release.sh checksums", () => {
   const version = "0.16.33";
   const required = [
-    `Linger-${version}-macos-arm64.dmg`,
-    `Linger-${version}-linux-x64.tar.gz`,
-    `Linger-${version}-windows-x64-setup.exe`,
+    `LingerX-${version}-macos-arm64.dmg`,
+    `LingerX-${version}-linux-x64.tar.gz`,
+    `LingerX-${version}-windows-x64-setup.exe`,
   ];
 
-  it("lists every file of the version", () => {
+  it("lists every file of the version including Android APK", () => {
     const dir = folder();
-    const files = [...required, `Linger-${version}-windows-x64-portable.zip`];
+    const files = [
+      ...required,
+      `LingerX-${version}-windows-x64-portable.zip`,
+      `LingerX-${version}-android-arm64.apk`,
+    ];
     for (const name of files) writeFileSync(join(dir, name), name);
-    writeFileSync(join(dir, "Linger-0.16.32-macos-arm64.dmg"), "older");
+    writeFileSync(join(dir, "LingerX-0.16.32-macos-arm64.dmg"), "older");
     writeFileSync(join(dir, "install.sh"), "#!/bin/sh\n");
     writeFileSync(join(dir, "install.ps1"), "# ps1\n");
 
@@ -111,34 +112,34 @@ describe("desktop-release.sh checksums", () => {
     const result = run(["checksums", dir, version]);
 
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain(`Linger-${version}-windows-x64-setup.exe`);
+    expect(result.stderr).toContain(`LingerX-${version}-windows-x64-setup.exe`);
   });
 
   // The DMG names its platform like the other packages.
   it("refuses a DMG without macos in its name", () => {
     const dir = folder();
-    for (const name of [`Linger-${version}-arm64.dmg`, ...required.slice(1)])
+    for (const name of [`LingerX-${version}-arm64.dmg`, ...required.slice(1)])
       writeFileSync(join(dir, name), name);
 
     const result = run(["checksums", dir, version]);
 
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain(`Linger-${version}-macos-arm64.dmg`);
+    expect(result.stderr).toContain(`LingerX-${version}-macos-arm64.dmg`);
   });
 });
 
 describe("desktop-release.sh manifest", () => {
   const version = "0.16.33";
   const packages = {
-    "darwin-arm64": `Linger-${version}-macos-arm64.app.tar.gz`,
-    "linux-x64": `Linger-${version}-linux-x64.tar.gz`,
-    "win32-x64": `Linger-${version}-windows-x64-setup.exe`,
+    "darwin-arm64": `LingerX-${version}-macos-arm64.app.tar.gz`,
+    "linux-x64": `LingerX-${version}-linux-x64.tar.gz`,
+    "win32-x64": `LingerX-${version}-windows-x64-setup.exe`,
   };
   const release = () => {
     const dir = folder();
     for (const name of Object.values(packages))
       writeFileSync(join(dir, name), name);
-    writeFileSync(join(dir, `Linger-${version}-macos-arm64.dmg`), "dmg");
+    writeFileSync(join(dir, `LingerX-${version}-macos-arm64.dmg`), "dmg");
     return dir;
   };
   // A copy of the script beside an update-manifest.ts holding a throwaway
@@ -330,7 +331,7 @@ describe("desktop-release.sh gitlab-upload", () => {
 
 describe("desktop-release.sh github-release", () => {
   const version = "1.0.0-rc.1";
-  const tag = `desktop-v${version}`;
+  const tag = `v${version}`;
 
   // A gh that records its arguments and has no release yet.
   function release(env: Record<string, string>) {
@@ -356,16 +357,16 @@ describe("desktop-release.sh github-release", () => {
     return { ...result, calls };
   }
 
-  it("publishes to simplexai-labs/linger by default", () => {
+  it("publishes to oldwinter/linger by default", () => {
     const result = release({
-      GITHUB_REPOSITORY: "simplexai-labs/linger",
+      GITHUB_REPOSITORY: "oldwinter/linger",
       GITHUB_SHA: "abc123",
       GH_TOKEN: "token",
     });
 
     expect(result.status).toBe(0);
     expect(result.calls).toContain(`release create ${tag} `);
-    expect(result.calls).toContain("--repo simplexai-labs/linger");
+    expect(result.calls).toContain("--repo oldwinter/linger");
     expect(result.calls).toContain("--target abc123");
     expect(result.calls).toContain("--prerelease");
     expect(result.calls).not.toContain("--latest");
@@ -379,11 +380,11 @@ describe("desktop-release.sh github-release", () => {
     });
 
     expect(result.status).toBe(0);
-    expect(result.calls).toContain("--repo simplexai-labs/linger");
+    expect(result.calls).toContain("--repo oldwinter/linger");
     expect(result.calls).not.toContain("abc123");
   });
 
-  it("creates a stable release as a draft without marking it latest", () => {
+  it("publishes a stable release as latest by default and supports draft mode", () => {
     const dir = folder();
     const bin = folder();
     const log = join(dir, "gh.log");
@@ -394,18 +395,29 @@ describe("desktop-release.sh github-release", () => {
     chmodSync(join(bin, "gh"), 0o755);
     writeFileSync(join(dir, "SHA256SUMS.txt"), "");
 
-    const result = run(["github-release", dir, "desktop-v1.0.0", "1.0.0"], {
+    const live = run(["github-release", dir, "v1.0.0", "1.0.0"], {
       PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
-      GITHUB_REPOSITORY: "simplexai-labs/linger",
+      GITHUB_REPOSITORY: "oldwinter/linger",
       GH_TOKEN: "token",
     });
+    expect(live.status).toBe(0);
+    const liveCalls = readFileSync(log, "utf8");
+    expect(liveCalls).toContain("--latest");
+    expect(liveCalls).not.toContain("--draft");
 
-    expect(result.status).toBe(0);
-    const calls = readFileSync(log, "utf8");
-    expect(calls).toContain("--draft");
-    expect(calls).not.toContain("--latest");
-    expect(calls).not.toContain("--prerelease");
-    expect(result.stdout).toContain("publish desktop-v1.0.0 --notes-file");
+    writeFileSync(log, "");
+    const draft = run(["github-release", dir, "v1.0.0", "1.0.0"], {
+      PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+      GITHUB_REPOSITORY: "oldwinter/linger",
+      GH_TOKEN: "token",
+      RELEASE_DRAFT: "true",
+    });
+    expect(draft.status).toBe(0);
+    const draftCalls = readFileSync(log, "utf8");
+    expect(draftCalls).toContain("--draft");
+    expect(draftCalls).not.toContain("--latest");
+    expect(draftCalls).not.toContain("--prerelease");
+    expect(draft.stdout).toContain("publish v1.0.0 --notes-file");
   });
 
   it("needs LINGER_RELEASE_TOKEN to publish from another repository", () => {
@@ -418,7 +430,7 @@ describe("desktop-release.sh github-release", () => {
 
   it("refuses a RELEASE_REPO that is not owner/name", () => {
     const result = release({
-      RELEASE_REPO: "https://github.com/simplexai-labs/linger",
+      RELEASE_REPO: "https://github.com/oldwinter/linger",
       GH_TOKEN: "token",
     });
 
@@ -455,57 +467,57 @@ describe("desktop-release.sh publish", () => {
     );
     chmodSync(join(bin, "gh"), 0o755);
     const notes = join(dir, "notes.md");
-    writeFileSync(notes, "Linger Desktop 1.0.0\n\n## Highlights\n\n- Works.\n");
+    writeFileSync(notes, "LingerX 1.0.0\n\n## Highlights\n\n- Works.\n");
     return { bin, log, notes };
   }
 
   it("publishes a stable draft with notes as latest and removes matching RC prereleases", () => {
     const { bin, log, notes } = setupPublish(
       [
-        "Linger-1.0.0-macos-arm64.dmg",
-        "Linger-1.0.0-linux-x64.tar.gz",
-        "Linger-1.0.0-windows-x64-setup.exe",
+        "LingerX-1.0.0-macos-arm64.dmg",
+        "LingerX-1.0.0-linux-x64.tar.gz",
+        "LingerX-1.0.0-windows-x64-setup.exe",
         "SHA256SUMS.txt",
       ],
-      ["desktop-v1.0.0-rc.0", "desktop-v1.0.0-rc.1"],
+      ["v1.0.0-rc.0", "v1.0.0-rc.1"],
     );
 
-    const result = run(["publish", "desktop-v1.0.0", "--notes-file", notes], {
+    const result = run(["publish", "v1.0.0", "--notes-file", notes], {
       PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
     });
 
     expect(result.status).toBe(0);
     const calls = readFileSync(log, "utf8");
     expect(calls).toContain(
-      "release view desktop-v1.0.0 --repo simplexai-labs/linger --json assets --jq .assets[].name",
+      "release view v1.0.0 --repo oldwinter/linger --json assets --jq .assets[].name",
     );
     expect(calls).toContain(
-      `release edit desktop-v1.0.0 --repo simplexai-labs/linger --notes-file ${notes} --draft=false --latest`,
+      `release edit v1.0.0 --repo oldwinter/linger --notes-file ${notes} --draft=false --latest`,
     );
     expect(calls).toContain(
-      'release list --repo simplexai-labs/linger --limit 100 --json tagName,isPrerelease,isDraft --jq .[] | select(.isPrerelease and (.isDraft | not) and (.tagName | startswith("desktop-v1.0.0-rc."))) | .tagName',
+      'release list --repo oldwinter/linger --limit 100 --json tagName,isPrerelease,isDraft --jq .[] | select(.isPrerelease and (.isDraft | not) and (.tagName | startswith("v1.0.0-rc."))) | .tagName',
     );
     expect(calls).toContain(
-      "release delete desktop-v1.0.0-rc.0 --repo simplexai-labs/linger --cleanup-tag --yes",
+      "release delete v1.0.0-rc.0 --repo oldwinter/linger --cleanup-tag --yes",
     );
     expect(calls).toContain(
-      "release delete desktop-v1.0.0-rc.1 --repo simplexai-labs/linger --cleanup-tag --yes",
+      "release delete v1.0.0-rc.1 --repo oldwinter/linger --cleanup-tag --yes",
     );
   });
 
   it("refuses to publish when a required release asset is missing", () => {
     const { bin, log, notes } = setupPublish([
-      "Linger-1.0.0-macos-arm64.dmg",
-      "Linger-1.0.0-linux-x64.tar.gz",
+      "LingerX-1.0.0-macos-arm64.dmg",
+      "LingerX-1.0.0-linux-x64.tar.gz",
       "SHA256SUMS.txt",
     ]);
 
-    const result = run(["publish", "desktop-v1.0.0", "--notes-file", notes], {
+    const result = run(["publish", "v1.0.0", "--notes-file", notes], {
       PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
     });
 
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain("Linger-1.0.0-windows-x64-setup.exe");
+    expect(result.stderr).toContain("LingerX-1.0.0-windows-x64-setup.exe");
     expect(readFileSync(log, "utf8")).not.toContain("release edit");
   });
 
@@ -514,18 +526,15 @@ describe("desktop-release.sh publish", () => {
     const emptyNotes = join(folder(), "empty.md");
     writeFileSync(emptyNotes, "   \n");
 
-    const pre = run(["publish", "desktop-v1.0.0-rc.1", "--notes-file", notes], {
+    const pre = run(["publish", "v1.0.0-rc.1", "--notes-file", notes], {
       PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
     });
     expect(pre.status).toBe(1);
     expect(pre.stderr).toContain("not prereleases");
 
-    const empty = run(
-      ["publish", "desktop-v1.0.0", "--notes-file", emptyNotes],
-      {
-        PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
-      },
-    );
+    const empty = run(["publish", "v1.0.0", "--notes-file", emptyNotes], {
+      PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+    });
     expect(empty.status).toBe(1);
     expect(empty.stderr).toContain("empty");
   });
@@ -568,8 +577,8 @@ describe("desktop-release.sh package Docker images", () => {
         "  shift",
         "done",
         'mkdir -p "$out"',
-        `: >"$out/Linger-${version}-arm64.dmg"`,
-        `: >"$out/Linger-${version}-arm64.app.tar.gz"`,
+        `: >"$out/LingerX-${version}-arm64.dmg"`,
+        `: >"$out/LingerX-${version}-arm64.app.tar.gz"`,
         "",
       ].join("\n"),
     );

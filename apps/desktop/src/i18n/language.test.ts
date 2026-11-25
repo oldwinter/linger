@@ -24,7 +24,7 @@ describe("matchLanguage", () => {
 
 describe("translator", () => {
   it("formats a message in the chosen language", () => {
-    expect(translator("en")(trayMessages.quit)).toBe("Quit Linger");
+    expect(translator("en")(trayMessages.quit)).toBe("Quit LingerX");
     expect(translator("zh-CN")(trayMessages.quit)).toBe(zhCN.tray.quit);
     expect(
       translator("zh-CN")(trayMessages.downloading, { version: "1.2.0" }),

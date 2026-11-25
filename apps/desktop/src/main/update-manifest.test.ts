@@ -99,23 +99,23 @@ describe("update manifest", () => {
   it("finds the manifest in the latest release and packages in its own", () => {
     expect(feedUrls(DEFAULT_FEED_URL)).toEqual({
       manifest: new URL(
-        "https://github.com/simplexai-labs/linger/releases/latest/download/manifest.json",
+        "https://github.com/oldwinter/linger/releases/latest/download/manifest.json",
       ),
       signature: new URL(
-        "https://github.com/simplexai-labs/linger/releases/latest/download/manifest.json.sig",
+        "https://github.com/oldwinter/linger/releases/latest/download/manifest.json.sig",
       ),
     });
     expect(
       packageUrl(
         "https://releases.example.com/linger/",
         "0.17.0",
-        "Linger-0.17.0-windows-x64-setup.exe",
+        "LingerX-0.17.0-windows-x64-setup.exe",
       ).toString(),
     ).toBe(
-      "https://releases.example.com/linger/download/desktop-v0.17.0/Linger-0.17.0-windows-x64-setup.exe",
+      "https://releases.example.com/linger/download/v0.17.0/LingerX-0.17.0-windows-x64-setup.exe",
     );
     expect(releasePageUrl(DEFAULT_FEED_URL, "0.17.0")).toBe(
-      "https://github.com/simplexai-labs/linger/releases/tag/desktop-v0.17.0",
+      "https://github.com/oldwinter/linger/releases/tag/v0.17.0",
     );
   });
 });

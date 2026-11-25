@@ -269,7 +269,7 @@ describe("MobileCompanionModule", () => {
       expect(opened.pairing).toBeDefined();
       expect(opened.pairing!.pin).toMatch(/^\d{6}$/u);
       expect(opened.pairing!.pairingUri).toContain(
-        `linger://pair?v=1&host=mac.tailnet.ts.net&port=${randomPort}&tls=1&fp=${opened.tlsFingerprint}`,
+        `lingerx://pair?v=1&host=mac.tailnet.ts.net&port=${randomPort}&tls=1&fp=${opened.tlsFingerprint}`,
       );
       expect(opened.pairing!.qrSvg).toMatch(/^<svg /u);
 

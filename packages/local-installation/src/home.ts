@@ -10,13 +10,13 @@ export const INSTANCE_NAME = /^[a-z][a-z0-9-]{0,39}$/;
 // Simplex; it marks an instance legacy-migration.ts has not converted yet.
 export const LEGACY_PROJECT_PREFIX = "simplex-";
 
-/** The installation home: LINGER_HOME, else ~/.simplexai. */
+/** The installation home: LINGER_HOME, else ~/.lingerx. */
 export function lingerHome(
   environment: NodeJS.ProcessEnv = process.env,
   userHome: string = homedir(),
 ): string {
   return path.resolve(
-    environment.LINGER_HOME || path.join(userHome, ".simplexai"),
+    environment.LINGER_HOME || path.join(userHome, ".lingerx"),
   );
 }
 
