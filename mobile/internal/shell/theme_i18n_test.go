@@ -65,8 +65,9 @@ func assertVisibleControlsHaveValidBounds(t *testing.T, tt *ui.Tester, screenNam
 					screenName, vpWidth, vpHeight, info.Name, info.Bounds)
 			}
 			isBottomTab := hasBottomTabBar && info.Bounds.Y >= bottomBarTop-1
-			foldClipped := !isBottomTab && (info.Bounds.Y <= scrollTop || info.Bounds.Y+info.Bounds.H >= scrollBottom-2)
-			if !foldClipped && (info.Bounds.W < 20 || info.Bounds.H < 20) {
+			vertFoldClipped := !isBottomTab && (info.Bounds.Y <= scrollTop || info.Bounds.Y+info.Bounds.H >= scrollBottom-2)
+			horizFoldClipped := !isBottomTab && (info.Bounds.X <= 40 || info.Bounds.X+info.Bounds.W >= float32(vpWidth)-40)
+			if (!horizFoldClipped && info.Bounds.W < 20) || (!vertFoldClipped && info.Bounds.H < 20) {
 				t.Fatalf("%s (%dx%d): tab %q crushed too small: %+v",
 					screenName, vpWidth, vpHeight, info.Name, info.Bounds)
 			}
@@ -81,8 +82,9 @@ func assertVisibleControlsHaveValidBounds(t *testing.T, tt *ui.Tester, screenNam
 			tabRects = append(tabRects, info.Bounds)
 		}
 		if info.Role == ui.RoleButton && info.Bounds.W > 0 && info.Bounds.H > 0 {
-			foldClipped := info.Bounds.Y <= scrollTop || info.Bounds.Y+info.Bounds.H >= scrollBottom-2
-			if info.Bounds.W < 20 || (!foldClipped && info.Bounds.H < 20) {
+			vertFoldClipped := info.Bounds.Y <= scrollTop || info.Bounds.Y+info.Bounds.H >= scrollBottom-2
+			horizFoldClipped := info.Bounds.X <= 40 || info.Bounds.X+info.Bounds.W >= float32(vpWidth)-40
+			if (!horizFoldClipped && info.Bounds.W < 20) || (!vertFoldClipped && info.Bounds.H < 20) {
 				t.Fatalf("%s (%dx%d): visible button %q too small %+v",
 					screenName, vpWidth, vpHeight, info.Name, info.Bounds)
 			}
