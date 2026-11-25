@@ -685,7 +685,9 @@ describe("ComputersPage", () => {
           within(detail).queryByRole("button", { name: tool }),
         ).not.toBeInTheDocument();
       }
-      fireEvent.click(within(detail).getByRole("button", { name: "Remove" }));
+      fireEvent.click(
+        within(detail).getByRole("button", { name: "Remove computer" }),
+      );
       const removeDialog = await screen.findByRole("dialog", {
         name: "Remove Local Computer",
       });
