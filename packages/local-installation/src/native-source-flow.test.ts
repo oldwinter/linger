@@ -40,7 +40,12 @@ import {
   prepareNativeDependencies,
   prepareNativeVoiceTools,
 } from "./native-dependencies.js";
-import { readLiveKitSettings, startNativeLiveKit } from "./native-livekit.js";
+import {
+  prepareLiveKitSettings,
+  readLiveKitSettings,
+  startNativeLiveKit,
+} from "./native-livekit.js";
+import { PortAllocationError } from "./ports.js";
 import { updateUserKeys } from "./user-environment.js";
 import {
   NATIVE_RUNTIME_DIRECTORY,
@@ -80,11 +85,15 @@ vi.mock("./native-dependencies.js", () => ({
   prepareNativeDependencies: vi.fn(),
   prepareNativeVoiceTools: vi.fn(),
 }));
-vi.mock("./native-livekit.js", async (original) => ({
-  ...(await original<typeof import("./native-livekit.js")>()),
-  readLiveKitSettings: vi.fn(),
-  startNativeLiveKit: vi.fn(),
-}));
+vi.mock("./native-livekit.js", async (original) => {
+  const actual = await original<typeof import("./native-livekit.js")>();
+  return {
+    ...actual,
+    prepareLiveKitSettings: vi.fn(actual.prepareLiveKitSettings),
+    readLiveKitSettings: vi.fn(),
+    startNativeLiveKit: vi.fn(),
+  };
+});
 // Setting the model source runs the localmodels tool, which these tests never
 // install.
 vi.mock("./byok-source.js", async (original) => ({
@@ -305,6 +314,11 @@ test("choosing local models makes them the model source", async () => {
   });
   expect(result.code).toBe(0);
   expect(prepareLocalModels).toHaveBeenCalled();
+  expect(prepareFoundationServices).toHaveBeenCalledWith(
+    expect.anything(),
+    "local-models",
+    expect.objectContaining({ mainPlan: true }),
+  );
   expect(applyNativeSource).toHaveBeenCalledWith(
     path.resolve(f.home),
     "local",
@@ -324,6 +338,7 @@ test("a restart of local models keeps the model source the person switched to", 
     onEvent: () => {},
   });
   vi.mocked(applyNativeSource).mockClear();
+  vi.mocked(prepareFoundationServices).mockClear();
   // A resume after a reboot or an update reads the saved choice.
   const result = await installNativeSource({
     home: f.home,
@@ -334,6 +349,11 @@ test("a restart of local models keeps the model source the person switched to", 
   });
   expect(result.code).toBe(0);
   expect(vi.mocked(prepareLocalModels).mock.calls).toHaveLength(2);
+  expect(prepareFoundationServices).toHaveBeenCalledWith(
+    expect.anything(),
+    "local-models",
+    expect.objectContaining({ mainPlan: true }),
+  );
   expect(applyNativeSource).not.toHaveBeenCalled();
 });
 
@@ -378,6 +398,7 @@ async function restartAfter(
   });
   await saveModelSource(f.home, source.mode, source.runtime);
   vi.mocked(applyNativeSource).mockClear();
+  vi.mocked(prepareFoundationServices).mockClear();
   vi.mocked(prepareLocalModels).mockClear();
   vi.mocked(prepareRuntime).mockClear();
   vi.mocked(prepareModelGateway).mockClear();
@@ -420,6 +441,11 @@ test.each(["codex", "local-models"] as const)(
     );
     expect(applyNativeSource).not.toHaveBeenCalled();
     expect(prepareLocalModels).not.toHaveBeenCalled();
+    expect(prepareFoundationServices).toHaveBeenCalledWith(
+      expect.anything(),
+      setupChoice,
+      expect.objectContaining({ mainPlan: false }),
+    );
     expect(prepareModelGateway).toHaveBeenCalledWith(
       expect.anything(),
       { runtime: "pi", modelSource: "byok" },
@@ -446,6 +472,8 @@ test.each(["byok", "subscription"] as const)(
       onEvent: () => {},
     });
     await saveModelSource(f.home, mode, "claude");
+    vi.mocked(prepareFoundationServices).mockClear();
+    vi.mocked(prepareModelGateway).mockClear();
     vi.mocked(prepareLocalModels).mockClear();
     vi.mocked(applyNativeSource).mockClear();
     vi.mocked(restoreByokSource).mockClear();
@@ -460,8 +488,27 @@ test.each(["byok", "subscription"] as const)(
     expect(upgraded.code).toBe(0);
     expect(prepareLocalModels).not.toHaveBeenCalled();
     expect(applyNativeSource).not.toHaveBeenCalled();
-    if (mode === "byok") expect(restoreByokSource).toHaveBeenCalledTimes(1);
-    else expect(restoreByokSource).not.toHaveBeenCalled();
+    expect(prepareFoundationServices).toHaveBeenCalledWith(
+      expect.anything(),
+      "local-models",
+      expect.objectContaining({ mainPlan: false }),
+    );
+    if (mode === "byok") {
+      expect(restoreByokSource).toHaveBeenCalledTimes(1);
+      expect(prepareModelGateway).toHaveBeenCalledWith(
+        expect.anything(),
+        { runtime: "claude", modelSource: "byok" },
+        expect.anything(),
+      );
+    } else {
+      expect(restoreByokSource).not.toHaveBeenCalled();
+      expect(prepareModelGateway).toHaveBeenCalledWith(
+        expect.anything(),
+        "claude",
+        expect.anything(),
+      );
+    }
+    vi.mocked(prepareFoundationServices).mockClear();
     // Explicitly choosing local models again via Set Up Again restores them.
     const explicit = await installNativeSource({
       home: f.home,
@@ -473,6 +520,11 @@ test.each(["byok", "subscription"] as const)(
     });
     expect(explicit.code).toBe(0);
     expect(prepareLocalModels).toHaveBeenCalledTimes(1);
+    expect(prepareFoundationServices).toHaveBeenCalledWith(
+      expect.anything(),
+      "local-models",
+      expect.objectContaining({ mainPlan: true }),
+    );
     expect(applyNativeSource).toHaveBeenCalledWith(
       path.resolve(f.home),
       "local",
@@ -592,9 +644,54 @@ test("a restart keeps a saved local source as before", async () => {
   });
   expect(result.code).toBe(0);
   expect(prepareLocalModels).toHaveBeenCalled();
+  expect(prepareFoundationServices).toHaveBeenCalledWith(
+    expect.anything(),
+    "local-models",
+    expect.objectContaining({ mainPlan: true }),
+  );
+  expect(prepareModelGateway).toHaveBeenCalledWith(
+    expect.anything(),
+    "local-models",
+    expect.anything(),
+  );
   expect(applyNativeSource).not.toHaveBeenCalled();
   expect(restoreByokSource).not.toHaveBeenCalled();
   expect(restoreLocalModels).not.toHaveBeenCalled();
+});
+
+test("a fresh BYOK install omits --main-plan and prepares the BYOK gateway", async () => {
+  const f = await fixture();
+  vi.mocked(prepareByokRuntime).mockResolvedValue({
+    code: 0,
+    state: "ready",
+    message: "ok",
+  });
+  const result = await installNativeSource({
+    home: f.home,
+    repo: f.repo,
+    name: "native-flow",
+    byok: {
+      baseUrl: "https://api.example.com",
+      path: "/v1",
+      endpoint: "/chat/completions",
+      protocol: "openai-chat",
+      modelId: "vendor/model",
+      apiKey: "sk-test-key",
+    },
+    signal: new AbortController().signal,
+    onEvent: () => {},
+  });
+  expect(result.code).toBe(0);
+  expect(prepareFoundationServices).toHaveBeenCalledWith(
+    expect.anything(),
+    "claude",
+    expect.objectContaining({ mainPlan: false }),
+  );
+  expect(prepareModelGateway).toHaveBeenCalledWith(
+    expect.anything(),
+    { runtime: "claude", modelSource: "byok" },
+    expect.anything(),
+  );
 });
 test("a cold resume restores an adopted stack local model when setup-choice is local-models and setup binding is ready", async () => {
   const f = await fixture();
@@ -2261,6 +2358,87 @@ for (const tools of ["absent", "failed"] as const)
       expect(events).toContain("voice tools download failed");
     expect(events).not.toContain("soniox-1");
   });
+
+test("voice stays off and the install continues when LiveKit UDP port allocation fails", async () => {
+  vi.mocked(prepareLiveKitSettings).mockRejectedValueOnce(
+    new PortAllocationError("udp", "127.0.0.1 bind: EADDRINUSE", 54_321),
+  );
+  const { events, services, env } = await installVoice("bundled", {
+    SONIOX_API_KEY: "soniox-1",
+  });
+  for (const options of services)
+    expect(JSON.parse(options.settings!).voice).toBe("off");
+  expect(startNativeLiveKit).not.toHaveBeenCalled();
+  expect(env("teamhub").TEAMHUB_VOICE_MEDIA).toBe("off");
+  expect(env("teamhub").LIVEKIT_URL).toBeUndefined();
+  expect(events).toContain(
+    "Voice stays off: LiveKit could not reserve a local port",
+  );
+  expect(events).toContain("UDP: 127.0.0.1 bind: EADDRINUSE (port 54321)");
+});
+
+test("voice still stays off on LiveKit port exhaustion even when checkout .env defines LIVEKIT_URL", async () => {
+  const f = await fixture();
+  await writeFile(
+    path.join(f.repo, ".env"),
+    "LIVEKIT_URL=ws://127.0.0.1:17880\n",
+  );
+  const bin = path.join(f.home, "voice");
+  vi.mocked(prepareNativeVoiceTools).mockResolvedValue({
+    bin,
+    livekit: path.join(bin, "livekit-server"),
+  });
+  vi.mocked(readLiveKitSettings).mockResolvedValue({
+    httpPort: 30000,
+    rtcPort: 30001,
+    apiKey: "APIabcdef123456",
+    apiSecret: "s".repeat(64),
+  });
+  vi.mocked(prepareLiveKitSettings).mockRejectedValueOnce(
+    new PortAllocationError("udp", "127.0.0.1 bind: EADDRINUSE", 54_322),
+  );
+  const events: string[] = [];
+  const outcome = await installNativeSource({
+    home: f.home,
+    repo: f.repo,
+    name: "native-voice-checkout-env",
+    setupChoice: "pi",
+    externalComputer: false,
+    signal: new AbortController().signal,
+    onEvent: (event) => events.push(event.message),
+  });
+  expect(outcome.code, outcome.message).toBe(0);
+  const services = vi
+    .mocked(startNativeProcess)
+    .mock.calls.map(([options]) => options)
+    .filter((options) => options.name !== "postgres");
+  for (const options of services)
+    expect(JSON.parse(options.settings!).voice).toBe("off");
+  expect(startNativeLiveKit).not.toHaveBeenCalled();
+  const teamhub = services.find((options) => options.name === "teamhub")!;
+  expect(teamhub.env.TEAMHUB_VOICE_MEDIA).toBe("off");
+  expect(events.join("")).toContain(
+    "Voice stays off: LiveKit could not reserve a local port",
+  );
+});
+
+test("non-port LiveKit configuration errors still fail preflight", async () => {
+  const f = await fixture();
+  vi.mocked(prepareLiveKitSettings).mockRejectedValueOnce(
+    new Error("disk permission denied"),
+  );
+  const outcome = await installNativeSource({
+    home: f.home,
+    repo: f.repo,
+    name: "native-voice-error",
+    setupChoice: "pi",
+    externalComputer: true,
+    signal: new AbortController().signal,
+    onEvent: () => {},
+  });
+  expect(outcome.code).toBe(1);
+  expect(outcome.message).toContain("disk permission denied");
+});
 
 test("a changed voice key leaves the voice setting alone", async () => {
   const first = await installVoice("bundled", { XAI_API_KEY: "xai-1" });

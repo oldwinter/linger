@@ -14,11 +14,13 @@ export type VoiceLiveToolCall = components["schemas"]["VoiceLiveToolCall"];
 export type VoiceLiveToolResult = components["schemas"]["VoiceLiveToolResult"];
 export type VoiceLiveTask = components["schemas"]["VoiceLiveTask"];
 export type VoiceLiveTaskList = components["schemas"]["VoiceLiveTaskList"];
+export type VoiceLiveRoomReport = components["schemas"]["VoiceLiveRoomReport"];
 export type VoiceLiveAlert = components["schemas"]["VoiceLiveAlert"];
 export type VoiceLiveRuntimeEvent =
   components["schemas"]["VoiceLiveRuntimeEvent"];
 export type VoiceLiveClientEvent =
   components["schemas"]["VoiceLiveClientEvent"];
+export type VoiceLiveAudioStats = components["schemas"]["VoiceLiveAudioStats"];
 
 export class TeamHubVoiceRuntimeError extends Error {
   constructor(readonly status: number) {

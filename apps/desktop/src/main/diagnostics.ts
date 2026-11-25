@@ -1,5 +1,14 @@
 import { createWriteStream } from "node:fs";
-import { mkdir, open, readdir, rename, rm, stat } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  open,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  stat,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
@@ -24,12 +33,15 @@ import type { StatusModule } from "./status.js";
 export interface DiagnosticsFile {
   readonly file: string;
   readonly entry: string;
+  readonly maxBytes?: number;
 }
 
 // Files that hold credentials or keys never go into the bundle, whatever
 // folder they are found in. Matched on the base name, case-insensitively,
 // since Windows paths are.
 const EXCLUDED_NAMES = new Set([
+  "api-key",
+  "byok.json",
   "gateway.json",
   "daemon-identity.json",
   "caller.key",
@@ -111,12 +123,20 @@ export const homeRedactor = (home: string): ((text: string) => string) => {
 
 // Logs keep their newest part; the bundle stays small enough to send.
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
+// Localmodels stack run records, deployment records, and engine logs are
+// capped tighter by both count and byte length so repeated retries never bloat
+// the bundle.
+export const MAX_LOCALMODELS_FILES = 5;
+export const MAX_LOCALMODELS_BYTES = 256 * 1024;
 
-const readTail = async (file: string): Promise<string> => {
+const readTail = async (
+  file: string,
+  maxBytes: number = MAX_FILE_BYTES,
+): Promise<string> => {
   const handle = await open(file, "r");
   try {
     const { size } = await handle.stat();
-    const start = Math.max(0, size - MAX_FILE_BYTES);
+    const start = Math.max(0, size - maxBytes);
     const buffer = Buffer.alloc(size - start);
     await handle.read(buffer, 0, buffer.length, start);
     const text = buffer.toString("utf8");
@@ -133,6 +153,87 @@ const isFile = async (file: string): Promise<boolean> =>
     (info) => info.isFile(),
     () => false,
   );
+
+const newestRegularFiles = async (
+  candidates: readonly string[],
+  limit: number,
+): Promise<string[]> => {
+  const dated = await Promise.all(
+    candidates.map(async (file) => {
+      const info = await lstat(file).catch(() => undefined);
+      return info && !info.isSymbolicLink() && info.isFile()
+        ? { file, mtimeMs: info.mtimeMs }
+        : undefined;
+    }),
+  );
+  return dated
+    .filter((item): item is { file: string; mtimeMs: number } => Boolean(item))
+    .sort((a, b) => b.mtimeMs - a.mtimeMs || b.file.localeCompare(a.file))
+    .slice(0, limit)
+    .map((item) => item.file)
+    .sort();
+};
+
+const MAX_SECRET_FILE_BYTES = 4 * 1024;
+
+// Per-deployment localmodels bearer keys stay out of the zip as files, and
+// their values are also scrubbed from every bundled text in case an engine or
+// step record echoes `--api-key <value>` in argv form.
+const localmodelsSecretValues = async (home: string): Promise<string[]> => {
+  const keyFiles = await listFiles(
+    path.join(home, "runtime", "localmodels", "models", "deployments"),
+    1,
+    (file) => path.basename(file) === "api-key",
+  );
+  const secrets = await Promise.all(
+    keyFiles.map(async (file) => {
+      const info = await lstat(file).catch(() => undefined);
+      if (
+        !info ||
+        info.isSymbolicLink() ||
+        !info.isFile() ||
+        info.size === 0 ||
+        info.size > MAX_SECRET_FILE_BYTES
+      )
+        return undefined;
+      const value = (await readFile(file, "utf8").catch(() => "")).trim();
+      return value.length >= 4 ? value : undefined;
+    }),
+  );
+  return secrets.filter((value): value is string => Boolean(value));
+};
+
+const localmodelsFiles = async (
+  home: string,
+  prefix: string,
+): Promise<DiagnosticsFile[]> => {
+  const root = path.join(home, "runtime", "localmodels");
+  const stackRuns = await listFiles(
+    path.join(root, "state", "stacks"),
+    0,
+    (file) => /\.(?:run\.json|progress)$/.test(file),
+  );
+  const deployments = await listFiles(
+    path.join(root, "state", "deployments", "local"),
+    0,
+    (file) => /\.json$/.test(file),
+  );
+  const serverLogs = await listFiles(
+    path.join(root, "models", "deployments"),
+    1,
+    (file) => path.basename(file) === "server.log",
+  );
+  const selected = [
+    ...(await newestRegularFiles(stackRuns, MAX_LOCALMODELS_FILES)),
+    ...(await newestRegularFiles(deployments, MAX_LOCALMODELS_FILES)),
+    ...(await newestRegularFiles(serverLogs, MAX_LOCALMODELS_FILES)),
+  ];
+  return selected.map((file) => ({
+    file,
+    entry: diagnosticsEntry(prefix, home, file),
+    maxBytes: MAX_LOCALMODELS_BYTES,
+  }));
+};
 
 const listFiles = async (
   directory: string,
@@ -173,6 +274,7 @@ export const installationFiles = async (
     /\.(json|log)$/.test(file),
   ))
     add(file);
+  files.push(...(await localmodelsFiles(home, prefix)));
   const instances = path.join(home, "instances");
   for (const name of await readdir(instances).catch(() => [] as string[]))
     for (const file of await listFiles(
@@ -235,7 +337,14 @@ export const collectDiagnostics = async (
   const added = new Set<string>();
   const homes = [...new Set(options.homes.map((home) => path.resolve(home)))];
   // The saved keys themselves, wherever a service printed them.
-  const keys = homes.flatMap((home) => savedSecretValues(home, LOCAL_INSTANCE));
+  const keys = [
+    ...new Set([
+      ...homes.flatMap((home) => savedSecretValues(home, LOCAL_INSTANCE)),
+      ...(
+        await Promise.all(homes.map((home) => localmodelsSecretValues(home)))
+      ).flat(),
+    ]),
+  ];
   const withoutHome = homeRedactor(options.userHome ?? os.homedir());
   const addText = (entry: string, text: string) => {
     if (added.has(entry)) return;
@@ -266,7 +375,7 @@ export const collectDiagnostics = async (
   );
   for (const item of files) {
     try {
-      addText(item.entry, await readTail(item.file));
+      addText(item.entry, await readTail(item.file, item.maxBytes));
     } catch (error) {
       addText(`${item.entry}.error.txt`, String(error));
     }

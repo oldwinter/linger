@@ -99,8 +99,8 @@ const CHECK_DELAY_MS = 60_000;
 const CHECK_INTERVAL_MS = 60 * 60_000;
 // A dropped connection should not cost a whole check interval.
 const RETRY_DELAY_MS = 5 * 60_000;
-const STAGED_PREFIX = ".Linger-update-";
-const OLD_PREFIX = ".Linger-old-";
+const STAGED_PREFIX = ".LingerX-update-";
+const OLD_PREFIX = ".LingerX-old-";
 
 const run = promisify(execFile);
 
@@ -523,7 +523,7 @@ export function updateInstallFor(
   if (
     platform === "win32" &&
     exists(
-      path.win32.join(path.win32.dirname(execPath), "Uninstall Linger.exe"),
+      path.win32.join(path.win32.dirname(execPath), "Uninstall LingerX.exe"),
     )
   )
     return { kind: "windows-setup" };

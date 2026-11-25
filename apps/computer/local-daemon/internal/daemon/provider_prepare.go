@@ -21,23 +21,34 @@ const (
 	// providerPrepareTimeout bounds one prepare's spawn and resume. A start
 	// joining an in-flight prepare waits no longer than this.
 	providerPrepareTimeout = 20 * time.Second
+	// piProviderPrepareTimeout gives Pi room for its 30s RPC startup budget
+	// plus Context View preparation and thinking-level setup.
+	piProviderPrepareTimeout = 40 * time.Second
 	// receiptReasonLimit is the contract's limit on a receipt reason.
 	receiptReasonLimit = 512
 )
+
+func providerPrepareTimeoutFor(runtimeType string) time.Duration {
+	if runtimeType == "pi" {
+		return piProviderPrepareTimeout
+	}
+	return providerPrepareTimeout
+}
 
 // providerPrepare is the Daemon's record of one in-flight provider prepare for
 // an execution context, so a start can join it. It is dropped when the prepare
 // finishes; its parked process is then owned by the native resident table and
 // lives like any parked process.
 type providerPrepare struct {
-	id         string
-	agentID    string
-	contextKey string
-	startedAt  time.Time
-	cancel     context.CancelFunc
-	done       chan struct{}
-	mu         sync.Mutex
-	canceled   bool
+	id          string
+	agentID     string
+	runtimeType string
+	contextKey  string
+	startedAt   time.Time
+	cancel      context.CancelFunc
+	done        chan struct{}
+	mu          sync.Mutex
+	canceled    bool
 }
 
 type providerPrepareRequest struct {
@@ -99,9 +110,9 @@ func (d *Daemon) handleProviderPrepare(ctx context.Context, stream transport.Str
 		d.admissionMu.Unlock()
 		return d.sendProviderPrepared(ctx, stream, command, request.PrepareID, "already_ready", "Provider process is already parked for this Context", 0)
 	}
-	prepareCtx, cancel := context.WithTimeout(ctx, providerPrepareTimeout)
+	prepareCtx, cancel := context.WithTimeout(ctx, providerPrepareTimeoutFor(command.RuntimeType))
 	entry := &providerPrepare{
-		id: request.PrepareID, agentID: command.AgentID, contextKey: key, startedAt: time.Now(),
+		id: request.PrepareID, agentID: command.AgentID, runtimeType: command.RuntimeType, contextKey: key, startedAt: time.Now(),
 		cancel: cancel, done: make(chan struct{}),
 	}
 	d.providerPrepares[key] = entry
@@ -145,11 +156,11 @@ func (d *Daemon) runProviderPrepare(ctx context.Context, stream transport.Stream
 
 // executeProviderPrepare resolves the start's spec through the same resolver
 // as run.start, without input, and parks a resumed thread (Codex) or a
-// pre-started CLI (Claude). It never submits a turn and never fails a real
-// start.
+// pre-started CLI (Claude, Pi, Antigravity). It never submits a turn and never
+// fails a real start.
 func (d *Daemon) executeProviderPrepare(ctx context.Context, command protocol.Command, request providerPrepareRequest) (outcome, reason string) {
-	if command.RuntimeType != "codex" && command.RuntimeType != "claude" {
-		return "not_eligible", "Provider prepare is supported only for Codex and Claude"
+	if command.RuntimeType != "codex" && command.RuntimeType != "claude" && command.RuntimeType != "pi" && command.RuntimeType != "antigravity" {
+		return "not_eligible", "Provider prepare is supported only for Codex, Claude, Pi, and Antigravity"
 	}
 	start := map[string]any{
 		"kind": "run.start", "runtime": request.Runtime,
@@ -173,10 +184,9 @@ func (d *Daemon) executeProviderPrepare(ctx context.Context, command protocol.Co
 		return "not_eligible", redact.Text(err.Error())
 	}
 	spec = bindOperationSpec(command, spec)
-	// A Claude pre-start may create its conversation. A Codex prepare resumes
-	// the Context's thread, or for a Context that has none starts the thread
-	// its first Run adopts.
-	resumable := command.RuntimeType == "codex" || spec.ResumeSessionID != "" || spec.CreateProviderSessionID != ""
+	// A Claude or Pi pre-start may create its session. Codex and Antigravity
+	// also prepare blank rooms that have no retained session yet.
+	resumable := command.RuntimeType == "codex" || command.RuntimeType == "antigravity" || spec.ResumeSessionID != "" || spec.CreateProviderSessionID != ""
 	if spec.Provider != command.RuntimeType || spec.OperationKind != "run.start" || !resumable {
 		return "not_eligible", "Provider session is not resumable for provider preparation"
 	}
@@ -187,6 +197,9 @@ func (d *Daemon) executeProviderPrepare(ctx context.Context, command protocol.Co
 		}
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return "failed", "Provider prepare deadline exceeded"
+		}
+		if errors.Is(err, native.ErrProviderPrepareNotEligible) {
+			return "not_eligible", redact.Text(err.Error())
 		}
 		return "failed", redact.Text(err.Error())
 	}
@@ -217,6 +230,10 @@ func (d *Daemon) cancelProviderPrepares(match func(*providerPrepare) bool, sourc
 
 func providerPrepareForAgent(agentID string) func(*providerPrepare) bool {
 	return func(entry *providerPrepare) bool { return entry.agentID == agentID }
+}
+
+func providerPrepareForRuntime(runtimeType string) func(*providerPrepare) bool {
+	return func(entry *providerPrepare) bool { return entry.runtimeType == runtimeType }
 }
 
 func providerPrepareAll(*providerPrepare) bool { return true }

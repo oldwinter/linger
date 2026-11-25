@@ -33,9 +33,11 @@ type piShape struct {
 	mcp             string
 }
 
-// mismatches names the fields that keep a parked process from serving spec.
-// Values are never reported.
-func (s *piShape) mismatches(want *piShape, spec RunSpec, parkedSession string) []string {
+// differs names the baked-in fields that keep a parked process from serving
+// want. Values are never reported. When checkMCP is false, MCP servers are a
+// Run's attachment synchronized on reuse, so they never keep a process from
+// serving.
+func (s *piShape) differs(want *piShape, checkMCP bool) []string {
 	var fields []string
 	add := func(differs bool, name string) {
 		if differs {
@@ -50,18 +52,43 @@ func (s *piShape) mismatches(want *piShape, spec RunSpec, parkedSession string) 
 	add(s.skills != want.skills, "skills")
 	add(s.settings != want.settings, "settings")
 	add(s.projectSettings != want.projectSettings, "project_settings")
-	add(s.mcp != want.mcp, "mcp")
-	add(spec.AssignSessionID != "", "create_session")
-	add(spec.ResumeID == "" || spec.ResumeID != parkedSession, "session")
+	if checkMCP {
+		add(s.mcp != want.mcp, "mcp")
+	}
 	return fields
 }
 
+// piMismatch applies the Pi reuse rules against want for spec. A pre-start
+// serves only the session it was spawned for, in the same create or resume
+// mode.
 func piMismatch(want *piShape, spec RunSpec) func(*piProcess) []string {
 	return func(p *piProcess) []string {
 		if p.shape == nil {
 			return []string{"shape"}
 		}
-		return p.shape.mismatches(want, spec, p.sessionID)
+		p.mu.Lock()
+		created, canSyncMCP := p.prestartCreated, p.canSyncMCP
+		p.mu.Unlock()
+		prestart := p.res.isPrestart()
+		fields := p.shape.differs(want, !canSyncMCP)
+		switch {
+		case prestart && created:
+			if spec.AssignSessionID != p.sessionID || spec.ResumeID != "" {
+				fields = append(fields, "session")
+			}
+		case prestart:
+			if spec.AssignSessionID != "" || spec.ResumeID != p.sessionID {
+				fields = append(fields, "session")
+			}
+		default:
+			if spec.AssignSessionID != "" {
+				fields = append(fields, "create_session")
+			}
+			if spec.ResumeID == "" || spec.ResumeID != p.sessionID {
+				fields = append(fields, "session")
+			}
+		}
+		return fields
 	}
 }
 

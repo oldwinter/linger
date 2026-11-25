@@ -147,13 +147,13 @@ describe("trayMenu", () => {
       update: {
         kind: "available",
         version: "0.17.0",
-        url: "https://github.com/simplexai-labs/linger/releases/tag/desktop-v0.17.0",
+        url: "https://github.com/oldwinter/linger/releases/tag/v0.17.0",
       },
     })[1];
     expect(item).toEqual({
       kind: "action",
       action: "install-update",
-      label: "Download Linger 0.17.0…",
+      label: "Download LingerX 0.17.0…",
     });
   });
 });
@@ -162,13 +162,13 @@ describe("updateNotice", () => {
   it("names what clicking it does", () => {
     expect(notice({ kind: "ready", version: "0.17.0" })).toEqual({
       title: "Update ready",
-      body: "Linger 0.17.0 is downloaded. Click to restart Linger and update.",
+      body: "LingerX 0.17.0 is downloaded. Click to restart LingerX and update.",
     });
     expect(
       notice({ kind: "available", version: "0.17.0", url: "https://x" }),
     ).toEqual({
       title: "Update available",
-      body: "Linger 0.17.0 is available. Click to open its download page.",
+      body: "LingerX 0.17.0 is available. Click to open its download page.",
     });
   });
 });

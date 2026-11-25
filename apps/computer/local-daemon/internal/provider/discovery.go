@@ -34,6 +34,11 @@ type RuntimeDiagnostic struct {
 	// Internal provenance: only an authentication probe failure may be
 	// retried without rerunning version and protocol discovery.
 	authProbeFailed bool
+	// searchPath is the PATH this observation searched and executable the
+	// file it probed, so the monitor can notice an install or upgrade
+	// without a full discovery (changedInstallations).
+	searchPath string
+	executable os.FileInfo
 }
 
 type RuntimeModel struct {
@@ -75,6 +80,9 @@ type DiscoveryOptions struct {
 	Runtimes []string
 	// PreferredRuntime is the type whose diagnostic is marked Preferred.
 	PreferredRuntime string
+	// SkipModelCatalog skips model catalog listing after protocol and
+	// authentication verification (used by stateless setup/auth probes).
+	SkipModelCatalog bool
 }
 
 type runtimeDefinition struct {
@@ -156,6 +164,7 @@ func diagnose(ctx context.Context, kind, executable, protocol string, options Di
 		observation.Error = &DiagnosticError{Code: code, Message: message}
 		return observation
 	}
+	observation.searchPath = options.Environment["PATH"]
 	entry, err := resolveExecutableEntry(ctx, kind, executable, options)
 	if err != nil {
 		return reject("not_installed", "RUNTIME_NOT_INSTALLED", "Runtime executable not found")
@@ -165,6 +174,7 @@ func diagnose(ctx context.Context, kind, executable, protocol string, options Di
 		return reject("not_installed", "RUNTIME_NOT_INSTALLED", "Runtime executable not found")
 	}
 	observation.EntryPath, observation.ExecutablePath = entry, canonical
+	observation.executable, _ = os.Stat(canonical)
 	observation.ExecutionPath = options.Environment["PATH"]
 	versionEnv := options.Environment
 	if kind == "claude" {
@@ -207,7 +217,7 @@ func diagnose(ctx context.Context, kind, executable, protocol string, options Di
 	// Catalogs use live protocol exchanges. Preserve a failed protocol/auth
 	// probe instead of replacing it with a second failure from model discovery.
 	// Logged-out Claude must not receive an initialize request.
-	catalogAllowed := outcome.Status == "ready" || ((kind == "codex" || kind == "pi") && outcome.Status == "authentication_required")
+	catalogAllowed := !options.SkipModelCatalog && (outcome.Status == "ready" || ((kind == "codex" || kind == "pi") && outcome.Status == "authentication_required"))
 	if catalogAllowed {
 		catalogCtx, stop := context.WithTimeout(ctx, budget)
 		observation.Models, observation.ModelCatalogError = probedRuntimeModels(catalogCtx, kind, canonical, environment, outcome)

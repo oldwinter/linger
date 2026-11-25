@@ -790,7 +790,7 @@ async function runNativeSource(
               packages: !offline,
             }),
         );
-        const voice = await timed("Preparing the voice tools", () =>
+        const voiceTools = await timed("Preparing the voice tools", () =>
           prepareNativeVoiceTools({
             home,
             signal,
@@ -805,13 +805,14 @@ async function runNativeSource(
           });
           return undefined;
         });
-        if (!voice)
+        if (!voiceTools)
           emit({
             kind: "log",
             stage,
             message:
               "Voice stays off: this installation has no voice tools for this computer.\n",
           });
+        const voice = configured.liveKit ? voiceTools : undefined;
         // node-services downloads its voice model packages from the region's
         // registry first, and nothing it starts probes again.
         const region = await resolveRegion(home, { signal });
@@ -1213,6 +1214,10 @@ async function runNativeSource(
           signal.throwIfAborted();
           await beforeFoundation?.();
           const prepareLocalStackServices = async () => {
+            const foundationMainPlan =
+              !restoredByok &&
+              !options.byok &&
+              !(!explicitLocal && saved && saved.mode !== "local");
             await timed(
               "Preparing foundation services",
               () =>
@@ -1221,6 +1226,7 @@ async function runNativeSource(
                   signal,
                   onEvent: emit,
                   shareGpu: options.shareGpu,
+                  mainPlan: foundationMainPlan,
                 }),
               { stage: stageForLogs },
             );
@@ -1228,13 +1234,22 @@ async function runNativeSource(
             // sign-in, retires one an earlier release started.
             await prepareModelGateway(
               current,
-              // A restored BYOK source keeps its gateway whatever the saved
-              // choice: a local-models choice would require the local stack.
+              // A restored BYOK or subscription source keeps its own gateway
+              // choice whatever setup-choice.json recorded: a local-models
+              // choice would require the local stack.
               restoredByok
                 ? { runtime: restoredByok.runtime, modelSource: "byok" }
-                : options.byok && choice !== "local-models"
-                  ? { runtime: choice, modelSource: "byok" }
-                  : choice,
+                : options.byok
+                  ? {
+                      runtime:
+                        choice === "local-models"
+                          ? (options.byok.runtime ?? "claude")
+                          : choice,
+                      modelSource: "byok",
+                    }
+                  : !explicitLocal && saved?.mode === "subscription"
+                    ? saved.runtime
+                    : choice,
               {
                 home,
                 signal,

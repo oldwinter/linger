@@ -17,7 +17,7 @@ import {
   updateInstallFor,
 } from "./updater.js";
 
-const RELEASES = "https://github.com/simplexai-labs/linger/releases";
+const RELEASES = "https://github.com/oldwinter/linger/releases";
 const PACKAGE = Buffer.from("new app archive");
 
 const release = (
@@ -25,7 +25,7 @@ const release = (
   {
     body = PACKAGE,
     target = "darwin-arm64",
-    file = `Linger-${version}-macos-arm64.app.tar.gz`,
+    file = `LingerX-${version}-macos-arm64.app.tar.gz`,
     feed = RELEASES,
   } = {},
 ) => {
@@ -48,7 +48,7 @@ const release = (
     [`${feed}/latest/download/manifest.json.sig`]: Buffer.from(
       sign(null, manifest, privateKey).toString("base64"),
     ),
-    [`${feed}/download/desktop-v${version}/${file}`]: body,
+    [`${feed}/download/v${version}/${file}`]: body,
   };
   const requested: string[] = [];
   const fetch = (async (url: URL) => {
@@ -73,7 +73,7 @@ const setup = async (
 ) => {
   const root = tempDirectory();
   const applications = path.join(root, "Applications");
-  const bundle = path.join(applications, "Linger.app");
+  const bundle = path.join(applications, "LingerX.app");
   mkdirSync(bundle, { recursive: true });
   writeFileSync(path.join(bundle, "version"), "0.16.7");
   const downloads = path.join(root, "updates");
@@ -107,7 +107,7 @@ const setup = async (
     checkDelayMs: 60 * 60_000,
     // The test archive holds the new version marker, not a real tarball.
     extract: async (archive, directory) => {
-      const app = path.join(directory, "Linger.app");
+      const app = path.join(directory, "LingerX.app");
       mkdirSync(app);
       writeFileSync(path.join(app, "version"), readFileSync(archive));
     },
@@ -152,7 +152,7 @@ describe("UpdaterModule", () => {
       `${RELEASES}/latest/download/manifest.json.sig`,
       // From the release the signed manifest names, not whatever is latest
       // by the time of the download.
-      `${RELEASES}/download/desktop-v0.17.0/Linger-0.17.0-macos-arm64.app.tar.gz`,
+      `${RELEASES}/download/v0.17.0/LingerX-0.17.0-macos-arm64.app.tar.gz`,
     ]);
     expect(announced).toEqual([{ kind: "ready", version: "0.17.0" }]);
     expect(readFileSync(path.join(bundle, "version"), "utf8")).toBe("0.16.7");
@@ -169,8 +169,8 @@ describe("UpdaterModule", () => {
     );
     // The replaced bundle stays until the next launch cleans it up.
     expect(readdirSync(applications).sort()).toEqual([
-      expect.stringMatching(/^\.Linger-old-/),
-      "Linger.app",
+      expect.stringMatching(/^\.LingerX-old-/),
+      "LingerX.app",
     ]);
     await host.stop("update");
     const next = new UpdaterModule({
@@ -187,7 +187,7 @@ describe("UpdaterModule", () => {
     await testHost([stubModule("Config"), stubModule("ComputerDaemon"), next])
       .start()
       .then(() => waitFor(() => readdirSync(applications).length === 1));
-    expect(readdirSync(applications)).toEqual(["Linger.app"]);
+    expect(readdirSync(applications)).toEqual(["LingerX.app"]);
   });
 
   it("refuses a manifest signed by another key", async () => {
@@ -213,7 +213,7 @@ describe("UpdaterModule", () => {
       error: "Update package does not match its checksum",
     });
     expect(readdirSync(downloads)).toEqual([]);
-    expect(readdirSync(applications)).toEqual(["Linger.app"]);
+    expect(readdirSync(applications)).toEqual(["LingerX.app"]);
     await updater.install();
     expect(updater.state().kind).toBe("failed");
   });
@@ -513,7 +513,7 @@ describe("UpdaterModule", () => {
 });
 
 describe("UpdaterModule with the Windows setup program", () => {
-  const SETUP = "Linger-0.17.0-windows-x64-setup.exe";
+  const SETUP = "LingerX-0.17.0-windows-x64-setup.exe";
   const windows = async (spawn: SpawnSetup) => {
     const feed = release("0.17.0", { target: "win32-x64", file: SETUP });
     return {
@@ -543,9 +543,7 @@ describe("UpdaterModule with the Windows setup program", () => {
     const { updater, downloads, feed, setRunning, quits, restarts } =
       await windows(spawn);
     await updater.check();
-    expect(feed.requested.at(-1)).toBe(
-      `${RELEASES}/download/desktop-v0.17.0/${SETUP}`,
-    );
+    expect(feed.requested.at(-1)).toBe(`${RELEASES}/download/v0.17.0/${SETUP}`);
     expect(updater.state()).toEqual({ kind: "ready", version: "0.17.0" });
     expect(readdirSync(downloads)).toEqual([SETUP]);
 
@@ -601,7 +599,7 @@ describe("UpdaterModule for a download", () => {
   it("links a newer release without downloading it", async () => {
     const feed = release("0.17.0", {
       target: "linux-x64",
-      file: "Linger-0.17.0-linux-x64.tar.gz",
+      file: "LingerX-0.17.0-linux-x64.tar.gz",
     });
     const { updater, opened, announced, downloads } = await setup(feed, {
       platform: "linux",
@@ -612,7 +610,7 @@ describe("UpdaterModule for a download", () => {
     const available = {
       kind: "available",
       version: "0.17.0",
-      url: `${RELEASES}/tag/desktop-v0.17.0`,
+      url: `${RELEASES}/tag/v0.17.0`,
     };
     expect(updater.state()).toEqual(available);
     expect(feed.requested).toHaveLength(2);
@@ -643,26 +641,28 @@ describe("updateInstallFor", () => {
     expect(
       updateInstallFor(
         "darwin",
-        "/Applications/Linger.app/Contents/MacOS/Linger",
+        "/Applications/LingerX.app/Contents/MacOS/LingerX",
         none,
       ),
     ).toEqual({
       kind: "app-bundle",
-      appBundle: path.resolve("/Applications/Linger.app"),
+      appBundle: path.resolve("/Applications/LingerX.app"),
     });
-    const installed = "C:\\Users\\a\\AppData\\Local\\Programs\\Linger";
+    const installed = "C:\\Users\\a\\AppData\\Local\\Programs\\LingerX";
     expect(
       updateInstallFor(
         "win32",
-        `${installed}\\Linger.exe`,
-        (file) => file === `${installed}\\Uninstall Linger.exe`,
+        `${installed}\\LingerX.exe`,
+        (file) => file === `${installed}\\Uninstall LingerX.exe`,
       ),
     ).toEqual({ kind: "windows-setup" });
     // The portable folder has no uninstaller.
-    expect(updateInstallFor("win32", "D:\\Linger\\Linger.exe", none)).toEqual({
-      kind: "download",
-    });
-    expect(updateInstallFor("linux", "/opt/linger/linger", none)).toEqual({
+    expect(updateInstallFor("win32", "D:\\LingerX\\LingerX.exe", none)).toEqual(
+      {
+        kind: "download",
+      },
+    );
+    expect(updateInstallFor("linux", "/opt/lingerx/lingerx", none)).toEqual({
       kind: "download",
     });
   });
@@ -670,9 +670,9 @@ describe("updateInstallFor", () => {
 
 describe("appBundleOf", () => {
   it("finds the app bundle around the executable", () => {
-    expect(appBundleOf("/Applications/Linger.app/Contents/MacOS/Linger")).toBe(
-      path.resolve("/Applications/Linger.app"),
-    );
+    expect(
+      appBundleOf("/Applications/LingerX.app/Contents/MacOS/LingerX"),
+    ).toBe(path.resolve("/Applications/LingerX.app"));
     expect(appBundleOf("/usr/lib/electron/electron")).toBeUndefined();
   });
 });

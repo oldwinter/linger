@@ -49,7 +49,7 @@ export function RemoveComputerDialog({
   error?: Error | null;
   onClose: () => void;
   onConfirm: () => void;
-  onConnect: () => void;
+  onConnect?: () => void;
   pending: boolean;
   tenantId: string;
 }) {
@@ -167,9 +167,11 @@ export function RemoveComputerDialog({
             role="status"
           >
             <p>{t(computersMessages.noOtherComputer)}</p>
-            <Button disabled={busy} onClick={onConnect} size="compact">
-              {t(computerSetupMessages.title)}
-            </Button>
+            {onConnect ? (
+              <Button disabled={busy} onClick={onConnect} size="compact">
+                {t(computerSetupMessages.title)}
+              </Button>
+            ) : null}
           </div>
         ) : null}
         {rows.length ? (

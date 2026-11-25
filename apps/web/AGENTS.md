@@ -63,12 +63,30 @@ build:assets` to check the initial JS budget.
   pick among installed local models in `SwitchToLocalNotice` or click
   `Use for Agents` on a loaded row, highlights Thinking Machines' Inkling 2
   Mini in a featured spotlight frame (`featured-model-spotlight.tsx`) wrapping
-  the matching `ModelRow` so status and actions stay in one place (matched via
-  `@linger/service-kit/featured-models`, degrading to a partner highlight with
-  external links when absent from the catalog),
-  renders tinted family icon tiles, Agent
-  usage counts, structured engine pills (`PolyStrata` / `llama.cpp` / `Strata`),
-  capability/parameter badges (never matched against
+  its grouped `ModelRow` so status, sibling quantizations and actions stay in
+  one place (matched via `@linger/service-kit/featured-models`, preferring a
+  hardware-fitting `DRIVER_UPDATE_REQUIRED` variant over a
+  `MEMORY_INSUFFICIENT` one, moving below `Available to download` when
+  unavailable while other models fit, and degrading to a partner highlight with
+  external links when absent from the catalog), guides owners through outdated
+  NVIDIA drivers via `UpdateDriverDialog` (`local-model-driver-dialog.tsx`)
+  with engine-scoped driver guidance, signed one-click Windows installation
+  with live progress and post-reboot resume banners
+  (`window.lingerDesktop.driverUpdate`), desktop NVIDIA App launch, copyable
+  Linux commands, and focus-triggered rechecks, groups sibling quantizations of
+  the same logical model (via structured `source_url`) into a single card with
+  a clean base title and right-aligned quantization pill (interactive pill
+  switcher for multiple versions, matching static pill for a single version)
+  while keeping any extra active on-computer variants visible, splits the list
+  into `On this computer`, `Available to download`, and a collapsible
+  unavailable/needs-more-memory disclosure (auto-expanded when nothing fits),
+  renders tinted family icon tiles, download + memory/VRAM (and hybrid
+  VRAM + RAM for PolyStrata) footprints on available and loaded rows,
+  explicit VRAM vs RAM shortfall copy (`memory_kind`), Agent usage counts,
+  structured engine pills (`PolyStrata` / `llama.cpp` / `Strata`, hiding
+  redundant `llama.cpp` pills on single-engine hosts while keeping multi-engine
+  version switcher pills compact when quantizations are distinct),
+  capability/parameter/context badges (never matched against
   `name` or `description`), state-distinct cards (`loaded`, `recommended`,
   `failed` with short failure reasons and direct `Remove` for damaged/missing
   files, `unavailable`), download speed/ETA, live Bifrost (`Pi`) `Gateway`
@@ -172,56 +190,74 @@ build:assets` to check the initial JS budget.
   switch, the new mode opens in the page and can be floated from there.
   During Live, the Meeting entry offers to start a new Meeting even while an
   earlier one is saving. Both in-page voice windows retain a visible, draggable
-  title bar: dark in browsers, the window's own surface colour in the desktop
-  app. Picture-in-picture keeps the browser title bar. The desktop app floats
+  bar. The recording window's title bar uses the window's surface colour
+  in browsers and the desktop app. Voice Mode's bar is its white
+  island: Another Me, a one-line state, four pill bars that follow the
+  microphone, and the controls (mute, reply sound, conversation, hang up). It
+  says Waking up until the call listens and, in Live, until the runtime's
+  `linger.voice_provider_ready` attribute says the live model is connected
+  (a runtime without it counts as connected); meanwhile Another Me rests grey
+  and breathes, with every control already in place, then it leans in once.
+  In the Room the Human's live words fade in phrase by phrase as in the
+  window, and leave the moment the turn shows in the outbox. Both Meeting and
+  Voice Mode stay in the page in browsers: neither opens browser picture-in-picture,
+  whose title bar and controls the page cannot hide or style. The desktop app floats
   them in its own always-on-top window, which stays up while the main window
   is minimized or closed to the tray: when the preload offers
   `window.lingerDesktop.voiceWindow`, `voice-pip.ts` opens it with
   `window.open("")` (the desktop main process allows only that call) and is
   the only place that knows which kind of window it got. A desktop app without that field keeps voice windows
-  in the page with no float button. In the page on macOS they stay out of the
+  in the page with no float button. Voice Mode has no float button: it floats
+  when it starts. In the page on macOS they stay out of the
   window drag strip. In the page both windows resize by any edge or corner
   (`voice-window-resize.tsx`), down to a minimum size and never past the
   viewport; the corner grip also takes arrow keys. Dragging the title bar
   keeps the whole window inside the viewport too, and a window that grows
   where it sits, or whose viewport shrinks, moves back in. Neither window can
   be taller than the viewport leaves room for, so the header stays reachable.
-  The size lasts while the window is open and is not stored. Voice Mode's expand button switches
-  between its two preset sizes and drops a dragged size; a minimized
-  recording resizes in width only. A floated window has no handles: the
-  browser or the desktop app resizes it.
+  The size lasts while the window is open and is not stored. Voice Mode opens
+  as the island alone; its arrow (and the spoken expand and shrink) opens the
+  conversation directly under it with the chat's resize timing
+  (`AutoHeight`); a dragged size lasts through closing (its width) and
+  opening again (its height), and the window keeps one width either way. Only
+  the open conversation resizes by its edges. A floated Voice Mode window
+  also opens as the island alone (96px, the desktop app's minimum) and grows
+  to show the conversation or shrinks back inside the arrow's click, frame
+  by frame with the same timing and easing, the island staying at its top and
+  the conversation going once the window has shut over it. It keeps its
+  width and the open height the Human gave it. A minimized
+  recording resizes in width only. Meeting exposes its collapse arrow from
+  startup, before its Capture arrives. Its in-page body uses the same
+  `AutoHeight` timing as Voice Mode, preserving the expanded height, transcript
+  scroll and Ask draft through collapse. A floated window has no handles: the
+  desktop app resizes it.
 - The compact primary rail reveals labels on hover and keyboard focus without
   moving link hit areas or neighbouring links. A stationary pointer at an edge
   must not trigger repeated hover enter/leave; sidebar expansion and Chat list
   collapse remain explicit button actions. Pointer movement only resizes during
   an active drag; keyboard resizing and double-click reset remain available.
-- Opening Meeting from the sidebar requests the initial picture-in-picture
-  size so a new expanded recording cannot inherit the browser's cached
-  minimized window bounds. Floating an existing in-page recording keeps the
-  browser's usual placement behavior.
-- Recording picture-in-picture collapse remembers that window's actual
+- Opening Meeting from the sidebar requests the initial floating-window
+  size in the desktop app so a new recording opens expanded. In browsers it
+  opens the in-page window and offers no Float or Return controls.
+- Recording desktop-window collapse remembers that window's actual
   expanded outer dimensions and restores both dimensions with an absolute
   resize inside the user's click, bounded by the current screen. A pending
   native resize must not replace the saved expanded size with collapsed
   metrics. Collapse never closes the window or stops the recording; native
-  window placement remains under browser control. Stop preserves the current
+  window placement remains under desktop control. Stop preserves the current
   recording view and window dimensions. A minimized window, in the page
-  (including the desktop app) or picture-in-picture, shows the confirmation
+  (including the desktop app) or floated, shows the confirmation
   actions side by side within its control row in place of Pause and Stop, so
   they stay on screen wherever the row sits and never draw over the controls;
   the timer stays beside them while it fits. An open window keeps the vertical
   confirmation card. Escape or Keep recording returns focus to Stop.
-- Recording and Voice Mode distinguish the native window's close action from
-  back to tab through the shared PiP return detection. Back to tab keeps the
-  session running in the page and exposes a Float action; close ends it.
-  Every floated window also draws its own return button, in the browser and
-  in the desktop app: `returnVoicePipToPage` brings the tab or the main
-  window to the front, reports the return itself and closes the floated
-  window. Voice Mode then opens the Room the call started in; a recording
-  stays on the page the main window shows. The desktop app's window has no
-  back to tab button, so every other close of it ends the session.
+- Closing a desktop recording window ends the recording. Its explicit Return
+  button brings the main window forward and keeps recording in the page,
+  where Float can reopen the desktop window. Closing a floated Voice Mode
+  window ends the call. Browser visibility or focus changes never decide
+  whether a window close ends a session.
   Recording moves one portal host between documents so paused state, Ask
-  drafts and transcript scroll survive the move. Hide it while classifying a
+  drafts and transcript scroll survive the move. Hide it while processing a
   native close, and ignore a late result after unmount or a replacement window.
 - Pausing a recording mutes the shared microphone for that recording only:
   the microphone track can outlive it, so a new recording turns the
@@ -272,7 +308,14 @@ build:assets` to check the initial JS budget.
   development forwards `/install/` to the local Agent Service listener. Both
   hosts forward the Computer `teamhub` CLI's `/api/agent/` to
   `TEAMHUB_BASE_URL`, so a Computer needs only the Web origin.
-  Never bundle installers or CLI releases into Web.
+  Never bundle installers or CLI releases into Web. The desktop app's own local
+  server runs with its built-in Computer and ships no `/install/` release, so
+  when `window.lingerDesktop.localServer.owned()` (falling back to
+  `localAccount.available()` on older desktop builds) reports true
+  (`useCliInstallAvailable`), Web hides standalone CLI daemon download, update,
+  and terminal troubleshooting entry points across Computers, LocalComputerGate,
+  and Agent creation; browsers and desktop windows connected to a remote server
+  keep them.
 - Effects owning SSE, WebSocket, polling, timers, or subscriptions may depend only on resource identity; UI callbacks and presentation state must not recreate them. Lifecycle changes require a test proving unrelated rerenders do not resubscribe and identity changes clean up exactly once.
 - Browser configuration for local Vite reads `import.meta.env.VITE_*`
   through the app config boundary. Production builds follow the page origin

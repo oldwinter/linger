@@ -2,16 +2,13 @@ import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   chmodSync,
-  copyFileSync,
   existsSync,
-  linkSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
-  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
@@ -31,6 +28,7 @@ import {
 
 import { NODE_RUNTIME_VERSION } from "../../../../scripts/local-computer-node-distributions.mjs";
 import { rename } from "node:fs/promises";
+import { composeProject } from "@linger/local-installation/instance";
 
 import { CredentialStore } from "./computer-credential.js";
 import { EnrollmentModule } from "./enrollment.js";
@@ -64,18 +62,20 @@ import * as windowsPrivate from "@linger/local-installation/windows-private";
 import type { DesktopConfig } from "./config.js";
 import { EventBus, type ModuleContext } from "./modules.js";
 import {
+  fixtureNode,
   silentLog,
   stubModule,
   tempDirectory,
   testHost,
 } from "./test-support.js";
 
-// These tests run the installer stub in real subprocesses.
-// Windows test hosts can take longer to launch them under load.
+// These tests unpack source archives with real tar and run the installer stub
+// in real subprocesses, which can exceed 1s under CI load on any host (and
+// take longer on Windows).
 const isWindowsHost = process.platform === "win32";
-if (isWindowsHost) vi.setConfig({ testTimeout: 20_000 });
+vi.setConfig({ testTimeout: isWindowsHost ? 20_000 : 15_000 });
 const waitForInstaller = (check: () => unknown) =>
-  vi.waitFor(check, { timeout: isWindowsHost ? 10_000 : 1_000 });
+  vi.waitFor(check, { timeout: isWindowsHost ? 10_000 : 5_000 });
 
 // Fake timers that still advance with real time, for the installer stub's
 // subprocess; AbortSignal.timeout runs on them too, since the native one
@@ -147,10 +147,36 @@ if (args.includes("--migrate")) {
   process.stdout.write(JSON.stringify({ skipped }) + "\n");
   process.exit(0);
 }
+if (args.includes("--check-byok")) {
+  fs.mkdirSync(path.join(home, "installer"), { recursive: true });
+  fs.writeFileSync(
+    path.join(home, "installer", "byok-env.json"),
+    JSON.stringify({
+      ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
+      XAI_API_KEY: process.env.XAI_API_KEY,
+      NODE_OPTIONS: process.env.NODE_OPTIONS,
+      PGHOST: process.env.PGHOST,
+      LINGER_COMPUTER_DAEMON: process.env.LINGER_COMPUTER_DAEMON,
+    }),
+  );
+  process.stdout.write(JSON.stringify({ ok: true, protocol: "openai-responses", url: "https://byok.example/v1/responses", modelId: "m" }) + "\n");
+  process.exit(0);
+}
 if (args.includes("--inspect")) {
   const target = args.includes("--inspect-target") ? args[args.indexOf("--inspect-target") + 1] : home;
   fs.mkdirSync(path.join(home, "runtime", "localmodels", "state"), { recursive: true });
   fs.writeFileSync(path.join(home, "runtime", "inspect-args.json"), JSON.stringify(args));
+  fs.writeFileSync(
+    path.join(home, "runtime", "inspect-env.json"),
+    JSON.stringify({
+      PATH: process.env.PATH,
+      ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
+      XAI_API_KEY: process.env.XAI_API_KEY,
+      NODE_OPTIONS: process.env.NODE_OPTIONS,
+      PGHOST: process.env.PGHOST,
+      LINGER_COMPUTER_DAEMON: process.env.LINGER_COMPUTER_DAEMON,
+    }),
+  );
   const hardware = { totalMemoryBytes: 64 * 1024 ** 3, diskFreeBytes: 200 * 1024 ** 3, gpus: [{ name: "RTX 4090" }] };
   const eligible = !fs.existsSync(path.join(target, "small-computer"));
   const modelFile = path.join(target, "inspect-model");
@@ -216,6 +242,16 @@ if (args.includes("--inspect")) {
 fs.mkdirSync(path.join(home, "installer"), { recursive: true });
 fs.writeFileSync(path.join(home, "installer", "args.json"), JSON.stringify(args));
 if (args.includes("--resume")) {
+  fs.writeFileSync(
+    path.join(home, "installer", "resume-env.json"),
+    JSON.stringify({
+      ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
+      XAI_API_KEY: process.env.XAI_API_KEY,
+      NODE_OPTIONS: process.env.NODE_OPTIONS,
+      PGHOST: process.env.PGHOST,
+      LINGER_COMPUTER_DAEMON: process.env.LINGER_COMPUTER_DAEMON,
+    }),
+  );
   const code = fs.existsSync(path.join(home, "resume-fails")) ? 1 : 0;
   const runtimeFile = path.join(home, "resume-runtime.json");
   const runtime = fs.existsSync(runtimeFile) ? JSON.parse(fs.readFileSync(runtimeFile, "utf8")) : undefined;
@@ -243,6 +279,16 @@ if (fs.existsSync(path.join(home, "start-refused"))) {
   process.exit(1);
 }
 // serve-stderr holds what the serving installer writes to stderr.
+fs.writeFileSync(
+  path.join(home, "installer", "server-env.json"),
+  JSON.stringify({
+    ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
+    XAI_API_KEY: process.env.XAI_API_KEY,
+    NODE_OPTIONS: process.env.NODE_OPTIONS,
+    PGHOST: process.env.PGHOST,
+    LINGER_COMPUTER_DAEMON: process.env.LINGER_COMPUTER_DAEMON,
+  }),
+);
 const serveStderr = path.join(home, "serve-stderr");
 if (fs.existsSync(serveStderr)) process.stderr.write(fs.readFileSync(serveStderr, "utf8"));
 const origin = "http://127.0.0.1:4321";
@@ -445,24 +491,6 @@ const server = (origin: string): LocalServerIdentity => ({
   key: KEY,
 });
 
-// The simulated runtime keeps its target layout, but the installer stub runs on
-// the host. Windows can hardlink without Developer Mode and spawns the .exe.
-const fixtureNode = (binary: string): void => {
-  if (process.platform !== "win32") {
-    symlinkSync(process.execPath, binary);
-    return;
-  }
-  const put = (file: string) => {
-    try {
-      linkSync(process.execPath, file);
-    } catch {
-      copyFileSync(process.execPath, file);
-    }
-  };
-  put(binary);
-  if (path.extname(binary) !== ".exe") put(binary + ".exe");
-};
-
 const fixture = (
   overrides:
     | Partial<LocalServerOptions>
@@ -505,6 +533,7 @@ const fixture = (
   const loadServer = vi.fn();
   const enroll = vi.fn(async () => {});
   const unenroll = vi.fn(async () => {});
+  const syncLocalGatewayUrl = vi.fn(() => false);
   let context: ModuleContext | undefined;
   const signIn = vi.fn(async () => {});
   // The installed server proves itself unless a test says otherwise.
@@ -554,6 +583,7 @@ const fixture = (
         ...stubModule("Enrollment"),
         enroll,
         unenroll,
+        syncLocalGatewayUrl,
         start: async (ctx: ModuleContext) => {
           context = ctx;
         },
@@ -576,6 +606,7 @@ const fixture = (
     bus,
     enroll,
     unenroll,
+    syncLocalGatewayUrl,
     config: () => context!.config.get(),
     signIn,
     proveServer,
@@ -1905,6 +1936,126 @@ describe("LocalServerModule", () => {
     info.mockRestore();
   });
 
+  it("passes the resolved login-shell environment only to setup inspection and keeps it out of BYOK, setup server, and resume", async () => {
+    const daemonPath = "/app/resources/computer/linger-computer-daemon";
+    const shellOnlyEnv = {
+      ...(process.env as Record<string, string>),
+      PATH: `/custom/nvm/bin${path.delimiter}/usr/bin${path.delimiter}/bin`,
+      ANTHROPIC_BASE_URL: "https://shell-profile.example",
+      XAI_API_KEY: "shell-xai-secret",
+      NODE_OPTIONS: "--max-old-space-size=9999",
+      PGHOST: "shell-pg.invalid",
+    };
+
+    // 1. --inspect receives inspectEnv + LINGER_COMPUTER_DAEMON;
+    //    --check-byok and setup server receive only process.env + LINGER_COMPUTER_DAEMON.
+    const installFixture = fixture(
+      (home) => ({
+        ...withCheckout(home),
+        daemonExecutable: daemonPath,
+        inspectEnv: Promise.resolve(shellOnlyEnv),
+      }),
+      {},
+      checkout,
+      installerApi(),
+    );
+    await installFixture.host.start();
+    installFixture.module.inspect();
+    await waitForInstaller(() =>
+      expect(installFixture.module.status().localModels).toMatchObject({
+        state: "checked",
+        eligible: true,
+      }),
+    );
+    const seenInspect = JSON.parse(
+      readFileSync(
+        path.join(installFixture.home, "runtime", "inspect-env.json"),
+        "utf8",
+      ),
+    ) as Record<string, string | undefined>;
+    expect(seenInspect.PATH).toContain("/custom/nvm/bin");
+    expect(seenInspect.ANTHROPIC_BASE_URL).toBe(
+      "https://shell-profile.example",
+    );
+    expect(seenInspect.LINGER_COMPUTER_DAEMON).toBe(daemonPath);
+
+    await installFixture.module.checkByok({
+      runtime: "codex",
+      baseUrl: "https://byok.example",
+      path: "/v1",
+      endpoint: "/responses",
+      apiKey: "test-key",
+      modelId: "m",
+      protocol: "openai-responses",
+    });
+    const seenByok = JSON.parse(
+      readFileSync(
+        path.join(installFixture.home, "installer", "byok-env.json"),
+        "utf8",
+      ),
+    ) as Record<string, string | undefined>;
+    expect(seenByok.LINGER_COMPUTER_DAEMON).toBe(daemonPath);
+    expect(seenByok.XAI_API_KEY).not.toBe("shell-xai-secret");
+    expect(seenByok.NODE_OPTIONS).not.toBe("--max-old-space-size=9999");
+    expect(seenByok.PGHOST).not.toBe("shell-pg.invalid");
+    expect(seenByok.ANTHROPIC_BASE_URL).not.toBe(
+      "https://shell-profile.example",
+    );
+
+    await installFixture.module.begin();
+    const seenServer = JSON.parse(
+      readFileSync(
+        path.join(installFixture.home, "installer", "server-env.json"),
+        "utf8",
+      ),
+    ) as Record<string, string | undefined>;
+    expect(seenServer.LINGER_COMPUTER_DAEMON).toBe(daemonPath);
+    expect(seenServer.XAI_API_KEY).not.toBe("shell-xai-secret");
+    expect(seenServer.NODE_OPTIONS).not.toBe("--max-old-space-size=9999");
+    expect(seenServer.PGHOST).not.toBe("shell-pg.invalid");
+    expect(seenServer.ANTHROPIC_BASE_URL).not.toBe(
+      "https://shell-profile.example",
+    );
+    await installFixture.host.stop("quit");
+
+    // 2. --resume receives only process.env + LINGER_COMPUTER_DAEMON, never inspectEnv.
+    const resumeFixture = fixture(
+      {
+        daemonExecutable: daemonPath,
+        inspectEnv: Promise.resolve(shellOnlyEnv),
+      },
+      {
+        serverUrl: "http://localhost:3000",
+        computerId: "cmp_1",
+      },
+      (home) => {
+        mkdirSync(path.join(home, "desktop"), { recursive: true });
+        writeFileSync(
+          path.join(home, "desktop", "local-server.json"),
+          JSON.stringify({ repo: "/source", origin: "http://localhost:3000" }),
+        );
+      },
+    );
+    await resumeFixture.host.start();
+    await waitForInstaller(() =>
+      expect(resumeFixture.module.status().phase).toBe("ready"),
+    );
+    const seenResume = JSON.parse(
+      readFileSync(
+        path.join(resumeFixture.home, "installer", "resume-env.json"),
+        "utf8",
+      ),
+    ) as Record<string, string | undefined>;
+    expect(seenResume.LINGER_COMPUTER_DAEMON).toBe(daemonPath);
+    expect(seenResume.XAI_API_KEY).not.toBe("shell-xai-secret");
+    expect(seenResume.NODE_OPTIONS).not.toBe("--max-old-space-size=9999");
+    expect(seenResume.PGHOST).not.toBe("shell-pg.invalid");
+    expect(seenResume.ANTHROPIC_BASE_URL).not.toBe(
+      "https://shell-profile.example",
+    );
+    await resumeFixture.host.stop("quit");
+  });
+
   it("marks checked Inkling 2 Mini models with featuredInkling using the shared matcher", async () => {
     const f = fixture({ checkout: "/src" }, {}, (home) => {
       mkdirSync(home, { recursive: true });
@@ -2544,7 +2695,7 @@ describe("LocalServerModule", () => {
     const warn = vi.spyOn(silentLog, "warn");
     await f.host.start();
     await f.module.begin({ runtime: "claude" });
-    await vi.waitFor(() =>
+    await waitForInstaller(() =>
       expect(warn).toHaveBeenCalledWith("local_server.installer_stderr", {
         line: "Something else",
       }),
@@ -3107,6 +3258,116 @@ describe("LocalServerModule", () => {
       await f.host.stop("quit");
     }
   });
+
+  it("pre-checks both the install home and Computer daemon directory on Windows before unpacking", async () => {
+    const checked: string[] = [];
+    const daemonDir = "C:\\Users\\me\\AppData\\Roaming\\Linger\\computer";
+    const winCheckout = (home: string) => {
+      checkout(home);
+      writeFileSync(
+        path.join(path.dirname(home), "installer", "distribution.json"),
+        JSON.stringify({
+          platform: "win32",
+          arch: "x64",
+          nativeSources: [{ target: "win32-x64" }],
+        }),
+      );
+    };
+    const f = fixture(
+      (home) => ({
+        ...withCheckout(home),
+        platform: "win32",
+        arch: "x64",
+        daemonDirectory: daemonDir,
+        checkPrivateLocation: async (directory) => {
+          checked.push(directory);
+          if (directory === daemonDir) {
+            throw Object.assign(
+              new Error(
+                `Windows private path validation failed: ${daemonDir} is inside a folder other accounts on this computer can rename or replace (ancestor: C:\\Users\\me\\AppData\\Roaming, sid: S-1-5-21-1-2-3-1007).`,
+              ),
+              {
+                code: "WINDOWS_PRIVATE_PATH_UNSAFE",
+                reason: "UNSAFE_PARENT_ACCESS",
+              },
+            );
+          }
+        },
+      }),
+      {},
+      winCheckout,
+    );
+    await f.host.start();
+    try {
+      await expect(f.module.begin()).rejects.toThrow(
+        `Desktop Computer directory validation failed: Windows private path validation failed: ${daemonDir}`,
+      );
+      expect(checked).toEqual([f.home, daemonDir]);
+      expect(f.module.status()).toMatchObject({
+        phase: "failed",
+        step: "prepare",
+      });
+      // Daemon directory refusal must not masquerade as an install-location refusal.
+      expect(f.module.status().refusal).toBeUndefined();
+      // Installer never launched because preflight stopped in prepare.
+      expect(existsSync(path.join(f.home, "installer", "args.json"))).toBe(
+        false,
+      );
+    } finally {
+      await f.host.stop("quit");
+    }
+  });
+
+  it("preserves the Windows private-path refusal when home preflight fails", async () => {
+    const winCheckout = (home: string) => {
+      checkout(home);
+      writeFileSync(
+        path.join(path.dirname(home), "installer", "distribution.json"),
+        JSON.stringify({
+          platform: "win32",
+          arch: "x64",
+          nativeSources: [{ target: "win32-x64" }],
+        }),
+      );
+    };
+    const f = fixture(
+      (home) => ({
+        ...withCheckout(home),
+        platform: "win32",
+        arch: "x64",
+        daemonDirectory: "C:\\Users\\me\\AppData\\Roaming\\Linger\\computer",
+        checkPrivateLocation: async () => {
+          throw Object.assign(
+            new Error(
+              "Windows private path validation failed: home is inside a folder other accounts on this computer can rename or replace (ancestor: C:\\Users\\me, sid: S-1-5-21-1-2-3-1007).",
+            ),
+            {
+              code: "WINDOWS_PRIVATE_PATH_UNSAFE",
+              reason: "UNSAFE_PARENT_ACCESS",
+            },
+          );
+        },
+      }),
+      {},
+      winCheckout,
+    );
+    await f.host.start();
+    try {
+      await expect(f.module.begin()).rejects.toThrow(
+        "Windows private path validation failed",
+      );
+      expect(f.module.status()).toMatchObject({
+        phase: "failed",
+        step: "prepare",
+        refusal: {
+          code: "WINDOWS_PRIVATE_PATH_UNSAFE",
+          reason: "UNSAFE_PARENT_ACCESS",
+        },
+      });
+    } finally {
+      await f.host.stop("quit");
+    }
+  });
 });
 
 describe("LocalServerModule install location", () => {
@@ -3122,12 +3383,12 @@ describe("LocalServerModule install location", () => {
       await f.host.start();
       try {
         f.module.inspect();
-        await vi.waitFor(() =>
+        await waitForInstaller(() =>
           expect(f.module.status().localModels.state).toBe("checked"),
         );
         for (let attempt = 0; attempt < 2; attempt++) {
           await f.module.chooseLocation(picked);
-          await vi.waitFor(() =>
+          await waitForInstaller(() =>
             expect(f.module.status().localModels.state).toBe("checked"),
           );
           expect(f.module.status().location.path).toBe(target);
@@ -3138,7 +3399,7 @@ describe("LocalServerModule install location", () => {
           );
           if (kind === "nonempty") expect(existsSync(target)).toBe(false);
           await f.module.chooseLocation(null);
-          await vi.waitFor(() =>
+          await waitForInstaller(() =>
             expect(f.module.status().localModels.state).toBe("checked"),
           );
         }
@@ -3159,7 +3420,7 @@ describe("LocalServerModule install location", () => {
     await f.host.start();
     try {
       f.module.inspect();
-      await vi.waitFor(() =>
+      await waitForInstaller(() =>
         expect(f.module.status().localModels).toMatchObject({
           state: "checked",
           eligible: true,
@@ -3170,7 +3431,7 @@ describe("LocalServerModule install location", () => {
       mkdirSync(path.join(picked, "instances"), { recursive: true });
       writeFileSync(path.join(picked, "small-computer"), "");
       await f.module.chooseLocation(picked);
-      await vi.waitFor(() =>
+      await waitForInstaller(() =>
         expect(f.module.status().localModels).toMatchObject({
           state: "checked",
           eligible: false,
@@ -3179,7 +3440,7 @@ describe("LocalServerModule install location", () => {
       expect(inspectArgs(f.home)).toContain(picked);
       rmSync(path.join(picked, "small-computer"));
       f.module.recheck();
-      await vi.waitFor(() =>
+      await waitForInstaller(() =>
         expect(f.module.status().localModels).toMatchObject({
           state: "checked",
           eligible: true,
@@ -3197,7 +3458,7 @@ describe("LocalServerModule install location", () => {
     try {
       await f.module.chooseLocation(picked);
       f.module.inspect();
-      await vi.waitFor(() =>
+      await waitForInstaller(() =>
         expect(f.module.status().localModels.state).toBe("checked"),
       );
       expect(inspectArgs(f.home)).toEqual([
@@ -3226,12 +3487,12 @@ describe("LocalServerModule install location", () => {
       await f.host.start();
       try {
         f.module.inspect();
-        await vi.waitFor(() =>
+        await waitForInstaller(() =>
           expect(inspectArgs(f.home)).toContain("--inspect"),
         );
         await f.module.chooseLocation(picked);
         writeFileSync(path.join(f.home, "tool-ready"), "");
-        await vi.waitFor(() =>
+        await waitForInstaller(() =>
           expect(inspectArgs(f.home)).toEqual([
             "--home",
             f.home,
@@ -3240,7 +3501,7 @@ describe("LocalServerModule install location", () => {
             picked,
           ]),
         );
-        await vi.waitFor(() =>
+        await waitForInstaller(() =>
           expect(f.module.status().localModels).toMatchObject({
             state: "checked",
             eligible: true,
@@ -3249,7 +3510,7 @@ describe("LocalServerModule install location", () => {
         rmSync(path.join(f.home, "check-fails"), { force: true });
         writeFileSync(path.join(f.home, "small-computer"), "");
         await f.module.chooseLocation(null);
-        await vi.waitFor(() =>
+        await waitForInstaller(() =>
           expect(f.module.status().localModels).toMatchObject({
             state: "checked",
             eligible: false,
@@ -3478,6 +3739,74 @@ describe("LocalServerModule after a restart", () => {
     expect(f.module.status()).toMatchObject({
       origin: "http://localhost:3001",
     });
+    await f.host.stop("quit");
+  });
+
+  it("syncs the local Runner Gateway URL when node-services moved to a new port on resume", async () => {
+    const writeDesktopInstance = (
+      home: string,
+      webPort: number,
+      nodeServicesPort: number,
+    ) => {
+      const instanceRoot = path.join(home, "instances", LOCAL_INSTANCE);
+      mkdirSync(instanceRoot, { recursive: true, mode: 0o700 });
+      chmodSync(instanceRoot, 0o700);
+      const file = path.join(instanceRoot, "instance.json");
+      writeFileSync(
+        file,
+        JSON.stringify({
+          schemaVersion: 1,
+          name: LOCAL_INSTANCE,
+          mode: "source-native",
+          root: instanceRoot,
+          project: composeProject(instanceRoot, LOCAL_INSTANCE),
+          origin: `http://localhost:${webPort}`,
+          port: webPort,
+          releaseDir: "/source",
+          computerConfig: path.join(instanceRoot, "computer", "config.json"),
+          computerExecutable: "/source/computer/linger-computer",
+          source: {
+            repo: "/source",
+            ports: {
+              web: webPort,
+              teamhub: 59891,
+              nodeServices: nodeServicesPort,
+              document: 59903,
+              postgres: 62622,
+            },
+          },
+        }),
+        { mode: 0o600 },
+      );
+      chmodSync(file, 0o600);
+    };
+    const f = fixture({}, enrolled, (home) => {
+      record(home);
+      writeDesktopInstance(home, 3000, 59894);
+    });
+    await f.host.start();
+    await waitForInstaller(() => expect(f.module.status().phase).toBe("ready"));
+    expect(f.syncLocalGatewayUrl).toHaveBeenCalledWith(
+      "ws://127.0.0.1:59894/v1/runner-gateway",
+    );
+    await f.host.stop("quit");
+  });
+
+  it("reports ownsWindow true before resume finishes and false for a remote server", async () => {
+    const f = fixture({}, enrolled, (home) => {
+      record(home);
+      writeFileSync(path.join(home, "resume-fails"), "");
+    });
+    await f.host.start();
+    // Even while resume fails/prepares and servesWindow() is false, ownsWindow()
+    // identifies this window as pointing at the installed local server.
+    await waitForInstaller(() =>
+      expect(f.module.status().phase).toBe("failed"),
+    );
+    expect(await f.module.servesWindow()).toBe(false);
+    expect(await f.module.ownsWindow()).toBe(true);
+    f.host.ctx.config.update({ serverUrl: "https://remote.example.com" });
+    expect(await f.module.ownsWindow()).toBe(false);
     await f.host.stop("quit");
   });
 
@@ -4003,7 +4332,9 @@ describe("LocalServerModule after a restart", () => {
         }),
       );
       await f.host.start();
-      await vi.waitFor(() => expect(f.module.status().phase).toBe("failed"));
+      await waitForInstaller(() =>
+        expect(f.module.status().phase).toBe("failed"),
+      );
       expect(f.showStartFailed).toHaveBeenCalledWith(
         "The local model service isn't running. Local model installation or verification did not finish: The saved local model plan no longer fits this computer's current memory or model catalog. Existing resources were preserved. Set Up Again to review a new plan or choose another AI runtime.",
       );
@@ -4037,7 +4368,9 @@ describe("LocalServerModule after a restart", () => {
       );
     });
     await f.host.start();
-    await vi.waitFor(() => expect(f.module.status().phase).toBe("failed"));
+    await waitForInstaller(() =>
+      expect(f.module.status().phase).toBe("failed"),
+    );
     expect(f.showStartFailed).toHaveBeenCalledWith(
       "The local model service isn't running. Local model installation or verification did not finish: Another local model operation is already running. Existing resources were preserved. Try Again to apply the approved local model plan again, or Set Up Again to review a new plan or choose another AI runtime.",
     );
@@ -4094,7 +4427,9 @@ describe("LocalServerModule after a restart", () => {
       api,
     );
     await f.host.start();
-    await vi.waitFor(() => expect(f.module.status().phase).toBe("failed"));
+    await waitForInstaller(() =>
+      expect(f.module.status().phase).toBe("failed"),
+    );
     expect(f.showStartFailed).toHaveBeenCalledWith(
       expect.stringContaining(
         "Set Up Again to review a new plan or choose another AI runtime.",
@@ -4104,7 +4439,7 @@ describe("LocalServerModule after a restart", () => {
     const opened = vi.fn();
     f.bus.on("setup.open", opened);
     f.bus.emit("local-server.reset");
-    await vi.waitFor(() => expect(opened).toHaveBeenCalledOnce());
+    await waitForInstaller(() => expect(opened).toHaveBeenCalledOnce());
     expect(existsSync(path.join(f.home, "desktop", "local-server.json"))).toBe(
       false,
     );
@@ -5031,6 +5366,7 @@ describe("LocalServerModule on Windows", () => {
     const f = fixture(
       {
         platform: "win32",
+        checkPrivateLocation: async () => {},
         sourceArchive: { file, sha256: archive.sha256 },
         rename: async (from, to) => {
           moves.push(path.basename(to));
@@ -5082,6 +5418,7 @@ describe("LocalServerModule on Windows", () => {
     const f = fixture(
       {
         platform: "win32",
+        checkPrivateLocation: async () => {},
         sourceArchive: { file, sha256: archive.sha256 },
         rename: async () => {
           moves++;

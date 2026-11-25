@@ -50,6 +50,20 @@ func piPrepareMCP(raw json.RawMessage, extension, sessionDir string) (piMCPWirin
 	return piMCPWiring{configPath: path}, nil
 }
 
+// piPrepareEmptyMCP writes an empty managed MCP configuration next to the
+// session so a resident Pi process loads the managed extension and can attach
+// MCP servers dynamically when a Run adopts it.
+func piPrepareEmptyMCP(extension, sessionDir string) (piMCPWiring, error) {
+	if err := piCheckExtension(extension); err != nil {
+		return piMCPWiring{}, err
+	}
+	path := filepath.Join(sessionDir, piMCPConfigName)
+	if err := piWritePrivate(path, []byte(`{"mcpServers":{}}`)); err != nil {
+		return piMCPWiring{}, fmt.Errorf("managed Pi MCP configuration could not be written: %w", err)
+	}
+	return piMCPWiring{configPath: path}, nil
+}
+
 // piCheckExtension checks that the managed extension is installed.
 func piCheckExtension(extension string) error {
 	if extension == "" || !filepath.IsAbs(extension) {

@@ -1,5 +1,7 @@
 # Desktop Release
 
+> **LingerX fork (`oldwinter/linger`)**: Releases use `v<version>` tags (avoiding upstream `desktop-v*` tag collisions) via [`.github/workflows/release.yml`](../.github/workflows/release.yml), packaging `LingerX` for macOS Apple silicon, Linux x64, Windows x64, and Mobile Android ARM64 APK, signed with `oldwinter/linger`'s Ed25519 update key (`DESKTOP_UPDATE_KEY_PEM`) and Android release keystore (`ANDROID_KEYSTORE_*`). Installed LingerX builds stay fully isolated from upstream Linger (`LingerX.app` / `%LOCALAPPDATA%\Programs\LingerX`, bundle/app ID `dev.oldwinter.lingerx.desktop`, `<appData>/LingerX`, `~/.lingerx`, `~/LingerX`, and Mobile `dev.oldwinter.lingerx.mobile` / `lingerx://`).
+
 Linger desktop releases are published in the public
 [simplexai-labs/linger](https://github.com/simplexai-labs/linger) repository:
 pushing a `desktop-v<version>` tag there runs GitHub Actions
@@ -62,12 +64,11 @@ macOS and Windows runners have no Docker), pull the prebuilt `dmgtool` and
 `wintool` images from GHCR (published by
 [`.github/workflows/desktop-packaging-images.yml`](../.github/workflows/desktop-packaging-images.yml)
 whenever a packaging Dockerfile changes, with automatic fallback to local
-`docker build`), notarize and staple the macOS DMG in a single Apple submission
-(stapling the already-issued ticket onto `Linger.app` for the `.app.tar.gz`
-update archive; `Linger.app` inside the DMG is notarized by Apple with the DMG
-submission but not separately stapled, so dragging it out of the DMG and
-launching it for the first time completely offline relies on online ticket
-lookup), and upload each release file once as an uncompressed workflow
+`docker build`), notarize and staple `Linger.app` (`Contents/CodeResources`)
+before building the DMG and then sign, notarize, and staple the DMG in a second
+Apple submission (overlapping `.app.tar.gz` creation with DMG packaging so both
+the DMG and the nested app work offline without CloudKit lookup), and upload
+each release file once as an uncompressed workflow
 artifact for 14 days (under its exact filename, such as the `.dmg`, the
 `-setup.exe`, or the Linux `.tar.gz`), so testers download the installer
 directly and `windows-smoke` / `release` consume the same artifact without

@@ -448,5 +448,7 @@ export type TeamHubVoiceLiveTurnMarker =
   components["schemas"]["VoiceLiveTurnMarker"];
 export type TeamHubVoiceLiveClientEvent =
   components["schemas"]["VoiceLiveClientEvent"];
+export type TeamHubVoiceLiveAudioStats =
+  components["schemas"]["VoiceLiveAudioStats"];
 export type TeamHubVoiceLiveRuntimeEvent =
   components["schemas"]["VoiceLiveRuntimeEvent"];

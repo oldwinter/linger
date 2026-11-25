@@ -156,7 +156,7 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@v8
         with:
-          name: Linger-${{ needs.prepare.outputs.version }}-windows-x64-setup.exe
+          name: LingerX-${{ needs.prepare.outputs.version }}-windows-x64-setup.exe
           path: candidate
           skip-decompress: true
       - uses: actions/download-artifact@v8
@@ -169,7 +169,7 @@ jobs:
         env:
           DESKTOP_VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          $setup = "candidate\Linger-$env:DESKTOP_VERSION-windows-x64-setup.exe"
+          $setup = "candidate\LingerX-$env:DESKTOP_VERSION-windows-x64-setup.exe"
           $digest = (Get-Content -LiteralPath 'candidate\windows-setup.sha256' -Raw).Split(' ')[0]
           scripts/ci/windows-desktop-smoke.ps1 -Setup $setup -ExpectedSha256 $digest
 
@@ -184,7 +184,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
-          pattern: Linger-${{ needs.prepare.outputs.version }}-*
+          pattern: LingerX-${{ needs.prepare.outputs.version }}-*
           path: release
           merge-multiple: true
           skip-decompress: true

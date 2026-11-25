@@ -1,0 +1,72 @@
+name: Claude Code canary
+
+# Runs the Computer Daemon's native Claude Code compatibility test against the
+# newest Claude Code on Anthropic's stable channel (or the version given to a
+# manual run). The Daemon sets only a minimum Claude version, so a user's own
+# newer Claude Code reaches it before any localmodels kit locks that release;
+# a protocol change shows up here first. It is its own workflow so a run's
+# conclusion speaks for one Runtime: the Codex canary gates the kit's Codex
+# lock updates. A failed scheduled run opens one issue, and later failures
+# comment on it.
+on:
+  schedule:
+    - cron: "0 1 * * *"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Claude Code version to test (default the stable channel)
+        required: false
+  pull_request:
+    paths:
+      - .github/workflows/claude-canary.yml
+      - .github/actions/native-runtimes/**
+
+permissions:
+  contents: read
+  issues: write
+
+# One group per tested version, so a manual run for one Claude Code never
+# cancels the run for another, or the daily run.
+concurrency:
+  group: claude-canary-${{ github.ref }}-${{ inputs.version || 'stable' }}
+  cancel-in-progress: true
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      # The probe is a Go test; it needs no Node or workspace install.
+      - uses: ./.github/actions/setup
+        with:
+          node: "false"
+          install: "false"
+      - uses: ./.github/actions/native-runtimes
+        id: claude
+        with:
+          claude: ${{ inputs.version || 'stable' }}
+      # The stream-json handshake and local authentication probe, which must
+      # send no model request, then a first Run with a Bash call and a resume
+      # in a new process, both against a loopback Messages API.
+      - name: Native Claude Code compatibility
+        working-directory: apps/computer/local-daemon
+        env:
+          LINGER_CLAUDE_COMPAT_EXECUTABLE: ${{ steps.claude.outputs.claude-executable }}
+        run: go test ./internal/provider -run '^(TestNativeClaudeAuthenticationDoesNotCallModel|TestNativeClaudeFirstRunResume)$' -count=1 -v
+      - name: Report a scheduled failure
+        if: failure() && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.claude.outputs.claude-version }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          title="Claude Code canary fails"
+          body="The Daemon's native Claude Code compatibility test failed on Claude Code ${VERSION:-unknown}: $RUN"
+          issue=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$issue" ]; then
+            gh issue comment "$issue" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi

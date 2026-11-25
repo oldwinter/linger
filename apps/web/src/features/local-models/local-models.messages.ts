@@ -78,6 +78,7 @@ export const localModelsMessages = defineMessages("localModels", {
   placeMemoryTitle: "Memory",
   contextTokens: "{tokens} tokens",
   contextKiloTokens: "{thousands}K tokens",
+  contextCompact: "{thousands}K",
   agentCount: { one: "{count} Agent", other: "{count} Agents" },
   activeParameters: "{parameters} active",
   parametersWithArchitecture: "{scale} ({architecture})",
@@ -118,6 +119,23 @@ export const localModelsMessages = defineMessages("localModels", {
     "Not in this computer's local model catalog yet. Update Linger's local models runtime if you're on an older version.",
   recommended: "Recommended",
   runsSlower: "runs slower",
+  availableDetailWithMemory: "{download} · {memory} memory",
+  availableDetailWithVram: "{download} · {vram} VRAM",
+  availableDetailWithVramAndRam: "{download} · {vram} VRAM + {ram} RAM",
+  loadedMemoryHybrid: "{vram} VRAM + {ram} RAM",
+  sectionOnComputer: "On this computer",
+  sectionAvailable: "Available to download",
+  sectionNeedsMoreMemory: {
+    one: "{count} model needs more memory",
+    other: "{count} models need more memory",
+  },
+  sectionUnavailable: {
+    one: "{count} model unavailable on this computer",
+    other: "{count} models unavailable on this computer",
+  },
+  chooseVersion: "Choose version for {name}",
+  variantLabelWithEngine: "{quant} · {engine}",
+  variantOptionDetail: "{label} · {detail}",
   noRoomYet: "no room to load yet",
   loadToAnswer: "load to answer",
   usedByNames: "Used by {names}",
@@ -411,6 +429,8 @@ export const localModelsMessages = defineMessages("localModels", {
   shortNeedsMemory: "needs more memory",
   shortNeedsDiskSize: "needs {need} of disk",
   shortNeedsSize: "needs {need}",
+  shortNeedsVram: "needs more VRAM",
+  shortNeedsVramSize: "needs {need} VRAM",
   shortNeedsSystemMemory: "needs more system memory",
   shortNeedsSystemMemorySize: "needs {need} RAM",
   shortUnavailable: "unavailable",
@@ -421,6 +441,14 @@ export const localModelsMessages = defineMessages("localModels", {
     "Needs {need} of memory; this computer has {have} for models.",
   unavailableMemorySizesReclaimable:
     "Needs {need} of memory; this computer has {have} for models. Close memory-heavy apps and recheck memory.",
+  unavailableVram:
+    "This computer doesn't have enough GPU memory (VRAM) for it.",
+  unavailableVramReclaimable:
+    "This computer doesn't have enough GPU memory (VRAM) for it. Close memory-heavy apps and recheck memory.",
+  unavailableVramSizes:
+    "Needs {need} of GPU memory (VRAM); this computer has {have} available.",
+  unavailableVramSizesReclaimable:
+    "Needs {need} of GPU memory (VRAM); this computer has {have} available. Close memory-heavy apps and recheck memory.",
   unavailableSystemMemory:
     "This computer doesn't have enough system memory (RAM) for it.",
   unavailableSystemMemoryReclaimable:
@@ -439,10 +467,104 @@ export const localModelsMessages = defineMessages("localModels", {
     "No supported GPU was detected on this computer. Local models require an NVIDIA GPU or Apple Silicon Mac; use BYOK instead.",
   unavailableDriverUpdateVersions:
     "Update your NVIDIA driver: the current driver supports CUDA {detected}, but local models require CUDA {required} or newer.",
+  unavailableDriverUpdateVersionsDriver:
+    "Update your NVIDIA driver to {driver}+ (CUDA {required}). The current driver supports CUDA {detected} — only the graphics driver needs an update, not CUDA Toolkit.",
+  unavailableDriverEngineVersionsDriver:
+    "{engine} requires NVIDIA driver {driver}+ (CUDA {required}). Your driver supports CUDA {detected} — only the graphics driver needs an update, not CUDA Toolkit.",
+  unavailableDriverEngineVersions:
+    "{engine} requires an NVIDIA driver supporting CUDA {required} or newer. Your current driver supports CUDA {detected}.",
+  unavailableDriverEngineRequiredDriver:
+    "{engine} requires NVIDIA driver {driver}+ (CUDA {required}). Only the graphics driver needs an update, not CUDA Toolkit.",
+  unavailableDriverEngineRequiredOnly:
+    "{engine} requires an NVIDIA driver supporting CUDA {required} or newer.",
   unavailableDriverUpdateRequiredOnly:
     "Update your NVIDIA driver: local models require CUDA {required} or newer.",
   unavailableDriverUpdateUnknown:
     "Update your NVIDIA driver to run local models on this computer.",
+  updateDriver: "Update driver",
+  updateDriverAction: "Update driver…",
+  updateDriverNamed: "Update NVIDIA driver for {name}",
+  driverGuide: "Upgrade guide",
+  driverCheckAgain: "Check again",
+  driverOtherModelsReady:
+    "Other models on this computer already work without updating your driver.",
+  driverDialogTitle: "Update NVIDIA driver",
+  driverDialogDescriptionForModel:
+    "Update the graphics driver on {computer} to unlock {model}.",
+  driverDialogDescriptionHost:
+    "Update the graphics driver on {computer} to run local models.",
+  driverDialogGpuLabel: "Graphics card",
+  driverDialogCurrentLabel: "Current",
+  driverDialogRequiredLabel: "Required",
+  driverDialogCurrentDriverCuda: "Driver {driver} · CUDA {cuda}",
+  driverDialogCurrentCudaOnly: "CUDA {cuda}",
+  driverDialogCurrentUnknown: "Not detected",
+  driverDialogRequiredDriverCuda: "Driver {driver}+ · CUDA {cuda}",
+  driverDialogRequiredCudaOnly: "CUDA {cuda}+",
+  driverDialogRequiredLatest: "Latest NVIDIA driver",
+  driverDialogNoToolkitNote:
+    "Only the NVIDIA graphics driver needs an update — CUDA Toolkit is not required.",
+  driverDialogInstallUpdate: "Install driver update",
+  driverDialogDirectInstallHint:
+    "Downloads the official NVIDIA DCH WHQL installer, verifies NVIDIA's digital signature, and installs silently without forcing a restart. Windows will ask for administrator permission.",
+  driverDialogDownloading: "Downloading NVIDIA driver {version}…",
+  driverDialogDownloadingProgress:
+    "Downloading NVIDIA driver {version}… {done} / {total} ({percent}%)",
+  driverDialogVerifying: "Verifying NVIDIA digital signature for {version}…",
+  driverDialogInstalling:
+    "Installing NVIDIA driver {version}… Your screen may blink briefly.",
+  driverDialogRebootRequired:
+    "NVIDIA driver {version} installed. Restart Windows to finish — when you reopen Linger, your GPU will be rechecked automatically.",
+  driverDialogInstallComplete:
+    "NVIDIA driver {version} installed. Rechecking your GPU now…",
+  driverDialogErrorUnsupportedGpu:
+    "Automatic install supports GeForce RTX cards. Use NVIDIA App or Download from NVIDIA below.",
+  driverDialogErrorLookupFailed:
+    "Couldn't reach NVIDIA's driver lookup right now. Try again or use Download from NVIDIA.",
+  driverDialogErrorVersionTooOld:
+    "NVIDIA hasn't published a compatible automatic package for this CUDA requirement yet. Use Download from NVIDIA.",
+  driverDialogErrorDownloadFailed:
+    "The driver download was interrupted. Try again or use Download from NVIDIA.",
+  driverDialogErrorSignatureInvalid:
+    "The downloaded file failed NVIDIA digital signature verification and was deleted for safety. Use Download from NVIDIA.",
+  driverDialogErrorUacCancelled:
+    "Administrator permission was cancelled. Try again or update through NVIDIA App.",
+  driverDialogErrorInstallFailed:
+    "The NVIDIA installer didn't finish. Try again, or use NVIDIA App or Download from NVIDIA.",
+  driverResumeBannerRegion: "NVIDIA driver update status",
+  driverResumeRebootTitle: "Restart Windows to finish the NVIDIA driver update",
+  driverResumeRebootBody:
+    "NVIDIA driver {version} is installed. Restart Windows, then reopen Linger to unlock local models.",
+  driverResumeReadyTitle: "NVIDIA driver {version} is ready",
+  driverResumeReadyBody:
+    "Your local models have been rechecked with the updated driver.",
+  driverResumeReadyModelBody:
+    "Your local models have been rechecked — {model} is ready to download.",
+  driverResumeDownloadModel: "Download {model}",
+  driverResumeDismiss: "Dismiss",
+  driverDialogOpenNvidiaApp: "Open NVIDIA App",
+  driverDialogOpenGfe: "Open GeForce Experience",
+  driverDialogNvidiaAppSteps:
+    "In {app}, open Drivers, download the latest driver, and choose Express Installation. Linger checks again when you return.",
+  driverDialogDownloadOfficial: "Download from NVIDIA",
+  driverDialogWindowsManualHint:
+    "Choose your GPU on NVIDIA's download page, install the latest Game Ready or Studio driver, then return here.",
+  driverDialogWindowsRestartNote:
+    "Your screen may blink briefly during installation, and Windows may ask to restart.",
+  driverDialogCopyGpu: "Copy GPU name",
+  driverDialogLinuxHint:
+    "Run this command in a terminal on {computer}, restart, then click Check again.",
+  driverDialogLinuxUbuntuTab: "Ubuntu / Debian",
+  driverDialogLinuxFedoraTab: "Fedora",
+  driverDialogCopyCommand: "Copy command",
+  driverDialogVerifyHint:
+    "After restarting, confirm the CUDA version at the top right of",
+  driverDialogReadGuide: "Read step-by-step guide",
+  driverDialogReadyBanner:
+    "Your NVIDIA driver now meets the requirement. You can download this model now.",
+  driverDialogLaunchFailed:
+    "Couldn't launch {app} automatically. Use Download from NVIDIA instead.",
+  driverDialogCopyFailed: "Couldn't copy to clipboard.",
   unavailableMissingLibraries:
     "Install the missing system library ({libraries}) on this computer, then click Recheck memory.",
   unavailableGlibcVersions:

@@ -72,7 +72,8 @@ func main() {
 	})
 
 	mygo.App.OnOpenURL(func(rawURL string) {
-		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(rawURL)), "linger://pair") {
+		lower := strings.ToLower(strings.TrimSpace(rawURL))
+		if strings.HasPrefix(lower, "lingerx://pair") || strings.HasPrefix(lower, "linger://pair") {
 			appStore.SetPendingPairURI(rawURL)
 		}
 	})

@@ -13,6 +13,7 @@ import {
   liveKitEnvironment,
   prepareLiveKitSettings,
   readLiveKitSettings,
+  type LiveKitSettings,
 } from "./native-livekit.js";
 import { readUserEnvironment } from "./user-environment.js";
 import { localAccountProvisioned } from "./account.js";
@@ -22,11 +23,17 @@ import {
   reclaimNativeOrphans,
   type NativeService,
 } from "./native-process.js";
-import { freePort, portFree } from "./ports.js";
+import { PortAllocationError, freePort, portFree } from "./ports.js";
 import type { SetupChoice } from "./setup-plan.js";
 import type { ByokConfiguration } from "./byok-source.js";
 import type { RuntimeDescriptor } from "./managed-runtimes.js";
 import type { InstallerEvent } from "./events.js";
+
+// Loopback WebSocket URL for a native source instance's Runner Gateway; shared
+// between the installer environment and Desktop so both derive the same URL.
+export function localRunnerGatewayUrl(port: number): string {
+  return `ws://127.0.0.1:${port}/v1/runner-gateway`;
+}
 
 // A Native installation of one Linger source checkout: the desktop client's
 // unpacked source package, or a developer's clone.
@@ -153,6 +160,7 @@ export async function prepareSourceConfiguration(
   instance: Instance;
   env: NodeJS.ProcessEnv;
   warnings: string[];
+  liveKit?: LiveKitSettings;
 }> {
   const repo = await validateSourceRepository(repository);
   const instance = await initializeInstance({ ...options, releaseDir: repo });
@@ -310,6 +318,19 @@ export async function prepareSourceConfiguration(
       (await readPrivate(path.join(instance.root, "services.env")))!,
     );
     const ports = instance.source.ports;
+    let liveKit: LiveKitSettings | undefined;
+    try {
+      liveKit = await prepareLiveKitSettings(
+        instance.root,
+        await reservedPorts(),
+        (message) => warnings.push(message),
+      );
+    } catch (error) {
+      if (!(error instanceof PortAllocationError)) throw error;
+      warnings.push(
+        `Voice stays off: LiveKit could not reserve a local port (${error.message}).\n`,
+      );
+    }
     const generated = {
       ...supplied,
       ...user,
@@ -321,7 +342,9 @@ export async function prepareSourceConfiguration(
       DOCUMENT_RUNTIME_HTTP_PORT: String(ports.document),
       POSTGRES_PORT: String(ports.postgres),
       WEB_PUBLIC_ORIGIN: instance.origin,
-      AGENT_RUNNER_PUBLIC_GATEWAY_URL: `ws://127.0.0.1:${ports.nodeServices}/v1/runner-gateway`,
+      AGENT_RUNNER_PUBLIC_GATEWAY_URL: localRunnerGatewayUrl(
+        ports.nodeServices,
+      ),
       LINGER_SECRET_SEED: secrets.LINGER_SECRET_SEED!,
       TEAMHUB_SECRET_ENCRYPTION_KEY: secrets.TEAMHUB_SECRET_ENCRYPTION_KEY!,
       TEAMHUB_DATABASE_URL: `postgres://simplexai:${encodeURIComponent(secrets.LINGER_POSTGRES_PASSWORD!)}@127.0.0.1:${ports.postgres}/simplexai?sslmode=disable`,
@@ -339,14 +362,8 @@ export async function prepareSourceConfiguration(
       // Both loopback addresses, so no other program answers for the origin.
       HOST: "127.0.0.1,::1",
       // Native runs its own LiveKit on loopback with this instance's ports
-      // and keys.
-      ...liveKitEnvironment(
-        await prepareLiveKitSettings(
-          instance.root,
-          await reservedPorts(),
-          (message) => warnings.push(message),
-        ),
-      ),
+      // and keys when port reservation succeeds.
+      ...(liveKit ? liveKitEnvironment(liveKit) : {}),
     };
     const quote = (value: string) => {
       if (!/[\r\n\0]/.test(value)) {
@@ -377,6 +394,6 @@ export async function prepareSourceConfiguration(
     if (entries.some(([key, value]) => parsed[key] !== value))
       throw new Error("Source environment contains unsupported characters.");
     await atomicPrivate(envFile, text);
-    return { instance, env: generated, warnings };
+    return { instance, env: generated, warnings, liveKit };
   });
 }

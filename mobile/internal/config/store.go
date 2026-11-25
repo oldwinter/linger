@@ -21,7 +21,7 @@ import (
 const (
 	prefsHostsKey = "linger.hosts.v1"
 	prefsAppKey   = "linger.preferences.v1"
-	secretService = "ai.linger.mobile"
+	secretService = "dev.oldwinter.lingerx.mobile"
 )
 
 // ErrSecretNotFound is returned when no secret is stored for a host.

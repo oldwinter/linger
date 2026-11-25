@@ -32,6 +32,12 @@ import {
   voiceMicrophoneOptions,
 } from "../voice-media-room";
 import { VoiceModeDisconnectedError } from "../voice-mode-errors";
+import {
+  voiceLiveAudioBaseline,
+  voiceLiveAudioStatsDelta,
+  voiceLiveAudioStatsIntervalMs,
+  voiceLiveAudioTotals,
+} from "./voice-live-audio-stats";
 import { translate } from "@/i18n/language";
 import { voiceSessionMessages as m } from "../voice-session.messages";
 
@@ -41,6 +47,8 @@ export const voiceLiveReplyTrack = "linger-live-reply";
 const publisherPrefix = "publisher-";
 /** Reply playback louder than this counts as audible. */
 const audibleLevel = 0.05;
+/** The runtime's "0" while its provider session opens or reconnects. */
+const providerReadyAttribute = "linger.voice_provider_ready";
 
 export type VoiceLiveConnection = VoiceModeConnection & {
   voiceSessionId: string;
@@ -73,6 +81,11 @@ export async function openVoiceLive(input: {
   channel?: (connection: VoiceLiveConnection) => void;
   /** The reply playback became audible after silence. */
   audible?: () => void;
+  /**
+   * Whether the live model itself is connected, once the call listens: false
+   * while the runtime still opens or reconnects its provider session.
+   */
+  providerReady?: (ready: boolean) => void;
   /** Runs after capture and playback stop, before the session closes. */
   beforeClose?: () => Promise<void>;
   soundOff: boolean;
@@ -89,6 +102,8 @@ export async function openVoiceLive(input: {
   let track: LocalAudioTrack | undefined;
   let meter: (() => void) | undefined;
   let replyMeter: (() => void) | undefined;
+  let replyTrack: RemoteTrack | undefined;
+  let audioStats: ReturnType<typeof setInterval> | undefined;
   let audio: HTMLAudioElement | undefined;
   let soundOff = input.soundOff;
   let closed = false;
@@ -110,6 +125,9 @@ export async function openVoiceLive(input: {
     input.microphone?.(undefined);
     replyMeter?.();
     replyMeter = undefined;
+    clearInterval(audioStats);
+    audioStats = undefined;
+    replyTrack = undefined;
     if (audio) {
       audio.srcObject = null;
       audio.remove();
@@ -170,6 +188,7 @@ export async function openVoiceLive(input: {
     }
     audio.muted = soundOff;
     remote.attach(audio);
+    replyTrack = remote;
     replyMeter?.();
     let audible = false;
     replyMeter = observeAudioLevel(remote.mediaStreamTrack, (level) => {
@@ -343,6 +362,48 @@ export async function openVoiceLive(input: {
         return closing;
       },
     };
+    // The browser's view of the reply audio goes to the Live worker's log;
+    // a reading that fails is skipped and never touches the call.
+    let audioTotals = voiceLiveAudioTotals(Date.now(), undefined, undefined);
+    // The tracks the previous reading came from: a replaced one starts at zero.
+    let readReply: RemoteTrack | undefined;
+    let readMicrophone: LocalAudioTrack | undefined;
+    let readingStats = false;
+    audioStats = setInterval(() => {
+      if (readingStats || !live()) return;
+      readingStats = true;
+      const reply = replyTrack;
+      const microphone = track;
+      void (async () => {
+        try {
+          const [replyReport, microphoneReport] = await Promise.all([
+            reply?.getRTCStatsReport(),
+            microphone?.getRTCStatsReport(),
+          ]);
+          if (!live()) return;
+          const current = voiceLiveAudioTotals(
+            Date.now(),
+            replyReport,
+            microphoneReport,
+          );
+          const stats = voiceLiveAudioStatsDelta(
+            voiceLiveAudioBaseline(audioTotals, {
+              reply: reply !== readReply,
+              microphone: microphone !== readMicrophone,
+            }),
+            current,
+          );
+          audioTotals = current;
+          readReply = reply;
+          readMicrophone = microphone;
+          if (stats) connection.send({ type: "audio_stats", audio: stats });
+        } catch {
+          // Statistics are diagnostics only.
+        } finally {
+          readingStats = false;
+        }
+      })();
+    }, voiceLiveAudioStatsIntervalMs);
     input.channel?.(connection);
     const readyDeadline = Date.now() + 15_000;
     // The live Runtime is a visible Agent participant, so its readiness
@@ -357,8 +418,27 @@ export async function openVoiceLive(input: {
             generation,
       );
     let wakeReady: (() => void) | undefined;
+    let listening = false;
+    let providerReady: boolean | undefined;
+    // A runtime that never reports its provider is taken as connected.
+    const reportProvider = () => {
+      const runtime = [...media.remoteParticipants.values()].find(
+        (participant) =>
+          participant.isAgent &&
+          participant.attributes["linger.voice_ready_generation"] ===
+            generation,
+      );
+      // Until the runtime shows here, nothing is known: listening may have
+      // started on TeamHub's word before its attributes arrive.
+      if (!runtime) return;
+      const next = runtime.attributes[providerReadyAttribute] !== "0";
+      if (next === providerReady || !live()) return;
+      providerReady = next;
+      input.providerReady?.(next);
+    };
     media.on(RoomEvent.ParticipantAttributesChanged, () => {
       if (runtimeReady()) wakeReady?.();
+      if (listening) reportProvider();
     });
     for (;;) {
       if (activity || runtimeReady()) break;
@@ -392,6 +472,8 @@ export async function openVoiceLive(input: {
       await waitForVoiceDelay(200, signal);
       signal.throwIfAborted();
     }
+    listening = true;
+    reportProvider();
     return connection;
   } catch (error) {
     closed = true;

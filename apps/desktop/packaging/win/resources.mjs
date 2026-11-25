@@ -31,11 +31,11 @@ info.setProductVersion(major, minor, patch, 0, 1033);
 info.setStringValues(
   { lang: 1033, codepage: 1200 },
   {
-    CompanyName: "Linger",
-    FileDescription: "Linger",
-    InternalName: "Linger",
-    OriginalFilename: "Linger.exe",
-    ProductName: "Linger",
+    CompanyName: "LingerX",
+    FileDescription: "LingerX",
+    InternalName: "LingerX",
+    OriginalFilename: "LingerX.exe",
+    ProductName: "LingerX",
     FileVersion: version,
     ProductVersion: version,
   },

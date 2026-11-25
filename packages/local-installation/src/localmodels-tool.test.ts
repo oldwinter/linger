@@ -551,7 +551,13 @@ test("passes the resolved download region to every localmodels child", async () 
     expect(call[2].env.SIMPLEX_REGION).toBe("cn");
 });
 // What `library status` prints, cut to the fields the stop reads.
-const libraryStatus = (models: { id: string; state: string }[]) => ({
+const libraryStatus = (
+  models: {
+    id: string;
+    state: string;
+    error?: { code?: string; detail?: string };
+  }[],
+) => ({
   code: 0,
   stdout: JSON.stringify({ schema: "localmodels.library-status/v1", models }),
   stderr: "",
@@ -700,6 +706,56 @@ test("a quit keeps the controller and stops only the library's models and the st
     ["library", "status"],
     ["library", "unload"],
     ["stack", "down"],
+  ]);
+});
+test("unloads failed server models on quit while skipping stopped downloads", async () => {
+  const run = vi.fn<typeof runLocalmodels>(async (_home, args) =>
+    args[1] === "status"
+      ? libraryStatus([
+          { id: "qwen3-8b:Q4_K_M", state: "loaded" },
+          {
+            id: "inkling-2-mini-q4-poly:UD-Q4_K_XL",
+            state: "failed",
+            error: {
+              code: "HEALTH_CHECK_FAILED",
+              detail: "the model server does not answer; load it again",
+            },
+          },
+          {
+            id: "gemma4-4b:Q4_K_M",
+            state: "failed",
+            error: { code: "ENGINE_START_FAILED", detail: "exited" },
+          },
+          {
+            id: "stopped-net:Q4_K_M",
+            state: "failed",
+            error: { code: "NETWORK_UNAVAILABLE", detail: "offline" },
+          },
+          {
+            id: "stopped-dl:Q4_K_M",
+            state: "failed",
+            error: { code: "DOWNLOAD_FAILED", detail: "interrupted" },
+          },
+          {
+            id: "stopped-disk:Q4_K_M",
+            state: "failed",
+            error: { code: "DISK_INSUFFICIENT", detail: "disk full" },
+          },
+          { id: "idle-model:Q4_K_M", state: "idle" },
+        ])
+      : { code: 0, stdout: "{}", stderr: "" },
+  );
+  await stopLocalmodels(
+    "/home",
+    { signal: AbortSignal.timeout(5000), keepController: true },
+    { run, installed: async () => true },
+  );
+  expect(run.mock.calls.map(([, args]) => args.slice(0, 3))).toEqual([
+    ["library", "status", "--base-dir"],
+    ["library", "unload", "qwen3-8b:Q4_K_M"],
+    ["library", "unload", "inkling-2-mini-q4-poly:UD-Q4_K_XL"],
+    ["library", "unload", "gemma4-4b:Q4_K_M"],
+    ["stack", "down", "--json"],
   ]);
 });
 test("stops the stack even when the library could not be read or a model did not unload, and names each failure", async () => {

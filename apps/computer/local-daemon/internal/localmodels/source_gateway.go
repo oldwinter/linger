@@ -5,8 +5,6 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"net/url"
-	"strings"
 	"time"
 )
 
@@ -68,7 +66,11 @@ func (m *ModelSource) EnsureGateway(ctx context.Context, runtimeType string) err
 	if err == nil {
 		slog.Info("model_source.gateway_remount", "phase", "succeeded", "runtime_type", runtimeType)
 	} else if sourceErr := (*ModelSourceError)(nil); errors.As(err, &sourceErr) {
-		slog.Warn("model_source.gateway_remount", "phase", "failed", "runtime_type", runtimeType, "code", sourceErr.Code)
+		args := []any{"phase", "failed", "runtime_type", runtimeType, "code", sourceErr.Code}
+		if detail := sanitizeModelSourceMessage(sourceErr.Message, "", ""); detail != "" {
+			args = append(args, "detail", detail)
+		}
+		slog.Warn("model_source.gateway_remount", args...)
 	}
 	return err
 }
@@ -82,6 +84,13 @@ func (m *ModelSource) remount(ctx context.Context, runtime string) error {
 	if err != nil {
 		if ctx.Err() != nil {
 			return errors.Join(ctx.Err(), err)
+		}
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(runCtx.Err(), context.DeadlineExceeded) {
+			return &ModelSourceError{
+				Code:      "MODEL_SOURCE_TIMEOUT",
+				Message:   "Timed out starting the BYOK gateway on this Computer.",
+				Retryable: true,
+			}
 		}
 		return &ModelSourceError{
 			Code:      CodeToolFailed,
@@ -109,17 +118,11 @@ func byokGateway(stateDir, runtimeType string) (runtime, healthURL string) {
 	if overlay == nil || overlay.Mode != "byok" || !GatewayRuntime(overlay.Environment, stateDir, runtimeType) {
 		return "", ""
 	}
-	gateway, err := url.Parse(overlay.GatewayURL)
-	if err != nil || gateway.Scheme != "http" || gateway.Port() == "" || gateway.User != nil ||
-		gateway.RawQuery != "" || gateway.Fragment != "" {
+	healthURL = loopbackHealthURL(overlay.GatewayURL, false)
+	if healthURL == "" {
 		return "", ""
 	}
-	switch gateway.Hostname() {
-	case "127.0.0.1", "localhost", "::1":
-	default:
-		return "", ""
-	}
-	return overlay.Runtime, gateway.Scheme + "://" + gateway.Host + strings.TrimRight(gateway.Path, "/") + "/health"
+	return overlay.Runtime, healthURL
 }
 
 func gatewayAnswers(ctx context.Context, healthURL string) bool {

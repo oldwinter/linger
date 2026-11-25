@@ -105,11 +105,8 @@ func (t *piTurn) startup(prompt string) error {
 			return err
 		}
 		t.timing("pi.get_state_ok")
-		catalog := piCatalogState{Model: state.Model, ThinkingLevel: state.ThinkingLevel}
-		if clamped, ok := piStateThinkingLevel(catalog, t.requestedThinking); ok {
-			if _, err := t.proc.call(ctx, "set_thinking_level", map[string]any{"level": clamped}, nil); err != nil {
-				return fmt.Errorf("Pi thinking level could not be applied: %w", err)
-			}
+		if err := t.proc.applyThinkingLevel(ctx, state, t.requestedThinking); err != nil {
+			return err
 		}
 	}
 	return t.sendPromptWithContext(ctx, prompt)

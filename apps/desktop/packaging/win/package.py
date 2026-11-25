@@ -76,7 +76,7 @@ KEPT_LOCALES = {"en-US.pak", "zh-CN.pak"}
 
 
 def stage_app(version, electron_version, workdir, cache):
-    stage = os.path.join(workdir, "Linger")
+    stage = os.path.join(workdir, "LingerX")
     with zipfile.ZipFile(electron_zip(electron_version, cache)) as archive:
         archive.extractall(stage)
     resources = os.path.join(stage, "resources")
@@ -98,7 +98,7 @@ def stage_app(version, electron_version, workdir, cache):
     shutil.copytree(dist, os.path.join(app_dir, "dist"),
                     ignore=shutil.ignore_patterns("*.map", "computer", "computer-tools"))
     with open(os.path.join(app_dir, "package.json"), "w") as out:
-        json.dump({"name": "linger-desktop", "productName": "Linger", "version": version,
+        json.dump({"name": "lingerx-desktop", "productName": "LingerX", "version": version,
                    "type": "module", "main": "dist/main/index.mjs"}, out, indent=2)
     computer = os.path.join(resources, "computer")
     os.makedirs(computer)
@@ -106,18 +106,18 @@ def stage_app(version, electron_version, workdir, cache):
     computer_tools.copy(resources, "win32-x64")
 
     write_icon(os.path.join(resources, "linger.ico"))
-    os.rename(os.path.join(stage, "electron.exe"), os.path.join(stage, "Linger.exe"))
+    os.rename(os.path.join(stage, "electron.exe"), os.path.join(stage, "LingerX.exe"))
     shutil.copy(os.path.join(HERE, "resources.mjs"), workdir)
-    wintool(workdir, "node", "resources.mjs", "Linger/Linger.exe", "Linger/resources/linger.ico", version)
+    wintool(workdir, "node", "resources.mjs", "LingerX/LingerX.exe", "LingerX/resources/linger.ico", version)
     return stage
 
 
 def build_setup(workdir, version, output):
     shutil.copy(os.path.join(HERE, "installer.nsi"), workdir)
     wintool(workdir, "makensis", "-V2", f"-DVERSION={version}",
-            f"-DNUMERIC_VERSION={version.split('-')[0]}", "-DSTAGE=Linger",
-            "-DOUTPUT=Linger-setup.exe", "installer.nsi")
-    shutil.move(os.path.join(workdir, "Linger-setup.exe"), output)
+            f"-DNUMERIC_VERSION={version.split('-')[0]}", "-DSTAGE=LingerX",
+            "-DOUTPUT=LingerX-setup.exe", "installer.nsi")
+    shutil.move(os.path.join(workdir, "LingerX-setup.exe"), output)
 
 
 # Extensions already compressed with high-entropy formats; storing them skips
@@ -137,7 +137,7 @@ def build_zip(stage, output):
                 )
                 archive.write(
                     path,
-                    os.path.join("Linger", os.path.relpath(path, stage)),
+                    os.path.join("LingerX", os.path.relpath(path, stage)),
                     compress_type=compress_type,
                 )
 
@@ -164,8 +164,8 @@ def main():
     workdir = tempfile.mkdtemp(prefix="linger-win-")
     try:
         stage = stage_app(version, electron_version, workdir, args.cache)
-        setup = os.path.join(args.out, f"Linger-{version}-x64-setup.exe")
-        archive = os.path.join(args.out, f"Linger-{version}-x64.zip")
+        setup = os.path.join(args.out, f"LingerX-{version}-x64-setup.exe")
+        archive = os.path.join(args.out, f"LingerX-{version}-x64.zip")
 
         def make_setup():
             build_setup(workdir, version, setup)
@@ -173,7 +173,7 @@ def main():
 
         def make_zip():
             build_zip(stage, archive)
-            computer_tools.check_archive(archive, "Linger/resources/", "win32-x64")
+            computer_tools.check_archive(archive, "LingerX/resources/", "win32-x64")
             report(archive)
 
         # Both read the finalized stage folder and write distinct outputs.

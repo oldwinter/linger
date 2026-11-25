@@ -69,12 +69,14 @@ set -euo pipefail
 #                                the workflow's repository and commit, and the token gh
 #                                publishes with
 
+app_name="${DESKTOP_APP_NAME:-LingerX}"
+tag_prefix="${DESKTOP_TAG_PREFIX:-v}"
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 desktop="$repo_root/apps/desktop"
 version_pattern='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$'
 targets='darwin-arm64 linux-x64 win32-x64'
 package_name="${DESKTOP_PACKAGE_NAME:-linger-desktop-dry-run}"
-default_release_repo=simplexai-labs/linger
+default_release_repo=oldwinter/linger
 
 die() {
   echo "desktop-release: $*" >&2
@@ -89,10 +91,12 @@ usage() {
 }
 
 sha256_of() {
+  # Hash stdin: sha256sum escapes a name holding a backslash (a Windows path)
+  # by prefixing the line with one.
   if command -v sha256sum >/dev/null; then
-    sha256sum "$1" | cut -d' ' -f1
+    sha256sum <"$1" | cut -d' ' -f1
   else
-    shasum -a 256 "$1" | cut -d' ' -f1
+    shasum -a 256 <"$1" | cut -d' ' -f1
   fi
 }
 
@@ -106,17 +110,17 @@ release_version() {
   echo "$DESKTOP_VERSION"
 }
 
-# Tags are desktop-v<semver>, beside the cli-v<semver> tags of the CLI.
+# Tags are v<semver> (avoiding upstream desktop-v<semver> collisions).
 # A bare version (a manual run) gets the tag it would be released under.
 cmd_version() {
   local input="${1:-}" version
-  [[ -n "$input" ]] || die "version needs a tag such as desktop-v0.16.36"
-  version="${input#desktop-v}"
+  [[ -n "$input" ]] || die "version needs a tag such as ${tag_prefix}0.1.0"
+  version="${input#"$tag_prefix"}"
   if [[ "$version" == "$input" && "$input" == *-v* ]]; then
-    die "$input is not a desktop tag; use desktop-v<version>"
+    die "$input is not a ${app_name} release tag; use ${tag_prefix}<version>"
   fi
-  [[ "$version" =~ $version_pattern ]] || die "$input does not hold a version like 0.16.36 or 0.16.36-rc.1"
-  echo "tag=desktop-v$version"
+  [[ "$version" =~ $version_pattern ]] || die "$input does not hold a version like 0.1.0 or 0.1.0-rc.1"
+  echo "tag=${tag_prefix}${version}"
   echo "version=$version"
   if [[ "$version" == *-* ]]; then
     echo "prerelease=true"
@@ -256,34 +260,34 @@ package_darwin() {
   fi
   args+=(--update-archive)
   (cd "$desktop" && python3 packaging/mac/package.py "${args[@]}")
-  mv "$pkg/Linger-$version-arm64.dmg" "$assets/Linger-$version-macos-arm64.dmg"
+  mv "$pkg/$app_name-$version-arm64.dmg" "$assets/$app_name-$version-macos-arm64.dmg"
   # The installed app replaces itself with this archive (updater.ts).
-  mv "$pkg/Linger-$version-arm64.app.tar.gz" "$assets/Linger-$version-macos-arm64.app.tar.gz"
+  mv "$pkg/$app_name-$version-arm64.app.tar.gz" "$assets/$app_name-$version-macos-arm64.app.tar.gz"
 }
 
 package_linux() {
   local version="$1" pkg="$2" assets="$3"
   (cd "$desktop" && python3 packaging/linux/package.py --out "$pkg")
-  mv "$pkg/Linger-$version-linux-x64.tar.gz" "$assets/"
+  mv "$pkg/$app_name-$version-linux-x64.tar.gz" "$assets/"
 }
 
 package_windows() {
   local version="$1" pkg="$2" assets="$3" setup
   ensure_docker_image wintool "$desktop/packaging/win"
   (cd "$desktop" && python3 packaging/win/package.py --out "$pkg")
-  setup="$pkg/Linger-$version-x64-setup.exe"
+  setup="$pkg/$app_name-$version-x64-setup.exe"
   if [[ -n "${WINDOWS_SIGNING_P12:-}" ]]; then
     command -v osslsigncode >/dev/null || die "WINDOWS_SIGNING_P12 is set but osslsigncode is not installed"
     osslsigncode sign -pkcs12 "$WINDOWS_SIGNING_P12" \
       -readpass "${WINDOWS_SIGNING_PASSWORD_FILE:?WINDOWS_SIGNING_PASSWORD_FILE is required with WINDOWS_SIGNING_P12}" \
-      -n Linger -h sha256 -ts http://timestamp.digicert.com \
+      -n "$app_name" -h sha256 -ts http://timestamp.digicert.com \
       -in "$setup" -out "$setup.signed"
     mv "$setup.signed" "$setup"
   else
     echo "desktop-release: no Authenticode certificate; the setup program is unsigned" >&2
   fi
-  mv "$setup" "$assets/Linger-$version-windows-x64-setup.exe"
-  mv "$pkg/Linger-$version-x64.zip" "$assets/Linger-$version-windows-x64-portable.zip"
+  mv "$setup" "$assets/$app_name-$version-windows-x64-setup.exe"
+  mv "$pkg/$app_name-$version-x64.zip" "$assets/$app_name-$version-windows-x64-portable.zip"
 }
 
 cmd_package() {
@@ -339,8 +343,8 @@ cmd_manifest() {
   for entry in $update_packages; do
     target="${entry%%:*}"
     suffix="${entry#*:}"
-    [[ -f "$dir/Linger-$version-$suffix" ]] || die "$dir has no Linger-$version-$suffix"
-    packages+=("$target" "Linger-$version-$suffix")
+    [[ -f "$dir/$app_name-$version-$suffix" ]] || die "$dir has no $app_name-$version-$suffix"
+    packages+=("$target" "$app_name-$version-$suffix")
   done
   # The key file is read only here; the built-in public key decides whether
   # installed apps would accept the signature.
@@ -395,11 +399,11 @@ cmd_checksums() {
   [[ -d "$dir" ]] || die "checksums needs the folder holding the release files"
   [[ "$version" =~ $version_pattern ]] || die "checksums needs the release version"
   for required in $required_installers; do
-    [[ -f "$dir/Linger-$version-$required" ]] || die "$dir has no Linger-$version-$required"
+    [[ -f "$dir/$app_name-$version-$required" ]] || die "$dir has no $app_name-$version-$required"
   done
   while IFS= read -r file; do
     files+=("$(basename "$file")")
-  done < <(find "$dir" -maxdepth 1 -type f \( -name "Linger-$version-*" -o -name manifest.json -o -name manifest.json.sig \) | LC_ALL=C sort)
+  done < <(find "$dir" -maxdepth 1 -type f \( -name "$app_name-$version-*" -o -name manifest.json -o -name manifest.json.sig \) | LC_ALL=C sort)
   : >"$dir/SHA256SUMS.txt.part"
   for file in "${files[@]}"; do
     printf '%s  %s\n' "$(sha256_of "$dir/$file")" "$file" >>"$dir/SHA256SUMS.txt.part"
@@ -442,8 +446,8 @@ cmd_gitlab_upload() {
 # another one gh creates the tag at that repository's default branch.
 cmd_github_release() {
   local dir="${1:-}" tag="${2:-}" version="${3:-}" repo notes flags=()
-  [[ -d "$dir" && "$tag" == "desktop-v$version" && "$version" =~ $version_pattern ]] ||
-    die "github-release needs the folder of release files, a desktop-v<version> tag and its version"
+  [[ -d "$dir" && "$tag" == "${tag_prefix}${version}" && "$version" =~ $version_pattern ]] ||
+    die "github-release needs the folder of release files, a ${tag_prefix}<version> tag and its version"
   [[ -f "$dir/SHA256SUMS.txt" ]] || die "run '$0 checksums $dir $version' first"
   repo="${RELEASE_REPO:-$default_release_repo}"
   [[ "$repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || die "RELEASE_REPO must be owner/name, not $repo"
@@ -454,28 +458,30 @@ cmd_github_release() {
     die "publishing to $repo from ${GITHUB_REPOSITORY:-this repository} needs the LINGER_RELEASE_TOKEN secret: a token with contents write access to $repo (docs/desktop-release.md)"
   fi
   command -v gh >/dev/null || die "github-release needs the GitHub CLI (gh)"
-  notes="Linger desktop $version. Check downloads against SHA256SUMS.txt."
+  notes="$app_name $version. Verify downloads against SHA256SUMS.txt."
   if [[ "$repo" == "${GITHUB_REPOSITORY:-}" && -n "${GITHUB_SHA:-}" ]]; then
-    notes="Linger desktop $version, built from $GITHUB_SHA. Check downloads against SHA256SUMS.txt."
+    notes="$app_name $version, built from $GITHUB_SHA. Verify downloads against SHA256SUMS.txt."
     flags+=(--target "$GITHUB_SHA")
   fi
   if [[ "$version" == *-* ]]; then
     notes="**Prerelease** for testing, not for general use. $notes"
     flags+=(--prerelease)
-  else
-    # Stable releases start as drafts so subscribers and auto-updaters never
-    # see placeholder notes; `publish` attaches the release notes and marks latest.
+  elif [[ "${RELEASE_DRAFT:-false}" == true ]]; then
     flags+=(--draft)
+  else
+    flags+=(--latest --generate-notes)
   fi
   if gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
     gh release upload "$tag" "$dir"/* --repo "$repo" --clobber
     echo "desktop-release: updated the $tag release of $repo"
   else
-    gh release create "$tag" "$dir"/* --repo "$repo" --title "Linger Desktop $version" --notes "$notes" "${flags[@]}"
+    gh release create "$tag" "$dir"/* --repo "$repo" --title "$app_name $version" --notes "$notes" "${flags[@]}"
     if [[ "$version" == *-* ]]; then
       echo "desktop-release: created the $tag prerelease of $repo"
-    else
+    elif [[ "${RELEASE_DRAFT:-false}" == true ]]; then
       echo "desktop-release: created draft release $tag of $repo (publish with: $0 publish $tag --notes-file <file>)"
+    else
+      echo "desktop-release: published $tag as latest in $repo"
     fi
   fi
   echo "desktop-release: https://github.com/$repo/releases/tag/$tag"
@@ -494,13 +500,13 @@ cmd_publish() {
       *) die "unknown publish argument: $1" ;;
     esac
   done
-  [[ -n "$tag" && "$tag" == desktop-v* ]] ||
-    die "publish needs a stable desktop-v<version> tag and --notes-file <file>"
-  version="${tag#desktop-v}"
+  [[ -n "$tag" && "$tag" == "${tag_prefix}"* ]] ||
+    die "publish needs a stable ${tag_prefix}<version> tag and --notes-file <file>"
+  version="${tag#"$tag_prefix"}"
   [[ "$version" =~ $version_pattern ]] ||
     die "$tag does not hold a valid version"
   [[ "$version" != *-* ]] ||
-    die "publish is for stable desktop-v<version> releases, not prereleases ($tag)"
+    die "publish is for stable ${tag_prefix}<version> releases, not prereleases ($tag)"
   [[ -n "$notes_file" && -f "$notes_file" ]] ||
     die "publish needs an existing --notes-file <file>"
   grep -q '[^[:space:]]' "$notes_file" ||
@@ -512,7 +518,7 @@ cmd_publish() {
   assets="$(gh release view "$tag" --repo "$repo" --json assets --jq '.assets[].name')" ||
     die "could not read release $tag in $repo"
   for required in $required_installers; do
-    grep -qxF "Linger-$version-$required" <<<"$assets" || missing+=("Linger-$version-$required")
+    grep -qxF "$app_name-$version-$required" <<<"$assets" || missing+=("$app_name-$version-$required")
   done
   grep -qxF "SHA256SUMS.txt" <<<"$assets" || missing+=("SHA256SUMS.txt")
   if [[ ${#missing[@]} -gt 0 ]]; then
@@ -523,7 +529,7 @@ cmd_publish() {
   echo "desktop-release: published $tag as latest in $repo"
   echo "desktop-release: https://github.com/$repo/releases/tag/$tag"
 
-  rc_jq=".[] | select(.isPrerelease and (.isDraft | not) and (.tagName | startswith(\"desktop-v${version}-rc.\"))) | .tagName"
+  rc_jq=".[] | select(.isPrerelease and (.isDraft | not) and (.tagName | startswith(\"${tag_prefix}${version}-rc.\"))) | .tagName"
   if rc_tags="$(gh release list --repo "$repo" --limit 100 --json tagName,isPrerelease,isDraft --jq "$rc_jq" 2>/dev/null)"; then
     while IFS= read -r rc_tag; do
       [[ -n "$rc_tag" ]] || continue

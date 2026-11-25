@@ -54,12 +54,17 @@ distributions record both from the kit's release (`runtimeVersions`,
 `runtimeBaselines`), and a Go test fails when either is below a minimum. Raise a minimum only
 after a kit that installs a release at or above it ships in the desktop
 distribution pins (`apps/desktop/distribution/*.json`).
-The Codex canary workflow (`.github/workflows/codex-canary.yml`) runs the native
-Codex compatibility tests daily against npm's newest stable Codex, because a
-user's own newer Codex reaches the Daemon before any kit locks it. The
-localmodels kit opens a lock update merge request for each new stable Codex at
-least seven days old; it should merge only after the canary passes on that
-version.
+The canary workflows run the native compatibility tests daily, because a
+user's own newer CLI reaches the Daemon before any kit locks it:
+`.github/workflows/codex-canary.yml` against npm's newest stable Codex, and
+`.github/workflows/claude-canary.yml` against the newest Claude Code on
+Anthropic's stable channel. The required `check (computer-go)` runs the same tests
+against the Codex and Claude Code the pinned kit installs (`runtimeVersions`
+in `apps/desktop/distribution/linux-x64.json`), so a Daemon change or a kit
+pin that breaks the managed Runtimes cannot land. The
+localmodels kit opens a lock update merge request for each new stable Codex
+or Claude Code at least seven days old; it should merge only after that
+Runtime's canary passes on that version.
 It performs bounded protocol and authentication probes.
 A protocol probe passes once the Runtime answers the handshake, however the
 process exits after its input closes. When the handshake fails, the daemon log
@@ -95,6 +100,20 @@ The owner-only control socket supports Runner inspection and local stop, plus
 managed service start/list/stop. Managed services retain PID, process-group,
 and start-token identity across daemon restarts, and stop succeeds only after
 the recorded process group disappears.
+
+`linger-computer-daemon probe-runtimes --json` (`cmd/linger-computer-daemon/probe_runtimes.go`)
+provides a stateless, single-shot Runtime discovery, minimum-version check, and
+authentication probe for Desktop setup and the local installer. It shares
+`computerconfig.RuntimeDiscoveryOptions` (resolving explicit absolute
+`--<runtime>-path` flags or `LINGER_<TYPE>_PATH` overrides and scrubbing
+`LINGER_*`, `TEAMHUB_*`, `RUNNER_GATEWAY_*`, `MIRROR_*`, and `SERVICE_TOKEN`
+via `computerconfig.RuntimeEnvironment`) and `provider.Discover` (with
+`SkipModelCatalog: true`) with `linger-computer` and the resident Daemon.
+It accepts repeatable `--runtime <codex|claude|pi|antigravity>` (defaulting to
+`codex`, `claude`, and `pi`) and optional `--timeout-ms`, and emits a single
+`linger.daemon.runtime-probe/v1` JSON object on stdout carrying per-runtime
+`type`, `status`, `installed`, `authenticated`, redacted `version`,
+`required_version`, `executable`, and optional `error`.
 
 ## One-shot model calls
 
@@ -211,8 +230,11 @@ downloaded model that Run's Agent names.
   (Pi catalog below), and waits until that model is loaded. A model no row of the last readable snapshot
   names (a BYOK or setup-stack model) costs no tool call and no wait; once
   the installer lock wait below has ended, neither does a model that
-  snapshot shows loaded. Otherwise the Daemon reads the status once. A downloaded model that is `idle` or `failed` is loaded with
-  `library load <model>` and never `--unload`, so the Daemon does not evict
+  snapshot shows loaded while its loopback engine `/health` (and saved local
+  loopback gateway `/health`, when configured) still answers. Otherwise the Daemon reads the status once; a refreshed `loaded` row is trusted unless the saved local gateway does not answer. A downloaded model that is `idle` or `failed` is loaded with
+  `library load <model>` (resetting a `HEALTH_CHECK_FAILED` row or a dead-gateway
+  `loaded` row with `library unload <model>` first, as `Act` also does for
+  owner-initiated loads) and never `--unload`, so the Daemon does not evict
   a model to make room: a load that does not fit is refused, and the Run
   fails with `local_model_unavailable` when the Agent Service's welcome names
   that service feature, else with `model_unavailable` for an older service;
@@ -407,7 +429,10 @@ mounted again with `source apply --mode byok` from the configuration
 first. A failed mount fails the Run before its Runtime starts, with the
 public failure code of the tool's structured code: `BYOK_UNREACHABLE` and
 `NETWORK_UNAVAILABLE` become `network_error`, `BYOK_AUTH_FAILED`
-`authentication_required`; any other stays `execution_failed`. Model calls
+`authentication_required`; any other (including `BYOK_GATEWAY_FAILED`,
+`TOOL_FAILED`, and a remount deadline's `MODEL_SOURCE_TIMEOUT`) becomes
+`model_gateway_unavailable` when the Agent Service's welcome names that
+service feature, else `execution_failed` for an older service. Model calls
 answer `unavailable` for the two network codes, `auth_required` for
 `BYOK_AUTH_FAILED` and `runtime_unavailable` for any other, with the tool's
 code in the reason. Runs that waited for a remount that failed meanwhile share its
@@ -497,6 +522,23 @@ heredoc (`internal/permission/shell_text.go`). Named variables such as `"$id"`,
 
 A hook that cannot run lets the command through.
 
+## Runtime discovery
+
+- Discovery searches the `PATH` the user's terminal has: `$SHELL -lic`
+  prints it within two seconds. When that read fails or times out, the
+  last `PATH` the same shell printed is used. With none, the user's own
+  install folders come first. The common install folders are always
+  searched too: Homebrew, `~/.local/bin`, `~/.npm-global/bin`, Volta, Bun,
+  every nvm Node's `bin` (newest first), fnm's default Node and pnpm's
+  global bin.
+- Every 15 seconds the monitor rechecks sign-in. Every fourth tick it runs a
+  full discovery, but not while an Operation runs.
+- On every tick it also searches again for each Runtime that was not
+  installed or too old. When an executable appears, or a new file replaces
+  the old one, it runs discovery for those Runtimes alone at once, even
+  while Operations run, because none can run on them. An install or upgrade
+  therefore shows within one tick.
+
 ## Antigravity
 
 The Antigravity CLI (`agy`) runs through its Agent Client Protocol (ACP)
@@ -516,20 +558,32 @@ for a browser sign-in when signed out.
   family. A family's reasoning efforts are the levels its
   `<family>-<level>` entries in `availableModels` name. A Run selects them
   with `session/set_config_option` (`model`, then `thought_level`).
-- Each Operation runs in its own `agy acp` process; nothing is parked. A
-  first Run opens `session/new`, and its turn-started event reports the
-  session id as the checkpoint, like a Codex thread. Later Runs reopen it with
-  `session/load` and drop the history it replays. An id Antigravity has not
-  stored is not a usable session: `session/load` accepts it, but the prompt
-  then fails, so Linger never assigns one. A stored session replays at least
-  the prompt that made it, so a load that replays no prompt, or that
-  Antigravity refuses, finds no session and returns `session_not_found` so Agent
-  Service can clear the persisted session and restart the Run cleanly in a fresh
-  native session with recent messages. A resumed Run still reports its
-  turn-started event before `session/load`, because loading takes seconds
-  and the Room shows the Agent working from that event. A Run yields to
-  the scheduler only after native work, because its session holds no prompt
-  before that.
+- Residency-capable `agy acp` servers (those advertising both `session/list`
+  and `session/resume` during `initialize`) park in `antigravityResidents`,
+  keyed by Context. Room-presence `provider.prepare` runs `initialize` followed
+  by `session/list` with zero MCP servers so both blank and historical rooms
+  warm up without creating empty conversations; the first Run adopts the
+  parked process and opens `session/new` or `session/resume` directly.
+- Between turns, a cleanly completed resident keeps its `agy acp` process
+  parked and routes HTTP MCP servers through a loopback `mcpFront` that
+  answers 503 while parked and rebinds to each Run's upstream URLs on reuse.
+  Changing `systemPrompt.append` hot-updates via `session/resume` with an empty
+  `mcpServers` list so existing MCP connections are not duplicated; changing
+  `model` or `thought_level` hot-updates via `session/set_config_option`.
+- A parked Antigravity process is recycled on MCP server set changes, stdio
+  MCP configurations, executable/working-directory/environment/skill/auth file
+  changes, logout or re-login diagnostics transitions, Agent stop or removal,
+  and Daemon shutdown. Cancelled, timed-out, failed, or background-continuation
+  turns never park and confirm process-tree exit.
+- Legacy `agy` installations that lack `session/list` or `session/resume`
+  report `not_eligible` on `provider.prepare` and fall back to a one-shot
+  process per Operation using `session/load` (dropping replayed history). An id
+  Antigravity has not stored is not a usable session: `session/load` accepts it
+  with zero replayed prompts and `session/resume` rejects it with a JSON-RPC
+  error, so both return `session_not_found` and let Agent Service clear the
+  persisted session and restart cleanly in a fresh native session with recent
+  messages. A resumed Run still reports its turn-started event before session
+  restore, and a Run yields to the scheduler only after native work.
 - On a fresh `run.start` that names `previous_session` (Computer 0.63.0 or
   later), the provider executor reads the superseded native session through
   `runtimehistory`, writes a bounded, redacted Markdown tail to
@@ -560,8 +614,8 @@ for a browser sign-in when signed out.
 - Antigravity reports a model error, such as a rejected API key, as reply text
   and ends the turn with `end_turn`. With no structured signal, such a Run
   completes and the Room shows the text.
-- History reads, provider prepare, Local Skill scans and local models do not
-  support Antigravity, so Agent Memory skips Antigravity Agents.
+- History reads, Local Skill scans and local models do not support
+  Antigravity, so Agent Memory skips Antigravity Agents.
 - The Gateway hello leaves out the Antigravity diagnostic while `agy` is not
   installed, so such a Computer still connects to an Agent Service released
   before Antigravity support. When `agy` is installed later, the next
@@ -585,15 +639,20 @@ the current SID and ACL, not POSIX permission bits. Writing a separate credentia
 does not change the permissions of an existing parent directory.
 
 The installer and the Daemon refuse a private path when another account can
-replace one of its parent directories. One exception applies: the Codex Windows
-sandbox may hold that right on a parent, such as AppData. The sandbox acts
+replace one of its parent directories, naming the offending ancestor path and
+SID. Ancestors trust the current user, `SYSTEM`, `BUILTIN\Administrators`,
+`TrustedInstaller`, built-in Administrator/Domain/Enterprise Admin SIDs
+(`S-1-5-21-*-*-*-500|512|519`), and direct individual/domain/Entra members of
+local `BUILTIN\Administrators` (excluding broad well-known groups). One
+additional exception applies on ancestor access rules: the Codex Windows
+sandbox may hold replace rights on a parent, such as AppData. The sandbox acts
 through the `CodexSandboxUsers` group and the capability SIDs in
-`%USERPROFILE%\.codex\cap_sid`. A sandboxed Codex command can therefore replace
-such a parent; Linger accepts this so it installs beside Codex. Private paths
-themselves still grant access only to the current user and SYSTEM. Their
-owner is the current user or, when that user is an administrator,
-Administrators, which owns what an elevated process (Run as administrator,
-the built-in Administrator) creates.
+`%USERPROFILE%\.codex\cap_sid` (or `%CODEX_HOME%\cap_sid`). A sandboxed Codex
+command can therefore replace such a parent; Linger accepts this so it installs
+beside Codex. Private paths themselves still grant access only to the current
+user and SYSTEM. Their owner is the current user or, when that user is an
+administrator, Administrators, which owns what an elevated process (Run as
+administrator, the built-in Administrator) creates.
 
 Process recovery uses the creation time and a held process handle, so a reused
 process ID is never mistaken for the original. Ordinary tasks are held by a Job
@@ -1097,14 +1156,22 @@ with its dependencies resolves its own jiti first. Node reads `NODE_PATH` at
 startup, so the extension then restores the value Pi inherited, and the
 commands Pi starts never resolve a package from the bundle.
 
-The same extension carries Pi's permission review, so the Daemon loads it for a
-Run with permission review even without MCP servers. Its `tool_call` hook opens
-an RPC `input` dialog titled `linger.permission_review` for each `bash` and
-`mcp__*` call, with the call as JSON. The Daemon answers it with a JSON verdict
-from the Run's permission review, with `bash` reviewed as a shell command. A
-Run without review gets an allow verdict, because a resident Pi process may
-serve both kinds of Run. A missing or unreadable verdict blocks the call. The
-Daemon cancels any other extension dialog.
+The same extension carries Pi's permission review and dynamic MCP attachment, so
+resident Pi processes and provider pre-starts load it with an empty managed MCP
+config file and `mcp__*` in `--tools`. On Room-presence `provider.prepare`, Pi
+starts with a 40-second timeout, verifies `get_state` and applies any clamped
+thinking level, then parks without submitting a prompt. When a Run adopts a
+parked Pi process whose MCP server set changed, the Daemon writes the new
+front-rewritten `linger-mcp.json`, verifies `get_commands` exposes
+`linger-sync-mcp`, runs `/linger-sync-mcp` and reads the structured verdict from
+its `linger.mcp_sync` RPC dialog before submitting the prompt; an attachment
+failure recycles the process and falls back to a cold spawn. Its `tool_call`
+hook opens an RPC `input` dialog titled `linger.permission_review` for each
+`bash` and `mcp__*` call, with the call as JSON. The Daemon answers it with a
+JSON verdict from the Run's permission review, with `bash` reviewed as a shell
+command. A Run without review gets an allow verdict, because a resident Pi
+process may serve both kinds of Run. A missing or unreadable verdict blocks the
+call. The Daemon cancels any other extension dialog.
 
 The compatibility probe of the pinned Playwright catalog is
 `TestPinnedPlaywrightCatalog`; it needs `LINGER_PLAYWRIGHT_COMPAT_ENTRY` and

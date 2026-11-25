@@ -19,6 +19,85 @@ import {
   type SelectPopupPositionOptions,
 } from "./select-popup-layout";
 
+let clearSuppressedClick: (() => void) | null = null;
+
+/**
+ * Swallows the single `click` paired with an outside-dismissal `pointerdown` so
+ * dismissing a popup never activates underlying controls, modal backdrops, or
+ * wrapping `<label>` activation.
+ */
+function suppressFollowUpClick(originEvent: PointerEvent) {
+  clearSuppressedClick?.();
+  if (typeof window === "undefined") return;
+
+  const originTarget =
+    originEvent.target instanceof Node ? originEvent.target : null;
+  const downPointerId = originEvent.pointerId;
+  let cleanupTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const cleanup = () => {
+    if (cleanupTimer !== undefined) {
+      clearTimeout(cleanupTimer);
+      cleanupTimer = undefined;
+    }
+    window.removeEventListener("click", onClick, true);
+    window.removeEventListener("pointerup", onPointerUp, true);
+    window.removeEventListener("pointercancel", onPointerCancel, true);
+    window.removeEventListener("pointerdown", onNextPointerDown, true);
+    window.removeEventListener("blur", cleanup);
+    if (clearSuppressedClick === cleanup) {
+      clearSuppressedClick = null;
+    }
+  };
+
+  const matchesPointer = (event: PointerEvent) =>
+    downPointerId === undefined ||
+    event.pointerId === undefined ||
+    event.pointerId === downPointerId;
+
+  const isFollowUpTarget = (clickTarget: EventTarget | null) =>
+    originTarget !== null &&
+    originTarget.isConnected &&
+    clickTarget instanceof Node &&
+    clickTarget.contains(originTarget);
+
+  const onClick = (event: MouseEvent) => {
+    const shouldSuppress = isFollowUpTarget(event.target);
+    cleanup();
+    if (shouldSuppress) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  };
+
+  const onPointerUp = (event: PointerEvent) => {
+    if (!matchesPointer(event)) return;
+    if (cleanupTimer !== undefined) {
+      clearTimeout(cleanupTimer);
+    }
+    // Touch browsers may emit compatibility click up to ~300ms after pointerup;
+    // a fast second tap still clears immediately via onNextPointerDown.
+    cleanupTimer = setTimeout(cleanup, event.pointerType === "touch" ? 400 : 0);
+  };
+
+  const onPointerCancel = (event: PointerEvent) => {
+    if (!matchesPointer(event)) return;
+    cleanup();
+  };
+
+  const onNextPointerDown = (event: PointerEvent) => {
+    if (event === originEvent) return;
+    cleanup();
+  };
+
+  window.addEventListener("click", onClick, true);
+  window.addEventListener("pointerup", onPointerUp, true);
+  window.addEventListener("pointercancel", onPointerCancel, true);
+  window.addEventListener("pointerdown", onNextPointerDown, true);
+  window.addEventListener("blur", cleanup);
+  clearSuppressedClick = cleanup;
+}
+
 export interface AnchoredSelectPopupInput {
   readonly align?: SelectPopupPositionOptions["align"];
   /** Applies an exact `width` instead of `minWidth` on the popup container. */
@@ -50,6 +129,7 @@ export function useAnchoredSelectPopup({
   const [position, setPosition] = useState({
     anchored: false,
     left: 0,
+    maxWidth: 0,
     side: "bottom" as "bottom" | "top",
     top: 0,
     width: 0,
@@ -70,27 +150,43 @@ export function useAnchoredSelectPopup({
       height: window.innerHeight,
       width: window.innerWidth,
     });
-    const width = resolveWidth?.({
+    const resolvedWidth = resolveWidth?.({
       triggerWidth: frame.trigger.width,
       viewportWidth: frame.viewport.width,
     });
+    const maxViewportWidth = Math.max(0, frame.viewport.width - 16);
+    const measuredWidth = popupRef.current?.offsetWidth ?? 0;
+    const placementWidth =
+      resolvedWidth ??
+      (measuredWidth > frame.trigger.width
+        ? Math.min(measuredWidth, maxViewportWidth || measuredWidth)
+        : undefined);
     const next = selectPopupPosition(
       frame.trigger,
       frame.viewport,
       popupRef.current?.offsetHeight,
-      { align, width },
+      { align, width: placementWidth },
     );
+    const styleWidth = resolvedWidth ?? frame.trigger.width;
     const anchored = Boolean(origin);
     const side: "bottom" | "top" =
       next.top < frame.trigger.top ? "top" : "bottom";
     setPosition((current) =>
       current.anchored === anchored &&
       current.left === next.left &&
+      current.maxWidth === maxViewportWidth &&
       current.side === side &&
       current.top === next.top &&
-      current.width === next.width
+      current.width === styleWidth
         ? current
-        : { anchored, side, ...next },
+        : {
+            anchored,
+            left: next.left,
+            maxWidth: maxViewportWidth,
+            side,
+            top: next.top,
+            width: styleWidth,
+          },
     );
   });
 
@@ -121,6 +217,9 @@ export function useAnchoredSelectPopup({
         !triggerRef.current?.contains(target) &&
         !popupRef.current?.contains(target)
       ) {
+        if ((event.button ?? 0) === 0) {
+          suppressFollowUpClick(event);
+        }
         closePopup();
       }
     };
@@ -130,10 +229,10 @@ export function useAnchoredSelectPopup({
       event.stopPropagation();
       closePopup(true);
     };
-    document.addEventListener("pointerdown", closeOutside);
+    document.addEventListener("pointerdown", closeOutside, true);
     document.addEventListener("keydown", closeOnEscape, true);
     return () => {
-      document.removeEventListener("pointerdown", closeOutside);
+      document.removeEventListener("pointerdown", closeOutside, true);
       document.removeEventListener("keydown", closeOnEscape, true);
     };
   }, [triggerRef]);
@@ -143,6 +242,9 @@ export function useAnchoredSelectPopup({
   const style: CSSProperties = {
     inset: "auto",
     left: position.left,
+    ...(position.maxWidth > 0 && !fixedWidth
+      ? { maxWidth: position.maxWidth }
+      : {}),
     position: position.anchored ? "absolute" : "fixed",
     top: position.top,
     // At least as wide as its trigger unless the caller sets a fixed width.
@@ -163,6 +265,7 @@ export function useAnchoredSelectPopup({
 }
 
 export function SelectPopup({
+  align,
   id,
   onChoose,
   onClose,
@@ -170,6 +273,7 @@ export function SelectPopup({
   triggerRef,
   value,
 }: {
+  align?: SelectPopupPositionOptions["align"];
   id: string;
   onChoose: (option: SelectItemProps) => void;
   onClose: (focusTrigger?: boolean) => void;
@@ -180,6 +284,7 @@ export function SelectPopup({
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const { popupRef, portalRoot, position, style, supportsPopover } =
     useAnchoredSelectPopup({
+      align,
       layoutKey: options.length,
       onClose,
       triggerRef,

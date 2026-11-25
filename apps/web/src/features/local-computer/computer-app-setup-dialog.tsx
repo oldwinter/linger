@@ -18,11 +18,20 @@ import { cn } from "@/lib/cn";
 
 import { appIcons } from "./computer-app-icons";
 import { Hint } from "./computer-hint";
-import { appNames, appOrder, appStatus } from "./computer-readiness";
+import {
+  appNames,
+  appOrder,
+  appStatus,
+  appSupported,
+} from "./computer-readiness";
 import { CopyValueButton } from "./computer-setup-instructions";
 import { computersMessages } from "./computers.messages";
 import { useDesktopComputer } from "./desktop-computer";
-import { installCommand, signInCommand } from "./local-runtime-commands";
+import {
+  installCommand,
+  signInCommand,
+  updateCommand,
+} from "./local-runtime-commands";
 
 type LocalComputer = TeamHubLocalComputerPage["items"][number];
 
@@ -51,7 +60,6 @@ export function AppSetupDialog({
   const [waiting, setWaiting] = useState(false);
   const status = appStatus(computer, app);
   const outdated = status === "incompatible";
-  // An incompatible app reinstalls through the same install command.
   const installed = status !== "not_installed" && !outdated;
   const ready = status === "ready";
   const online = computer.status === "online";
@@ -73,7 +81,9 @@ export function AppSetupDialog({
   }, [ready, readyWhenShown]);
 
   const login = signInCommand(app, computer, desktop);
-  const install = installCommand(app, computer.platform);
+  const setup = outdated
+    ? updateCommand(app, computer.platform)
+    : installCommand(app, computer.platform);
   const current = ready ? null : installed ? "signIn" : "install";
 
   return (
@@ -145,35 +155,41 @@ export function AppSetupDialog({
       <div className="px-5 py-4">
         {choosable ? (
           <div className="mb-4 inline-flex rounded-full bg-muted p-0.5">
-            {appOrder.map((option) => (
-              <button
-                className={cn(
-                  "inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-xs transition-colors duration-150",
-                  option === app
-                    ? "bg-card text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-                key={option}
-                onClick={() => {
-                  setApp(option);
-                  setReadyWhenShown(appStatus(computer, option) === "ready");
-                  setWaiting(false);
-                }}
-                type="button"
-              >
-                <Icon icon={appIcons[option]} size={14} />
-                {appNames[option]}
-              </button>
-            ))}
+            {appOrder
+              .filter((option) => appSupported(computer, option))
+              .map((option) => (
+                <button
+                  className={cn(
+                    "inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-xs transition-colors duration-150",
+                    option === app
+                      ? "bg-card text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                  key={option}
+                  onClick={() => {
+                    setApp(option);
+                    setReadyWhenShown(appStatus(computer, option) === "ready");
+                    setWaiting(false);
+                  }}
+                  type="button"
+                >
+                  <Icon icon={appIcons[option]} size={14} />
+                  {appNames[option]}
+                </button>
+              ))}
           </div>
         ) : null}
         <ol className="grid grid-cols-3 gap-3">
           <VisualStep
-            label={t(computersMessages.stepInstall)}
+            label={t(
+              outdated
+                ? computersMessages.update
+                : computersMessages.stepInstall,
+            )}
             number={1}
             state={installed ? "done" : "current"}
           >
-            <MiniTerminal command={install} />
+            <MiniTerminal command={setup} />
           </VisualStep>
           <VisualStep
             hint={
@@ -217,7 +233,7 @@ export function AppSetupDialog({
                 : t(computersMessages.runThenSignIn)}
             </p>
             <CommandLine
-              command={current === "install" ? install : login}
+              command={current === "install" ? setup : login}
               onCopy={() => setWaiting(true)}
             />
           </div>

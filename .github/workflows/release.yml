@@ -1,0 +1,299 @@
+name: LingerX Release
+
+# Pushing a v<version> tag (or running manually) builds the LingerX Desktop
+# packages (macOS Apple silicon, Linux x64, Windows x64 + Windows smoke test)
+# and the LingerX Mobile Android ARM64 APK, signs the Desktop auto-update
+# manifest with DESKTOP_UPDATE_KEY_PEM, computes SHA256SUMS.txt, and publishes
+# the GitHub Release to RELEASE_REPO (this repository by default).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to build, such as 0.1.0 or 0.1.0-rc.1
+        required: true
+      publish:
+        description: Publish the v<version> GitHub Release at this commit
+        type: boolean
+        default: true
+      draft:
+        description: Create stable releases as drafts instead of publishing immediately
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lingerx-release-${{ github.ref }}-${{ inputs.version }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_REPO: ${{ vars.RELEASE_REPO || github.repository }}
+  LINGER_NATIVE_DEPS_URL: ${{ secrets.LINGER_NATIVE_DEPS_URL || vars.LINGER_NATIVE_DEPS_URL || 'https://github.com/simplexai-labs/linger/releases/download/native-deps' }}
+  APPLE_CODESIGN_VERSION: 0.29.0
+  APPLE_CODESIGN_SHA256: dbe85cedd8ee4217b64e9a0e4c2aef92ab8bcaaa41f20bde99781ff02e600002
+  MYGO_VERSION: v0.10.1-0.20261123162213-5fe46f2dd0be
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      publish: ${{ steps.version.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: version
+        shell: bash
+        env:
+          INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+          PUBLISH: ${{ github.event_name == 'push' || inputs.publish }}
+          HAS_RELEASE_TOKEN: ${{ secrets.LINGER_RELEASE_TOKEN != '' }}
+          HAS_UPDATE_KEY: ${{ secrets.DESKTOP_UPDATE_KEY_PEM != '' }}
+        run: |
+          set -euo pipefail
+          scripts/ci/desktop-release.sh version "$INPUT" | tee -a "$GITHUB_OUTPUT"
+          echo "publish=$PUBLISH" >>"$GITHUB_OUTPUT"
+          if [ "$PUBLISH" = true ] && [ "$RELEASE_REPO" != "$GITHUB_REPOSITORY" ] && [ "$HAS_RELEASE_TOKEN" != true ]; then
+            echo "::error::Publishing to $RELEASE_REPO from $GITHUB_REPOSITORY needs the LINGER_RELEASE_TOKEN secret."
+            exit 1
+          fi
+          if [ "$PUBLISH" = true ] && [ "$HAS_UPDATE_KEY" != true ]; then
+            echo "::error::Publishing a LingerX release requires DESKTOP_UPDATE_KEY_PEM so installed apps receive signed update manifests."
+            exit 1
+          fi
+          echo "Release repository: $RELEASE_REPO"
+
+  build:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [darwin-arm64, linux-x64]
+        include:
+          - target: darwin-arm64
+            docker_image: dmgtool
+          - target: linux-x64
+            docker_image: ""
+    env:
+      DESKTOP_VERSION: ${{ needs.prepare.outputs.version }}
+      RELEASE_OUT: ${{ github.workspace }}/.linger-runtime/desktop-release
+      LINGER_NATIVE_POSTGRES_DIR: ${{ github.workspace }}/.linger-runtime/native-deps
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/desktop-build
+        with:
+          target: ${{ matrix.target }}
+          docker-image: ${{ matrix.docker_image }}
+          require-macos-signing: "false"
+          ghcr-token: ${{ github.token }}
+          diagnostics-upload-url: ${{ secrets.LINGER_DIAGNOSTICS_UPLOAD_URL }}
+          macos-developer-id-p12-base64: ${{ secrets.MACOS_DEVELOPER_ID_P12_BASE64 }}
+          macos-developer-id-password: ${{ secrets.MACOS_DEVELOPER_ID_PASSWORD }}
+          macos-notary-key-json: ${{ secrets.MACOS_NOTARY_KEY_JSON }}
+
+  build-win32:
+    name: build (win32-x64)
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: read
+    env:
+      DESKTOP_VERSION: ${{ needs.prepare.outputs.version }}
+      RELEASE_OUT: ${{ github.workspace }}/.linger-runtime/desktop-release
+      LINGER_NATIVE_POSTGRES_DIR: ${{ github.workspace }}/.linger-runtime/native-deps
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/desktop-build
+        with:
+          target: win32-x64
+          docker-image: wintool
+          ghcr-token: ${{ github.token }}
+          diagnostics-upload-url: ${{ secrets.LINGER_DIAGNOSTICS_UPLOAD_URL }}
+          windows-signing-p12-base64: ${{ secrets.WINDOWS_SIGNING_P12_BASE64 }}
+          windows-signing-password: ${{ secrets.WINDOWS_SIGNING_PASSWORD }}
+
+  windows-smoke:
+    needs: [prepare, build-win32]
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: LingerX-${{ needs.prepare.outputs.version }}-windows-x64-setup.exe
+          path: candidate
+          skip-decompress: true
+      - uses: actions/download-artifact@v8
+        with:
+          name: windows-setup.sha256
+          path: candidate
+          skip-decompress: true
+      - name: Smoke the packaged Pi runtime with its managed MCP extension
+        shell: powershell
+        env:
+          DESKTOP_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          $setup = "candidate\LingerX-$env:DESKTOP_VERSION-windows-x64-setup.exe"
+          $digest = (Get-Content -LiteralPath 'candidate\windows-setup.sha256' -Raw).Split(' ')[0]
+          scripts/ci/windows-desktop-smoke.ps1 -Setup $setup -ExpectedSha256 $digest
+
+  build-android:
+    name: build (android-arm64)
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      GOTOOLCHAIN: auto
+      RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+      RELEASE_OUT: ${{ github.workspace }}/.linger-runtime/mobile-release
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: mobile/go.mod
+          cache-dependency-path: mobile/go.sum
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: mobile-gradle-${{ runner.os }}-${{ env.MYGO_VERSION }}-${{ hashFiles('mobile/go.sum', 'mobile/mygo.json') }}
+          restore-keys: |
+            mobile-gradle-${{ runner.os }}-${{ env.MYGO_VERSION }}-
+            mobile-gradle-${{ runner.os }}-
+      - name: Install Android SDK platform, build-tools, NDK & CMake
+        run: |
+          set -euo pipefail
+          sdk="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          sdkmanager="$sdk/cmdline-tools/latest/bin/sdkmanager"
+          echo "ANDROID_HOME=$sdk" >>"$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$sdk" >>"$GITHUB_ENV"
+          echo "$sdk/cmdline-tools/latest/bin" >>"$GITHUB_PATH"
+          echo "$sdk/platform-tools" >>"$GITHUB_PATH"
+          yes | "$sdkmanager" --licenses >/dev/null || true
+          "$sdkmanager" \
+            "platform-tools" \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "ndk;27.2.12479018" \
+            "cmake;3.22.1"
+          echo "ANDROID_NDK_HOME=$sdk/ndk/27.2.12479018" >>"$GITHUB_ENV"
+      - name: Install pinned MyGo CLI
+        run: go install "github.com/egoist/mygo/cmd/mygo@${MYGO_VERSION}"
+      - name: Build Android ARM64 APK
+        working-directory: mobile
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          # Gradle 9 rejects read-only subproject directories in Go's module cache.
+          go mod download
+          chmod -R u+w "$(go env GOMODCACHE)/github.com/egoist"
+          umask 077
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            base64 -d <<<"$ANDROID_KEYSTORE_BASE64" >.release-keystore.p12
+            export MYGO_ANDROID_KEYSTORE_PASSWORD="$ANDROID_KEYSTORE_PASSWORD"
+            if [ -n "$ANDROID_KEY_PASSWORD" ]; then
+              export MYGO_ANDROID_KEY_PASSWORD="$ANDROID_KEY_PASSWORD"
+            fi
+          fi
+          node -e '
+            const fs = require("fs");
+            const cfg = JSON.parse(fs.readFileSync("mygo.json", "utf8"));
+            cfg.version = process.env.RELEASE_VERSION;
+            if (process.env.ANDROID_KEYSTORE_BASE64) {
+              cfg.android = cfg.android || {};
+              cfg.android.keystore = ".release-keystore.p12";
+              if (process.env.ANDROID_KEY_ALIAS) {
+                cfg.android.keyAlias = process.env.ANDROID_KEY_ALIAS;
+              }
+            }
+            fs.writeFileSync("mygo.json", JSON.stringify(cfg, null, 2) + "\n");
+          '
+          mygo build -platform android/arm64
+          mkdir -p "$RELEASE_OUT/assets"
+          apks=(dist/android/*.apk)
+          if [ "${#apks[@]}" -ne 1 ] || [ ! -f "${apks[0]}" ]; then
+            echo "::error::Expected one built APK under mobile/dist/android, found: ${apks[*]}"
+            exit 1
+          fi
+          cp "${apks[0]}" "$RELEASE_OUT/assets/LingerX-$RELEASE_VERSION-android-arm64.apk"
+          ls -lh "$RELEASE_OUT/assets"
+      - name: Remove temporary Android signing files
+        if: always()
+        working-directory: mobile
+        run: |
+          rm -f .release-keystore.p12
+          git checkout -- mygo.json
+      - uses: actions/upload-artifact@v7
+        with:
+          path: ${{ env.RELEASE_OUT }}/assets/LingerX-${{ env.RELEASE_VERSION }}-android-arm64.apk
+          archive: false
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    needs: [prepare, build, build-win32, windows-smoke, build-android]
+    if: needs.prepare.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: LingerX-${{ needs.prepare.outputs.version }}-*
+          path: release
+          merge-multiple: true
+          skip-decompress: true
+      - uses: actions/download-artifact@v8
+        with:
+          name: windows-setup.sha256
+          path: release
+          skip-decompress: true
+      - name: Verify the Windows Setup that passed smoke
+        working-directory: release
+        run: sha256sum -c windows-setup.sha256 && rm windows-setup.sha256
+      - name: Sign the Desktop update manifest
+        env:
+          DESKTOP_UPDATE_KEY_PEM: ${{ secrets.DESKTOP_UPDATE_KEY_PEM }}
+          DESKTOP_REQUIRE_UPDATE_KEY: "true"
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          key="$RUNNER_TEMP/update.pem"
+          trap 'rm -f "$key"' EXIT
+          printf '%s\n' "$DESKTOP_UPDATE_KEY_PEM" >"$key"
+          export DESKTOP_UPDATE_KEY="$key"
+          scripts/ci/desktop-release.sh manifest release "${{ needs.prepare.outputs.version }}"
+      - run: scripts/ci/desktop-release.sh checksums release "${{ needs.prepare.outputs.version }}"
+      - name: Create or update the GitHub Release
+        env:
+          GH_TOKEN: ${{ env.RELEASE_REPO == github.repository && github.token || secrets.LINGER_RELEASE_TOKEN }}
+          RELEASE_DRAFT: ${{ github.event_name == 'workflow_dispatch' && inputs.draft == true }}
+        run: >-
+          scripts/ci/desktop-release.sh github-release release
+          "${{ needs.prepare.outputs.tag }}" "${{ needs.prepare.outputs.version }}"

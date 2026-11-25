@@ -825,13 +825,13 @@ export class RemoteRuntimeProvider implements AgentProvider {
 
   /**
    * Advisory and never throws: after a Room-presence activation without input,
-   * start the Codex process or Claude CLI early so the first Run adopts it.
-   * Every call sends a fresh prepare; the Daemon answers already_ready while a
-   * compatible process stays parked, and keeps a prepared process parked like
-   * a Run's, so nothing is ever renewed or canceled. When a pre-prepare hook is
-   * configured, the prepare is sent only after it resolves, so the prestarted
-   * process matches the first Run's environment; a Run that started meanwhile
-   * owns the process, so nothing is sent then.
+   * start the Codex, Claude, Pi, or Antigravity Runtime early so the first Run
+   * adopts it. Every call sends a fresh prepare; the Daemon answers
+   * already_ready while a compatible process stays parked, and keeps a prepared
+   * process parked like a Run's, so nothing is ever renewed or canceled. When a
+   * pre-prepare hook is configured, the prepare is sent only after it resolves,
+   * so the prestarted process matches the first Run's environment; a Run that
+   * started meanwhile owns the process, so nothing is sent then.
    */
   prepareForPresence(session: RuntimeSession): void {
     const beforePrepare = this.#beforePresencePrepare;
@@ -866,7 +866,7 @@ export class RemoteRuntimeProvider implements AgentProvider {
   ): void {
     let prepared: SentProviderPrepare | string;
     try {
-      // Claude is prepared only for Room presence, where no input is waiting.
+      // Claude, Pi, and Antigravity are prepared only for Room presence, where no input is waiting.
       prepared =
         source === "accepted_input" && this.#runtime.type !== "codex"
           ? "runtime_unsupported"
@@ -897,23 +897,30 @@ export class RemoteRuntimeProvider implements AgentProvider {
   }
 
   /**
-   * Sends one provider prepare for the session's Codex thread or Claude
-   * conversation, or returns why it was not sent. For a Context that has no
-   * Codex thread yet the Daemon starts one, and the Context's first Run adopts
-   * it. A Claude conversation id always exists, so the Daemon creates the
-   * conversation it names when it is not materialized.
+   * Sends one provider prepare for the session's Codex thread, Claude
+   * conversation, Pi session, or Antigravity ACP server, or returns why it was
+   * not sent. For a Context that has no Codex thread yet the Daemon starts one,
+   * and the Context's first Run adopts it. A Claude or Pi session id always
+   * exists, so the Daemon creates the session it names when it is not
+   * materialized. Antigravity warms its ACP server for both blank and resumed
+   * rooms without creating a conversation ahead of the first Run.
    */
   #sendProviderPrepare(session: RuntimeSession): SentProviderPrepare | string {
     const target = this.#target;
     const executionContextKey = target.executionContextKey;
     const runtime = this.#runtime.type;
-    if (runtime !== "codex" && runtime !== "claude")
+    if (
+      runtime !== "codex" &&
+      runtime !== "claude" &&
+      runtime !== "pi" &&
+      runtime !== "antigravity"
+    )
       return "runtime_unsupported";
     if (this.#closePromise !== undefined) return "closed";
     if (!this.#sessionOptions) return "session_unavailable";
     const retained = requireOpaqueObject(session, "session");
     if (
-      runtime === "claude" &&
+      (runtime === "claude" || runtime === "pi") &&
       (typeof retained.sessionId !== "string" || retained.sessionId === "")
     ) {
       return "session_not_started";

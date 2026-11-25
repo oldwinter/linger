@@ -8,14 +8,14 @@ import { z } from "zod";
 // the release of the version the signed manifest names, at
 // <feed>/download/desktop-v<version>/. A prerelease never becomes the latest
 // release, so it is never offered.
-export const DEFAULT_FEED_URL =
-  "https://github.com/simplexai-labs/linger/releases";
+export const DEFAULT_FEED_URL = "https://github.com/oldwinter/linger/releases";
+export const RELEASE_TAG_PREFIX = "v";
 export const MANIFEST_FILE = "manifest.json";
 export const SIGNATURE_FILE = "manifest.json.sig";
 
-// Preview release key. The private half never leaves the release machine.
+// LingerX release update key. The private half lives in GitHub Actions secrets.
 export const UPDATE_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
-MCowBQYDK2VwAyEA985QJ8UAvzK0ZLPW6YPaIkiCS2A+qPbEaZvi0aAccR4=
+MCowBQYDK2VwAyEAWLMTyNYGKXGTauGyWI58wfECwYhrEOjtce9CHEbKh/0=
 -----END PUBLIC KEY-----`;
 
 const VERSION = /^\d+\.\d+\.\d+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$/;
@@ -55,12 +55,18 @@ export function feedUrls(feed: string): FeedUrls {
 }
 
 export function packageUrl(feed: string, version: string, file: string): URL {
-  return new URL(`download/desktop-v${version}/${file}`, releases(feed));
+  return new URL(
+    `download/${RELEASE_TAG_PREFIX}${version}/${file}`,
+    releases(feed),
+  );
 }
 
 // The release's page, where a person downloads the package themselves.
 export function releasePageUrl(feed: string, version: string): string {
-  return new URL(`tag/desktop-v${version}`, releases(feed)).toString();
+  return new URL(
+    `tag/${RELEASE_TAG_PREFIX}${version}`,
+    releases(feed),
+  ).toString();
 }
 
 // Returns the manifest only when the signature matches the built-in key.
