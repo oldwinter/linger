@@ -39,8 +39,8 @@ When both `herdr` and `herdr-core` are installed on the same Computer:
 Per [apps/computer/AGENTS.md](../apps/computer/AGENTS.md), a Local Computer Daemon can outlive its Agent Service release during desktop upgrades and rolling deploys, and the Daemon decodes gateway frames strictly. Any new Daemon-to-Agent or Agent-to-Daemon frame family within Runner Gateway protocol 2 MUST be gated by `runner.welcome`'s `service_features` list:
 
 - **`herdr_core_v1`**:
-  - Advertised by Agent Service once it supports `herdr-core` RPC dispatch, `herdr-core` agent event forwarding (`agent_blocked`, `agent_finished`, `agent_error`), and `herdr-core` answer-card delivery (`answer_text`, `answer_keys`).
-  - The Daemon emits `herdr-core` status events and accepts `herdr-core` control calls only when `runner.welcome.service_features` includes `herdr_core_v1`.
+  - Advertised by Agent Service once it supports `herdr-core` RPC dispatch, `runner.herdr_core_event` agent event forwarding (`agent_blocked`, `agent_finished`, `agent_error`), and `herdr-core` answer-card delivery (`answer_text`, `answer_keys`).
+  - The Daemon emits `runner.herdr_core_event` frames and accepts `herdr-core` control calls only when `runner.welcome.service_features` includes `herdr_core_v1`.
 - **`herdr_core_stream`**:
   - Advertised by Agent Service once it supports multiplexed binary PTY attach tunnels bridging Daemon `AttachSession` channels to WebSocket clients.
   - The Daemon opens framed `terminal.attach` streams only when `runner.welcome.service_features` includes `herdr_core_stream`.
@@ -175,6 +175,20 @@ After sending plain newline-delimited JSON-RPC `{"jsonrpc":"2.0","id":0,"method"
 - **Seamless Reconnect (`resumed: true`)**: After a dropped WebSocket or Runner Gateway reconnect, the client reattaches with `resumed: true` so `herdr-core` defers resizing the terminal until the viewer is active again, avoiding sudden reflows across multiple devices.
 - **Image / File Paste (`terminal.put`)**: Dragging an image or file into the Web/Desktop/Mobile terminal uploads bytes (up to 8 MiB raw, base64) via `terminal.put(terminal, name, data)`. The file lands in a terminal-scoped directory on the terminal's machine (even across SSH `--on`), is cleaned up when the terminal is removed, and the returned path is pasted into the terminal input.
 - **Backpressure**: `AttachSession` supports manual credit mode (`ManualCredit: true`) so the Daemon sends `FrameCredit` upstream only after bytes are flushed onto the Runner Gateway stream, bounding memory even on slow cellular links.
+
+### 7.3 Binary PTY Attach Rendezvous Protocol
+
+End-to-end PTY streaming across NATed Local Computers uses a dedicated outbound WebSocket rendezvous gated by `service_features: ["herdr_core_stream"]`:
+
+1. **Attach trigger (`computer_tool`)**: Node Services dispatches a `computer_tool` call to the Daemon with:
+   - `server`: `"herdr_core"`
+   - `tool_name`: `"attach"`
+   - `arguments`: `{ "session_id", "stream_path": "/v1/runner-gateway/herdr-core-stream", "address", "cols", "rows", "observe", "history", "resumed"?, "resize_notifications"? }`
+2. **Outbound rendezvous dial**: The Daemon opens a framed `herdrcore.AttachSession` (passing `resumed` and `resize_notifications` through to `terminal.attach`), dials outbound to `<gateway-ws-origin>/v1/runner-gateway/herdr-core-stream?session_id=<id>` authenticating with its Runner Bearer token (verified server-side against `runner_id` and active `connection_epoch`), and returns `{ "status": "accepted", "session_id": "<id>" }` to the `computer_tool` call.
+3. **Dedicated WebSocket framing**:
+   - **Binary frames**: raw PTY byte streams (`DATA`). When `observe: true`, the relay enforces read-only isolation server-side and drops any client binary input until mode switches to interactive.
+   - **JSON text frames (Client -> Server)**: `{ "type": "resize" | "mode" | "put" | "ping", ... }`
+   - **JSON text frames (Server -> Client)**: `{ "type": "attached" | "resize" | "status" | "put_result" | "closed" | "error" | "pong", ... }`
 
 ## 8. `hc` / `herdr-core` Permission Guardrail
 
