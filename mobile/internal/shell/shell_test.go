@@ -164,3 +164,35 @@ func TestShellGoldenSnapshotsLightAndDark(t *testing.T) {
 	ttDark := testutil.NewPhoneTester(appShell.View, testutil.StandardMobileViewports[1])
 	testutil.MatchGolden(t, ttDark, "testdata/shell_more_dark_390x844.png")
 }
+
+func TestShellFirstFrameConnectTitleAndKeyboardHidesDock(t *testing.T) {
+	cfgStore := config.NewStore(config.NewMemoryPreferencesBackend(), config.NewMemorySecretsBackend())
+	_ = cfgStore.SetPreferences(config.AppPreferences{Theme: config.ThemeLight, Language: config.LanguageEN})
+	store := state.NewAppStore(state.Options{
+		ConfigStore: cfgStore,
+		DataDir:     t.TempDir(),
+	})
+	defer store.Disconnect()
+
+	appShell := shell.New(store, func() bool { return false })
+	defer appShell.Close()
+
+	vp := testutil.StandardMobileViewports[1]
+	tt := testutil.NewPhoneTester(appShell.View, vp)
+	tt.Frame()
+
+	// First frame on disconnected startup must display "Connect" (never stale "More").
+	if !tt.HasText("Connect") {
+		t.Fatal("expected first disconnected frame top bar title to be Connect")
+	}
+	if !tt.HasText("Rooms") {
+		t.Fatal("expected bottom navigation bar visible when software keyboard is closed")
+	}
+
+	// Opening the mobile software keyboard (bottom inset > 120) must hide the bottom dock bar.
+	testutil.ApplyKeyboardInset(tt, vp.Top)
+	tt.Frame()
+	if tt.HasText("Library") {
+		t.Fatal("expected bottom dock bar to hide while software keyboard is open")
+	}
+}

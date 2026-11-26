@@ -13,6 +13,7 @@ import (
 	"github.com/oldwinter/linger/mobile/internal/cache"
 	"github.com/oldwinter/linger/mobile/internal/components"
 	"github.com/oldwinter/linger/mobile/internal/i18n"
+	"github.com/oldwinter/linger/mobile/internal/layout"
 	"github.com/oldwinter/linger/mobile/internal/state"
 	"github.com/oldwinter/linger/mobile/internal/theme"
 )
@@ -340,6 +341,7 @@ func (s *Screen) View(c *ui.Context) {
 	s.syncStoreFallback()
 
 	t := c.Theme()
+	m := layout.Of(c)
 	s.mu.Lock()
 	loading := s.loading
 	syncErr := s.syncError
@@ -347,30 +349,32 @@ func (s *Screen) View(c *ui.Context) {
 
 	ui.Column(c).Fill().Background(t.Background).Children(func() {
 		// Seamless editorial segmented control header.
-		ui.Column(c).FillWidth().Padding(8, 14, 6, 14).Gap(8).Shrink(0).Children(func() {
-			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
-				segWrap := ui.Column(c).Grow(1).Basis(0)
-				segWrap.Children(func() {
-					components.SegmentedControl(c, &s.segment,
-						i18n.T("work.tab.issues"),
-						i18n.T("work.tab.routines"),
-						i18n.T("work.tab.pocket"))
+		layout.ReadableWrap(c, m.ReadableMaxWidth, func() {
+			ui.Column(c).FillWidth().Padding(8, 14, 6, 14).Gap(8).Shrink(0).Children(func() {
+				ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
+					segWrap := ui.Column(c).Grow(1).Basis(0)
+					segWrap.Children(func() {
+						components.SegmentedControl(c, &s.segment,
+							i18n.T("work.tab.issues"),
+							i18n.T("work.tab.routines"),
+							i18n.T("work.tab.pocket"))
+					})
+					refreshLabel := i18n.T("common.sync")
+					if loading {
+						refreshLabel = i18n.T("common.syncing")
+					}
+					refBtn := components.CompactSecondaryButton(c, refreshLabel, theme.IconRefresh, loading)
+					refBtn.MinHeight(40)
+					if refBtn.Clicked() {
+						go s.Refresh(context.Background())
+					}
 				})
-				refreshLabel := i18n.T("common.sync")
-				if loading {
-					refreshLabel = i18n.T("common.syncing")
-				}
-				refBtn := components.CompactSecondaryButton(c, refreshLabel, theme.IconRefresh, loading)
-				refBtn.MinHeight(40)
-				if refBtn.Clicked() {
-					go s.Refresh(context.Background())
+				if syncErr != "" {
+					components.ErrorInline(c, syncErr, func() {
+						go s.Refresh(context.Background())
+					})
 				}
 			})
-			if syncErr != "" {
-				components.ErrorInline(c, syncErr, func() {
-					go s.Refresh(context.Background())
-				})
-			}
 		})
 
 		// Each segment keeps its own ScrollState across switches.

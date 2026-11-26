@@ -4,9 +4,12 @@
   "version": "0.1.0",
   "main": "./cmd/linger-mobile",
   "icon": "./resources/icon.png",
-  "urlSchemes": ["lingerx"],
+  "urlSchemes": ["lingerx", "linger"],
   "ios": {
     "orientations": ["portrait", "landscape"],
+    "launchScreen": {
+      "background": "#F5F4EF"
+    },
     "infoPlist": {
       "CFBundleLocalizations": ["en", "zh-Hans"],
       "NSLocalNetworkUsageDescription": "LingerX discovers your LingerX Desktop host on the local network.",
@@ -17,6 +20,7 @@
   },
   "android": {
     "minSdk": 26,
+    "splash": "#F5F4EF",
     "adaptiveIcon": {
       "foreground": "./resources/icon-foreground.png",
       "background": "#F5F4EF"

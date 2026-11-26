@@ -20,6 +20,7 @@ import (
 	"github.com/oldwinter/linger/mobile/internal/config"
 	"github.com/oldwinter/linger/mobile/internal/discovery"
 	"github.com/oldwinter/linger/mobile/internal/i18n"
+	"github.com/oldwinter/linger/mobile/internal/layout"
 	"github.com/oldwinter/linger/mobile/internal/state"
 	"github.com/oldwinter/linger/mobile/internal/theme"
 )
@@ -65,6 +66,7 @@ type Hub struct {
 	// Optional window reference for mobile camera QR scan trigger.
 	win         *mygo.Window
 	onOpenPrefs func()
+	onConnected func(toastMsg string)
 }
 
 // NewHub constructs a Connection Hub bound to store.
@@ -79,6 +81,13 @@ func NewHub(store *state.AppStore) *Hub {
 func (h *Hub) SetOnOpenPreferences(fn func()) {
 	h.mu.Lock()
 	h.onOpenPrefs = fn
+	h.mu.Unlock()
+}
+
+// SetOnConnected registers a navigation callback invoked after pairing or direct login succeeds.
+func (h *Hub) SetOnConnected(fn func(toastMsg string)) {
+	h.mu.Lock()
+	h.onConnected = fn
 	h.mu.Unlock()
 }
 
@@ -153,65 +162,69 @@ func (h *Hub) View(c *ui.Context) {
 	h.mu.Unlock()
 
 	t := c.Theme()
+	m := layout.Of(c)
 
 	ui.Scroll(c).FillWidth().Grow(1).Basis(0).Children(func() {
-		ui.Column(c).FillWidth().Padding(12, 16, 24, 16).Gap(12).Children(func() {
-			// Active transient error or status banners (cleared automatically on recovery).
-			if snap.TransientError != "" {
-				components.StatusBanner(c, components.ToneDanger, snap.TransientError, i18n.T("common.dismiss"), func() {
-					h.store.ClearTransientError()
-				})
-			} else if inlineErr != "" {
-				components.StatusBanner(c, components.ToneDanger, inlineErr, i18n.T("common.dismiss"), func() {
-					h.setInlineError("")
-				})
-			}
-			if inlineNotice != "" {
-				components.StatusBanner(c, components.ToneSuccess, inlineNotice, i18n.T("common.ok"), func() {
-					h.setInlineNotice("")
-				})
-			}
-
-			// Active connection hero card.
-			h.viewConnectionOverviewCard(c, snap)
-
-			// Offline-ready quick Theme & Language pills before/after pairing.
-			components.AppearanceQuickCard(c, snap.Prefs,
-				func(pref config.ThemePreference) {
-					_ = h.store.SetThemePreference(pref)
-				},
-				func(pref config.LanguagePreference) {
-					_ = h.store.SetLanguagePreference(pref)
-				},
-				openPrefs,
-			)
-
-			// Narrow-screen-safe segmented switcher.
-			if components.SegmentedControl(c, &seg, i18n.T("connect.tab.saved"), i18n.T("connect.tab.pair"), i18n.T("connect.tab.direct")) {
-				h.mu.Lock()
-				h.segment = seg
-				h.inlineError = ""
-				h.mu.Unlock()
-			}
-
-			switch seg {
-			case 0:
-				h.viewSavedHosts(c, snap, busy)
-			case 1:
-				h.viewPairDesktop(c, snap, busy)
-			case 2:
-				h.viewDirectLogin(c, busy)
-			}
-
-			// Footer link to diagnostics.
-			ui.Row(c).FillWidth().Justify(ui.Center).Padding(2, 0).Children(func() {
-				btn := components.SecondaryTouchButton(c, i18n.T("connect.diagnostics_title"), false)
-				btn.FillWidth().MinHeight(40)
-				if btn.Clicked() {
-					h.OpenDiagnostics()
+		layout.ReadableWrap(c, m.ReadableMaxWidth, func() {
+			ui.Column(c).FillWidth().Padding(12, 16, 24, 16).Gap(12).Children(func() {
+				// Active transient error or status banners (cleared automatically on recovery).
+				if snap.TransientError != "" {
+					components.StatusBanner(c, components.ToneDanger, snap.TransientError, i18n.T("common.dismiss"), func() {
+						h.store.ClearTransientError()
+					})
+				} else if inlineErr != "" {
+					components.StatusBanner(c, components.ToneDanger, inlineErr, i18n.T("common.dismiss"), func() {
+						h.setInlineError("")
+					})
 				}
+				if inlineNotice != "" {
+					components.StatusBanner(c, components.ToneSuccess, inlineNotice, i18n.T("common.ok"), func() {
+						h.setInlineNotice("")
+					})
+				}
+
+				// Active connection hero card + Offline-ready Theme & Language card (side-by-side when unfolded).
+				layout.TwoPaneRow(c, m.GridColumns >= 2, 12, func() {
+					h.viewConnectionOverviewCard(c, snap)
+				}, func() {
+					components.AppearanceQuickCard(c, snap.Prefs,
+						func(pref config.ThemePreference) {
+							_ = h.store.SetThemePreference(pref)
+						},
+						func(pref config.LanguagePreference) {
+							_ = h.store.SetLanguagePreference(pref)
+						},
+						openPrefs,
+					)
+				})
+
+				// Narrow-screen-safe segmented switcher.
+				if components.SegmentedControl(c, &seg, i18n.T("connect.tab.saved"), i18n.T("connect.tab.pair"), i18n.T("connect.tab.direct")) {
+					h.mu.Lock()
+					h.segment = seg
+					h.inlineError = ""
+					h.mu.Unlock()
+				}
+
+				switch seg {
+				case 0:
+					h.viewSavedHosts(c, snap, busy)
+				case 1:
+					h.viewPairDesktop(c, snap, busy)
+				case 2:
+					h.viewDirectLogin(c, busy)
+				}
+
+				// Footer link to diagnostics.
+				ui.Row(c).FillWidth().Justify(ui.Center).Padding(2, 0).Children(func() {
+					btn := components.SecondaryTouchButton(c, i18n.T("connect.diagnostics_title"), false)
+					btn.FillWidth().MinHeight(40)
+					if btn.Clicked() {
+						h.OpenDiagnostics()
+					}
+				})
+				_ = t
 			})
-			_ = t
 		})
 	})
 
@@ -253,7 +266,7 @@ func (h *Hub) viewConnectionOverviewCard(c *ui.Context, snap state.Snapshot) {
 				ui.Text(c, title).FontSize(17).FontWeight(700).LetterSpacing(-0.25).TextColor(t.Text).MaxLines(1)
 				ui.Text(c, subtitle).FontSize(12.5).LineHeight(1.35).TextColor(t.TextMuted).MaxLines(2)
 			})
-			if snap.ActiveHost != nil {
+			if snap.ActiveHost != nil && layout.Of(c).GridColumns < 2 {
 				components.ConnectionHealthChip(c, hostName, connected, tlsPinned, plainHTTP, snap.RTTMs, func() {
 					h.OpenDiagnostics()
 				})
@@ -792,6 +805,8 @@ func (h *Hub) pairPINAsync(targetURL, pin, confirmedFP string, allowPlain bool) 
 	go func() {
 		prof, err := h.store.PairWithPIN(context.Background(), targetURL, pin, confirmedFP, allowPlain)
 		h.enqueueUI(func() {
+			var onConn func(string)
+			var toastMsg string
 			h.mu.Lock()
 			h.busy = false
 			if err != nil {
@@ -801,9 +816,14 @@ func (h *Hub) pairPINAsync(targetURL, pin, confirmedFP string, allowPlain bool) 
 				h.pinCode = ""
 				h.segment = 0
 				h.inlineError = ""
-				h.inlineNotice = i18n.Tf("connect.toast.paired", map[string]any{"name": prof.Name})
+				toastMsg = i18n.Tf("connect.toast.paired", map[string]any{"name": prof.Name})
+				h.inlineNotice = toastMsg
+				onConn = h.onConnected
 			}
 			h.mu.Unlock()
+			if onConn != nil {
+				onConn(toastMsg)
+			}
 		})
 	}()
 }
@@ -817,6 +837,8 @@ func (h *Hub) pairURIAsync(rawURI string, allowPlain bool) {
 	go func() {
 		prof, err := h.store.PairWithURI(context.Background(), rawURI, allowPlain)
 		h.enqueueUI(func() {
+			var onConn func(string)
+			var toastMsg string
 			h.mu.Lock()
 			h.busy = false
 			if err != nil {
@@ -825,9 +847,14 @@ func (h *Hub) pairURIAsync(rawURI string, allowPlain bool) {
 				h.pairURI = ""
 				h.segment = 0
 				h.inlineError = ""
-				h.inlineNotice = i18n.Tf("connect.toast.paired", map[string]any{"name": prof.Name})
+				toastMsg = i18n.Tf("connect.toast.paired", map[string]any{"name": prof.Name})
+				h.inlineNotice = toastMsg
+				onConn = h.onConnected
 			}
 			h.mu.Unlock()
+			if onConn != nil {
+				onConn(toastMsg)
+			}
 		})
 	}()
 }
@@ -841,6 +868,8 @@ func (h *Hub) directLoginAsync(rawURL, email, password string, allowPlain bool) 
 	go func() {
 		prof, err := h.store.LoginDirect(context.Background(), rawURL, email, password, allowPlain)
 		h.enqueueUI(func() {
+			var onConn func(string)
+			var toastMsg string
 			h.mu.Lock()
 			h.busy = false
 			if err != nil {
@@ -849,9 +878,14 @@ func (h *Hub) directLoginAsync(rawURL, email, password string, allowPlain bool) 
 				h.directPassword = ""
 				h.segment = 0
 				h.inlineError = ""
-				h.inlineNotice = i18n.Tf("connect.toast.signed_in", map[string]any{"name": prof.Name})
+				toastMsg = i18n.Tf("connect.toast.signed_in", map[string]any{"name": prof.Name})
+				h.inlineNotice = toastMsg
+				onConn = h.onConnected
 			}
 			h.mu.Unlock()
+			if onConn != nil {
+				onConn(toastMsg)
+			}
 		})
 	}()
 }

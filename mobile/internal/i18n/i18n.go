@@ -224,7 +224,7 @@ func FormatRoomTime(t time.Time) string {
 	return mygoi18n.FormatDate(ActiveLocale(), t.Local(), mygoi18n.DateOptions{Skeleton: "MMMd"})
 }
 
-// FormatElapsed formats seconds into a compact elapsed string ("0s", "12s", "2m 5s").
+// FormatElapsed formats seconds into a compact elapsed string ("0s", "12s", "2m 5s", "2h 15m").
 func FormatElapsed(sec int64) string {
 	if sec <= 0 {
 		return Tf("duration.seconds", map[string]any{"s": "0"})
@@ -232,9 +232,15 @@ func FormatElapsed(sec int64) string {
 	if sec < 60 {
 		return Tf("duration.seconds", map[string]any{"s": strconv.FormatInt(sec, 10)})
 	}
-	return Tf("duration.minutes_seconds", map[string]any{
-		"m": strconv.FormatInt(sec/60, 10),
-		"s": strconv.FormatInt(sec%60, 10),
+	if sec < 3600 {
+		return Tf("duration.minutes_seconds", map[string]any{
+			"m": strconv.FormatInt(sec/60, 10),
+			"s": strconv.FormatInt(sec%60, 10),
+		})
+	}
+	return Tf("duration.hours_minutes", map[string]any{
+		"h": strconv.FormatInt(sec/3600, 10),
+		"m": strconv.FormatInt((sec%3600)/60, 10),
 	})
 }
 

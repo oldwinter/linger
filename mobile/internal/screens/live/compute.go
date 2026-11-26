@@ -11,6 +11,7 @@ import (
 	"github.com/oldwinter/linger/mobile/internal/api"
 	"github.com/oldwinter/linger/mobile/internal/components"
 	"github.com/oldwinter/linger/mobile/internal/i18n"
+	"github.com/oldwinter/linger/mobile/internal/layout"
 	"github.com/oldwinter/linger/mobile/internal/state"
 	"github.com/oldwinter/linger/mobile/internal/theme"
 )
@@ -18,9 +19,12 @@ import (
 func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 	t := c.Theme()
 	ex := theme.Extra(t)
+	m := layout.Of(c)
 
-	// 1. Desktop Companion Host Health Card (GET /companion/v1/status)
-	if snap.CompanionStatus != nil {
+	renderDesktopHostCard := func() {
+		if snap.CompanionStatus == nil {
+			return
+		}
 		cs := snap.CompanionStatus
 		ver := cs.DesktopVersion
 		if ver != "" && ver[0] >= '0' && ver[0] <= '9' {
@@ -81,61 +85,65 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 		})
 	}
 
-	// 2. Enrolled Local Computers
 	activeCompID := ctl.activeComputerID(snap)
-	components.SectionCard(c, i18n.Tf("live.compute.computers_title", map[string]any{"count": len(snap.Computers)}), i18n.T("live.compute.computers_subtitle"), nil, func() {
-		if len(snap.Computers) == 0 {
-			ui.Text(c, i18n.T("live.compute.computers_empty")).FontSize(13).TextColor(t.TextMuted)
-			return
-		}
-		for _, comp := range snap.Computers {
-			comp := comp
-			tone := components.ToneSuccess
-			if strings.ToLower(comp.Status) != "online" {
-				tone = components.ToneWarning
+	renderComputersCard := func() {
+		components.SectionCard(c, i18n.Tf("live.compute.computers_title", map[string]any{"count": len(snap.Computers)}), i18n.T("live.compute.computers_subtitle"), nil, func() {
+			if len(snap.Computers) == 0 {
+				ui.Text(c, i18n.T("live.compute.computers_empty")).FontSize(13).TextColor(t.TextMuted)
+				return
 			}
-			ui.Column(c.Key(comp.ComputerID)).FillWidth().Padding(12, 12).Radius(12).Background(ex.MutedBg).
-				Border(0.75, ex.SubtleBorder).Gap(10).Children(func() {
-				ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(10).Children(func() {
-					ui.Row(c).Size(36, 36).Radius(10).Background(t.Surface).Border(0.75, ex.SubtleBorder).
-						AlignItems(ui.Center).Justify(ui.Center).Shrink(0).Children(func() {
-						theme.IconBox(c, 18, t.Text, theme.IconHost)
+			for _, comp := range snap.Computers {
+				comp := comp
+				tone := components.ToneSuccess
+				if strings.ToLower(comp.Status) != "online" {
+					tone = components.ToneWarning
+				}
+				ui.Column(c.Key(comp.ComputerID)).FillWidth().Padding(12, 12).Radius(12).Background(ex.MutedBg).
+					Border(0.75, ex.SubtleBorder).Gap(10).Children(func() {
+					ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(10).Children(func() {
+						ui.Row(c).Size(36, 36).Radius(10).Background(t.Surface).Border(0.75, ex.SubtleBorder).
+							AlignItems(ui.Center).Justify(ui.Center).Shrink(0).Children(func() {
+							theme.IconBox(c, 18, t.Text, theme.IconHost)
+						})
+						ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
+							ui.Text(c, comp.DisplayName).FontSize(14.5).FontWeight(600).TextColor(t.Text).MaxLines(1)
+							ui.Text(c, i18n.Tf("live.compute.computer_ops_runtimes", map[string]any{
+								"ops":      comp.ActiveOperations,
+								"runtimes": len(comp.Runtimes),
+							})).FontSize(12).TextColor(t.TextMuted).MaxLines(1)
+						})
+						components.StatusDotPill(c, i18n.StatusLabel(comp.Status), tone)
 					})
-					ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
-						ui.Text(c, comp.DisplayName).FontSize(14.5).FontWeight(600).TextColor(t.Text).MaxLines(1)
-						ui.Text(c, i18n.Tf("live.compute.computer_ops_runtimes", map[string]any{
-							"ops":      comp.ActiveOperations,
-							"runtimes": len(comp.Runtimes),
-						})).FontSize(12).TextColor(t.TextMuted).MaxLines(1)
+					ui.Row(c).FillWidth().Gap(6).Children(func() {
+						permBtn := components.CompactSecondaryButton(c, i18n.T("live.compute.permissions_btn"), nil, false)
+						permBtn.Grow(1).Basis(0).MinHeight(34).Padding(6, 6)
+						if permBtn.Clicked() {
+							ctl.openPermissionsSheet(comp.ComputerID)
+						}
+						brBtn := components.CompactSecondaryButton(c, i18n.T("live.compute.chrome_link_btn"), nil, false)
+						brBtn.Grow(1).Basis(0).MinHeight(34).Padding(6, 6)
+						if brBtn.Clicked() {
+							ctl.openBrowserSheet(comp.ComputerID)
+						}
+						scanBtn := components.CompactSecondaryButton(c, i18n.T("live.compute.scan_skills_btn"), nil, false)
+						scanBtn.Grow(1).Basis(0).MinHeight(34).Padding(6, 6)
+						if scanBtn.Clicked() {
+							ctl.scanSkillsAsync(snap.TenantID, comp.ComputerID)
+						}
 					})
-					components.StatusDotPill(c, i18n.StatusLabel(comp.Status), tone)
 				})
-				ui.Row(c).FillWidth().Gap(6).Children(func() {
-					permBtn := components.CompactSecondaryButton(c, i18n.T("live.compute.permissions_btn"), nil, false)
-					permBtn.Grow(1).Basis(0).MinHeight(34).Padding(6, 6)
-					if permBtn.Clicked() {
-						ctl.openPermissionsSheet(comp.ComputerID)
-					}
-					brBtn := components.CompactSecondaryButton(c, i18n.T("live.compute.chrome_link_btn"), nil, false)
-					brBtn.Grow(1).Basis(0).MinHeight(34).Padding(6, 6)
-					if brBtn.Clicked() {
-						ctl.openBrowserSheet(comp.ComputerID)
-					}
-					scanBtn := components.CompactSecondaryButton(c, i18n.T("live.compute.scan_skills_btn"), nil, false)
-					scanBtn.Grow(1).Basis(0).MinHeight(34).Padding(6, 6)
-					if scanBtn.Clicked() {
-						ctl.scanSkillsAsync(snap.TenantID, comp.ComputerID)
-					}
-				})
-			})
-		}
-		ctl.mu.Lock()
-		scanRes := ctl.scanResult
-		ctl.mu.Unlock()
-		if scanRes != "" {
-			ui.Text(c, scanRes).FontSize(12).TextColor(t.Success)
-		}
-	})
+			}
+			ctl.mu.Lock()
+			scanRes := ctl.scanResult
+			ctl.mu.Unlock()
+			if scanRes != "" {
+				ui.Text(c, scanRes).FontSize(12).TextColor(t.Success)
+			}
+		})
+	}
+
+	// 1 & 2. Desktop Companion Host + Enrolled Local Computers (side-by-side on unfolded screens).
+	layout.TwoPaneRow(c, m.GridColumns >= 2 && snap.CompanionStatus != nil, 12, renderDesktopHostCard, renderComputersCard)
 
 	// 3. Model Source & BYOK Switcher (GET/POST .../model-source)
 	msMode := "local"
@@ -286,16 +294,17 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 				}
 			}
 
-			// Individual model cards
-			for _, mv := range lm.Models {
-				m := mv.Model
+			// Individual model cards (2-column grid on unfolded foldables)
+			layout.TwoColumnCards(c, m.GridColumns, 8, len(lm.Models), func(i int) {
+				mv := lm.Models[i]
+				mod := mv.Model
 				ctl.mu.Lock()
-				inFlight := ctl.modelBusy[m.ID]
+				inFlight := ctl.modelBusy[mod.ID]
 				ctl.mu.Unlock()
 				busy := inFlight != ""
 
 				stateTone := components.ToneNeutral
-				switch m.State {
+				switch mod.State {
 				case "loaded":
 					stateTone = components.ToneSuccess
 				case "downloading", "loading":
@@ -304,40 +313,40 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 					stateTone = components.ToneWarning
 				}
 
-				ui.Column(c.Key("lm_"+m.ID)).FillWidth().Padding(12, 12).Radius(12).Background(ex.MutedBg).Border(0.75, ex.SubtleBorder).Gap(8).Children(func() {
+				ui.Column(c.Key("lm_"+mod.ID)).FillWidth().Padding(12, 12).Radius(12).Background(ex.MutedBg).Border(0.75, ex.SubtleBorder).Gap(8).Children(func() {
 					ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
 						ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
-							ui.Text(c, m.Name).FontSize(14.5).FontWeight(600).TextColor(t.Text).MaxLines(1)
+							ui.Text(c, mod.Name).FontSize(14.5).FontWeight(600).TextColor(t.Text).MaxLines(1)
 							ui.Text(c, i18n.Tf("live.compute.model_specs", map[string]any{
-								"quant": m.Quant,
-								"disk":  i18n.FormatMemorySize(m.DownloadBytes),
-								"vram":  i18n.FormatMemorySize(m.MemoryBytes),
+								"quant": mod.Quant,
+								"disk":  i18n.FormatMemorySize(mod.DownloadBytes),
+								"vram":  i18n.FormatMemorySize(mod.MemoryBytes),
 							})).FontSize(11.5).TextColor(t.TextMuted)
 						})
-						components.StatusDotPill(c, i18n.StatusLabel(m.State), stateTone)
+						components.StatusDotPill(c, i18n.StatusLabel(mod.State), stateTone)
 					})
 
-					if m.Download != nil && m.Download.TotalBytes > 0 {
-						pct := float64(m.Download.DoneBytes) / float64(m.Download.TotalBytes)
+					if mod.Download != nil && mod.Download.TotalBytes > 0 {
+						pct := float64(mod.Download.DoneBytes) / float64(mod.Download.TotalBytes)
 						ui.Progress(c, pct).FillWidth().Height(6)
 						ui.Text(c, i18n.Tf("live.compute.downloading_pct", map[string]any{
 							"pct":   strconv.Itoa(int(pct*100 + 0.5)),
-							"done":  i18n.FormatMemorySize(m.Download.DoneBytes),
-							"total": i18n.FormatMemorySize(m.Download.TotalBytes),
+							"done":  i18n.FormatMemorySize(mod.Download.DoneBytes),
+							"total": i18n.FormatMemorySize(mod.Download.TotalBytes),
 						})).FontSize(11.5).FontWeight(600).TextColor(ex.BrandText)
 					}
 
-					if m.Error != nil && (m.Error.Detail != nil && *m.Error.Detail != "" || m.Error.Code != "") {
-						errMsg := m.Error.Code
-						if m.Error.Detail != nil && *m.Error.Detail != "" {
-							errMsg = *m.Error.Detail
+					if mod.Error != nil && (mod.Error.Detail != nil && *mod.Error.Detail != "" || mod.Error.Code != "") {
+						errMsg := mod.Error.Code
+						if mod.Error.Detail != nil && *mod.Error.Detail != "" {
+							errMsg = *mod.Error.Detail
 						}
 						components.ErrorInline(c, errMsg, nil)
 					}
 
 					// Action buttons tailored to state, with explicit busy labels disabling duplicate taps!
 					ui.Row(c).FillWidth().Wrap().Gap(6).Children(func() {
-						switch m.State {
+						switch mod.State {
 						case "absent":
 							lbl := i18n.T("live.compute.download")
 							if inFlight == "pull" {
@@ -345,7 +354,7 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 							}
 							b := components.CompactPrimaryButton(c, lbl, nil, busy)
 							if b.Clicked() {
-								ctl.actOnLocalModelAsync(lm.Computer.ComputerID, m.ID, "pull", nil)
+								ctl.actOnLocalModelAsync(lm.Computer.ComputerID, mod.ID, "pull", nil)
 							}
 						case "downloading":
 							lbl := i18n.T("live.compute.cancel_download")
@@ -355,7 +364,7 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 							b := components.DangerTouchButton(c, lbl, busy)
 							b.MinHeight(36)
 							if b.Clicked() {
-								ctl.actOnLocalModelAsync(lm.Computer.ComputerID, m.ID, "cancel_pull", nil)
+								ctl.actOnLocalModelAsync(lm.Computer.ComputerID, mod.ID, "cancel_pull", nil)
 							}
 						case "idle":
 							loadLbl := i18n.T("live.compute.load")
@@ -364,7 +373,7 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 							}
 							b := components.CompactPrimaryButton(c, loadLbl, nil, busy)
 							if b.Clicked() {
-								ctl.actOnLocalModelAsync(lm.Computer.ComputerID, m.ID, "load", nil)
+								ctl.actOnLocalModelAsync(lm.Computer.ComputerID, mod.ID, "load", nil)
 							}
 							if len(loadedIDs) > 0 {
 								mrLbl := i18n.T("live.compute.make_room_load")
@@ -373,15 +382,15 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 								}
 								mr := components.CompactSecondaryButton(c, mrLbl, nil, busy)
 								if mr.Clicked() {
-									ctl.actOnLocalModelAsync(lm.Computer.ComputerID, m.ID, "load", loadedIDs)
+									ctl.actOnLocalModelAsync(lm.Computer.ComputerID, mod.ID, "load", loadedIDs)
 								}
 							}
 							rm := components.DangerTouchButton(c, i18n.T("common.remove"), busy)
 							rm.MinHeight(36)
 							if rm.Clicked() {
 								ctl.mu.Lock()
-								ctl.removeModelID = m.ID
-								ctl.removeModelName = m.Name
+								ctl.removeModelID = mod.ID
+								ctl.removeModelName = mod.Name
 								ctl.removeModelOpen = true
 								ctl.mu.Unlock()
 							}
@@ -392,21 +401,21 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 							}
 							b := components.CompactSecondaryButton(c, unLbl, nil, busy)
 							if b.Clicked() {
-								ctl.actOnLocalModelAsync(lm.Computer.ComputerID, m.ID, "unload", nil)
+								ctl.actOnLocalModelAsync(lm.Computer.ComputerID, mod.ID, "unload", nil)
 							}
 							rm := components.DangerTouchButton(c, i18n.T("common.remove"), busy)
 							rm.MinHeight(36)
 							if rm.Clicked() {
 								ctl.mu.Lock()
-								ctl.removeModelID = m.ID
-								ctl.removeModelName = m.Name
+								ctl.removeModelID = mod.ID
+								ctl.removeModelName = mod.Name
 								ctl.removeModelOpen = true
 								ctl.mu.Unlock()
 							}
 						}
 					})
 				})
-			}
+			})
 		})
 	}
 }

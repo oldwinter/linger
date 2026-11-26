@@ -165,6 +165,25 @@ func TestLocalePreferenceResolutionAndFormatting(t *testing.T) {
 	if got := FormatElapsed(125); got != "2\u52065\u79d2" {
 		t.Fatalf("zh-Hans FormatElapsed(125) = %q", got)
 	}
+	if got := FormatElapsed(3665); got != "1\u5c0f\u65f61\u5206" {
+		t.Fatalf("zh-Hans FormatElapsed(3665) = %q", got)
+	}
+	if got := DocStatusLabel("active"); got != "\u6b63\u5e38" {
+		t.Fatalf("zh-Hans DocStatusLabel(active) = %q", got)
+	}
+	if got := StatusLabel("not_required"); got != "\u65e0\u9700\u5bc6\u94a5" {
+		t.Fatalf("zh-Hans StatusLabel(not_required) = %q", got)
+	}
+	SetPreference(config.LanguageEN)
+	if got := FormatElapsed(3665); got != "1h 1m" {
+		t.Fatalf("EN FormatElapsed(3665) = %q", got)
+	}
+	if got := DocStatusLabel("active"); got != "active" {
+		t.Fatalf("EN DocStatusLabel(active) = %q", got)
+	}
+	if got := StatusLabel("not_required"); got != "no key needed" {
+		t.Fatalf("EN StatusLabel(not_required) = %q", got)
+	}
 }
 
 func TestConcurrentLocaleTransitionsInvariant(t *testing.T) {

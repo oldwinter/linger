@@ -15,6 +15,7 @@ import (
 	"github.com/oldwinter/linger/mobile/internal/cache"
 	"github.com/oldwinter/linger/mobile/internal/components"
 	"github.com/oldwinter/linger/mobile/internal/i18n"
+	"github.com/oldwinter/linger/mobile/internal/layout"
 	"github.com/oldwinter/linger/mobile/internal/theme"
 )
 
@@ -45,6 +46,7 @@ func newOutboxKey() string {
 
 func (s *Screen) viewPocketSegment(c *ui.Context) {
 	t := c.Theme()
+	m := layout.Of(c)
 
 	s.mu.Lock()
 	state := s.pocketState
@@ -61,113 +63,125 @@ func (s *Screen) viewPocketSegment(c *ui.Context) {
 	}
 
 	ui.Scroll(c).FillWidth().Grow(1).Basis(0).TrackScroll(&s.scroll[SegmentPocket]).Children(func() {
-		ui.Column(c).FillWidth().Padding(12, 16, 28, 16).Gap(12).Children(func() {
-			if s.pocketActionErr != "" {
-				components.StatusBanner(c, components.ToneDanger, s.pocketActionErr, i18n.T("common.dismiss"), func() {
-					s.pocketActionErr = ""
-				})
-			}
-
-			// Today's Note card with explicit Save status indicator & offline sync retry
-			components.SectionCard(c, i18n.T("work.pocket.today_title"), todayDate, func() {
-				s.viewPocketStatusPill(c, state)
-			}, func() {
-				if state == PocketStateError && lastErr != "" {
-					components.StatusBanner(c, components.ToneDanger,
-						i18n.Tf("work.pocket.couldnt_save", map[string]any{"err": lastErr}),
-						i18n.T("work.pocket.retry_sync"), func() {
-							go func() { _ = s.SyncPocketOutbox(context.Background()) }()
-						})
-				} else if state == PocketStateSavedOffline {
-					components.StatusBanner(c, components.ToneWarning,
-						i18n.Tf("work.pocket.offline_pending", map[string]any{"count": maxInt(outboxCount, 1)}),
-						i18n.T("work.pocket.retry_sync"), func() {
-							go func() { _ = s.SyncPocketOutbox(context.Background()) }()
-						})
+		layout.ReadableWrap(c, m.ReadableMaxWidth, func() {
+			ui.Column(c).FillWidth().Padding(12, 16, 28, 16).Gap(12).Children(func() {
+				if s.pocketActionErr != "" {
+					components.StatusBanner(c, components.ToneDanger, s.pocketActionErr, i18n.T("common.dismiss"), func() {
+						s.pocketActionErr = ""
+					})
 				}
 
-				ta := ui.TextArea(c, &s.pocketDraft).FillWidth().MinHeight(140).
-					Placeholder(i18n.T("work.pocket.placeholder")).
-					Label(i18n.T("work.pocket.note_input_a11y"))
-				if ta.Changed() {
-					s.pocketDirty = true
-					s.queuePocketSave(s.pocketDraft)
-				}
-
-				ui.Row(c).FillWidth().Wrap().Gap(8).Children(func() {
-					saveBtn := components.PrimaryTouchButton(c, i18n.T("work.pocket.save_now"), state == PocketStateSaving)
-					saveBtn.Grow(1).Basis(0)
-					if saveBtn.Clicked() {
-						s.pocketDirty = true
-						s.queuePocketSave(s.pocketDraft)
-					}
-
-					retryBtn := components.SecondaryTouchButton(c, i18n.T("work.pocket.retry_sync"), state == PocketStateSaving)
-					if retryBtn.Clicked() {
-						go func() { _ = s.SyncPocketOutbox(context.Background()) }()
-					}
-
-					sendLabel := i18n.T("work.pocket.send_another_me")
-					if s.pocketSendBusy {
-						sendLabel = i18n.T("work.pocket.sending")
-					}
-					sendBtn := components.SecondaryTouchButton(c, sendLabel, s.pocketSendBusy || strings.TrimSpace(s.pocketDraft) == "")
-					sendBtn.FillWidth()
-					if sendBtn.Clicked() {
-						s.sendPocketToAnotherMe(s.pocketDraft)
-					}
-				})
-			})
-
-			// Past Days History
-			var past []api.PocketNoteRecord
-			for _, n := range notes {
-				if n.Date != todayDate {
-					past = append(past, n)
-				}
-			}
-			components.SectionCard(c, i18n.Tf("work.pocket.past_days_title", map[string]any{"count": len(past)}), i18n.T("work.pocket.past_days_sub"), nil, func() {
-				if len(past) == 0 {
-					ui.Text(c, i18n.T("work.pocket.past_days_empty")).FontSize(13).TextColor(t.TextMuted)
-					return
-				}
-				ui.Column(c).FillWidth().Gap(8).Children(func() {
-					for _, n := range past {
-						n := n
-						expanded := s.pocketExpandedDate == n.Date
-						card := ui.Column(c.Key(n.Date)).FillWidth().Padding(11, 12).Gap(6).
-							Radius(12).Background(theme.Extra(t).MutedBg).Border(0.75, theme.Extra(t).SubtleBorder)
-						card.Children(func() {
-							ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
-								hdr := ui.Row(c).Grow(1).Basis(0).MinHeight(36).AlignItems(ui.Center).
-									Role(ui.RoleButton).Label(i18n.Tf("work.pocket.note_a11y", map[string]any{"date": n.Date}))
-								hdr.Children(func() {
-									ui.Text(c, n.Date).FontSize(13).FontWeight(600).TextColor(t.Text)
+				renderTodayCard := func() {
+					// Today's Note card with explicit Save status indicator & offline sync retry
+					components.SectionCard(c, i18n.T("work.pocket.today_title"), todayDate, func() {
+						s.viewPocketStatusPill(c, state)
+					}, func() {
+						if state == PocketStateError && lastErr != "" {
+							components.StatusBanner(c, components.ToneDanger,
+								i18n.Tf("work.pocket.couldnt_save", map[string]any{"err": lastErr}),
+								i18n.T("work.pocket.retry_sync"), func() {
+									go func() { _ = s.SyncPocketOutbox(context.Background()) }()
 								})
-								if hdr.Clicked() {
-									if expanded {
-										s.pocketExpandedDate = ""
-									} else {
-										s.pocketExpandedDate = n.Date
-									}
-								}
-								delBtn := ui.Row(c).MinHeight(32).PaddingX(10).Radius(8).Background(t.Surface).
-									AlignItems(ui.Center).Role(ui.RoleButton).Label(i18n.Tf("work.pocket.delete_a11y", map[string]any{"date": n.Date}))
-								delBtn.Children(func() {
-									ui.Text(c, i18n.T("common.delete")).FontSize(11).FontWeight(600).TextColor(t.Danger)
+						} else if state == PocketStateSavedOffline {
+							components.StatusBanner(c, components.ToneWarning,
+								i18n.Tf("work.pocket.offline_pending", map[string]any{"count": maxInt(outboxCount, 1)}),
+								i18n.T("work.pocket.retry_sync"), func() {
+									go func() { _ = s.SyncPocketOutbox(context.Background()) }()
 								})
-								if delBtn.Clicked() {
-									s.pocketDeleteDate = n.Date
-									s.pocketDeleteSheet = true
-								}
-							})
-							txt := ui.Text(c, n.Text).FontSize(13).TextColor(t.TextMuted)
-							if !expanded {
-								txt.MaxLines(2)
+						}
+
+						noteMinH := float32(140)
+						if m.GridColumns >= 2 {
+							noteMinH = 190
+						}
+						ta := ui.TextArea(c, &s.pocketDraft).FillWidth().MinHeight(noteMinH).
+							Placeholder(i18n.T("work.pocket.placeholder")).
+							Label(i18n.T("work.pocket.note_input_a11y"))
+						if ta.Changed() {
+							s.pocketDirty = true
+							s.queuePocketSave(s.pocketDraft)
+						}
+
+						ui.Row(c).FillWidth().Wrap().Gap(8).Children(func() {
+							saveBtn := components.PrimaryTouchButton(c, i18n.T("work.pocket.save_now"), state == PocketStateSaving)
+							saveBtn.Grow(1).Basis(0)
+							if saveBtn.Clicked() {
+								s.pocketDirty = true
+								s.queuePocketSave(s.pocketDraft)
+							}
+
+							retryBtn := components.SecondaryTouchButton(c, i18n.T("work.pocket.retry_sync"), state == PocketStateSaving)
+							if retryBtn.Clicked() {
+								go func() { _ = s.SyncPocketOutbox(context.Background()) }()
+							}
+
+							sendLabel := i18n.T("work.pocket.send_another_me")
+							if s.pocketSendBusy {
+								sendLabel = i18n.T("work.pocket.sending")
+							}
+							sendBtn := components.SecondaryTouchButton(c, sendLabel, s.pocketSendBusy || strings.TrimSpace(s.pocketDraft) == "")
+							sendBtn.FillWidth()
+							if sendBtn.Clicked() {
+								s.sendPocketToAnotherMe(s.pocketDraft)
 							}
 						})
+					})
+				}
+
+				renderPastDaysCard := func() {
+					// Past Days History
+					var past []api.PocketNoteRecord
+					for _, n := range notes {
+						if n.Date != todayDate {
+							past = append(past, n)
+						}
 					}
-				})
+					components.SectionCard(c, i18n.Tf("work.pocket.past_days_title", map[string]any{"count": len(past)}), i18n.T("work.pocket.past_days_sub"), nil, func() {
+						if len(past) == 0 {
+							ui.Text(c, i18n.T("work.pocket.past_days_empty")).FontSize(13).TextColor(t.TextMuted)
+							return
+						}
+						ui.Column(c).FillWidth().Gap(8).Children(func() {
+							for _, n := range past {
+								n := n
+								expanded := s.pocketExpandedDate == n.Date
+								card := ui.Column(c.Key(n.Date)).FillWidth().Padding(11, 12).Gap(6).
+									Radius(12).Background(theme.Extra(t).MutedBg).Border(0.75, theme.Extra(t).SubtleBorder)
+								card.Children(func() {
+									ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
+										hdr := ui.Row(c).Grow(1).Basis(0).MinHeight(36).AlignItems(ui.Center).
+											Role(ui.RoleButton).Label(i18n.Tf("work.pocket.note_a11y", map[string]any{"date": n.Date}))
+										hdr.Children(func() {
+											ui.Text(c, n.Date).FontSize(13).FontWeight(600).TextColor(t.Text)
+										})
+										if hdr.Clicked() {
+											if expanded {
+												s.pocketExpandedDate = ""
+											} else {
+												s.pocketExpandedDate = n.Date
+											}
+										}
+										delBtn := ui.Row(c).MinHeight(32).PaddingX(10).Radius(8).Background(t.Surface).
+											AlignItems(ui.Center).Role(ui.RoleButton).Label(i18n.Tf("work.pocket.delete_a11y", map[string]any{"date": n.Date}))
+										delBtn.Children(func() {
+											ui.Text(c, i18n.T("common.delete")).FontSize(11).FontWeight(600).TextColor(t.Danger)
+										})
+										if delBtn.Clicked() {
+											s.pocketDeleteDate = n.Date
+											s.pocketDeleteSheet = true
+										}
+									})
+									txt := ui.Text(c, n.Text).FontSize(13).TextColor(t.TextMuted)
+									if !expanded {
+										txt.MaxLines(2)
+									}
+								})
+							}
+						})
+					})
+				}
+
+				layout.TwoPaneRow(c, m.GridColumns >= 2, 12, renderTodayCard, renderPastDaysCard)
 			})
 		})
 	})
