@@ -1085,4 +1085,171 @@ describe("RunnerGateway model invocation", () => {
       connection.disconnect();
     }
   });
+
+  it("isolates live model invocations and ModelQueue waiters from delayed disconnect of a replaced connection", async () => {
+    const { gateway, peer: firstPeer, connection: first } = await connect();
+    const staleCall = gateway
+      .invokeModel("runner-local", request({ input: "epoch-1" }))
+      .catch((error: unknown) => error);
+    await vi.waitFor(() => expect(sentInvocations(firstPeer)).toHaveLength(1));
+
+    // Replace the connection while first's socket close is still pending asynchronously.
+    const secondPeer = new RecordingPeer();
+    const second = await acceptReadyConnection(
+      gateway,
+      secondPeer,
+      invokingHello(),
+    );
+    try {
+      expect(firstPeer.closed).toEqual([
+        { code: 1012, reason: "Runner connection replaced" },
+      ]);
+      // The epoch-1 in-flight call fails on replacement and releases its ModelQueue slot.
+      await expect(staleCall).resolves.toBeInstanceOf(
+        LocalComputerOfflineError,
+      );
+
+      // Start a live call and queue a second waiter on the replacement connection.
+      const liveCall = gateway.invokeModel(
+        "runner-local",
+        request({ input: "epoch-2-live", queue: queued("voice_ask") }),
+      );
+      await vi.waitFor(() =>
+        expect(sentInvocations(secondPeer)).toHaveLength(1),
+      );
+      const queuedCall = gateway.invokeModel(
+        "runner-local",
+        request({ input: "epoch-2-queued", queue: queued("voice_ask") }),
+      );
+      expect(await settlesWithin(queuedCall, 10)).toBe(false);
+
+      // Delayed close of the replaced socket must not abort live work or reject queued waiters.
+      first.disconnect();
+      expect(await settlesWithin(liveCall, 10)).toBe(false);
+      expect(await settlesWithin(queuedCall, 10)).toBe(false);
+
+      await invoked(second, sentInvocations(secondPeer)[0]!);
+      await expect(liveCall).resolves.toMatchObject({ outcome: "completed" });
+      await vi.waitFor(() =>
+        expect(sentInvocations(secondPeer)).toHaveLength(2),
+      );
+      expect(sentInvocations(secondPeer)[1]!.input).toBe("epoch-2-queued");
+      await invoked(second, sentInvocations(secondPeer)[1]!);
+      await expect(queuedCall).resolves.toMatchObject({ outcome: "completed" });
+    } finally {
+      second.disconnect();
+    }
+  });
+
+  it("aborts an active background probe and yields probing calls when a waiting_background Run resumes", async () => {
+    const { gateway, peer, connection } = await connect();
+    try {
+      const usage = {
+        input_tokens: 4_000,
+        cached_input_tokens: 0,
+        output_tokens: 100,
+      };
+      // Build the lone-unit baseline so ModelQueue allows silent background probing.
+      for (let i = 0; i < 3; i++) {
+        const base = gateway.invokeModel(
+          "runner-local",
+          request({ input: `base ${i}`, queue: queued("memory") }),
+        );
+        await vi.waitFor(() =>
+          expect(sentInvocations(peer)).toHaveLength(i + 1),
+        );
+        await invoked(
+          connection,
+          sentInvocations(peer)[i]!,
+          "completed",
+          usage,
+        );
+        await base;
+      }
+
+      const run = await gateway.startOperation({
+        ...sessionTarget(),
+        ...readyContextScope("bg-probe-isolation"),
+        runKind: "chat",
+      });
+      const start = peer.sent.find(
+        (frame): frame is OperationStart => frame.type === "operation.start",
+      )!;
+      await connection.receive(
+        event(start, 1, {
+          type: "operation.accepted",
+          command_id: start.command_id,
+          runner_pid: 100,
+        }),
+      );
+      // Entering waiting_background suspends the foreground lease and allows a silent probe.
+      await connection.receive(
+        event(start, 2, {
+          type: "operation.event",
+          event: {
+            type: "run.background_waiting",
+            observed_at_unix_ms: 1000,
+            tools: [
+              {
+                call_id: "bg-1",
+                tool_name: "schedule",
+                started_at_unix_ms: 1000,
+              },
+            ],
+          },
+        }),
+      );
+
+      const probeA = gateway.invokeModel(
+        "runner-local",
+        request({ input: "probe-a", queue: queued("memory") }),
+      );
+      const probeB = gateway.invokeModel(
+        "runner-local",
+        request({ input: "probe-b", queue: queued("memory") }),
+      );
+      probeA.catch(() => undefined);
+      probeB.catch(() => undefined);
+      await vi.waitFor(() => expect(sentInvocations(peer)).toHaveLength(5));
+      const [cmdA, cmdB] = sentInvocations(peer).slice(3);
+
+      // Resuming the foreground Run must abort the probe and yield both probing background calls.
+      await connection.receive(
+        event(start, 3, {
+          type: "operation.event",
+          event: {
+            type: "run.background_resumed",
+            observed_at_unix_ms: 1100,
+            trigger: "user_input",
+          },
+        }),
+      );
+      await vi.waitFor(() => expect(sentCancels(peer)).toHaveLength(2));
+      expect(sentCancels(peer).map((cancel) => cancel.invoke_id)).toEqual(
+        expect.arrayContaining([cmdA!.invoke_id, cmdB!.invoke_id]),
+      );
+      await invoked(connection, cmdA!, "canceled");
+      await invoked(connection, cmdB!, "canceled");
+      await expect(probeA).rejects.toBeInstanceOf(
+        RunnerModelInvokeYieldedError,
+      );
+      await expect(probeB).rejects.toBeInstanceOf(
+        RunnerModelInvokeYieldedError,
+      );
+
+      await connection.receive(
+        event(start, 4, {
+          type: "operation.completed",
+          result: {
+            type: "run",
+            final_response: "done",
+            session: { thread_id: "thread-1" },
+          },
+        }),
+      );
+      await expect(run.result).resolves.toMatchObject({ type: "run" });
+    } finally {
+      connection.disconnect();
+    }
+  });
 });

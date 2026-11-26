@@ -1916,56 +1916,110 @@ describe("RunnerGateway", () => {
     });
   });
 
-  it("rebases an unaccepted start that the daemon never received", async () => {
-    const gateway = createTestRunnerGateway({
-      heartbeatIntervalMs: 1_000,
-      createId: sequenceIds(),
-    });
-    const firstPeer = new RecordingPeer();
-    const first = await acceptReadyConnection(gateway, firstPeer);
-    const operation = await gateway.startOperation(sessionTarget());
-    const original = firstPeer.sent[1] as OperationStart;
-    expect(original.connection_epoch).toBe(1);
-    first.disconnect();
+  it.each([
+    {
+      name: "DAEMON_RESTARTED after a Daemon crash",
+      stage: "runtime_execution" as const,
+      code: "DAEMON_RESTARTED",
+      message: "Local Computer Daemon restarted",
+      retryable: false,
+    },
+    {
+      name: "EXECUTION_NOT_ADMITTED when the same Daemon never received the start",
+      stage: "operation_admission" as const,
+      code: "EXECUTION_NOT_ADMITTED",
+      message: "Cloud replaced before Local execution admission",
+      retryable: true,
+    },
+  ])(
+    "preserves the original connection_epoch on reconnect for an unaccepted start ($name)",
+    async ({ stage, code, message, retryable }) => {
+      const gateway = createTestRunnerGateway({
+        heartbeatIntervalMs: 1_000,
+        createId: sequenceIds(),
+      });
+      const firstPeer = new RecordingPeer();
+      const first = await acceptReadyConnection(gateway, firstPeer, {
+        ...hello(),
+        runtime_diagnostics: runtimeDiagnostics({ link: "api" }),
+      });
+      const operation = await gateway.startOperation(sessionTarget());
+      void operation.result.catch(() => undefined);
+      const original = firstPeer.sent[1] as OperationStart;
+      expect(original.connection_epoch).toBe(1);
+      first.disconnect();
 
-    const secondPeer = new RecordingPeer();
-    const second = await acceptReadyConnection(gateway, secondPeer);
-    const replay = secondPeer.sent[1];
-    expect(replay).toMatchObject({
-      type: "operation.start",
-      operation_id: original.operation_id,
-      command_id: original.command_id,
-      connection_epoch: 2,
-    });
-    if (replay?.type !== "operation.start") {
-      throw new Error("Expected rebased operation.start");
-    }
-    await second.receive(
-      event(replay, 1, {
-        type: "operation.accepted",
-        command_id: replay.command_id,
-        runner_pid: 101,
-      }),
-    );
-    await second.receive(
-      event(replay, 2, {
-        type: "operation.completed",
-        result: {
+      // Reconnect at epoch 2 with active_operations: [] without rebasing connection_epoch.
+      const secondPeer = new RecordingPeer();
+      const second = await acceptReadyConnection(gateway, secondPeer, {
+        ...hello(),
+        runtime_diagnostics: runtimeDiagnostics({ link: "api" }),
+      });
+      try {
+        const replay = secondPeer.sent[1];
+        expect(replay).toMatchObject({
+          type: "operation.start",
+          operation_id: original.operation_id,
+          command_id: original.command_id,
+          connection_epoch: 1,
+        });
+        await second.receive(
+          event(original, 1, {
+            type: "operation.failed",
+            stage,
+            error: { code, message, retryable },
+          }),
+        );
+        await expect(operation.result).rejects.toMatchObject({
+          code,
+          retryable,
+        });
+        expect(secondPeer.sent.at(-1)).toMatchObject({
+          type: "operation.ack",
+          through_seq: 1,
+          connection_epoch: 1,
+        });
+
+        // The retired unaccepted Operation must release its single-slot ModelQueue lease.
+        const next = await gateway.startOperation({
+          ...sessionTarget(),
+          ...readyContextScope("after-stale-epoch"),
+        });
+        const nextStart = secondPeer.sent
+          .filter(
+            (frame): frame is OperationStart =>
+              frame.type === "operation.start",
+          )
+          .at(-1)!;
+        expect(nextStart.connection_epoch).toBe(2);
+        await second.receive(
+          event(nextStart, 1, {
+            type: "operation.accepted",
+            command_id: nextStart.command_id,
+            runner_pid: 101,
+          }),
+        );
+        await second.receive(
+          event(nextStart, 2, {
+            type: "operation.completed",
+            result: {
+              type: "run",
+              final_response: "ok",
+              session: { thread_id: "thread-next" },
+            },
+          }),
+        );
+        await expect(next.result).resolves.toMatchObject({
           type: "run",
-          final_response: "",
-          session: { thread_id: "thread-rebased" },
-        },
-      }),
-    );
-    await expect(operation.result).resolves.toMatchObject({
-      type: "run",
-      final_response: "",
-      session: { thread_id: "thread-rebased" },
-    });
-    second.disconnect();
-  });
+          final_response: "ok",
+        });
+      } finally {
+        second.disconnect();
+      }
+    },
+  );
 
-  it("ends a rebased start with the terminal the daemon recorded on its first epoch", async () => {
+  it("ends an unaccepted start with the terminal the daemon recorded on its first epoch", async () => {
     const gateway = createTestRunnerGateway({
       heartbeatIntervalMs: 1_000,
       createId: sequenceIds(),
@@ -1981,7 +2035,7 @@ describe("RunnerGateway", () => {
     const second = await acceptReadyConnection(gateway, secondPeer);
     expect(secondPeer.sent[1]).toMatchObject({
       type: "operation.start",
-      connection_epoch: 2,
+      connection_epoch: 1,
     });
     // The Daemon failed it on the first connection and replays that terminal.
     await second.receive(
@@ -3386,6 +3440,168 @@ describe("an input still in flight at the terminal", () => {
       vi.unstubAllEnvs();
       output.mockRestore();
       vi.useRealTimers();
+      connection.disconnect();
+    }
+  });
+
+  it("releases the ModelQueue lease immediately when a non-task Run cancel times out", async () => {
+    const gateway = createTestRunnerGateway({
+      createId: sequenceIds(),
+      operationCancelTimeoutMs: 10,
+    });
+    const peer = new RecordingPeer();
+    const connection = await acceptReadyConnection(gateway, peer, {
+      ...hello([], 1),
+      runtime_diagnostics: runtimeDiagnostics({ link: "api" }),
+    });
+    try {
+      const run1 = await gateway.startOperation({
+        ...runTarget(),
+        ...readyContextScope("first"),
+        runKind: "chat",
+      });
+      const start1 = peer.sent.find(
+        (command): command is OperationStart =>
+          command.type === "operation.start",
+      )!;
+      const run2Promise = gateway.startOperation({
+        ...runTarget(),
+        ...readyContextScope("second"),
+        runKind: "chat",
+      });
+      expect(await settlesWithin(run2Promise, 15)).toBe(false);
+
+      // Cancel times out without any Daemon reply: run1 must retire and release its slot.
+      await run1.cancel("user_stop");
+      await expect(run1.result).rejects.toMatchObject({ code: "cancelled" });
+
+      const run2 = await run2Promise;
+      const start2 = peer.sent
+        .filter(
+          (command): command is OperationStart =>
+            command.type === "operation.start",
+        )
+        .at(-1)!;
+      expect(start2.operation_id).not.toBe(start1.operation_id);
+
+      // A late Daemon frame for run1 is acknowledged and dropped cleanly.
+      await connection.receive(
+        event(start1, 1, {
+          type: "operation.accepted",
+          command_id: start1.command_id,
+          runner_pid: 100,
+        }),
+      );
+      expect(peer.sent.at(-1)).toMatchObject({
+        type: "operation.ack",
+        operation_id: start1.operation_id,
+        through_seq: 1,
+      });
+
+      await connection.receive(
+        event(start2, 1, {
+          type: "operation.accepted",
+          command_id: start2.command_id,
+          runner_pid: 101,
+        }),
+      );
+      await connection.receive(
+        event(start2, 2, {
+          type: "operation.completed",
+          result: {
+            type: "run",
+            final_response: "done-2",
+            session: { thread_id: "thread-2" },
+          },
+        }),
+      );
+      await expect(run2.result).resolves.toMatchObject({
+        type: "run",
+        final_response: "done-2",
+      });
+    } finally {
+      connection.disconnect();
+    }
+  });
+
+  it("releases a suspended ModelQueue lease cleanly when a waiting_background non-task Run cancel times out", async () => {
+    const gateway = createTestRunnerGateway({
+      createId: sequenceIds(),
+      operationCancelTimeoutMs: 10,
+    });
+    const peer = new RecordingPeer();
+    const connection = await acceptReadyConnection(gateway, peer, {
+      ...hello([], 1),
+      runtime_diagnostics: runtimeDiagnostics({ link: "api" }),
+    });
+    try {
+      const run1 = await gateway.startOperation({
+        ...runTarget(),
+        ...readyContextScope("first"),
+        runKind: "chat",
+      });
+      const start1 = peer.sent.find(
+        (command): command is OperationStart =>
+          command.type === "operation.start",
+      )!;
+      await connection.receive(
+        event(start1, 1, {
+          type: "operation.accepted",
+          command_id: start1.command_id,
+          runner_pid: 100,
+        }),
+      );
+      await connection.receive(
+        event(start1, 2, {
+          type: "operation.event",
+          event: {
+            type: "run.background_waiting",
+            observed_at_unix_ms: 1000,
+            tools: [
+              {
+                call_id: "call-1",
+                tool_name: "schedule",
+                started_at_unix_ms: 1000,
+              },
+            ],
+          },
+        }),
+      );
+
+      await run1.cancel("user_stop");
+      await expect(run1.result).rejects.toMatchObject({ code: "cancelled" });
+
+      // Subsequent Runs acquire and release normally with no suspended-counter leak.
+      const run2 = await gateway.startOperation({
+        ...runTarget(),
+        ...readyContextScope("second"),
+        runKind: "chat",
+      });
+      const start2 = peer.sent
+        .filter(
+          (command): command is OperationStart =>
+            command.type === "operation.start",
+        )
+        .at(-1)!;
+      await connection.receive(
+        event(start2, 1, {
+          type: "operation.accepted",
+          command_id: start2.command_id,
+          runner_pid: 101,
+        }),
+      );
+      await connection.receive(
+        event(start2, 2, {
+          type: "operation.completed",
+          result: {
+            type: "run",
+            final_response: "done-2",
+            session: { thread_id: "thread-2" },
+          },
+        }),
+      );
+      await expect(run2.result).resolves.toMatchObject({ type: "run" });
+    } finally {
       connection.disconnect();
     }
   });

@@ -53,7 +53,7 @@ export class RunnerLocalCapabilities {
   readonly #localSkillWaiters = new Map<
     string,
     Set<{
-      readonly runnerId: string;
+      readonly connection: ConnectedRunner;
       resolve(outcome: LocalSkillOutcome): void;
       reject(error: unknown): void;
     }>
@@ -530,7 +530,7 @@ export class RunnerLocalCapabilities {
     return result.telemetry;
   }
 
-  /** Fails every browser, permission, model-source, and telemetry command waiting on this connection. */
+  /** Fails every browser, permission, model-source, telemetry, and local-skill command waiting on this connection. */
   rejectConnectionWaiters(connection: ConnectedRunner): void {
     for (const [commandId, waiter] of this.#browserWaiters) {
       if (waiter.connection !== connection) continue;
@@ -551,6 +551,13 @@ export class RunnerLocalCapabilities {
       if (waiter.connection !== connection) continue;
       this.#telemetryWaiters.delete(commandId);
       waiter.reject(new LocalComputerOfflineError());
+    }
+    for (const [commandId, waiters] of this.#localSkillWaiters) {
+      for (const waiter of [...waiters]) {
+        if (waiter.connection !== connection) continue;
+        waiter.reject(new LocalComputerOfflineError());
+      }
+      if (waiters.size === 0) this.#localSkillWaiters.delete(commandId);
     }
   }
 
@@ -582,7 +589,7 @@ export class RunnerLocalCapabilities {
     }
     const outcome = this.#waitForLocalSkillOutcome(
       command.commandId,
-      command.computerId,
+      connection,
       command.expiresAt,
       command.signal,
     );
@@ -630,7 +637,7 @@ export class RunnerLocalCapabilities {
 
   #waitForLocalSkillOutcome(
     commandId: string,
-    runnerId: string,
+    connection: ConnectedRunner,
     expiresAt: string,
     signal?: AbortSignal,
   ): Promise<LocalSkillOutcome> {
@@ -649,7 +656,7 @@ export class RunnerLocalCapabilities {
         else reject(result.error);
       };
       const waiter = {
-        runnerId,
+        connection,
         resolve: (outcome: LocalSkillOutcome) => finish({ outcome }),
         reject: (error: unknown) => finish({ error }),
       };
@@ -814,16 +821,6 @@ export class RunnerLocalCapabilities {
     }
     this.#telemetryWaiters.delete(envelope.command_id);
     waiter.resolve(envelope);
-  }
-
-  rejectLocalSkillWaiters(runnerId: string): void {
-    for (const [commandId, waiters] of this.#localSkillWaiters) {
-      for (const waiter of [...waiters]) {
-        if (waiter.runnerId !== runnerId) continue;
-        waiter.reject(new LocalComputerOfflineError());
-      }
-      if (waiters.size === 0) this.#localSkillWaiters.delete(commandId);
-    }
   }
 }
 

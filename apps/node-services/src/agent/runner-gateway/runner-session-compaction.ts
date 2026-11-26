@@ -10,6 +10,7 @@ import {
 import { COMPACTION_PRIORITY } from "../../model-tasks.js";
 import { LocalComputerOfflineError } from "./local-computer-management.js";
 import type {
+  ConnectedRunner,
   RunnerGatewayContext,
   RunnerGatewayControllers,
 } from "./runner-gateway-context.js";
@@ -153,9 +154,15 @@ export class RunnerSessionCompaction {
     this.#finish(envelope.compact_id, { outcome: envelope });
   }
 
-  rejectWaitersForComputer(runnerId: string): void {
+  rejectWaitersForConnection(
+    connection: Pick<ConnectedRunner, "runnerId" | "connectionEpoch">,
+  ): void {
     for (const [compactId, waiter] of this.#waiters) {
-      if (waiter.command.runner_id !== runnerId) continue;
+      if (
+        waiter.command.runner_id !== connection.runnerId ||
+        waiter.command.connection_epoch !== connection.connectionEpoch
+      )
+        continue;
       this.#finish(compactId, { error: new LocalComputerOfflineError() });
     }
   }
