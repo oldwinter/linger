@@ -555,6 +555,41 @@ describe("Room navigation", () => {
       `/t/${fixture.tenant.id}/dashboard`,
     );
   });
+
+  it("opens the lazy Action Center drawer from the primary rail with live badge count", async () => {
+    const fixture = await navigationFixture();
+    fixture.runtime.server.on(
+      "GET",
+      "/v0/tenants/{tenantId}/room-activity",
+      () => ({
+        failed_room_ids: [],
+        running_room_ids: [fixture.rooms[0]!.id],
+      }),
+    );
+
+    renderNavigation(fixture, new QueryClient());
+
+    const primary = screen.getByRole("navigation", {
+      name: "Primary navigation",
+    });
+    const trigger = await within(primary).findByRole("button", {
+      name: /^Action center/,
+    });
+    expect(trigger).toBeVisible();
+    expect(screen.queryByTestId("action-center-drawer")).toBeNull();
+
+    fireEvent.click(trigger);
+    const drawer = await screen.findByRole("dialog", { name: "Action center" });
+    expect(drawer).toBeVisible();
+    expect(
+      within(drawer).getByRole("region", { name: "Active runs" }),
+    ).toBeVisible();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() =>
+      expect(screen.queryByTestId("action-center-drawer")).toBeNull(),
+    );
+  });
 });
 
 async function navigationFixture() {

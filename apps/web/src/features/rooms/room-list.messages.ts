@@ -78,4 +78,29 @@ export const roomListMessages = defineMessages("roomList", {
   endQuiet: "End quiet",
   quietRemindersHint:
     "Another Me still writes in its Chat. This only holds the system reminder on this computer.",
+  catchUp: "Catch up",
+  resumeCatchUp: "Resume catch up",
+  catchUpChats: {
+    one: "Catch up, {count} chat",
+    other: "Catch up, {count} chats",
+  },
+  resumeCatchUpChats: {
+    one: "Resume catch up, {count} chat left",
+    other: "Resume catch up, {count} chats left",
+  },
+  markingRoomsProgress: "Marking {completed} of {total}…",
+  snoozedRoomsCount: {
+    one: "{count} snoozed Room",
+    other: "{count} snoozed Rooms",
+  },
+  bringBack: "Bring back",
+  bringBackRoom: "Bring back {name}",
+  unpinFailed: "Could not unpin the Room.",
+  muted: "Muted",
+  snoozed: "Snoozed",
+  mentionsMutedHint: "Mention notifications are muted",
+  mentionsSnoozedHint: "Mention notifications are snoozed",
+  draft: "Draft",
+  draftIn: "Draft in {name}",
+  directChatLabel: "{name} chat",
 });

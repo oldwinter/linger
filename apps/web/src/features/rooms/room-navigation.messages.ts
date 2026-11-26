@@ -21,4 +21,6 @@ export const navigationMessages = defineMessages("navigation", {
   retryRooms: "Retry Rooms",
   search: "Search",
   searchShortcut: "Search ({shortcut})",
+  actionCenter: "Action center",
+  actionCenterWithCount: "Action center ({count})",
 });

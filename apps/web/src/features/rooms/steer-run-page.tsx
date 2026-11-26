@@ -10,16 +10,26 @@ import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { createTeamHubIdempotencyKey } from "@/features/teamhub/teamhub-client";
 import { isRunWorking } from "@/features/teamhub/run-status";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { useT } from "@/i18n/use-translation";
 import { requireRoomRouteParam } from "./room-route-params";
 import { roomRunStatusesQueryOptions } from "./room-queries";
 import { roomRuntimePresentationEventsQueryOptions } from "./runtime-status/runtime-presentation-events-query";
-import { latestPlan, planStepLabel, stopResultCopy } from "./steer-run";
+import { latestPlan, type SteerPlanStep } from "./steer-run";
+import { steerRunMessages as m } from "./steer-run.messages";
+
+function stepLabelMessage(status: SteerPlanStep["status"]) {
+  if (status === "completed") return m.stepCompleted;
+  if (status === "in_progress") return m.stepInProgress;
+  if (status === "canceled") return m.stepCanceled;
+  return m.stepPending;
+}
 
 /**
  * The plan of the run that is still working, and a stop before its next
  * step. The activity log stays on its own page.
  */
 export function SteerRunPage() {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const params = useParams();
   const tenantId = requireRoomRouteParam(params.tenantId, "Tenant");
@@ -93,15 +103,16 @@ export function SteerRunPage() {
       );
       setStoppedByRunId((current) => ({
         ...current,
-        [targetRun.id]: stopResultCopy(result.status),
+        [targetRun.id]:
+          result.status === "already_terminal"
+            ? t(m.alreadyFinished)
+            : t(m.stopRequested),
       }));
     } catch (cause) {
       setErrorByRunId((current) => ({
         ...current,
         [targetRun.id]:
-          cause instanceof Error
-            ? cause.message
-            : "The run could not be stopped.",
+          cause instanceof Error ? cause.message : t(m.stopFailed),
       }));
     } finally {
       setPendingRunId((current) => (current === targetRun.id ? null : current));
@@ -120,45 +131,42 @@ export function SteerRunPage() {
             to={chat}
           >
             <Icon icon={ArrowLeft01Icon} size={14} />
-            Back to room
+            {t(m.backToRoom)}
           </Link>
         </div>
         <header>
           <h2 className="text-xl text-foreground" id={headingId}>
-            Steer this run
+            {t(m.title)}
           </h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            The plan the agent published while it is still working. Stop it
-            before the next step.
+            {t(m.description)}
           </p>
         </header>
         {runs.isPending ? (
           <p className="text-sm text-muted-foreground" role="status">
-            Loading this run.
+            {t(m.loadingRun)}
           </p>
         ) : runs.isError ? (
           <div className="flex items-center justify-between gap-3" role="alert">
-            <p className="text-sm text-destructive">
-              Run status could not be loaded.
-            </p>
+            <p className="text-sm text-destructive">{t(m.loadRunFailed)}</p>
             <Button
               onClick={() => void runs.refetch()}
               size="compact"
               tone="secondary"
               type="button"
             >
-              Retry
+              {t(m.retry)}
             </Button>
           </div>
         ) : !run ? (
           <p className="text-sm text-muted-foreground" role="status">
-            Nothing is running in this room.
+            {t(m.nothingRunning)}
           </p>
         ) : (
           <>
             {workingRuns.length > 1 ? (
               <div
-                aria-label="Active runs"
+                aria-label={t(m.activeRuns)}
                 className="flex flex-wrap items-center gap-2"
                 role="group"
               >
@@ -192,11 +200,11 @@ export function SteerRunPage() {
               </div>
             ) : null}
             <h3 className="text-lg text-foreground">
-              {`${run.agent.display_name} is working`}
+              {t(m.agentWorking, { name: run.agent.display_name })}
             </h3>
             {events.isPending ? (
               <p className="text-sm text-muted-foreground" role="status">
-                Loading the plan.
+                {t(m.loadingPlan)}
               </p>
             ) : events.isError ? (
               <div
@@ -204,7 +212,7 @@ export function SteerRunPage() {
                 role="alert"
               >
                 <p className="text-sm text-destructive">
-                  The plan could not be loaded.
+                  {t(m.loadPlanFailed)}
                 </p>
                 <Button
                   onClick={() => void events.refetch()}
@@ -212,22 +220,22 @@ export function SteerRunPage() {
                   tone="secondary"
                   type="button"
                 >
-                  Retry
+                  {t(m.retry)}
                 </Button>
               </div>
             ) : steps.length === 0 ? (
               <p className="text-sm text-muted-foreground" role="status">
-                The agent has not published a plan yet.
+                {t(m.noPlanYet)}
               </p>
             ) : (
-              <ol aria-label="Run plan" className="flex flex-col gap-3">
+              <ol aria-label={t(m.runPlan)} className="flex flex-col gap-3">
                 {steps.map((step, index) => (
                   <li
                     className="rounded-2xl border border-border px-4 py-3"
                     key={`${index}-${step.content}`}
                   >
                     <p className="text-xs text-muted-foreground">
-                      {planStepLabel(step.status)}
+                      {t(stepLabelMessage(step.status))}
                     </p>
                     <p className="mt-1 text-sm text-foreground">
                       {step.content}
@@ -247,11 +255,12 @@ export function SteerRunPage() {
               </p>
             ) : (
               <Button
+                data-voice-risk="confirm"
                 disabled={pending}
                 onClick={() => void stop()}
                 type="button"
               >
-                {pending ? "Stopping" : "Stop before the next step"}
+                {t(pending ? m.stopping : m.stopBeforeNextStep)}
               </Button>
             )}
           </>

@@ -1,7 +1,16 @@
-import { Copy01Icon, File01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
+import {
+  ArrowDown01Icon,
+  ArrowUp01Icon,
+  Copy01Icon,
+  File01Icon,
+  Tick02Icon,
+} from "@hugeicons/core-free-icons";
 import {
   createContext,
+  isValidElement,
+  lazy,
   memo,
+  Suspense,
   useContext,
   useEffect,
   useMemo,
@@ -34,6 +43,16 @@ import { teamHubMentionTokenAliases } from "@/features/teamhub/teamhub-message-c
 import { useAgentMentionStyle } from "./agent-mention-style";
 import { chatMessages } from "./chat.messages";
 import { followChatExternalLink } from "./chat-external-link";
+import type { CodeToken } from "./code-block-highlight";
+
+const InlineMermaidBlock = lazy(async () => ({
+  default: (await import("./inline-mermaid-block")).InlineMermaidBlock,
+}));
+
+const CODE_COLLAPSE_THRESHOLD = 24;
+const CODE_COLLAPSE_PREVIEW_LINES = 16;
+const HIGHLIGHT_LANGUAGE_PATTERN =
+  /^(?:tsx?|jsx?|typescript|javascript|[mc]js|py|python|go|golang|sh|bash|zsh|shell|jsonc?|ya?ml|sql|s?css|html|xml|svg|rs|rust)$/i;
 
 const mentionUrlPrefix = "linger-actor:";
 const documentUrlPrefix = "linger-document:";
@@ -221,8 +240,8 @@ const markdownComponents: Components = {
   blockquote({ children }) {
     return <blockquote>{children}</blockquote>;
   },
-  code({ children }) {
-    return <code>{children}</code>;
+  code({ children, className }) {
+    return <code className={className}>{children}</code>;
   },
   h1({ children }) {
     return <h1>{children}</h1>;
@@ -663,37 +682,191 @@ function escapeRegularExpression(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** A fenced code block with a copy button in its top-right corner. */
+function extractCodeText(node: ReactNode): string {
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(extractCodeText).join("");
+  if (isValidElement<{ children?: ReactNode }>(node)) {
+    return extractCodeText(node.props.children);
+  }
+  return "";
+}
+
+function inspectCodeBlockChildren(children: ReactNode): {
+  codeClassName?: string;
+  language?: string;
+  rawCode: string;
+} {
+  if (isValidElement<{ children?: ReactNode; className?: string }>(children)) {
+    const codeClassName = children.props.className;
+    const languageMatch = /\blanguage-([^\s]+)/i.exec(codeClassName ?? "");
+    return {
+      codeClassName,
+      language: languageMatch?.[1]?.toLowerCase(),
+      rawCode: extractCodeText(children.props.children),
+    };
+  }
+  return { rawCode: extractCodeText(children) };
+}
+
+/**
+ * A fenced code block with language badge, line count, dynamic syntax
+ * highlighting, long-block collapse (> 24 lines), and lazy inline Mermaid.
+ */
 function MarkdownCodeBlock({ children }: { children: ReactNode }) {
   const preRef = useRef<HTMLPreElement>(null);
   const [copied, setCopied] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [tokens, setTokens] = useState<readonly CodeToken[] | null>(null);
   const t = useT();
   const copyLabel = copied
     ? t(commonMessages.copied)
     : t(chatMessages.copyCode);
+
+  const { codeClassName, language, rawCode } =
+    inspectCodeBlockChildren(children);
+  const normalizedCode = rawCode.endsWith("\n")
+    ? rawCode.slice(0, -1)
+    : rawCode;
+  const lines = useMemo(
+    () => (normalizedCode.length > 0 ? normalizedCode.split("\n") : []),
+    [normalizedCode],
+  );
+  const lineCount = Math.max(1, lines.length);
+  const collapsible = lines.length > CODE_COLLAPSE_THRESHOLD;
+  const collapsed = collapsible && !expanded;
+  const displayedCode = useMemo(
+    () =>
+      collapsed
+        ? lines.slice(0, CODE_COLLAPSE_PREVIEW_LINES).join("\n")
+        : normalizedCode,
+    [collapsed, lines, normalizedCode],
+  );
+  const isMermaid = language === "mermaid";
+  const canHighlight = Boolean(
+    !isMermaid && language && HIGHLIGHT_LANGUAGE_PATTERN.test(language),
+  );
+
   useEffect(() => {
     if (!copied) return;
     const timer = setTimeout(() => setCopied(false), 1500);
     return () => clearTimeout(timer);
   }, [copied]);
-  return (
-    <div className="message-code-block">
-      <pre ref={preRef}>{children}</pre>
-      <button
-        aria-label={copyLabel}
-        className="message-code-copy"
-        onClick={() => {
-          void navigator.clipboard
-            ?.writeText(preRef.current?.textContent ?? "")
-            .then(() => setCopied(true));
-        }}
-        title={copyLabel}
-        type="button"
-      >
-        <Icon icon={copied ? Tick02Icon : Copy01Icon} size={14} />
-      </button>
+
+  useEffect(() => {
+    if (!canHighlight || !language) {
+      setTokens(null);
+      return;
+    }
+    let cancelled = false;
+    void import("./code-block-highlight").then(({ tokenizeCode }) => {
+      if (!cancelled) {
+        setTokens(tokenizeCode(displayedCode, language));
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [canHighlight, displayedCode, language]);
+
+  const copyCode = () => {
+    void navigator.clipboard
+      ?.writeText(normalizedCode || (preRef.current?.textContent ?? ""))
+      .then(() => setCopied(true));
+  };
+
+  const codeBlockElement = (
+    <div
+      className={`message-code-block${collapsed ? " is-collapsed" : ""}`}
+      data-language={language}
+    >
+      <div className="message-code-header">
+        <div className="message-code-meta">
+          <span className="message-code-lang">
+            {language ?? t(chatMessages.codeBlockDefaultLabel)}
+          </span>
+          <span className="message-code-lines">
+            {t(chatMessages.codeLineCount, { count: lineCount })}
+          </span>
+        </div>
+        <div className="message-code-actions">
+          {collapsible ? (
+            <button
+              aria-expanded={expanded}
+              className="message-code-toggle"
+              onClick={() => setExpanded((value) => !value)}
+              type="button"
+            >
+              <Icon
+                icon={expanded ? ArrowUp01Icon : ArrowDown01Icon}
+                size={13}
+              />
+              <span>
+                {t(
+                  expanded
+                    ? chatMessages.collapseCode
+                    : chatMessages.expandCode,
+                )}
+              </span>
+            </button>
+          ) : null}
+          <button
+            aria-label={copyLabel}
+            className="message-code-action-btn"
+            onClick={copyCode}
+            title={copyLabel}
+            type="button"
+          >
+            <Icon icon={copied ? Tick02Icon : Copy01Icon} size={14} />
+          </button>
+        </div>
+      </div>
+      <div className="message-code-body">
+        <pre ref={preRef}>
+          <code className={codeClassName}>
+            {tokens
+              ? tokens.map((token, index) =>
+                  token.kind === "plain" ? (
+                    token.value
+                  ) : (
+                    <span className={`chat-code-tok-${token.kind}`} key={index}>
+                      {token.value}
+                    </span>
+                  ),
+                )
+              : displayedCode}
+          </code>
+        </pre>
+        {collapsed ? (
+          <div aria-hidden="true" className="message-code-fade" />
+        ) : null}
+      </div>
+      {collapsed ? (
+        <button
+          className="message-code-expand-footer"
+          onClick={() => setExpanded(true)}
+          type="button"
+        >
+          {t(chatMessages.showAllLines, { count: lineCount })}
+        </button>
+      ) : null}
     </div>
   );
+
+  if (isMermaid) {
+    return (
+      <Suspense fallback={codeBlockElement}>
+        <InlineMermaidBlock
+          code={normalizedCode}
+          copied={copied}
+          copyLabel={copyLabel}
+          lineCount={lineCount}
+          onCopy={copyCode}
+        />
+      </Suspense>
+    );
+  }
+
+  return codeBlockElement;
 }
 
 /**

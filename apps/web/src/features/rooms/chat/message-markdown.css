@@ -6,6 +6,21 @@
   letter-spacing: 0.02em;
   line-height: 22px;
   word-break: break-word;
+  --chat-code-tok-comment: #6b7280;
+  --chat-code-tok-string: #0f766e;
+  --chat-code-tok-number: #b45309;
+  --chat-code-tok-keyword: #6d28d9;
+  --chat-code-tok-type: #0369a1;
+  --chat-code-tok-punctuation: #64748b;
+}
+
+:root[data-theme="dark"] .message-markdown {
+  --chat-code-tok-comment: #8b949e;
+  --chat-code-tok-string: #5eead4;
+  --chat-code-tok-number: #fbbf24;
+  --chat-code-tok-keyword: #c4b5fd;
+  --chat-code-tok-type: #7dd3fc;
+  --chat-code-tok-punctuation: #94a3b8;
 }
 
 .message-markdown > *:first-child {
@@ -162,7 +177,9 @@
 
 /* Inside a filled bubble, code is a slightly darker tint of the bubble
    rather than a white chip. */
-.room-message-bubble .message-markdown :is(:not(pre) > code, pre) {
+.room-message-bubble
+  .message-markdown
+  :is(:not(pre) > code, .message-code-block) {
   background: hsl(var(--town-foreground) / 0.06);
 }
 
@@ -173,43 +190,221 @@
 
 .message-code-block {
   position: relative;
+  margin: 12px 0;
+  overflow: hidden;
+  border: 1px solid var(--app-border);
+  border-radius: 12px;
+  background: var(--app-surface-soft);
+  contain: layout style;
 }
 
-.message-code-block > pre {
-  padding-right: 40px;
+.message-code-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 34px;
+  padding: 4px 8px 4px 12px;
+  border-bottom: 1px solid var(--app-border);
+  background: hsl(var(--town-foreground) / 0.025);
 }
 
-.message-code-copy {
-  position: absolute;
-  top: 8px;
-  right: 8px;
+.message-code-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.message-code-lang {
+  font-family: var(--app-font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+  color: var(--app-ink);
+}
+
+.message-code-lines {
+  font-size: 11px;
+  color: var(--app-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.message-code-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.message-code-toggle,
+.message-code-action-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  gap: 4px;
+  height: 24px;
   border-radius: 6px;
   color: var(--app-muted);
-  opacity: 0;
+  font-size: 11px;
+  font-weight: 500;
   transition:
-    opacity var(--app-micro-duration) ease,
-    background-color var(--app-micro-duration) ease;
+    background-color var(--app-micro-duration) ease,
+    color var(--app-micro-duration) ease;
 }
 
-.message-code-block:hover .message-code-copy,
-.message-code-copy:focus-visible {
-  opacity: 1;
+.message-code-toggle {
+  padding: 0 7px;
 }
 
-.message-code-copy:hover {
+.message-code-action-btn {
+  width: 24px;
+}
+
+.message-code-toggle:hover,
+.message-code-action-btn:hover {
   background: hsl(var(--town-foreground) / 0.08);
   color: var(--app-ink);
 }
 
-@media (hover: none) {
-  .message-code-copy {
-    opacity: 1;
-  }
+.message-code-toggle:focus-visible,
+.message-code-action-btn:focus-visible,
+.message-code-expand-footer:focus-visible,
+.message-mermaid-toggle-btn:focus-visible {
+  outline: 2px solid var(--app-focus);
+  outline-offset: 1px;
+}
+
+.message-code-body {
+  position: relative;
+}
+
+.message-code-block pre {
+  margin: 0;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+.message-code-fade {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 44px;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    var(--app-surface-soft) 90%
+  );
+}
+
+.message-code-expand-footer {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 12px;
+  border-top: 1px solid var(--app-border);
+  background: hsl(var(--town-foreground) / 0.02);
+  color: var(--app-muted);
+  font-size: 12px;
+  font-weight: 500;
+  transition:
+    background-color var(--app-micro-duration) ease,
+    color var(--app-micro-duration) ease;
+}
+
+.message-code-expand-footer:hover {
+  background: hsl(var(--town-foreground) / 0.06);
+  color: var(--app-ink);
+}
+
+.chat-code-tok-comment {
+  color: var(--chat-code-tok-comment);
+  font-style: italic;
+}
+
+.chat-code-tok-string {
+  color: var(--chat-code-tok-string);
+}
+
+.chat-code-tok-number {
+  color: var(--chat-code-tok-number);
+}
+
+.chat-code-tok-keyword {
+  color: var(--chat-code-tok-keyword);
+  font-weight: 500;
+}
+
+.chat-code-tok-type {
+  color: var(--chat-code-tok-type);
+}
+
+.chat-code-tok-punctuation {
+  color: var(--chat-code-tok-punctuation);
+}
+
+/* Inline Mermaid diagram preview inside chat messages. */
+.message-mermaid-toggle {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border-radius: 7px;
+  background: hsl(var(--town-foreground) / 0.06);
+}
+
+.message-mermaid-toggle-btn {
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--app-muted);
+  transition:
+    background-color var(--app-micro-duration) ease,
+    color var(--app-micro-duration) ease;
+}
+
+.message-mermaid-toggle-btn.is-active {
+  background: var(--app-surface);
+  color: var(--app-ink);
+  box-shadow: var(--town-shadow-outline);
+}
+
+.message-mermaid-body {
+  padding: 14px;
+  background: var(--app-surface);
+}
+
+.message-mermaid-canvas {
+  display: flex;
+  justify-content: center;
+  overflow-x: auto;
+}
+
+.message-mermaid-canvas svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.message-mermaid-loading,
+.message-mermaid-fallback {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--app-muted);
+}
+
+.message-mermaid-fallback {
+  border-bottom: 1px solid var(--app-border);
+  background: hsl(var(--town-foreground) / 0.02);
 }
 
 .message-markdown pre code {
