@@ -489,7 +489,24 @@ func (d *Daemon) ResumeAdmission() {
 	}
 }
 
+// DesktopQuitStopTasksReason is the structured operation.cancelled reason
+// recorded when the user confirms "Quit and Stop Tasks" in the Desktop app.
+const DesktopQuitStopTasksReason = "desktop_quit_stop_tasks"
+
+const defaultShutdownReason = "Local Computer Daemon is shutting down"
+
+// Drain stops admissions and cancels in-flight Operations with the default
+// shutdown reason.
 func (d *Daemon) Drain() {
+	d.DrainWithReason("")
+}
+
+// DrainWithReason stops admissions and cancels in-flight Operations, assigning
+// reason to each active Operation that does not already have one.
+func (d *Daemon) DrainWithReason(reason string) {
+	if reason == "" {
+		reason = defaultShutdownReason
+	}
 	if dispatch := d.dispatcher.Load(); dispatch != nil {
 		dispatch.cancel()
 	}
@@ -503,12 +520,38 @@ func (d *Daemon) Drain() {
 	d.activeMu.Lock()
 	for _, active := range d.activeOperations {
 		if active.reason == "" {
-			active.reason = "Local Computer Daemon is shutting down"
+			active.reason = reason
 		}
 		active.cancel()
 	}
 	d.activeMu.Unlock()
 	d.admissionMu.Unlock()
+}
+
+// DrainAndWait stops admissions, cancels in-flight Operations with reason, and
+// waits until Operations finish and the live Gateway stream acknowledges their
+// terminal events or ctx ends.
+func (d *Daemon) DrainAndWait(ctx context.Context, reason string) {
+	d.DrainWithReason(reason)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		d.WaitForOperations()
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		return
+	}
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for d.ledger.Unacknowledged() > 0 && d.GatewayState() == "connected" {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
 }
 
 func (d *Daemon) WaitForOperations() {

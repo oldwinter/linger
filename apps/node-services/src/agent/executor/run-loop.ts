@@ -2275,6 +2275,21 @@ export class RunLoop {
   }
 }
 
+const DESKTOP_QUIT_STOP_TASKS_REASON = "desktop_quit_stop_tasks";
+
+interface StopTasksErrorCause {
+  readonly code?: unknown;
+  readonly message?: unknown;
+}
+
+function isDesktopQuitStopTasksError(error: unknown): boolean {
+  if (!(error instanceof ProviderRunInterruptedError)) return false;
+  const cause = error.cause;
+  if (typeof cause !== "object" || cause === null) return false;
+  const { code, message } = cause as StopTasksErrorCause;
+  return code === "cancelled" && message === DESKTOP_QUIT_STOP_TASKS_REASON;
+}
+
 const failedRunTerminal = (
   error: unknown,
   signal: AbortSignal,
@@ -2293,7 +2308,8 @@ const failedRunTerminal = (
         ),
       } as const)
     : signal.reason instanceof LocalRunCancellationRequestedError ||
-        signal.reason instanceof LocalRunStoppedError
+        signal.reason instanceof LocalRunStoppedError ||
+        isDesktopQuitStopTasksError(error)
       ? ({ type: "canceled" } as const)
       : ({
           type: "failed",

@@ -56,6 +56,7 @@ type desktopLine struct {
 	OK          bool                          `json:"ok"`
 	Permissions []localtools.LingerPermission `json:"permissions"`
 	Error       string                        `json:"error"`
+	Reason      string                        `json:"reason"`
 }
 
 // desktopChannel is the stdio channel to the Desktop app that runs this
@@ -69,9 +70,10 @@ type desktopChannel struct {
 	mu sync.Mutex
 	// permissions is set once the app's hello announced permission requests;
 	// an app without it never answers them.
-	permissions bool
-	closed      bool
-	pending     map[string]chan desktopLine
+	permissions    bool
+	closed         bool
+	shutdownReason string
+	pending        map[string]chan desktopLine
 }
 
 func newDesktopChannel(stdout io.Writer) *desktopChannel {
@@ -89,6 +91,12 @@ func (c *desktopChannel) encode(value any) error {
 // the app closes the Daemon's stdin when it stops it, and the pipe closes
 // when the app exits without stopping it.
 func (c *desktopChannel) read(stdin io.Reader, shutdown func()) {
+	c.readWithShutdown(stdin, func(string) { shutdown() })
+}
+
+// readWithShutdown handles the Desktop app's stdin lines until EOF, then calls
+// shutdown with any structured reason sent by a preceding "shutdown" message.
+func (c *desktopChannel) readWithShutdown(stdin io.Reader, shutdown func(reason string)) {
 	lines := bufio.NewScanner(stdin)
 	lines.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for lines.Scan() {
@@ -107,12 +115,13 @@ func (c *desktopChannel) read(stdin io.Reader, shutdown func()) {
 	}
 	c.mu.Lock()
 	c.closed = true
+	reason := c.shutdownReason
 	for id, reply := range c.pending {
 		close(reply)
 		delete(c.pending, id)
 	}
 	c.mu.Unlock()
-	shutdown()
+	shutdown(reason)
 }
 
 func (c *desktopChannel) receive(line desktopLine) {
@@ -121,6 +130,10 @@ func (c *desktopChannel) receive(line desktopLine) {
 	switch line.Type {
 	case "hello":
 		c.permissions = slices.Contains(line.Features, desktopPermissionsFeature)
+	case "shutdown":
+		if line.Reason != "" {
+			c.shutdownReason = line.Reason
+		}
 	case "permission.response":
 		// A response after its request timed out has no waiter.
 		if reply, ok := c.pending[line.ID]; ok {

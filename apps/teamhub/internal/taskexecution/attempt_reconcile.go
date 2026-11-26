@@ -88,22 +88,56 @@ func reconcileTaskAttempt(
 		return false, err
 	}
 
-	stopReason, failure := "", ""
-	switch {
-	case current.DeadlineAt.Valid && !now.Time.Before(current.DeadlineAt.Time):
-		stopReason, failure = "attempt_timeout", "the Run did not finish within its time limit"
-	case runs.failed:
-		stopReason, failure = "agent_run_failed", runs.failureMessage
-	case runs.canceled:
-		stopReason, failure = "agent_run_canceled", "the Run was canceled"
-	}
-	if stopReason != "" {
-		return false, failTaskAttempt(ctx, queries, lease, snapshot, input, current, inputs, stopReason, failure)
+	timedOut := current.DeadlineAt.Valid && !now.Time.Before(current.DeadlineAt.Time)
+	if outcome, stopped := classifyAttemptStop(timedOut, runs); stopped {
+		return false, stopTaskAttempt(ctx, queries, lease, snapshot, input, current, inputs, outcome)
 	}
 	if runs.allTerminal && runs.allSucceeded {
 		return false, settleTaskTurn(ctx, queries, lease, snapshot, input, current, runs.lastRun)
 	}
 	return false, nil
+}
+
+const processInterruptedCode = "process_interrupted"
+
+type attemptStopOutcome struct {
+	status         string
+	stopReason     string
+	failureMessage string
+	notifyMeta     bool
+}
+
+// classifyAttemptStop maps a timed-out, failed, or canceled Attempt into its
+// Task execution state and whether to wake the coordinating Meta. Canceled and
+// process-interrupted Runs suppress the Meta callback so a Task stopped by the
+// user or interrupted by a Daemon/service stop stays stopped on reopen instead
+// of prompting the Meta to re-dispatch it.
+func classifyAttemptStop(timedOut bool, runs currentAttemptRuns) (attemptStopOutcome, bool) {
+	switch {
+	case timedOut:
+		return attemptStopOutcome{
+			status:         "failed",
+			stopReason:     "attempt_timeout",
+			failureMessage: "the Run did not finish within its time limit",
+			notifyMeta:     true,
+		}, true
+	case runs.failed:
+		return attemptStopOutcome{
+			status:         "failed",
+			stopReason:     "agent_run_failed",
+			failureMessage: runs.failureMessage,
+			notifyMeta:     runs.failureMessage != processInterruptedCode,
+		}, true
+	case runs.canceled:
+		return attemptStopOutcome{
+			status:         "canceled",
+			stopReason:     "agent_run_canceled",
+			failureMessage: "the Run was canceled",
+			notifyMeta:     false,
+		}, true
+	default:
+		return attemptStopOutcome{}, false
+	}
 }
 
 func currentRunningAttempt(attempts []store.TaskAttempt) (store.TaskAttempt, bool) {
@@ -284,7 +318,7 @@ func taskDoneReminder(taskID string, quiet bool) string {
 // quietTaskNote tells the Meta that the user never saw a quiet Task start.
 const quietTaskNote = "You started it during a proactive wake or a Routine that serves a Tracking Item, so the user never saw it start. "
 
-func failTaskAttempt(
+func stopTaskAttempt(
 	ctx context.Context,
 	queries *store.Queries,
 	lease store.WorkItem,
@@ -292,30 +326,34 @@ func failTaskAttempt(
 	input WorkerTransitionInput,
 	attempt store.TaskAttempt,
 	inputs []store.TaskInputRevision,
-	stopReason, failure string,
+	outcome attemptStopOutcome,
 ) error {
 	if updated, err := queries.StopTaskAttemptForReconcile(ctx, store.StopTaskAttemptForReconcileParams{
-		StopReasonCode: stopReason, AttemptID: attempt.ID, TaskID: input.TaskID,
+		StopReasonCode: outcome.stopReason, AttemptID: attempt.ID, TaskID: input.TaskID,
 		Generation: input.ExecutionGeneration, ExpectedInputRevision: attempt.CurrentInputRevision,
 	}); err != nil {
 		return err
 	} else if updated != 1 {
 		return ErrConflict
 	}
-	// A timed-out Run, or a turn queued behind a failed one, is canceled;
-	// the AlterEgo Context and its session stay for the next message.
+	// A timed-out Run, or a turn queued behind a failed or canceled one, is
+	// canceled; the AlterEgo Context and its session stay for the next message.
 	if err := EnqueueKnownParticipantRuns(ctx, queries, input.TaskID, lease.TenantID, input.ExecutionGeneration); err != nil {
 		return err
 	}
 	if err := cancelStoppedAttemptSubmissions(ctx, queries, input.TaskID, input.ExecutionGeneration, attempt.ID, inputs); err != nil {
 		return err
 	}
-	report := "Task " + snapshot.Title + " (" + input.TaskID + ") failed: " + truncateRunes(failure, taskReportFailureMaxRunes)
-	if snapshot.Quiet {
-		report += " " + quietTaskNote + "Remind the user without it, or say nothing."
+	var reports []string
+	if outcome.notifyMeta {
+		report := "Task " + snapshot.Title + " (" + input.TaskID + ") failed: " + truncateRunes(outcome.failureMessage, taskReportFailureMaxRunes)
+		if snapshot.Quiet {
+			report += " " + quietTaskNote + "Remind the user without it, or say nothing."
+		}
+		reports = []string{report}
 	}
-	return settleTaskStatus(ctx, queries, lease, snapshot, input, "failed", stopReason, []string{report}, map[string]any{
-		"attempt_id": attempt.ID, "attempt_number": attempt.AttemptNumber, "stop_reason_code": stopReason,
+	return settleTaskStatus(ctx, queries, lease, snapshot, input, outcome.status, outcome.stopReason, reports, map[string]any{
+		"attempt_id": attempt.ID, "attempt_number": attempt.AttemptNumber, "stop_reason_code": outcome.stopReason,
 	})
 }
 

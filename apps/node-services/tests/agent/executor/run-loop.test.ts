@@ -2794,6 +2794,34 @@ describe("RunLoop", () => {
     harness.state.close();
   });
 
+  it("records a Desktop Quit and Stop Tasks cancellation as canceled", async () => {
+    const harness = createHarness();
+    const run = new FakeRun();
+    harness.provider.runs.push(run);
+    const runId = enqueue(harness.state, message("initial"));
+    harness.execution.start();
+    await vi.waitFor(() => expect(harness.provider.starts).toHaveLength(1));
+
+    const stopCause = Object.assign(new Error("desktop_quit_stop_tasks"), {
+      code: "cancelled",
+      retryable: false,
+    });
+    run.fail(
+      new ProviderRunInterruptedError("desktop_quit_stop_tasks", {
+        cause: stopCause,
+      }),
+    );
+
+    await vi.waitFor(() =>
+      expect(harness.state.getLocalRun(runId)).toMatchObject({
+        status: "canceled",
+        terminal: { type: "canceled" },
+      }),
+    );
+    await harness.execution.drain({ cancelActive: false });
+    harness.state.close();
+  });
+
   it("retries one Run after a definitely-not-started Provider failure", async () => {
     const statusPublisher = new RecordingRuntimeStatusPublisher();
     const harness = createHarness(undefined, undefined, statusPublisher);

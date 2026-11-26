@@ -10,6 +10,7 @@ function setup(
     busy: boolean;
     automatic: boolean;
     confirm: () => Promise<boolean>;
+    stopTasksBeforeQuit: () => Promise<void>;
     stopHost: (reason: "quit" | "update") => Promise<void>;
   }> = {},
 ) {
@@ -18,6 +19,9 @@ function setup(
     automatic: overrides.automatic ?? false,
   };
   const confirmBusyQuit = vi.fn(overrides.confirm ?? (async () => true));
+  const stopTasksBeforeQuit = vi.fn(
+    overrides.stopTasksBeforeQuit ?? (async () => {}),
+  );
   const prepareQuit = vi.fn();
   const stopHost = vi.fn(
     overrides.stopHost ?? (async (_reason: "quit" | "update") => {}),
@@ -31,6 +35,7 @@ function setup(
     isBusy: () => state.busy,
     isAutomaticQuit: () => state.automatic,
     confirmBusyQuit,
+    stopTasksBeforeQuit,
     prepareQuit,
     stopHost,
     requestAppQuit,
@@ -42,6 +47,7 @@ function setup(
     state,
     guard,
     confirmBusyQuit,
+    stopTasksBeforeQuit,
     prepareQuit,
     stopHost,
     requestAppQuit,
@@ -231,7 +237,78 @@ describe("createQuitGuard", () => {
 
     resolveConfirm(false);
     await flush();
+    expect(f.stopTasksBeforeQuit).not.toHaveBeenCalled();
     expect(f.stopHost).not.toHaveBeenCalled();
     expect(f.exitApp).not.toHaveBeenCalled();
+  });
+
+  it("stops tasks before stopping the host when busy quit is confirmed from Cmd+Q or Tray", async () => {
+    const order: string[] = [];
+    const f = setup({
+      busy: true,
+      confirm: async () => true,
+      stopTasksBeforeQuit: async () => {
+        order.push("stop-tasks");
+      },
+      stopHost: async (reason) => {
+        order.push(`stop-host:${reason}`);
+      },
+    });
+
+    f.guard.handleBeforeQuit({ preventDefault: vi.fn() });
+    await flush();
+
+    expect(order).toEqual(["stop-tasks", "stop-host:quit"]);
+    expect(f.exitApp).toHaveBeenCalledOnce();
+
+    const trayOrder: string[] = [];
+    const trayFixture = setup({
+      busy: true,
+      confirm: async () => true,
+      stopTasksBeforeQuit: async () => {
+        trayOrder.push("stop-tasks");
+      },
+      stopHost: async (reason) => {
+        trayOrder.push(`stop-host:${reason}`);
+      },
+    });
+
+    await trayFixture.guard.requestQuit();
+    await flush();
+
+    expect(trayOrder).toEqual(["stop-tasks", "stop-host:quit"]);
+    expect(trayFixture.exitApp).toHaveBeenCalledOnce();
+  });
+
+  it("skips stopTasksBeforeQuit for idle quits and automatic updater exits", async () => {
+    const idle = setup({ busy: false });
+    idle.guard.handleBeforeQuit({ preventDefault: vi.fn() });
+    await flush();
+    expect(idle.stopTasksBeforeQuit).not.toHaveBeenCalled();
+    expect(idle.stopHost).toHaveBeenCalledExactlyOnceWith("quit");
+
+    const auto = setup({ busy: true, automatic: true });
+    auto.guard.handleBeforeQuit({ preventDefault: vi.fn() });
+    await flush();
+    expect(auto.stopTasksBeforeQuit).not.toHaveBeenCalled();
+    expect(auto.stopHost).toHaveBeenCalledExactlyOnceWith("update");
+  });
+
+  it("still stops the host and exits if stopTasksBeforeQuit rejects", async () => {
+    const f = setup({
+      busy: true,
+      confirm: async () => true,
+      stopTasksBeforeQuit: async () => {
+        throw new Error("teamhub unreachable");
+      },
+    });
+
+    await f.guard.requestQuit();
+    await flush();
+
+    expect(f.stopTasksBeforeQuit).toHaveBeenCalledOnce();
+    expect(f.stopHost).toHaveBeenCalledExactlyOnceWith("quit");
+    expect(f.relaunchIfNeeded).toHaveBeenCalledOnce();
+    expect(f.exitApp).toHaveBeenCalledOnce();
   });
 });

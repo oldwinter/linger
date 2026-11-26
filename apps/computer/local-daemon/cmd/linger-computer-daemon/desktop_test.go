@@ -75,6 +75,25 @@ func TestDesktopChannelShutsDownOnStdinEOF(t *testing.T) {
 	}
 }
 
+func TestDesktopChannelPassesShutdownReasonOnStdinEOF(t *testing.T) {
+	reader, writer := io.Pipe()
+	channel := newDesktopChannel(io.Discard)
+	got := make(chan string, 1)
+	go channel.readWithShutdown(reader, func(reason string) { got <- reason })
+	if _, err := writer.Write([]byte(`{"type":"shutdown","reason":"desktop_quit_stop_tasks"}` + "\n")); err != nil {
+		t.Fatal(err)
+	}
+	_ = writer.Close()
+	select {
+	case reason := <-got:
+		if reason != "desktop_quit_stop_tasks" {
+			t.Fatalf("reason = %q, want desktop_quit_stop_tasks", reason)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("shutdown did not follow stdin EOF")
+	}
+}
+
 func TestReportDesktopStatusWritesChangesOnly(t *testing.T) {
 	source := &fakeStatusSource{state: "connecting"}
 	reader, writer := io.Pipe()

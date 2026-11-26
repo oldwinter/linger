@@ -494,8 +494,19 @@ Gateway and runs Agents. The daemon exits with the app.
   Room updates flowing. Closing hides
   the window to the tray. All user-initiated quit paths (`before-quit`,
   including macOS `Cmd+Q` and Dock Quit, as well as Tray Quit) pass through
-  `quit-guard.ts` so active tasks prompt before quitting while automatic
-  updater/uninstaller exits proceed without blocking. Closing the setup window does not quit either: an
+  `quit-guard.ts` so active tasks prompt with **Quit and Stop Tasks** /
+  **Keep Running** before quitting while automatic updater/uninstaller exits
+  proceed without blocking. Confirming **Quit and Stop Tasks** runs
+  `stopActiveRoomRunsBeforeQuit` (`src/main/stop-tasks.ts`, canceling queued
+  and running Room Runs without enqueuing a Meta callback) alongside
+  `ComputerDaemonModule.stopTasksAndTerminate()` (sending the structured
+  `desktop_quit_stop_tasks` shutdown reason on stdin before EOF so the Daemon
+  drains and delivers `operation.cancelled` before closing the Gateway stream,
+  and TeamHub keeps stopped Tasks stopped rather than re-dispatching them on
+  reopen). Local background services (`PostgreSQL`, `TeamHub`, `node-services`,
+  `web`, `LiveKit`, and the `local-models` controller) intentionally stay
+  running after desktop quit so web and mobile clients keep working, while
+  local models unload via detached `--stop-local-models`. Closing the setup window does not quit either: an
   installation keeps running, and opening Linger again (a second launch, the
   Dock, the tray) shows setup until the computer is enrolled
   (`app-window.ts`), the main window after. The main window's server form
