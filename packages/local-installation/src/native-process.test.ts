@@ -1,8 +1,10 @@
 import {
+  mkdir,
   mkdtemp,
   readFile,
   readdir,
   readlink,
+  realpath,
   rm,
   writeFile,
 } from "node:fs/promises";
@@ -12,7 +14,7 @@ import path from "node:path";
 import { spawn, execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 const failure = vi.hoisted(() => ({ file: "" }));
 vi.mock("./instance.js", async (original) => {
   const actual = await original<typeof import("./instance.js")>();
@@ -33,6 +35,7 @@ import {
   NATIVE_PROCESS_REPLACED,
   foldersInUse,
   nativeConfigurationChanged,
+  nativeSupervisorsStale,
   startNativeProcess,
   inspectNativeProcess,
   reclaimNativeOrphans,
@@ -56,7 +59,13 @@ async function fixture({ onTestFinished }: TestContext) {
     // Supervisors outlive the test process by design, so a cleanup that gives
     // up leaks them for good: escalate at once instead of the production wait,
     // then end whatever still runs from this root.
-    for (const name of ["web", "teamhub"] as const)
+    for (const name of [
+      "web",
+      "teamhub",
+      "node-services",
+      "livekit",
+      "postgres",
+    ] as const)
       await stopNativeProcess(root, name, 300).catch(() => {});
     if (windows) {
       await reclaimNativeOrphans(root, { ports: [], paths: [] });
@@ -919,3 +928,278 @@ posix("names the folders a running process starts from", async (context) => {
     new Set([used]),
   );
 });
+
+async function bundleSupervisorFolder(folder: string, workerSuffix = "") {
+  await mkdir(folder, { recursive: true });
+  const app = fileURLToPath(
+    new URL("../../../apps/linger-installer/", import.meta.url),
+  );
+  const { build } = createRequire(path.join(app, "package.json"))(
+    "esbuild",
+  ) as {
+    build: (options: Record<string, unknown>) => Promise<void>;
+  };
+  const corePath = path.join(folder, "core.mjs");
+  const workerPath = path.join(folder, "native-process-worker.mjs");
+  for (const [source, outfile] of [
+    [fileURLToPath(new URL("./native-process.ts", import.meta.url)), corePath],
+    [
+      fileURLToPath(new URL("./native-process-worker.mjs", import.meta.url)),
+      workerPath,
+    ],
+  ])
+    await build({
+      entryPoints: [source],
+      outfile,
+      bundle: true,
+      platform: "node",
+      format: "esm",
+      target: "node26",
+    });
+  if (workerSuffix) {
+    const original = await readFile(workerPath, "utf8");
+    await writeFile(workerPath, `${original}\n${workerSuffix}\n`);
+  }
+  const core = (await import(
+    pathToFileURL(corePath).href
+  )) as typeof import("./native-process.js");
+  return { core, workerPath };
+}
+
+function readProcessCommand(pid: number): string {
+  if (process.platform === "linux")
+    return readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0").join(" ");
+  return execFileSync("/bin/ps", ["-p", String(pid), "-o", "command="], {
+    encoding: "utf8",
+  }).trim();
+}
+
+posix(
+  "hands off leased postgres and livekit supervisors cleanly on upgrade from Folder A to Folder B",
+  async (context) => {
+    const { expect } = context;
+    const root = await fixture(context);
+    const folderA = path.join(root, "app-v1");
+    const folderB = path.join(root, "app-v2");
+    const [releaseA, releaseB] = await Promise.all([
+      bundleSupervisorFolder(folderA, "// release v1"),
+      bundleSupervisorFolder(folderB, "// release v2"),
+    ]);
+    const gracefulScript = (name: string) =>
+      `const fs=require('node:fs');fs.appendFileSync('${name}.starts',process.pid+'\\n');process.on('SIGINT',()=>{fs.writeFileSync('${name}.sigint','ok');process.exit(0);});setInterval(()=>{},1000)`;
+    const postgresOptions = {
+      root,
+      name: "postgres" as const,
+      executable: process.execPath,
+      args: ["-e", gracefulScript("postgres")],
+      cwd: root,
+      env: process.env,
+      restartOnConfigurationChange: true,
+    };
+    const livekitOptions = {
+      root,
+      name: "livekit" as const,
+      executable: process.execPath,
+      args: ["-e", gracefulScript("livekit")],
+      cwd: root,
+      env: process.env,
+      restartOnConfigurationChange: true,
+    };
+
+    const pgA = await releaseA.core.startNativeProcess(postgresOptions);
+    const lkA = await releaseA.core.startNativeProcess(livekitOptions);
+    await expect
+      .poll(async () =>
+        readFile(path.join(root, "postgres.starts"), "utf8").catch(() => ""),
+      )
+      .toMatch(/^\d+\n$/);
+    await expect
+      .poll(async () =>
+        readFile(path.join(root, "livekit.starts"), "utf8").catch(() => ""),
+      )
+      .toMatch(/^\d+\n$/);
+
+    // Same-folder inspection sees fresh supervisors; Folder B sees stale ones.
+    expect(await releaseA.core.nativeSupervisorsStale(root)).toBe(false);
+    expect(await releaseB.core.nativeSupervisorsStale(root)).toBe(true);
+    expect(
+      await releaseB.core.nativeConfigurationChanged(postgresOptions),
+    ).toBe(true);
+    expect(await releaseB.core.nativeConfigurationChanged(livekitOptions)).toBe(
+      true,
+    );
+
+    // Same-folder restart reuses both healthy supervisors without restarting.
+    expect((await releaseA.core.startNativeProcess(postgresOptions)).pid).toBe(
+      pgA.pid,
+    );
+    expect((await releaseA.core.startNativeProcess(livekitOptions)).pid).toBe(
+      lkA.pid,
+    );
+
+    // Upgrading to Folder B stops Folder A's supervisors gracefully and hands off.
+    const pgB = await releaseB.core.startNativeProcess(postgresOptions);
+    const lkB = await releaseB.core.startNativeProcess(livekitOptions);
+    expect(pgB.pid).not.toBe(pgA.pid);
+    expect(lkB.pid).not.toBe(lkA.pid);
+    await expect.poll(() => exited(pgA.pid!)).toBe(true);
+    await expect.poll(() => exited(lkA.pid!)).toBe(true);
+    expect(await readFile(path.join(root, "postgres.sigint"), "utf8")).toBe(
+      "ok",
+    );
+    expect(await readFile(path.join(root, "livekit.sigint"), "utf8")).toBe(
+      "ok",
+    );
+    expect(await releaseB.core.nativeSupervisorsStale(root)).toBe(false);
+    expect(
+      await releaseB.core.nativeConfigurationChanged(postgresOptions),
+    ).toBe(false);
+
+    const canonicalWorkerB = await realpath(releaseB.workerPath);
+    for (const [name, pid] of [
+      ["postgres", pgB.pid!],
+      ["livekit", lkB.pid!],
+    ] as const) {
+      const record = JSON.parse(
+        await readFile(
+          path.join(root, "native/processes", `${name}.json`),
+          "utf8",
+        ),
+      ) as { supervisor?: { script: string } };
+      expect(record.supervisor?.script).toBe(canonicalWorkerB);
+      const command = readProcessCommand(pid);
+      expect(command).toContain(canonicalWorkerB);
+      expect(command).not.toContain(folderA);
+    }
+  },
+);
+
+posix(
+  "hands off leased supervisors on same-version re-extract after Folder A is deleted",
+  async (context) => {
+    const { expect } = context;
+    const root = await fixture(context);
+    const folderA = path.join(root, "extract-A");
+    const folderB = path.join(root, "extract-B");
+    // Same worker contents in both folders (same release extracted elsewhere).
+    const [extractA, extractB] = await Promise.all([
+      bundleSupervisorFolder(folderA),
+      bundleSupervisorFolder(folderB),
+    ]);
+    const service = (name: "postgres" | "web") => ({
+      root,
+      name,
+      executable: process.execPath,
+      args: [
+        "-e",
+        `process.on('SIGINT',()=>process.exit(0));setInterval(()=>{},1000)`,
+      ],
+      cwd: root,
+      env: process.env,
+      restartOnConfigurationChange: true,
+    });
+
+    const pgA = await extractA.core.startNativeProcess(service("postgres"));
+    const webA = await extractA.core.startNativeProcess(service("web"));
+
+    // Delete Folder A completely while its supervisors are still running.
+    await rm(folderA, { recursive: true, force: true });
+
+    // Running services still inspect as running so ports are never reassigned,
+    // while Folder B detects that their supervisors belong to deleted Folder A.
+    expect(await extractB.core.inspectNativeProcess(root, "postgres")).toEqual({
+      running: true,
+      pid: pgA.pid,
+    });
+    expect(await extractB.core.nativeSupervisorsStale(root)).toBe(true);
+
+    const pgB = await extractB.core.startNativeProcess(service("postgres"));
+    const webB = await extractB.core.startNativeProcess(service("web"));
+    expect(pgB.pid).not.toBe(pgA.pid);
+    expect(webB.pid).not.toBe(webA.pid);
+    await expect.poll(() => exited(pgA.pid!)).toBe(true);
+    await expect.poll(() => exited(webA.pid!)).toBe(true);
+    expect(await extractB.core.nativeSupervisorsStale(root)).toBe(false);
+
+    const canonicalWorkerB = await realpath(extractB.workerPath);
+    expect(readProcessCommand(pgB.pid!)).toContain(canonicalWorkerB);
+    expect(readProcessCommand(webB.pid!)).toContain(canonicalWorkerB);
+  },
+);
+
+posix(
+  "hands off a supervisor when native-process-worker.mjs is overwritten in place",
+  async (context) => {
+    const { expect } = context;
+    const root = await fixture(context);
+    const folder = path.join(root, "in-place");
+    const bundled = await bundleSupervisorFolder(folder, "// build 1");
+    const options = {
+      root,
+      name: "postgres" as const,
+      executable: process.execPath,
+      args: [
+        "-e",
+        "process.on('SIGINT',()=>process.exit(0));setInterval(()=>{},1000)",
+      ],
+      cwd: root,
+      env: process.env,
+      restartOnConfigurationChange: true,
+    };
+
+    const first = await bundled.core.startNativeProcess(options);
+    expect(await bundled.core.nativeSupervisorsStale(root)).toBe(false);
+
+    // Overwrite the supervisor script in place with an updated build.
+    const previous = await readFile(bundled.workerPath, "utf8");
+    await writeFile(bundled.workerPath, `${previous}\n// build 2\n`);
+
+    expect(await bundled.core.nativeSupervisorsStale(root)).toBe(true);
+    expect(await bundled.core.nativeConfigurationChanged(options)).toBe(true);
+
+    const second = await bundled.core.startNativeProcess(options);
+    expect(second.pid).not.toBe(first.pid);
+    await expect.poll(() => exited(first.pid!)).toBe(true);
+    expect(await bundled.core.nativeSupervisorsStale(root)).toBe(false);
+  },
+);
+
+posix(
+  "hands off a running service whose legacy record lacks supervisor metadata",
+  async (context) => {
+    const { expect } = context;
+    const root = await fixture(context);
+    const options = {
+      root,
+      name: "postgres" as const,
+      executable: process.execPath,
+      args: [
+        "-e",
+        "process.on('SIGINT',()=>process.exit(0));setInterval(()=>{},1000)",
+      ],
+      cwd: root,
+      env: process.env,
+      restartOnConfigurationChange: true,
+    };
+    const first = await startNativeProcess(options);
+    const recordPath = path.join(root, "native/processes/postgres.json");
+    const legacy = JSON.parse(await readFile(recordPath, "utf8")) as Record<
+      string,
+      unknown
+    >;
+    delete legacy.supervisor;
+    await writeFile(recordPath, JSON.stringify(legacy), { mode: 0o600 });
+
+    expect(await inspectNativeProcess(root, "postgres")).toEqual({
+      running: true,
+      pid: first.pid,
+    });
+    expect(await nativeSupervisorsStale(root)).toBe(true);
+    expect(await nativeConfigurationChanged(options)).toBe(true);
+
+    const second = await startNativeProcess(options);
+    expect(second.pid).not.toBe(first.pid);
+    await expect.poll(() => exited(first.pid!)).toBe(true);
+    expect(await nativeSupervisorsStale(root)).toBe(false);
+  },
+);

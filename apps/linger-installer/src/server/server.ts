@@ -1,9 +1,8 @@
 import { windowsPrivatePath } from "@linger/local-installation/windows-private";
 import http from "node:http";
 import { DatabaseSync } from "node:sqlite";
-import { chmod, lstat } from "node:fs/promises";
-import { randomBytes } from "node:crypto";
-import { readFile, rm } from "node:fs/promises";
+import { chmod, lstat, readFile, realpath, rm } from "node:fs/promises";
+import { createHash, randomBytes } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeLauncher } from "./launcher.js";
@@ -25,6 +24,30 @@ import {
 } from "@linger/local-installation/byok-source";
 import { checkRuntimeModel } from "@linger/local-installation/managed-codex";
 import type { SourceInstallOptions } from "@linger/local-installation/source-checkout";
+export interface ManagerIdentity {
+  script: string;
+  digest: string;
+}
+/** Canonical script path and content digest of the running installer manager. */
+export async function currentManagerIdentity(): Promise<
+  ManagerIdentity | undefined
+> {
+  const scriptPath = fileURLToPath(import.meta.url);
+  let contents: Buffer;
+  try {
+    contents = await readFile(scriptPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+  const script = await realpath(scriptPath).catch(() =>
+    path.resolve(scriptPath),
+  );
+  return {
+    script,
+    digest: createHash("sha256").update(contents).digest("hex"),
+  };
+}
 export interface ServerOptions {
   home: string;
   sourceRepo: string;
@@ -34,6 +57,7 @@ export interface ServerOptions {
   port?: number;
   webDir?: string;
   idleTimeoutMs?: number;
+  managerIdentity?: ManagerIdentity;
   launchVoiceToolsBackground?: SourceInstallOptions["launchVoiceToolsBackground"];
   dependencies?: Partial<ReturnType<typeof coreAdapter>> & {
     run?: RunInstallation;
@@ -707,12 +731,16 @@ export async function startInstallerServer(options: ServerOptions) {
   });
   const address = server.address() as import("node:net").AddressInfo;
   origin = `http://127.0.0.1:${address.port}`;
+  const identity = options.managerIdentity ?? (await currentManagerIdentity());
   await privateWrite(path.join(stateDir, "session.json"), {
     origin,
     controlToken,
     sourceRepo: options.sourceRepo,
     externalComputer: options.externalComputer ?? false,
     instanceName: options.instanceName ?? "default",
+    ...(identity
+      ? { script: identity.script, scriptDigest: identity.digest }
+      : {}),
     pid: process.pid,
     createdAt: new Date().toISOString(),
   });

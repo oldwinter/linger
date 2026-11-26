@@ -32,7 +32,8 @@ new `queued` job: the earlier job may be in a step that only stops at its end
 it in the background and shutdown or a cancel stops it before it runs. A start
 without a choice follows the active job.
 An idle desktop-owned manager steps aside when the desktop relaunches the same
-instance with another checkout. Every installation runs natively from the
+instance with another checkout or from a moved/updated installer bundle (script
+path or digest mismatch in `session.json`). Every installation runs natively from the
 source checkout `--source-repo` names. Start failures print their real cause
 on stderr for the desktop to show.
 Native sign-in sessions belong to an instance and its selected runtime. A changed
@@ -53,9 +54,13 @@ resumes on the same checkout pass `resume: true` (a resume onto another
 checkout omits it and prepares the runtime in full, sequentially) so an already-installed runtime
 is reused after one status check, runtime/foundation preparation overlaps
 service startup, and inspected runtime descriptors are passed directly to
-`instanceRuntime` without a second status probe. It also restarts running
+`instanceRuntime` without a second status probe. With `--external-computer`,
+`--resume` retires any lingering idle desktop-owned installer manager via
+`/api/retire` without interrupting active jobs. It also restarts running
 services when the instance's `user.env` no longer
-matches the configuration they started with, or when `--source-repo` names
+matches the configuration they started with, when any running native service's
+supervisor script, Node executable, or worker digest no longer matches this
+installation (`nativeSupervisorsStale`), or when `--source-repo` names
 another checkout than the instance's. An instance follows a new checkout only
 once its services are ready on it: until then `instance.json` keeps naming the
 checkout they run from, the new checkout's migrations run only after the

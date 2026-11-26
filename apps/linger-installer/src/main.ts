@@ -537,6 +537,8 @@ async function serve(options: ReturnType<typeof parseInstallerArguments>) {
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
   await server.closed;
+  // Detached service processes may keep handles open; exit once closed.
+  process.exit(0);
 }
 // A packaged installer (the desktop client bundles one) carries the
 // publisher's pinned localmodels, native PostgreSQL and Native voice tools

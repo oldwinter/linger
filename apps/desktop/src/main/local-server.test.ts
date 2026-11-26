@@ -423,6 +423,7 @@ const installerApi = (
   const created: unknown[] = [];
   const retried: unknown[] = [];
   const canceled: string[] = [];
+  let shutdowns = 0;
   // The runtime the installation set up and its sign-in; tests change them.
   // The installer answers runtime lookups once `lookup` settles, as its
   // one lookup per instance ends; `asked` counts the requests.
@@ -542,9 +543,22 @@ const installerApi = (
       expect(url.searchParams.get("instance")).toBe(LOCAL_INSTANCE);
       return Response.json(runtime.login);
     }
+    if (url.pathname === "/api/shutdown" && init.method === "POST") {
+      shutdowns += 1;
+      return Response.json({ ok: true });
+    }
     return new Response(null, { status: 404 });
   };
-  return { handle, created, retried, canceled, runtime };
+  return {
+    handle,
+    created,
+    retried,
+    canceled,
+    runtime,
+    get shutdowns() {
+      return shutdowns;
+    },
+  };
 };
 
 const TEAMHUB = "http://127.0.0.1:4100";
@@ -936,6 +950,7 @@ describe("LocalServerModule", () => {
       { reason: "local_ready" },
     );
     expect(f.enroll).toHaveBeenCalled();
+    expect(f.api.shutdowns).toBe(1);
     expect(f.module.status()).toMatchObject({
       phase: "ready",
       progress: 1,
