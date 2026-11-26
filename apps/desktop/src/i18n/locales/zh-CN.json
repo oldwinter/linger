@@ -423,7 +423,7 @@
   },
   "mobileCompanion": {
     "title": "移动端伴侣",
-    "subtitle": "通过局域网或 Tailscale 安全连接这台 Linger 桌面端。",
+    "subtitle": "通过局域网或 Tailscale 安全连接这台 LingerX 桌面端。",
     "toggleGatewayTitle": "启用移动端伴侣网关",
     "statusLabel": "状态",
     "statusStopped": "已停止",
