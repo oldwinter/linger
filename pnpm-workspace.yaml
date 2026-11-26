@@ -22,6 +22,9 @@ minimumReleaseAgeExclude:
   - "@tanstack/react-query@5.101.3"
   - livekit-client@2.22.2
   - officeparser@8.2.0
+  - "@e2e-dev/core@0.24.0"
+  - "@e2e-dev/web@0.16.1"
+  - e2e@0.24.0
 overrides:
   xlsx: "npm:@e965/xlsx@0.20.3"
 patchedDependencies:
