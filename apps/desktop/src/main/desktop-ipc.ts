@@ -16,6 +16,7 @@ import { ConnectorOAuth } from "./connector-oauth.js";
 import type { DiagnosticsModule } from "./diagnostics.js";
 import type { DriverUpdaterHost } from "./driver-updater.js";
 import type { EnrollmentModule } from "./enrollment.js";
+import type { HerdrCoreBridgeHost } from "./herdr-core/module.js";
 import type { LanguageModule } from "./language.js";
 import type { LocalServerModule } from "./local-server.js";
 import type { Module, ModuleContext } from "./modules.js";
@@ -117,6 +118,7 @@ export class DesktopIpcModule implements Module {
   readonly #permissions: DesktopPermissionHost | undefined;
   readonly #tray: DesktopTrayHost | undefined;
   readonly #driverUpdater: DriverUpdaterHost | undefined;
+  readonly #herdrCoreBridge: HerdrCoreBridgeHost | undefined;
   readonly #unsubscribe: (() => void)[] = [];
 
   constructor(options: {
@@ -125,12 +127,14 @@ export class DesktopIpcModule implements Module {
     permissions?: DesktopPermissionHost;
     tray?: DesktopTrayHost;
     driverUpdater?: DriverUpdaterHost;
+    herdrCoreBridge?: HerdrCoreBridgeHost;
   }) {
     this.#badge = options.badge;
     this.#defaultDisplayName = options.defaultDisplayName;
     this.#permissions = options.permissions;
     this.#tray = options.tray;
     this.#driverUpdater = options.driverUpdater;
+    this.#herdrCoreBridge = options.herdrCoreBridge;
   }
 
   async start(ctx: ModuleContext): Promise<void> {
@@ -302,6 +306,13 @@ export class DesktopIpcModule implements Module {
       handle(IPC.driverUpdateClearState, () => {
         driverUpdater.clearInstallState();
       });
+    }
+
+    const herdrCoreBridge = this.#herdrCoreBridge;
+    if (herdrCoreBridge) {
+      handle(IPC.herdrCoreGetBridge, () => herdrCoreBridge.getConnectionInfo());
+      handle(IPC.herdrCoreDetect, () => herdrCoreBridge.detect());
+      handle(IPC.herdrCoreStartServer, () => herdrCoreBridge.startServer());
     }
 
     const push = (): void => {

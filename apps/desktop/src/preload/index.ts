@@ -133,6 +133,11 @@ const api: LingerDesktopApi = {
       ipcRenderer.invoke(IPC.driverUpdateStartInstall, request),
     clearInstallState: () => ipcRenderer.invoke(IPC.driverUpdateClearState),
   },
+  herdrCore: {
+    getBridge: () => ipcRenderer.invoke(IPC.herdrCoreGetBridge),
+    detect: () => ipcRenderer.invoke(IPC.herdrCoreDetect),
+    startServer: () => ipcRenderer.invoke(IPC.herdrCoreStartServer),
+  },
   ...(process.platform === "darwin"
     ? {
         permissions: {
