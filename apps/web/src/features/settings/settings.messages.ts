@@ -10,6 +10,7 @@ export const settingsMessages = defineMessages("settings", {
   shortcuts: "Shortcuts",
   computers: "Computers",
   models: "Models",
+  system: "System",
   language: "Language",
   profilePageDescription:
     "Photo, name, bio, notifications, and browser preferences for this space.",

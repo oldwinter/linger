@@ -193,4 +193,15 @@
   --app-wiki-hue-3: #1c9c2f;
   --app-wiki-hue-4: #9c2a1c;
   --app-wiki-hue-5: #5e9c1c;
+  /* System Monitor semantic telemetry roles from the Town palette. */
+  --telemetry-weights: #4e9ba2;
+  --telemetry-kv: #698cc7;
+  --telemetry-compute: #a17cb9;
+  --telemetry-wired: #b07f77;
+  --telemetry-apps: #b88022;
+  --telemetry-compressed: #a08e00;
+  --telemetry-free: hsl(var(--town-muted));
+  --telemetry-ok: hsl(var(--town-success));
+  --telemetry-warn: hsl(var(--town-warning));
+  --telemetry-bad: hsl(var(--town-destructive));
 }
