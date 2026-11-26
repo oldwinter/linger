@@ -25,6 +25,10 @@ const ALL_PANEL_CREATE_ITEMS = [
     kind: "collaboration",
     label: m.collaboration,
   },
+  {
+    kind: "terminals",
+    label: m.terminals,
+  },
 ] as const satisfies { kind: PanelTabKind; label: Message<string> }[];
 
 export type PanelCreateChoice = (typeof ALL_PANEL_CREATE_ITEMS)[number]["kind"];

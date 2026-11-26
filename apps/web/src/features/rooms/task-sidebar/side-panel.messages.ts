@@ -21,6 +21,7 @@ export const sidePanelMessages = defineMessages("sidePanel", {
   filesTab: "Files",
   roomInfo: "Room info",
   collaboration: "Collaboration",
+  terminals: "Terminals",
   untitledTab: "Untitled",
   // The "Add panel view" menu and the launcher.
   documents: "Documents",
@@ -36,11 +37,13 @@ export const sidePanelMessages = defineMessages("sidePanel", {
   },
   browseSharedFiles: "Browse files shared in this conversation",
   collaborationHint: "Agent responsibilities and relationships",
+  terminalsHint: "Live herdr-core terminals and coding agents",
   launcherFooter:
     "Open a message thread, document, or routine to view it here. Your chat stays in place.",
   // Loading and error states around a panel.
   loadingTask: "Loading task",
   loadingCollaboration: "Loading collaboration",
+  loadingTerminals: "Loading terminals",
   loadingFile: "Loading file",
   loadingActivity: "Loading activity",
   taskLoadFailedTitle: "Task could not be loaded",

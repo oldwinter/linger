@@ -69,6 +69,11 @@ const RemindersPanel = lazy(() =>
     default: module.RemindersPanel,
   })),
 );
+const HerdrCoreRoomPanel = lazy(() =>
+  import("@/features/herdr-core/herdr-core-room-panel").then((module) => ({
+    default: module.HerdrCoreRoomPanel,
+  })),
+);
 /** Matches the panel reveal/collapse duration declared in globals.css. */
 const PANEL_COLLAPSE_MS = 450;
 const EMPTY_TASK_RESOLUTIONS: Readonly<Record<string, TaskAnchorResolution>> =
@@ -705,6 +710,17 @@ function MountedPanelTab({
         <Suspense fallback={<PanelLoading label={t(m.loadingCollaboration)} />}>
           <CollaborationPanel
             actors={roomMembers}
+            hidden={hidden || !sidebarOpen}
+            roomId={roomId}
+            tenantId={tenantId}
+          />
+        </Suspense>
+      );
+    }
+    if (tab.kind === "terminals") {
+      return (
+        <Suspense fallback={<PanelLoading label={t(m.loadingTerminals)} />}>
+          <HerdrCoreRoomPanel
             hidden={hidden || !sidebarOpen}
             roomId={roomId}
             tenantId={tenantId}

@@ -883,7 +883,7 @@ describe("TaskSidebar", () => {
       within(launcher)
         .getAllByRole("button")
         .map((button) => button.getAttribute("aria-label")),
-    ).toEqual(["Files", "Routines", "Collaboration"]);
+    ).toEqual(["Files", "Routines", "Collaboration", "Terminals"]);
     expect(screen.queryByRole("button", { name: "Thread" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Room info" })).toBeNull();
     expect(screen.queryByText("Suggestion")).toBeNull();
@@ -904,6 +904,8 @@ describe("TaskSidebar", () => {
     expect(onCreate).toHaveBeenCalledWith("routines");
     fireEvent.click(screen.getByRole("button", { name: "Collaboration" }));
     expect(onCreate).toHaveBeenCalledWith("collaboration");
+    fireEvent.click(screen.getByRole("button", { name: "Terminals" }));
+    expect(onCreate).toHaveBeenCalledWith("terminals");
 
     fireEvent.click(screen.getByRole("button", { name: "Add panel view" }));
     expect(screen.getByRole("menu", { name: "Add panel view" })).toBeVisible();
@@ -912,6 +914,7 @@ describe("TaskSidebar", () => {
     expect(
       screen.getByRole("menuitem", { name: "Collaboration" }),
     ).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: "Terminals" })).toBeVisible();
     expect(screen.queryByRole("menuitem", { name: "Room info" })).toBeNull();
   });
 

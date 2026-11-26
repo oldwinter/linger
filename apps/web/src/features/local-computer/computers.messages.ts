@@ -35,6 +35,8 @@ export const computersMessages = defineMessages("computers", {
   aiAppsHint: "One ready app is enough.",
   localModels: "Local models",
   manageLocalModels: "Manage local models",
+  terminals: "Terminals",
+  openTerminalsWorkbench: "Open live herdr-core terminals",
   power: "Power",
   preventSleep: "Prevent sleep",
   preventSleepHint:

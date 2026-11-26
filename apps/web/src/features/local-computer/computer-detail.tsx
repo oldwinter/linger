@@ -18,7 +18,7 @@ import {
   StopIcon,
   Tick02Icon,
 } from "@hugeicons/core-free-icons";
-import { type ReactNode, useState } from "react";
+import { lazy, Suspense, type ReactNode, useState } from "react";
 import { Link } from "react-router";
 
 import { Button } from "@/components/ui/button";
@@ -75,6 +75,12 @@ interface AppSetup {
   app: TeamHubLocalRuntimeType;
   choosable: boolean;
 }
+
+const LazyHerdrCoreComputerDialog = lazy(() =>
+  import("@/features/herdr-core/herdr-core-computer-drawer").then((module) => ({
+    default: module.HerdrCoreComputerDialog,
+  })),
+);
 
 export function ComputerDetail({
   activeRuntime,
@@ -144,6 +150,7 @@ export function ComputerDetail({
   const [setup, setSetup] = useState<AppSetup | null>(null);
   const [updateOpen, setUpdateOpen] = useState(false);
   const [desktopChecked, setDesktopChecked] = useState(false);
+  const [terminalsOpen, setTerminalsOpen] = useState(false);
   const desktopComputer = useDesktopComputer();
   const isThisComputer =
     desktopComputer?.status?.computerId === computer.computer_id;
@@ -254,6 +261,27 @@ export function ComputerDetail({
           </Link>
         </Group>
       ) : null}
+      <Group title={t(computersMessages.terminals)}>
+        <button
+          className="flex min-h-14 w-full items-center gap-3 rounded-lg py-2 pr-2.5 pl-2 transition-colors duration-150 hover:bg-sidebar-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring motion-reduce:transition-none"
+          onClick={() => setTerminalsOpen(true)}
+          type="button"
+        >
+          <RowMark>
+            <Icon icon={ComputerTerminal01Icon} size={20} />
+          </RowMark>
+          <span className="min-w-0 flex-1 text-left">
+            <span className="block truncate text-sm text-foreground">
+              {t(computersMessages.openTerminalsWorkbench)}
+            </span>
+          </span>
+          <Icon
+            className="text-muted-foreground/60"
+            icon={ArrowRight01Icon}
+            size={16}
+          />
+        </button>
+      </Group>
       {isThisComputer ? (
         <DesktopPreventSleep
           renderGroup={(content) => (
@@ -303,6 +331,16 @@ export function ComputerDetail({
           key={`${setup.app}-${setup.choosable}`}
           onClose={() => setSetup(null)}
         />
+      ) : null}
+      {terminalsOpen ? (
+        <Suspense fallback={null}>
+          <LazyHerdrCoreComputerDialog
+            computerId={computer.computer_id}
+            computerName={computer.display_name}
+            isDesktopLocalComputer={isThisComputer}
+            onClose={() => setTerminalsOpen(false)}
+          />
+        </Suspense>
       ) : null}
       {cliInstallAvailable && updateOpen ? (
         <ModalDialog
