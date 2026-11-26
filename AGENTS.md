@@ -51,6 +51,8 @@ Memory, and Voice services.
 - `skills`: versioned built-in Skill assets embedded into TeamHub.
 - `.agents/skills/verify-linger`: acceptance recipes and an isolated
   real-service proof for a coding Agent verifying user journeys.
+- `docs/upstream-sync.md`: fork upstream-sync runbook (`simplexai-labs/linger`
+  to `oldwinter/linger`) covering migrations, fork features, and merge policy.
 
 ## Important Conventions
 
