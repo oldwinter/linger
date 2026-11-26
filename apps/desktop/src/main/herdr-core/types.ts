@@ -25,10 +25,23 @@ export interface HerdrCoreStartServerResult {
 }
 
 export interface HerdrCoreStatusRecord {
+  readonly state?: string | null;
   readonly status?: string | null;
   readonly msg?: string | null;
+  readonly kind?: string | null;
+  readonly app?: string | null;
+  readonly title?: string | null;
   readonly progress?: number | null;
   readonly detail?: string | null;
+}
+
+export function terminalStatusWord(
+  terminal: Pick<HerdrCoreTerminal, "status">,
+): string | null {
+  const word = terminal.status?.state ?? terminal.status?.status;
+  return typeof word === "string" && word.trim().length > 0
+    ? word.trim()
+    : null;
 }
 
 export interface HerdrCoreTerminal {
@@ -54,6 +67,9 @@ export interface HerdrCoreTerminal {
   readonly status?: HerdrCoreStatusRecord | null;
   readonly status_ms?: number | null;
   readonly foreground?: {
+    readonly pid?: number | null;
+    readonly name?: string | null;
+    readonly argv?: readonly string[] | null;
     readonly cwd?: string | null;
     readonly command?: string | null;
   } | null;
@@ -76,7 +92,8 @@ export interface HerdrCoreMachine {
 export interface HerdrCoreTemplate {
   readonly name: string;
   readonly description?: string | null;
-  readonly command?: readonly string[] | null;
+  readonly command?: string | readonly string[] | null;
+  readonly error?: string | null;
 }
 
 export interface HerdrCoreStatusPayload {

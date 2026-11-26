@@ -6,13 +6,20 @@ export type HerdrCoreTerminalStatusWord =
   | "error";
 
 export interface HerdrCoreTerminalStatus {
+  readonly state?: string | null;
   readonly status?: string | null;
   readonly msg?: string | null;
+  readonly kind?: string | null;
+  readonly app?: string | null;
+  readonly title?: string | null;
   readonly progress?: number | null;
   readonly detail?: string | null;
 }
 
 export interface HerdrCoreTerminalForeground {
+  readonly pid?: number | null;
+  readonly name?: string | null;
+  readonly argv?: readonly string[] | null;
   readonly cwd?: string | null;
   readonly command?: string | null;
 }
@@ -159,7 +166,8 @@ export interface HerdrCorePutResponse {
 export interface HerdrCoreTemplate {
   readonly name: string;
   readonly description?: string | null;
-  readonly command?: readonly string[] | null;
+  readonly command?: string | readonly string[] | null;
+  readonly error?: string | null;
 }
 
 export interface HerdrCoreTemplatesResponse {

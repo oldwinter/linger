@@ -21,8 +21,10 @@ import {
 } from "./local-bridge.js";
 import {
   decodeCreditPayload,
+  decodeFocusPayload,
   decodeResizePayload,
   encodeCreditPayload,
+  encodeFocusPayload,
   encodeFrame,
   encodeResizePayload,
   FrameDecoder,
@@ -451,11 +453,22 @@ describe("herdr-core detector", () => {
 });
 
 describe("herdr-core binary framing protocol", () => {
-  it("encodes and decodes fragmented 9-byte frames, credit, and resize payloads", () => {
+  it("encodes and decodes fragmented 9-byte LE frames, credit, resize, and focus payloads", () => {
     const f1 = encodeFrame(0, FrameKind.DATA, Buffer.from('{"id":1}', "utf8"));
     const f2 = encodeFrame(3, FrameKind.CREDIT, encodeCreditPayload(512));
     const f3 = encodeFrame(3, FrameKind.RESIZE, encodeResizePayload(120, 40));
-    const stream = Buffer.concat([f1, f2, f3]);
+    const f4 = encodeFrame(3, FrameKind.FOCUS, encodeFocusPayload(true));
+
+    // Verify exact 9-byte little-endian header wire layout:
+    // bytes 0..3 channel (u32 LE), byte 4 kind (u8), bytes 5..8 length (u32 LE).
+    expect(f2.subarray(0, 9)).toEqual(
+      Buffer.from([0x03, 0x00, 0x00, 0x00, 0x01, 0x04, 0x00, 0x00, 0x00]),
+    );
+    expect(f4.subarray(0, 10)).toEqual(
+      Buffer.from([0x03, 0x00, 0x00, 0x00, 0x04, 0x01, 0x00, 0x00, 0x00, 0x01]),
+    );
+
+    const stream = Buffer.concat([f1, f2, f3, f4]);
 
     const decoder = new FrameDecoder();
     const out: HerdrCoreFrame[] = [];
@@ -463,7 +476,7 @@ describe("herdr-core binary framing protocol", () => {
     for (let i = 0; i < stream.length; i += 3) {
       out.push(...decoder.push(stream.subarray(i, i + 3)));
     }
-    expect(out).toHaveLength(3);
+    expect(out).toHaveLength(4);
     expect(out[0]!.channel).toBe(0);
     expect(out[0]!.kind).toBe(FrameKind.DATA);
     expect(out[0]!.payload.toString("utf8")).toBe('{"id":1}');
@@ -476,6 +489,10 @@ describe("herdr-core binary framing protocol", () => {
       cols: 120,
       rows: 40,
     });
+    expect(out[3]!.channel).toBe(3);
+    expect(out[3]!.kind).toBe(FrameKind.FOCUS);
+    expect(decodeFocusPayload(out[3]!.payload)).toBe(true);
+    expect(decodeFocusPayload(encodeFocusPayload(false))).toBe(false);
   });
 
   it("performs hello(framed: true) handshake and multiplexes RPC + stream frames", async () => {
@@ -561,7 +578,8 @@ describe("HerdrCoreLocalBridge HTTP, put limits, observe enforcement, and Compan
               version: "0.1.21",
               pid: 4242,
               uptime_ms: 99_000,
-              terminals: { live: 2, finished: 1 },
+              live: 2,
+              finished: 1,
             };
           case "terminal.list":
             return {
@@ -576,7 +594,7 @@ describe("HerdrCoreLocalBridge HTTP, put limits, observe enforcement, and Compan
                   cols: 120,
                   rows: 40,
                   created_ms: 1000,
-                  status: { status: "blocked", msg: "Approve edit?" },
+                  status: { state: "blocked", msg: "Approve edit?" },
                 },
                 {
                   address: "vps/t2",
@@ -588,11 +606,13 @@ describe("HerdrCoreLocalBridge HTTP, put limits, observe enforcement, and Compan
                   cols: 120,
                   rows: 40,
                   created_ms: 2000,
-                  status: { status: "working", msg: "Compiling", progress: 42 },
+                  status: { state: "working", msg: "Compiling", progress: 42 },
                 },
               ],
               hidden_finished: 1,
-              machines: [{ name: "vps", host: "vps.local", connected: true }],
+              machines: [
+                { name: "vps", host: "vps.local", state: "connected" },
+              ],
             };
           case "terminal.read":
             return {
@@ -855,6 +875,177 @@ describe("HerdrCoreLocalBridge HTTP, put limits, observe enforcement, and Compan
       type: "error",
       code: "PAYLOAD_TOO_LARGE",
     });
+  });
+
+  it("enforces hc v0.1.21 terminal.send if=blocked pre-check via terminal.get and strips if before RPC", async () => {
+    const terminalsByAddr = new Map<string, Record<string, unknown>>([
+      [
+        "t-blocked",
+        {
+          address: "t-blocked",
+          state: "live",
+          cwd: "/repo",
+          argv: ["claude"],
+          labels: {},
+          cols: 100,
+          rows: 30,
+          created_ms: 1000,
+          status: { state: "blocked", kind: "permission", msg: "Run tests?" },
+        },
+      ],
+      [
+        "t-working",
+        {
+          address: "t-working",
+          state: "live",
+          cwd: "/repo",
+          argv: ["claude"],
+          labels: {},
+          cols: 100,
+          rows: 30,
+          created_ms: 1001,
+          status: { state: "working", msg: "Building" },
+        },
+      ],
+      [
+        "t-finished",
+        {
+          address: "t-finished",
+          state: "finished",
+          cwd: "/repo",
+          argv: ["claude"],
+          labels: {},
+          cols: 100,
+          rows: 30,
+          created_ms: 1002,
+          status: null,
+        },
+      ],
+    ]);
+
+    const mock = createInMemoryHerdrCore({
+      onRpc: (method, params) => {
+        if (method === "terminal.get") {
+          return terminalsByAddr.get(String(params.terminal));
+        }
+        if (method === "terminal.send") {
+          // Mirror real herdr-core v0.1.21 validation: only idle | working allowed in `if`.
+          if (
+            params.if !== undefined &&
+            params.if !== "idle" &&
+            params.if !== "working"
+          ) {
+            throw new Error(
+              `unexpected invalid_params if=${String(params.if)}`,
+            );
+          }
+          return { turn: 3, started: true, status: "working" };
+        }
+        return undefined;
+      },
+    });
+
+    const bridge = new HerdrCoreLocalBridge({
+      dialTargetOverride: () => ({ connectTransport: mock.connectTransport }),
+      log: silentLog,
+    });
+    const port = await bridge.start();
+    cleanups.push(() => bridge.stop());
+    const headers = {
+      authorization: `Bearer ${bridge.token()}`,
+      "content-type": "application/json",
+    };
+
+    // 1. Live + blocked with { if: "blocked", force: true } verifies via terminal.get,
+    //    then calls terminal.send WITHOUT `if` and WITH `force: true`.
+    const blockedOk = await fetch(
+      `http://127.0.0.1:${port}/herdr-core/terminal/send`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          address: "t-blocked",
+          text: "yes",
+          if: "blocked",
+          force: true,
+        }),
+      },
+    );
+    expect(blockedOk.status).toBe(200);
+    expect(await blockedOk.json()).toEqual({
+      turn: 3,
+      started: true,
+      status: "working",
+    });
+    expect(mock.rpcCalls).toEqual([
+      { method: "terminal.get", params: { terminal: "t-blocked" } },
+      {
+        method: "terminal.send",
+        params: { terminal: "t-blocked", text: "yes", force: true },
+      },
+    ]);
+
+    // 2. Live + working with if: "blocked" rejects with 409 CONFLICT without calling terminal.send.
+    mock.rpcCalls.length = 0;
+    const mismatchRes = await fetch(
+      `http://127.0.0.1:${port}/herdr-core/terminal/send`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          address: "t-working",
+          text: "yes",
+          if: "blocked",
+          force: true,
+        }),
+      },
+    );
+    expect(mismatchRes.status).toBe(409);
+    expect(mock.rpcCalls).toEqual([
+      { method: "terminal.get", params: { terminal: "t-working" } },
+    ]);
+
+    // 3. Finished terminal with if: "blocked" rejects with 410 FINISHED without calling terminal.send.
+    mock.rpcCalls.length = 0;
+    const finishedRes = await fetch(
+      `http://127.0.0.1:${port}/herdr-core/terminal/send`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          address: "t-finished",
+          text: "yes",
+          if: "blocked",
+          force: true,
+        }),
+      },
+    );
+    expect(finishedRes.status).toBe(410);
+    expect(mock.rpcCalls).toEqual([
+      { method: "terminal.get", params: { terminal: "t-finished" } },
+    ]);
+
+    // 4. Native if: "idle" passes straight through to herdr-core terminal.send without extra get.
+    mock.rpcCalls.length = 0;
+    const idleOk = await fetch(
+      `http://127.0.0.1:${port}/herdr-core/terminal/send`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          address: "t-working",
+          text: "next step",
+          if: "idle",
+        }),
+      },
+    );
+    expect(idleOk.status).toBe(200);
+    expect(mock.rpcCalls).toEqual([
+      {
+        method: "terminal.send",
+        params: { terminal: "t-working", text: "next step", if: "idle" },
+      },
+    ]);
   });
 
   it("exposes local herdr-core HTTP and WS attach through CompanionGateway for paired LAN devices", async () => {

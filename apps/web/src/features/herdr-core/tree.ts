@@ -2,6 +2,7 @@ import type {
   HerdrAppParsedDoc,
   HerdrAppSpaceEntry,
   HerdrAppTabEntry,
+  HerdrCoreMachine,
   HerdrCoreTerminal,
 } from "./types";
 
@@ -39,9 +40,29 @@ export function terminalCurrentCwd(terminal: HerdrCoreTerminal): string {
   return terminal.foreground?.cwd?.trim() || terminal.cwd || "";
 }
 
+export function terminalStatusWord(
+  terminal: Pick<HerdrCoreTerminal, "status">,
+): string | null {
+  const word = terminal.status?.state ?? terminal.status?.status;
+  return typeof word === "string" && word.trim().length > 0
+    ? word.trim()
+    : null;
+}
+
+export function isMachineNeedsLogin(machine: HerdrCoreMachine): boolean {
+  return machine.state === "needs_login" || Boolean(machine.needs_login);
+}
+
+export function isMachineConnected(machine: HerdrCoreMachine): boolean {
+  if (typeof machine.state === "string" && machine.state.trim().length > 0) {
+    return machine.state === "connected";
+  }
+  return machine.connected !== false;
+}
+
 export function terminalStatusRank(terminal: HerdrCoreTerminal): number {
   if (terminal.state !== "live") return 6;
-  const word = terminal.status?.status;
+  const word = terminalStatusWord(terminal);
   switch (word) {
     case "blocked":
       return 0;
@@ -83,7 +104,7 @@ export function filterTerminals(
       if (term.labels["linger.work_item"] !== workItemTrimmed) return false;
     }
     if (criteria.status && criteria.status !== "all") {
-      const word = term.status?.status ?? term.state;
+      const word = terminalStatusWord(term) ?? term.state;
       if (word !== criteria.status && term.state !== criteria.status) {
         return false;
       }

@@ -27,7 +27,10 @@ import {
   filterTerminals,
   flattenTerminalTree,
   groupTerminalsBySpace,
+  isMachineConnected,
+  isMachineNeedsLogin,
   parseHerdrAppDoc,
+  terminalStatusWord,
 } from "./tree";
 import type {
   HerdrCoreMachine,
@@ -300,14 +303,14 @@ describe("herdr-core tree, filtering, and herdr-app doc sync helpers", () => {
       sampleTerminal({
         address: "t2",
         name: "lead",
-        status: { status: "working", msg: "Orchestrating", progress: 60 },
+        status: { state: "working", msg: "Orchestrating", progress: 60 },
         created_ms: 2000,
       }),
       sampleTerminal({
         address: "t3",
         name: "helper",
         parent: "t2",
-        status: { status: "blocked", msg: "Need permission" },
+        status: { state: "blocked", msg: "Need permission" },
         created_ms: 2500,
       }),
     ];
@@ -321,6 +324,15 @@ describe("herdr-core tree, filtering, and herdr-app doc sync helpers", () => {
       ["t1", 0],
     ]);
     expect(tree[0]!.descendantCount).toBe(1);
+    expect(terminalStatusWord(terminals[0]!)).toBe("idle");
+    expect(terminalStatusWord(terminals[2]!)).toBe("blocked");
+    expect(isMachineConnected({ name: "vps", state: "connected" })).toBe(true);
+    expect(isMachineConnected({ name: "vps", state: "unreachable" })).toBe(
+      false,
+    );
+    expect(isMachineNeedsLogin({ name: "vps", state: "needs_login" })).toBe(
+      true,
+    );
   });
 
   it("filters by machine, Room, Work Item, and groups/adopts terminals into herdr-app Spaces", () => {

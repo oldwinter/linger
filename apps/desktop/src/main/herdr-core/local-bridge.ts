@@ -25,6 +25,7 @@ import {
 import {
   MAX_HERDR_CORE_DOC_BYTES,
   MAX_HERDR_CORE_PUT_BYTES,
+  terminalStatusWord,
   type HerdrCoreBridgeConnectionInfo,
   type HerdrCoreDetection,
   type HerdrCoreMachine,
@@ -62,6 +63,8 @@ interface ServerStatusRpcResult {
   readonly version?: string;
   readonly pid?: number;
   readonly uptime_ms?: number;
+  readonly live?: number;
+  readonly finished?: number;
   readonly terminals?: { readonly live?: number; readonly finished?: number };
 }
 
@@ -79,7 +82,8 @@ interface TemplatesListRpcResult {
   readonly templates?: readonly {
     readonly name: string;
     readonly description?: string | null;
-    readonly command?: readonly string[] | null;
+    readonly command?: string | readonly string[] | null;
+    readonly error?: string | null;
   }[];
 }
 
@@ -368,7 +372,7 @@ function filterTerminalsList(
     if (workItemId && term.labels["linger.work_item"] !== workItemId)
       return false;
     if (status) {
-      const termStatus = term.status?.status ?? term.state;
+      const termStatus = terminalStatusWord(term) ?? term.state;
       if (termStatus !== status && term.state !== status) return false;
     }
     return true;
@@ -865,7 +869,58 @@ export class HerdrCoreLocalBridge {
           terminal: address,
           text,
         };
-        if (typeof body.data.if === "string") params.if = body.data.if;
+        const rawIf =
+          typeof body.data.if === "string" ? body.data.if.trim() : "";
+        if (rawIf === "idle" || rawIf === "working") {
+          params.if = rawIf;
+        } else if (
+          rawIf === "blocked" ||
+          rawIf === "done" ||
+          rawIf === "error"
+        ) {
+          // herdr-core v0.1.21 only accepts `if: "idle" | "working"` on
+          // `terminal.send` (other values fail with -32602 invalid_params).
+          // Verify live terminal status via `terminal.get` first, then send
+          // without `if`.
+          const current = await callHerdrCoreRpc<HerdrCoreTerminal>(
+            target,
+            "terminal.get",
+            { terminal: address },
+          );
+          if (current.state !== "live") {
+            writeError(
+              res,
+              410,
+              "FINISHED",
+              `Terminal "${address}" is not live (state: ${current.state}).`,
+              extraHeaders,
+            );
+            return;
+          }
+          const actualStatus = terminalStatusWord(current);
+          if (actualStatus !== rawIf) {
+            writeError(
+              res,
+              409,
+              "CONFLICT",
+              `Terminal "${address}" status is "${actualStatus ?? "none"}", expected "${rawIf}".`,
+              extraHeaders,
+            );
+            return;
+          }
+          if (rawIf === "blocked" && body.data.force === undefined) {
+            params.force = true;
+          }
+        } else if (rawIf.length > 0) {
+          writeError(
+            res,
+            400,
+            "INVALID_REQUEST",
+            `Unsupported "if" status filter: ${rawIf}.`,
+            extraHeaders,
+          );
+          return;
+        }
         if (typeof body.data.force === "boolean")
           params.force = body.data.force;
         if (typeof body.data.wait === "boolean") params.wait = body.data.wait;
@@ -1216,7 +1271,7 @@ export class HerdrCoreLocalBridge {
       for (const term of terminals) {
         if (term.state === "live") {
           liveCount += 1;
-          const word = term.status?.status;
+          const word = terminalStatusWord(term);
           if (word === "blocked") blockedCount += 1;
           else if (word === "working") workingCount += 1;
         } else {
@@ -1231,8 +1286,12 @@ export class HerdrCoreLocalBridge {
         core_name: statusResult.core?.name ?? null,
         pid: statusResult.pid ?? null,
         uptime_ms: statusResult.uptime_ms ?? null,
-        live_count: statusResult.terminals?.live ?? liveCount,
-        finished_count: statusResult.terminals?.finished ?? finishedCount,
+        live_count:
+          statusResult.live ?? statusResult.terminals?.live ?? liveCount,
+        finished_count:
+          statusResult.finished ??
+          statusResult.terminals?.finished ??
+          finishedCount,
         blocked_count: blockedCount,
         working_count: workingCount,
         machines: listResult.machines ?? [],

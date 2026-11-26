@@ -89,6 +89,16 @@ export function decodeResizePayload(
   };
 }
 
+export function encodeFocusPayload(focused: boolean): Buffer {
+  const buf = Buffer.allocUnsafe(1);
+  buf.writeUInt8(focused ? 1 : 0, 0);
+  return buf;
+}
+
+export function decodeFocusPayload(payload: Buffer): boolean {
+  return payload.length >= 1 && payload.readUInt8(0) !== 0;
+}
+
 export class FrameDecoder {
   #buffer: Buffer = Buffer.alloc(0);
   readonly #maxPayloadBytes: number;
@@ -535,6 +545,10 @@ export class HerdrCoreFramedSession {
 
   sendResize(channel: number, cols: number, rows: number): void {
     this.sendFrame(channel, FrameKind.RESIZE, encodeResizePayload(cols, rows));
+  }
+
+  sendFocus(channel: number, focused: boolean): void {
+    this.sendFrame(channel, FrameKind.FOCUS, encodeFocusPayload(focused));
   }
 
   sendCloseChannel(channel: number): void {

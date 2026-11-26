@@ -20,8 +20,11 @@ import {
   extractMachineName,
   flattenTerminalTree,
   groupTerminalsBySpace,
+  isMachineConnected,
+  isMachineNeedsLogin,
   terminalCurrentCwd,
   terminalDisplayName,
+  terminalStatusWord,
   type TerminalFilterCriteria,
   type TerminalTreeNode,
 } from "./tree";
@@ -121,8 +124,8 @@ export function TerminalSidebarList({
             icon={CloudServerIcon}
             key={machine.name}
             label={machine.name}
-            offline={machine.connected === false}
-            needsLogin={Boolean(machine.needs_login)}
+            offline={!isMachineConnected(machine)}
+            needsLogin={isMachineNeedsLogin(machine)}
             onClick={() => onFiltersChange({ machine: machine.name })}
           />
         ))}
@@ -346,7 +349,7 @@ function TerminalRowItem({
   const t = useT();
   const { terminal, depth, descendantCount } = node;
   const isBlocked =
-    terminal.state === "live" && terminal.status?.status === "blocked";
+    terminal.state === "live" && terminalStatusWord(terminal) === "blocked";
   const machine = extractMachineName(terminal.address);
   const cwd = terminalCurrentCwd(terminal);
   const spaceLabel = terminal.labels["herdr.space"];

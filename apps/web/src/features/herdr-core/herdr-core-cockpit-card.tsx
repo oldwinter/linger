@@ -13,7 +13,11 @@ import { cn } from "@/lib/cn";
 
 import { createHerdrCoreClient, type HerdrCoreClient } from "./api";
 import { herdrCoreMessages as m } from "./herdr-core.messages";
-import { terminalDisplayName } from "./tree";
+import {
+  isMachineConnected,
+  terminalDisplayName,
+  terminalStatusWord,
+} from "./tree";
 import type { HerdrCoreStatusResponse, HerdrCoreTerminal } from "./types";
 
 export interface HerdrCoreCockpitCardProps {
@@ -79,23 +83,23 @@ export function HerdrCoreCockpitCard({
   const terminals = providedTerminals ?? terminalsQuery.data?.terminals ?? [];
 
   const blockedTerminals = terminals.filter(
-    (term) => term.state === "live" && term.status?.status === "blocked",
+    (term) => term.state === "live" && terminalStatusWord(term) === "blocked",
   );
   const errorCount = terminals.filter(
-    (term) => term.state === "live" && term.status?.status === "error",
+    (term) => term.state === "live" && terminalStatusWord(term) === "error",
   ).length;
   const liveCount = status?.live_count ?? terminals.length;
   const workingCount =
     status?.working_count ??
     terminals.filter(
-      (term) => term.state === "live" && term.status?.status === "working",
+      (term) => term.state === "live" && terminalStatusWord(term) === "working",
     ).length;
   const blockedCount = status?.blocked_count ?? blockedTerminals.length;
 
   const machines = status?.machines ?? [];
   const totalMachines = machines.length + (status?.available ? 1 : 0);
   const onlineMachines =
-    machines.filter((entry) => entry.connected !== false).length +
+    machines.filter((entry) => isMachineConnected(entry)).length +
     (status?.available ? 1 : 0);
 
   return (

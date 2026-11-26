@@ -2,6 +2,7 @@ import { useT } from "@/i18n/use-translation";
 import { cn } from "@/lib/cn";
 
 import { herdrCoreMessages as m } from "./herdr-core.messages";
+import { terminalStatusWord } from "./tree";
 import type { HerdrCoreTerminal } from "./types";
 
 interface StatusPillProps {
@@ -15,7 +16,7 @@ export function HerdrCoreStatusPill({
 }: StatusPillProps) {
   const t = useT();
   const isLive = terminal.state === "live";
-  const word = isLive ? terminal.status?.status : "finished";
+  const word = isLive ? terminalStatusWord(terminal) : "finished";
   const msg = isLive ? terminal.status?.msg?.trim() : terminal.reason?.trim();
   const rawProgress = isLive ? terminal.status?.progress : null;
   const progress =

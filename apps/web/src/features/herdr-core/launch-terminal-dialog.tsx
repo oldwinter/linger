@@ -5,6 +5,7 @@ import { ModalDialog } from "@/components/ui/modal-dialog";
 import { useT } from "@/i18n/use-translation";
 
 import { herdrCoreMessages as m } from "./herdr-core.messages";
+import { isMachineConnected, isMachineNeedsLogin } from "./tree";
 import type {
   HerdrCoreLaunchRequest,
   HerdrCoreMachine,
@@ -153,9 +154,9 @@ export function LaunchTerminalDialog({
                 {machines.map((entry) => (
                   <option key={entry.name} value={entry.name}>
                     {entry.name}
-                    {entry.needs_login
+                    {isMachineNeedsLogin(entry)
                       ? ` (${t(m.machineNeedsLogin)})`
-                      : entry.connected === false
+                      : !isMachineConnected(entry)
                         ? ` (${t(m.machineOffline)})`
                         : ""}
                   </option>

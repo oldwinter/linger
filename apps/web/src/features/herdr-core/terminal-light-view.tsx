@@ -15,6 +15,7 @@ import { useT } from "@/i18n/use-translation";
 
 import { fileToBase64, type HerdrCoreClient } from "./api";
 import { herdrCoreMessages as m } from "./herdr-core.messages";
+import { terminalStatusWord } from "./tree";
 import type { HerdrCoreTerminal } from "./types";
 
 const QUICK_KEYS = [
@@ -50,7 +51,7 @@ export function TerminalLightView({
   const [copiedPath, setCopiedPath] = useState(false);
 
   const isLive = terminal.state === "live";
-  const isBlocked = isLive && terminal.status?.status === "blocked";
+  const isBlocked = isLive && terminalStatusWord(terminal) === "blocked";
 
   const readQuery = useQuery({
     queryKey: [
