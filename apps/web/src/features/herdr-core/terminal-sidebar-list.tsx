@@ -233,7 +233,7 @@ export function TerminalSidebarList({
                     {flattenTerminalTree(group.nodes).length}
                   </span>
                 </div>
-                <div className="flex flex-col gap-1">
+                <ul className="m-0 flex list-none flex-col gap-1 p-0">
                   {flattenTerminalTree(group.nodes).map((node) => (
                     <TerminalRowItem
                       adopting={adoptingAddress === node.terminal.address}
@@ -251,12 +251,12 @@ export function TerminalSidebarList({
                       syncing={syncingAddress === node.terminal.address}
                     />
                   ))}
-                </div>
+                </ul>
               </section>
             ))}
           </div>
         ) : (
-          <div className="flex flex-col gap-1" role="list">
+          <ul className="m-0 flex list-none flex-col gap-1 p-0">
             {flatNodes.map((node) => (
               <TerminalRowItem
                 adopting={adoptingAddress === node.terminal.address}
@@ -272,7 +272,7 @@ export function TerminalSidebarList({
                 syncing={syncingAddress === node.terminal.address}
               />
             ))}
-          </div>
+          </ul>
         )}
       </div>
     </div>
@@ -352,7 +352,7 @@ function TerminalRowItem({
   const spaceLabel = terminal.labels["herdr.space"];
 
   return (
-    <div
+    <li
       className={cn(
         "rounded-xl border transition-colors",
         selected
@@ -363,7 +363,6 @@ function TerminalRowItem({
       )}
       data-herdr-address={terminal.address}
       data-herdr-depth={depth}
-      role="listitem"
       style={
         depth > 0 ? { marginLeft: `${Math.min(depth, 4) * 14}px` } : undefined
       }
@@ -463,6 +462,6 @@ function TerminalRowItem({
           </button>
         )}
       </div>
-    </div>
+    </li>
   );
 }

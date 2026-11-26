@@ -155,9 +155,12 @@ export function buildTerminalTree(
     return { terminal: term, depth, children, descendantCount };
   };
 
-  const nodes = roots
-    .filter((root) => !visited.has(root.address))
-    .map((root) => buildNode(root, 0));
+  const nodes: TerminalTreeNode[] = [];
+  for (const root of roots) {
+    if (!visited.has(root.address)) {
+      nodes.push(buildNode(root, 0));
+    }
+  }
 
   // Include any cycle members that were skipped as roots.
   for (const term of terminals) {

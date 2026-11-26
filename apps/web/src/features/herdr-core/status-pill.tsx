@@ -60,8 +60,8 @@ export function HerdrCoreStatusPill({
           role="progressbar"
         >
           <div
-            className="h-full rounded-full bg-[var(--app-progress-fill)] transition-[width] duration-200 motion-reduce:transition-none"
-            style={{ width: `${progress}%` }}
+            className="h-full w-full origin-left rounded-full bg-[var(--app-progress-fill)] transition-transform duration-200 motion-reduce:transition-none"
+            style={{ transform: `scaleX(${progress / 100})` }}
           />
         </div>
       ) : null}

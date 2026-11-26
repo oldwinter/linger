@@ -12,6 +12,7 @@ import {
   useState,
   type ClipboardEvent,
   type DragEvent,
+  type RefObject,
 } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -99,7 +100,10 @@ export function LazyXtermView({
   const fitRef = useRef<FitAddonLike | null>(null);
   const observeRef = useRef(true);
   const onStatusRef = useRef(onStatusMessage);
-  onStatusRef.current = onStatusMessage;
+
+  useEffect(() => {
+    onStatusRef.current = onStatusMessage;
+  }, [onStatusMessage]);
 
   const [observe, setObserve] = useState(true);
   const [phase, setPhase] = useState<ConnectionPhase>("connecting");
@@ -188,228 +192,28 @@ export function LazyXtermView({
   }, [landedFile]);
 
   // Effect depends ONLY on resource identity (client, address, history, reconnectToken).
-  useEffect(() => {
-    let disposed = false;
-    let reconnectTimer: number | null = null;
-    let resizeTimer: number | null = null;
-    let resizeObserver: ResizeObserver | null = null;
-    let attempt = 0;
-    let term: XtermLike | null = null;
-    let fitAddon: FitAddonLike | null = null;
-    let onDataSub: { dispose(): void } | null = null;
-
-    observeRef.current = true;
-    setObserve(true);
-    setPhase("connecting");
-    setErrorText(null);
-
-    const openSocket = (resumed: boolean) => {
-      if (disposed) return;
-      const cols = term?.cols ?? initialCols;
-      const rows = term?.rows ?? initialRows;
-      const url = client.buildAttachWsUrl({
+  useEffect(
+    () =>
+      startXtermAttachSession({
         address,
-        cols,
-        rows,
-        observe: observeRef.current,
+        client,
         history,
-        resumed,
-      });
-
-      const ws = new WebSocket(url);
-      ws.binaryType = "arraybuffer";
-      wsRef.current = ws;
-
-      ws.addEventListener("open", () => {
-        if (disposed || wsRef.current !== ws) return;
-        attempt = 0;
-        setPhase("connected");
-        setErrorText(null);
-      });
-
-      ws.addEventListener("message", (event) => {
-        if (disposed || wsRef.current !== ws) return;
-        if (
-          event.data instanceof ArrayBuffer ||
-          Object.prototype.toString.call(event.data) === "[object ArrayBuffer]"
-        ) {
-          term?.write(new Uint8Array(event.data as ArrayBuffer));
-          return;
-        }
-        if (ArrayBuffer.isView(event.data)) {
-          term?.write(
-            new Uint8Array(
-              event.data.buffer,
-              event.data.byteOffset,
-              event.data.byteLength,
-            ),
-          );
-          return;
-        }
-        if (typeof Blob !== "undefined" && event.data instanceof Blob) {
-          void event.data.arrayBuffer().then((buf) => {
-            if (!disposed) term?.write(new Uint8Array(buf));
-          });
-          return;
-        }
-        if (typeof event.data !== "string") return;
-        let parsed: HerdrCoreAttachServerMessage;
-        try {
-          parsed = JSON.parse(event.data) as HerdrCoreAttachServerMessage;
-        } catch {
-          return;
-        }
-        onStatusRef.current?.(parsed);
-        if (parsed.type === "attached") {
-          setPhase("connected");
-          if (typeof parsed.observe === "boolean") {
-            observeRef.current = parsed.observe;
-            setObserve(parsed.observe);
-          }
-          if (
-            typeof parsed.cols === "number" &&
-            typeof parsed.rows === "number" &&
-            parsed.observe !== false
-          ) {
-            term?.resize(parsed.cols, parsed.rows);
-          }
-        } else if (parsed.type === "resize") {
-          term?.resize(parsed.cols, parsed.rows);
-        } else if (parsed.type === "put_result") {
-          setUploading(false);
-          setLandedFile({
-            path: parsed.path,
-            name: parsed.name ?? parsed.path,
-          });
-        } else if (parsed.type === "error") {
-          setUploading(false);
-          setErrorText(parsed.message);
-        } else if (parsed.type === "closed") {
-          setPhase("closed");
-        }
-      });
-
-      ws.addEventListener("close", () => {
-        if (disposed || wsRef.current !== ws) return;
-        wsRef.current = null;
-        if (attempt < MAX_RECONNECT_ATTEMPTS) {
-          attempt += 1;
-          setPhase("reconnecting");
-          const delay = Math.min(10_000, 1_000 * 2 ** (attempt - 1));
-          reconnectTimer = window.setTimeout(() => {
-            openSocket(true);
-          }, delay);
-        } else {
-          setPhase("closed");
-        }
-      });
-
-      ws.addEventListener("error", () => {
-        if (disposed || wsRef.current !== ws) return;
-        setPhase("error");
-      });
-    };
-
-    void (async () => {
-      try {
-        const [{ Terminal }, { FitAddon }, { WebLinksAddon }] =
-          await Promise.all([
-            import("@xterm/xterm"),
-            import("@xterm/addon-fit"),
-            import("@xterm/addon-web-links"),
-            import("@xterm/xterm/css/xterm.css"),
-          ]);
-        if (disposed) return;
-
-        const instance = new Terminal({
-          cols: initialCols,
-          rows: initialRows,
-          convertEol: false,
-          cursorBlink: true,
-          fontSize: 12,
-          fontFamily:
-            "var(--font-mono, ui-monospace, SFMono-Regular, monospace)",
-          theme: readTerminalThemeFromTokens(),
-        }) as unknown as XtermLike;
-
-        const fit = new FitAddon() as unknown as FitAddonLike;
-        instance.loadAddon(fit);
-        instance.loadAddon(new WebLinksAddon());
-
-        if (hostRef.current) {
-          instance.open(hostRef.current);
-          try {
-            fit.fit();
-          } catch {
-            // Container may not have layout metrics yet (e.g. hidden or jsdom).
-          }
-        }
-
-        term = instance;
-        fitAddon = fit;
-        termRef.current = instance;
-        fitRef.current = fit;
-
-        onDataSub = instance.onData((data) => {
-          if (observeRef.current) return;
-          const ws = wsRef.current;
-          if (!ws || ws.readyState !== WebSocket.OPEN) return;
-          ws.send(new TextEncoder().encode(data));
-        });
-
-        if (hostRef.current && typeof ResizeObserver !== "undefined") {
-          resizeObserver = new ResizeObserver(() => {
-            if (disposed || !fitAddon || !term) return;
-            if (resizeTimer !== null) window.clearTimeout(resizeTimer);
-            resizeTimer = window.setTimeout(() => {
-              if (disposed || !fitAddon || !term) return;
-              try {
-                fitAddon.fit();
-              } catch {
-                return;
-              }
-              if (!observeRef.current) {
-                const ws = wsRef.current;
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                  ws.send(
-                    JSON.stringify({
-                      type: "resize",
-                      cols: term.cols,
-                      rows: term.rows,
-                    } satisfies HerdrCoreAttachClientMessage),
-                  );
-                }
-              }
-            }, 80);
-          });
-          resizeObserver.observe(hostRef.current);
-        }
-
-        openSocket(false);
-      } catch (error) {
-        if (!disposed) {
-          setPhase("error");
-          setErrorText(error instanceof Error ? error.message : String(error));
-        }
-      }
-    })();
-
-    return () => {
-      disposed = true;
-      if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
-      if (resizeTimer !== null) window.clearTimeout(resizeTimer);
-      resizeObserver?.disconnect();
-      onDataSub?.dispose();
-      const ws = wsRef.current;
-      wsRef.current = null;
-      if (ws && ws.readyState <= WebSocket.OPEN) {
-        ws.close();
-      }
-      term?.dispose();
-      termRef.current = null;
-      fitRef.current = null;
-    };
-  }, [address, client, history, initialCols, initialRows, reconnectToken]);
+        initialCols,
+        initialRows,
+        hostRef,
+        wsRef,
+        termRef,
+        fitRef,
+        observeRef,
+        onStatusRef,
+        setObserve,
+        setPhase,
+        setErrorText,
+        setUploading,
+        setLandedFile,
+      }),
+    [address, client, history, initialCols, initialRows, reconnectToken],
+  );
 
   function handleDrop(event: DragEvent<HTMLDivElement>) {
     event.preventDefault();
@@ -575,6 +379,271 @@ export function LazyXtermView({
       </div>
     </div>
   );
+}
+
+interface StartXtermAttachSessionOptions {
+  readonly address: string;
+  readonly client: HerdrCoreClient;
+  readonly history: number;
+  readonly initialCols: number;
+  readonly initialRows: number;
+  readonly hostRef: RefObject<HTMLDivElement | null>;
+  readonly wsRef: RefObject<WebSocket | null>;
+  readonly termRef: RefObject<XtermLike | null>;
+  readonly fitRef: RefObject<FitAddonLike | null>;
+  readonly observeRef: RefObject<boolean>;
+  readonly onStatusRef: RefObject<
+    ((message: HerdrCoreAttachServerMessage) => void) | undefined
+  >;
+  readonly setObserve: (value: boolean) => void;
+  readonly setPhase: (phase: ConnectionPhase) => void;
+  readonly setErrorText: (value: string | null) => void;
+  readonly setUploading: (value: boolean) => void;
+  readonly setLandedFile: (value: LandedFileNotice | null) => void;
+}
+
+function startXtermAttachSession(
+  options: StartXtermAttachSessionOptions,
+): () => void {
+  const {
+    address,
+    client,
+    history,
+    initialCols,
+    initialRows,
+    hostRef,
+    wsRef,
+    termRef,
+    fitRef,
+    observeRef,
+    onStatusRef,
+    setObserve,
+    setPhase,
+    setErrorText,
+    setUploading,
+    setLandedFile,
+  } = options;
+
+  let disposed = false;
+  let reconnectTimer: number | null = null;
+  let resizeTimer: number | null = null;
+  let resizeObserver: ResizeObserver | null = null;
+  let attempt = 0;
+  let term: XtermLike | null = null;
+  let fitAddon: FitAddonLike | null = null;
+  let onDataSub: { dispose(): void } | null = null;
+
+  observeRef.current = true;
+  setObserve(true);
+  setPhase("connecting");
+  setErrorText(null);
+
+  const openSocket = (resumed: boolean) => {
+    if (disposed) return;
+    const cols = term?.cols ?? initialCols;
+    const rows = term?.rows ?? initialRows;
+    const url = client.buildAttachWsUrl({
+      address,
+      cols,
+      rows,
+      observe: observeRef.current,
+      history,
+      resumed,
+    });
+
+    const ws = new WebSocket(url);
+    ws.binaryType = "arraybuffer";
+    wsRef.current = ws;
+
+    ws.addEventListener("open", () => {
+      if (disposed || wsRef.current !== ws) return;
+      attempt = 0;
+      setPhase("connected");
+      setErrorText(null);
+    });
+
+    ws.addEventListener("message", (event) => {
+      if (disposed || wsRef.current !== ws) return;
+      if (
+        event.data instanceof ArrayBuffer ||
+        Object.prototype.toString.call(event.data) === "[object ArrayBuffer]"
+      ) {
+        term?.write(new Uint8Array(event.data as ArrayBuffer));
+        return;
+      }
+      if (ArrayBuffer.isView(event.data)) {
+        term?.write(
+          new Uint8Array(
+            event.data.buffer,
+            event.data.byteOffset,
+            event.data.byteLength,
+          ),
+        );
+        return;
+      }
+      if (typeof Blob !== "undefined" && event.data instanceof Blob) {
+        void event.data.arrayBuffer().then((buf) => {
+          if (!disposed) term?.write(new Uint8Array(buf));
+        });
+        return;
+      }
+      if (typeof event.data !== "string") return;
+      let parsed: HerdrCoreAttachServerMessage;
+      try {
+        parsed = JSON.parse(event.data) as HerdrCoreAttachServerMessage;
+      } catch {
+        return;
+      }
+      onStatusRef.current?.(parsed);
+      if (parsed.type === "attached") {
+        setPhase("connected");
+        if (typeof parsed.observe === "boolean") {
+          observeRef.current = parsed.observe;
+          setObserve(parsed.observe);
+        }
+        if (
+          typeof parsed.cols === "number" &&
+          typeof parsed.rows === "number" &&
+          parsed.observe !== false
+        ) {
+          term?.resize(parsed.cols, parsed.rows);
+        }
+      } else if (parsed.type === "resize") {
+        term?.resize(parsed.cols, parsed.rows);
+      } else if (parsed.type === "put_result") {
+        setUploading(false);
+        setLandedFile({
+          path: parsed.path,
+          name: parsed.name ?? parsed.path,
+        });
+      } else if (parsed.type === "error") {
+        setUploading(false);
+        setErrorText(parsed.message);
+      } else if (parsed.type === "closed") {
+        setPhase("closed");
+      }
+    });
+
+    ws.addEventListener("close", () => {
+      if (disposed || wsRef.current !== ws) return;
+      wsRef.current = null;
+      if (attempt < MAX_RECONNECT_ATTEMPTS) {
+        attempt += 1;
+        setPhase("reconnecting");
+        const delay = Math.min(10_000, 1_000 * 2 ** (attempt - 1));
+        reconnectTimer = window.setTimeout(() => {
+          openSocket(true);
+        }, delay);
+      } else {
+        setPhase("closed");
+      }
+    });
+
+    ws.addEventListener("error", () => {
+      if (disposed || wsRef.current !== ws) return;
+      setPhase("error");
+    });
+  };
+
+  void (async () => {
+    try {
+      const [{ Terminal }, { FitAddon }, { WebLinksAddon }] = await Promise.all(
+        [
+          import("@xterm/xterm"),
+          import("@xterm/addon-fit"),
+          import("@xterm/addon-web-links"),
+          import("@xterm/xterm/css/xterm.css"),
+        ],
+      );
+      if (disposed) return;
+
+      const instance = new Terminal({
+        cols: initialCols,
+        rows: initialRows,
+        convertEol: false,
+        cursorBlink: true,
+        fontSize: 12,
+        fontFamily: "var(--font-mono, ui-monospace, SFMono-Regular, monospace)",
+        theme: readTerminalThemeFromTokens(),
+      }) as unknown as XtermLike;
+
+      const fit = new FitAddon() as unknown as FitAddonLike;
+      instance.loadAddon(fit);
+      instance.loadAddon(new WebLinksAddon());
+
+      if (hostRef.current) {
+        instance.open(hostRef.current);
+        try {
+          fit.fit();
+        } catch {
+          // Container may not have layout metrics yet (e.g. hidden or jsdom).
+        }
+      }
+
+      term = instance;
+      fitAddon = fit;
+      termRef.current = instance;
+      fitRef.current = fit;
+
+      onDataSub = instance.onData((data) => {
+        if (observeRef.current) return;
+        const ws = wsRef.current;
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        ws.send(new TextEncoder().encode(data));
+      });
+
+      if (hostRef.current && typeof ResizeObserver !== "undefined") {
+        resizeObserver = new ResizeObserver(() => {
+          if (disposed || !fitAddon || !term) return;
+          if (resizeTimer !== null) window.clearTimeout(resizeTimer);
+          resizeTimer = window.setTimeout(() => {
+            if (disposed || !fitAddon || !term) return;
+            try {
+              fitAddon.fit();
+            } catch {
+              return;
+            }
+            if (!observeRef.current) {
+              const ws = wsRef.current;
+              if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(
+                  JSON.stringify({
+                    type: "resize",
+                    cols: term.cols,
+                    rows: term.rows,
+                  } satisfies HerdrCoreAttachClientMessage),
+                );
+              }
+            }
+          }, 80);
+        });
+        resizeObserver.observe(hostRef.current);
+      }
+
+      openSocket(false);
+    } catch (error) {
+      if (!disposed) {
+        setPhase("error");
+        setErrorText(error instanceof Error ? error.message : String(error));
+      }
+    }
+  })();
+
+  return () => {
+    disposed = true;
+    if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
+    if (resizeTimer !== null) window.clearTimeout(resizeTimer);
+    resizeObserver?.disconnect();
+    onDataSub?.dispose();
+    const ws = wsRef.current;
+    wsRef.current = null;
+    if (ws && ws.readyState <= WebSocket.OPEN) {
+      ws.close();
+    }
+    term?.dispose();
+    termRef.current = null;
+    fitRef.current = null;
+  };
 }
 
 export default LazyXtermView;
