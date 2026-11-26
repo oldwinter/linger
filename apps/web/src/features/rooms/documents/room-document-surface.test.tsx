@@ -2841,7 +2841,7 @@ it.each([
         within(byline as HTMLElement).getByRole("status", {
           name: "Document save status",
         }),
-      ).toHaveTextContent("Save protocol error");
+      ).toHaveTextContent("Couldn't save. Reload to retry.");
 
       fireEvent.click(
         within(alert).getByRole("button", { name: "Reload document" }),

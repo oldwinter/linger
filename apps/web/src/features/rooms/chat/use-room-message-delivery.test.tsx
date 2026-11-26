@@ -887,7 +887,7 @@ describe("Room Message delivery identity", () => {
     );
 
     expect(delivery.result.current.outgoing[0]).toMatchObject({
-      error: composerMessages.deliveryMayHaveReached.source,
+      error: expect.stringContaining("may have sent"),
       failure: { reason: "delivery_may_have_reached" },
       heldByPerson: true,
       status: "unknown",

@@ -8,6 +8,9 @@ const state = vi.hoisted(() => {
     require("node:events") as typeof import("node:events");
   /* eslint-enable @typescript-eslint/no-require-imports */
   const windows: MockBrowserWindow[] = [];
+  const theme = Object.assign(new EventEmitter(), {
+    shouldUseDarkColors: false,
+  });
 
   class MockWebContents extends EventEmitter {
     readonly setWindowOpenHandler = vi.fn();
@@ -22,6 +25,7 @@ const state = vi.hoisted(() => {
     readonly show = vi.fn();
     readonly focus = vi.fn();
     readonly loadURL = vi.fn(async () => {});
+    readonly setBackgroundColor = vi.fn();
     readonly destroy = vi.fn(() => {
       this.destroyed = true;
     });
@@ -37,7 +41,7 @@ const state = vi.hoisted(() => {
     }
   }
 
-  return { windows, MockBrowserWindow };
+  return { windows, theme, MockBrowserWindow };
 });
 
 vi.mock("electron", () => ({
@@ -52,6 +56,7 @@ vi.mock("electron", () => ({
   nativeImage: {
     createFromBuffer: vi.fn(() => ({})),
   },
+  nativeTheme: state.theme,
   session: {
     defaultSession: {
       cookies: {
@@ -162,6 +167,8 @@ function setupHost(options: {
 describe("SetupWindowModule startup visibility", () => {
   beforeEach(() => {
     state.windows.length = 0;
+    state.theme.shouldUseDarkColors = false;
+    state.theme.removeAllListeners("updated");
   });
 
   it("evaluates a show predicate after LocalServer.start() so orphaned recovery opens Setup", async () => {

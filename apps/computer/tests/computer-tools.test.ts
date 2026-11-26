@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import {
   mkdir,
   mkdtemp,
+  realpath,
   rename,
   rm,
   symlink,
@@ -387,7 +388,9 @@ it("sorts managed MCP servers and active tool names deterministically", async ()
 });
 
 it("stages a compact self-contained computer-tools bundle with bundled Pi MCP, jiti, Playwright MCP, and QuickJS", async () => {
-  const root = await mkdtemp(path.join(tmpdir(), "linger-staged-tools-"));
+  const root = await realpath(
+    await mkdtemp(path.join(tmpdir(), "linger-staged-tools-")),
+  );
   const methods: string[] = [];
   let server: Server | undefined;
   try {

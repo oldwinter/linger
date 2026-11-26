@@ -252,8 +252,9 @@ export function ActionMenu({
             return;
           }
           setFocusOnOpen(true);
+          const wasOpenedByHover = openedByHover.current;
           openedByHover.current = false;
-          setOpen((current) => openOnHover || !current);
+          setOpen((current) => (current && wasOpenedByHover) || !current);
           setActiveSubmenu(null);
         }}
         ref={triggerRef}

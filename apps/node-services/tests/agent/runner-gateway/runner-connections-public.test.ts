@@ -1086,6 +1086,7 @@ describe("RunnerGateway local Computer reconnect wait", () => {
       connectLocalComputer,
       touchLocalComputer: vi.fn(),
       removeLocalComputer: vi.fn(),
+      reportHerdrEvent: vi.fn(),
       recordLocalModels: vi.fn(),
     });
     const connection = {
