@@ -5,9 +5,9 @@ description: Verify Linger web, TeamHub, Document Runtime, and Local Computer fe
 
 # Verify Linger
 
-Drive the running Linger product (React Web UI, TeamHub, Node Services, PostgreSQL, and Local Computer) on an isolated per-run stack. Each run uses `--run-id <id>` (`[a-z0-9-]`, 2-40 chars), stores mutable runtime state in a per-run scratch directory under the system temp dir (`run_dir` in `up.json`, e.g., `$TMPDIR/linger-verify-<id>`), and writes proof artifacts to `--evidence-dir` (outside `run_dir`) so evidence survives teardown.
+Drive the running Linger product (React Web UI, TeamHub, Node Services, PostgreSQL, and Local Computer) on an isolated per-run stack. Each run uses `--run-id <id>` (`[a-z0-9-]`, 2-40 chars), stores mutable runtime state in a per-run scratch directory under the system temp dir (`run_dir` in `up.json`, e.g., `$TMPDIR/linger-verify-<id>`), isolates `LINGER_HOME` inside `run_dir`, and writes proof artifacts to `--evidence-dir` (outside `run_dir`) so evidence survives teardown.
 
-This harness never targets host desktop instances (`127.0.0.1:3000`, default ports `3000/4319/4321/5432/8080/17880/54339`, `~/.simplexai`, `~/.herdr`, or `.linger-runtime/`).
+This harness never targets host desktop instances (`127.0.0.1:3000`, default ports `3000/4319/4321/5432/8080/17880/44177/48210/54339`, `~/.lingerx`, `~/LingerX`, `~/.linger`, `~/.simplexai`, `~/.herdr`, or `.linger-runtime/`).
 
 ## Launch
 
@@ -22,12 +22,14 @@ mkdir -p "$EVIDENCE_DIR"
   > "$EVIDENCE_DIR/up.json"
 ```
 
-`up` builds `teamhub`, `migrate`, `teamhub-cli`, `linger-computer`, and `linger-computer-daemon`, starts native PostgreSQL 17 with `pgvector` (or an isolated Docker Compose DB when native binaries are unavailable), creates a fresh owner account, starts TeamHub, Node Services (`memory,llm-wiki,agent,document`), the Vite Web server, and an enrolled Local Computer daemon, then waits until `Another Me` is provisioned (`agent_actor_id` and `room_id`) so the `LocalComputerGate` overlay clears.
+`up` builds `teamhub`, `migrate`, `teamhub-cli`, `linger-computer`, and `linger-computer-daemon`, starts native PostgreSQL 17 with `pgvector` (scanning `$LINGER_HOME`, `~/.lingerx`, `~/.linger`, `~/.simplexai`, Homebrew/system paths, or falling back to an isolated Docker Compose DB when native binaries are unavailable), creates a fresh owner account, starts TeamHub, Node Services (`memory,llm-wiki,agent,document`), the Vite Web server, and an enrolled Local Computer daemon, then waits until `Another Me` is provisioned (`agent_actor_id` and `room_id`) so the `LocalComputerGate` overlay clears. `up.json` records `run_dir`, `evidence_dir`, `browser_backend`, `ports`, URLs, `tenant_id`, `another_me_actor_id`, `another_me_room_id`, and `computer_id`.
 
 Options for `up`:
 
 - `--live-provider`: use the local Codex binary directly instead of the default `codex-app-server-fixture` stand-in.
-- Stand-in boundary: default mode runs Vite dev server instead of the production static-host container and substitutes `codex-app-server-fixture` (which ends its turn with `"fixture complete"` without running `teamhub message send` into the Room timeline, so `room-reply-guard` terminates Room runs with `agent_local_runs.status = 'failed'` and `terminal.failure.code = 'reply_not_sent'`). Pass `--live-provider` when testing real agent messages or live model behavior.
+- `--browser-backend <auto|agent-browser|playwright>`: choose the browser driver (default `auto`: uses `agent-browser` when on `PATH`, otherwise falls back to [playwright-browser-session.mjs](scripts/playwright-browser-session.mjs) backed by the workspace's `@playwright/test`).
+- Stand-in boundary: default mode runs the Vite dev server instead of the production static-host container and substitutes `codex-app-server-fixture` (which ends its turn with `"fixture complete"` without running `teamhub message send` into the Room timeline, so `room-reply-guard` terminates Room runs with `agent_local_runs.status = 'failed'` and `terminal.failure.code = 'reply_not_sent'`, rendering `"Couldn't finish. It finished without replying. Ask again."`). Pass `--live-provider` when testing real agent replies or live model behavior.
+- No-backend Web shell smoke: for offline/unreachable TeamHub retry (`"Can't reach Linger"` / `"Try again"`), pre-auth language switching, and revoked `/shared-documents` error rendering without booting PostgreSQL or TeamHub, run `pnpm test:e2e:smoke` (`e2e.config.ts` / `tests/web-smoke.e2e.ts`).
 
 ## Doctor
 
@@ -39,22 +41,22 @@ Run read-only health verification right after `up` (and before debugging failure
   > "$EVIDENCE_DIR/doctor.json"
 ```
 
-`doctor` exits non-zero unless all checks pass: owned process PIDs match the active loopback listeners, `/healthz` probes succeed for TeamHub, Node Services, Document Runtime, and Web (plus `/readyz` for Node Services and Document Runtime), owner sign-in works via HTTP, `Another Me` is present, and `linger-computer daemon status --json` reports `gateway_state: "connected"` with a ready runtime. Inspect `<run_dir>/logs/*.log` whenever `up` or `doctor` fails, then run [Cleanup](#cleanup).
+`doctor` exits non-zero unless all checks pass: owned process PIDs match the active loopback listeners, `/healthz` probes succeed for TeamHub, Node Services, Document Runtime, and Web (plus `/readyz` for Node Services and Document Runtime), owner sign-in works via HTTP, `Another Me` is present, `linger-computer daemon status --json` reports `gateway_state: "connected"` with a ready runtime, and the selected `browser.backend` is healthy. Inspect `<run_dir>/logs/*.log` whenever `up` or `doctor` fails, then run [Cleanup](#cleanup).
 
 ## Drive
 
-Sign into the isolated `agent-browser` session first:
+Sign into the isolated browser session first:
 
 ```bash
 ./.agents/skills/verify/scripts/verify-linger.mjs sign-in \
   --run-id "<id>"
 ```
 
-All browser actions go through the run-scoped `browser` wrapper so every command automatically inherits `--session linger-verify-<id>`:
+All browser actions go through the run-scoped `browser` wrapper so every command automatically targets the run's isolated session (`--session linger-verify-<id>` for `agent-browser`, or `<run_dir>/browser-session.json` for Playwright):
 
 ```bash
 ./.agents/skills/verify/scripts/verify-linger.mjs browser \
-  --run-id "<id>" -- <agent-browser-args...>
+  --run-id "<id>" -- <browser-args...>
 ```
 
 Execution rules while driving the UI:
@@ -62,7 +64,7 @@ Execution rules while driving the UI:
 - Drive product mutations exclusively through the Web UI (`browser`) and `linger-computer` CLI (`computer`). Use `api` (`GET` only) and `sql` (read-only transaction) strictly for second-view verification, never to create or mutate state.
 - Wait on visible text, roles, DOM attributes, or path predicates (`wait --text "..."`, `wait --fn "window.location.pathname.includes('/rooms/')"`, or `wait --fn "document.querySelector('[data-room-document-save-status]')?.getAttribute('data-room-document-save-status') === 'Saved' && Number(document.querySelector('[data-room-document-durable-sequence]')?.getAttribute('data-room-document-durable-sequence')) > 0"`). Never run `wait --load networkidle` because `/v0/events` SSE and `/document-collaboration` WebSocket keep open connections, and avoid bare `wait '[data-room-document-save-status="Saved"]'` because that probe sits on a `hidden` element. Note that `--fn` path checks are more reliable than `--url` globs across nested SPA routes.
 - Re-snapshot (`snapshot -i`) after navigation, dialog open/close, menu selection, or form submission because interactive `@e` refs become stale when elements mount or unmount. Call `scrollintoview <ref>` before clicking controls that sit below the fold inside scrollable panels or dialogs.
-- Prefer accessible semantic locators (`find role ...`, `find label ...`, `find text ...`) when stable; use `snapshot -i` to discover dynamic buttons or verify labels.
+- Prefer accessible semantic locators (`find role ... --exact`, `find label ...`, `find text ...`) when stable; use `snapshot -i` to discover dynamic buttons or disambiguate colliding accessible names (such as modal `Close` vs header `Close <Room> details`, or `WorkItemPeek` `Archive` vs board `Archived`).
 
 Follow the feature map starting at [features/README.md](features/README.md) for routes, controls, preconditions, and gotchas per area:
 
@@ -71,13 +73,14 @@ Follow the feature map starting at [features/README.md](features/README.md) for 
 - [Documents and library](features/documents-and-library.md)
 - [Work items and hand-off](features/work-items-dashboard.md)
 - [Navigation, search, and settings](features/navigation-search-and-settings.md)
+- [Proactive rules and mandates](features/proactive-rules.md)
 
 ## Evidence
 
 Capture three independent proofs inside `$EVIDENCE_DIR` before finishing a verification pass:
 
-1. **Visual state**: full screenshots (`browser --run-id "<id>" -- screenshot "$EVIDENCE_DIR/<step>.png"`) for initial state, key interactions, and post-reload persistence; inspect the saved PNG files with `read_file` to verify layout, text readability, and absence of error banners or unintended dialogs.
-2. **Semantic DOM / accessibility state**: interactive snapshots (`browser --run-id "<id>" -- snapshot -i`) or text captures redirected to `$EVIDENCE_DIR/<step>.aria.txt`.
+1. **Visual state**: screenshots (`browser --run-id "<id>" -- screenshot "$EVIDENCE_DIR/<step>.png"`) for initial state, key interactions, and post-reload persistence; inspect the saved PNG files with `read_file` to verify layout, text readability, and absence of error banners or unintended dialogs.
+2. **Semantic DOM / accessibility state**: interactive snapshots (`browser --run-id "<id>" -- snapshot -i`) or full ARIA snapshots (`snapshot`) redirected to `$EVIDENCE_DIR/<step>.aria.txt`.
 3. **Second-view side effects**: persisted TeamHub API responses (`api --run-id "<id>" GET /v0/...`), read-only PostgreSQL rows (`sql --run-id "<id>" "SELECT ..."`), and Local Computer state (`computer --run-id "<id>" -- daemon status --json`).
 
 Save files directly under `$EVIDENCE_DIR` (outside `run_dir`) and confirm they remain readable and non-empty after `down`.
@@ -92,17 +95,18 @@ Always tear down the stack when verification finishes or aborts:
   > "$EVIDENCE_DIR/down.json"
 ```
 
-`down` closes the run's `agent-browser` session, stops the Local Computer daemon, Web server, Node Services, TeamHub, and PostgreSQL (or removes the Docker Compose project and volumes), unlocks permissions on `run_dir`, and removes the entire scratch directory while leaving `$EVIDENCE_DIR` intact. Verify `test ! -e "$(jq -r .run_dir "$EVIDENCE_DIR/up.json")"` and confirm no listeners remain on the ports listed in `$EVIDENCE_DIR/up.json`.
+`down` closes the run's browser session (stopping the Playwright daemon or closing the `agent-browser` session), stops the Local Computer daemon, Web server, Node Services, TeamHub, and PostgreSQL (or removes the Docker Compose project and volumes), unlocks permissions on `run_dir`, and removes the entire scratch directory while leaving `$EVIDENCE_DIR` intact. Verify `test ! -e "$(jq -r .run_dir "$EVIDENCE_DIR/up.json")"` and confirm no listeners remain on any port listed in `.ports` inside `$EVIDENCE_DIR/up.json`.
 
 ## Helpers
 
-| Command                                                   | Purpose                                             | Notes                                                    |
-| --------------------------------------------------------- | --------------------------------------------------- | -------------------------------------------------------- |
-| [verify-linger.mjs](scripts/verify-linger.mjs) `up`       | Launch isolated stack and wait for `Another Me`     | Optional `--run-id`, `--evidence-dir`, `--live-provider` |
-| [verify-linger.mjs](scripts/verify-linger.mjs) `doctor`   | Check PIDs, ports, `/healthz`, owner login, gateway | Exits non-zero on any failed check                       |
-| [verify-linger.mjs](scripts/verify-linger.mjs) `sign-in`  | Log owner into `/login` inside run browser session  | Optional `--return-to /connect-computer?<query>`         |
-| [verify-linger.mjs](scripts/verify-linger.mjs) `browser`  | Run `agent-browser --session linger-verify-<id>`    | Pass command args after `--`                             |
-| [verify-linger.mjs](scripts/verify-linger.mjs) `api`      | Execute read-only `GET /v0/...` as run owner        | Rejects non-`GET` methods                                |
-| [verify-linger.mjs](scripts/verify-linger.mjs) `sql`      | Run PostgreSQL query with read-only transaction     | Forces `SET default_transaction_read_only = on`          |
-| [verify-linger.mjs](scripts/verify-linger.mjs) `computer` | Run `linger-computer` against isolated config       | Appends `--config <run-dir>/computer/config.json`        |
-| [verify-linger.mjs](scripts/verify-linger.mjs) `down`     | Stop run processes and delete `run_dir`             | Preserves `--evidence-dir`                               |
+| Command                                                                                 | Purpose                                                     | Notes                                                                                 |
+| --------------------------------------------------------------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| [verify-linger.mjs](scripts/verify-linger.mjs) `up`                                     | Launch isolated stack and wait for `Another Me`             | Optional `--run-id`, `--evidence-dir`, `--live-provider`, `--browser-backend`         |
+| [verify-linger.mjs](scripts/verify-linger.mjs) `doctor`                                 | Check PIDs, ports, `/healthz`, owner login, gateway, driver | Exits non-zero on any failed check                                                    |
+| [verify-linger.mjs](scripts/verify-linger.mjs) `sign-in`                                | Log owner into `/login` inside run browser session          | Optional `--return-to /connect-computer?<query>`; restores English UI if needed       |
+| [verify-linger.mjs](scripts/verify-linger.mjs) `browser`                                | Run browser action scoped to this run's session             | Pass command args after `--`                                                          |
+| [verify-linger.mjs](scripts/verify-linger.mjs) `api`                                    | Execute read-only `GET /v0/...` as run owner                | Rejects non-`GET` methods                                                             |
+| [verify-linger.mjs](scripts/verify-linger.mjs) `sql`                                    | Run PostgreSQL query with read-only transaction             | Forces `SET default_transaction_read_only = on`                                       |
+| [verify-linger.mjs](scripts/verify-linger.mjs) `computer`                               | Run `linger-computer` against isolated config               | Appends `--config <run-dir>/computer/config.json`                                     |
+| [verify-linger.mjs](scripts/verify-linger.mjs) `down`                                   | Stop run processes and delete `run_dir`                     | Preserves `--evidence-dir`                                                            |
+| [playwright-browser-session.mjs](scripts/playwright-browser-session.mjs) `exec`/`serve` | Built-in Playwright browser daemon fallback                 | Invoked automatically by `verify-linger.mjs` when `--browser-backend playwright`/auto |

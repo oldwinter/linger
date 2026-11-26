@@ -4,13 +4,14 @@ Feature recipes for [verify-linger.mjs](../scripts/verify-linger.mjs). Each docu
 
 ## Feature Areas
 
-| Feature                                                               | Route / Entry                                                                              | Covers                                                                                                                                          |
-| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| [Auth and session](auth-and-session.md)                               | `/login`, `Account menu`, `LocalComputerGate`                                              | Sign-in, `/connect-computer` `return_to` redirect, invalid-credential alert, `Another Me` gate clearance, sign-out                              |
-| [Rooms and messaging](rooms-and-messaging.md)                         | `/t/:tenantId/rooms/:roomId/chat`, `/shared-room-history`                                  | Room creation, member selection, message send and reload persistence, Room details, shared history link and two-step revocation                 |
-| [Documents and library](documents-and-library.md)                     | `/t/:tenantId/library`, `/t/:tenantId/documents/:documentId`                               | Library views (`My pages`, `Shared with me`, `Meetings`), folder creation, native Room Document creation, Read/Edit mode, BlockNote persistence |
-| [Work items and hand-off](work-items-dashboard.md)                    | `/t/:tenantId/dashboard`, `/t/:tenantId/work-items/:workItemId`, `/rooms/:roomId/hand-off` | Dashboard issue creation and export, `WorkItemPeek` archive/unarchive, read-only full-page story view, Room hand-off creation                   |
-| [Navigation, search, and settings](navigation-search-and-settings.md) | `/t/:tenantId/jump`, Search dialog, `/t/:tenantId/settings/*`, `Wiki`, `Connectors`        | Primary and Room navigation, Global Search modal, Jump filtering, Shortcuts, Computers, Models, Language, Wiki, and Connectors (`Web search`)   |
+| Feature                                                               | Route / Entry                                                                              | Covers                                                                                                                                                  |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [Auth and session](auth-and-session.md)                               | `/login`, `Account menu`, `LocalComputerGate`                                              | Clean cold-start redirect, pre-auth language switcher, invalid-credential alert, `/connect-computer` `return_to`, `Another Me` gate clearance, sign-out |
+| [Rooms and messaging](rooms-and-messaging.md)                         | `/t/:tenantId/rooms/:roomId/chat`, `/shared-room-history`                                  | Room creation, member selection, message send and reload persistence, fixture run failure dock, Message Pins, Room details, share link and revocation   |
+| [Documents and library](documents-and-library.md)                     | `/t/:tenantId/library`, `/t/:tenantId/documents/:documentId`, `/shared-documents`          | Library views, folder creation, native Room Document byline `Document mode` and BlockNote persistence, Document link sharing                            |
+| [Work items and hand-off](work-items-dashboard.md)                    | `/t/:tenantId/dashboard`, `/t/:tenantId/work-items/:workItemId`, `/rooms/:roomId/hand-off` | Dashboard issue creation, `WorkItemDetailDrawer` comments, `WorkItemPeek` archive/unarchive, read-only story route, Room hand-off creation              |
+| [Navigation, search, and settings](navigation-search-and-settings.md) | `/t/:tenantId/jump`, Search dialog, `/t/:tenantId/settings/*`, `Wiki`, `Connectors`        | Primary and Room navigation, Global Search modal, Jump filtering, Shortcuts, Computers, Models, Language, Wiki, and Connectors (`Web search`)           |
+| [Proactive rules and mandates](proactive-rules.md)                    | `/t/:tenantId/settings/my-rules`, `/my-rules/review`, `/rule-changes/:ruleId`              | Fork-only `My Rules` book, local `Reminders on this computer` quiet hold, shadow review and change-preview sub-routes, API/SQL second views             |
 
 ## Shared Preconditions
 
@@ -27,6 +28,10 @@ Feature recipes for [verify-linger.mjs](../scripts/verify-linger.mjs). Each docu
 
 2. Run `./.agents/skills/verify/scripts/verify-linger.mjs doctor --run-id "<id>" > "$EVIDENCE_DIR/doctor.json"` and confirm `"ok": true`.
 3. Sign into the browser session with `./.agents/skills/verify/scripts/verify-linger.mjs sign-in --run-id "<id>"` before running authenticated recipes.
+
+## Complementary No-Backend Shell Smoke
+
+For offline shell states that cannot be reached while the isolated stack's TeamHub is healthy (unreachable TeamHub `"Can't reach Linger"` / `"Try again"` and revoked `/shared-documents` error state), run `pnpm test:e2e:smoke` (`e2e.config.ts` / `tests/web-smoke.e2e.ts`).
 
 ## Keeping Recipes Honest
 
