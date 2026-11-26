@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { useT } from "@/i18n/use-translation";
 import { isShortcutKeyEvent } from "@/lib/keyboard-shortcut";
 
 import type { LifeChapter } from "./life-telling";
+import { wikiSubpagesMessages as m } from "./wiki-subpages.messages";
 
 /** One chapter of the life at a time, from the earliest year. */
 export function LifeTellingView({
@@ -11,6 +13,7 @@ export function LifeTellingView({
 }: {
   chapters: readonly LifeChapter[];
 }) {
+  const t = useT();
   const [step, setStep] = useState(0);
   const lastIndex = Math.max(chapters.length - 1, 0);
   const index = Math.min(step, lastIndex);
@@ -35,21 +38,27 @@ export function LifeTellingView({
   if (!chapter) {
     return (
       <p className="text-sm text-muted-foreground" role="status">
-        Another Me has not written a life yet.
+        {t(m.noLifeYet)}
       </p>
     );
   }
 
   return (
     <div className="flex flex-col gap-6">
-      <article aria-label="Life chapter" className="flex flex-col gap-3">
+      <article
+        aria-label={t(m.lifeChapter)}
+        className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-5 shadow-xs"
+      >
         <p className="text-sm text-muted-foreground">{chapter.period}</p>
         <p className="text-xl text-foreground">{chapter.sentence}</p>
       </article>
       <p className="text-sm text-muted-foreground" role="status">
         {last
-          ? "That's the life Another Me would tell."
-          : `Chapter ${index + 1} of ${chapters.length}`}
+          ? t(m.thatsTheLife)
+          : t(m.chapterOf, {
+              current: index + 1,
+              total: chapters.length,
+            })}
       </p>
       <div className="flex flex-wrap gap-2">
         <Button
@@ -58,7 +67,7 @@ export function LifeTellingView({
           tone="secondary"
           type="button"
         >
-          Earlier chapter
+          {t(m.earlierChapter)}
         </Button>
         <Button
           disabled={last}
@@ -66,7 +75,7 @@ export function LifeTellingView({
           tone="secondary"
           type="button"
         >
-          Later chapter
+          {t(m.laterChapter)}
         </Button>
       </div>
     </div>

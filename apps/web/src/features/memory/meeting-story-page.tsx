@@ -7,8 +7,11 @@ import { LibrarySubpageShell } from "@/features/library/library-subpage-shell";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
 
 import { useMeetings } from "./memory-queries";
+import { memorySubpagesMessages as m } from "./memory-subpages.messages";
 import { meetingPath } from "./meeting-routes";
 import { formatMeetingWhen, meetingWhen } from "./meetings-calendar";
 import { meetingStoryBeats, storySentence } from "./meeting-story";
@@ -17,6 +20,7 @@ import { useMeetingToldPart } from "./meeting-told-part";
 /** One meeting retold as the lines you would actually say to someone. */
 export function MeetingStoryPage() {
   const { client } = useTeamHubRuntime();
+  const t = useT();
   const tenantId = requireRoomRouteParam(useParams().tenantId, "Tenant");
   const entryId = useSearchParams()[0].get("entry") ?? "";
   const meetings = useMeetings(tenantId);
@@ -35,8 +39,8 @@ export function MeetingStoryPage() {
   const [told, setTold] = useState<number | null>(null);
   const when = listed ? meetingWhen(listed.path) : undefined;
   const title = when
-    ? `Meeting ${formatMeetingWhen(when.date, when.time)}`
-    : (listed?.title ?? "Meeting");
+    ? t(m.meetingNamed, { when: formatMeetingWhen(when.date, when.time) })
+    : (listed?.title ?? t(m.meetingFallback));
   const beats = useMemo(
     () => (selected.data ? meetingStoryBeats(selected.data.content) : []),
     [selected.data],
@@ -50,20 +54,18 @@ export function MeetingStoryPage() {
 
   return (
     <LibrarySubpageShell
-      backLabel="Back to the meeting"
+      backLabel={t(m.backToMeeting)}
       backTo={meetingPath(tenantId, entryId)}
-      subtitle={`${title}. The lines you could say out loud, then the one you would actually tell.`}
-      title="Tell this story"
+      subtitle={t(m.tellStorySubtitle, { meeting: title })}
+      title={t(m.tellStoryTitle)}
     >
       {meetings.isPending || (listed && selected.isPending) ? (
         <p className="text-sm text-muted-foreground" role="status">
-          Loading the meeting.
+          {t(m.loadingMeeting)}
         </p>
       ) : meetings.isError || selected.isError ? (
         <div className="flex flex-col items-start gap-3" role="alert">
-          <p className="text-sm text-destructive">
-            Could not load this meeting.
-          </p>
+          <p className="text-sm text-destructive">{t(m.meetingLoadFailed)}</p>
           <Button
             onClick={() => {
               if (meetings.isError) void meetings.refetch();
@@ -72,31 +74,40 @@ export function MeetingStoryPage() {
             size="compact"
             tone="secondary"
           >
-            Retry
+            {t(commonMessages.retry)}
           </Button>
         </div>
       ) : !listed ? (
         <p className="text-sm text-muted-foreground" role="status">
-          This meeting is not in your library.
+          {t(m.meetingNotInLibrary)}
         </p>
       ) : sentences.length === 0 ? (
         <p className="text-sm text-muted-foreground" role="status">
-          This meeting does not have a story to tell yet.
+          {t(m.noStoryYet)}
         </p>
       ) : (
         <>
           {featured ? (
-            <section aria-labelledby="story-to-tell">
-              <h2 className="text-sm text-foreground" id="story-to-tell">
-                The part you would tell
+            <section
+              aria-labelledby="story-to-tell"
+              className="rounded-2xl border border-border bg-card p-5 shadow-xs"
+            >
+              <h2
+                className="text-sm font-medium text-muted-foreground"
+                id="story-to-tell"
+              >
+                {t(m.partYouWouldTell)}
               </h2>
               <p className="mt-3 text-lg text-foreground">{featured}</p>
             </section>
           ) : null}
-          <ol aria-label="Meeting story" className="flex flex-col gap-3">
+          <ol
+            aria-label={t(m.meetingStoryLabel)}
+            className="flex flex-col gap-3"
+          >
             {sentences.map((sentence, index) => (
               <li
-                className="rounded-2xl border border-border px-4 py-3"
+                className="rounded-2xl border border-border bg-card px-4 py-3 shadow-xs"
                 key={`${index}-${sentence}`}
               >
                 <p className="text-sm text-foreground">{sentence}</p>
@@ -111,7 +122,7 @@ export function MeetingStoryPage() {
                   tone={told === index ? "primary" : "secondary"}
                   type="button"
                 >
-                  This is the part I would tell
+                  {t(m.thisIsPartIWouldTell)}
                 </Button>
               </li>
             ))}

@@ -216,6 +216,7 @@ export function GlobalSearchDialog({
         roomScoped={roomScope !== undefined}
         scope={scope}
         sections={sections}
+        showingStart={showingStart}
         tab={activeTab}
         targetContext={targetContext}
       />

@@ -7,6 +7,11 @@ import {
   type WorkItemDashboardSort,
   workItemDashboardSortSearch,
 } from "./work-item-sort";
+import {
+  DEFAULT_WORK_ITEM_VIEW_MODE,
+  type WorkItemViewMode,
+  workItemDashboardViewSearch,
+} from "./work-item-view-mode";
 
 /**
  * The absolute link to the board in one view. The URL carries only the values
@@ -18,15 +23,17 @@ export function workItemBoardViewUrl({
   origin,
   sort,
   tenantId,
+  viewMode = DEFAULT_WORK_ITEM_VIEW_MODE,
 }: {
   filters: WorkItemDashboardFilters;
   origin: string;
   sort: WorkItemDashboardSort;
   tenantId: string;
+  viewMode?: WorkItemViewMode;
 }): string {
-  const search = workItemDashboardSortSearch(
-    workItemDashboardFiltersSearch(filters),
-    sort,
+  const search = workItemDashboardViewSearch(
+    workItemDashboardSortSearch(workItemDashboardFiltersSearch(filters), sort),
+    viewMode,
   );
   const url = `${origin}${dashboardPath(tenantId)}`;
   return search ? `${url}?${search}` : url;

@@ -10,6 +10,7 @@ import { createTeamHubIdempotencyKey } from "@/features/teamhub/teamhub-client";
 import { idempotencyHeader, teamHubData } from "@/features/teamhub/teamhub-api";
 import { createTeamHubMessageContent } from "@/features/teamhub/teamhub-message-content";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { useT } from "@/i18n/use-translation";
 
 import {
   carryRoomTitle,
@@ -18,12 +19,14 @@ import {
   roomsThatCanReceive,
 } from "./carry-decision";
 import { useMeetings } from "./memory-queries";
+import { memorySubpagesMessages as m } from "./memory-subpages.messages";
 import { meetingPath } from "./meeting-routes";
 import { formatMeetingWhen, meetingWhen } from "./meetings-calendar";
 
 /** Posts one meeting decision into a room. The meeting itself stays as it is. */
 export function CarryDecisionPage() {
   const { client } = useTeamHubRuntime();
+  const t = useT();
   const tenantId = requireRoomRouteParam(useParams().tenantId, "Tenant");
   const entryId = useSearchParams()[0].get("entry");
   const meetings = useMeetings(tenantId);
@@ -44,8 +47,8 @@ export function CarryDecisionPage() {
   const destinations = roomsThatCanReceive(rooms.data?.items ?? []);
   const when = entry ? meetingWhen(entry.path) : undefined;
   const meetingLabel = when
-    ? `Meeting · ${formatMeetingWhen(when.date, when.time)}`
-    : (entry?.title ?? "this meeting");
+    ? t(m.meetingHeading, { when: formatMeetingWhen(when.date, when.time) })
+    : (entry?.title ?? t(m.thisMeetingFallback));
   const [decisionId, setDecisionId] = useState<string>();
   const [roomId, setRoomId] = useState<string>();
   const [pending, setPending] = useState(false);
@@ -92,34 +95,34 @@ export function CarryDecisionPage() {
 
   return (
     <LibrarySubpageShell
-      backLabel="Back to the meeting"
+      backLabel={t(m.backToMeeting)}
       backTo={
         entry
           ? meetingPath(tenantId, entry.id)
           : `/t/${encodeURIComponent(tenantId)}/library?tab=meetings`
       }
-      subtitle={`Send one decision from ${meetingLabel} into a room. The meeting stays as it is.`}
-      title="Carry a decision"
+      subtitle={t(m.carrySubtitle, { meeting: meetingLabel })}
+      title={t(m.carryTitle)}
     >
       {loading ? (
         <p className="text-sm text-muted-foreground" role="status">
-          Loading the meeting.
+          {t(m.loadingMeeting)}
         </p>
       ) : missing ? (
         <p className="text-sm text-muted-foreground" role="status">
-          This meeting could not be opened.
+          {t(m.meetingCouldNotOpen)}
         </p>
       ) : sentRoom ? (
         <p className="text-sm text-foreground" role="status">
-          {`Sent to ${carryRoomTitle(sentRoom)}. That room now has the decision.`}
+          {t(m.sentToRoom, { room: carryRoomTitle(sentRoom) })}
         </p>
       ) : decisions.length === 0 ? (
         <p className="text-sm text-muted-foreground" role="status">
-          This meeting has no decision to carry.
+          {t(m.noDecisionToCarry)}
         </p>
       ) : destinations.length === 0 ? (
         <p className="text-sm text-muted-foreground" role="status">
-          There is no room to receive it.
+          {t(m.noRoomToReceive)}
         </p>
       ) : (
         <form
@@ -130,10 +133,12 @@ export function CarryDecisionPage() {
           }}
         >
           <fieldset className="flex flex-col gap-2">
-            <legend className="text-sm text-foreground">Which decision</legend>
+            <legend className="text-sm font-medium text-foreground">
+              {t(m.whichDecision)}
+            </legend>
             {decisions.map((item) => (
               <label
-                className="flex items-start gap-3 rounded-2xl border border-border px-4 py-3 text-sm text-foreground"
+                className="flex items-start gap-3 rounded-2xl border border-border bg-card px-4 py-3 text-sm text-foreground"
                 key={item.id}
               >
                 <input
@@ -149,10 +154,12 @@ export function CarryDecisionPage() {
             ))}
           </fieldset>
           <fieldset className="flex flex-col gap-2">
-            <legend className="text-sm text-foreground">Which room</legend>
+            <legend className="text-sm font-medium text-foreground">
+              {t(m.whichRoom)}
+            </legend>
             {destinations.map((item) => (
               <label
-                className="flex items-start gap-3 rounded-2xl border border-border px-4 py-3 text-sm text-foreground"
+                className="flex items-start gap-3 rounded-2xl border border-border bg-card px-4 py-3 text-sm text-foreground"
                 key={item.id}
               >
                 <input
@@ -169,11 +176,11 @@ export function CarryDecisionPage() {
           </fieldset>
           {error ? (
             <p className="text-sm text-destructive" role="alert">
-              The room did not receive it.
+              {t(m.roomDidNotReceive)}
             </p>
           ) : null}
-          <Button disabled={pending} type="submit">
-            {pending ? "Sending" : "Send it there"}
+          <Button data-voice-risk="never" disabled={pending} type="submit">
+            {pending ? t(m.sending) : t(m.sendItThere)}
           </Button>
         </form>
       )}
@@ -182,7 +189,7 @@ export function CarryDecisionPage() {
           className="w-fit text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           to={`/t/${encodeURIComponent(tenantId)}/rooms/${encodeURIComponent(sentRoom.id)}/chat`}
         >
-          {`Open ${carryRoomTitle(sentRoom)}`}
+          {t(m.openRoom, { room: carryRoomTitle(sentRoom) })}
         </Link>
       ) : null}
     </LibrarySubpageShell>

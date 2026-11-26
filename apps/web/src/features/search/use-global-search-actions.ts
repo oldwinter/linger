@@ -93,6 +93,18 @@ export function useOpenResult({
       enterScope(result.tab);
       return;
     }
+    if (result.kind === "command") {
+      if (result.command.action === "cycle-theme") {
+        window.dispatchEvent(new CustomEvent("linger:cycle-theme"));
+        onClose();
+        return;
+      }
+      if (result.command.path) {
+        onClose();
+        void navigate(result.command.path);
+        return;
+      }
+    }
     if (openingRef.current) return;
     openingRef.current = true;
     setOpenError(null);

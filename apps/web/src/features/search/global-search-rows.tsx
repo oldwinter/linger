@@ -3,10 +3,12 @@ import {
   ArrowRight01Icon,
   ArrowTurnBackwardIcon,
   BookOpen01Icon,
+  Calendar03Icon,
   Cancel01Icon,
   Clock01Icon,
   Compass01Icon,
   DashboardSquare01Icon,
+  FlashIcon,
   Idea01Icon,
   Key01Icon,
   KeyboardIcon,
@@ -17,6 +19,8 @@ import {
   Plug01Icon,
   Search01Icon,
   Settings01Icon,
+  SparklesIcon,
+  Sun03Icon,
   UserIcon,
 } from "@hugeicons/core-free-icons";
 import type { CSSProperties, ReactNode } from "react";
@@ -340,11 +344,12 @@ function rowLines(
             : t(m.roomKind)),
       ];
     case "place":
+    case "command":
       return [target.name, target.detail];
   }
 }
 
-function placeIcon(id: string): IconSvgElement {
+export function placeIcon(id: string): IconSvgElement {
   if (id === "dashboard") return DashboardSquare01Icon;
   if (id === "library") return LibrariesIcon;
   if (id === "meetings" || id.startsWith("meeting-")) return Mic01Icon;
@@ -358,6 +363,10 @@ function placeIcon(id: string): IconSvgElement {
   if (id === "shortcuts") return KeyboardIcon;
   if (id === "computers") return LaptopIcon;
   if (id === "models") return AiChipIcon;
+  if (id === "daily-review") return Calendar03Icon;
+  if (id === "who-is-awake") return FlashIcon;
+  if (id === "catch-up") return SparklesIcon;
+  if (id === "cycle-theme") return Sun03Icon;
   return Compass01Icon;
 }
 
@@ -403,6 +412,7 @@ function TargetTile({ target }: { target: SearchTarget }) {
         />
       );
     case "place":
+    case "command":
       return (
         <span className="grid size-8 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground">
           <Icon icon={placeIcon(target.id)} size={16} />

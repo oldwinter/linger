@@ -19,6 +19,7 @@ import { workItemBoardViewUrl } from "./work-item-board-view-link";
 import { WorkItemCopyStatus } from "./work-item-copy-status";
 import type { WorkItemDashboardFilters } from "./work-item-dashboard-filters";
 import type { WorkItemDashboardSort } from "./work-item-sort";
+import type { WorkItemViewMode } from "./work-item-view-mode";
 import { workItemsMessages as m } from "./work-items.messages";
 
 /**
@@ -32,6 +33,7 @@ export function WorkItemBoardExportMenu({
   markdown,
   sort,
   tenantId,
+  viewMode,
 }: {
   csv: string;
   csvDisabled: boolean;
@@ -39,6 +41,7 @@ export function WorkItemBoardExportMenu({
   markdown: string;
   sort: WorkItemDashboardSort;
   tenantId: string;
+  viewMode?: WorkItemViewMode;
 }) {
   const t = useT();
   const { clear, copiedLabel, copy, state } = useWorkItemClipboardCopy();
@@ -70,6 +73,7 @@ export function WorkItemBoardExportMenu({
         origin: window.location.origin,
         sort,
         tenantId,
+        viewMode,
       }),
     );
   }

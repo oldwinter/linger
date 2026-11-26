@@ -7,6 +7,8 @@ import { Spinner } from "@/components/ui/spinner";
 import { LibrarySubpageShell } from "@/features/library/library-subpage-shell";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
 
 import {
   keepMeetingDefaultTitle,
@@ -18,12 +20,14 @@ import {
   keptMeetingDocumentPath,
 } from "./keep-meeting";
 import { useMeetings } from "./memory-queries";
+import { memorySubpagesMessages as m } from "./memory-subpages.messages";
 import { meetingPath } from "./meeting-routes";
 import { meetingsTabPath } from "./meetings-panel";
 
 export function KeepMeetingPage() {
   const { client } = useTeamHubRuntime();
   const navigate = useNavigate();
+  const t = useT();
   const tenantId = requireRoomRouteParam(useParams().tenantId, "Tenant");
   const entryId = useSearchParams()[0].get("entry") ?? "";
   const meetings = useMeetings(tenantId);
@@ -44,7 +48,7 @@ export function KeepMeetingPage() {
 
   const keep = useMutation({
     mutationFn: async () => {
-      if (!meeting) throw new Error("This meeting could not be opened.");
+      if (!meeting) throw new Error(t(m.meetingCouldNotOpen));
       const name = title.trim() || keepMeetingDefaultTitle(meeting);
       const file = new File(
         [
@@ -70,7 +74,7 @@ export function KeepMeetingPage() {
   if (meetings.isPending) {
     return (
       <LibrarySubpageShell
-        backLabel="Back to meetings"
+        backLabel={t(m.backToMeetings)}
         backTo={meetingsTabPath(tenantId, "week")}
       >
         <p
@@ -78,7 +82,7 @@ export function KeepMeetingPage() {
           role="status"
         >
           <Spinner size={16} />
-          Loading this meeting...
+          {t(m.loadingThisMeeting)}
         </p>
       </LibrarySubpageShell>
     );
@@ -87,21 +91,21 @@ export function KeepMeetingPage() {
   if (meetings.isError || !meeting) {
     return (
       <LibrarySubpageShell
-        backLabel="Back to meetings"
+        backLabel={t(m.backToMeetings)}
         backTo={meetingsTabPath(tenantId, "week")}
       >
         <div className="flex flex-col items-start gap-4">
           <p className="text-sm text-destructive" role="alert">
             {meetings.isError
-              ? "Could not load this meeting."
-              : "This meeting could not be opened."}
+              ? t(m.meetingLoadFailed)
+              : t(m.meetingCouldNotOpen)}
           </p>
           <Button
             onClick={() => void meetings.refetch()}
             size="compact"
             tone="secondary"
           >
-            Retry
+            {t(commonMessages.retry)}
           </Button>
         </div>
       </LibrarySubpageShell>
@@ -118,25 +122,21 @@ export function KeepMeetingPage() {
 
   return (
     <LibrarySubpageShell
-      backLabel="Back to the meeting"
+      backLabel={t(m.backToMeeting)}
       backTo={meetingPath(tenantId, meeting.id)}
       eyebrow={defaultTitle}
-      subtitle={
-        words
-          ? "These words become a page in your library. The meeting stays as it is, and you can keep writing the page."
-          : undefined
-      }
-      title="Keep this meeting"
+      subtitle={words ? t(m.keepSubtitle) : undefined}
+      title={t(m.keepTitle)}
     >
       {words ? (
         <>
-          <blockquote className="border-l-2 border-border pl-4 text-sm leading-6 text-foreground">
+          <blockquote className="rounded-r-xl border-l-2 border-border bg-card py-3 pl-4 pr-4 text-sm leading-6 text-foreground">
             {words.length > 280 ? `${words.slice(0, 280)}...` : words}
           </blockquote>
           <form onSubmit={submit}>
             <label className="block" htmlFor={titleId}>
               <span className="mb-1.5 block text-sm font-medium">
-                Page name
+                {t(m.pageName)}
               </span>
               <input
                 className="ui-field-control w-full"
@@ -153,18 +153,18 @@ export function KeepMeetingPage() {
               tone="primary"
               type="submit"
             >
-              Keep this page
+              {t(m.keepThisPage)}
             </Button>
             {keep.isError ? (
               <p className="mt-3 text-sm text-destructive" role="alert">
-                The page could not be kept.
+                {t(m.pageCouldNotBeKept)}
               </p>
             ) : null}
           </form>
         </>
       ) : (
         <p className="text-sm leading-6 text-muted-foreground" role="status">
-          The summary is not written yet, so there is nothing to keep as a page.
+          {t(m.summaryNotWrittenYet)}
         </p>
       )}
     </LibrarySubpageShell>

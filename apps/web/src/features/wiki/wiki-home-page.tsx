@@ -3,6 +3,7 @@ import {
   ArrowRight02Icon,
   Building03Icon,
   Cancel01Icon,
+  ChartRelationshipIcon,
   Search01Icon,
   ShuffleIcon,
 } from "@hugeicons/core-free-icons";
@@ -202,6 +203,7 @@ export function WikiHomePage() {
                 refreshing={refresh.refreshing}
                 tenantId={tenantId}
               />
+              <WikiGraphQuickLink tenantId={tenantId} />
               <WikiSurpriseButton tenantId={tenantId} />
             </>
           ) : (
@@ -228,9 +230,31 @@ export function WikiHomePage() {
   );
 }
 
+/** Prominent quick-access pill opening the Personal Knowledge Graph when Wiki pages exist. */
+function WikiGraphQuickLink({ tenantId }: { tenantId: string }) {
+  const t = useT();
+  const collection = useWikiCollectionPages(tenantId);
+  if (collection.pages.length === 0) return null;
+  return (
+    <Link
+      className="inline-flex h-8 items-center gap-1.5 rounded-full border border-border bg-card px-3 text-xs font-medium text-foreground shadow-xs transition-colors hover:border-border-hover hover:bg-app-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      title={t(m.knowledgeGraphHint)}
+      to={`/t/${encodeURIComponent(tenantId)}/library/wiki/graph`}
+    >
+      <Icon
+        className="shrink-0 text-muted-foreground"
+        icon={ChartRelationshipIcon}
+        size={14}
+      />
+      <span>{t(m.knowledgeGraph)}</span>
+    </Link>
+  );
+}
+
 /** Opens one of the person's Wiki pages at random, or nothing without pages. */
 function WikiSurpriseButton({ tenantId }: { tenantId: string }) {
   const navigate = useNavigate();
+  const t = useT();
   const collection = useWikiCollectionPages(tenantId);
   const pages = collection.pages;
   if (pages.length === 0) return null;
@@ -247,11 +271,11 @@ function WikiSurpriseButton({ tenantId }: { tenantId: string }) {
         void navigate(wikiDocumentPath(tenantId, pick.page.id));
       }}
       size="compact"
-      title="Open one of your Wiki pages at random"
+      title={t(m.surpriseMeHint)}
       tone="ghost"
     >
       <Icon icon={ShuffleIcon} className="shrink-0" size={14} />
-      Surprise me
+      {t(m.surpriseMe)}
     </Button>
   );
 }
@@ -361,7 +385,7 @@ function WikiOverview({
               className="text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               to={`${base}/writing`}
             >
-              {`Read ${previews.length} ${previews.length === 1 ? "page" : "pages"} written so far`}
+              {t(m.readPagesWrittenSoFar, { count: previews.length })}
             </Link>
           </p>
         ) : null}
@@ -377,7 +401,7 @@ function WikiOverview({
       <label className="mb-5 flex h-9 w-full items-center gap-2 rounded-lg border border-border bg-card px-3 text-muted-foreground transition-colors hover:border-border-hover focus-within:border-foreground focus-within:ring-2 focus-within:ring-ring/40">
         <Icon icon={Search01Icon} size={14} />
         <input
-          aria-label="Search Wiki pages"
+          aria-label={t(m.searchWikiPages)}
           className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-app-placeholder"
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => {
@@ -386,14 +410,14 @@ function WikiOverview({
             event.preventDefault();
             setQuery("");
           }}
-          placeholder="Search pages across all collections..."
+          placeholder={t(m.searchWikiPlaceholder)}
           role="searchbox"
           type="text"
           value={query}
         />
         {query ? (
           <button
-            aria-label="Clear search"
+            aria-label={t(m.clearSearch)}
             className="flex size-5 shrink-0 items-center justify-center rounded-sm text-app-muted hover:bg-app-hover hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             onClick={() => setQuery("")}
             type="button"
@@ -404,20 +428,20 @@ function WikiOverview({
       </label>
       {needle ? (
         <section
-          aria-label="Search results"
+          aria-label={t(m.searchResults)}
           className="flex flex-col gap-6 pt-1"
         >
           {totalMatches === 0 ? (
             <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-border py-12 text-center">
               <p className="text-sm text-muted-foreground">
-                {`No pages match “${needle}”.`}
+                {t(m.noPagesMatch, { query: needle })}
               </p>
               <Button
                 onClick={() => setQuery("")}
                 size="compact"
                 tone="secondary"
               >
-                Clear search
+                {t(m.clearSearch)}
               </Button>
             </div>
           ) : (

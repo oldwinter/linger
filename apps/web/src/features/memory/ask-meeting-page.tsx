@@ -9,9 +9,12 @@ import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubVoiceCaptureQuestion } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
 
 import { meetingQuestionsKey } from "./ask-meeting";
 import { useMeetings } from "./memory-queries";
+import { memorySubpagesMessages as m } from "./memory-subpages.messages";
 import { meetingPath } from "./meeting-routes";
 import { formatMeetingWhen, meetingWhen } from "./meetings-calendar";
 import { meetingsTabPath } from "./meetings-panel";
@@ -19,6 +22,7 @@ import { meetingsTabPath } from "./meetings-panel";
 export function AskMeetingPage() {
   const { client } = useTeamHubRuntime();
   const queryClient = useQueryClient();
+  const t = useT();
   const tenantId = requireRoomRouteParam(useParams().tenantId, "Tenant");
   const entryId = useSearchParams()[0].get("entry") ?? "";
   const meetings = useMeetings(tenantId);
@@ -61,7 +65,7 @@ export function AskMeetingPage() {
   if (meetings.isPending) {
     return (
       <LibrarySubpageShell
-        backLabel="Back to meetings"
+        backLabel={t(m.backToMeetings)}
         backTo={meetingsTabPath(tenantId, "week")}
       >
         <p
@@ -69,7 +73,7 @@ export function AskMeetingPage() {
           role="status"
         >
           <Spinner size={16} />
-          Loading this meeting...
+          {t(m.loadingThisMeeting)}
         </p>
       </LibrarySubpageShell>
     );
@@ -78,21 +82,21 @@ export function AskMeetingPage() {
   if (meetings.isError || !meeting?.meeting || !captureId) {
     return (
       <LibrarySubpageShell
-        backLabel="Back to meetings"
+        backLabel={t(m.backToMeetings)}
         backTo={meetingsTabPath(tenantId, "week")}
       >
         <div className="flex flex-col items-start gap-4">
           <p className="text-sm text-destructive" role="alert">
             {meetings.isError
-              ? "Could not load this meeting."
-              : "This meeting could not be opened."}
+              ? t(m.meetingLoadFailed)
+              : t(m.meetingCouldNotOpen)}
           </p>
           <Button
             onClick={() => void meetings.refetch()}
             size="compact"
             tone="secondary"
           >
-            Retry
+            {t(commonMessages.retry)}
           </Button>
         </div>
       </LibrarySubpageShell>
@@ -101,7 +105,7 @@ export function AskMeetingPage() {
 
   const when = meetingWhen(meeting.path);
   const name = when
-    ? `Meeting · ${formatMeetingWhen(when.date, when.time)}`
+    ? t(m.meetingHeading, { when: formatMeetingWhen(when.date, when.time) })
     : meeting.title;
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -115,32 +119,30 @@ export function AskMeetingPage() {
 
   return (
     <LibrarySubpageShell
-      backLabel={`Back to ${name}`}
+      backLabel={t(m.backToNamed, { name })}
       backTo={meetingPath(tenantId, meeting.id)}
       eyebrow={name}
-      subtitle="Ask something the recording can answer. The answer stays with this meeting."
-      title="Ask the recording"
+      subtitle={t(m.askSubtitle)}
+      title={t(m.askTitle)}
     >
       {questions.isPending ? (
-        <p className="text-sm" role="status">
-          Loading saved questions...
+        <p className="text-sm text-muted-foreground" role="status">
+          {t(m.loadingQuestions)}
         </p>
       ) : questions.isError ? (
         <div className="flex flex-col items-start gap-2" role="alert">
-          <p className="text-sm text-destructive">
-            Could not load saved questions.
-          </p>
+          <p className="text-sm text-destructive">{t(m.questionsLoadFailed)}</p>
           <Button
             onClick={() => void questions.refetch()}
             size="compact"
             tone="secondary"
           >
-            Retry
+            {t(commonMessages.retry)}
           </Button>
         </div>
       ) : saved.length === 0 ? (
         <p className="text-sm text-muted-foreground" role="status">
-          Nothing has been asked of this recording yet.
+          {t(m.nothingAskedYet)}
         </p>
       ) : (
         <ol className="flex flex-col gap-4">
@@ -158,7 +160,7 @@ export function AskMeetingPage() {
       <form onSubmit={submit}>
         <label className="block" htmlFor={questionId}>
           <span className="mb-1.5 block text-sm font-medium">
-            What do you want to know?
+            {t(m.whatDoYouWantToKnow)}
           </span>
           <textarea
             className="ui-field-control min-h-24 w-full resize-none"
@@ -175,11 +177,11 @@ export function AskMeetingPage() {
           tone="primary"
           type="submit"
         >
-          Ask the recording
+          {t(m.askTitle)}
         </Button>
         {ask.isError ? (
           <p className="mt-3 text-sm text-destructive" role="alert">
-            That question did not go through.
+            {t(m.questionFailed)}
           </p>
         ) : null}
       </form>
@@ -196,13 +198,13 @@ function SavedQuestion({
   meetingId: string;
   tenantId: string;
 }) {
+  const t = useT();
   return (
-    <article className="rounded-xl border border-border p-4">
+    <article className="rounded-xl border border-border bg-card p-4 shadow-xs">
       <h2 className="text-sm font-medium text-foreground">{item.question}</h2>
       {item.kind === "task" ? (
         <p className="mt-2 text-sm leading-6 text-muted-foreground">
-          This page keeps answers from the recording. That question was a
-          request for Another Me, and it was not sent.
+          {t(m.taskRequestNotSent)}
         </p>
       ) : (
         <p className="mt-2 text-sm leading-6 text-foreground">{item.answer}</p>

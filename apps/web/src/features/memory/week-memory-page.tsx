@@ -8,9 +8,12 @@ import { libraryWeekPath } from "@/features/library/library-week";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { useT } from "@/i18n/use-translation";
 
 import { dayReviewPath } from "./day-review";
 import { useMeetings } from "./memory-queries";
+import { memorySubpagesMessages as m } from "./memory-subpages.messages";
+import { MemoryTimelineTabs } from "./memory-timeline-tabs";
 import { formatMeetingDay, meetingsByDate } from "./meetings-calendar";
 import { meetingsTabPath } from "./meetings-panel";
 import { describeWeek, weekDays, type WeekMemoryDay } from "./week-memory";
@@ -19,6 +22,7 @@ import { reportDate, usePeriodReports } from "./wiki-period-reports";
 /** One week of meetings, dailies, and notes, as a picture rather than a day. */
 export function WeekMemoryPage() {
   const { client } = useTeamHubRuntime();
+  const t = useT();
   const tenantId = requireRoomRouteParam(useParams().tenantId, "Tenant");
   const today = dayKey(new Date());
   const days = weekDays(today);
@@ -59,26 +63,30 @@ export function WeekMemoryPage() {
 
   return (
     <LibrarySubpageShell
-      backLabel="Back to meetings"
+      backLabel={t(m.backToMeetings)}
       backTo={meetingsTabPath(tenantId, "week")}
       headerActions={
         <Link
           className="text-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           to={libraryWeekPath(tenantId)}
         >
-          What changed this week
+          {t(m.whatChangedThisWeek)}
         </Link>
       }
-      subtitle={`${formatMeetingDay(days[0]!)} through ${formatMeetingDay(days[6]!)}. Meetings, dailies, and notes from the whole week.`}
-      title="The week in memory"
+      subtitle={t(m.weekMemorySubtitle, {
+        from: formatMeetingDay(days[0]!),
+        to: formatMeetingDay(days[6]!),
+      })}
+      title={t(m.weekMemoryTitle)}
+      viewTabs={<MemoryTimelineTabs active="week" tenantId={tenantId} />}
     >
       {meetings.isPending || dailies.isPending || notes.isPending ? (
         <p className="text-sm text-muted-foreground" role="status">
-          Loading the week.
+          {t(m.loadingWeek)}
         </p>
       ) : meetings.isError || dailies.isError || notes.isError ? (
         <p className="text-sm text-destructive" role="alert">
-          The week could not be loaded.
+          {t(m.weekLoadFailed)}
         </p>
       ) : (
         <>
@@ -86,11 +94,14 @@ export function WeekMemoryPage() {
             {picture.summary}
           </p>
           {picture.entries.length ? (
-            <ul aria-label="Days with memory" className="flex flex-col gap-2">
+            <ul
+              aria-label={t(m.daysWithMemory)}
+              className="flex flex-col gap-2"
+            >
               {picture.entries.map((entry) => (
                 <li key={entry.date}>
                   <Link
-                    className="block rounded-2xl border border-border px-4 py-3 text-sm text-foreground transition-colors hover:border-border-hover hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="block rounded-2xl border border-border bg-card px-4 py-3 text-sm text-foreground shadow-xs transition-colors hover:border-border-hover hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     to={dayReviewPath(tenantId, entry.date)}
                   >
                     {entry.text}

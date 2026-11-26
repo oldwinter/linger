@@ -5,6 +5,8 @@ import {
   ArrowRight01Icon,
   Cancel01Icon,
   CheckListIcon,
+  KanbanIcon,
+  ListViewIcon,
   Search01Icon,
 } from "@hugeicons/core-free-icons";
 import { Icon } from "@/components/ui/icon";
@@ -20,6 +22,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type DragEvent as ReactDragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type RefCallback,
 } from "react";
@@ -82,10 +85,12 @@ import {
   WorkItemCreateDialog,
 } from "./work-item-create-dialog";
 import { workItemDuplicateDraft } from "./work-item-duplicate";
+import { updateFailureMessage } from "./work-item-failure";
 import {
   workItemPriorityBadgeClassName,
   workItemPriorityLabel,
 } from "./work-item-labels";
+import { WorkItemListView } from "./work-item-list-view";
 import { WorkItemPeek } from "./work-item-peek";
 import {
   tenantWorkItemTargetQueryOptions,
@@ -105,12 +110,24 @@ import {
   workItemDashboardSortSearch,
   type WorkItemDashboardSort,
 } from "./work-item-sort";
+import {
+  dashboardColumnFor,
+  useBoardWorkItemTransition,
+  workItemTransitionForColumn,
+  type DashboardColumnId,
+} from "./work-item-transitions";
 import { leadUnmetPromises } from "./work-item-unmet-promise";
+import {
+  parseWorkItemViewMode,
+  workItemDashboardViewSearch,
+  type WorkItemViewMode,
+} from "./work-item-view-mode";
 import { useWorkItemSelection } from "./use-work-item-selection";
 import { workItemsMessages as m } from "./work-items.messages";
+import { workItemsViewMessages as vm } from "./work-items-view.messages";
 
 interface DashboardColumn {
-  id: "todo" | "in-progress" | "done" | "closed";
+  id: DashboardColumnId;
   label: Message<string>;
 }
 
@@ -212,9 +229,10 @@ export function WorkItemsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const filters = createWorkItemDashboardFilters(searchParams);
   const sort = createWorkItemDashboardSort(searchParams.get("sort"));
-  const dashboardSearch = workItemDashboardSortSearch(
-    workItemDashboardFiltersSearch(filters),
-    sort,
+  const viewMode = parseWorkItemViewMode(searchParams.get("view"));
+  const dashboardSearch = workItemDashboardViewSearch(
+    workItemDashboardSortSearch(workItemDashboardFiltersSearch(filters), sort),
+    viewMode,
   );
   const closeDetail = useCallback(() => {
     void navigate({
@@ -294,7 +312,10 @@ export function WorkItemsPage() {
 
   function updateFilters(next: WorkItemDashboardFilters) {
     setSearchParams(
-      workItemDashboardSortSearch(workItemDashboardFiltersSearch(next), sort),
+      workItemDashboardViewSearch(
+        workItemDashboardSortSearch(workItemDashboardFiltersSearch(next), sort),
+        viewMode,
+      ),
       { replace: true },
     );
   }
@@ -302,10 +323,26 @@ export function WorkItemsPage() {
   // A new order is a step the reader can undo, so it pushes a history entry.
   function updateSort(next: WorkItemDashboardSort) {
     setSearchParams(
-      workItemDashboardSortSearch(
-        workItemDashboardFiltersSearch(filters),
+      workItemDashboardViewSearch(
+        workItemDashboardSortSearch(
+          workItemDashboardFiltersSearch(filters),
+          next,
+        ),
+        viewMode,
+      ),
+    );
+  }
+
+  function updateViewMode(next: WorkItemViewMode) {
+    setSearchParams(
+      workItemDashboardViewSearch(
+        workItemDashboardSortSearch(
+          workItemDashboardFiltersSearch(filters),
+          sort,
+        ),
         next,
       ),
+      { replace: true },
     );
   }
 
@@ -327,10 +364,12 @@ export function WorkItemsPage() {
       onPeek={openPeek}
       onUpdateFilters={updateFilters}
       onUpdateSort={updateSort}
+      onUpdateViewMode={updateViewMode}
       peekWorkItem={peekWorkItem}
       rooms={rooms.items}
       sort={sort}
       tenantId={tenantId}
+      viewMode={viewMode}
     />
   );
 }
@@ -352,10 +391,12 @@ function WorkItemsLoadedView({
   onPeek,
   onUpdateFilters,
   onUpdateSort,
+  onUpdateViewMode,
   peekWorkItem,
   rooms,
   sort,
   tenantId,
+  viewMode,
 }: {
   currentActorId?: string;
   day: Date;
@@ -373,10 +414,12 @@ function WorkItemsLoadedView({
   onPeek: (item: TeamHubWorkItem, card: HTMLAnchorElement) => void;
   onUpdateFilters: (next: WorkItemDashboardFilters) => void;
   onUpdateSort: (next: WorkItemDashboardSort) => void;
+  onUpdateViewMode: (next: WorkItemViewMode) => void;
   peekWorkItem?: TeamHubWorkItem;
   rooms: TeamHubRoomListItem[];
   sort: WorkItemDashboardSort;
   tenantId: string;
+  viewMode: WorkItemViewMode;
 }) {
   const t = useT();
   const [closedExpanded, setClosedExpanded] = useState(true);
@@ -396,9 +439,9 @@ function WorkItemsLoadedView({
       (filters.assignment !== "unassigned" || item.assignees.length === 0),
   );
   const orderedItems = sortWorkItems(filteredItems, sort);
-  const dashboardSearch = workItemDashboardSortSearch(
-    workItemDashboardFiltersSearch(filters),
-    sort,
+  const dashboardSearch = workItemDashboardViewSearch(
+    workItemDashboardSortSearch(workItemDashboardFiltersSearch(filters), sort),
+    viewMode,
   );
   const hasActiveFilters = hasWorkItemDashboardFilters(filters);
   const showFilterBar = items.length > 0 || hasActiveFilters;
@@ -419,11 +462,14 @@ function WorkItemsLoadedView({
           : columnItems,
     };
   });
-  // A collapsed column shows no cards, so its Items leave the move order and selection too.
+  // A collapsed column shows no cards on the board, so its Items leave the move
+  // order and selection there; List view displays every filtered Item.
   const shownItems = filtersHideBoard
     ? []
     : boardSections.flatMap(({ column, items: columnItems }) =>
-        column.id === "closed" && !closedExpanded ? [] : columnItems,
+        viewMode === "board" && column.id === "closed" && !closedExpanded
+          ? []
+          : columnItems,
       );
   const selection = useWorkItemSelection({
     initialSelectedIds,
@@ -467,6 +513,40 @@ function WorkItemsLoadedView({
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <div
+              aria-label={t(vm.viewMode)}
+              className="inline-flex items-center rounded-lg border border-border bg-muted/60 p-0.5"
+              role="group"
+            >
+              <button
+                aria-pressed={viewMode === "board"}
+                className={cn(
+                  "inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  viewMode === "board"
+                    ? "bg-card text-foreground shadow-xs"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                onClick={() => onUpdateViewMode("board")}
+                type="button"
+              >
+                <Icon icon={KanbanIcon} size={14} />
+                <span>{t(vm.viewBoard)}</span>
+              </button>
+              <button
+                aria-pressed={viewMode === "list"}
+                className={cn(
+                  "inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  viewMode === "list"
+                    ? "bg-card text-foreground shadow-xs"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                onClick={() => onUpdateViewMode("list")}
+                type="button"
+              >
+                <Icon icon={ListViewIcon} size={14} />
+                <span>{t(vm.viewList)}</span>
+              </button>
+            </div>
             <WorkItemBoardExportMenu
               csv={boardCsv}
               csvDisabled={!filteredItems.length}
@@ -474,6 +554,7 @@ function WorkItemsLoadedView({
               markdown={boardMarkdown}
               sort={sort}
               tenantId={tenantId}
+              viewMode={viewMode}
             />
             <WorkItemCreateAction rooms={rooms} tenantId={tenantId} />
           </div>
@@ -675,20 +756,43 @@ function WorkItemsLoadedView({
               </div>
             </section>
           ) : items.length || showFilterBar ? (
-            <WorkItemBoard
-              closedExpanded={closedExpanded}
-              focusedCardRef={focusedCardRef}
-              focusedWorkItemId={focusedWorkItemId}
-              onDuplicate={onDuplicate}
-              onPeek={onPeek}
-              onSetClosedExpanded={setClosedExpanded}
-              originRoomLabel={roomFilter.originLabel}
-              search={dashboardSearch}
-              sections={boardSections}
-              selection={selection}
-              shownItems={shownItems}
-              tenantId={tenantId}
-            />
+            viewMode === "list" ? (
+              <>
+                <WorkItemSelectionBar
+                  search={dashboardSearch}
+                  selection={selection}
+                  shownItems={shownItems}
+                  tenantId={tenantId}
+                />
+                <WorkItemListView
+                  focusedCardRef={focusedCardRef}
+                  focusedWorkItemId={focusedWorkItemId}
+                  items={shownItems}
+                  onDuplicate={onDuplicate}
+                  onPeek={onPeek}
+                  originRoomLabel={roomFilter.originLabel}
+                  rooms={rooms}
+                  search={dashboardSearch}
+                  selection={selection}
+                  tenantId={tenantId}
+                />
+              </>
+            ) : (
+              <WorkItemBoard
+                closedExpanded={closedExpanded}
+                focusedCardRef={focusedCardRef}
+                focusedWorkItemId={focusedWorkItemId}
+                onDuplicate={onDuplicate}
+                onPeek={onPeek}
+                onSetClosedExpanded={setClosedExpanded}
+                originRoomLabel={roomFilter.originLabel}
+                search={dashboardSearch}
+                sections={boardSections}
+                selection={selection}
+                shownItems={shownItems}
+                tenantId={tenantId}
+              />
+            )
           ) : (
             <section className="flex min-h-0 flex-1 items-center justify-center px-6 py-12 text-center">
               <div>
@@ -789,6 +893,11 @@ function WorkItemBoard({
   tenantId: string;
 }) {
   const t = useT();
+  const transitionMutation = useBoardWorkItemTransition(tenantId);
+  const [draggingItemId, setDraggingItemId] = useState<string | null>(null);
+  const [dragOverColumn, setDragOverColumn] =
+    useState<DashboardColumnId | null>(null);
+  const [dragError, setDragError] = useState<string | null>(null);
   const [selectedMobileColumn, setSelectedMobileColumn] =
     useState<DashboardColumn["id"]>();
   const columnTabRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -801,10 +910,51 @@ function WorkItemBoard({
   const activeMobileColumn: DashboardColumn["id"] =
     selectedMobileColumn ?? focusedItemColumn ?? "todo";
   const hasSelection = selection.count > 0;
-  // Display order and the visible set both come from the cards the board drew.
-  const selectedItems = shownItems.filter((item) =>
-    selection.isSelected(item.id),
-  );
+  const draggedItem = draggingItemId
+    ? shownItems.find((item) => item.id === draggingItemId)
+    : undefined;
+
+  function canDropInColumn(columnId: DashboardColumnId) {
+    if (!draggedItem) return true;
+    return workItemTransitionForColumn(draggedItem, columnId) !== null;
+  }
+
+  function handleColumnDrop(
+    event: ReactDragEvent<HTMLElement>,
+    columnId: DashboardColumnId,
+  ) {
+    event.preventDefault();
+    const droppedId =
+      draggingItemId ??
+      event.dataTransfer?.getData("application/x-linger-work-item") ??
+      event.dataTransfer?.getData("text/plain") ??
+      "";
+    setDraggingItemId(null);
+    setDragOverColumn(null);
+    if (!droppedId) return;
+    const item = shownItems.find((candidate) => candidate.id === droppedId);
+    if (!item) return;
+    const spec = workItemTransitionForColumn(item, columnId);
+    if (!spec) return;
+    setDragError(null);
+    if (columnId === "closed" && !closedExpanded) {
+      onSetClosedExpanded(true);
+    }
+    transitionMutation.mutate(
+      {
+        expectedVersion: item.version,
+        resolution: spec.resolution,
+        state: spec.state,
+        workItemId: item.id,
+      },
+      {
+        onError: (cause) =>
+          setDragError(
+            updateFailureMessage(cause) || t(vm.dragTransitionFailed),
+          ),
+      },
+    );
+  }
   const orderedIdsKey = shownItems.map((item) => item.id).join("\n");
   const orderedIds = useMemo(
     () => (orderedIdsKey ? orderedIdsKey.split("\n") : []),
@@ -910,93 +1060,27 @@ function WorkItemBoard({
 
   return (
     <>
-      {hasSelection || selection.outcome ? (
+      <WorkItemSelectionBar
+        search={search}
+        selection={selection}
+        shownItems={shownItems}
+        tenantId={tenantId}
+      />
+      {dragError ? (
         <div
-          aria-label={t(m.selectionLabel)}
-          className="flex shrink-0 flex-wrap items-center gap-2 border-b border-app-border px-4 py-2 text-sm sm:px-5"
-          role="group"
+          className="flex shrink-0 items-center justify-between gap-3 border-b border-(--app-status-danger-border) bg-(--app-status-danger-surface) px-4 py-2 text-xs text-(--app-status-danger-text) sm:px-5"
+          role="alert"
         >
-          {hasSelection ? (
-            <span className="text-app-body">
-              {t(m.selectedCount, { count: selection.count })}
-            </span>
-          ) : null}
-          {hasSelection && shownItems.length > 0 ? (
-            <Button
-              disabled={selection.pending}
-              onClick={
-                selection.allSelected
-                  ? selection.deselectAll
-                  : selection.selectAll
-              }
-              size="compact"
-              title={t(
-                selection.allSelected
-                  ? m.clearSelectionTitle
-                  : m.selectAllTitle,
-              )}
-              tone="secondary"
-            >
-              {t(selection.allSelected ? m.deselectAll : m.selectAll)}
-            </Button>
-          ) : null}
-          {hasSelection && shownItems.length > 0 ? (
-            <WorkItemSelectionCopyLinks
-              disabled={selection.pending}
-              items={selectedItems}
-              tenantId={tenantId}
-            />
-          ) : null}
-          {selectedItems.length === 2 ? (
-            <Link
-              className={buttonClassName({ size: "compact" })}
-              state={
-                {
-                  boardSearch: search,
-                  selectedIds: [selectedItems[0]!.id, selectedItems[1]!.id],
-                } satisfies WorkItemPairNavigationState
-              }
-              to={workItemPairPath(
-                tenantId,
-                selectedItems[0]!.id,
-                selectedItems[1]!.id,
-                search,
-              )}
-            >
-              {t(m.readSideBySide)}
-            </Link>
-          ) : null}
-          {hasSelection ? (
-            <Button
-              data-voice-risk="never"
-              loading={selection.pending}
-              onClick={() => void selection.archive()}
-              size="compact"
-              tone="secondary"
-            >
-              {t(m.archive)}
-            </Button>
-          ) : null}
-          {hasSelection ? (
-            <Button
-              disabled={selection.pending}
-              onClick={selection.clear}
-              size="compact"
-              tone="ghost"
-            >
-              {t(m.clear)}
-            </Button>
-          ) : null}
-          {selection.outcome ? (
-            <p
-              className={
-                selection.outcome.failed ? "text-app-danger" : "text-app-muted"
-              }
-              role={selection.outcome.failed ? "alert" : "status"}
-            >
-              {selection.outcome.message}
-            </p>
-          ) : null}
+          <span>{dragError}</span>
+          <Button
+            aria-label={t(commonMessages.close)}
+            data-voice-close
+            onClick={() => setDragError(null)}
+            size="compactIcon"
+            tone="ghost"
+          >
+            <Icon icon={Cancel01Icon} size={14} />
+          </Button>
         </div>
       ) : null}
       <div
@@ -1035,8 +1119,11 @@ function WorkItemBoard({
         <div className="grid h-full grid-cols-1 gap-3 md:min-w-[960px] md:grid-cols-4">
           {sections.map(({ column, items }) => (
             <WorkItemColumn
+              canAcceptDrop={canDropInColumn(column.id)}
               closedExpanded={closedExpanded}
               column={column}
+              dragOver={dragOverColumn === column.id}
+              draggingItemId={draggingItemId}
               focusedCardRef={focusedCardRef}
               focusedWorkItemId={focusedWorkItemId}
               isSelected={selection.isSelected}
@@ -1044,6 +1131,21 @@ function WorkItemBoard({
               key={column.id}
               keyboardFocusId={keyboardFocusId}
               mobileActive={column.id === activeMobileColumn}
+              onCardDragEnd={() => {
+                setDraggingItemId(null);
+                setDragOverColumn(null);
+              }}
+              onCardDragStart={(itemId) => {
+                setDragError(null);
+                setDraggingItemId(itemId);
+              }}
+              onColumnDragLeave={() => {
+                setDragOverColumn((current) =>
+                  current === column.id ? null : current,
+                );
+              }}
+              onColumnDragOver={() => setDragOverColumn(column.id)}
+              onColumnDrop={(event) => handleColumnDrop(event, column.id)}
               onDuplicate={onDuplicate}
               onPeek={onPeek}
               onToggleClosed={() =>
@@ -1059,6 +1161,112 @@ function WorkItemBoard({
         </div>
       </div>
     </>
+  );
+}
+
+/** Shared selection toolbar rendered above either the Board or List view. */
+function WorkItemSelectionBar({
+  search,
+  selection,
+  shownItems,
+  tenantId,
+}: {
+  search: string;
+  selection: ReturnType<typeof useWorkItemSelection>;
+  shownItems: readonly TeamHubWorkItem[];
+  tenantId: string;
+}) {
+  const t = useT();
+  const hasSelection = selection.count > 0;
+  if (!hasSelection && !selection.outcome) return null;
+  const selectedItems = shownItems.filter((item) =>
+    selection.isSelected(item.id),
+  );
+
+  return (
+    <div
+      aria-label={t(m.selectionLabel)}
+      className="flex shrink-0 flex-wrap items-center gap-2 border-b border-app-border px-4 py-2 text-sm sm:px-5"
+      role="group"
+    >
+      {hasSelection ? (
+        <span className="text-app-body">
+          {t(m.selectedCount, { count: selection.count })}
+        </span>
+      ) : null}
+      {hasSelection && shownItems.length > 0 ? (
+        <Button
+          disabled={selection.pending}
+          onClick={
+            selection.allSelected ? selection.deselectAll : selection.selectAll
+          }
+          size="compact"
+          title={t(
+            selection.allSelected ? m.clearSelectionTitle : m.selectAllTitle,
+          )}
+          tone="secondary"
+        >
+          {t(selection.allSelected ? m.deselectAll : m.selectAll)}
+        </Button>
+      ) : null}
+      {hasSelection && shownItems.length > 0 ? (
+        <WorkItemSelectionCopyLinks
+          disabled={selection.pending}
+          items={selectedItems}
+          tenantId={tenantId}
+        />
+      ) : null}
+      {selectedItems.length === 2 ? (
+        <Link
+          className={buttonClassName({ size: "compact" })}
+          state={
+            {
+              boardSearch: search,
+              selectedIds: [selectedItems[0]!.id, selectedItems[1]!.id],
+            } satisfies WorkItemPairNavigationState
+          }
+          to={workItemPairPath(
+            tenantId,
+            selectedItems[0]!.id,
+            selectedItems[1]!.id,
+            search,
+          )}
+        >
+          {t(m.readSideBySide)}
+        </Link>
+      ) : null}
+      {hasSelection ? (
+        <Button
+          data-voice-risk="never"
+          loading={selection.pending}
+          onClick={() => void selection.archive()}
+          size="compact"
+          tone="secondary"
+        >
+          {t(m.archive)}
+        </Button>
+      ) : null}
+      {hasSelection ? (
+        <Button
+          disabled={selection.pending}
+          onClick={selection.clear}
+          size="compact"
+          tone="ghost"
+        >
+          {t(m.clear)}
+        </Button>
+      ) : null}
+      {selection.outcome ? (
+        <p
+          className={
+            selection.outcome.failed ? "text-app-danger" : "text-app-muted"
+          }
+          role={selection.outcome.failed ? "alert" : "status"}
+        >
+          {selection.outcome.message}
+        </p>
+      ) : null}
+    </div>
   );
 }
 
@@ -1139,14 +1347,22 @@ function WorkItemsError({
 }
 
 function WorkItemColumn({
+  canAcceptDrop,
   closedExpanded,
   column,
+  dragOver,
+  draggingItemId,
   focusedCardRef,
   focusedWorkItemId,
   isSelected,
   items,
   keyboardFocusId,
   mobileActive,
+  onCardDragEnd,
+  onCardDragStart,
+  onColumnDragLeave,
+  onColumnDragOver,
+  onColumnDrop,
   onDuplicate,
   onPeek,
   onToggleClosed,
@@ -1156,8 +1372,11 @@ function WorkItemColumn({
   selectionActive,
   tenantId,
 }: {
+  canAcceptDrop: boolean;
   closedExpanded: boolean;
   column: DashboardColumn;
+  dragOver: boolean;
+  draggingItemId: string | null;
   focusedCardRef: RefCallback<HTMLAnchorElement>;
   focusedWorkItemId?: string;
   isSelected: (workItemId: string) => boolean;
@@ -1166,6 +1385,11 @@ function WorkItemColumn({
   keyboardFocusId?: string;
   /** Whether this column is the active full-width tab below the md breakpoint. */
   mobileActive: boolean;
+  onCardDragEnd: () => void;
+  onCardDragStart: (workItemId: string) => void;
+  onColumnDragLeave: () => void;
+  onColumnDragOver: () => void;
+  onColumnDrop: (event: ReactDragEvent<HTMLElement>) => void;
   onDuplicate: (item: TeamHubWorkItem) => void;
   onPeek: (item: TeamHubWorkItem, card: HTMLAnchorElement) => void;
   onToggleClosed: () => void;
@@ -1184,9 +1408,25 @@ function WorkItemColumn({
     <section
       aria-label={t(column.label)}
       className={cn(
-        "work-item-column min-h-0 min-w-0 flex-col",
+        "work-item-column min-h-0 min-w-0 flex-col rounded-xl transition-colors",
         mobileActive ? "flex" : "hidden md:flex",
+        dragOver && canAcceptDrop && "bg-accent/30 ring-2 ring-app-focus",
       )}
+      data-drop-target={dragOver && canAcceptDrop ? "true" : undefined}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          onColumnDragLeave();
+        }
+      }}
+      onDragOver={(event) => {
+        if (!canAcceptDrop) return;
+        event.preventDefault();
+        if (event.dataTransfer) {
+          event.dataTransfer.dropEffect = "move";
+        }
+        onColumnDragOver();
+      }}
+      onDrop={onColumnDrop}
     >
       <header className="flex h-11 shrink-0 items-center justify-between px-2">
         <span className="flex min-w-0 items-center gap-1.5">
@@ -1226,11 +1466,16 @@ function WorkItemColumn({
                 aria-current={
                   item.id === focusedWorkItemId ? "location" : undefined
                 }
-                className="work-item-card block px-3 py-2.5 text-app-ink outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+                className={cn(
+                  "work-item-card block px-3 py-2.5 text-app-ink outline-none focus-visible:ring-2 focus-visible:ring-app-focus",
+                  !item.task_execution && "cursor-grab active:cursor-grabbing",
+                  draggingItemId === item.id && "opacity-50",
+                )}
                 data-keyboard-focus={
                   item.id === keyboardFocusId ? "true" : undefined
                 }
                 data-work-item-id={item.id}
+                draggable={!item.task_execution}
                 onClick={(event) => {
                   // A plain click peeks at the Item; keyboard activation does
                   // the same. Modified clicks keep the full page for a new tab.
@@ -1244,6 +1489,22 @@ function WorkItemColumn({
                     return;
                   event.preventDefault();
                   onPeek(item, event.currentTarget);
+                }}
+                onDragEnd={onCardDragEnd}
+                onDragStart={(event) => {
+                  if (item.task_execution) {
+                    event.preventDefault();
+                    return;
+                  }
+                  event.dataTransfer?.setData(
+                    "application/x-linger-work-item",
+                    item.id,
+                  );
+                  event.dataTransfer?.setData("text/plain", item.id);
+                  if (event.dataTransfer) {
+                    event.dataTransfer.effectAllowed = "move";
+                  }
+                  onCardDragStart(item.id);
                 }}
                 ref={item.id === focusedWorkItemId ? focusedCardRef : undefined}
                 to={{
@@ -1404,10 +1665,4 @@ function useLocalDay() {
     return () => window.clearTimeout(timer);
   }, [now]);
   return now;
-}
-
-function dashboardColumnFor(item: TeamHubWorkItem): DashboardColumn["id"] {
-  if (item.state === "open") return "todo";
-  if (item.state === "in_progress") return "in-progress";
-  return item.resolution === "completed" ? "done" : "closed";
 }

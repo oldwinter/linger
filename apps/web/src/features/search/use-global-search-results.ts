@@ -25,6 +25,7 @@ import {
 import { resultKindSections } from "./global-search-kind-filter";
 import {
   BACKEND_PAGE_LIMIT,
+  buildSearchCommands,
   buildSearchPlaces,
   byName,
   GROUP_ORDER,
@@ -116,6 +117,7 @@ export function useSearchGroups({
   const wantsDocs = !roomScoped && (tab === "all" || tab === "docs");
 
   const queryClient = useQueryClient();
+  const t = useT();
   const agents = useQuery(tenantAgentsQueryOptions(client, tenantId));
   const rooms = useQuery(tenantRoomsQueryOptions(client, tenantId));
   // Reuse meetings already in cache without opening a polling query from search.
@@ -248,7 +250,7 @@ export function useSearchGroups({
     const messages = (messageSearch.data?.items ?? []).map(
       (hit): SearchResult => ({ hit, id: hit.message.id, kind: "message" }),
     );
-    const places = buildSearchPlaces(tenantId, cachedMeetings)
+    const placeEntries = buildSearchPlaces(tenantId, cachedMeetings, t)
       .filter((place) =>
         matches([place.title, place.detail, ...(place.keywords ?? [])]),
       )
@@ -260,7 +262,22 @@ export function useSearchGroups({
           kind: "place" as const,
           place,
         },
-      }))
+      }));
+    const commandOffset = placeEntries.length;
+    const commandEntries = buildSearchCommands(tenantId, t)
+      .filter((command) =>
+        matches([command.title, command.detail, ...(command.keywords ?? [])]),
+      )
+      .map((command, index) => ({
+        index: commandOffset + index,
+        rank: matchRank(debouncedQuery, command.title),
+        result: {
+          command,
+          id: `command:${command.id}`,
+          kind: "command" as const,
+        },
+      }));
+    const places: SearchResult[] = [...placeEntries, ...commandEntries]
       .sort((left, right) => left.rank - right.rank || left.index - right.index)
       .map((entry) => entry.result);
     const byTab: Record<GroupTab, ResultGroup> = {
@@ -286,6 +303,7 @@ export function useSearchGroups({
     documentSearch.data,
     messageSearch.data,
     rooms.data?.items,
+    t,
     tenantId,
   ]);
 

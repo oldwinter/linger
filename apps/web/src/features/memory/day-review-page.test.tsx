@@ -118,6 +118,24 @@ describe("This day", () => {
       "href",
       "/t/tenant-northstar/library/day-shape?date=2026-11-14",
     );
+    const timelineTabs = screen.getByRole("navigation", {
+      name: "Memory timeline views",
+    });
+    expect(timelineTabs).toBeVisible();
+    expect(
+      screen.getByRole("link", { name: "Day", current: "page" }),
+    ).toHaveAttribute(
+      "href",
+      "/t/tenant-northstar/library/day?date=2026-11-14",
+    );
+    expect(screen.getByRole("link", { name: "Day shape" })).toHaveAttribute(
+      "href",
+      "/t/tenant-northstar/library/day-shape?date=2026-11-14",
+    );
+    expect(screen.getByRole("link", { name: "Week" })).toHaveAttribute(
+      "href",
+      "/t/tenant-northstar/library/week",
+    );
     expect(screen.getByLabelText("Today's Pocket Note")).toHaveValue(
       "Buy milk",
     );

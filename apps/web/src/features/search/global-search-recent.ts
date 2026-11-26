@@ -66,6 +66,14 @@ export type SearchTarget =
       path: string;
       name: string;
       detail: string;
+    }
+  | {
+      kind: "command";
+      id: string;
+      action?: "cycle-theme";
+      path?: string;
+      name: string;
+      detail: string;
     };
 
 export type SearchTargetKind = SearchTarget["kind"];

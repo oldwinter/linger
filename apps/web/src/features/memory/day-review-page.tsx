@@ -1,8 +1,15 @@
+import {
+  ArrowRight02Icon,
+  BookOpen01Icon,
+  Mic01Icon,
+  Note01Icon,
+} from "@hugeicons/core-free-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
+import { Icon } from "@/components/ui/icon";
 import { LibrarySubpageShell } from "@/features/library/library-subpage-shell";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 import {
@@ -13,6 +20,8 @@ import { teamHubData } from "@/features/teamhub/teamhub-api";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubPocketNotePage } from "@/features/teamhub/teamhub-types";
+import { formatLocale } from "@/i18n/language";
+import { useT, useTranslation } from "@/i18n/use-translation";
 
 import {
   dayReviewPath,
@@ -22,17 +31,11 @@ import {
 } from "./day-review";
 import { dayShapePath } from "./day-shape";
 import { useMeetings } from "./memory-queries";
+import { memorySubpagesMessages as m } from "./memory-subpages.messages";
+import { MemoryTimelineTabs } from "./memory-timeline-tabs";
 import { meetingPath } from "./meeting-routes";
 import { formatMeetingWhen, meetingsByDate } from "./meetings-calendar";
 import { reportDate, usePeriodReports } from "./wiki-period-reports";
-
-const dayHeading = new Intl.DateTimeFormat("en-US", {
-  day: "numeric",
-  month: "long",
-  timeZone: "UTC",
-  weekday: "long",
-  year: "numeric",
-});
 
 /**
  * Pocket Notes are newest first. Stop once the page is older than the day,
@@ -74,12 +77,20 @@ export async function loadPocketDay(
   }
 }
 
-function heading(day: string) {
-  return dayHeading.format(new Date(`${day}T00:00:00Z`));
+function heading(day: string, locale: string) {
+  return new Intl.DateTimeFormat(locale, {
+    day: "numeric",
+    month: "long",
+    timeZone: "UTC",
+    weekday: "long",
+    year: "numeric",
+  }).format(new Date(`${day}T00:00:00Z`));
 }
 
 /** One day across Pocket, meetings, and the Daily Another Me wrote. */
 export function DayReviewPage() {
+  const { language, t } = useTranslation();
+  const locale = formatLocale(language);
   const tenantId = requireRoomRouteParam(useParams().tenantId, "Tenant");
   const [searchParams] = useSearchParams();
   const requested = searchParams.get("date");
@@ -107,10 +118,11 @@ export function DayReviewPage() {
   const onDay = day ? (meetingsByDate(meetings.data ?? []).get(day) ?? []) : [];
   const report = reports.data?.find((entry) => reportDate(entry) === day);
   const library = `/t/${encodeURIComponent(tenantId)}/library`;
+  const isToday = Boolean(day && today && day === today);
 
   return (
     <LibrarySubpageShell
-      backLabel="Back to Library"
+      backLabel={t(m.backToLibrary)}
       backTo={library}
       headerActions={
         day ? (
@@ -118,7 +130,7 @@ export function DayReviewPage() {
             className="text-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             to={dayShapePath(tenantId, day)}
           >
-            {day === today ? "Shape of today" : "Shape of this day"}
+            {isToday ? t(m.shapeOfToday) : t(m.shapeOfThisDay)}
           </Link>
         ) : null
       }
@@ -127,78 +139,149 @@ export function DayReviewPage() {
           <DayStepper day={day} today={today} tenantId={tenantId} />
         ) : null
       }
-      title={day ? heading(day) : "This day"}
+      title={day ? heading(day, locale) : t(m.thisDay)}
+      viewTabs={
+        <MemoryTimelineTabs active="day" day={day} tenantId={tenantId} />
+      }
     >
-      <section aria-label="Pocket" className="flex flex-col gap-3">
-        <h2 className="text-sm font-medium text-foreground">Pocket</h2>
+      <section
+        aria-label={t(m.pocket)}
+        className="flex flex-col gap-4 rounded-2xl border border-border bg-card p-5 shadow-xs"
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground">
+              <Icon icon={Note01Icon} size={16} />
+            </span>
+            <h2 className="text-sm font-semibold text-foreground">
+              {t(m.pocket)}
+            </h2>
+          </div>
+          <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+            {isToday ? t(m.pocketEditable) : t(m.pocketReadOnly)}
+          </span>
+        </div>
         {pocket.isPending ? (
-          <p className="text-sm text-muted-foreground">Loading Pocket…</p>
+          <p className="text-sm text-muted-foreground">{t(m.loadingPocket)}</p>
         ) : pocket.isError ? (
           <p className="text-sm text-destructive" role="alert">
-            Pocket could not be loaded.
+            {t(m.pocketLoadFailed)}
           </p>
-        ) : day && today && day === today ? (
+        ) : isToday ? (
           <TodayPocket
             initial={pocket.data.text}
             pocketKey={pocketKey}
             tenantId={tenantId}
           />
+        ) : pocket.data?.text ? (
+          <p className="whitespace-pre-wrap rounded-xl border border-border/60 bg-app-surface px-4 py-3 text-sm leading-6 text-foreground">
+            {pocket.data.text}
+          </p>
         ) : (
-          <p className="whitespace-pre-wrap text-sm text-foreground">
-            {pocket.data?.text || "Nothing was kept in Pocket."}
+          <p className="rounded-xl border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
+            {t(m.nothingInPocket)}
           </p>
         )}
       </section>
 
-      <section aria-label="Meetings" className="flex flex-col gap-3">
-        <h2 className="text-sm font-medium text-foreground">Meetings</h2>
+      <section
+        aria-label={t(m.meetings)}
+        className="flex flex-col gap-4 rounded-2xl border border-border bg-card p-5 shadow-xs"
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground">
+              <Icon icon={Mic01Icon} size={16} />
+            </span>
+            <h2 className="text-sm font-semibold text-foreground">
+              {t(m.meetings)}
+            </h2>
+          </div>
+          {!meetings.isPending && !meetings.isError ? (
+            <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
+              {onDay.length}
+            </span>
+          ) : null}
+        </div>
         {meetings.isPending ? (
-          <p className="text-sm text-muted-foreground">Loading meetings…</p>
+          <p className="text-sm text-muted-foreground">
+            {t(m.loadingMeetings)}
+          </p>
         ) : meetings.isError ? (
           <p className="text-sm text-destructive" role="alert">
-            Meetings could not be loaded.
+            {t(m.meetingsLoadFailed)}
           </p>
         ) : onDay.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No meetings.</p>
+          <p className="rounded-xl border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
+            {t(m.noMeetings)}
+          </p>
         ) : (
           <ul className="flex flex-col gap-2">
             {onDay.map((meeting) => (
-              <li key={meeting.id}>
+              <li
+                className="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-app-surface px-3.5 py-2.5 transition-colors hover:border-border-hover"
+                key={meeting.id}
+              >
                 <Link
-                  className="text-sm text-foreground underline-offset-2 hover:underline"
+                  className="text-sm font-medium text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   to={meetingPath(tenantId, meeting.id)}
                 >
-                  Meeting {formatMeetingWhen(meeting.date, meeting.time)}
+                  {t(m.meetingNamed, {
+                    when: formatMeetingWhen(meeting.date, meeting.time),
+                  })}
                 </Link>
+                {meeting.recordingFilename ? (
+                  <span className="truncate text-xs text-muted-foreground">
+                    {meeting.recordingFilename}
+                  </span>
+                ) : null}
               </li>
             ))}
           </ul>
         )}
       </section>
 
-      <section aria-label="Daily report" className="flex flex-col gap-3">
-        <h2 className="text-sm font-medium text-foreground">Daily report</h2>
+      <section
+        aria-label={t(m.dailyReport)}
+        className="flex flex-col gap-4 rounded-2xl border border-border bg-card p-5 shadow-xs"
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground">
+              <Icon icon={BookOpen01Icon} size={16} />
+            </span>
+            <h2 className="text-sm font-semibold text-foreground">
+              {t(m.dailyReport)}
+            </h2>
+          </div>
+          {!reports.isPending && !reports.isError ? (
+            <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+              {report ? t(m.reportReady) : t(m.reportPending)}
+            </span>
+          ) : null}
+        </div>
         {reports.isPending ? (
-          <p className="text-sm text-muted-foreground">Loading the report…</p>
+          <p className="text-sm text-muted-foreground">{t(m.loadingReport)}</p>
         ) : reports.isError ? (
           <p className="text-sm text-destructive" role="alert">
-            The report could not be loaded.
+            {t(m.reportLoadFailed)}
           </p>
         ) : report ? (
-          <>
-            <p className="text-sm text-foreground">
-              {report.summary || "Another Me wrote this day."}
+          <div className="flex flex-col gap-3">
+            <p className="rounded-xl border border-border/60 bg-app-surface px-4 py-3 text-sm leading-6 text-foreground">
+              {report.summary || t(m.reportWrittenFallback)}
             </p>
             <Link
-              className="text-sm text-muted-foreground hover:text-foreground"
+              className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               to={`${library}/wiki/graph?day=${encodeURIComponent(day!)}`}
             >
-              Open on the timeline
+              <span>{t(m.openOnTimeline)}</span>
+              <Icon icon={ArrowRight02Icon} size={14} />
             </Link>
-          </>
+          </div>
         ) : (
-          <p className="text-sm text-muted-foreground">
-            Another Me has not written this day.
+          <p className="rounded-xl border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
+            {t(m.reportNotWritten)}
           </p>
         )}
       </section>
@@ -215,25 +298,28 @@ function DayStepper({
   tenantId: string;
   today: string;
 }) {
+  const t = useT();
   const previous = dayReviewPath(tenantId, shiftDay(day, -1));
   const atToday = day >= today;
   return (
-    <nav aria-label="Days" className="flex items-center gap-3 text-sm">
+    <nav aria-label={t(m.daysNav)} className="flex items-center gap-3 text-sm">
       <Link className="text-foreground hover:underline" to={previous}>
-        Previous day
+        {t(m.previousDay)}
       </Link>
       {atToday ? (
-        <span className="text-muted-foreground">Next day</span>
+        <span className="text-muted-foreground">{t(m.nextDay)}</span>
       ) : (
         <Link
           className="text-foreground hover:underline"
           to={dayReviewPath(tenantId, shiftDay(day, 1))}
         >
-          Next day
+          {t(m.nextDay)}
         </Link>
       )}
       {day === today ? (
-        <span className="text-muted-foreground">Today</span>
+        <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+          {t(m.today)}
+        </span>
       ) : null}
     </nav>
   );
@@ -248,6 +334,7 @@ function TodayPocket({
   pocketKey: readonly unknown[];
   tenantId: string;
 }) {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const queryClient = useQueryClient();
   const [text, setText] = useState(initial);
@@ -280,27 +367,27 @@ function TodayPocket({
       }}
     >
       <textarea
-        aria-label="Today's Pocket Note"
-        className="min-h-28 w-full resize-y rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        aria-label={t(m.todayPocketLabel)}
+        className="min-h-28 w-full resize-y rounded-xl border border-border bg-app-surface px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         onChange={(event) => setText(event.target.value)}
         value={text}
       />
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <Button
           disabled={save.isPending || text === initial}
           tone="primary"
           type="submit"
         >
-          Save to Pocket
+          {t(m.saveToPocket)}
         </Button>
         {save.isSuccess ? (
           <p className="text-sm text-muted-foreground" role="status">
-            Saved. Another Me reads this into memory.
+            {t(m.pocketSaved)}
           </p>
         ) : null}
         {save.isError ? (
           <p className="text-sm text-destructive" role="alert">
-            Pocket was not saved.
+            {t(m.pocketNotSaved)}
           </p>
         ) : null}
       </div>
