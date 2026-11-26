@@ -29,12 +29,13 @@ const (
 	SegmentCompute   = 3
 )
 
-// NavigationHooks connects Tab 2 Live actions cleanly to Rooms and Settings.
+// NavigationHooks connects Tab 2 Live actions cleanly to Rooms, Terminals, and Settings.
 type NavigationHooks struct {
 	OnOpenConnect     func()
 	OnOpenRoom        func(roomID string)
 	OnWatchRun        func(roomID, runID string)
 	OnOpenSettingsKey func(kind, key string)
+	OnOpenTerminals   func(computerID string)
 }
 
 // Controller manages Tab 2 Live Ops state, sheets, busy locks, and sub-segments.

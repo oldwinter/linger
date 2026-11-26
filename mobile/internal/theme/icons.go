@@ -371,6 +371,20 @@ func IconPlug(p *ui.Painter, r ui.Rect, color ui.Color) {
 	p.Stroke(ui.Rect{X: r.X + r.W*0.42, Y: r.Y + r.H*0.32, W: r.W * 0.42, H: r.H * 0.36}, color, r.W*0.18, sw)
 }
 
+// IconTerminal draws a crisp rounded command-prompt (>_) icon for herdr-core Terminals.
+func IconTerminal(p *ui.Painter, r ui.Rect, color ui.Color) {
+	sw := iconStrokeWidth(r)
+	frame := ui.Rect{X: r.X + r.W*0.12, Y: r.Y + r.H*0.18, W: r.W * 0.76, H: r.H * 0.64}
+	p.Stroke(frame, color, r.W*0.16, sw)
+	var prompt ui.Path
+	prompt.Cap(ui.RoundCap).Join(ui.RoundJoin)
+	prompt.MoveTo(r.X+r.W*0.28, r.Y+r.H*0.38).
+		LineTo(r.X+r.W*0.44, r.Y+r.H*0.50).
+		LineTo(r.X+r.W*0.28, r.Y+r.H*0.62)
+	p.StrokePath(&prompt, sw, color)
+	p.Line(r.X+r.W*0.52, r.Y+r.H*0.62, r.X+r.W*0.72, r.Y+r.H*0.62, sw, color)
+}
+
 // IconBox renders a sized icon inside a layout box.
 func IconBox(c *ui.Context, size float32, color ui.Color, draw IconFunc) ui.Element {
 	return ui.Box(c).Size(size, size).Shrink(0).Draw(func(p *ui.Painter, r ui.Rect) {
