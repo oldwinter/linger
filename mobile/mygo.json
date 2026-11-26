@@ -19,7 +19,7 @@
     "minSdk": 26,
     "adaptiveIcon": {
       "foreground": "./resources/icon-foreground.png",
-      "background": "#FDFDFB"
+      "background": "#F5F4EF"
     },
     "permissions": [
       "android.permission.INTERNET",

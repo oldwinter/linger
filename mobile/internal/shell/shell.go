@@ -14,7 +14,6 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/plugins/biometrics"
 	"github.com/egoist/mygo/ui"
-	"github.com/egoist/mygo/ui/mobile"
 	"github.com/oldwinter/linger/mobile/internal/components"
 	"github.com/oldwinter/linger/mobile/internal/i18n"
 	"github.com/oldwinter/linger/mobile/internal/screens/connect"
@@ -289,7 +288,7 @@ func (s *Shell) View(c *ui.Context) {
 		activeTab := snap.ActiveTab
 		router := s.store.Routers[activeTab]
 
-		// Tab top navigation bar with live connection health chip.
+		// Editorial top navigation bar with live connection health beacon.
 		s.viewTopBar(c, snap, activeTab, router)
 
 		// Optional transient toast banner.
@@ -301,7 +300,7 @@ func (s *Shell) View(c *ui.Context) {
 		}
 		s.mu.Unlock()
 		if toastMsg != "" {
-			ui.Box(c).FillWidth().Padding(6, 12, 0, 12).Shrink(0).Children(func() {
+			ui.Box(c).FillWidth().Padding(4, 14, 4, 14).Shrink(0).Children(func() {
 				components.StatusBanner(c, components.ToneSuccess, toastMsg, i18n.T("common.ok"), func() {
 					s.mu.Lock()
 					s.toastMessage = ""
@@ -328,39 +327,160 @@ func (s *Shell) View(c *ui.Context) {
 			})
 		})
 
-		// 5-destination mobile bottom tab bar with live Unread, Approvals, and Work badges.
-		var unreadTotal int64
-		for _, rm := range snap.Rooms {
-			unreadTotal += rm.UnreadMessageCount
-		}
-		roomsBadge := formatBadge(int(unreadTotal))
+		// Refined 5-destination elevated dock bar with duotone active icons and haloed badges.
+		s.viewBottomBar(c, snap, activeTab)
+	})
+}
 
-		liveAttention := len(snap.PendingDecisions)
-		if liveAttention == 0 {
-			for _, run := range snap.ActiveRuns {
-				if run.Status == "active" {
-					liveAttention++
-				}
+type navTabSpec struct {
+	Index      int
+	Label      string
+	Icon       theme.IconFunc
+	ActiveIcon theme.IconFunc
+	Badge      string
+	BadgeColor ui.Color
+	BadgeText  ui.Color
+}
+
+func (s *Shell) viewBottomBar(c *ui.Context, snap state.Snapshot, activeTab int) {
+	t := c.Theme()
+	ex := theme.Extra(t)
+
+	var unreadTotal int64
+	for _, rm := range snap.Rooms {
+		unreadTotal += rm.UnreadMessageCount
+	}
+	roomsBadge := formatBadge(int(unreadTotal))
+
+	liveAttention := len(snap.PendingDecisions)
+	if liveAttention == 0 {
+		for _, run := range snap.ActiveRuns {
+			if run.Status == "active" {
+				liveAttention++
 			}
 		}
-		liveBadge := formatBadge(liveAttention)
+	}
+	liveBadge := formatBadge(liveAttention)
 
-		workBadge := ""
-		if s.workScr != nil {
-			workBadge = formatBadge(s.workScr.BadgeCount())
-		}
+	workBadge := ""
+	if s.workScr != nil {
+		workBadge = formatBadge(s.workScr.BadgeCount())
+	}
 
-		selected := activeTab
-		bar := mobile.BottomBar(c, &selected,
-			mobile.BarButton{Label: i18n.T("tab.rooms"), Icon: theme.IconRooms, Badge: roomsBadge},
-			mobile.BarButton{Label: i18n.T("tab.live"), Icon: theme.IconLive, Badge: liveBadge},
-			mobile.BarButton{Label: i18n.T("tab.work"), Icon: theme.IconWork, Badge: workBadge},
-			mobile.BarButton{Label: i18n.T("tab.library"), Icon: theme.IconLibrary},
-			mobile.BarButton{Label: i18n.T("tab.more"), Icon: theme.IconMore},
-		)
-		if bar.Changed() {
-			mygo.Haptics.Light()
-			s.store.SetActiveTab(selected)
+	tabs := []navTabSpec{
+		{
+			Index:      state.TabRooms,
+			Label:      i18n.T("tab.rooms"),
+			Icon:       theme.IconRooms,
+			ActiveIcon: theme.IconRoomsActive,
+			Badge:      roomsBadge,
+			BadgeColor: t.Danger,
+			BadgeText:  ui.Hex("#FFFFFF"),
+		},
+		{
+			Index:      state.TabLive,
+			Label:      i18n.T("tab.live"),
+			Icon:       theme.IconLive,
+			ActiveIcon: theme.IconLiveActive,
+			Badge:      liveBadge,
+			BadgeColor: ex.Brand,
+			BadgeText:  ui.Hex("#171714"),
+		},
+		{
+			Index:      state.TabWork,
+			Label:      i18n.T("tab.work"),
+			Icon:       theme.IconWork,
+			ActiveIcon: theme.IconWorkActive,
+			Badge:      workBadge,
+			BadgeColor: t.Accent,
+			BadgeText:  t.AccentText,
+		},
+		{
+			Index:      state.TabLibrary,
+			Label:      i18n.T("tab.library"),
+			Icon:       theme.IconLibrary,
+			ActiveIcon: theme.IconLibraryActive,
+		},
+		{
+			Index:      state.TabMore,
+			Label:      i18n.T("tab.more"),
+			Icon:       theme.IconMore,
+			ActiveIcon: theme.IconMoreActive,
+		},
+	}
+
+	dock := ui.Row(c).FillWidth().Background(t.Surface).Padding(6, 6, 6, 6).Gap(2).Shrink(0).
+		BorderWidth(0.75, 0, 0, 0).BorderColor(ex.SubtleBorder).
+		Role(ui.RoleTabList).Label("Navigation")
+	if !t.Dark {
+		dock.Shadow(0, -2, 12, 0, ex.CardShadow)
+	}
+	dock.Children(func() {
+		for _, item := range tabs {
+			item := item
+			active := item.Index == activeTab
+			iconCol := ex.TextSubtle
+			lblCol := ex.TextSubtle
+			iconFn := item.Icon
+			pillBg := ui.Transparent
+			if active {
+				iconCol = t.Text
+				lblCol = t.Text
+				iconFn = item.ActiveIcon
+				pillBg = ex.MutedBg
+			}
+
+			tabBtn := ui.Column(c.Key(item.Index)).Grow(1).Basis(0).MinHeight(48).Padding(2, 2).Gap(3).
+				Radius(12).AlignItems(ui.Center).Justify(ui.Center).
+				Role(ui.RoleTab).Label(item.Label).Checked(active)
+			if tabBtn.Pressed() {
+				tabBtn.Scale(0.95, 0.95)
+			}
+			tabBtn.Children(func() {
+				pill := ui.Row(c).Size(46, 27).Radius(13.5).Background(pillBg).
+					AlignItems(ui.Center).Justify(ui.Center)
+				if item.Badge != "" {
+					badgeTxt := item.Badge
+					badgeBg := item.BadgeColor
+					badgeFg := item.BadgeText
+					surf := t.Surface
+					pill.DrawOver(func(p *ui.Painter, r ui.Rect) {
+						bw := float32(16)
+						if len(badgeTxt) >= 2 {
+							bw = 21
+						}
+						if len(badgeTxt) >= 3 {
+							bw = 26
+						}
+						bh := float32(16)
+						bx := r.X + r.W - bw + 3
+						by := r.Y - 3
+						outer := ui.Rect{X: bx - 1.5, Y: by - 1.5, W: bw + 3, H: bh + 3}
+						p.Fill(outer, surf, (bh+3)/2)
+						p.Fill(ui.Rect{X: bx, Y: by, W: bw, H: bh}, badgeBg, bh/2)
+						tw, th := p.MeasureText(0, ui.Span{Text: badgeTxt, Size: 9.5})
+						tx := bx + (bw-tw)/2
+						if tx < bx+2 {
+							tx = bx + 2
+						}
+						ty := by + (bh-th)/2
+						p.Text(tx, ty, badgeTxt, 9.5, badgeFg)
+					})
+				}
+				pill.Children(func() {
+					theme.IconBox(c, 20, iconCol, iconFn)
+				})
+				txt := ui.Text(c, item.Label).FontSize(10.5).TextColor(lblCol).NoWrap().MaxLines(1)
+				if active {
+					txt.FontWeight(600)
+				} else {
+					txt.FontWeight(500)
+				}
+			})
+			if tabBtn.Clicked() && !active {
+				mygo.Haptics.Light()
+				s.store.SetActiveTab(item.Index)
+			}
 		}
 	})
 }
@@ -377,16 +497,8 @@ func formatBadge(n int) string {
 
 func (s *Shell) viewTopBar(c *ui.Context, snap state.Snapshot, tab int, router *ui.Router) {
 	t := c.Theme()
+	ex := theme.Extra(t)
 	title := s.topBarTitle(tab, router)
-
-	var leading func()
-	if router.CanGoBack() {
-		leading = func() {
-			if components.TopBarIconButton(c, i18n.T("nav.back"), theme.IconBack, t.Accent).Clicked() {
-				router.Back()
-			}
-		}
-	}
 
 	tlsPinned := snap.ActiveHost != nil && snap.ActiveHost.TLS && snap.ActiveHost.TLSFingerprint != ""
 	plainHTTP := snap.ActiveHost != nil && !snap.ActiveHost.TLS
@@ -396,16 +508,27 @@ func (s *Shell) viewTopBar(c *ui.Context, snap state.Snapshot, tab int, router *
 		hostName = snap.ActiveHost.Name
 	}
 
-	trailing := func() {
-		components.ConnectionHealthChip(c, hostName, connected, tlsPinned, plainHTTP, snap.RTTMs, s.OpenConnect)
+	if router.CanGoBack() {
+		// Compact pushed sub-screen bar with back chevron and hairline separator.
+		ui.Row(c).FillWidth().MinHeight(48).Padding(4, 14, 6, 6).Gap(6).Background(t.Background).
+			AlignItems(ui.Center).BorderWidth(0, 0, 0.75, 0).BorderColor(ex.Divider).Shrink(0).Children(func() {
+			if components.TopBarIconButton(c, i18n.T("nav.back"), theme.IconBack, t.Text).Clicked() {
+				router.Back()
+			}
+			ui.Text(c, title).FontSize(16.5).FontWeight(600).LetterSpacing(-0.2).TextColor(t.Text).
+				Grow(1).Basis(0).MaxLines(1)
+			components.ConnectionHealthChip(c, hostName, connected, tlsPinned, plainHTTP, snap.RTTMs, s.OpenConnect)
+		})
+		return
 	}
 
-	mobile.TopBar(c, mobile.TopBarOptions{
-		Title:    title,
-		Leading:  leading,
-		Trailing: trailing,
+	// Editorial root-tab header: bold left-aligned display title flowing seamlessly onto canvas.
+	ui.Row(c).FillWidth().MinHeight(50).Padding(8, 16, 6, 16).Gap(10).Background(t.Background).
+		AlignItems(ui.Center).Justify(ui.SpaceBetween).Shrink(0).Children(func() {
+		ui.Text(c, title).FontSize(24).FontWeight(700).LetterSpacing(-0.5).TextColor(t.Text).
+			Grow(1).Basis(0).MaxLines(1)
+		components.ConnectionHealthChip(c, hostName, connected, tlsPinned, plainHTTP, snap.RTTMs, s.OpenConnect)
 	})
-	ui.Divider(c)
 }
 
 func (s *Shell) topBarTitle(tab int, router *ui.Router) string {
@@ -477,40 +600,45 @@ func (s *Shell) routeMore(c *ui.Context, r *ui.Route, snap state.Snapshot) {
 
 func (s *Shell) viewBiometricLockGate(c *ui.Context) {
 	t := c.Theme()
-	ex := theme.Extra(t)
 	s.mu.Lock()
 	unlockErr := s.unlockError
 	unlocking := s.unlocking
 	unsupported := s.biometricUnsupported
 	s.mu.Unlock()
 
-	ui.Column(c).Fill().AlignItems(ui.Center).Justify(ui.Center).Padding(24, 24).Gap(16).
+	ui.Column(c).Fill().AlignItems(ui.Center).Justify(ui.Center).Padding(24, 24).Gap(18).
 		Role(ui.RoleDialog).Label(i18n.T("auth.biometric_title")).Children(func() {
-		ui.Row(c).Size(64, 64).Radius(32).Background(ex.InfoTint).AlignItems(ui.Center).Justify(ui.Center).Children(func() {
-			theme.IconBox(c, 32, t.Accent, theme.IconLock)
-		})
-		ui.Text(c, i18n.T("auth.locked_title")).FontSize(20).Bold().TextColor(t.Text).TextAlign(ui.Center)
-		ui.Text(c, i18n.T("auth.locked_subtitle")).
-			FontSize(13).TextColor(t.TextMuted).TextAlign(ui.Center)
-		if unlockErr != "" {
-			components.StatusBanner(c, components.ToneWarning, unlockErr, "", nil)
-		}
-		unlockBtn := components.PrimaryTouchButton(c, i18n.T("auth.unlock"), unlocking)
-		unlockBtn.FillWidth()
-		if unlockBtn.Clicked() {
-			s.triggerBiometricUnlock()
-		}
-		if unsupported {
-			disableBtn := components.DangerTouchButton(c, i18n.T("auth.disable_biometric"), false)
-			disableBtn.FillWidth()
-			if disableBtn.Clicked() {
-				s.mu.Lock()
-				s.biometricUnsupported = false
-				s.unlockError = ""
-				s.mu.Unlock()
-				_ = s.store.SetBiometricPreference(false)
+		card := ui.Column(c).FillWidth().Background(t.Surface).Radius(22).Padding(28, 22).
+			AlignItems(ui.Center).Gap(16)
+		components.ApplyCardElevation(card, t)
+		card.Children(func() {
+			theme.IconBox(c, 58, t.Text, theme.IconBrandMark)
+			ui.Column(c).FillWidth().AlignItems(ui.Center).Gap(6).Children(func() {
+				ui.Text(c, i18n.T("auth.locked_title")).FontSize(20).FontWeight(700).LetterSpacing(-0.3).
+					TextColor(t.Text).TextAlign(ui.Center)
+				ui.Text(c, i18n.T("auth.locked_subtitle")).
+					FontSize(13.5).LineHeight(1.4).TextColor(t.TextMuted).TextAlign(ui.Center)
+			})
+			if unlockErr != "" {
+				components.StatusBanner(c, components.ToneWarning, unlockErr, "", nil)
 			}
-		}
+			unlockBtn := components.PrimaryTouchButton(c, i18n.T("auth.unlock"), unlocking)
+			unlockBtn.FillWidth()
+			if unlockBtn.Clicked() {
+				s.triggerBiometricUnlock()
+			}
+			if unsupported {
+				disableBtn := components.DangerTouchButton(c, i18n.T("auth.disable_biometric"), false)
+				disableBtn.FillWidth()
+				if disableBtn.Clicked() {
+					s.mu.Lock()
+					s.biometricUnsupported = false
+					s.unlockError = ""
+					s.mu.Unlock()
+					_ = s.store.SetBiometricPreference(false)
+				}
+			}
+		})
 	})
 }
 

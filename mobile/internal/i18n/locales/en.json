@@ -35,7 +35,6 @@
   "common.switch": "Switch",
   "common.enabled": "Enabled",
   "common.paused": "Paused",
-  "common.open": "Open",
   "common.creating": "Creating...",
   "common.default": "Default",
 
@@ -1075,7 +1074,6 @@
   "settings.host.export_diag": "Export Diagnostics",
   "settings.host.unpair_signout": "Unpair / Sign Out",
   "settings.nav.title": "Workspace & Device Settings",
-  "settings.nav.subtitle": "Jump directly to any section",
   "settings.nav.rules_title": "My Rules & Shadow Review",
   "settings.nav.rules_sub": "{active} active · {shadow} shadow",
   "settings.nav.profile_title": "Profile & Personal Insights",

@@ -129,61 +129,87 @@ func (ctl *Controller) ViewRunWatch(c *ui.Context, snap state.Snapshot, roomID, 
 
 	ui.Scroll(c).FillWidth().Grow(1).Basis(0).Children(func() {
 		ui.Column(c).FillWidth().Padding(12, 14, 24, 14).Gap(12).Children(func() {
-			// Run Header & Remote Control Actions
-			components.SectionCard(c, agentName, i18n.Tf("run.header", map[string]any{"id": runID, "status": elapsed}), func() {
-				components.StatusPill(c, i18n.StatusLabel(statusLabel), statusTone)
-			}, func() {
+			// Run Hero Card & Balanced Remote Controls
+			hero := ui.Column(c).FillWidth().Background(t.Surface).Radius(18).Padding(16, 16).Gap(12)
+			components.ApplyCardElevation(hero, t)
+			hero.Children(func() {
+				ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(12).Children(func() {
+					components.AvatarBadge(c, agentName, 40)
+					ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
+						ui.Text(c, agentName).FontSize(16.5).FontWeight(600).LetterSpacing(-0.2).TextColor(t.Text).MaxLines(1)
+						ui.Text(c, i18n.Tf("run.header", map[string]any{"id": runID, "status": elapsed})).FontSize(12).TextColor(t.TextMuted).MaxLines(1)
+					})
+					components.StatusDotPill(c, i18n.StatusLabel(statusLabel), statusTone)
+				})
 				if statusDetail != "" {
-					ui.Text(c, statusDetail).FontSize(13).TextColor(t.TextMuted)
+					ui.Text(c, statusDetail).FontSize(13).LineHeight(1.35).TextColor(t.TextMuted)
 				}
 				if failureCode != "" {
 					components.ErrorInline(c, i18n.Tf("run.failure_prefix", map[string]any{"err": failureCode}), nil)
 				}
-				ui.Row(c).FillWidth().Wrap().Gap(8).Children(func() {
+				ui.Row(c).FillWidth().Gap(8).Children(func() {
 					syncBtn := components.SecondaryTouchButton(c, i18n.T("run.sync_events"), false)
+					syncBtn.Grow(1).Basis(0).MinHeight(40)
 					if syncBtn.Clicked() {
 						go func() { _ = ctl.store.SyncRunPresentation(context.Background(), roomID, runID) }()
 					}
-					stopBtn := components.DangerTouchButton(c, i18n.T("run.stop_run"), runMeta != nil && runMeta.Status != "active")
-					if stopBtn.Clicked() {
-						ctl.mu.Lock()
-						ctl.watchRoomID = roomID
-						ctl.watchRunID = runID
-						ctl.cancelConfirmOpen = true
-						ctl.mu.Unlock()
-					}
 					bgBtn := components.SecondaryTouchButton(c, i18n.T("run.background_tasks"), false)
+					bgBtn.Grow(1).Basis(0).MinHeight(40)
 					if bgBtn.Clicked() {
 						ctl.openBackgroundTasks(roomID)
 					}
 				})
+				stopBtn := components.DangerTouchButton(c, i18n.T("run.stop_run"), runMeta != nil && runMeta.Status != "active")
+				stopBtn.FillWidth().MinHeight(40)
+				if stopBtn.Clicked() {
+					ctl.mu.Lock()
+					ctl.watchRoomID = roomID
+					ctl.watchRunID = runID
+					ctl.cancelConfirmOpen = true
+					ctl.mu.Unlock()
+				}
 				if unconfirmedCount > 0 || (runMeta != nil && runMeta.Status != "active") {
 					redeliverBtn := components.SecondaryTouchButton(c, i18n.T("run.redeliver_inputs"), false)
-					redeliverBtn.FillWidth()
+					redeliverBtn.FillWidth().MinHeight(40)
 					if redeliverBtn.Clicked() {
 						go func() { _ = ctl.store.RedeliverRunInputs(context.Background(), roomID, runID) }()
 					}
 				}
 			})
 
-			// Structured Plan Checklist (plan.updated)
+			// Structured Plan Checklist (plan.updated) with sculpted step markers
 			if len(planSteps) > 0 {
 				components.SectionCard(c, i18n.T("run.plan_title"), planExplanation, nil, func() {
-					ui.Column(c).FillWidth().Gap(6).Children(func() {
+					ui.Column(c).FillWidth().Gap(10).Children(func() {
 						for i, step := range planSteps {
-							ui.Row(c.Key(i)).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
-								badge := "○"
-								tone := components.ToneNeutral
-								switch step.Status {
-								case "completed":
-									badge = "✓"
-									tone = components.ToneSuccess
-								case "in_progress":
-									badge = "●"
-									tone = components.ToneInfo
+							step := step
+							ui.Row(c.Key(i)).FillWidth().AlignItems(ui.Center).Gap(10).Children(func() {
+								ui.Box(c).Size(20, 20).Shrink(0).Draw(func(p *ui.Painter, r ui.Rect) {
+									cx := r.X + r.W/2
+									cy := r.Y + r.H/2
+									switch step.Status {
+									case "completed":
+										p.Fill(r, t.Success, r.W/2)
+										theme.IconCheck(p, ui.Rect{X: r.X + 4, Y: r.Y + 4, W: r.W - 8, H: r.H - 8}, ex.OnAvatar)
+									case "in_progress":
+										p.Fill(r, ex.Brand.Alpha(0.22), r.W/2)
+										d := float32(8)
+										p.Fill(ui.Rect{X: cx - d/2, Y: cy - d/2, W: d, H: d}, ex.Brand, d/2)
+									default:
+										var ring ui.Path
+										ring.Circle(cx, cy, 7)
+										p.StrokePath(&ring, 1.5, ex.TextSubtle)
+									}
+								})
+								txtCol := t.Text
+								weight := 500
+								if step.Status == "completed" {
+									txtCol = t.TextMuted
+									weight = 400
+								} else if step.Status == "in_progress" {
+									weight = 600
 								}
-								components.StatusPill(c, badge, tone)
-								ui.Text(c, step.Content).FontSize(13).TextColor(t.Text).Grow(1).Basis(0)
+								ui.Text(c, step.Content).FontSize(13.5).FontWeight(weight).LineHeight(1.35).TextColor(txtCol).Grow(1).Basis(0)
 							})
 						}
 					})
@@ -203,7 +229,7 @@ func (ctl *Controller) ViewRunWatch(c *ui.Context, snap state.Snapshot, roomID, 
 						expanded := ctl.expandedActivities[act.ID]
 						ctl.mu.Unlock()
 
-						tone := components.ToneInfo
+						tone := components.ToneBrand
 						stateTxt := i18n.StatusLabel("running")
 						if act.Outcome != "" {
 							stateTxt = i18n.StatusLabel(act.Outcome)
@@ -214,15 +240,15 @@ func (ctl *Controller) ViewRunWatch(c *ui.Context, snap state.Snapshot, roomID, 
 							}
 						}
 
-						box := ui.Column(c.Key(act.ID)).FillWidth().Padding(10, 10).Radius(10).Background(ex.MutedBg).
-							Border(1, t.Border).Gap(6).Role(ui.RoleButton).Label(i18n.Tf("run.activity_a11y", map[string]any{"title": act.Title}))
+						box := ui.Column(c.Key(act.ID)).FillWidth().Padding(11, 12).Radius(12).Background(ex.MutedBg).
+							Border(0.75, ex.SubtleBorder).Gap(6).Role(ui.RoleButton).Label(i18n.Tf("run.activity_a11y", map[string]any{"title": act.Title}))
 						box.Children(func() {
-							ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(6).Children(func() {
-								ui.Text(c, act.Title).FontSize(13).FontWeight(600).TextColor(t.Text).Grow(1).Basis(0).MaxLines(1)
-								components.StatusPill(c, stateTxt, tone)
+							ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
+								ui.Text(c, act.Title).FontSize(13.5).FontWeight(600).TextColor(t.Text).Grow(1).Basis(0).MaxLines(1)
+								components.StatusDotPill(c, stateTxt, tone)
 							})
 							if act.Detail != "" {
-								ui.Text(c, act.Detail).FontSize(12).TextColor(t.TextMuted)
+								ui.Text(c, act.Detail).FontSize(12).LineHeight(1.35).TextColor(t.TextMuted)
 							}
 							if expanded && len(act.Blocks) > 0 {
 								for bi, blk := range act.Blocks {
@@ -234,8 +260,9 @@ func (ctl *Controller) ViewRunWatch(c *ui.Context, snap state.Snapshot, roomID, 
 										txt = blk.Content
 									}
 									if txt != "" {
-										ui.Column(c.Key(bi)).FillWidth().Padding(8, 8).Radius(8).Background(t.Surface).Children(func() {
-											ui.Text(c, txt).FontSize(12).TextColor(t.Text)
+										ui.Column(c.Key(bi)).FillWidth().Padding(9, 10).Radius(8).Background(t.Surface).
+											Border(0.75, ex.SubtleBorder).Children(func() {
+											ui.Text(c, txt).FontSize(12).LineHeight(1.4).TextColor(t.Text)
 										})
 									}
 								}

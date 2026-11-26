@@ -135,8 +135,8 @@ func (s *Screen) viewPocketSegment(c *ui.Context) {
 					for _, n := range past {
 						n := n
 						expanded := s.pocketExpandedDate == n.Date
-						card := ui.Column(c.Key(n.Date)).FillWidth().Padding(10, 12).Gap(6).
-							Radius(10).Background(theme.Extra(t).MutedBg).Border(1, t.Border)
+						card := ui.Column(c.Key(n.Date)).FillWidth().Padding(11, 12).Gap(6).
+							Radius(12).Background(theme.Extra(t).MutedBg).Border(0.75, theme.Extra(t).SubtleBorder)
 						card.Children(func() {
 							ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
 								hdr := ui.Row(c).Grow(1).Basis(0).MinHeight(36).AlignItems(ui.Center).
@@ -176,13 +176,13 @@ func (s *Screen) viewPocketSegment(c *ui.Context) {
 func (s *Screen) viewPocketStatusPill(c *ui.Context, st PocketSaveState) {
 	switch st {
 	case PocketStateSaving:
-		components.StatusPill(c, i18n.T("work.pocket.status.saving"), components.ToneInfo)
+		components.StatusDotPill(c, i18n.T("work.pocket.status.saving"), components.ToneBrand)
 	case PocketStateSavedOffline:
-		components.StatusPill(c, i18n.T("work.pocket.status.saved_offline"), components.ToneWarning)
+		components.StatusDotPill(c, i18n.T("work.pocket.status.saved_offline"), components.ToneWarning)
 	case PocketStateError:
-		components.StatusPill(c, i18n.T("work.pocket.status.error"), components.ToneDanger)
+		components.StatusDotPill(c, i18n.T("work.pocket.status.error"), components.ToneDanger)
 	default:
-		components.StatusPill(c, i18n.T("work.pocket.status.saved"), components.ToneSuccess)
+		components.StatusDotPill(c, i18n.T("work.pocket.status.saved"), components.ToneSuccess)
 	}
 }
 

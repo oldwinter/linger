@@ -16,10 +16,10 @@ import (
 
 func (ctl *Controller) viewAgents(c *ui.Context, snap state.Snapshot) {
 	t := c.Theme()
+	ex := theme.Extra(t)
 
-	ui.Row(c).FillWidth().Justify(ui.SpaceBetween).AlignItems(ui.Center).Gap(8).Children(func() {
-		ui.Text(c, i18n.Tf("live.agents.title", map[string]any{"count": len(snap.Agents)})).FontSize(15).FontWeight(600).TextColor(t.Text)
-		createBtn := components.PrimaryTouchButton(c, i18n.T("live.agents.create_btn"), snap.ActiveHost == nil)
+	components.SectionEyebrow(c, i18n.Tf("live.agents.title", map[string]any{"count": len(snap.Agents)}), func() {
+		createBtn := components.CompactPrimaryButton(c, i18n.T("live.agents.create_btn"), theme.IconPlus, snap.ActiveHost == nil)
 		if createBtn.Clicked() {
 			ctl.mu.Lock()
 			ctl.newAgentName = ""
@@ -42,71 +42,84 @@ func (ctl *Controller) viewAgents(c *ui.Context, snap state.Snapshot) {
 		return
 	}
 
-	for _, ag := range snap.Agents {
-		ag := ag
-		avail, hasAvail := snap.AgentAvailability[ag.Actor.ID]
-		statusText := "ready"
-		statusTone := components.ToneSuccess
-		if hasAvail {
-			statusText = avail.Availability.Status
-			switch strings.ToLower(statusText) {
-			case "working", "busy":
-				statusTone = components.ToneInfo
-			case "offline", "unavailable", "error":
-				statusTone = components.ToneWarning
+	components.GroupedCard(c, func() {
+		for idx, ag := range snap.Agents {
+			ag := ag
+			if idx > 0 {
+				components.InsetDivider(c, 68)
 			}
-		}
+			avail, hasAvail := snap.AgentAvailability[ag.Actor.ID]
+			statusText := "ready"
+			statusTone := components.ToneSuccess
+			if hasAvail {
+				statusText = avail.Availability.Status
+				switch strings.ToLower(statusText) {
+				case "working", "busy":
+					statusTone = components.ToneBrand
+				case "offline", "unavailable", "error":
+					statusTone = components.ToneWarning
+				}
+			}
 
-		mobile.SwipeRow(c.Key("ag_"+ag.Actor.ID), ctl.swipeStateFor("ag_"+ag.Actor.ID), mobile.SwipeOptions{
-			Trailing: []mobile.SwipeAction{
-				{
-					Label: i18n.T("live.agents.dm_btn"),
-					OnTap: func() {
-						ctl.openDirectAgentChat(ag.Actor.ID)
+			mobile.SwipeRow(c.Key("ag_"+ag.Actor.ID), ctl.swipeStateFor("ag_"+ag.Actor.ID), mobile.SwipeOptions{
+				Trailing: []mobile.SwipeAction{
+					{
+						Label: i18n.T("live.agents.dm_btn"),
+						OnTap: func() {
+							ctl.openDirectAgentChat(ag.Actor.ID)
+						},
 					},
 				},
-			},
-		}, func() {
-			row := ui.Row(c).FillWidth().MinHeight(64).Padding(10, 12).Gap(10).
-				Radius(12).Background(t.Surface).Border(1, t.Border).AlignItems(ui.Center).
-				Role(ui.RoleButton).Label(i18n.Tf("live.agents.a11y_prefix", map[string]any{"name": ag.Actor.DisplayName}))
-			row.Children(func() {
-				components.AvatarBadge(c, ag.Actor.DisplayName, 40)
-				ui.Column(c).Grow(1).Basis(0).Gap(3).Children(func() {
-					ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(6).Children(func() {
-						ui.Text(c, ag.Actor.DisplayName).FontSize(15).FontWeight(600).TextColor(t.Text).MaxLines(1)
-						components.StatusPill(c, i18n.StatusLabel(statusText), statusTone)
-					})
-					if ag.Description != "" {
-						ui.Text(c, ag.Description).FontSize(12).TextColor(t.TextMuted).MaxLines(1)
-					}
-					ui.Row(c).Wrap().Gap(4).Children(func() {
+			}, func() {
+				row := ui.Row(c).FillWidth().MinHeight(70).Padding(12, 14).Gap(12).
+					Background(t.Surface).AlignItems(ui.Center).
+					Role(ui.RoleButton).Label(i18n.Tf("live.agents.a11y_prefix", map[string]any{"name": ag.Actor.DisplayName}))
+				if row.Pressed() {
+					row.Background(t.SurfacePressed)
+				}
+				row.Children(func() {
+					components.AvatarBadge(c, ag.Actor.DisplayName, 42)
+					ui.Column(c).Grow(1).Basis(0).Gap(3).Children(func() {
+						ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(6).Children(func() {
+							ui.Text(c, ag.Actor.DisplayName).FontSize(15).FontWeight(600).LetterSpacing(-0.15).TextColor(t.Text).MaxLines(1)
+							components.StatusDotPill(c, i18n.StatusLabel(statusText), statusTone)
+						})
+						if ag.Description != "" {
+							ui.Text(c, ag.Description).FontSize(12.5).TextColor(t.TextMuted).MaxLines(1)
+						}
+						var metaParts []string
 						if ag.Runtime.Model != "" {
-							components.StatusPill(c, ag.Runtime.Model, components.ToneNeutral)
+							metaParts = append(metaParts, ag.Runtime.Model)
 						}
 						if len(ag.SkillBindings) > 0 {
-							components.StatusPill(c, i18n.Tf("live.agents.skills_count", map[string]any{"count": len(ag.SkillBindings)}), components.ToneInfo)
+							metaParts = append(metaParts, i18n.Tf("live.agents.skills_count", map[string]any{"count": len(ag.SkillBindings)}))
+						}
+						if len(metaParts) > 0 {
+							ui.Text(c, strings.Join(metaParts, " · ")).FontSize(11.5).TextColor(ex.TextSubtle).MaxLines(1)
 						}
 					})
+					theme.IconBox(c, 16, ex.TextSubtle, theme.IconChevronRight)
 				})
-				ui.Text(c, "›").FontSize(20).TextColor(t.TextMuted)
+				if row.Clicked() {
+					ctl.openAgentDetail(ag, snap.TenantID)
+				}
 			})
-			if row.Clicked() {
-				ctl.openAgentDetail(ag, snap.TenantID)
-			}
-		})
-	}
+		}
+	})
 
 	if len(snap.AgentTemplates) > 0 {
 		components.SectionCard(c, i18n.Tf("live.agents.templates_title", map[string]any{"count": len(snap.AgentTemplates)}), i18n.T("live.agents.templates_subtitle"), nil, func() {
-			for _, tpl := range snap.AgentTemplates {
+			for idx, tpl := range snap.AgentTemplates {
 				tpl := tpl
-				ui.Row(c.Key("tpl_" + tpl.TemplateID)).FillWidth().MinHeight(48).AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
+				if idx > 0 {
+					components.InsetDivider(c, 0)
+				}
+				ui.Row(c.Key("tpl_" + tpl.TemplateID)).FillWidth().MinHeight(50).AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(10).Children(func() {
 					ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
 						ui.Text(c, tpl.Name).FontSize(14).FontWeight(600).TextColor(t.Text)
 						ui.Text(c, tpl.Description).FontSize(12).TextColor(t.TextMuted).MaxLines(1)
 					})
-					useBtn := components.SecondaryTouchButton(c, i18n.T("live.agents.use_btn"), false)
+					useBtn := components.CompactSecondaryButton(c, i18n.T("live.agents.use_btn"), nil, false)
 					if useBtn.Clicked() {
 						ctl.mu.Lock()
 						ctl.newAgentName = tpl.Name
