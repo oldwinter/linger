@@ -34,18 +34,15 @@ func (ctl *Controller) viewChat(c *ui.Context, snap state.Snapshot, roomID, pare
 	}
 
 	ui.Column(c).Fill().Children(func() {
-		// Compact Room sub-bar: Inspector button (for rooms) + Active Run Watch live banner.
-		ui.Row(c).FillWidth().Padding(6, 12).Gap(8).Background(ex.SidebarBg).AlignItems(ui.Center).
-			Justify(ui.SpaceBetween).Border(0.5, t.Border).Children(func() {
+		// Slim editorial Room sub-bar: message count + tactile Inspector pill.
+		ui.Row(c).FillWidth().Padding(6, 14).Gap(8).Background(t.Background).AlignItems(ui.Center).
+			Justify(ui.SpaceBetween).BorderWidth(0, 0, 0.75, 0).BorderColor(ex.Divider).Children(func() {
 			if isThread {
 				ui.Text(c, i18n.Tf("chat.thread_in", map[string]any{"name": roomTitle(snap, parentRoomID)})).FontSize(12).FontWeight(600).TextColor(t.TextMuted).MaxLines(1).Grow(1).Basis(0)
 			} else {
-				ui.Text(c, i18n.Tf("chat.reply_count_bar", map[string]any{"count": len(msgs)})).FontSize(12).TextColor(t.TextMuted).Grow(1).Basis(0)
-				inspBtn := ui.Row(c).MinHeight(36).PaddingX(10).Radius(8).Background(t.Surface).
-					Border(1, t.Border).AlignItems(ui.Center).Role(ui.RoleButton).Label(i18n.T("rooms.title.inspector"))
-				inspBtn.Children(func() {
-					ui.Text(c, i18n.T("chat.inspector")).FontSize(12).FontWeight(600).TextColor(t.Accent).NoWrap()
-				})
+				ui.Text(c, i18n.Tf("chat.reply_count_bar", map[string]any{"count": len(msgs)})).FontSize(12).FontWeight(500).TextColor(ex.TextSubtle).Grow(1).Basis(0)
+				inspBtn := components.CompactSecondaryButton(c, i18n.T("chat.inspector"), theme.IconSliders, false)
+				inspBtn.MinHeight(32).Label(i18n.T("rooms.title.inspector"))
 				if inspBtn.Clicked() {
 					ctl.openInspector(roomID, snap)
 				}
@@ -127,147 +124,190 @@ func (ctl *Controller) viewMessageRow(c *ui.Context, snap state.Snapshot, roomID
 	t := c.Theme()
 	ex := theme.Extra(t)
 
-	// Town Light/Dark semantic chat bubble surfaces.
-	bubbleBg := t.Surface
-	bubbleBorder := t.Border
-	if isOwn {
-		bubbleBg = ex.InfoTint
-		bubbleBorder = t.Accent.Alpha(0.28)
-	}
-
 	align := ui.Start
 	if isOwn {
 		align = ui.End
 	}
 
-	ui.Column(c.Key(m.ID)).FillWidth().AlignItems(align).Gap(4).Children(func() {
+	hasHTML := false
+	for _, seg := range m.Segments {
+		if seg.Type == "html_fragment" && strings.TrimSpace(seg.HTML) != "" {
+			hasHTML = true
+			break
+		}
+	}
+	hasBubbleContent := (m.CardTitle != nil && *m.CardTitle != "") ||
+		strings.TrimSpace(m.RawMessage) != "" ||
+		hasHTML ||
+		len(m.Attachments) > 0
+
+	ui.Column(c.Key(m.ID)).FillWidth().AlignItems(align).Gap(5).Children(func() {
 		// Author + timestamp line
 		ui.Row(c).AlignItems(ui.Center).Gap(6).Children(func() {
 			if !isOwn {
-				components.AvatarBadge(c, m.Author.DisplayName, 22)
+				components.AvatarBadge(c, m.Author.DisplayName, 24)
 			}
-			ui.Text(c, m.Author.DisplayName).FontSize(12).FontWeight(600).TextColor(t.TextMuted)
+			ui.Text(c, m.Author.DisplayName).FontSize(12.5).FontWeight(600).TextColor(t.TextMuted)
 			if m.RoutineName != nil && *m.RoutineName != "" {
 				components.StatusPill(c, i18n.Tf("chat.routine_label", map[string]any{"id": *m.RoutineName}), components.ToneInfo)
 			}
-			ui.Text(c, i18n.FormatRoomTime(m.CreatedAt)).FontSize(11).TextColor(t.TextMuted)
+			ui.Text(c, i18n.FormatRoomTime(m.CreatedAt)).FontSize(11).TextColor(ex.TextSubtle)
 		})
 
-		// Bubble body
-		ui.Column(c).FillWidth().Background(bubbleBg).Radius(12).Border(1, bubbleBorder).Padding(10, 12).Gap(8).Children(func() {
-			if m.CardTitle != nil && *m.CardTitle != "" {
-				ui.Text(c, *m.CardTitle).FontSize(14).Bold().TextColor(t.Text)
-			}
-
-			if strings.TrimSpace(m.RawMessage) != "" {
-				markdown.View(c, m.RawMessage, &markdown.Options{WrapCode: true})
-			}
-
-			// Inline html_fragment segments rendered safely as summary + opt-in WebView preview sheet.
-			for si, seg := range m.Segments {
-				if seg.Type == "html_fragment" && strings.TrimSpace(seg.HTML) != "" {
-					seg := seg
-					title := seg.Content
-					if title == "" {
-						title = i18n.T("chat.html_widget_title")
-					}
-					ui.Row(c.Key(si)).FillWidth().Padding(8, 10).Radius(8).Background(ex.MutedBg).
-						Border(1, t.Border).AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
-						ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
-							ui.Text(c, title).FontSize(13).FontWeight(600).TextColor(t.Text)
-							ui.Text(c, i18n.T("chat.html_widget_subtitle")).FontSize(11).TextColor(t.TextMuted)
-						})
-						prevBtn := components.SecondaryTouchButton(c, i18n.T("chat.preview_btn"), false)
-						if prevBtn.Clicked() {
-							ctl.openHTMLPreview(title, seg.HTML)
+		// Editorial asymmetrical chat bubble (obsidian/ivory for own, elevated surface for peers).
+		if hasBubbleContent {
+			renderBody := func(titleColor ui.Color) {
+				if m.CardTitle != nil && *m.CardTitle != "" {
+					ui.Text(c, *m.CardTitle).FontSize(14.5).FontWeight(600).TextColor(titleColor)
+				}
+				if strings.TrimSpace(m.RawMessage) != "" {
+					markdown.View(c, m.RawMessage, &markdown.Options{WrapCode: true})
+				}
+				// Inline html_fragment segments rendered safely as summary + opt-in WebView preview sheet.
+				for si, seg := range m.Segments {
+					if seg.Type == "html_fragment" && strings.TrimSpace(seg.HTML) != "" {
+						seg := seg
+						title := seg.Content
+						if title == "" {
+							title = i18n.T("chat.html_widget_title")
 						}
-					})
+						ui.Row(c.Key(si)).FillWidth().Padding(10, 12).Radius(12).Background(ex.MutedBg).
+							Border(0.75, ex.SubtleBorder).AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(10).Children(func() {
+							ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
+								ui.Text(c, title).FontSize(13).FontWeight(600).TextColor(t.Text)
+								ui.Text(c, i18n.T("chat.html_widget_subtitle")).FontSize(11.5).TextColor(t.TextMuted)
+							})
+							prevBtn := components.CompactSecondaryButton(c, i18n.T("chat.preview_btn"), nil, false)
+							if prevBtn.Clicked() {
+								ctl.openHTMLPreview(title, seg.HTML)
+							}
+						})
+					}
+				}
+				// Image & File attachments (authenticated netimage + tap-to-zoom / share)
+				for ai, att := range m.Attachments {
+					att := att
+					ctl.viewAttachment(c, ai, att)
 				}
 			}
 
-			// Image & File attachments (authenticated netimage + tap-to-zoom / share)
-			for ai, att := range m.Attachments {
-				att := att
-				ctl.viewAttachment(c, ai, att)
-			}
-
-			// Inline Decision Card (all 12 real TeamHub kinds!)
-			if m.Card != nil {
-				card := *m.Card
-				components.DecisionCardView(c, roomID, roomTitle(snap, roomID), card, ctl.decisionStateFor(card.DecisionID), ctl.decisionCallbacks())
-			}
-
-			// Reactions bar + quick actions (React, Pin, Forward, Thread)
-			currentActorID := ""
-			if snap.Identity != nil {
-				for _, act := range snap.Identity.Actors {
-					if snap.TenantID == "" || act.TenantID == snap.TenantID {
-						currentActorID = act.ID
-						break
+			if isOwn {
+				ownTheme := *t
+				ownTheme.Dark = !t.Dark
+				ownTheme.Text = ex.OwnBubbleText
+				ownTheme.TextMuted = ex.OwnBubbleText.Alpha(0.76)
+				ownTheme.Background = ex.OwnBubbleBg
+				ownTheme.Surface = ex.OwnBubbleBg
+				ownTheme.Border = ex.OwnBubbleText.Alpha(0.18)
+				ownTheme.Accent = ex.Brand
+				ui.Box(c).FillWidth().Padding(0, 0, 0, 40).Children(func() {
+					bubble := ui.Themed(c, &ownTheme).FillWidth().Background(ex.OwnBubbleBg).
+						Radius(18, 18, 5, 18).Padding(11, 14).Gap(8)
+					if !t.Dark {
+						bubble.Shadow(0, 2, 8, 0, ui.RGBA(20, 20, 16, 0.14))
 					}
-				}
-			}
-			ui.Row(c).FillWidth().Wrap().AlignItems(ui.Center).Gap(6).Children(func() {
-				for _, rx := range m.Reactions {
-					rx := rx
-					reacted := rx.ReactedBy(currentActorID)
-					pill := ui.Row(c.Key("rx_"+rx.ReactionID)).MinHeight(32).Padding(4, 8).Radius(999).
-						Background(ex.MutedBg).Border(1, t.Border).AlignItems(ui.Center).
-						Role(ui.RoleButton).Label(i18n.Tf("chat.react_a11y", map[string]any{"emoji": rx.ReactionID}))
-					pill.Children(func() {
-						ui.Text(c, fmt.Sprintf("%s %d", rx.DisplayEmoji(), rx.Count())).FontSize(12).TextColor(t.Text).NoWrap()
+					bubble.Children(func() {
+						renderBody(ex.OwnBubbleText)
 					})
-					if pill.Clicked() {
-						ctl.toggleReactionAsync(roomID, m.ID, rx.ReactionID, reacted)
-					}
-				}
-				if !isThread && m.Thread != nil && m.Thread.ReplyCount > 0 {
-					thBtn := ui.Row(c).MinHeight(32).Padding(4, 8).Radius(999).Background(ex.InfoTint).
-						AlignItems(ui.Center).Role(ui.RoleButton).Label(i18n.T("chat.thread_btn"))
-					thBtn.Children(func() {
-						ui.Text(c, i18n.Tf("chat.thread_replies", map[string]any{"count": m.Thread.ReplyCount})+" ›").FontSize(12).FontWeight(600).TextColor(t.Accent).NoWrap()
-					})
-					if thBtn.Clicked() {
-						ctl.store.Routers[state.TabRooms].Push("/rooms/" + roomID + "/thread/" + m.Thread.ThreadRoomID)
-					}
-				}
-				miniActionButton(c, i18n.T("chat.add_react"), func() {
-					ctl.mu.Lock()
-					mCopy := m
-					ctl.reactTargetMsg = &mCopy
-					ctl.reactSheetOpen = true
-					ctl.mu.Unlock()
 				})
-				miniActionButton(c, i18n.T("chat.pin"), func() {
+			} else {
+				ui.Box(c).FillWidth().Padding(0, 18, 0, 0).Children(func() {
+					bubble := ui.Column(c).FillWidth().Background(ex.PeerBubbleBg).
+						Radius(5, 18, 18, 18).Padding(11, 14).Gap(8)
+					components.ApplyCardElevation(bubble, t)
+					bubble.Children(func() {
+						renderBody(t.Text)
+					})
+				})
+			}
+		}
+
+		// Inline Decision Card sits directly outside the bubble as a first-class elevated surface.
+		if m.Card != nil {
+			card := *m.Card
+			components.DecisionCardView(c, roomID, roomTitle(snap, roomID), card, ctl.decisionStateFor(card.DecisionID), ctl.decisionCallbacks())
+		}
+
+		// Reactions bar + whisper-quiet ghost micro-actions outside the bubble.
+		currentActorID := ""
+		if snap.Identity != nil {
+			for _, act := range snap.Identity.Actors {
+				if snap.TenantID == "" || act.TenantID == snap.TenantID {
+					currentActorID = act.ID
+					break
+				}
+			}
+		}
+		actionJustify := ui.Start
+		if isOwn {
+			actionJustify = ui.End
+		}
+		ui.Row(c).FillWidth().Wrap().AlignItems(ui.Center).Justify(actionJustify).Gap(4).Padding(0, 2).Children(func() {
+			for _, rx := range m.Reactions {
+				rx := rx
+				reacted := rx.ReactedBy(currentActorID)
+				rxBg := t.Surface
+				rxBorder := ex.SubtleBorder
+				if reacted {
+					rxBg = ex.BrandTint
+					rxBorder = ex.Brand.Alpha(0.32)
+				}
+				pill := ui.Row(c.Key("rx_"+rx.ReactionID)).MinHeight(28).Padding(3, 8).Radius(999).
+					Background(rxBg).Border(0.75, rxBorder).AlignItems(ui.Center).
+					Role(ui.RoleButton).Label(i18n.Tf("chat.react_a11y", map[string]any{"emoji": rx.ReactionID}))
+				pill.Children(func() {
+					ui.Text(c, fmt.Sprintf("%s %d", rx.DisplayEmoji(), rx.Count())).FontSize(11.5).FontWeight(500).TextColor(t.Text).NoWrap()
+				})
+				if pill.Clicked() {
+					ctl.toggleReactionAsync(roomID, m.ID, rx.ReactionID, reacted)
+				}
+			}
+			if !isThread && m.Thread != nil && m.Thread.ReplyCount > 0 {
+				thBtn := ui.Row(c).MinHeight(28).Padding(3, 9).Radius(999).Background(ex.BrandTint).
+					Border(0.75, ex.Brand.Alpha(0.28)).AlignItems(ui.Center).Role(ui.RoleButton).Label(i18n.T("chat.thread_btn"))
+				thBtn.Children(func() {
+					ui.Text(c, i18n.Tf("chat.thread_replies", map[string]any{"count": m.Thread.ReplyCount})+" ›").FontSize(11.5).FontWeight(600).TextColor(ex.BrandText).NoWrap()
+				})
+				if thBtn.Clicked() {
+					ctl.store.Routers[state.TabRooms].Push("/rooms/" + roomID + "/thread/" + m.Thread.ThreadRoomID)
+				}
+			}
+			ghostActionButton(c, i18n.T("chat.add_react"), func() {
+				ctl.mu.Lock()
+				mCopy := m
+				ctl.reactTargetMsg = &mCopy
+				ctl.reactSheetOpen = true
+				ctl.mu.Unlock()
+			})
+			ghostActionButton(c, i18n.T("chat.pin"), func() {
+				go func() {
+					if cl := ctl.store.Client(); cl != nil {
+						_ = cl.PutMessagePin(context.Background(), roomID, m.ID)
+						ctl.store.SetStatusMessage(i18n.T("chat.toast.pinned"))
+					}
+				}()
+			})
+			ghostActionButton(c, i18n.T("chat.forward"), func() {
+				ctl.mu.Lock()
+				mCopy := m
+				ctl.forwardTargetMsg = &mCopy
+				ctl.forwardSheetOpen = true
+				ctl.mu.Unlock()
+			})
+			if !isThread {
+				ghostActionButton(c, i18n.T("chat.thread_btn"), func() {
 					go func() {
 						if cl := ctl.store.Client(); cl != nil {
-							_ = cl.PutMessagePin(context.Background(), roomID, m.ID)
-							ctl.store.SetStatusMessage(i18n.T("chat.toast.pinned"))
+							if th, err := cl.CreateOrGetMessageThread(context.Background(), roomID, m.ID); err == nil {
+								ctl.ensureRoomLoaded(th.ID)
+								ctl.store.EnqueueUI(func() {
+									ctl.store.Routers[state.TabRooms].Push("/rooms/" + roomID + "/thread/" + th.ID)
+								})
+							}
 						}
 					}()
 				})
-				miniActionButton(c, i18n.T("chat.forward"), func() {
-					ctl.mu.Lock()
-					mCopy := m
-					ctl.forwardTargetMsg = &mCopy
-					ctl.forwardSheetOpen = true
-					ctl.mu.Unlock()
-				})
-				if !isThread {
-					miniActionButton(c, i18n.T("chat.thread_btn"), func() {
-						go func() {
-							if cl := ctl.store.Client(); cl != nil {
-								if th, err := cl.CreateOrGetMessageThread(context.Background(), roomID, m.ID); err == nil {
-									ctl.ensureRoomLoaded(th.ID)
-									ctl.store.EnqueueUI(func() {
-										ctl.store.Routers[state.TabRooms].Push("/rooms/" + roomID + "/thread/" + th.ID)
-									})
-								}
-							}
-						}()
-					})
-				}
-			})
+			}
 		})
 	})
 }
@@ -362,94 +402,100 @@ func (ctl *Controller) viewComposer(c *ui.Context, snap state.Snapshot, roomID s
 		}()
 	}
 
-	ui.Column(c).FillWidth().Background(t.Surface).Border(0.5, t.Border).Padding(8, 10, 8, 10).Gap(6).Children(func() {
-		if replyMsg != nil {
-			ui.Row(c).FillWidth().Padding(4, 8).Radius(8).Background(ex.MutedBg).AlignItems(ui.Center).Justify(ui.SpaceBetween).Children(func() {
-				ui.Text(c, i18n.Tf("chat.replying_to", map[string]any{"text": replyMsg.Author.DisplayName})).FontSize(12).TextColor(t.TextMuted).MaxLines(1)
-				miniActionButton(c, i18n.T("common.cancel"), func() {
+	// Unified floating elevated composer card above keyboard/bottom edge.
+	ui.Box(c).FillWidth().Padding(6, 12, 10, 12).Background(t.Background).Children(func() {
+		composer := ui.Column(c).FillWidth().Background(t.Surface).Radius(20).Padding(10, 12, 8, 12).Gap(8)
+		components.ApplyCardElevation(composer, t)
+		composer.Children(func() {
+			if replyMsg != nil {
+				ui.Row(c).FillWidth().Padding(5, 10).Radius(10).Background(ex.MutedBg).AlignItems(ui.Center).Justify(ui.SpaceBetween).Children(func() {
+					ui.Text(c, i18n.Tf("chat.replying_to", map[string]any{"text": replyMsg.Author.DisplayName})).FontSize(12).TextColor(t.TextMuted).MaxLines(1)
+					ghostActionButton(c, i18n.T("common.cancel"), func() {
+						ctl.mu.Lock()
+						delete(ctl.replyTarget, roomID)
+						ctl.mu.Unlock()
+					})
+				})
+			}
+
+			// Attachment upload chips with remove button
+			if len(uploads) > 0 || uploading {
+				ui.Row(c).FillWidth().Wrap().Gap(6).AlignItems(ui.Center).Children(func() {
+					if uploading {
+						components.StatusDotPill(c, i18n.T("chat.uploading"), components.ToneInfo)
+					}
+					for _, up := range uploads {
+						up := up
+						ui.Row(c.Key(up.ID)).MinHeight(30).Padding(4, 9).Radius(999).Background(ex.MutedBg).
+							Border(0.75, ex.SubtleBorder).Gap(6).AlignItems(ui.Center).Children(func() {
+							ui.Text(c, up.Filename).FontSize(11.5).FontWeight(500).TextColor(t.Text).MaxLines(1)
+							rmBtn := ui.Row(c).Size(22, 22).AlignItems(ui.Center).Justify(ui.Center).Role(ui.RoleButton).Label(i18n.Tf("chat.remove_att_a11y", map[string]any{"name": up.Filename}))
+							rmBtn.Children(func() { ui.Text(c, "×").FontSize(14).TextColor(t.Danger) })
+							if rmBtn.Clicked() {
+								ctl.removeUploadAsync(roomID, up.ID)
+							}
+						})
+					}
+				})
+			}
+
+			// Multiline IME-safe TextArea + sleek pill Send button
+			ui.Row(c).FillWidth().AlignItems(ui.End).Gap(8).Children(func() {
+				var area ui.Element
+				area = ui.TextArea(c.Key("draft_"+roomID), &draft).Grow(1).Basis(0).MinHeight(42).MaxHeight(120).
+					Placeholder(i18n.T("chat.composer_placeholder")).Label(i18n.T("chat.composer_a11y")).Multiline(true)
+				area.OnTextKey(func(k ui.TextKey) bool {
+					if k.Key != ui.KeyEnter {
+						return false
+					}
+					// Never submit during IME composition; Cmd/Ctrl+Enter always sends;
+					// bare Enter sends only when ComposerReturnSends is enabled.
+					if area.Composing() {
+						return false
+					}
+					isCmdOrCtrl := k.Mods&(ui.Super|ui.Ctrl) != 0
+					if isCmdOrCtrl || (k.Mods == 0 && snap.ComposerReturnSends) {
+						txt := k.Text()
+						if strings.TrimSpace(txt) != "" {
+							k.SetText("")
+							sendNow(txt)
+						}
+						return true
+					}
+					return false
+				})
+				if area.Changed() {
+					ctl.store.SetDraft(roomID, draft)
+				}
+
+				canSend := !sending && (strings.TrimSpace(draft) != "" || len(uploads) > 0)
+				sendBtn := components.CompactPrimaryButton(c, func() string {
+					if sending {
+						return i18n.T("common.syncing")
+					}
+					return i18n.T("chat.send")
+				}(), theme.IconSend, !canSend)
+				sendBtn.MinHeight(40)
+				if sendBtn.Clicked() {
+					sendNow(draft)
+				}
+			})
+
+			// Quiet inline tool strip tucked inside the unified composer card.
+			ui.Row(c).FillWidth().Wrap().Gap(4).AlignItems(ui.Center).BorderWidth(0.75, 0, 0, 0).BorderColor(ex.Divider).Padding(6, 0, 0, 0).Children(func() {
+				composerToolChip(c, i18n.T("chat.photo"), func() { ctl.pickPhotoAndUpload(roomID) })
+				composerToolChip(c, i18n.T("chat.file"), func() { ctl.pickFileAndUpload(roomID) })
+				composerToolChip(c, i18n.T("chat.mention_btn"), func() {
 					ctl.mu.Lock()
-					delete(ctl.replyTarget, roomID)
+					ctl.mentionSheetOpen = true
+					ctl.mu.Unlock()
+				})
+				composerToolChip(c, i18n.T("chat.skill_btn"), func() {
+					ctl.mu.Lock()
+					ctl.skillSheetOpen = true
 					ctl.mu.Unlock()
 				})
 			})
-		}
-
-		// Attachment upload chips with remove button
-		if len(uploads) > 0 || uploading {
-			ui.Row(c).FillWidth().Wrap().Gap(6).AlignItems(ui.Center).Children(func() {
-				if uploading {
-					components.StatusPill(c, i18n.T("chat.uploading"), components.ToneInfo)
-				}
-				for _, up := range uploads {
-					up := up
-					ui.Row(c.Key(up.ID)).MinHeight(32).Padding(4, 8).Radius(999).Background(ex.InfoTint).Gap(6).AlignItems(ui.Center).Children(func() {
-						ui.Text(c, up.Filename).FontSize(11).TextColor(t.Text).MaxLines(1)
-						rmBtn := ui.Row(c).Size(24, 24).AlignItems(ui.Center).Justify(ui.Center).Role(ui.RoleButton).Label(i18n.Tf("chat.remove_att_a11y", map[string]any{"name": up.Filename}))
-						rmBtn.Children(func() { ui.Text(c, "×").FontSize(14).TextColor(t.Danger) })
-						if rmBtn.Clicked() {
-							ctl.removeUploadAsync(roomID, up.ID)
-						}
-					})
-				}
-			})
-		}
-
-		// Toolbar row: Attach Photo / Attach File / @Mention / /Skill
-		ui.Row(c).FillWidth().Wrap().Gap(6).AlignItems(ui.Center).Children(func() {
-			miniActionButton(c, i18n.T("chat.photo"), func() { ctl.pickPhotoAndUpload(roomID) })
-			miniActionButton(c, i18n.T("chat.file"), func() { ctl.pickFileAndUpload(roomID) })
-			miniActionButton(c, i18n.T("chat.mention_btn"), func() {
-				ctl.mu.Lock()
-				ctl.mentionSheetOpen = true
-				ctl.mu.Unlock()
-			})
-			miniActionButton(c, i18n.T("chat.skill_btn"), func() {
-				ctl.mu.Lock()
-				ctl.skillSheetOpen = true
-				ctl.mu.Unlock()
-			})
-		})
-
-		// Multiline IME-safe TextArea + >=44x44 Send button
-		ui.Row(c).FillWidth().AlignItems(ui.End).Gap(8).Children(func() {
-			var area ui.Element
-			area = ui.TextArea(c.Key("draft_"+roomID), &draft).Grow(1).Basis(0).MinHeight(44).MaxHeight(120).
-				Placeholder(i18n.T("chat.composer_placeholder")).Label(i18n.T("chat.composer_a11y")).Multiline(true)
-			area.OnTextKey(func(k ui.TextKey) bool {
-				if k.Key != ui.KeyEnter {
-					return false
-				}
-				// Never submit during IME composition; Cmd/Ctrl+Enter always sends;
-				// bare Enter sends only when ComposerReturnSends is enabled.
-				if area.Composing() {
-					return false
-				}
-				isCmdOrCtrl := k.Mods&(ui.Super|ui.Ctrl) != 0
-				if isCmdOrCtrl || (k.Mods == 0 && snap.ComposerReturnSends) {
-					txt := k.Text()
-					if strings.TrimSpace(txt) != "" {
-						k.SetText("")
-						sendNow(txt)
-					}
-					return true
-				}
-				return false
-			})
-			if area.Changed() {
-				ctl.store.SetDraft(roomID, draft)
-			}
-
-			canSend := !sending && (strings.TrimSpace(draft) != "" || len(uploads) > 0)
-			sendBtn := components.PrimaryTouchButton(c, func() string {
-				if sending {
-					return i18n.T("common.syncing")
-				}
-				return i18n.T("chat.send")
-			}(), !canSend)
-			sendBtn.MinWidth(64)
-			if sendBtn.Clicked() {
-				sendNow(draft)
-			}
 		})
 	})
 }
@@ -914,10 +960,30 @@ func (ctl *Controller) downloadAndShareAttachment(att api.MessageAttachment) {
 	}()
 }
 
-func miniActionButton(c *ui.Context, label string, onTap func()) {
+func ghostActionButton(c *ui.Context, label string, onTap func()) {
 	t := c.Theme()
-	btn := ui.Row(c).MinHeight(34).Padding(4, 9).Radius(8).Background(theme.Extra(t).MutedBg).
+	ex := theme.Extra(t)
+	btn := ui.Row(c).MinHeight(28).Padding(4, 7).Radius(8).Background(ui.Transparent).
 		AlignItems(ui.Center).Justify(ui.Center).Role(ui.RoleButton).Label(label)
+	if btn.Pressed() {
+		btn.Background(ex.MutedBg)
+	}
+	btn.Children(func() {
+		ui.Text(c, label).FontSize(11.5).FontWeight(500).TextColor(ex.TextSubtle).NoWrap()
+	})
+	if btn.Clicked() && onTap != nil {
+		onTap()
+	}
+}
+
+func composerToolChip(c *ui.Context, label string, onTap func()) {
+	t := c.Theme()
+	ex := theme.Extra(t)
+	btn := ui.Row(c).MinHeight(30).Padding(4, 9).Radius(999).Background(ex.MutedBg).
+		AlignItems(ui.Center).Justify(ui.Center).Role(ui.RoleButton).Label(label)
+	if btn.Pressed() {
+		btn.Background(t.SurfacePressed)
+	}
 	btn.Children(func() {
 		ui.Text(c, label).FontSize(12).FontWeight(500).TextColor(t.TextMuted).NoWrap()
 	})

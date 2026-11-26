@@ -35,7 +35,6 @@
   "common.switch": "切换",
   "common.enabled": "已启用",
   "common.paused": "已暂停",
-  "common.open": "打开",
   "common.creating": "创建中…",
   "common.default": "默认",
 
@@ -1075,7 +1074,6 @@
   "settings.host.export_diag": "导出诊断",
   "settings.host.unpair_signout": "解绑 / 退出登录",
   "settings.nav.title": "工作区与设备设置",
-  "settings.nav.subtitle": "快速跳转任意设置页面",
   "settings.nav.rules_title": "主动规则与影子审核",
   "settings.nav.rules_sub": "{active} 条启用 · {shadow} 条待审",
   "settings.nav.profile_title": "个人档案与记忆洞察",

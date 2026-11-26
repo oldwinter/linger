@@ -45,8 +45,8 @@ func (s *Screen) viewIntegrationsSection(c *ui.Context) {
 							for _, conn := range conns {
 								conn := conn
 								busy := s.integBusyID == conn.ID
-								ui.Column(c.Key(conn.ID)).FillWidth().Padding(10, 12).Gap(8).
-									Radius(10).Background(theme.Extra(t).MutedBg).Border(1, t.Border).Children(func() {
+								ui.Column(c.Key(conn.ID)).FillWidth().Padding(12, 12).Gap(8).
+									Radius(12).Background(theme.Extra(t).MutedBg).Border(0.75, theme.Extra(t).SubtleBorder).Children(func() {
 									ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
 										lbl := conn.Provider
 										if conn.IdentityLabel != nil && *conn.IdentityLabel != "" {
@@ -117,8 +117,8 @@ func (s *Screen) viewIntegrationsSection(c *ui.Context) {
 						b := b
 						isDefault := ws.DefaultSearch == b.ID
 						buf := s.searchKeyBuf(b.ID)
-						ui.Column(c.Key("ws:"+b.ID)).FillWidth().Padding(10, 12).Gap(8).
-							Radius(10).Background(theme.Extra(t).MutedBg).Border(1, t.Border).Children(func() {
+						ui.Column(c.Key("ws:"+b.ID)).FillWidth().Padding(12, 12).Gap(8).
+							Radius(12).Background(theme.Extra(t).MutedBg).Border(0.75, theme.Extra(t).SubtleBorder).Children(func() {
 							ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
 								ui.Text(c, b.Name).FontSize(14).FontWeight(600).TextColor(t.Text).Grow(1).Basis(0)
 								ui.Row(c).Gap(4).Children(func() {
@@ -195,8 +195,8 @@ func (s *Screen) viewVoiceKeyEditor(c *ui.Context, title, provider string, st *a
 		}
 		canSave = st.CanSave
 	}
-	ui.Column(c.Key("vk:"+provider)).FillWidth().Padding(10, 12).Gap(8).
-		Radius(10).Background(theme.Extra(t).MutedBg).Border(1, t.Border).Children(func() {
+	ui.Column(c.Key("vk:"+provider)).FillWidth().Padding(12, 12).Gap(8).
+		Radius(12).Background(theme.Extra(t).MutedBg).Border(0.75, theme.Extra(t).SubtleBorder).Children(func() {
 		ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Children(func() {
 			ui.Text(c, title).FontSize(13).FontWeight(600).TextColor(t.Text)
 			tone := components.ToneNeutral

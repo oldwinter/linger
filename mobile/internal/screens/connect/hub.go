@@ -204,9 +204,9 @@ func (h *Hub) View(c *ui.Context) {
 			}
 
 			// Footer link to diagnostics.
-			ui.Row(c).FillWidth().Justify(ui.Center).Padding(4, 0).Children(func() {
+			ui.Row(c).FillWidth().Justify(ui.Center).Padding(2, 0).Children(func() {
 				btn := components.SecondaryTouchButton(c, i18n.T("connect.diagnostics_title"), false)
-				btn.FillWidth()
+				btn.FillWidth().MinHeight(40)
 				if btn.Clicked() {
 					h.OpenDiagnostics()
 				}
@@ -223,6 +223,7 @@ func (h *Hub) View(c *ui.Context) {
 
 func (h *Hub) viewConnectionOverviewCard(c *ui.Context, snap state.Snapshot) {
 	t := c.Theme()
+	ex := theme.Extra(t)
 	title := i18n.T("connect.no_active_host")
 	hostName := ""
 	subtitle := i18n.T("connect.no_active_subtitle")
@@ -239,16 +240,33 @@ func (h *Hub) viewConnectionOverviewCard(c *ui.Context, snap state.Snapshot) {
 	plainHTTP := snap.ActiveHost != nil && !snap.ActiveHost.TLS
 	connected := snap.Phase == state.PhaseConnected
 
-	components.SectionCard(c, title, subtitle, func() {
-		components.ConnectionHealthChip(c, hostName, connected, tlsPinned, plainHTTP, snap.RTTMs, func() {
-			h.OpenDiagnostics()
+	hero := ui.Column(c).FillWidth().Gradient(ex.HeroGradFrom, ex.HeroGradTo, 180).Radius(18).Padding(16, 16).Gap(12)
+	components.ApplyCardElevation(hero, t)
+	hero.Children(func() {
+		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(12).Children(func() {
+			if snap.ActiveHost == nil {
+				theme.IconBox(c, 44, t.Accent, theme.IconBrandMark)
+			} else {
+				components.AvatarBadge(c, hostName, 44)
+			}
+			ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
+				ui.Text(c, title).FontSize(17).FontWeight(700).LetterSpacing(-0.25).TextColor(t.Text).MaxLines(1)
+				ui.Text(c, subtitle).FontSize(12.5).LineHeight(1.35).TextColor(t.TextMuted).MaxLines(2)
+			})
+			if snap.ActiveHost != nil {
+				components.ConnectionHealthChip(c, hostName, connected, tlsPinned, plainHTTP, snap.RTTMs, func() {
+					h.OpenDiagnostics()
+				})
+			}
 		})
-	}, func() {
+
 		if snap.ActiveHost == nil {
+			components.InsetDivider(c, 0)
 			ui.Text(c, i18n.T("connect.zero_config_hint")).
-				FontSize(13).TextColor(t.TextMuted)
+				FontSize(12.5).LineHeight(1.4).TextColor(t.TextMuted)
 			return
 		}
+
 		ui.Row(c).FillWidth().Wrap().Gap(6).Children(func() {
 			modeLabel := i18n.T("connect.mode.companion")
 			if snap.ActiveHost.Mode == config.HostModeDirect {
@@ -257,13 +275,13 @@ func (h *Hub) viewConnectionOverviewCard(c *ui.Context, snap state.Snapshot) {
 			components.StatusPill(c, modeLabel, components.ToneInfo)
 			if tlsPinned {
 				if sf, err := discovery.ShortFingerprint(snap.ActiveHost.TLSFingerprint); err == nil {
-					components.StatusPill(c, i18n.Tf("connect.pin_short", map[string]any{"pin": sf[:9]}), components.ToneSuccess)
+					components.StatusDotPill(c, i18n.Tf("connect.pin_short", map[string]any{"pin": sf[:9]}), components.ToneSuccess)
 				}
 			} else if plainHTTP {
-				components.StatusPill(c, i18n.T("connect.plain_http_opt_in"), components.ToneWarning)
+				components.StatusDotPill(c, i18n.T("connect.plain_http_opt_in"), components.ToneWarning)
 			}
 			sseLabel := i18n.Tf("conn.badge.sse_status", map[string]any{"status": i18n.SSEStatusLabel(string(snap.SSEState))})
-			components.StatusPill(c, sseLabel, func() components.Tone {
+			components.StatusDotPill(c, sseLabel, func() components.Tone {
 				if snap.SSEState == "connected" {
 					return components.ToneSuccess
 				}
@@ -318,38 +336,41 @@ func (h *Hub) viewSavedHosts(c *ui.Context, snap state.Snapshot, busy bool) {
 						},
 					},
 				}, func() {
-					row := ui.Row(c).FillWidth().MinHeight(56).Padding(10, 10).Gap(10).
-						Radius(10).Background(t.Surface).Border(1, func() ui.Color {
-						if isActive {
-							return t.Accent
-						}
-						return t.Border
-					}()).AlignItems(ui.Center).Role(ui.RoleButton).Label(i18n.Tf("connect.host_a11y", map[string]any{"name": host.Name}))
+					ex := theme.Extra(t)
+					borderCol := ex.SubtleBorder
+					borderW := float32(0.75)
+					if isActive {
+						borderCol = t.Accent
+						borderW = 1.25
+					}
+					row := ui.Row(c).FillWidth().MinHeight(62).Padding(12, 12).Gap(11).
+						Radius(14).Background(ex.MutedBg).Border(borderW, borderCol).
+						AlignItems(ui.Center).Role(ui.RoleButton).Label(i18n.Tf("connect.host_a11y", map[string]any{"name": host.Name}))
 
 					row.Children(func() {
-						components.AvatarBadge(c, host.Name, 36)
+						components.AvatarBadge(c, host.Name, 38)
 						ui.Column(c).Grow(1).Basis(0).Gap(3).Children(func() {
 							ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(6).Children(func() {
-								ui.Text(c, host.Name).FontSize(14).FontWeight(600).TextColor(t.Text).MaxLines(1)
+								ui.Text(c, host.Name).FontSize(14.5).FontWeight(600).TextColor(t.Text).MaxLines(1)
 								if isActive {
-									components.StatusPill(c, i18n.T("common.active"), components.ToneSuccess)
+									components.StatusDotPill(c, i18n.T("common.active"), components.ToneSuccess)
 								}
 							})
 							ui.Text(c, host.PrimaryURL).FontSize(12).TextColor(t.TextMuted).MaxLines(1)
 							ui.Row(c).FillWidth().Wrap().Gap(6).Children(func() {
 								if host.TLS && host.TLSFingerprint != "" {
-									components.StatusPill(c, i18n.T("conn.badge.tls_pinned"), components.ToneSuccess)
+									components.StatusDotPill(c, i18n.T("conn.badge.tls_pinned"), components.ToneSuccess)
 								} else if !host.TLS {
-									components.StatusPill(c, i18n.T("conn.badge.plain_http"), components.ToneWarning)
+									components.StatusDotPill(c, i18n.T("conn.badge.plain_http"), components.ToneWarning)
 								} else {
-									components.StatusPill(c, i18n.T("conn.badge.https"), components.ToneInfo)
+									components.StatusDotPill(c, i18n.T("conn.badge.https"), components.ToneInfo)
 								}
 								if host.LastRTTMs > 0 {
 									components.StatusPill(c, i18n.Tf("connect.ms", map[string]any{"ms": fmt.Sprintf("%d", host.LastRTTMs)}), components.ToneNeutral)
 								}
 							})
 						})
-						ui.Text(c, "›").FontSize(20).TextColor(t.TextMuted)
+						theme.IconBox(c, 16, ex.TextSubtle, theme.IconChevronRight)
 					})
 					if row.Clicked() && !busy {
 						h.mu.Lock()
@@ -367,37 +388,45 @@ func (h *Hub) viewPairDesktop(c *ui.Context, snap state.Snapshot, busy bool) {
 	t := c.Theme()
 
 	// 1. LAN Discovery Radar (mDNS _linger._tcp.local.)
+	ex := theme.Extra(t)
+	foundTone := components.ToneNeutral
+	if len(snap.Discovered) > 0 {
+		foundTone = components.ToneBrand
+	}
 	components.SectionCard(c, i18n.T("connect.mdns_title"), i18n.T("connect.mdns_subtitle"), func() {
-		components.StatusPill(c, i18n.Tf("connect.mdns_found", map[string]any{"count": len(snap.Discovered)}), components.ToneInfo)
+		components.StatusDotPill(c, i18n.Tf("connect.mdns_found", map[string]any{"count": len(snap.Discovered)}), foundTone)
 	}, func() {
 		if len(snap.Discovered) == 0 {
 			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(10).Padding(4, 0).Children(func() {
 				theme.IconBox(c, 22, t.TextMuted, theme.IconRadar)
 				ui.Text(c, i18n.T("connect.mdns_empty")).
-					Grow(1).Basis(0).FontSize(13).TextColor(t.TextMuted)
+					Grow(1).Basis(0).FontSize(13).LineHeight(1.35).TextColor(t.TextMuted)
 			})
 		} else {
 			ui.Column(c).FillWidth().Gap(8).Children(func() {
 				for _, dh := range snap.Discovered {
 					dh := dh
-					ui.Row(c.Key(dh.HostID)).FillWidth().MinHeight(56).Padding(10, 10).Gap(10).
-						Radius(10).Background(theme.Extra(t).MutedBg).AlignItems(ui.Center).Children(func() {
-						theme.IconBox(c, 22, t.Accent, theme.IconHost)
-						ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
-							ui.Text(c, dh.Name).FontSize(14).FontWeight(600).TextColor(t.Text).MaxLines(1)
+					ui.Row(c.Key(dh.HostID)).FillWidth().MinHeight(64).Padding(12, 12).Gap(11).
+						Radius(14).Background(ex.MutedBg).Border(0.75, ex.SubtleBorder).AlignItems(ui.Center).Children(func() {
+						ui.Row(c).Size(38, 38).Radius(11).Background(t.Surface).Border(0.75, ex.SubtleBorder).
+							AlignItems(ui.Center).Justify(ui.Center).Shrink(0).Children(func() {
+							theme.IconBox(c, 19, t.Text, theme.IconHost)
+						})
+						ui.Column(c).Grow(1).Basis(0).Gap(3).Children(func() {
+							ui.Text(c, dh.Name).FontSize(14.5).FontWeight(600).TextColor(t.Text).MaxLines(1)
 							ui.Text(c, dh.BaseURL()).FontSize(12).TextColor(t.TextMuted).MaxLines(1)
-							ui.Row(c).Wrap().Gap(4).Children(func() {
+							ui.Row(c).Wrap().Gap(5).Children(func() {
 								if dh.TLS {
-									components.StatusPill(c, i18n.T("connect.tls13"), components.ToneSuccess)
+									components.StatusDotPill(c, i18n.T("connect.tls13"), components.ToneSuccess)
 								} else {
-									components.StatusPill(c, i18n.T("conn.badge.plain_http"), components.ToneWarning)
+									components.StatusDotPill(c, i18n.T("conn.badge.plain_http"), components.ToneWarning)
 								}
 								if dh.PairingOpen {
-									components.StatusPill(c, i18n.T("connect.pairing_open"), components.ToneInfo)
+									components.StatusDotPill(c, i18n.T("connect.pairing_open"), components.ToneInfo)
 								}
 							})
 						})
-						pairBtn := components.PrimaryTouchButton(c, i18n.T("connect.pin_pair"), busy)
+						pairBtn := components.CompactPrimaryButton(c, i18n.T("connect.pin_pair"), nil, busy)
 						if pairBtn.Clicked() {
 							// Never auto-opt-in to plain HTTP from mDNS TXT tls=0;
 							// require explicit user confirmation inside the PIN sheet.
@@ -409,7 +438,7 @@ func (h *Hub) viewPairDesktop(c *ui.Context, snap state.Snapshot, busy bool) {
 		}
 
 		// Manual LAN/Tailscale IP + PIN entry
-		ui.Divider(c)
+		components.InsetDivider(c, 0)
 		components.FormField(c, i18n.T("connect.manual_url_label"), i18n.T("connect.manual_url_placeholder"), &h.manualHostURL, false)
 		ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
 			ui.Text(c, i18n.T("connect.allow_plain_http_probe")).FontSize(12).TextColor(t.TextMuted).Grow(1).Basis(0)

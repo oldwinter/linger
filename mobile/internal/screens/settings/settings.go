@@ -22,6 +22,7 @@ import (
 	"github.com/oldwinter/linger/mobile/internal/config"
 	"github.com/oldwinter/linger/mobile/internal/i18n"
 	"github.com/oldwinter/linger/mobile/internal/state"
+	"github.com/oldwinter/linger/mobile/internal/theme"
 )
 
 // Section indices for Tab 5.
@@ -272,7 +273,7 @@ func (s *Screen) View(c *ui.Context) {
 	s.mu.Unlock()
 
 	ui.Column(c).Fill().Background(t.Background).Children(func() {
-		ui.Column(c).FillWidth().Padding(10, 14, 8, 14).Gap(8).Shrink(0).Children(func() {
+		ui.Column(c).FillWidth().Padding(8, 14, 6, 14).Gap(8).Shrink(0).Children(func() {
 			components.SegmentedControl(c, &s.section,
 				i18n.T("settings.tab.overview"),
 				i18n.T("settings.tab.rules"),
@@ -286,7 +287,6 @@ func (s *Screen) View(c *ui.Context) {
 				})
 			}
 		})
-		ui.Divider(c)
 
 		switch s.section {
 		case SectionOverview:
@@ -377,11 +377,24 @@ func (s *Screen) viewOverviewSection(c *ui.Context, loading bool) {
 				transportTone = components.ToneSuccess
 			}
 
-			components.SectionCard(c, hostName, hostSub, func() {
-				components.AvatarBadge(c, hostName, 40)
-			}, func() {
+			ex := theme.Extra(t)
+			hostCard := ui.Column(c).FillWidth().Gradient(ex.HeroGradFrom, ex.HeroGradTo, 180).Radius(18).Padding(16, 16).Gap(12)
+			components.ApplyCardElevation(hostCard, t)
+			hostCard.Children(func() {
+				ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(12).Children(func() {
+					if snap.ActiveHost == nil && s.client() == nil {
+						theme.IconBox(c, 44, t.Accent, theme.IconBrandMark)
+					} else {
+						components.AvatarBadge(c, hostName, 44)
+					}
+					ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
+						ui.Text(c, hostName).FontSize(16.5).FontWeight(600).LetterSpacing(-0.2).TextColor(t.Text).MaxLines(1)
+						ui.Text(c, hostSub).FontSize(12).TextColor(t.TextMuted).MaxLines(1)
+					})
+				})
+
 				ui.Row(c).FillWidth().Wrap().Gap(6).Children(func() {
-					components.StatusPill(c, transportLabel, transportTone)
+					components.StatusDotPill(c, transportLabel, transportTone)
 					if snap.RTTMs > 0 {
 						components.StatusPill(c, i18n.Tf("settings.host.rtt", map[string]any{"ms": fmt.Sprintf("%d", snap.RTTMs)}), components.ToneNeutral)
 					}
@@ -390,17 +403,17 @@ func (s *Screen) viewOverviewSection(c *ui.Context, loading bool) {
 						if snap.SSEState == "connected" {
 							sseTone = components.ToneSuccess
 						}
-						components.StatusPill(c, i18n.Tf("conn.badge.sse_status", map[string]any{"status": i18n.SSEStatusLabel(string(snap.SSEState))}), sseTone)
+						components.StatusDotPill(c, i18n.Tf("conn.badge.sse_status", map[string]any{"status": i18n.SSEStatusLabel(string(snap.SSEState))}), sseTone)
 					}
 				})
 
 				manageBtn := components.PrimaryTouchButton(c, i18n.T("settings.host.manage_hosts"), false)
-				manageBtn.FillWidth()
+				manageBtn.FillWidth().MinHeight(42)
 				if manageBtn.Clicked() && s.deps.OnOpenConnect != nil {
 					s.deps.OnOpenConnect()
 				}
 
-				ui.Row(c).FillWidth().Wrap().Gap(8).Children(func() {
+				ui.Row(c).FillWidth().Gap(8).Children(func() {
 					isCompanion := snap.ActiveHost == nil || snap.ActiveHost.Mode == config.HostModeCompanion
 					if isCompanion && s.client() != nil {
 						rotLbl := i18n.T("settings.host.rotate_token")
@@ -408,22 +421,31 @@ func (s *Screen) viewOverviewSection(c *ui.Context, loading bool) {
 							rotLbl = i18n.T("settings.host.rotating")
 						}
 						rotBtn := components.SecondaryTouchButton(c, rotLbl, s.hostBusy)
-						rotBtn.Grow(1).Basis(0)
+						rotBtn.Grow(1).Basis(0).MinHeight(38)
 						if rotBtn.Clicked() {
 							s.rotateTokenAsync()
 						}
 					}
 
 					expBtn := components.SecondaryTouchButton(c, i18n.T("settings.host.export_diag"), false)
-					expBtn.Grow(1).Basis(0)
+					expBtn.Grow(1).Basis(0).MinHeight(38)
 					if expBtn.Clicked() {
 						s.exportDiagnostics()
 					}
 				})
 
 				if snap.ActiveHost != nil || s.client() != nil {
-					signOutBtn := components.DangerTouchButton(c, i18n.T("settings.host.unpair_signout"), s.hostBusy)
-					signOutBtn.FillWidth()
+					components.InsetDivider(c, 0)
+					signOutBtn := ui.Row(c).FillWidth().MinHeight(38).Padding(8, 12).Radius(10).
+						Background(ex.DangerTint).Border(0.75, t.Danger.Alpha(0.24)).
+						AlignItems(ui.Center).Justify(ui.Center).
+						Role(ui.RoleButton).Label(i18n.T("settings.host.unpair_signout")).Disabled(s.hostBusy)
+					if !s.hostBusy && signOutBtn.Pressed() {
+						signOutBtn.Background(t.Danger.Alpha(0.18)).Scale(0.985, 0.985)
+					}
+					signOutBtn.Children(func() {
+						ui.Text(c, i18n.T("settings.host.unpair_signout")).FontSize(13).FontWeight(600).TextColor(t.Danger).NoWrap()
+					})
 					if signOutBtn.Clicked() {
 						s.unpairConfirm = true
 					}
@@ -450,45 +472,69 @@ func (s *Screen) viewOverviewSection(c *ui.Context, loading bool) {
 				})
 			})
 
-			// Quick Hub Directory
-			components.SectionCard(c, i18n.T("settings.nav.title"), i18n.T("settings.nav.subtitle"), func() {
+			// Editorial Quick Hub Directory with sculpted icon tiles
+			components.SectionEyebrow(c, i18n.T("settings.nav.title"), func() {
 				refLbl := i18n.T("common.sync")
 				if loading {
 					refLbl = i18n.T("common.syncing")
 				}
-				refBtn := components.SecondaryTouchButton(c, refLbl, loading)
-				refBtn.MinHeight(34).Padding(4, 12)
+				refBtn := components.CompactSecondaryButton(c, refLbl, theme.IconRefresh, loading)
+				refBtn.MinHeight(30)
 				if refBtn.Clicked() {
 					go s.Refresh(context.Background())
 				}
-			}, func() {
-				s.hubRow(c, i18n.T("settings.nav.rules_title"), i18n.Tf("settings.nav.rules_sub", map[string]any{"active": activeRuleCount, "shadow": shadowCount}), func() {
-					s.section = SectionRules
-				})
-				ui.Divider(c)
-				s.hubRow(c, i18n.T("settings.nav.profile_title"), i18n.Tf("settings.nav.profile_sub", map[string]any{"count": insightCount}), func() {
-					s.section = SectionProfile
-				})
-				ui.Divider(c)
-				s.hubRow(c, i18n.T("settings.nav.connectors_title"), i18n.Tf("settings.nav.connectors_sub", map[string]any{"count": connCount}), func() {
-					s.section = SectionIntegrations
-				})
-				ui.Divider(c)
-				s.hubRow(c, i18n.T("settings.nav.prefs_title"), i18n.T("settings.nav.prefs_sub"), func() {
-					s.section = SectionPreferences
-				})
 			})
-			_ = t
+			components.GroupedCard(c, func() {
+				s.hubRow(c, theme.IconRule, theme.Nature.Acorn,
+					i18n.T("settings.nav.rules_title"),
+					i18n.Tf("settings.nav.rules_sub", map[string]any{"active": activeRuleCount, "shadow": shadowCount}), func() {
+						s.section = SectionRules
+					})
+				components.InsetDivider(c, 60)
+				s.hubRow(c, theme.IconUser, theme.Nature.Lake,
+					i18n.T("settings.nav.profile_title"),
+					i18n.Tf("settings.nav.profile_sub", map[string]any{"count": insightCount}), func() {
+						s.section = SectionProfile
+					})
+				components.InsetDivider(c, 60)
+				s.hubRow(c, theme.IconPlug, theme.Nature.Bluebell,
+					i18n.T("settings.nav.connectors_title"),
+					i18n.Tf("settings.nav.connectors_sub", map[string]any{"count": connCount}), func() {
+						s.section = SectionIntegrations
+					})
+				components.InsetDivider(c, 60)
+				s.hubRow(c, theme.IconSliders, theme.Nature.Lavender,
+					i18n.T("settings.nav.prefs_title"),
+					i18n.T("settings.nav.prefs_sub"), func() {
+						s.section = SectionPreferences
+					})
+			})
 		})
 	})
 }
 
-func (s *Screen) hubRow(c *ui.Context, title, sub string, onTap func()) {
-	row := mobile.ListRow(c, mobile.RowOptions{
-		Title:      title,
-		Subtitle:   sub,
-		Disclosure: true,
-	}).Label(title)
+func (s *Screen) hubRow(c *ui.Context, icon theme.IconFunc, accent ui.Color, title, sub string, onTap func()) {
+	t := c.Theme()
+	ex := theme.Extra(t)
+	row := ui.Row(c).FillWidth().MinHeight(58).Padding(11, 14).Gap(12).
+		Background(t.Surface).AlignItems(ui.Center).
+		Role(ui.RoleButton).Label(title)
+	if row.Pressed() {
+		row.Background(t.SurfacePressed)
+	}
+	row.Children(func() {
+		ui.Row(c).Size(34, 34).Radius(10).Background(accent.Alpha(0.14)).
+			AlignItems(ui.Center).Justify(ui.Center).Shrink(0).Children(func() {
+			theme.IconBox(c, 17, accent, icon)
+		})
+		ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
+			ui.Text(c, title).FontSize(14.5).FontWeight(600).TextColor(t.Text).MaxLines(1)
+			if sub != "" {
+				ui.Text(c, sub).FontSize(12).TextColor(t.TextMuted).MaxLines(1)
+			}
+		})
+		theme.IconBox(c, 16, ex.TextSubtle, theme.IconChevronRight)
+	})
 	if row.Clicked() && onTap != nil {
 		onTap()
 	}

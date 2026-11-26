@@ -57,28 +57,11 @@ func (s *Screen) viewMemorySegment(c *ui.Context) {
 			}
 
 			// Filter pills
-			ui.ScrollHorizontal(c).FillWidth().Children(func() {
-				ui.Row(c).Gap(6).Role(ui.RoleTabList).Children(func() {
-					for i, key := range memoryFilterKeys {
-						lbl := i18n.T(key)
-						on := s.memoryFilter == i
-						bg := theme.Extra(t).MutedBg
-						fg := t.TextMuted
-						if on {
-							bg = t.Accent
-							fg = t.AccentText
-						}
-						chip := ui.Row(c.Key(i)).MinHeight(34).PaddingX(12).Radius(999).Background(bg).
-							AlignItems(ui.Center).Shrink(0).Role(ui.RoleTab).Label(lbl).Checked(on)
-						chip.Children(func() {
-							ui.Text(c, lbl).FontSize(12).FontWeight(600).TextColor(fg).NoWrap()
-						})
-						if chip.Clicked() {
-							s.memoryFilter = i
-						}
-					}
-				})
-			})
+			memLabels := make([]string, len(memoryFilterKeys))
+			for i, k := range memoryFilterKeys {
+				memLabels[i] = i18n.T(k)
+			}
+			components.FilterPillBar(c, &s.memoryFilter, memLabels...)
 
 			if len(filtered) == 0 {
 				components.EmptyState(c, theme.IconLive, i18n.T("library.memory.empty_title"),
@@ -88,20 +71,24 @@ func (s *Screen) viewMemorySegment(c *ui.Context) {
 
 			for _, entry := range filtered {
 				entry := entry
-				row := ui.Column(c.Key(entry.ID)).FillWidth().Padding(12, 12).Gap(6).
-					Radius(12).Background(t.Surface).Border(1, t.Border).
+				row := ui.Column(c.Key(entry.ID)).FillWidth().Padding(13, 14).Gap(6).
+					Radius(16).Background(t.Surface).
 					Role(ui.RoleButton).Label(i18n.Tf("library.memory.entry_a11y", map[string]any{"title": entry.Title}))
+				components.ApplyCardElevation(row, t)
+				if row.Pressed() {
+					row.Background(t.SurfacePressed)
+				}
 				row.Children(func() {
 					ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
-						ui.Text(c, entry.Title).FontSize(15).FontWeight(600).TextColor(t.Text).Grow(1).Basis(0).MaxLines(1)
-						components.StatusPill(c, i18n.MemoryKindLabel(entry.Kind), components.ToneInfo)
+						ui.Text(c, entry.Title).FontSize(15).FontWeight(600).LetterSpacing(-0.15).TextColor(t.Text).Grow(1).Basis(0).MaxLines(1)
+						components.StatusDotPill(c, i18n.MemoryKindLabel(entry.Kind), components.ToneInfo)
 					})
 					if entry.Summary != "" {
-						ui.Text(c, entry.Summary).FontSize(12).TextColor(t.TextMuted).MaxLines(2)
+						ui.Text(c, entry.Summary).FontSize(13).LineHeight(1.38).TextColor(t.TextMuted).MaxLines(2)
 					}
 					if entry.Meeting != nil {
 						ui.Row(c).Wrap().Gap(6).Children(func() {
-							components.StatusPill(c, i18n.T("library.memory.voice_capture_title"), components.ToneSuccess)
+							components.StatusDotPill(c, i18n.T("library.memory.voice_capture_title"), components.ToneSuccess)
 							if entry.Meeting.RecordingFilename != "" {
 								components.StatusPill(c, entry.Meeting.RecordingFilename, components.ToneNeutral)
 							}

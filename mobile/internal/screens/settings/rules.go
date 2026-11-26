@@ -46,8 +46,8 @@ func (s *Screen) viewRulesSection(c *ui.Context) {
 						for _, sr := range shadowRules {
 							sr := sr
 							busy := s.ruleBusyID == sr.ID
-							ui.Column(c.Key("sh:"+sr.ID)).FillWidth().Padding(10, 10).Gap(8).
-								Radius(10).Background(theme.Extra(t).WarnTint).Border(1, t.Warning.Alpha(0.35)).Children(func() {
+							ui.Column(c.Key("sh:"+sr.ID)).FillWidth().Padding(12, 12).Gap(8).
+								Radius(12).Background(theme.Extra(t).WarnTint).Border(0.75, t.Warning.Alpha(0.28)).Children(func() {
 								ui.Text(c, sr.Text).FontSize(14).FontWeight(600).TextColor(t.Text)
 								for _, d := range book.Divergences {
 									if d.RuleID == sr.ID {
@@ -86,8 +86,8 @@ func (s *Screen) viewRulesSection(c *ui.Context) {
 						for _, r := range activeRules {
 							r := r
 							busy := s.ruleBusyID == r.ID
-							ui.Column(c.Key("act:"+r.ID)).FillWidth().Padding(10, 12).Gap(8).
-								Radius(10).Background(theme.Extra(t).MutedBg).Border(1, t.Border).Children(func() {
+							ui.Column(c.Key("act:"+r.ID)).FillWidth().Padding(12, 12).Gap(8).
+								Radius(12).Background(theme.Extra(t).MutedBg).Border(0.75, theme.Extra(t).SubtleBorder).Children(func() {
 								ui.Text(c, r.Text).FontSize(14).FontWeight(600).TextColor(t.Text)
 								ui.Row(c).FillWidth().Wrap().Gap(6).Children(func() {
 									components.StatusPill(c, i18n.Tf("settings.rules.source_prefix", map[string]any{"src": i18n.RuleSourceLabel(r.Source)}), components.ToneNeutral)

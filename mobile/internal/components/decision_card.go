@@ -113,7 +113,8 @@ func reconstructUnifiedPatchSides(patch string) (oldText, newText string) {
 	return strings.Join(oldLines, "\n"), strings.Join(newLines, "\n")
 }
 
-// DecisionCardView renders any of Linger's 12 typed DecisionRequestedMessageCard kinds.
+// DecisionCardView renders any of Linger's 12 typed DecisionRequestedMessageCard kinds
+// with an editorial left-accent rail and refined action hierarchy.
 func DecisionCardView(
 	c *ui.Context,
 	roomID, roomName string,
@@ -133,36 +134,45 @@ func DecisionCardView(
 	busy := busyAction != ""
 
 	statusTone := ToneNeutral
+	accentRail := ex.SubtleBorder
 	switch strings.ToLower(card.Status) {
 	case "pending", "open", "waiting", "requested":
-		statusTone = ToneWarning
+		statusTone = ToneBrand
+		accentRail = ex.Brand
 	case "approved", "succeeded", "answered", "consumed", "connected", "configured", "granted":
 		statusTone = ToneSuccess
+		accentRail = t.Success
 	case "denied", "failed", "expired":
 		statusTone = ToneDanger
+		accentRail = t.Danger
 	case "executing", "authorizing":
 		statusTone = ToneInfo
+		accentRail = ex.Info
 	}
 
-	borderColor := t.Border
-	if pending {
-		borderColor = t.Warning.Alpha(0.45)
-	}
+	outer := ui.Column(c.Key(card.DecisionID)).FillWidth().Background(t.Surface).Radius(16).Clip().
+		Padding(14, 15, 14, 18).Gap(10).
+		Role(ui.RoleGroup).Label(i18n.Tf("decision.a11y_header", map[string]any{"kind": i18n.DecisionKindLabel(card.Kind), "title": card.Title}))
+	ApplyCardElevation(outer, t)
+	outer.DrawOver(func(p *ui.Painter, r ui.Rect) {
+		p.Fill(ui.Rect{X: r.X, Y: r.Y + 10, W: 3.5, H: r.H - 20}, accentRail, 2)
+	})
 
-	return ui.Column(c.Key(card.DecisionID)).FillWidth().Background(t.Surface).Radius(12).
-		Border(1, borderColor).Padding(12, 12).Gap(8).
-		Role(ui.RoleGroup).Label(i18n.Tf("decision.a11y_header", map[string]any{"kind": i18n.DecisionKindLabel(card.Kind), "title": card.Title})).Children(func() {
-		// Header row: kind pill + status pill + optional jump-to-room chip
-		ui.Row(c).FillWidth().Wrap().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(6).Children(func() {
-			ui.Row(c).Wrap().AlignItems(ui.Center).Gap(6).Children(func() {
-				StatusPill(c, i18n.DecisionKindLabel(card.Kind), ToneInfo)
-				StatusPill(c, i18n.StatusLabel(card.Status), statusTone)
+	return outer.Children(func() {
+		// Header row: kind eyebrow + status dot pill + optional jump-to-room link
+		ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
+			ui.Row(c).Wrap().AlignItems(ui.Center).Gap(6).Grow(1).Basis(0).Children(func() {
+				ui.Text(c, i18n.DecisionKindLabel(card.Kind)).FontSize(11.5).FontWeight(700).
+					LetterSpacing(0.3).TextColor(t.TextMuted).NoWrap()
+				StatusDotPill(c, i18n.StatusLabel(card.Status), statusTone)
 			})
 			if cb.ShowSourceRoomChip && roomName != "" && cb.OnJumpToRoom != nil {
-				jump := ui.Row(c).MinHeight(32).Padding(4, 8).Radius(8).Background(ex.MutedBg).
-					AlignItems(ui.Center).Role(ui.RoleButton).Label(i18n.Tf("decision.open_room", map[string]any{"name": roomName}))
+				jump := ui.Row(c).MinHeight(28).Padding(3, 9).Radius(999).Background(ex.MutedBg).
+					AlignItems(ui.Center).Gap(3).Shrink(0).
+					Role(ui.RoleButton).Label(i18n.Tf("decision.open_room", map[string]any{"name": roomName}))
 				jump.Children(func() {
-					ui.Text(c, roomName+" ›").FontSize(11).FontWeight(600).TextColor(t.Accent).NoWrap()
+					ui.Text(c, roomName).FontSize(11.5).FontWeight(600).TextColor(t.Text).NoWrap()
+					theme.IconBox(c, 11, t.TextMuted, theme.IconChevronRight)
 				})
 				if jump.Clicked() {
 					cb.OnJumpToRoom(roomID)
@@ -171,14 +181,16 @@ func DecisionCardView(
 		})
 
 		// Card title & requester
-		ui.Text(c, card.Title).FontSize(15).FontWeight(600).TextColor(t.Text)
-		if card.Requester.DisplayName != "" {
-			meta := i18n.Tf("decision.requested_by", map[string]any{"actor": card.Requester.DisplayName})
-			if card.Intent != "" && card.Intent != card.Title {
-				meta += " · " + card.Intent
+		ui.Column(c).FillWidth().Gap(3).Children(func() {
+			ui.Text(c, card.Title).FontSize(15.5).FontWeight(600).LetterSpacing(-0.2).TextColor(t.Text)
+			if card.Requester.DisplayName != "" {
+				meta := i18n.Tf("decision.requested_by", map[string]any{"actor": card.Requester.DisplayName})
+				if card.Intent != "" && card.Intent != card.Title {
+					meta += " · " + card.Intent
+				}
+				ui.Text(c, meta).FontSize(12.5).LineHeight(1.35).TextColor(t.TextMuted)
 			}
-			ui.Text(c, meta).FontSize(12).TextColor(t.TextMuted)
-		}
+		})
 
 		// Kind-specific rich body & actions (all 12 real TeamHub decision kinds).
 		switch card.Kind {
@@ -236,7 +248,7 @@ func renderRuntimePermissionCard(
 		})
 	}
 	if v.Rationale != "" {
-		ui.Text(c, v.Rationale).FontSize(13).TextColor(t.Text)
+		ui.Text(c, v.Rationale).FontSize(13).LineHeight(1.4).TextColor(t.Text)
 	}
 	if v.Page != nil && v.Page.URL != "" {
 		target := v.Page.URL
@@ -246,12 +258,12 @@ func renderRuntimePermissionCard(
 		ui.Text(c, i18n.Tf("decision.target", map[string]any{"path": target})).FontSize(12).TextColor(t.TextMuted)
 	}
 	if v.Input != "" {
-		ui.Column(c).FillWidth().Padding(8, 10).Radius(8).Background(ex.MutedBg).Border(1, t.Border).Children(func() {
+		ui.Column(c).FillWidth().Padding(9, 11).Radius(10).Background(ex.MutedBg).Children(func() {
 			ui.Text(c, v.Input).FontSize(12).TextColor(t.Text)
 		})
 	}
 	if v.Patch != nil && strings.TrimSpace(*v.Patch) != "" {
-		ui.Column(c).FillWidth().Radius(8).Clip().Border(1, t.Border).MaxHeight(220).Children(func() {
+		ui.Column(c).FillWidth().Radius(10).Clip().Border(0.75, ex.SubtleBorder).MaxHeight(220).Children(func() {
 			editor.DiffView(c, st.diffForPatch(*v.Patch)).FillWidth()
 		})
 	}
@@ -260,7 +272,7 @@ func renderRuntimePermissionCard(
 		if cb.ResolveURL != nil {
 			imgURL = cb.ResolveURL(imgURL)
 		}
-		shot := ui.Box(c).FillWidth().Height(140).Radius(8).Clip().Border(1, t.Border).
+		shot := ui.Box(c).FillWidth().Height(140).Radius(10).Clip().Border(0.75, ex.SubtleBorder).
 			Role(ui.RoleButton).Label(i18n.T("decision.inspect_screenshot"))
 		shot.Children(func() {
 			netimage.Image(c, imgURL, netimage.Options{Fit: ui.Contain, MaxSide: 900, NoFade: true}).Fill()
@@ -293,7 +305,7 @@ func renderConnectorWriteCard(
 		})
 	}
 	if v.Message != nil {
-		ui.Column(c).FillWidth().Padding(8, 10).Radius(8).Background(ex.MutedBg).Border(1, t.Border).Gap(4).Children(func() {
+		ui.Column(c).FillWidth().Padding(10, 12).Radius(12).Background(ex.MutedBg).Gap(5).Children(func() {
 			if len(v.Message.To) > 0 {
 				ui.Text(c, i18n.Tf("decision.email.to", map[string]any{"list": strings.Join(v.Message.To, ", ")})).FontSize(12).TextColor(t.TextMuted)
 			}
@@ -307,10 +319,10 @@ func renderConnectorWriteCard(
 				ui.Text(c, i18n.Tf("decision.email.channel", map[string]any{"channel": *v.Message.Destination})).FontSize(12).TextColor(t.TextMuted)
 			}
 			if v.Message.Subject != nil && *v.Message.Subject != "" {
-				ui.Text(c, i18n.Tf("decision.email.subject", map[string]any{"subject": *v.Message.Subject})).FontSize(13).FontWeight(600).TextColor(t.Text)
+				ui.Text(c, i18n.Tf("decision.email.subject", map[string]any{"subject": *v.Message.Subject})).FontSize(13.5).FontWeight(600).TextColor(t.Text)
 			}
 			if v.Message.Body != "" {
-				ui.Text(c, v.Message.Body).FontSize(13).TextColor(t.Text)
+				ui.Text(c, v.Message.Body).FontSize(13).LineHeight(1.4).TextColor(t.Text)
 			}
 		})
 	}
@@ -321,7 +333,7 @@ func renderConnectorWriteCard(
 		})
 	}
 	if v.Message == nil && len(v.Fields) == 0 && v.Input != "" {
-		ui.Column(c).FillWidth().Padding(8, 10).Radius(8).Background(ex.MutedBg).Children(func() {
+		ui.Column(c).FillWidth().Padding(9, 11).Radius(10).Background(ex.MutedBg).Children(func() {
 			ui.Text(c, v.Input).FontSize(12).TextColor(t.Text)
 		})
 	}
@@ -337,40 +349,43 @@ func renderQuestionCard(
 	st *DecisionCardState, pending, busy bool, busyAction string, cb DecisionCardCallbacks,
 ) {
 	t := c.Theme()
+	ex := theme.Extra(t)
 	var v api.QuestionDecisionView
 	if len(card.Question) > 0 {
 		_ = json.Unmarshal(card.Question, &v)
 	}
 	for qi, q := range v.Questions {
 		q := q
-		ui.Column(c.Key(qi)).FillWidth().Gap(6).Children(func() {
-			ui.Text(c, q.Prompt).FontSize(13).FontWeight(600).TextColor(t.Text)
+		ui.Column(c.Key(qi)).FillWidth().Gap(8).Children(func() {
+			ui.Text(c, q.Prompt).FontSize(13.5).FontWeight(600).TextColor(t.Text)
 			if len(q.Options) > 0 {
 				isMulti := strings.Contains(strings.ToLower(q.Input), "multi") || strings.Contains(strings.ToLower(q.Input), "check")
-				if isMulti {
-					if st.multiChoice[q.ID] == nil {
-						st.multiChoice[q.ID] = map[string]bool{}
-					}
-					for _, opt := range q.Options {
-						checked := st.multiChoice[q.ID][opt.ID]
-						chk := ui.Checkbox(c.Key(opt.ID), &checked, opt.Label).MinHeight(36).Disabled(!pending || busy)
-						if chk.Changed() {
-							st.multiChoice[q.ID][opt.ID] = checked
+				ui.Column(c).FillWidth().Background(ex.MutedBg).Radius(12).Padding(4, 10).Gap(2).Children(func() {
+					if isMulti {
+						if st.multiChoice[q.ID] == nil {
+							st.multiChoice[q.ID] = map[string]bool{}
+						}
+						for _, opt := range q.Options {
+							checked := st.multiChoice[q.ID][opt.ID]
+							chk := ui.Checkbox(c.Key(opt.ID), &checked, opt.Label).MinHeight(38).Disabled(!pending || busy)
+							if chk.Changed() {
+								st.multiChoice[q.ID][opt.ID] = checked
+							}
+						}
+					} else {
+						cur := st.singleChoice[q.ID]
+						for _, opt := range q.Options {
+							rad := ui.Radio(c.Key(opt.ID), &cur, opt.ID, opt.Label).MinHeight(38).Disabled(!pending || busy)
+							if rad.Changed() {
+								st.singleChoice[q.ID] = cur
+							}
 						}
 					}
-				} else {
-					cur := st.singleChoice[q.ID]
-					for _, opt := range q.Options {
-						rad := ui.Radio(c.Key(opt.ID), &cur, opt.ID, opt.Label).MinHeight(36).Disabled(!pending || busy)
-						if rad.Changed() {
-							st.singleChoice[q.ID] = cur
-						}
-					}
-				}
+				})
 			}
 			if pending {
 				txt := st.textAnswer[q.ID]
-				in := ui.TextInput(c.Key("txt_"+q.ID), &txt).FillWidth().MinHeight(40).
+				in := ui.TextInput(c.Key("txt_"+q.ID), &txt).FillWidth().MinHeight(42).
 					Placeholder(i18n.T("decision.question.placeholder")).Label(i18n.Tf("decision.question.a11y", map[string]any{"title": q.Prompt})).Disabled(busy)
 				if in.Changed() {
 					st.textAnswer[q.ID] = txt
@@ -430,8 +445,8 @@ func renderAgentChangeCard(
 		ui.Text(c, i18n.Tf("decision.agent_label", map[string]any{"name": v.AgentName, "action": i18n.AgentActionLabel(v.Action)})).FontSize(13).FontWeight(600).TextColor(t.Text)
 	}
 	for i, ch := range v.Changes {
-		ui.Column(c.Key(i)).FillWidth().Padding(8, 10).Radius(8).Background(ex.MutedBg).Gap(2).Children(func() {
-			ui.Text(c, strings.ToUpper(ch.Field)).FontSize(11).FontWeight(600).TextColor(t.TextMuted)
+		ui.Column(c.Key(i)).FillWidth().Padding(9, 11).Radius(10).Background(ex.MutedBg).Gap(3).Children(func() {
+			ui.Text(c, strings.ToUpper(ch.Field)).FontSize(10.5).FontWeight(700).LetterSpacing(0.4).TextColor(t.TextMuted)
 			if ch.Before != nil && *ch.Before != "" {
 				ui.Text(c, "- "+*ch.Before).FontSize(12).TextColor(t.Danger)
 			}
@@ -451,10 +466,10 @@ func renderRoomCreationCard(
 		_ = json.Unmarshal(card.RoomCreation, &v)
 	}
 	if v.Name != "" {
-		ui.Text(c, i18n.Tf("decision.new_room", map[string]any{"name": v.Name})).FontSize(13).FontWeight(600).TextColor(t.Text)
+		ui.Text(c, i18n.Tf("decision.new_room", map[string]any{"name": v.Name})).FontSize(13.5).FontWeight(600).TextColor(t.Text)
 	}
 	if v.Description != nil && *v.Description != "" {
-		ui.Text(c, *v.Description).FontSize(12).TextColor(t.TextMuted)
+		ui.Text(c, *v.Description).FontSize(12.5).TextColor(t.TextMuted)
 	}
 	if len(v.MemberIDs) > 0 {
 		ui.Text(c, i18n.Tf("decision.initial_members", map[string]any{"count": len(v.MemberIDs)})).FontSize(12).TextColor(t.TextMuted)
@@ -553,7 +568,7 @@ func renderComputerPermissionCard(
 	if len(card.ComputerPermission) > 0 {
 		_ = json.Unmarshal(card.ComputerPermission, &v)
 	}
-	ui.Row(c).Wrap().Gap(4).Children(func() {
+	ui.Row(c).Wrap().Gap(5).Children(func() {
 		if v.Subject != "" {
 			StatusPill(c, v.Subject, ToneInfo)
 		}
@@ -562,7 +577,7 @@ func renderComputerPermissionCard(
 		}
 	})
 	if v.Reason != nil && *v.Reason != "" {
-		ui.Text(c, *v.Reason).FontSize(12).TextColor(t.TextMuted)
+		ui.Text(c, *v.Reason).FontSize(12.5).TextColor(t.TextMuted)
 	}
 	renderSettingsOrDeclineBar(c, roomID, card, st, pending, busy, busyAction, i18n.T("decision.open_computer_perms"), func() {
 		if cb.OnOpenCompute != nil {
@@ -580,7 +595,7 @@ func renderProfileSetupAppsCard(
 		_ = json.Unmarshal(card.ProfileSetup, &v)
 	}
 	if len(v.Apps) > 0 {
-		ui.Row(c).Wrap().Gap(4).Children(func() {
+		ui.Row(c).Wrap().Gap(5).Children(func() {
 			for _, appKey := range v.Apps {
 				StatusPill(c, appKey, ToneNeutral)
 			}

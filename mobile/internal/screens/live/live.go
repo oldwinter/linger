@@ -273,26 +273,34 @@ func (ctl *Controller) viewActiveRuns(c *ui.Context, snap state.Snapshot) {
 		}
 		elapsed := formatElapsedSince(run.CreatedAt)
 
-		components.SectionCard(c.Key(run.RunID), run.Agent.DisplayName,
-			i18n.Tf("live.run_meta", map[string]any{"room": rName, "elapsed": elapsed}), func() {
-				components.StatusPill(c, i18n.StatusLabel(run.Status), tone)
-			}, func() {
-				ui.Text(c, i18n.Tf("live.run_ordinal", map[string]any{"ordinal": run.EventOrdinal, "id": run.RunID})).FontSize(12).TextColor(t.TextMuted)
-				ui.Row(c).FillWidth().Gap(8).Children(func() {
-					watchBtn := components.PrimaryTouchButton(c, i18n.T("chat.watch_live"), false)
-					watchBtn.Grow(1).Basis(0)
-					if watchBtn.Clicked() && ctl.nav.OnWatchRun != nil {
-						ctl.nav.OnWatchRun(run.RoomID, run.RunID)
-					}
-					if run.Status == "active" {
-						stopBtn := components.DangerTouchButton(c, i18n.T("live.stop_btn"), false)
-						if stopBtn.Clicked() {
-							mygo.Haptics.Warning()
-							go func() { _ = ctl.store.CancelRun(context.Background(), run.RoomID, run.RunID) }()
-						}
-					}
+		card := ui.Column(c.Key(run.RunID)).FillWidth().Background(t.Surface).Radius(16).Padding(14, 15).Gap(10)
+		components.ApplyCardElevation(card, t)
+		card.Children(func() {
+			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(11).Children(func() {
+				components.AvatarBadge(c, run.Agent.DisplayName, 40)
+				ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
+					ui.Text(c, run.Agent.DisplayName).FontSize(15.5).FontWeight(600).LetterSpacing(-0.15).TextColor(t.Text).MaxLines(1)
+					ui.Text(c, i18n.Tf("live.run_meta", map[string]any{"room": rName, "elapsed": elapsed})).FontSize(12).TextColor(t.TextMuted).MaxLines(1)
 				})
+				components.StatusDotPill(c, i18n.StatusLabel(run.Status), tone)
 			})
+			ui.Text(c, i18n.Tf("live.run_ordinal", map[string]any{"ordinal": run.EventOrdinal, "id": run.RunID})).FontSize(12).TextColor(theme.Extra(t).TextSubtle)
+			ui.Row(c).FillWidth().Gap(8).Children(func() {
+				watchBtn := components.PrimaryTouchButton(c, i18n.T("chat.watch_live"), false)
+				watchBtn.Grow(1).Basis(0).MinHeight(40)
+				if watchBtn.Clicked() && ctl.nav.OnWatchRun != nil {
+					ctl.nav.OnWatchRun(run.RoomID, run.RunID)
+				}
+				if run.Status == "active" {
+					stopBtn := components.DangerTouchButton(c, i18n.T("live.stop_btn"), false)
+					stopBtn.MinHeight(40)
+					if stopBtn.Clicked() {
+						mygo.Haptics.Warning()
+						go func() { _ = ctl.store.CancelRun(context.Background(), run.RoomID, run.RunID) }()
+					}
+				}
+			})
+		})
 	}
 }
 

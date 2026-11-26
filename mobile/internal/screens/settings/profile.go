@@ -119,7 +119,8 @@ func (s *Screen) viewProfileSection(c *ui.Context) {
 					ui.Column(c).FillWidth().Gap(8).Children(func() {
 						for _, ins := range insights {
 							ins := ins
-							ui.Row(c.Key(ins.ID)).FillWidth().Padding(10, 10).Radius(10).Background(theme.Extra(t).MutedBg).
+							ui.Row(c.Key(ins.ID)).FillWidth().Padding(11, 12).Radius(12).Background(theme.Extra(t).MutedBg).
+								Border(0.75, theme.Extra(t).SubtleBorder).
 								AlignItems(ui.Center).Gap(8).Children(func() {
 								ui.Column(c).Grow(1).Basis(0).Gap(3).Children(func() {
 									components.StatusPill(c, ins.Dimension, components.ToneInfo)

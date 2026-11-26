@@ -60,24 +60,21 @@ func (s *Screen) viewRoutinesSegment(c *ui.Context) {
 			}
 
 			// Room filter bar + "+ Routine" CTA
+			ex := theme.Extra(t)
 			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
 				ui.ScrollHorizontal(c).Grow(1).Basis(0).Children(func() {
-					ui.Row(c).Gap(6).Role(ui.RoleTabList).Children(func() {
+					ui.Row(c).Gap(6).Padding(1, 1).Role(ui.RoleTabList).Children(func() {
 						allOn := s.routineRoomFilter == ""
 						allRoomsLabel := i18n.T("work.routines.all_rooms")
-						allChip := ui.Row(c.Key("all")).MinHeight(36).PaddingX(12).Radius(999).
-							Background(func() ui.Color {
-								if allOn {
-									return t.Accent
-								}
-								return theme.Extra(t).MutedBg
-							}()).AlignItems(ui.Center).Shrink(0).Role(ui.RoleTab).Label(allRoomsLabel).Checked(allOn)
+						allBg, allFg, allBorder := t.Surface, t.TextMuted, ex.SubtleBorder
+						if allOn {
+							allBg, allFg, allBorder = t.Accent, t.AccentText, t.Accent
+						}
+						allChip := ui.Row(c.Key("all")).MinHeight(34).PaddingX(12).Radius(999).
+							Background(allBg).Border(0.75, allBorder).
+							AlignItems(ui.Center).Shrink(0).Role(ui.RoleTab).Label(allRoomsLabel).Checked(allOn)
 						allChip.Children(func() {
-							fg := t.TextMuted
-							if allOn {
-								fg = t.AccentText
-							}
-							ui.Text(c, allRoomsLabel).FontSize(12).FontWeight(600).TextColor(fg).NoWrap()
+							ui.Text(c, allRoomsLabel).FontSize(12.5).FontWeight(600).TextColor(allFg).NoWrap()
 						})
 						if allChip.Clicked() {
 							s.routineRoomFilter = ""
@@ -86,19 +83,15 @@ func (s *Screen) viewRoutinesSegment(c *ui.Context) {
 						for _, rm := range rooms {
 							rm := rm
 							on := s.routineRoomFilter == rm.ID
-							chip := ui.Row(c.Key(rm.ID)).MinHeight(36).PaddingX(12).Radius(999).
-								Background(func() ui.Color {
-									if on {
-										return t.Accent
-									}
-									return theme.Extra(t).MutedBg
-								}()).AlignItems(ui.Center).Shrink(0).Role(ui.RoleTab).Label(rm.Name).Checked(on)
+							bg, fg, borderCol := t.Surface, t.TextMuted, ex.SubtleBorder
+							if on {
+								bg, fg, borderCol = t.Accent, t.AccentText, t.Accent
+							}
+							chip := ui.Row(c.Key(rm.ID)).MinHeight(34).PaddingX(12).Radius(999).
+								Background(bg).Border(0.75, borderCol).
+								AlignItems(ui.Center).Shrink(0).Role(ui.RoleTab).Label(rm.Name).Checked(on)
 							chip.Children(func() {
-								fg := t.TextMuted
-								if on {
-									fg = t.AccentText
-								}
-								ui.Text(c, rm.Name).FontSize(12).FontWeight(600).TextColor(fg).NoWrap()
+								ui.Text(c, rm.Name).FontSize(12.5).FontWeight(600).TextColor(fg).NoWrap()
 							})
 							if chip.Clicked() {
 								s.routineRoomFilter = rm.ID
@@ -106,8 +99,7 @@ func (s *Screen) viewRoutinesSegment(c *ui.Context) {
 						}
 					})
 				})
-				newBtn := components.PrimaryTouchButton(c, i18n.T("work.routines.new_short"), false)
-				newBtn.Shrink(0)
+				newBtn := components.CompactPrimaryButton(c, i18n.T("work.routines.new_short"), nil, false)
 				if newBtn.Clicked() {
 					s.openNewRoutineSheet(rooms)
 				}
@@ -126,11 +118,13 @@ func (s *Screen) viewRoutinesSegment(c *ui.Context) {
 				rt := rt
 				rowBusy := s.routineBusyID == rt.ID
 				runBusy := s.routineRunBusyID == rt.ID
-				ui.Column(c.Key(rt.ID)).FillWidth().Padding(12, 12).Gap(8).
-					Radius(12).Background(t.Surface).Border(1, t.Border).Children(func() {
+				card := ui.Column(c.Key(rt.ID)).FillWidth().Padding(14, 15).Gap(9).
+					Radius(16).Background(t.Surface)
+				components.ApplyCardElevation(card, t)
+				card.Children(func() {
 					ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
 						ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
-							ui.Text(c, rt.Name).FontSize(15).FontWeight(600).TextColor(t.Text).MaxLines(2)
+							ui.Text(c, rt.Name).FontSize(15.5).FontWeight(600).LetterSpacing(-0.15).TextColor(t.Text).MaxLines(2)
 							ui.Text(c, s.roomName(rt.RoomID)+" \u00b7 "+formatRoutineCadence(rt)).
 								FontSize(12).TextColor(t.TextMuted).MaxLines(2)
 						})
@@ -142,14 +136,14 @@ func (s *Screen) viewRoutinesSegment(c *ui.Context) {
 					})
 
 					if strings.TrimSpace(rt.Instruction) != "" {
-						ui.Text(c, rt.Instruction).FontSize(12).TextColor(t.TextMuted).MaxLines(3)
+						ui.Text(c, rt.Instruction).FontSize(13).LineHeight(1.38).TextColor(t.TextMuted).MaxLines(3)
 					}
 
 					ui.Row(c).FillWidth().Wrap().Gap(6).AlignItems(ui.Center).Children(func() {
 						if rt.Enabled {
-							components.StatusPill(c, i18n.T("common.enabled"), components.ToneSuccess)
+							components.StatusDotPill(c, i18n.T("common.enabled"), components.ToneSuccess)
 						} else {
-							components.StatusPill(c, i18n.T("common.paused"), components.ToneNeutral)
+							components.StatusDotPill(c, i18n.T("common.paused"), components.ToneNeutral)
 						}
 						if rt.NextRunAt != nil {
 							components.StatusPill(c, i18n.Tf("work.routines.next_run", map[string]any{"time": i18n.FormatDateTimeUTC(*rt.NextRunAt)}), components.ToneInfo)
@@ -163,17 +157,18 @@ func (s *Screen) viewRoutinesSegment(c *ui.Context) {
 							runLabel = i18n.T("work.routines.running")
 						}
 						runBtn := components.PrimaryTouchButton(c, runLabel, runBusy || rowBusy)
-						runBtn.Grow(1).Basis(0)
+						runBtn.Grow(1).Basis(0).MinHeight(38)
 						if runBtn.Clicked() {
 							mygo.Haptics.Light()
 							s.runRoutineNow(rt)
 						}
 						editBtn := components.SecondaryTouchButton(c, i18n.T("common.edit"), rowBusy)
-						editBtn.Grow(1).Basis(0)
+						editBtn.Grow(1).Basis(0).MinHeight(38)
 						if editBtn.Clicked() {
 							s.openEditRoutineSheet(rt)
 						}
 						delBtn := components.DangerTouchButton(c, i18n.T("common.delete"), rowBusy)
+						delBtn.MinHeight(38)
 						if delBtn.Clicked() {
 							cp := rt
 							s.routineDeleteItem = &cp

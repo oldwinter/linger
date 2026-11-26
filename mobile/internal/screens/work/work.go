@@ -346,8 +346,8 @@ func (s *Screen) View(c *ui.Context) {
 	s.mu.Unlock()
 
 	ui.Column(c).Fill().Background(t.Background).Children(func() {
-		// Top segmented control header.
-		ui.Column(c).FillWidth().Padding(10, 14, 8, 14).Gap(8).Shrink(0).Children(func() {
+		// Seamless editorial segmented control header.
+		ui.Column(c).FillWidth().Padding(8, 14, 6, 14).Gap(8).Shrink(0).Children(func() {
 			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
 				segWrap := ui.Column(c).Grow(1).Basis(0)
 				segWrap.Children(func() {
@@ -360,8 +360,8 @@ func (s *Screen) View(c *ui.Context) {
 				if loading {
 					refreshLabel = i18n.T("common.syncing")
 				}
-				refBtn := components.SecondaryTouchButton(c, refreshLabel, loading)
-				refBtn.MinWidth(60)
+				refBtn := components.CompactSecondaryButton(c, refreshLabel, theme.IconRefresh, loading)
+				refBtn.MinHeight(40)
 				if refBtn.Clicked() {
 					go s.Refresh(context.Background())
 				}
@@ -372,7 +372,6 @@ func (s *Screen) View(c *ui.Context) {
 				})
 			}
 		})
-		ui.Divider(c)
 
 		// Each segment keeps its own ScrollState across switches.
 		switch s.segment {

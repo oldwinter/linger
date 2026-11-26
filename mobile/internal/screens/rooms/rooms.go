@@ -6,6 +6,7 @@ package rooms
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 	"sync"
@@ -235,22 +236,46 @@ func (ctl *Controller) viewRoomList(c *ui.Context, snap state.Snapshot) {
 				return
 			}
 
-			// Action bar: Catch-Up Walk + New Room / DM
+			// Editorial action strip: warm Catch-Up highlight + sleek New Room pill.
 			unreadCount := countUnreadRooms(snap.Rooms)
-			ui.Row(c).FillWidth().Gap(8).Children(func() {
+			ex := theme.Extra(t)
+			ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
 				catchLabel := i18n.T("rooms.catch_up")
 				if unreadCount > 0 {
 					catchLabel = i18n.Tf("rooms.catch_up_count", map[string]any{"count": unreadCount})
 				}
-				catchBtn := components.SecondaryTouchButton(c, catchLabel, false)
-				catchBtn.Grow(1).Basis(0)
+				catchBg := t.Surface
+				catchFg := t.Text
+				catchIconCol := t.TextMuted
+				catchBorder := ex.SubtleBorder
+				if unreadCount > 0 {
+					catchBg = ex.BrandTint
+					catchFg = ex.BrandText
+					catchIconCol = ex.Brand
+					catchBorder = ex.Brand.Alpha(0.28)
+				}
+				catchBtn := ui.Row(c).Grow(1).Basis(0).MinHeight(38).Padding(7, 13).Radius(12).
+					Background(catchBg).Border(0.75, catchBorder).
+					AlignItems(ui.Center).Justify(ui.Start).Gap(7).
+					Role(ui.RoleButton).Label(catchLabel)
+				if unreadCount == 0 {
+					components.ApplyCardElevation(catchBtn, t)
+				}
+				if catchBtn.Pressed() {
+					catchBtn.Scale(0.985, 0.985)
+				}
+				catchBtn.Children(func() {
+					theme.IconBox(c, 15, catchIconCol, theme.IconSparkle)
+					ui.Text(c, catchLabel).FontSize(13).FontWeight(600).TextColor(catchFg).NoWrap().MaxLines(1)
+				})
 				if catchBtn.Clicked() {
 					ctl.mu.Lock()
 					ctl.catchUpOpen = true
 					ctl.mu.Unlock()
 				}
-				newBtn := components.PrimaryTouchButton(c, i18n.T("rooms.new_room"), snap.ActiveHost == nil)
-				newBtn.Grow(1).Basis(0)
+
+				newBtn := components.CompactPrimaryButton(c, i18n.T("rooms.new_room"), theme.IconPlus, snap.ActiveHost == nil)
+				newBtn.MinHeight(38)
 				if newBtn.Clicked() {
 					ctl.mu.Lock()
 					ctl.newRoomOpen = true
@@ -258,7 +283,7 @@ func (ctl *Controller) viewRoomList(c *ui.Context, snap state.Snapshot) {
 				}
 			})
 
-			// Narrow-screen-safe (320px+) horizontal segmented filter pills.
+			// Narrow-screen-safe (320px+) horizontal filter pill strip.
 			if components.SegmentedControl(c, &filter,
 				i18n.T("rooms.filter.all"),
 				i18n.T("rooms.filter.unread"),
@@ -278,93 +303,113 @@ func (ctl *Controller) viewRoomList(c *ui.Context, snap state.Snapshot) {
 				return
 			}
 
-			for _, rm := range filtered {
-				rm := rm
-				working := snap.WorkingRoomIDs[rm.ID]
-				pinned := rm.PinnedAt != nil
-				left := rm.Participation != nil && *rm.Participation == "left"
-				pinLabel := i18n.T("rooms.action.pin")
-				if pinned {
-					pinLabel = i18n.T("rooms.action.unpin")
-				}
-				muteLabel := i18n.T("rooms.action.snooze")
-				if left {
-					muteLabel = i18n.T("rooms.action.rejoin")
-				}
+			components.GroupedCard(c, func() {
+				ui.Box(c).FillWidth().Height(4)
+				for idx, rm := range filtered {
+					rm := rm
+					if idx > 0 {
+						components.InsetDivider(c, 72)
+					}
+					working := snap.WorkingRoomIDs[rm.ID]
+					pinned := rm.PinnedAt != nil
+					left := rm.Participation != nil && *rm.Participation == "left"
+					pinLabel := i18n.T("rooms.action.pin")
+					if pinned {
+						pinLabel = i18n.T("rooms.action.unpin")
+					}
+					muteLabel := i18n.T("rooms.action.snooze")
+					if left {
+						muteLabel = i18n.T("rooms.action.rejoin")
+					}
 
-				mobile.SwipeRow(c.Key(rm.ID), ctl.swipeStateFor(rm.ID), mobile.SwipeOptions{
-					Leading: []mobile.SwipeAction{
-						{
-							Label: pinLabel,
-							OnTap: func() {
-								mygo.Haptics.Light()
-								go func() { _ = ctl.store.ToggleRoomPin(context.Background(), rm.ID, !pinned) }()
+					mobile.SwipeRow(c.Key(rm.ID), ctl.swipeStateFor(rm.ID), mobile.SwipeOptions{
+						Leading: []mobile.SwipeAction{
+							{
+								Label: pinLabel,
+								OnTap: func() {
+									mygo.Haptics.Light()
+									go func() { _ = ctl.store.ToggleRoomPin(context.Background(), rm.ID, !pinned) }()
+								},
 							},
 						},
-					},
-					Trailing: []mobile.SwipeAction{
-						{
-							Label: i18n.T("rooms.action.read"),
-							OnTap: func() {
-								mygo.Haptics.Light()
-								go func() { _ = ctl.store.MarkRoomRead(context.Background(), rm.ID) }()
+						Trailing: []mobile.SwipeAction{
+							{
+								Label: i18n.T("rooms.action.read"),
+								OnTap: func() {
+									mygo.Haptics.Light()
+									go func() { _ = ctl.store.MarkRoomRead(context.Background(), rm.ID) }()
+								},
+							},
+							{
+								Label:       muteLabel,
+								Destructive: !left,
+								OnTap: func() {
+									next := "left"
+									if left {
+										next = "joined"
+									}
+									go func() { _ = ctl.store.SetRoomParticipation(context.Background(), rm.ID, next) }()
+								},
 							},
 						},
-						{
-							Label:       muteLabel,
-							Destructive: !left,
-							OnTap: func() {
-								next := "left"
-								if left {
-									next = "joined"
-								}
-								go func() { _ = ctl.store.SetRoomParticipation(context.Background(), rm.ID, next) }()
-							},
-						},
-					},
-				}, func() {
-					row := ui.Row(c).FillWidth().MinHeight(68).Padding(10, 12).Gap(10).
-						Radius(12).Background(t.Surface).Border(1, t.Border).AlignItems(ui.Center).
-						Role(ui.RoleButton).Label(i18n.Tf("rooms.a11y_row", map[string]any{"name": rm.Name, "unread": rm.UnreadMessageCount}))
-					row.Children(func() {
-						// Avatar or member mosaic
-						renderRoomAvatarMosaic(c, rm)
-						ui.Column(c).Grow(1).Basis(0).Gap(3).Children(func() {
-							ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(6).Children(func() {
-								title := rm.Name
-								if pinned {
-									title = "★ " + title
-								}
-								ui.Text(c, title).FontSize(15).FontWeight(600).TextColor(t.Text).Grow(1).Basis(0).MaxLines(1)
-								ts := i18n.FormatRoomTime(rm.UpdatedAt)
-								if rm.LatestMessage != nil {
-									ts = i18n.FormatRoomTime(rm.LatestMessage.CreatedAt)
-								}
-								ui.Text(c, ts).FontSize(11).TextColor(t.TextMuted).NoWrap()
-							})
-							preview := i18n.T("rooms.no_messages")
-							if rm.LatestMessage != nil && strings.TrimSpace(rm.LatestMessage.RawMessage) != "" {
-								preview = rm.LatestMessage.Author.DisplayName + ": " + rm.LatestMessage.RawMessage
-							}
-							ui.Text(c, preview).FontSize(13).TextColor(t.TextMuted).MaxLines(1)
-							ui.Row(c).FillWidth().Wrap().AlignItems(ui.Center).Gap(6).Children(func() {
-								if working {
-									components.StatusPill(c, i18n.T("rooms.working_dot"), components.ToneInfo)
-								}
-								if rm.UnreadMessageCount > 0 {
-									components.StatusPill(c, i18n.Tf("rooms.unread_count", map[string]any{"count": rm.UnreadMessageCount}), components.ToneWarning)
-								}
-								if left {
-									components.StatusPill(c, i18n.T("rooms.snoozed"), components.ToneNeutral)
+					}, func() {
+						row := ui.Row(c).FillWidth().MinHeight(72).Padding(12, 14).Gap(12).
+							Background(t.Surface).AlignItems(ui.Center).
+							Role(ui.RoleButton).Label(i18n.Tf("rooms.a11y_row", map[string]any{"name": rm.Name, "unread": rm.UnreadMessageCount}))
+						if row.Pressed() {
+							row.Background(t.SurfacePressed)
+						}
+						row.Children(func() {
+							renderRoomAvatarMosaic(c, rm, working)
+							ui.Column(c).Grow(1).Basis(0).Gap(4).Children(func() {
+								ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(6).Children(func() {
+									ui.Row(c).Grow(1).Basis(0).AlignItems(ui.Center).Gap(5).Children(func() {
+										ui.Text(c, rm.Name).FontSize(15.5).FontWeight(600).LetterSpacing(-0.15).
+											TextColor(t.Text).MaxLines(1)
+										if pinned {
+											theme.IconBox(c, 12, ex.Brand, theme.IconPin)
+										}
+									})
+									ts := i18n.FormatRoomTime(rm.UpdatedAt)
+									if rm.LatestMessage != nil {
+										ts = i18n.FormatRoomTime(rm.LatestMessage.CreatedAt)
+									}
+									ui.Text(c, ts).FontSize(11.5).TextColor(ex.TextSubtle).NoWrap()
+								})
+								ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
+									preview := i18n.T("rooms.no_messages")
+									if rm.LatestMessage != nil && strings.TrimSpace(rm.LatestMessage.RawMessage) != "" {
+										preview = rm.LatestMessage.Author.DisplayName + ": " + rm.LatestMessage.RawMessage
+									}
+									ui.Text(c, preview).FontSize(13).LineHeight(1.3).TextColor(t.TextMuted).Grow(1).Basis(0).MaxLines(1)
+									if rm.UnreadMessageCount > 0 {
+										ui.Row(c).MinWidth(20).Height(20).Padding(0, 6).Radius(10).
+											Background(t.Accent).AlignItems(ui.Center).Justify(ui.Center).Shrink(0).
+											Role(ui.RoleStatus).Label(i18n.Tf("rooms.unread_count", map[string]any{"count": rm.UnreadMessageCount})).Children(func() {
+											ui.Text(c, fmt.Sprintf("%d", rm.UnreadMessageCount)).FontSize(11).FontWeight(700).TextColor(t.AccentText).NoWrap()
+										})
+									}
+								})
+								if working || left {
+									ui.Row(c).FillWidth().Wrap().AlignItems(ui.Center).Gap(6).Children(func() {
+										if working {
+											workLbl := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(i18n.T("rooms.working_dot")), "●"))
+											components.StatusDotPill(c, workLbl, components.ToneBrand)
+										}
+										if left {
+											components.StatusDotPill(c, i18n.T("rooms.snoozed"), components.ToneNeutral)
+										}
+									})
 								}
 							})
 						})
+						if row.Clicked() {
+							ctl.OpenRoom(rm.ID)
+						}
 					})
-					if row.Clicked() {
-						ctl.OpenRoom(rm.ID)
-					}
-				})
-			}
+				}
+				ui.Box(c).FillWidth().Height(4)
+			})
 		})
 	})
 
@@ -372,25 +417,50 @@ func (ctl *Controller) viewRoomList(c *ui.Context, snap state.Snapshot) {
 	ctl.viewNewRoomSheet(c, snap)
 }
 
-func renderRoomAvatarMosaic(c *ui.Context, rm api.RoomListItem) {
-	if len(rm.MemberPreview) <= 1 {
-		components.AvatarBadge(c, rm.Name, 42)
-		return
-	}
-	// Compact 2x2 avatar mosaic for multi-member Rooms.
-	ui.Column(c).Size(42, 42).Gap(2).Shrink(0).Children(func() {
-		ui.Row(c).Gap(2).Children(func() {
-			components.AvatarBadge(c, rm.MemberPreview[0].DisplayName, 20)
-			if len(rm.MemberPreview) > 1 {
-				components.AvatarBadge(c, rm.MemberPreview[1].DisplayName, 20)
-			}
+func renderRoomAvatarMosaic(c *ui.Context, rm api.RoomListItem, working bool) {
+	t := c.Theme()
+	ex := theme.Extra(t)
+	wrap := ui.Box(c).Size(46, 46).Shrink(0)
+	if working {
+		wrap.DrawOver(func(p *ui.Painter, r ui.Rect) {
+			dot := float32(10)
+			cx := r.X + r.W - 4
+			cy := r.Y + r.H - 4
+			p.Fill(ui.Rect{X: cx - dot/2 - 2, Y: cy - dot/2 - 2, W: dot + 4, H: dot + 4}, t.Surface, (dot+4)/2)
+			p.Fill(ui.Rect{X: cx - dot/2, Y: cy - dot/2, W: dot, H: dot}, ex.Brand, dot/2)
 		})
-		if len(rm.MemberPreview) > 2 {
-			ui.Row(c).Gap(2).Children(func() {
-				components.AvatarBadge(c, rm.MemberPreview[2].DisplayName, 20)
-				if len(rm.MemberPreview) > 3 {
+	}
+	wrap.Children(func() {
+		switch len(rm.MemberPreview) {
+		case 0, 1:
+			components.AvatarBadge(c, rm.Name, 46)
+		case 2:
+			ui.Row(c).Size(46, 46).Radius(14).Background(ex.MutedBg).Padding(3, 3).Justify(ui.SpaceBetween).Children(func() {
+				ui.Column(c).FillHeight().Justify(ui.Start).Children(func() {
+					components.AvatarBadge(c, rm.MemberPreview[0].DisplayName, 21)
+				})
+				ui.Column(c).FillHeight().Justify(ui.End).Children(func() {
+					components.AvatarBadge(c, rm.MemberPreview[1].DisplayName, 21)
+				})
+			})
+		case 3:
+			ui.Column(c).Size(46, 46).Radius(14).Background(ex.MutedBg).Padding(2, 2).Gap(2).AlignItems(ui.Center).Justify(ui.Center).Children(func() {
+				components.AvatarBadge(c, rm.MemberPreview[0].DisplayName, 20)
+				ui.Row(c).Gap(2).Justify(ui.Center).Children(func() {
+					components.AvatarBadge(c, rm.MemberPreview[1].DisplayName, 20)
+					components.AvatarBadge(c, rm.MemberPreview[2].DisplayName, 20)
+				})
+			})
+		default:
+			ui.Column(c).Size(46, 46).Radius(14).Background(ex.MutedBg).Padding(2, 2).Gap(2).Children(func() {
+				ui.Row(c).Gap(2).Children(func() {
+					components.AvatarBadge(c, rm.MemberPreview[0].DisplayName, 20)
+					components.AvatarBadge(c, rm.MemberPreview[1].DisplayName, 20)
+				})
+				ui.Row(c).Gap(2).Children(func() {
+					components.AvatarBadge(c, rm.MemberPreview[2].DisplayName, 20)
 					components.AvatarBadge(c, rm.MemberPreview[3].DisplayName, 20)
-				}
+				})
 			})
 		}
 	})
@@ -413,7 +483,7 @@ func (ctl *Controller) viewCatchUpSheet(c *ui.Context, snap state.Snapshot) {
 				ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
 					ui.Text(c, i18n.T("rooms.catch_up")).FontSize(18).Bold().TextColor(t.Text)
 					if len(unread) > 0 {
-						markBtn := components.SecondaryTouchButton(c, i18n.T("rooms.catchup_mark_all"), false)
+						markBtn := components.CompactSecondaryButton(c, i18n.T("rooms.catchup_mark_all"), theme.IconCheck, false)
 						if markBtn.Clicked() {
 							mygo.Haptics.Success()
 							go func() { _ = ctl.store.MarkAllRoomsRead(context.Background()) }()
@@ -435,14 +505,14 @@ func (ctl *Controller) viewCatchUpSheet(c *ui.Context, snap state.Snapshot) {
 						preview = rm.LatestMessage.Author.DisplayName + ": " + rm.LatestMessage.RawMessage
 					}
 					components.SectionCard(c, rm.Name, i18n.Tf("rooms.catchup_unread_msg", map[string]any{"count": rm.UnreadMessageCount}), func() {
-						btn := components.PrimaryTouchButton(c, i18n.T("rooms.catchup_jump"), false)
+						btn := components.CompactPrimaryButton(c, i18n.T("rooms.catchup_jump"), nil, false)
 						if btn.Clicked() {
 							ctl.catchUpOpen = false
 							ctl.OpenRoom(rm.ID)
 						}
 					}, func() {
 						if preview != "" {
-							ui.Text(c, preview).FontSize(13).TextColor(t.TextMuted).MaxLines(2)
+							ui.Text(c, preview).FontSize(13).LineHeight(1.35).TextColor(t.TextMuted).MaxLines(2)
 						}
 					})
 				}
@@ -520,39 +590,47 @@ func (ctl *Controller) viewNewRoomSheet(c *ui.Context, snap state.Snapshot) {
 					}
 				} else {
 					ui.Text(c, i18n.T("rooms.dm_select_hint")).FontSize(13).TextColor(t.TextMuted)
-					for _, act := range snap.Actors {
-						act := act
-						row := ui.Row(c.Key("dm_"+act.ID)).FillWidth().MinHeight(52).Padding(8, 10).Gap(10).
-							Radius(10).Background(t.Surface).Border(1, t.Border).AlignItems(ui.Center).
-							Role(ui.RoleButton).Label(i18n.Tf("rooms.dm_a11y", map[string]any{"name": act.DisplayName}))
-						row.Children(func() {
-							components.AvatarBadge(c, act.DisplayName, 34)
-							ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
-								ui.Text(c, act.DisplayName).FontSize(14).FontWeight(600).TextColor(t.Text)
-								ui.Text(c, i18n.ActorRoleLabel(act.Kind)).FontSize(12).TextColor(t.TextMuted)
-							})
-							ui.Text(c, i18n.T("common.open")+" ›").FontSize(13).TextColor(t.Accent)
-						})
-						if row.Clicked() && !creating {
-							ctl.mu.Lock()
-							ctl.creatingRoom = true
-							ctl.mu.Unlock()
-							go func() {
-								rm, err := ctl.store.OpenDirectRoom(context.Background(), act.ID)
-								ctl.store.EnqueueUI(func() {
-									ctl.mu.Lock()
-									ctl.creatingRoom = false
-									if err == nil {
-										ctl.newRoomOpen = false
-									}
-									ctl.mu.Unlock()
-									if err == nil {
-										ctl.OpenRoom(rm.ID)
-									}
+					components.GroupedCard(c, func() {
+						for idx, act := range snap.Actors {
+							act := act
+							if idx > 0 {
+								components.InsetDivider(c, 58)
+							}
+							row := ui.Row(c.Key("dm_"+act.ID)).FillWidth().MinHeight(56).Padding(10, 14).Gap(10).
+								Background(t.Surface).AlignItems(ui.Center).
+								Role(ui.RoleButton).Label(i18n.Tf("rooms.dm_a11y", map[string]any{"name": act.DisplayName}))
+							if row.Pressed() {
+								row.Background(t.SurfacePressed)
+							}
+							row.Children(func() {
+								components.AvatarBadge(c, act.DisplayName, 36)
+								ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
+									ui.Text(c, act.DisplayName).FontSize(14.5).FontWeight(600).TextColor(t.Text)
+									ui.Text(c, i18n.ActorRoleLabel(act.Kind)).FontSize(12).TextColor(t.TextMuted)
 								})
-							}()
+								theme.IconBox(c, 16, theme.Extra(t).TextSubtle, theme.IconChevronRight)
+							})
+							if row.Clicked() && !creating {
+								ctl.mu.Lock()
+								ctl.creatingRoom = true
+								ctl.mu.Unlock()
+								go func() {
+									rm, err := ctl.store.OpenDirectRoom(context.Background(), act.ID)
+									ctl.store.EnqueueUI(func() {
+										ctl.mu.Lock()
+										ctl.creatingRoom = false
+										if err == nil {
+											ctl.newRoomOpen = false
+										}
+										ctl.mu.Unlock()
+										if err == nil {
+											ctl.OpenRoom(rm.ID)
+										}
+									})
+								}()
+							}
 						}
-					}
+					})
 				}
 			})
 		})

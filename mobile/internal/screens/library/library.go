@@ -345,8 +345,8 @@ func (s *Screen) View(c *ui.Context) {
 	s.mu.Unlock()
 
 	ui.Column(c).Fill().Background(t.Background).Children(func() {
-		// Persistent Global Search bar + segment switcher
-		ui.Column(c).FillWidth().Padding(10, 14, 8, 14).Gap(8).Shrink(0).Children(func() {
+		// Seamless editorial Global Search bar + segment switcher.
+		ui.Column(c).FillWidth().Padding(8, 14, 6, 14).Gap(8).Shrink(0).Children(func() {
 			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
 				sf := ui.SearchField(c, &s.searchQuery).Grow(1).Basis(0).
 					Placeholder(i18n.T("library.search.placeholder")).
@@ -357,8 +357,8 @@ func (s *Screen) View(c *ui.Context) {
 				if sf.Submitted() {
 					s.submitLiveSearch()
 				}
-				searchBtn := components.PrimaryTouchButton(c, i18n.T("library.search.btn"), s.searchBusy || strings.TrimSpace(s.searchQuery) == "")
-				searchBtn.Shrink(0)
+				searchBtn := components.CompactPrimaryButton(c, i18n.T("library.search.btn"), nil, s.searchBusy || strings.TrimSpace(s.searchQuery) == "")
+				searchBtn.MinHeight(38)
 				if searchBtn.Clicked() {
 					s.submitLiveSearch()
 				}
@@ -378,7 +378,8 @@ func (s *Screen) View(c *ui.Context) {
 					if loading {
 						refLabel = i18n.T("common.syncing")
 					}
-					refBtn := components.SecondaryTouchButton(c, refLabel, loading)
+					refBtn := components.CompactSecondaryButton(c, refLabel, theme.IconRefresh, loading)
+					refBtn.MinHeight(40)
 					if refBtn.Clicked() {
 						go s.Refresh(context.Background())
 					}
@@ -391,7 +392,6 @@ func (s *Screen) View(c *ui.Context) {
 				})
 			}
 		})
-		ui.Divider(c)
 
 		if strings.TrimSpace(s.searchQuery) != "" {
 			s.viewGlobalSearchResults(c)
@@ -430,29 +430,11 @@ var searchFilterKeys = []string{
 }
 
 func (s *Screen) viewSearchFilterChips(c *ui.Context) {
-	t := c.Theme()
-	ui.ScrollHorizontal(c).FillWidth().Children(func() {
-		ui.Row(c).Gap(6).Role(ui.RoleTabList).Children(func() {
-			for i, key := range searchFilterKeys {
-				lbl := i18n.T(key)
-				on := s.searchFilter == i
-				bg := theme.Extra(t).MutedBg
-				fg := t.TextMuted
-				if on {
-					bg = t.Accent
-					fg = t.AccentText
-				}
-				chip := ui.Row(c.Key(i)).MinHeight(34).PaddingX(12).Radius(999).Background(bg).
-					AlignItems(ui.Center).Shrink(0).Role(ui.RoleTab).Label(lbl).Checked(on)
-				chip.Children(func() {
-					ui.Text(c, lbl).FontSize(12).FontWeight(600).TextColor(fg).NoWrap()
-				})
-				if chip.Clicked() {
-					s.searchFilter = i
-				}
-			}
-		})
-	})
+	labels := make([]string, len(searchFilterKeys))
+	for i, k := range searchFilterKeys {
+		labels[i] = i18n.T(k)
+	}
+	components.FilterPillBar(c, &s.searchFilter, labels...)
 }
 
 func (s *Screen) runLocalFTS5Search(q string) {
@@ -653,9 +635,13 @@ func (s *Screen) viewGlobalSearchResults(c *ui.Context) {
 				hit := hit
 				kindLabel := i18n.SearchSourceLabel(hit.Kind)
 				srcLabel := i18n.SearchSourceLabel(hit.Source)
-				row := ui.Column(c.Key(hit.ID)).FillWidth().Padding(12, 12).Gap(5).
-					Radius(12).Background(t.Surface).Border(1, t.Border).
+				row := ui.Column(c.Key(hit.ID)).FillWidth().Padding(13, 14).Gap(6).
+					Radius(16).Background(t.Surface).
 					Role(ui.RoleButton).Label(kindLabel + " " + hit.Title)
+				components.ApplyCardElevation(row, t)
+				if row.Pressed() {
+					row.Background(t.SurfacePressed)
+				}
 				row.Children(func() {
 					ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
 						ui.Text(c, hit.Title).FontSize(14).FontWeight(600).TextColor(t.Text).Grow(1).Basis(0).MaxLines(1)
