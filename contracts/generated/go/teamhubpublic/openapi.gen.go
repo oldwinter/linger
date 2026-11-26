@@ -1919,6 +1919,27 @@ func (e HerdrCoreTerminalState) Valid() bool {
 	}
 }
 
+// Defines values for HerdrCoreTerminalSendRequestIf.
+const (
+	HerdrCoreTerminalSendRequestIfBlocked HerdrCoreTerminalSendRequestIf = "blocked"
+	HerdrCoreTerminalSendRequestIfIdle    HerdrCoreTerminalSendRequestIf = "idle"
+	HerdrCoreTerminalSendRequestIfWorking HerdrCoreTerminalSendRequestIf = "working"
+)
+
+// Valid indicates whether the value is a known member of the HerdrCoreTerminalSendRequestIf enum.
+func (e HerdrCoreTerminalSendRequestIf) Valid() bool {
+	switch e {
+	case HerdrCoreTerminalSendRequestIfBlocked:
+		return true
+	case HerdrCoreTerminalSendRequestIfIdle:
+		return true
+	case HerdrCoreTerminalSendRequestIfWorking:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for HerdrCoreTerminalStatusState.
 const (
 	HerdrCoreTerminalStatusStateBlocked HerdrCoreTerminalStatusState = "blocked"
@@ -4303,19 +4324,19 @@ func (e SystemTelemetryThermalState) Valid() bool {
 
 // Defines values for TaskAttemptSummaryStatus.
 const (
-	TaskAttemptSummaryStatusPassed  TaskAttemptSummaryStatus = "passed"
-	TaskAttemptSummaryStatusRunning TaskAttemptSummaryStatus = "running"
-	TaskAttemptSummaryStatusStopped TaskAttemptSummaryStatus = "stopped"
+	Passed  TaskAttemptSummaryStatus = "passed"
+	Running TaskAttemptSummaryStatus = "running"
+	Stopped TaskAttemptSummaryStatus = "stopped"
 )
 
 // Valid indicates whether the value is a known member of the TaskAttemptSummaryStatus enum.
 func (e TaskAttemptSummaryStatus) Valid() bool {
 	switch e {
-	case TaskAttemptSummaryStatusPassed:
+	case Passed:
 		return true
-	case TaskAttemptSummaryStatusRunning:
+	case Running:
 		return true
-	case TaskAttemptSummaryStatusStopped:
+	case Stopped:
 		return true
 	default:
 		return false
@@ -7635,13 +7656,21 @@ type HerdrCoreTerminalResponse struct {
 
 // HerdrCoreTerminalSendRequest defines model for HerdrCoreTerminalSendRequest.
 type HerdrCoreTerminalSendRequest struct {
-	Address string  `json:"address"`
-	Force   *bool   `json:"force,omitempty"`
-	If      *string `json:"if,omitempty"`
-	Text    string  `json:"text"`
-	Timeout *int    `json:"timeout,omitempty"`
-	Wait    *bool   `json:"wait,omitempty"`
+	Address string `json:"address"`
+	Force   *bool  `json:"force,omitempty"`
+
+	// If Optional precondition state guard. herdr-core v0.1.21 terminal.send accepts only "idle" and "working" directly; when "blocked" is requested, the Local Computer Daemon performs a terminal.get CAS check (state == "live", status.state == "blocked", and matching turn when provided) and calls terminal.send with force: true and no "if" field rather than forwarding if="blocked" to herdr-core.
+	If      *HerdrCoreTerminalSendRequestIf `json:"if,omitempty"`
+	Text    string                          `json:"text"`
+	Timeout *int                            `json:"timeout,omitempty"`
+
+	// Turn Optional expected terminal turn checked by the Daemon when if="blocked".
+	Turn *int64 `json:"turn,omitempty"`
+	Wait *bool  `json:"wait,omitempty"`
 }
+
+// HerdrCoreTerminalSendRequestIf Optional precondition state guard. herdr-core v0.1.21 terminal.send accepts only "idle" and "working" directly; when "blocked" is requested, the Local Computer Daemon performs a terminal.get CAS check (state == "live", status.state == "blocked", and matching turn when provided) and calls terminal.send with force: true and no "if" field rather than forwarding if="blocked" to herdr-core.
+type HerdrCoreTerminalSendRequestIf string
 
 // HerdrCoreTerminalSendResponse defines model for HerdrCoreTerminalSendResponse.
 type HerdrCoreTerminalSendResponse struct {

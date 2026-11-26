@@ -557,7 +557,7 @@ Arguments:
 Options:
   --text <value>  Text to send to the terminal.
   --file <value>  Read UTF-8 text to send from a file or - for stdin.
-  --if <value>  Require this OSC 7501 state before sending (for example idle or blocked).
+  --if <value>  Require this OSC 7501 state before sending: idle, working, or blocked (Daemon verifies blocked via terminal.get + force send).
   --force  Send even if the terminal appears busy.
   --wait  Wait for the triggered turn to progress or complete.
   --timeout <value>  Optional wait timeout in seconds.
@@ -568,7 +568,7 @@ Options:
   --operation-id <value>  Stable operation identity for recovery.
 ",
     "schema": "exit 0
-{"command":["computer","hc","send"],"description":"Send a text prompt or input line to a herdr-core terminal, optionally guarding on state or waiting for a turn.","read_only":false,"input_schema":{"type":"object","required":["address","text"],"properties":{"address":{"type":"string","minLength":1,"maxLength":256},"text":{"type":"string","minLength":1,"maxLength":65536},"if":{"type":"string","maxLength":64},"force":{"type":"boolean"},"wait":{"type":"boolean"},"timeout":{"type":"number","minimum":0.1}},"additionalProperties":false},"output_schema":{"type":"object","required":["computer_id","tool_name","result"],"properties":{"computer_id":{"type":"string"},"tool_name":{"type":"string"},"result":{"type":"object","additionalProperties":true}}},"cli":{"usage":["teamhub computer hc send <address> (--text <text> | --file <path>) [--if <state>] [--force] [--wait] [--timeout <seconds>]"],"arguments":["<address>"],"options":{"--text":{"description":"Text to send to the terminal."},"--file":{"description":"Read UTF-8 text to send from a file or - for stdin."},"--if":{"description":"Require this OSC 7501 state before sending (for example idle or blocked)."},"--force":{"description":"Send even if the terminal appears busy.","boolean":true},"--wait":{"description":"Wait for the triggered turn to progress or complete.","boolean":true},"--timeout":{"description":"Optional wait timeout in seconds."},"--json":{"description":"Return machine-readable JSON.","boolean":true},"--help":{"description":"Show this offline command reference.","boolean":true},"-h":{"description":"Show help.","boolean":true},"--schema":{"description":"Show offline input and output schemas.","boolean":true},"--operation-id":{"description":"Stable operation identity for recovery."}},"notes":[]}}
+{"command":["computer","hc","send"],"description":"Send a text prompt or input line to a herdr-core terminal, optionally guarding on state or waiting for a turn.","read_only":false,"input_schema":{"type":"object","required":["address","text"],"properties":{"address":{"type":"string","minLength":1,"maxLength":256},"text":{"type":"string","minLength":1,"maxLength":65536},"if":{"enum":["idle","working","blocked"]},"force":{"type":"boolean"},"wait":{"type":"boolean"},"timeout":{"type":"number","minimum":0.1}},"additionalProperties":false},"output_schema":{"type":"object","required":["computer_id","tool_name","result"],"properties":{"computer_id":{"type":"string"},"tool_name":{"type":"string"},"result":{"type":"object","additionalProperties":true}}},"cli":{"usage":["teamhub computer hc send <address> (--text <text> | --file <path>) [--if <state>] [--force] [--wait] [--timeout <seconds>]"],"arguments":["<address>"],"options":{"--text":{"description":"Text to send to the terminal."},"--file":{"description":"Read UTF-8 text to send from a file or - for stdin."},"--if":{"description":"Require this OSC 7501 state before sending: idle, working, or blocked (Daemon verifies blocked via terminal.get + force send)."},"--force":{"description":"Send even if the terminal appears busy.","boolean":true},"--wait":{"description":"Wait for the triggered turn to progress or complete.","boolean":true},"--timeout":{"description":"Optional wait timeout in seconds."},"--json":{"description":"Return machine-readable JSON.","boolean":true},"--help":{"description":"Show this offline command reference.","boolean":true},"-h":{"description":"Show help.","boolean":true},"--schema":{"description":"Show offline input and output schemas.","boolean":true},"--operation-id":{"description":"Stable operation identity for recovery."}},"notes":[]}}
 ",
   },
   "computer hc status": {
@@ -4768,7 +4768,7 @@ Arguments:
 Options:
   --text <value>  Text to send to the terminal.
   --file <value>  Read UTF-8 text to send from a file or - for stdin.
-  --if <value>  Require this OSC 7501 state before sending (for example idle or blocked).
+  --if <value>  Require this OSC 7501 state before sending: idle, working, or blocked (Daemon verifies blocked via terminal.get + force send).
   --force  Send even if the terminal appears busy.
   --wait  Wait for the triggered turn to progress or complete.
   --timeout <value>  Optional wait timeout in seconds.

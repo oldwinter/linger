@@ -16,7 +16,13 @@ import type {
   RunnerGatewayControllers,
 } from "./runner-gateway-context.js";
 
-/** Allowlisted herdr_core tools callable via REST and Agent Business API. */
+/**
+ * Allowlisted herdr_core tools callable via REST and Agent Business API.
+ * Note: herdr-core v0.1.21 terminal.send accepts only "idle" | "working" in its
+ * own "if" parameter, so the Local Computer Daemon handles both send(if="blocked")
+ * and answer (answer_text / answer_keys) via terminal.get CAS followed by
+ * terminal.send(force: true, no "if") or terminal.keys.
+ */
 export const HERDR_CORE_TOOL_NAMES = [
   "status",
   "list",

@@ -4429,7 +4429,10 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** Send text input to one herdr-core terminal. */
+    /**
+     * Send text input to one herdr-core terminal.
+     * @description Forwards text input to the Local Computer Daemon's herdr_core send tool. When if="blocked" is specified, the Daemon validates liveness, blocked status, and optional turn via terminal.get and invokes terminal.send with force: true and no "if" field, because herdr-core v0.1.21 terminal.send only accepts "idle" and "working" in its own "if" parameter.
+     */
     post: operations["sendHerdrCoreTerminalText"];
     delete?: never;
     options?: never;
@@ -9670,7 +9673,16 @@ export interface components {
     HerdrCoreTerminalSendRequest: {
       address: string;
       text: string;
-      if?: string;
+      /**
+       * @description Optional precondition state guard. herdr-core v0.1.21 terminal.send accepts only "idle" and "working" directly; when "blocked" is requested, the Local Computer Daemon performs a terminal.get CAS check (state == "live", status.state == "blocked", and matching turn when provided) and calls terminal.send with force: true and no "if" field rather than forwarding if="blocked" to herdr-core.
+       * @enum {string}
+       */
+      if?: "idle" | "working" | "blocked";
+      /**
+       * Format: int64
+       * @description Optional expected terminal turn checked by the Daemon when if="blocked".
+       */
+      turn?: number;
       force?: boolean;
       wait?: boolean;
       timeout?: number;

@@ -501,18 +501,30 @@ func (a *App) createHerdrCoreTerminal(c *gin.Context) {
 	writeHerdrCoreJSON(c, http.StatusCreated, result)
 }
 
-func (a *App) sendHerdrCoreTerminalText(c *gin.Context) {
-	var request httpapi.HerdrCoreTerminalSendRequest
-	if err := decodeJSON(c, &request); err != nil || strings.TrimSpace(request.Address) == "" {
-		a.writeError(c, http.StatusBadRequest, "INVALID_REQUEST", "address and text are required")
-		return
+func buildHerdrCoreSendArgs(request httpapi.HerdrCoreTerminalSendRequest) (map[string]any, int, string) {
+	address := strings.TrimSpace(request.Address)
+	if address == "" {
+		return nil, 0, "address and text are required"
 	}
 	args := map[string]any{
-		"address": strings.TrimSpace(request.Address),
+		"address": address,
 		"text":    request.Text,
 	}
 	if request.If != nil {
-		args["if"] = *request.If
+		if !request.If.Valid() {
+			return nil, 0, "if must be one of idle, working, or blocked"
+		}
+		// herdr-core v0.1.21 terminal.send accepts only "idle" and "working" in
+		// its own "if" parameter; passing "blocked" here routes to the Daemon,
+		// which performs terminal.get CAS (live + blocked + optional turn) and
+		// invokes terminal.send with force=true and no "if" field.
+		args["if"] = string(*request.If)
+	}
+	if request.Turn != nil {
+		if *request.Turn < 0 {
+			return nil, 0, "turn must be non-negative"
+		}
+		args["turn"] = *request.Turn
 	}
 	if request.Force != nil {
 		args["force"] = *request.Force
@@ -523,13 +535,26 @@ func (a *App) sendHerdrCoreTerminalText(c *gin.Context) {
 	deadlineMs := 0
 	if request.Timeout != nil {
 		if *request.Timeout < 0 || *request.Timeout > 120_000 {
-			a.writeError(c, http.StatusBadRequest, "INVALID_REQUEST", "timeout must be between 0 and 120000")
-			return
+			return nil, 0, "timeout must be between 0 and 120000"
 		}
 		args["timeout"] = *request.Timeout
 		if *request.Timeout >= 1000 {
 			deadlineMs = *request.Timeout
 		}
+	}
+	return args, deadlineMs, ""
+}
+
+func (a *App) sendHerdrCoreTerminalText(c *gin.Context) {
+	var request httpapi.HerdrCoreTerminalSendRequest
+	if err := decodeJSON(c, &request); err != nil {
+		a.writeError(c, http.StatusBadRequest, "INVALID_REQUEST", "address and text are required")
+		return
+	}
+	args, deadlineMs, invalidReason := buildHerdrCoreSendArgs(request)
+	if invalidReason != "" {
+		a.writeError(c, http.StatusBadRequest, "INVALID_REQUEST", invalidReason)
+		return
 	}
 	result, ok := a.callOwnerHerdrCore(c, "send", args, deadlineMs)
 	if !ok {
@@ -1068,6 +1093,15 @@ func (a *App) callAgentHerdrCore(c *gin.Context) {
 	if request.Arguments == nil {
 		request.Arguments = map[string]any{}
 	}
+	if request.ToolName == agentapi.HerdrCoreToolNameSend {
+		if rawIf, hasIf := request.Arguments["if"]; hasIf && rawIf != nil {
+			ifStr, ok := rawIf.(string)
+			if !ok || !httpapi.HerdrCoreTerminalSendRequestIf(ifStr).Valid() {
+				a.writeAgentAPIError(c, http.StatusBadRequest, agentapi.AgentApiErrorCodeInvalidToolArguments, "send argument if must be one of idle, working, or blocked")
+				return
+			}
+		}
+	}
 	if request.DeadlineMs != nil && (*request.DeadlineMs < 1000 || *request.DeadlineMs > 120000) {
 		a.writeAgentAPIError(c, http.StatusBadRequest, agentapi.AgentApiErrorCodeInvalidInput, "deadline_ms must be between 1000 and 120000")
 		return
@@ -1165,7 +1199,11 @@ func (a *App) callAgentHerdrCore(c *gin.Context) {
 }
 
 // deliverHerdrCoreAnswer delivers an owner's herdr-core question card answer
-// (either keys or text) through the Computer and classifies the result.
+// (either keys via answer_keys or text via answer_text) through the Computer
+// and classifies the result. The Daemon handles herdr_core/answer by verifying
+// terminal.get (state == "live", status.state == "blocked", turn == expected)
+// and then invoking terminal.keys (for keys) or terminal.send with force=true
+// and no "if" field (for text, since herdr-core v0.1.21 rejects if="blocked").
 func (a *App) deliverHerdrCoreAnswer(ctx context.Context, delivery typedcard.HerdrCoreDelivery) string {
 	tools, supported := a.localComputers.(roomagent.LocalComputerTools)
 	if !supported || tools == nil {

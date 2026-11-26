@@ -294,6 +294,12 @@ terminalSend:
     tags: [Herdr Core]
     operationId: sendHerdrCoreTerminalText
     summary: Send text input to one herdr-core terminal.
+    description: >-
+      Forwards text input to the Local Computer Daemon's herdr_core send tool.
+      When if="blocked" is specified, the Daemon validates liveness, blocked
+      status, and optional turn via terminal.get and invokes terminal.send with
+      force: true and no "if" field, because herdr-core v0.1.21 terminal.send
+      only accepts "idle" and "working" in its own "if" parameter.
     requestBody:
       required: true
       content:

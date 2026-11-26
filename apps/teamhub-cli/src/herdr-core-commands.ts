@@ -33,6 +33,7 @@ const validTerminalStatuses = new Set([
   "blocked",
   "error",
 ]);
+const validSendIfStates = new Set(["idle", "working", "blocked"]);
 
 function invalid(message: string): never {
   throw new CliError("usage", message);
@@ -476,7 +477,7 @@ const hcSend = callCommand({
     },
     "--if": {
       description:
-        "Require this OSC 7501 state before sending (for example idle or blocked).",
+        "Require this OSC 7501 state before sending: idle, working, or blocked (Daemon verifies blocked via terminal.get + force send).",
     },
     "--force": {
       description: "Send even if the terminal appears busy.",
@@ -495,7 +496,7 @@ const hcSend = callCommand({
     properties: {
       address: { type: "string", minLength: 1, maxLength: maxAddressLength },
       text: { type: "string", minLength: 1, maxLength: 65536 },
-      if: { type: "string", maxLength: 64 },
+      if: { enum: ["idle", "working", "blocked"] },
       force: { type: "boolean" },
       wait: { type: "boolean" },
       timeout: { type: "number", minimum: 0.1 },
@@ -509,7 +510,11 @@ const hcSend = callCommand({
     if (!text) invalid("Provide non-empty --text or --file.");
     const out: Record<string, unknown> = { address, text };
     const ifState = option(args, "--if")?.trim();
-    if (ifState) out.if = ifState;
+    if (ifState !== undefined) {
+      if (!validSendIfStates.has(ifState))
+        invalid("--if must be one of idle, working, or blocked.");
+      out.if = ifState;
+    }
     if (option(args, "--force") !== undefined) out.force = true;
     if (option(args, "--wait") !== undefined) out.wait = true;
     const timeout = parsePositiveNumber(option(args, "--timeout"), "--timeout");

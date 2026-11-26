@@ -8,11 +8,14 @@ ask:
       Only the Computer owner's AnotherMe may ask, and only about a terminal
       state (address, turn, status_ms) that the Computer reported as blocked.
       TeamHub posts a question card bound to that terminal state for the owner.
-      When the owner answers, TeamHub delivers either the chosen option's keys
-      sequence or the chosen/typed text once, and only while the terminal is
-      still blocked on that state; the asking Agent then hears the answer and
-      whether it was delivered. Asking again about the same state returns the
-      same card.
+      When the owner answers, TeamHub dispatches the computer_tool herdr_core
+      answer call so the Daemon verifies terminal.get (state == "live",
+      status.state == "blocked", turn == expected) and delivers either the
+      chosen option's keys sequence (terminal.keys) or the chosen/typed text
+      (terminal.send with force: true and no "if" field, since herdr-core
+      v0.1.21 terminal.send rejects if="blocked") once; the asking Agent then
+      hears the answer and whether it was delivered. Asking again about the
+      same state returns the same card.
     requestBody:
       required: true
       content:

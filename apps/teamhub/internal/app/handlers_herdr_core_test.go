@@ -207,6 +207,47 @@ func TestDeliverHerdrCoreAnswerDispatchesKeysOrText(t *testing.T) {
 	}
 }
 
+func TestBuildHerdrCoreSendArgsAcceptsBlockedAndRejectsUnknownIf(t *testing.T) {
+	blocked := httpapi.HerdrCoreTerminalSendRequestIfBlocked
+	turn := int64(7)
+	args, deadlineMs, reason := buildHerdrCoreSendArgs(httpapi.HerdrCoreTerminalSendRequest{
+		Address: "vps/t7",
+		Text:    "yes",
+		If:      &blocked,
+		Turn:    &turn,
+	})
+	if reason != "" || deadlineMs != 0 {
+		t.Fatalf("unexpected error=%q deadlineMs=%d", reason, deadlineMs)
+	}
+	if args["if"] != "blocked" || args["turn"] != int64(7) {
+		t.Fatalf("args=%+v", args)
+	}
+
+	for _, state := range []httpapi.HerdrCoreTerminalSendRequestIf{
+		httpapi.HerdrCoreTerminalSendRequestIfIdle,
+		httpapi.HerdrCoreTerminalSendRequestIfWorking,
+		httpapi.HerdrCoreTerminalSendRequestIfBlocked,
+	} {
+		s := state
+		if _, _, reason := buildHerdrCoreSendArgs(httpapi.HerdrCoreTerminalSendRequest{
+			Address: "t7",
+			Text:    "ok",
+			If:      &s,
+		}); reason != "" {
+			t.Fatalf("expected %q to be accepted, got %q", state, reason)
+		}
+	}
+
+	invalid := httpapi.HerdrCoreTerminalSendRequestIf("done")
+	if _, _, reason := buildHerdrCoreSendArgs(httpapi.HerdrCoreTerminalSendRequest{
+		Address: "t7",
+		Text:    "ok",
+		If:      &invalid,
+	}); reason == "" {
+		t.Fatal("expected unknown if state to be rejected")
+	}
+}
+
 func TestProxyWebSocketsForwardsBinaryAndTextFrames(t *testing.T) {
 	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -317,7 +317,19 @@ components:
           maxLength: 32768
         if:
           type: string
-          maxLength: 256
+          enum: [idle, working, blocked]
+          description: >-
+            Optional precondition state guard. herdr-core v0.1.21 terminal.send
+            accepts only "idle" and "working" directly; when "blocked" is
+            requested, the Local Computer Daemon performs a terminal.get CAS
+            check (state == "live", status.state == "blocked", and matching
+            turn when provided) and calls terminal.send with force: true and no
+            "if" field rather than forwarding if="blocked" to herdr-core.
+        turn:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Optional expected terminal turn checked by the Daemon when if="blocked".
         force:
           type: boolean
         wait:

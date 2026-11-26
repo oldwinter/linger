@@ -249,4 +249,36 @@ describe("computer hc commands", () => {
       },
     });
   });
+
+  it("accepts idle, working, and blocked on --if and rejects unknown states before HTTP", async () => {
+    const f = fixture();
+    expect(
+      await runCli(
+        [
+          "computer",
+          "hc",
+          "send",
+          "vps/t7",
+          "--text",
+          "yes",
+          "--if",
+          "blocked",
+        ],
+        f.deps,
+      ),
+    ).toBe(0);
+    expect(f.calls[0]!.body).toMatchObject({
+      tool_name: "send",
+      arguments: { address: "vps/t7", text: "yes", if: "blocked" },
+    });
+
+    const bad = fixture();
+    expect(
+      await runCli(
+        ["computer", "hc", "send", "vps/t7", "--text", "yes", "--if", "bogus"],
+        bad.deps,
+      ),
+    ).toBe(2);
+    expect(bad.calls).toEqual([]);
+  });
 });
