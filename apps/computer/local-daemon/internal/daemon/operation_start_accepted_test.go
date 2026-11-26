@@ -429,3 +429,95 @@ func TestOperationStartAcceptanceSendFailureKeepsOperationAdmitted(t *testing.T)
 		}
 	}
 }
+
+// Replays the cross-process crash path: Daemon 1 admits op1 on epoch 1 and
+// crashes before operation.accepted reaches the Gateway. Restarted Daemon 2
+// connects at epoch 2 with an empty MemoryLedger; receiving the unrebased
+// epoch-1 operation.start must emit DAEMON_RESTARTED and never run native
+// execution a second time.
+func TestRestartedDaemonRejectsUnacceptedOperationFromEarlierEpochWithoutDuplicateExecution(t *testing.T) {
+	providerRelease1 := make(chan struct{})
+	providerRelease2 := make(chan struct{})
+	started1 := make(chan struct{}, 8)
+	started2 := make(chan struct{}, 8)
+
+	daemon1, _ := acceptedStartDaemon(t, newBlockingBinder("unused", nil), started1, providerRelease1)
+	daemon1.welcomeSeen = true
+	daemon1.connectionEpoch = 1
+	daemon1.recordWelcomedEpoch(1)
+
+	deadStream := &acceptedSendFailingStream{fakeStream: &fakeStream{}}
+	start := daemonOperationStart("operation-crash-before-accept", "agent-1")
+	start.ConnectionEpoch = 1
+
+	// Daemon 1 admits the Operation and starts native execution, but fails delivering accepted.
+	if err := daemon1.handleOperationStart(context.Background(), deadStream, start); err == nil {
+		t.Fatal("expected acceptance delivery failure on first connection")
+	}
+	awaitProviderStarts(t, started1, 1)
+	close(providerRelease1)
+	daemon1.WaitForOperations()
+
+	// Daemon 2 boots fresh with an empty MemoryLedger and is welcomed at connection_epoch 2.
+	daemon2, stream2 := acceptedStartDaemon(t, newBlockingBinder("unused", nil), started2, providerRelease2)
+	daemon2.welcomeSeen = true
+	daemon2.connectionEpoch = 2
+	daemon2.recordWelcomedEpoch(2)
+
+	// Gateway resends the original epoch-1 start without rebasing connection_epoch.
+	if err := daemon2.handleOperationStart(context.Background(), stream2, start); err != nil {
+		t.Fatalf("daemon2 handleOperationStart: %v", err)
+	}
+	daemon2.WaitForOperations()
+	assertNoProviderStart(t, started2)
+
+	failed := awaitAcceptedOperationEvent(t, stream2, start.OperationID, protocol.EventOperationFailed)
+	if failed.ConnectionEpoch != 1 || failed.Sequence != 1 {
+		t.Fatalf("failed event identity=%+v, want epoch=1 seq=1", failed)
+	}
+	var payload struct {
+		Code      string `json:"code"`
+		Retryable bool   `json:"retryable"`
+	}
+	if err := json.Unmarshal(failed.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Code != "DAEMON_RESTARTED" || payload.Retryable {
+		t.Fatalf("failed payload=%+v, want DAEMON_RESTARTED non-retryable", payload)
+	}
+}
+
+// When the same Daemon process reconnects at epoch 2 after never receiving an
+// epoch-1 operation.start, the unrebased start returns retryable EXECUTION_NOT_ADMITTED.
+func TestSameDaemonRejectsUnreceivedStartFromEarlierEpochAsRetryableNotAdmitted(t *testing.T) {
+	providerRelease := make(chan struct{})
+	started := make(chan struct{}, 8)
+	d, stream := acceptedStartDaemon(t, newBlockingBinder("unused", nil), started, providerRelease)
+	d.recordWelcomedEpoch(1)
+	d.welcomeSeen = true
+	d.connectionEpoch = 2
+	d.recordWelcomedEpoch(2)
+
+	start := daemonOperationStart("operation-lost-in-transit", "agent-1")
+	start.ConnectionEpoch = 1
+	if err := d.handleOperationStart(context.Background(), stream, start); err != nil {
+		t.Fatalf("handleOperationStart: %v", err)
+	}
+	d.WaitForOperations()
+	assertNoProviderStart(t, started)
+
+	failed := awaitAcceptedOperationEvent(t, stream, start.OperationID, protocol.EventOperationFailed)
+	if failed.ConnectionEpoch != 1 || failed.Sequence != 1 {
+		t.Fatalf("failed event identity=%+v, want epoch=1 seq=1", failed)
+	}
+	var payload struct {
+		Code      string `json:"code"`
+		Retryable bool   `json:"retryable"`
+	}
+	if err := json.Unmarshal(failed.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Code != "EXECUTION_NOT_ADMITTED" || !payload.Retryable {
+		t.Fatalf("failed payload=%+v, want EXECUTION_NOT_ADMITTED retryable", payload)
+	}
+}

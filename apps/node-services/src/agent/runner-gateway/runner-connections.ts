@@ -424,8 +424,7 @@ export class RunnerConnections {
     };
     this.#connections.set(hello.runner_id, connection);
     if (previous?.connected) {
-      this.owners.capabilities().rejectConnectionWaiters(previous);
-      this.owners.localModels().disconnected(previous);
+      this.#cleanupConnectionWaiters(previous);
       this.#clearHeartbeat(previous);
       previous.connected = false;
       previous.peer.close(1012, "Runner connection replaced");
@@ -1096,34 +1095,39 @@ export class RunnerConnections {
     return model;
   }
 
-  disconnect(connection: ConnectedRunner): void {
+  #cleanupConnectionWaiters(connection: ConnectedRunner): void {
     this.owners.capabilities().rejectConnectionWaiters(connection);
     this.owners.localModels().disconnected(connection);
+    this.owners.computerTools().disconnected(connection);
+    this.owners.debug().rejectWaitersForConnection(connection);
+    this.owners.compaction().rejectWaitersForConnection(connection);
+    this.owners.cli().rejectCredentialWaitersForConnection(connection);
+    this.owners.modelInvocation().rejectInFlightForConnection(connection);
+  }
+
+  disconnect(connection: ConnectedRunner): void {
+    this.#cleanupConnectionWaiters(connection);
     this.#clearHeartbeat(connection);
     connection.connected = false;
-    this.owners.operations().wakeCapacityWaiters();
-    // A replaced connection's inputs were expired at its replacement; the
-    // current one may carry receipts still to come.
-    if (this.#connections.get(connection.runnerId) === connection) {
-      this.owners.operations().expireInputReceipts(connection.runnerId);
-      this.#connections.delete(connection.runnerId);
-      this.#lastDisconnectedAtMs.set(connection.runnerId, Date.now());
-      this.owners
-        .lifecycle()
-        .rejectAgentRunnerStateWaitersForComputer(connection.runnerId);
-      void this.context.computerRegistry
-        ?.touch(connection.runnerId, {
-          status: "offline",
-          seenAt: new Date().toISOString(),
-        })
-        .catch(() => undefined);
+    // A replaced connection's waiters and receipts belong only to that
+    // connection; the replacement connection owns the Computer's live state.
+    if (this.#connections.get(connection.runnerId) !== connection) {
+      return;
     }
-    this.owners.capabilities().rejectLocalSkillWaiters(connection.runnerId);
-    this.owners.debug().rejectWaitersForComputer(connection.runnerId);
-    this.owners.compaction().rejectWaitersForComputer(connection.runnerId);
+    this.owners.operations().wakeCapacityWaiters();
+    this.owners.operations().expireInputReceipts(connection.runnerId);
+    this.#connections.delete(connection.runnerId);
+    this.#lastDisconnectedAtMs.set(connection.runnerId, Date.now());
+    this.owners
+      .lifecycle()
+      .rejectAgentRunnerStateWaitersForComputer(connection.runnerId);
     this.owners.modelInvocation().rejectWaitersForComputer(connection.runnerId);
-    this.owners.computerTools().disconnected(connection);
-    this.owners.cli().rejectCredentialWaitersForComputer(connection.runnerId);
+    void this.context.computerRegistry
+      ?.touch(connection.runnerId, {
+        status: "offline",
+        seenAt: new Date().toISOString(),
+      })
+      .catch(() => undefined);
   }
 
   armHeartbeat(connection: ConnectedRunner): void {

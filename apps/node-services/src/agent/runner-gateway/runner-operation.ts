@@ -257,7 +257,7 @@ export const DEFAULT_STOPPED_TASK_GRACE_MS = 45_000;
  * is acknowledged once it is applied.
  */
 export class RunnerOperationState {
-  start: OperationStart;
+  readonly start: OperationStart;
   readonly #events = new AsyncValueQueue<RunEvent>();
   readonly #outcome = deferred<OperationResult>();
   readonly #pendingInputs = new Map<string, PendingInput>();
@@ -301,10 +301,6 @@ export class RunnerOperationState {
   #lastStartSentAt: number | undefined;
   #startSentCount = 0;
   #unacceptedStartResends = 0;
-  // Every connection epoch the start was sent with. A Daemon may report an
-  // Operation it recorded on an earlier connection, before the start was
-  // rebased, under that connection's epoch.
-  readonly #sentEpochs = new Set<number>();
   #inputReceiptTimer: ReturnType<typeof setTimeout> | undefined;
   #inputReceipts: Deferred<void> | undefined;
   #turnId: string | undefined;
@@ -401,7 +397,6 @@ export class RunnerOperationState {
     // Callers update Session checkpoints in place. Retain the original wire
     // command independently so reconnect never changes an admitted request.
     this.start = structuredClone({ ...start, ...operationIdentity(start) });
-    this.#sentEpochs.add(this.start.connection_epoch);
     this.#currentContextViewRef = this.start.context_view_ref;
   }
 
@@ -585,12 +580,15 @@ export class RunnerOperationState {
   }
 
   reconnectCommands(options?: {
-    readonly connectionEpoch: number;
     readonly retainedByDaemon: boolean;
   }): readonly AgentToDaemonEnvelope[] {
     if (this.#terminal) return [];
     // A Daemon that reports the Operation active still holds it and replays
     // its acceptance, so only a start it does not report counts as a re-send.
+    // Keep the original connection_epoch immutable across reconnects: the
+    // Daemon's stale-epoch guard uses it to replay retained records, return
+    // EXECUTION_NOT_ADMITTED when the same process never admitted it, or return
+    // DAEMON_RESTARTED after a crash instead of executing the Operation twice.
     if (options && !this.#accepted && !options.retainedByDaemon) {
       if (this.#unacceptedStartResends >= MAX_UNACCEPTED_START_RESENDS) {
         logAgentEvent("error", "runner.operation.outcome_unknown", {
@@ -611,9 +609,6 @@ export class RunnerOperationState {
         return [];
       }
       this.#unacceptedStartResends++;
-      if (this.start.connection_epoch !== options.connectionEpoch) {
-        this.#rebaseConnectionEpoch(options.connectionEpoch);
-      }
     }
     const commands: AgentToDaemonEnvelope[] = [
       this.start,
@@ -625,44 +620,6 @@ export class RunnerOperationState {
       commands.push(this.#cancelCommand);
     }
     return commands;
-  }
-
-  #rebaseConnectionEpoch(connectionEpoch: number): void {
-    const start = parseAgentToDaemonEnvelope({
-      ...this.start,
-      connection_epoch: connectionEpoch,
-    });
-    if (start.type !== "operation.start") {
-      throw new RunnerGatewayProtocolError(
-        "Failed to rebase pending Operation start",
-      );
-    }
-    this.start = start;
-    this.#sentEpochs.add(connectionEpoch);
-    for (const [commandId, pending] of this.#pendingInputs) {
-      const command = parseAgentToDaemonEnvelope({
-        ...pending.command,
-        connection_epoch: connectionEpoch,
-      });
-      if (command.type !== "operation.input") {
-        throw new RunnerGatewayProtocolError(
-          "Failed to rebase pending Operation input",
-        );
-      }
-      this.#pendingInputs.set(commandId, { ...pending, command });
-    }
-    if (this.#cancelCommand) {
-      const cancel = parseAgentToDaemonEnvelope({
-        ...this.#cancelCommand,
-        connection_epoch: connectionEpoch,
-      });
-      if (cancel.type !== "cancel" || cancel.target !== "operation") {
-        throw new RunnerGatewayProtocolError(
-          "Failed to rebase pending Operation cancellation",
-        );
-      }
-      this.#cancelCommand = cancel;
-    }
   }
 
   /** The Run's current queue priority; smaller goes first. */
@@ -801,15 +758,7 @@ export class RunnerOperationState {
   assertIdentity(
     value: ActiveOperation | OperationEnvelope | OperationInputClosed,
   ): void {
-    assertOperationIdentity(this.#identityAt(value.connection_epoch), value);
-  }
-
-  // The start's identity under an epoch it was sent with; any other epoch
-  // keeps the current one and so fails the identity check.
-  #identityAt(connectionEpoch: number): OperationStart {
-    return this.#sentEpochs.has(connectionEpoch)
-      ? { ...this.start, connection_epoch: connectionEpoch }
-      : this.start;
+    assertOperationIdentity(this.start, value);
   }
 
   async receive(
@@ -867,8 +816,7 @@ export class RunnerOperationState {
     apply = true,
   ): Promise<OperationAck> {
     this.assertIdentity(envelope);
-    const ack = (throughSequence: number) =>
-      this.#ack(throughSequence, envelope.connection_epoch);
+    const ack = (throughSequence: number) => this.#ack(throughSequence);
     // A restarted Daemon keeps no Operation: it numbers the terminal it
     // reports for one it lost from 1. This Operation has seen no terminal, so
     // the frame is not a replay; it ends the Operation.
@@ -1176,6 +1124,7 @@ export class RunnerOperationState {
           new RunnerOperationError("cancelled", message, false),
         ),
       );
+      this.#onSchedulingChange?.();
     }
   }
 
@@ -1300,14 +1249,8 @@ export class RunnerOperationState {
     settle();
   }
 
-  // A frame recorded under an earlier epoch of the start is acknowledged
-  // under that epoch, the identity the Daemon's ledger holds it by.
-  #ack(throughSequence: number, connectionEpoch: number): OperationAck {
-    return createOperationAck(
-      this.#identityAt(connectionEpoch),
-      this.#createId(),
-      throughSequence,
-    );
+  #ack(throughSequence: number): OperationAck {
+    return createOperationAck(this.start, this.#createId(), throughSequence);
   }
 }
 
