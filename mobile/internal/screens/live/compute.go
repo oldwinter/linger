@@ -127,6 +127,13 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 						ctl.scanSkillsAsync(snap.TenantID, comp.ComputerID)
 					}
 				})
+				if ctl.nav.OnOpenTerminals != nil {
+					termBtn := components.CompactSecondaryButton(c, i18n.T("terminals.live_entry_btn"), theme.IconTerminal, false)
+					termBtn.FillWidth().MinHeight(36)
+					if termBtn.Clicked() {
+						ctl.nav.OnOpenTerminals(comp.ComputerID)
+					}
+				}
 			})
 		}
 		ctl.mu.Lock()

@@ -440,6 +440,22 @@ export class ModelQueue {
         state.active += 1;
         if (nonBackground) state.activeNonBackground += 1;
         state.occupancy.record(this.now(), state.active);
+        this.#drain(state);
+        if (nonBackground) {
+          const currentPriority =
+            work.priority instanceof RunPriority
+              ? work.priority.value
+              : work.priority;
+          const confirmed = this.#limit(state.key, state.endpoint).value;
+          const cap = admissionLimit(confirmed, currentPriority);
+          if (state.active > cap) {
+            this.onInteractiveWait?.(
+              state.endpoint,
+              currentPriority,
+              state.active - cap,
+            );
+          }
+        }
       },
       release(outcome) {
         if (result) return;

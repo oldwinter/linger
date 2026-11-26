@@ -111,13 +111,15 @@ export function createDocumentRealtimeServer(
     },
   });
   const admission = new RealtimeAdmissionController(options.realtimeAdmission);
+  const ordering = new DocumentOrderingQueue();
   const sessions = new DocumentSessionManager({
     connectionTokenKey: options.connectionTokenKey,
     disconnects,
     durability,
+    ordering,
     bodies: options.bodies,
+    loadDeadlineMs: documentLoadDeadlineMs,
   });
-  const ordering = new DocumentOrderingQueue();
   const awareness = new DocumentAwarenessPolicy();
   const awarenessConnections = new Map<string, PendingRealtimeConnection>();
   const documentConnections = new Map<string, Set<PendingRealtimeConnection>>();
@@ -275,7 +277,7 @@ export function createDocumentRealtimeServer(
       }
       sendDurableAck(
         payload.context,
-        payload.context.durableHead,
+        durability.captureCommittedState(payload.documentName).head,
         durability.durableDeleteSetHash(payload.documentName),
         disconnects,
         (message) => payload.connection.sendStateless(message),

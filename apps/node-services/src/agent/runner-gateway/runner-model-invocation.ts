@@ -12,6 +12,7 @@ import { LocalComputerOfflineError } from "./local-computer-management.js";
 import type { ModelSignal } from "./adaptive-limit.js";
 import type { ModelEndpoint, ModelWork } from "./model-queue.js";
 import type {
+  ConnectedRunner,
   RunnerGatewayContext,
   RunnerGatewayControllers,
 } from "./runner-gateway-context.js";
@@ -230,6 +231,19 @@ export class RunnerModelInvocation {
       connections.sendToCurrentRunner(command).catch(() => undefined);
     }
     return alreadyYielding + candidates.length;
+  }
+
+  rejectInFlightForConnection(
+    connection: Pick<ConnectedRunner, "runnerId" | "connectionEpoch">,
+  ): void {
+    for (const [invokeId, call] of this.#inFlight) {
+      if (
+        call.runnerId !== connection.runnerId ||
+        call.connectionEpoch !== connection.connectionEpoch
+      )
+        continue;
+      this.#finish(invokeId, { error: new LocalComputerOfflineError() });
+    }
   }
 
   rejectWaitersForComputer(runnerId: string): void {

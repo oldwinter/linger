@@ -367,9 +367,15 @@ export class RunnerCliCredentials {
     }
   }
 
-  rejectCredentialWaitersForComputer(runnerId: string): void {
+  rejectCredentialWaitersForConnection(
+    connection: Pick<ConnectedRunner, "runnerId" | "connectionEpoch">,
+  ): void {
     for (const [commandId, waiter] of this.#agentCliCredentialWaiters) {
-      if (waiter.identity.runner_id !== runnerId) continue;
+      if (
+        waiter.identity.runner_id !== connection.runnerId ||
+        waiter.identity.connection_epoch !== connection.connectionEpoch
+      )
+        continue;
       this.#finishAgentCliCredential(commandId, {
         error: new LocalComputerOfflineError(),
       });

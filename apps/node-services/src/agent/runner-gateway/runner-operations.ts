@@ -490,16 +490,14 @@ export class RunnerOperations {
         ),
       );
       for (const operation of this.retainedOperations(connection.runnerId)) {
-        const wasTerminal = operation.terminal;
         for (const command of operation.reconnectCommands({
-          connectionEpoch: connection.connectionEpoch,
           retainedByDaemon: retainedByDaemon.has(operation.start.operation_id),
         })) {
           await this.owners.connections().send(connection, command);
         }
-        // An unaccepted start past its re-send bound ends here instead.
-        if (!wasTerminal && operation.terminal)
-          this.#retireOperation(operation);
+        // Retire any Operation that is now terminal, including an unaccepted
+        // start past its re-send bound or a local timeout.
+        if (operation.terminal) this.#retireOperation(operation);
       }
       for (const orphan of connection.reportedActiveOperations) {
         if (
@@ -673,9 +671,8 @@ export class RunnerOperations {
       return;
     }
     const wasYieldable = operation.yieldBlocker === undefined;
-    const previousPhase = operation.phase;
     const acknowledgement = await operation.receive(envelope);
-    if (!operation.terminal && operation.phase !== previousPhase) {
+    if (!operation.terminal) {
       const lease = this.#leases.get(operation.start.operation_id);
       if (operation.phase === "waiting_background") {
         lease?.suspend();

@@ -269,9 +269,15 @@ export class RunnerDebugInspection {
     else waiter.reject(result.error);
   }
 
-  rejectWaitersForComputer(runnerId: string): void {
+  rejectWaitersForConnection(
+    connection: Pick<ConnectedRunner, "runnerId" | "connectionEpoch">,
+  ): void {
     for (const [commandId, waiter] of this.#debugInspectionWaiters) {
-      if (waiter.command.runner_id !== runnerId) continue;
+      if (
+        waiter.command.runner_id !== connection.runnerId ||
+        waiter.command.connection_epoch !== connection.connectionEpoch
+      )
+        continue;
       this.#finishDebugInspection(commandId, {
         error: new LocalComputerOfflineError(),
       });

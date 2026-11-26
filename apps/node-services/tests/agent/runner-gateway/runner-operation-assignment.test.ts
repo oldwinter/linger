@@ -63,7 +63,6 @@ describe("Runner Operation Assignment identity", () => {
     target.contextViewRef.view_digest = "b".repeat(64);
     expect(
       operation.reconnectCommands({
-        connectionEpoch: 5,
         retainedByDaemon: true,
       }),
     ).toEqual([original]);
@@ -122,7 +121,6 @@ describe("Runner Operation Assignment identity", () => {
 
     expect(
       operation.reconnectCommands({
-        connectionEpoch: 5,
         retainedByDaemon: false,
       }),
     ).toEqual([]);

@@ -17,7 +17,8 @@ func (d *Daemon) handleOperationStart(ctx context.Context, stream transport.Stre
 	// only a retained Operation of this Context can hold it; its View stays.
 	viewStartedAt := time.Now()
 	var viewErr error
-	if len(command.ContextViewRef) > 0 && !d.contextHasActiveOperation(command) {
+	staleEpoch := d.welcomeSeen && command.ConnectionEpoch != d.connectionEpoch
+	if !staleEpoch && len(command.ContextViewRef) > 0 && !d.contextHasActiveOperation(command) {
 		viewErr = d.ensureContextView(ctx, command, command.ContextViewRef)
 	}
 	contextViewMs := time.Since(viewStartedAt).Milliseconds()
