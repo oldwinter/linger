@@ -564,6 +564,9 @@ func (s *Screen) viewWorkItemDetailSheet(c *ui.Context) {
 							if k.Key != ui.KeyEnter || composing || k.Mods != 0 {
 								return false
 							}
+							if s.detailBusy {
+								return true
+							}
 							txt := strings.TrimSpace(k.Text())
 							if txt == "" {
 								return true
@@ -931,7 +934,7 @@ func (s *Screen) removeWorkItemAssignee(wiID, actorID string) {
 func (s *Screen) addCommentAsync(wiID, body string) {
 	body = strings.TrimSpace(body)
 	client := s.client()
-	if client == nil || body == "" {
+	if client == nil || body == "" || s.detailBusy {
 		return
 	}
 	s.detailBusy = true
@@ -947,7 +950,9 @@ func (s *Screen) addCommentAsync(wiID, body string) {
 				}
 				return
 			}
-			s.commentDraft = ""
+			if strings.TrimSpace(s.commentDraft) == body {
+				s.commentDraft = ""
+			}
 			s.detailComments = append(s.detailComments, cm)
 		})
 	}()
@@ -1010,8 +1015,8 @@ func (s *Screen) viewDeleteCommentConfirm(c *ui.Context) {
 		return
 	}
 	preview := strings.TrimSpace(cm.Body)
-	if len(preview) > 80 {
-		preview = preview[:77] + "..."
+	if runes := []rune(preview); len(runes) > 80 {
+		preview = string(runes[:77]) + "..."
 	}
 	wiID := s.commentDelWorkItemID
 	cmID := cm.ID

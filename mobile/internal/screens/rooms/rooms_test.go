@@ -223,6 +223,170 @@ func TestChatSendFailurePreservesDraftAttachmentsAndReply(t *testing.T) {
 	}
 }
 
+func TestChatInFlightSendPreservesNewerDraftAndUploadsAcrossRooms(t *testing.T) {
+	srv, store, ctl := setupRoomsHarness(t)
+	if err := store.LoadRoomMessages(context.Background(), "room_general", false); err != nil {
+		t.Fatalf("LoadRoomMessages room_general: %v", err)
+	}
+	if err := store.LoadRoomMessages(context.Background(), "room_ops", false); err != nil {
+		t.Fatalf("LoadRoomMessages room_ops: %v", err)
+	}
+
+	router := ui.NewRouter("/rooms/room_general")
+	view := func(c *ui.Context) {
+		c.SetTheme(theme.TownLight())
+		ui.Column(c).Fill().Background(c.Theme().Background).Children(func() {
+			router.View(c, func(r *ui.Route) {
+				ctl.Route(c, r, store.Snapshot())
+			})
+		})
+	}
+	tt := testutil.NewPhoneTester(view, testutil.StandardMobileViewports[1])
+	tt.Frame()
+
+	// Hold POST /messages in flight while user types a follow-up message and adds a new attachment.
+	gate := make(chan struct{})
+	srv.SetMessageSendGate(gate)
+
+	store.SetDraft("room_general", "First message in flight")
+	ctl.SetPendingUploadsForTest("room_general", []api.MessageAttachmentUpload{
+		{ID: "up_first", Filename: "first.pdf"},
+	})
+	tt.Frame()
+	if err := tt.Click("Send"); err != nil {
+		close(gate)
+		t.Fatalf("click Send in room_general: %v", err)
+	}
+	tt.Frame()
+
+	// While first send is in flight, user starts composing a second message and attaches a new file.
+	store.SetDraft("room_general", "Second draft typed during send")
+	ctl.SetPendingUploadsForTest("room_general", []api.MessageAttachmentUpload{
+		{ID: "up_first", Filename: "first.pdf"},
+		{ID: "up_second", Filename: "second.pdf"},
+	})
+
+	// Switch to room_ops and send independently without disturbing room_general's lock.
+	router.Replace("/rooms/room_ops")
+	store.SetDraft("room_ops", "Independent ops ping")
+	tt.Frame()
+	if err := tt.Click("Send"); err != nil {
+		close(gate)
+		t.Fatalf("click Send in room_ops: %v", err)
+	}
+	tt.Frame()
+
+	// Release both sends and verify room_general's newer draft and new upload survived intact!
+	close(gate)
+	srv.SetMessageSendGate(nil)
+
+	router.Replace("/rooms/room_general")
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		tt.Frame()
+		if !tt.HasText("first.pdf") && store.GetDraft("room_ops") == "" {
+			break
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	if got := store.GetDraft("room_general"); got != "Second draft typed during send" {
+		t.Fatalf("in-flight send clobbered newer draft: got %q", got)
+	}
+	if tt.HasText("first.pdf") {
+		t.Fatal("submitted upload first.pdf should be cleared on send success")
+	}
+	if !tt.HasText("second.pdf") {
+		t.Fatalf("newer upload second.pdf added during send was clobbered, texts=%v", tt.Texts())
+	}
+	if got := store.GetDraft("room_ops"); got != "" {
+		t.Fatalf("expected room_ops draft cleared after send, got %q", got)
+	}
+}
+
+func TestRunWatchBackgroundTaskCancelRequiresConfirmation(t *testing.T) {
+	srv, store, ctl := setupRoomsHarness(t)
+	if err := store.SyncRunPresentation(context.Background(), "room_general", "run_1"); err != nil {
+		t.Fatalf("SyncRunPresentation: %v", err)
+	}
+
+	view := func(c *ui.Context) {
+		c.SetTheme(theme.TownLight())
+		ui.Column(c).Fill().Background(c.Theme().Background).Children(func() {
+			ctl.ViewRunWatch(c, store.Snapshot(), "room_general", "run_1")
+		})
+	}
+	tt := testutil.NewPhoneTester(view, testutil.StandardMobileViewports[1])
+	tt.Frame()
+
+	if err := tt.Click("Background Tasks"); err != nil {
+		t.Fatalf("click Background Tasks: %v", err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		tt.Frame()
+		tt.Advance(200 * time.Millisecond)
+		tt.Frame()
+		if tt.HasText("Audit dependency tree") {
+			break
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	if !tt.HasText("Audit dependency tree") {
+		t.Fatalf("expected seeded background task in sheet, texts=%v", tt.Texts())
+	}
+
+	// First tap on Cancel opens confirmation ActionSheet without mutating backend.
+	if err := tt.Click("Cancel"); err != nil {
+		t.Fatalf("click Cancel on background task: %v", err)
+	}
+	for range 4 {
+		tt.Frame()
+		tt.Advance(300 * time.Millisecond)
+		tt.Frame()
+	}
+	if !tt.HasText("Cancel Task") {
+		t.Fatalf("expected Cancel Task confirmation ActionSheet, texts=%v", tt.Texts())
+	}
+	if got := srv.CancelledBackgroundTaskIDs(); len(got) != 0 {
+		t.Fatalf("background task cancelled before confirmation: %v", got)
+	}
+
+	// Tapping Keep Running aborts cancellation.
+	if err := tt.Click("Keep Running"); err != nil {
+		t.Fatalf("click Keep Running: %v", err)
+	}
+	for range 4 {
+		tt.Frame()
+		tt.Advance(300 * time.Millisecond)
+		tt.Frame()
+	}
+	if got := srv.CancelledBackgroundTaskIDs(); len(got) != 0 {
+		t.Fatalf("background task cancelled after Keep Running: %v", got)
+	}
+
+	// Re-open and confirm cancellation -> backend receives cancel and reloads without data race.
+	if err := tt.Click("Cancel"); err != nil {
+		t.Fatalf("re-click Cancel on background task: %v", err)
+	}
+	for range 4 {
+		tt.Frame()
+		tt.Advance(300 * time.Millisecond)
+		tt.Frame()
+	}
+	if err := tt.Click("Cancel Task"); err != nil {
+		t.Fatalf("click Cancel Task: %v", err)
+	}
+	deadline = time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		tt.Frame()
+		if len(srv.CancelledBackgroundTaskIDs()) == 1 {
+			return
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	t.Fatal("timed out waiting for confirmed background task cancellation")
+}
+
 func TestRoomsGoldenSnapshots(t *testing.T) {
 	// Deterministic offline/static store fixture for exact golden matching (zero clock/RTT drift).
 	cfgStore := config.NewStore(config.NewMemoryPreferencesBackend(), config.NewMemorySecretsBackend())

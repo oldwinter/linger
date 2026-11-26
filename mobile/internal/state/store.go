@@ -165,6 +165,7 @@ type AppStore struct {
 	roomHasMore         map[string]bool
 	roomNextCursor      map[string]string
 	roomDrafts          map[string]string
+	roomDraftSeq        map[string]uint64
 	runPresEvents       map[string][]api.RuntimePresentationEvent
 	pendingDecisions    []PendingDecisionItem
 	workingRoomIDs      map[string]bool
@@ -208,6 +209,7 @@ func NewAppStore(opts Options) *AppStore {
 		roomHasMore:       map[string]bool{},
 		roomNextCursor:    map[string]string{},
 		roomDrafts:        map[string]string{},
+		roomDraftSeq:      map[string]uint64{},
 		runPresEvents:     map[string][]api.RuntimePresentationEvent{},
 		workingRoomIDs:    map[string]bool{},
 		Routers: [5]*ui.Router{

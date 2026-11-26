@@ -41,20 +41,22 @@ type FakeServer struct {
 	Fingerprint string
 	ShortCode   string
 
-	mu              sync.Mutex
-	HostID          string
-	HostName        string
-	DesktopVersion  string
-	PairingOpen     bool
-	PairCode        string
-	PairPIN         string
-	ValidToken      string
-	ValidCookie     string
-	DeviceID        string
-	TenantID        string
-	FailedPairCount int
-	RejectCSRF      bool
-	FailMessageSend bool
+	mu                       sync.Mutex
+	HostID                   string
+	HostName                 string
+	DesktopVersion           string
+	PairingOpen              bool
+	PairCode                 string
+	PairPIN                  string
+	ValidToken               string
+	ValidCookie              string
+	DeviceID                 string
+	TenantID                 string
+	FailedPairCount          int
+	RejectCSRF               bool
+	FailMessageSend          bool
+	MessageSendGate          chan struct{}
+	CancelledBackgroundTasks []string
 
 	Rooms              []api.RoomListItem
 	MessagesByRoom     map[string][]api.Message
@@ -92,6 +94,21 @@ func (f *FakeServer) SetFailMessageSend(fail bool) {
 	f.mu.Lock()
 	f.FailMessageSend = fail
 	f.mu.Unlock()
+}
+
+// SetMessageSendGate installs an optional channel that blocks POST /v0/rooms/:id/messages
+// until closed, enabling deterministic in-flight send concurrency tests.
+func (f *FakeServer) SetMessageSendGate(gate chan struct{}) {
+	f.mu.Lock()
+	f.MessageSendGate = gate
+	f.mu.Unlock()
+}
+
+// CancelledBackgroundTaskIDs returns a snapshot of background task IDs cancelled on this server.
+func (f *FakeServer) CancelledBackgroundTaskIDs() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.CancelledBackgroundTasks...)
 }
 
 // SeedAllFixtures populates rich fixtures for all 5 tabs (Wave C-1 Rooms & Live Ops
@@ -569,6 +586,12 @@ func (f *FakeServer) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, api.MessagePage{Items: msgs, SnapshotRoomSeq: int64(len(msgs))})
 	case strings.HasPrefix(path, "/v0/rooms/") && strings.HasSuffix(path, "/messages") && r.Method == http.MethodPost:
 		roomID := extractMiddleSegment(path, "/v0/rooms/", "/messages")
+		f.mu.Lock()
+		gate := f.MessageSendGate
+		f.mu.Unlock()
+		if gate != nil {
+			<-gate
+		}
 		f.mu.Lock()
 		failSend := f.FailMessageSend
 		f.mu.Unlock()

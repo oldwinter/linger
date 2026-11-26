@@ -90,24 +90,24 @@ type Screen struct {
 	createDesc         string
 	createOriginRoomID string
 
-	detailOpen         bool
-	detailItemID       string
-	detailItem         *api.WorkItem
-	detailComments     []api.WorkItemComment
-	detailTimeline     []api.WorkItemTimelineEntry
-	detailTaskExec     *api.TaskExecutionProjection
-	detailTaskConv     *api.TaskConversation
-	detailTaskRuns     *api.TaskRuntimePresentationRunPage
-	detailBusy         bool
-	detailError        string
-	transitionSheet    bool
-	assigneeSheet      bool
-	editSheetOpen      bool
-	editBusy           bool
-	editError          string
-	editTitle          string
-	editDesc           string
-	editPriority       int
+	detailOpen           bool
+	detailItemID         string
+	detailItem           *api.WorkItem
+	detailComments       []api.WorkItemComment
+	detailTimeline       []api.WorkItemTimelineEntry
+	detailTaskExec       *api.TaskExecutionProjection
+	detailTaskConv       *api.TaskConversation
+	detailTaskRuns       *api.TaskRuntimePresentationRunPage
+	detailBusy           bool
+	detailError          string
+	transitionSheet      bool
+	assigneeSheet        bool
+	editSheetOpen        bool
+	editBusy             bool
+	editError            string
+	editTitle            string
+	editDesc             string
+	editPriority         int
 	commentDraft         string
 	editingCommentID     string
 	editingCommentVer    int64

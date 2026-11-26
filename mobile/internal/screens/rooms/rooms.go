@@ -56,8 +56,8 @@ type Controller struct {
 	pendingUploads     map[string][]api.MessageAttachmentUpload
 	replyTarget        map[string]*api.Message
 	sendErrors         map[string]string
-	uploadingRoom      string
-	sendingRoom        string
+	uploadingRooms     map[string]int
+	sendingRooms       map[string]bool
 	mentionSheetOpen   bool
 	skillSheetOpen     bool
 	msgActionSheetOpen bool
@@ -137,6 +137,8 @@ func NewController(store *state.AppStore, nav NavigationHooks) *Controller {
 		pendingUploads:     map[string][]api.MessageAttachmentUpload{},
 		replyTarget:        map[string]*api.Message{},
 		sendErrors:         map[string]string{},
+		uploadingRooms:     map[string]int{},
+		sendingRooms:       map[string]bool{},
 		expandedActivities: map[string]bool{},
 		chatScrolls:        map[string]*ui.ScrollState{},
 		scrollToBottom:     map[string]bool{},

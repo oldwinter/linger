@@ -135,6 +135,9 @@ func (e *APIError) Unwrap() error {
 
 // IsUnauthenticated reports whether the error indicates an expired or revoked session/token.
 func (e *APIError) IsUnauthenticated() bool {
+	if e == nil {
+		return false
+	}
 	if e.StatusCode == http.StatusUnauthorized {
 		return true
 	}
@@ -148,7 +151,7 @@ func (e *APIError) IsUnauthenticated() bool {
 
 // IsConflict reports an optimistic-concurrency version conflict (HTTP 409).
 func (e *APIError) IsConflict() bool {
-	return e.StatusCode == http.StatusConflict
+	return e != nil && e.StatusCode == http.StatusConflict
 }
 
 // ClientConfig configures a unified Linger Mobile API client.

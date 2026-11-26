@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/oldwinter/linger/mobile/internal/api"
@@ -449,6 +450,65 @@ func TestWorkItemFullLifecycleAndTaskRuns(t *testing.T) {
 	if len(*openedRooms) == 0 || (*openedRooms)[0] != "room_work_12" {
 		t.Fatalf("expected Jump to Work Room to open room_work_12, got %v", *openedRooms)
 	}
+}
+
+func TestWorkItemDeleteCommentConfirmUTF8SafeAndCancelPreserves(t *testing.T) {
+	srv, err := testutil.NewC2FakeServer(true)
+	if err != nil {
+		t.Fatalf("NewC2FakeServer: %v", err)
+	}
+	defer srv.Close()
+
+	// Seed a comment longer than 80 runes of multi-byte CJK using escaped code points.
+	longMultiByte := strings.Repeat("\u4e2d\u6587", 45)
+	srv.WorkItemComments["wi_12"] = []api.WorkItemComment{
+		{
+			ID:         "cm_utf8",
+			WorkItemID: "wi_12",
+			TenantID:   srv.TenantID,
+			Author:     api.ActorRef{ID: "act_human_1", TenantID: srv.TenantID, Kind: "human", DisplayName: "Alex"},
+			Body:       longMultiByte,
+			Version:    1,
+		},
+	}
+
+	scr, _, _ := newTestWorkScreen(t, srv, nil)
+	scr.SelectSegment(work.SegmentIssues)
+
+	tt := testutil.NewPhoneTester(func(c *ui.Context) {
+		c.SetTheme(theme.TownLight())
+		scr.View(c)
+	}, testutil.StandardMobileViewports[1])
+	tt.Frame()
+
+	clickOrScroll(t, tt, "Work item #12 Ship Mobile Companion Wave C-2")
+	waitUntil(t, 2*time.Second, func() bool {
+		settle(tt)
+		return tt.HasText("Delete Comment") || tt.HasText("Delete")
+	})
+
+	clickOrScroll(t, tt, "Delete")
+	if !tt.HasText("Delete Comment") {
+		t.Fatalf("expected Delete Comment confirmation ActionSheet, texts=%v", tt.Texts())
+	}
+	for _, txt := range tt.Texts() {
+		if !utf8.ValidString(txt) {
+			t.Fatalf("confirmation preview produced invalid UTF-8 string: %q", txt)
+		}
+	}
+	// Cancel must not delete the comment.
+	clickOrScroll(t, tt, "Cancel")
+	if srv.WorkItemComments["wi_12"][0].DeletedAt != nil {
+		t.Fatal("comment was deleted after cancelling confirmation")
+	}
+
+	// Re-open and confirm deletion.
+	clickOrScroll(t, tt, "Delete")
+	clickOrScroll(t, tt, "Delete Comment")
+	waitUntil(t, 2*time.Second, func() bool {
+		settle(tt)
+		return srv.WorkItemComments["wi_12"][0].DeletedAt != nil
+	})
 }
 
 func TestWorkGoldenSnapshots(t *testing.T) {

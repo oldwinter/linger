@@ -387,6 +387,9 @@ func (s *Screen) viewVoiceCaptureSheet(c *ui.Context) {
 						if k.Key != ui.KeyEnter || composing || k.Mods != 0 {
 							return false
 						}
+						if s.voiceBusy {
+							return true
+						}
 						q := strings.TrimSpace(k.Text())
 						if q == "" {
 							return true
@@ -472,7 +475,7 @@ func (s *Screen) retryTranscriptRecoveryAsync(captureID string) {
 func (s *Screen) askVoiceQuestionAsync(captureID, question string) {
 	client := s.client()
 	question = strings.TrimSpace(question)
-	if client == nil || question == "" {
+	if client == nil || question == "" || s.voiceBusy {
 		return
 	}
 	s.voiceBusy = true
@@ -482,9 +485,14 @@ func (s *Screen) askVoiceQuestionAsync(captureID, question string) {
 			s.voiceBusy = false
 			if err != nil {
 				s.voiceErr = api.PresentError(err)
+				if strings.TrimSpace(s.voiceQuestionDraft) == "" {
+					s.voiceQuestionDraft = question
+				}
 				return
 			}
-			s.voiceQuestionDraft = ""
+			if strings.TrimSpace(s.voiceQuestionDraft) == question {
+				s.voiceQuestionDraft = ""
+			}
 			s.voiceQuestions = append([]api.VoiceCaptureQuestion{ans}, s.voiceQuestions...)
 		})
 	}()
@@ -531,7 +539,7 @@ func (s *Screen) loadAudioVersion(verID string) {
 		data, ct, err := client.DownloadDocumentVersion(context.Background(), verID)
 		if err != nil {
 			s.enqueueUI(func() {
-				s.voiceAudioStatus = i18n.Tf("library.memory.err_load_audio", map[string]any{"err": err.Error()})
+				s.voiceAudioStatus = i18n.Tf("library.memory.err_load_audio", map[string]any{"err": api.PresentError(err)})
 			})
 			return
 		}

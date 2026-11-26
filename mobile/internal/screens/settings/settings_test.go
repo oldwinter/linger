@@ -404,6 +404,16 @@ func TestPreferencesPersistenceBiometricOffSubtitleAndInlineCacheError(t *testin
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("expected pending outbox row preserved after clear, got %d (%v)", len(rows), err)
 	}
+
+	// 5. Enqueuing another outbox item AFTER Refresh must still show live count in confirmation sheet.
+	if err := cs.EnqueueOutbox(context.Background(), "pocket:test-2", "pocket_note.put", "today", map[string]string{"text": "second unsynced"}); err != nil {
+		t.Fatalf("EnqueueOutbox second: %v", err)
+	}
+	clickOrScroll(t, tt, "Clear Local Cache")
+	if !tt.HasText("Removes cached Rooms, Messages, Work Items, and Documents from this device. Your 2 unsynced offline items will be preserved.") {
+		t.Fatalf("expected confirmation to refresh live outbox count (2), texts=%v", tt.Texts())
+	}
+	clickOrScroll(t, tt, "Cancel")
 }
 
 func TestSettingsExternalConnectionsWebSearchAndVoiceKeysMasked(t *testing.T) {

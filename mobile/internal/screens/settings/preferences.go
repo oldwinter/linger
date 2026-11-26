@@ -170,6 +170,7 @@ func (s *Screen) viewPreferencesSection(c *ui.Context) {
 					clearBtn := components.DangerTouchButton(c, i18n.T("settings.prefs.clear_cache"), false)
 					clearBtn.FillWidth()
 					if clearBtn.Clicked() {
+						s.refreshCacheStats(context.Background())
 						s.clearCacheConfirm = true
 					}
 				})

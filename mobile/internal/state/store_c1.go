@@ -49,6 +49,28 @@ func (s *AppStore) SetDraft(roomID, text string) {
 	} else {
 		s.roomDrafts[roomID] = text
 	}
+	s.roomDraftSeq[roomID]++
+	s.mu.Unlock()
+}
+
+// DraftSeq returns the monotonic revision number for roomID's stored draft.
+func (s *AppStore) DraftSeq(roomID string) uint64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.roomDraftSeq[roomID]
+}
+
+// ClearDraftIfSeq removes roomID's stored draft only if it has not been edited
+// since seq was captured, preventing an in-flight send from clobbering newer input.
+func (s *AppStore) ClearDraftIfSeq(roomID string, seq uint64) {
+	if roomID == "" {
+		return
+	}
+	s.mu.Lock()
+	if s.roomDraftSeq[roomID] == seq {
+		delete(s.roomDrafts, roomID)
+		s.roomDraftSeq[roomID]++
+	}
 	s.mu.Unlock()
 }
 
@@ -69,6 +91,7 @@ func (s *AppStore) RestoreDrafts(drafts map[string]string) {
 	for k, v := range drafts {
 		if _, exists := s.roomDrafts[k]; !exists && v != "" {
 			s.roomDrafts[k] = v
+			s.roomDraftSeq[k]++
 		}
 	}
 	s.mu.Unlock()
@@ -201,6 +224,13 @@ func (s *AppStore) LoadRoomMessages(ctx context.Context, roomID string, older bo
 // SendMessage posts a new message (with optional reply and attachment uploads) to roomID.
 // When offline, queues into the SQLite outbox so it never loses user input.
 func (s *AppStore) SendMessage(ctx context.Context, roomID, text string, replyToID *string, uploadIDs []string) (api.Message, error) {
+	return s.SendMessageForDraftSeq(ctx, roomID, text, replyToID, uploadIDs, s.DraftSeq(roomID))
+}
+
+// SendMessageForDraftSeq posts a new message and clears roomID's draft on success
+// only if its revision still matches expectedDraftSeq (never clobbering edits made
+// while the send request was in flight).
+func (s *AppStore) SendMessageForDraftSeq(ctx context.Context, roomID, text string, replyToID *string, uploadIDs []string, expectedDraftSeq uint64) (api.Message, error) {
 	text = strings.TrimSpace(text)
 	if text == "" && len(uploadIDs) == 0 {
 		return api.Message{}, errors.New(i18n.T("state.err.empty_message"))
@@ -242,7 +272,10 @@ func (s *AppStore) SendMessage(ctx context.Context, roomID, text string, replyTo
 
 	s.mu.Lock()
 	s.upsertRoomMessageLocked(roomID, msg)
-	delete(s.roomDrafts, roomID)
+	if s.roomDraftSeq[roomID] == expectedDraftSeq {
+		delete(s.roomDrafts, roomID)
+		s.roomDraftSeq[roomID]++
+	}
 	s.transientError = ""
 	cs := s.cacheStore
 	s.mu.Unlock()

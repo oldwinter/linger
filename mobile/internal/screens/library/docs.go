@@ -896,9 +896,14 @@ func (s *Screen) createDocThreadAsync(docID, body string) {
 		s.enqueueUI(func() {
 			if err != nil {
 				s.readerErr = api.PresentError(err)
+				if strings.TrimSpace(s.commentInput) == "" {
+					s.commentInput = body
+				}
 				return
 			}
-			s.commentInput = ""
+			if strings.TrimSpace(s.commentInput) == body {
+				s.commentInput = ""
+			}
 			s.readerThreads = append(s.readerThreads, th)
 		})
 	}()

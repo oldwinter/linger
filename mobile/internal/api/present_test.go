@@ -79,3 +79,45 @@ func TestPresentErrorHumanizes413AndStructuredErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestLimitBytesHandlesMalformedAndNonArrayDetails(t *testing.T) {
+	var nilErr *api.APIError
+	if limit, ok := nilErr.LimitBytes(); ok || limit != 0 {
+		t.Fatalf("nil LimitBytes() = (%d, %v), want (0, false)", limit, ok)
+	}
+	if nilErr.IsUnauthenticated() || nilErr.IsConflict() || nilErr.IsPayloadTooLarge() {
+		t.Fatal("nil APIError predicates must return false")
+	}
+
+	cases := []struct {
+		name      string
+		details   json.RawMessage
+		wantLimit int64
+		wantOK    bool
+	}{
+		{"empty", nil, 0, false},
+		{"null", json.RawMessage(`null`), 0, false},
+		{"malformed_json", json.RawMessage(`[{broken`), 0, false},
+		{"primitive_string", json.RawMessage(`"25MB"`), 0, false},
+		{"primitive_number", json.RawMessage(`1024`), 0, false},
+		{"zero_limit", json.RawMessage(`[{"limit_bytes":0}]`), 0, false},
+		{"negative_limit", json.RawMessage(`[{"limit_bytes":-512}]`), 0, false},
+		{"object_form", json.RawMessage(`{"field":"file","limit_bytes":5242880}`), 5242880, true},
+		{"mixed_array", json.RawMessage(`[{"field":"name","code":"required"},{"field":"file","limit_bytes":10485760}]`), 10485760, true},
+	}
+	for _, tc := range cases {
+		e := &api.APIError{
+			StatusCode: http.StatusRequestEntityTooLarge,
+			Code:       "PAYLOAD_TOO_LARGE",
+			Details:    tc.details,
+		}
+		gotLimit, gotOK := e.LimitBytes()
+		if gotOK != tc.wantOK || gotLimit != tc.wantLimit {
+			t.Errorf("%s: LimitBytes() = (%d, %v), want (%d, %v)", tc.name, gotLimit, gotOK, tc.wantLimit, tc.wantOK)
+		}
+		presented := api.PresentError(e)
+		if presented == "" || strings.HasPrefix(presented, "api ") {
+			t.Errorf("%s: unexpected PresentError: %q", tc.name, presented)
+		}
+	}
+}

@@ -312,15 +312,18 @@ func (ctl *Controller) ViewRunWatch(c *ui.Context, snap state.Snapshot, roomID, 
 }
 
 func (ctl *Controller) openBackgroundTasks(roomID string) {
-	ctl.mu.Lock()
 	ctl.bgTasksOpen = true
-	ctl.mu.Unlock()
+	ctl.reloadBackgroundTasks(roomID)
+}
+
+func (ctl *Controller) reloadBackgroundTasks(roomID string) {
 	go func() {
 		if cl := ctl.store.Client(); cl != nil {
 			if items, err := cl.ListRoomBackgroundTasks(context.Background(), roomID); err == nil {
 				ctl.mu.Lock()
 				ctl.bgTasks = items
 				ctl.mu.Unlock()
+				ctl.store.Notify()
 			}
 		}
 	}()
@@ -384,7 +387,7 @@ func (ctl *Controller) viewCancelBackgroundTaskConfirm(c *ui.Context) {
 						ctl.store.SetTransientError(api.PresentError(err))
 						return
 					}
-					ctl.openBackgroundTasks(roomID)
+					ctl.reloadBackgroundTasks(roomID)
 				}
 			}()
 		},

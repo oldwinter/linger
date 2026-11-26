@@ -460,15 +460,15 @@ func (ctl *Controller) viewComposer(c *ui.Context, snap state.Snapshot, roomID s
 	ctl.mu.Lock()
 	uploads := append([]api.MessageAttachmentUpload(nil), ctl.pendingUploads[roomID]...)
 	replyMsg := ctl.replyTarget[roomID]
-	uploading := ctl.uploadingRoom == roomID
-	sending := ctl.sendingRoom == roomID
+	uploading := ctl.uploadingRooms[roomID] > 0
+	sending := ctl.sendingRooms[roomID]
 	sendErr := ctl.sendErrors[roomID]
 	ctl.mu.Unlock()
 
 	sendNow := func(text string) {
 		text = strings.TrimSpace(text)
 		ctl.mu.Lock()
-		if ctl.sendingRoom == roomID {
+		if ctl.sendingRooms[roomID] {
 			ctl.mu.Unlock()
 			return
 		}
@@ -479,29 +479,51 @@ func (ctl *Controller) viewComposer(c *ui.Context, snap state.Snapshot, roomID s
 			return
 		}
 		uploadIDs := make([]string, 0, len(curUploads))
+		submittedUploads := make(map[string]bool, len(curUploads))
 		for _, up := range curUploads {
 			uploadIDs = append(uploadIDs, up.ID)
+			submittedUploads[up.ID] = true
 		}
 		var replyID *string
 		if curReply != nil {
 			id := curReply.ID
 			replyID = &id
 		}
-		ctl.sendingRoom = roomID
+		ctl.sendingRooms[roomID] = true
 		delete(ctl.sendErrors, roomID)
 		ctl.mu.Unlock()
 
 		// Preserve draft text, uploads, and reply target until SendMessage succeeds
-		// so a failed send never destroys unsent user input.
-		ctl.store.SetDraft(roomID, text)
+		// so a failed send never destroys unsent user input, while leaving any
+		// newer text/uploads/reply entered during the in-flight request intact.
+		if strings.TrimSpace(ctl.store.GetDraft(roomID)) == "" && text != "" {
+			ctl.store.SetDraft(roomID, text)
+		}
+		draftSeq := ctl.store.DraftSeq(roomID)
 		components.HapticLight()
 		go func() {
-			_, err := ctl.store.SendMessage(context.Background(), roomID, text, replyID, uploadIDs)
+			_, err := ctl.store.SendMessageForDraftSeq(context.Background(), roomID, text, replyID, uploadIDs, draftSeq)
 			ctl.mu.Lock()
-			ctl.sendingRoom = ""
+			delete(ctl.sendingRooms, roomID)
 			if err == nil {
-				delete(ctl.pendingUploads, roomID)
-				delete(ctl.replyTarget, roomID)
+				if len(submittedUploads) > 0 {
+					remaining := make([]api.MessageAttachmentUpload, 0, len(ctl.pendingUploads[roomID]))
+					for _, up := range ctl.pendingUploads[roomID] {
+						if !submittedUploads[up.ID] {
+							remaining = append(remaining, up)
+						}
+					}
+					if len(remaining) == 0 {
+						delete(ctl.pendingUploads, roomID)
+					} else {
+						ctl.pendingUploads[roomID] = remaining
+					}
+				}
+				if replyID != nil {
+					if cur := ctl.replyTarget[roomID]; cur != nil && cur.ID == *replyID {
+						delete(ctl.replyTarget, roomID)
+					}
+				}
 				delete(ctl.sendErrors, roomID)
 				ctl.scrollToBottom[roomID] = true
 			} else {
@@ -509,7 +531,7 @@ func (ctl *Controller) viewComposer(c *ui.Context, snap state.Snapshot, roomID s
 			}
 			ctl.mu.Unlock()
 			if err == nil {
-				ctl.store.SetDraft(roomID, "")
+				ctl.store.ClearDraftIfSeq(roomID, draftSeq)
 			} else if strings.TrimSpace(ctl.store.GetDraft(roomID)) == "" && text != "" {
 				ctl.store.SetDraft(roomID, text)
 			}
@@ -589,7 +611,7 @@ func (ctl *Controller) viewComposer(c *ui.Context, snap state.Snapshot, roomID s
 					isCmdOrCtrl := k.Mods&(ui.Super|ui.Ctrl) != 0
 					if isCmdOrCtrl || (k.Mods == 0 && snap.ComposerReturnSends) {
 						txt := k.Text()
-						if strings.TrimSpace(txt) != "" {
+						if strings.TrimSpace(txt) != "" || len(uploads) > 0 {
 							sendNow(txt)
 						}
 						return true
@@ -1042,11 +1064,15 @@ func (ctl *Controller) uploadFilePath(roomID, path, mediaType string) {
 		return
 	}
 	ctl.mu.Lock()
-	ctl.uploadingRoom = roomID
+	ctl.uploadingRooms[roomID]++
 	ctl.mu.Unlock()
 	up, err := cl.UploadMessageAttachment(context.Background(), roomID, filepath.Base(path), mediaType, data, fmt.Sprintf("up_%d", time.Now().UnixNano()))
 	ctl.mu.Lock()
-	ctl.uploadingRoom = ""
+	if ctl.uploadingRooms[roomID] <= 1 {
+		delete(ctl.uploadingRooms, roomID)
+	} else {
+		ctl.uploadingRooms[roomID]--
+	}
 	if err == nil {
 		ctl.pendingUploads[roomID] = append(ctl.pendingUploads[roomID], up)
 	}
