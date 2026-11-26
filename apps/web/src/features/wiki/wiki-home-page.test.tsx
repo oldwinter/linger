@@ -209,6 +209,10 @@ it("opens a random Wiki page from Surprise me", async () => {
   const router = renderWikiHome(runtime);
   // Both pages are listed before the action can choose between them.
   await screen.findByRole("link", { name: /Pricing/ });
+  expect(screen.getByRole("link", { name: "Knowledge Graph" })).toHaveAttribute(
+    "href",
+    "/t/tenant-northstar/library/wiki/graph",
+  );
   vi.spyOn(Math, "random").mockReturnValue(0);
 
   fireEvent.click(screen.getByRole("button", { name: "Surprise me" }));
@@ -229,6 +233,7 @@ it("offers no Surprise me before the Wiki has pages", async () => {
   // The listing settles before the action's absence means anything.
   expect(await screen.findByText("No projects yet.")).toBeVisible();
   expect(screen.queryByRole("button", { name: "Surprise me" })).toBeNull();
+  expect(screen.queryByRole("link", { name: "Knowledge Graph" })).toBeNull();
 });
 
 it("shows the actionable failure reason when the latest Wiki refresh failed", async () => {

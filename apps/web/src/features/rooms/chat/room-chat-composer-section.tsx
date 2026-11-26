@@ -30,6 +30,10 @@ const DirectAgentModelSwitch = lazy(async () => ({
   default: (await import("./direct-agent-model-switch")).DirectAgentModelSwitch,
 }));
 
+const LiveRunCapsule = lazy(async () => ({
+  default: (await import("./live-run-capsule")).LiveRunCapsule,
+}));
+
 const EMPTY_DOCUMENT_OPTIONS: MessageDocumentOption[] = [];
 
 interface RoomChatComposerSectionProps {
@@ -86,8 +90,13 @@ export function RoomChatComposerSection({
     [members.items],
   );
   const backgroundTasks = useRoomBackgroundTasks({ client, roomId, tenantId });
+  const workingRuns = useMemo(
+    () => (dock.runStatuses ?? []).filter(isRunWorking),
+    [dock.runStatuses],
+  );
   const hasChatDock = useMemo(() => hasAgentStreamingDockEntries(dock), [dock]);
-  const peekSuppressed = hasChatDock || backgroundTasks.length > 0;
+  const peekSuppressed =
+    hasChatDock || backgroundTasks.length > 0 || workingRuns.length > 0;
   return room.participation === "left" ? (
     <RoomRejoinBanner room={room} />
   ) : (
@@ -117,6 +126,24 @@ export function RoomChatComposerSection({
         tenantId={tenantId}
       />
       <AgentStreamingStatusDock {...dock} />
+      {workingRuns.length > 0 ? (
+        <Suspense fallback={null}>
+          <LiveRunCapsule
+            client={client}
+            onOpenActivity={(run) =>
+              navigation.openLiveActivity(run.agent, run.id, run.run_id)
+            }
+            onSendSteer={sendMessage}
+            roomId={roomId}
+            roomKind={room.kind}
+            runtimePresentationEventsByRunStatusId={
+              dock.runtimePresentationEventsByRunStatusId
+            }
+            tenantId={tenantId}
+            workingRuns={workingRuns}
+          />
+        </Suspense>
+      ) : null}
       <RoomMessageComposer
         agentPeek={{
           busyAgentIds: agentStreaming.runStatuses.flatMap((runStatus) =>

@@ -6,14 +6,16 @@ import { Link, useParams } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { commonMessages } from "@/i18n/common.messages";
 import { useT } from "@/i18n/use-translation";
+import { roomActionsMessages as m } from "./room-actions.messages";
 import { requireRoomRouteParam } from "./room-route-params";
 import { roomTeamMdQueryOptions } from "./task-sidebar/team-md-query";
 import {
-  patternAccounts,
+  formatWorkMove,
+  patternAccountMessage,
   patternTitle,
   workMoves,
-  workMoveText,
 } from "./work-moves";
 
 /**
@@ -44,26 +46,25 @@ export function WorkMovesPage() {
             to={chat}
           >
             <Icon icon={ArrowLeft01Icon} size={14} />
-            Back to room
+            {t(m.backToRoom)}
           </Link>
         </div>
         <header>
           <h2 className="text-xl text-foreground" id={headingId}>
-            How work moves
+            {t(m.workMovesTitle)}
           </h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            The path an agent published for this room. A newer team.md replaces
-            it here.
+            {t(m.workMovesDescription)}
           </p>
         </header>
         {protocol.isPending ? (
           <p className="text-sm text-muted-foreground" role="status">
-            Loading how work moves.
+            {t(m.workMovesLoading)}
           </p>
         ) : protocol.isError ? (
           <div className="flex items-center justify-between gap-3" role="alert">
             <p className="text-sm text-destructive">
-              How work moves could not be loaded.
+              {t(m.workMovesLoadFailed)}
             </p>
             <Button
               onClick={() => void protocol.refetch()}
@@ -71,13 +72,12 @@ export function WorkMovesPage() {
               tone="secondary"
               type="button"
             >
-              Retry
+              {t(commonMessages.retry)}
             </Button>
           </div>
         ) : !document ? (
           <p className="text-sm text-muted-foreground" role="status">
-            No collaboration plan yet. When an agent publishes one, the path
-            shows up here.
+            {t(m.workMovesEmpty)}
           </p>
         ) : (
           <>
@@ -86,20 +86,23 @@ export function WorkMovesPage() {
                 {t(patternTitle(document.collaborate_pattern))}
               </h3>
               <p className="mt-2 text-sm text-foreground">
-                {patternAccounts[document.collaborate_pattern]}
+                {t(patternAccountMessage(document.collaborate_pattern))}
               </p>
               <p className="mt-3 text-sm text-muted-foreground">
                 {document.task_goal}
               </p>
             </section>
-            <ol aria-label="Work path" className="flex flex-col gap-3">
+            <ol
+              aria-label={t(m.workMovesPathLabel)}
+              className="flex flex-col gap-3"
+            >
               {steps.map((step, index) => (
                 <li
                   className="rounded-2xl border border-border px-4 py-3"
                   key={`${step.kind}-${step.who}-${step.other ?? ""}-${index}`}
                 >
                   <p className="text-sm text-foreground">
-                    {workMoveText(step)}
+                    {formatWorkMove(step, t)}
                   </p>
                   {step.role ? (
                     <p className="mt-1 text-sm text-muted-foreground">

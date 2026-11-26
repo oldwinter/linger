@@ -205,3 +205,131 @@
   --telemetry-warn: hsl(var(--town-warning));
   --telemetry-bad: hsl(var(--town-destructive));
 }
+
+/* Town Dark: warm obsidian surfaces aligned with the desktop shell palette
+   (#161614 canvas, #1e1e1b surface, #262622 soft surface, #191917 sidebar,
+   #e8e7e2 ink, #a3a29a muted ink). */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --town-background: 60 4.8% 8.2%;
+  --town-foreground: 50 11.5% 89.8%;
+  --town-card: 60 5.3% 11.2%;
+  --town-popover: 60 5.3% 11.2%;
+  --town-primary: 50 11.5% 89.8%;
+  --town-primary-foreground: 60 4.8% 8.2%;
+  --town-secondary: 60 5.6% 14.1%;
+  --town-secondary-foreground: 52 9% 81.6%;
+  --town-muted: 60 5.6% 14.1%;
+  --town-muted-foreground: 53 4.7% 62.2%;
+  --town-accent: 60 5.6% 14.1%;
+  --town-accent-foreground: 50 11.5% 89.8%;
+  --town-destructive: 12 85% 60%;
+  --town-destructive-foreground: 0 0% 100%;
+  --town-info: 207 90% 62%;
+  --town-success: 102 45% 54%;
+  --town-warning: 39 95% 58%;
+  --town-border: 60 4.5% 17.3%;
+  --town-border-hover: 60 5.1% 23.1%;
+  --town-border-heavy: 50 11.5% 89.8%;
+  --town-input: 60 4.5% 17.3%;
+  --town-input-hover: 60 5.1% 23.1%;
+  --town-sidebar: 60 4.2% 9.4%;
+  --town-sidebar-foreground: 50 11.5% 89.8%;
+  --town-sidebar-muted: 60 4.5% 13.1%;
+  --town-sidebar-border: 60 4.9% 16.1%;
+  --town-highlight: 207 95% 68%;
+  --town-button-accent: 208 60% 56%;
+  --town-comment-amber: 45 90% 54%;
+  --town-send: 221 92% 62%;
+  --town-send-hover: 221 92% 68%;
+  --town-shadow-outline: 0 0 0 1px rgba(255, 255, 255, 0.08);
+  --town-shadow-sm:
+    0 0 0 1px rgba(255, 255, 255, 0.07), 0 1px 3px rgba(0, 0, 0, 0.36);
+  --town-shadow-md:
+    0 0 0 1px rgba(255, 255, 255, 0.08), 0 4px 12px rgba(0, 0, 0, 0.45);
+  --town-shadow-lg:
+    0 0 0 1px rgba(255, 255, 255, 0.09), 0 8px 24px rgba(0, 0, 0, 0.55),
+    0 2px 6px -2px rgba(0, 0, 0, 0.4);
+  --town-shadow-xl:
+    0 0 0 1px rgba(255, 255, 255, 0.1), 0 14px 38px rgba(0, 0, 0, 0.65),
+    0 4px 12px -4px rgba(0, 0, 0, 0.45);
+  --town-shadow-button: 0 1px 2px rgba(0, 0, 0, 0.45);
+
+  --app-placeholder: hsl(var(--town-foreground) / 0.38);
+  --app-overlay: rgba(0, 0, 0, 0.55);
+  --app-voice-island-control: hsl(var(--town-foreground) / 0.08);
+  --app-voice-island-control-hover: hsl(var(--town-foreground) / 0.14);
+  --app-danger-hover: hsl(var(--town-destructive) / 0.14);
+  --app-danger-border: hsl(var(--town-destructive) / 0.38);
+  --app-status-warning-surface: hsl(var(--town-warning) / 0.14);
+  --app-status-warning-border: hsl(var(--town-warning) / 0.35);
+  --app-status-success-surface: hsl(var(--town-success) / 0.14);
+  --app-status-success-border: hsl(var(--town-success) / 0.35);
+  --app-status-danger-surface: hsl(var(--town-destructive) / 0.14);
+  --app-status-danger-border: hsl(var(--town-destructive) / 0.35);
+  --app-card-info-surface: hsl(var(--town-info) / 0.12);
+  --app-card-info-border: hsl(var(--town-info) / 0.35);
+  --app-card-feedback-surface: hsl(var(--town-destructive) / 0.12);
+  --app-card-feedback-border: hsl(var(--town-destructive) / 0.35);
+  --app-mention-surface: hsl(var(--town-info) / 0.18);
+  --app-mention-hover: hsl(var(--town-info) / 0.28);
+  --app-floating-shadow-color: rgba(0, 0, 0, 0.4);
+  --app-modal-shadow-color: rgba(0, 0, 0, 0.5);
+  --message-hover-shadow-color: rgba(0, 0, 0, 0.3);
+  --composer-action-hover: hsl(var(--town-foreground) / 0.12);
+  --composer-shadow-color: rgba(0, 0, 0, 0.4);
+  --composer-shadow-focus-color: rgba(0, 0, 0, 0.5);
+  --composer-attachment-pdf-surface: color-mix(
+    in srgb,
+    #ea764f 20%,
+    transparent
+  );
+  --composer-attachment-pdf-text: #f08a67;
+  --composer-attachment-code-surface: color-mix(
+    in srgb,
+    #bc9ad2 20%,
+    transparent
+  );
+  --composer-attachment-code-text: #c7a9db;
+  --composer-attachment-presentation-surface: color-mix(
+    in srgb,
+    #d9a145 20%,
+    transparent
+  );
+  --composer-attachment-presentation-text: #e2b260;
+  --composer-attachment-document-surface: color-mix(
+    in srgb,
+    #85a7df 20%,
+    transparent
+  );
+  --composer-attachment-document-text: #95b5e8;
+  --composer-attachment-sheet-surface: color-mix(
+    in srgb,
+    #79b37d 20%,
+    transparent
+  );
+  --composer-attachment-sheet-text: #8bc28f;
+  --composer-attachment-compressed-surface: color-mix(
+    in srgb,
+    #cbb73a 20%,
+    transparent
+  );
+  --composer-attachment-compressed-text: #d6c554;
+  --composer-attachment-universal-surface: color-mix(
+    in srgb,
+    #6bb9c0 20%,
+    transparent
+  );
+  --composer-attachment-universal-text: #7ec7ce;
+  --app-scrollbar: hsl(var(--town-muted-foreground) / 0.36);
+  --app-heat-0: #242420;
+  --app-heat-1: #3b3b34;
+  --app-heat-2: #666559;
+  --app-heat-3: #a3a293;
+  --app-wiki-hue-0: #699ee8;
+  --app-wiki-hue-1: #dca84c;
+  --app-wiki-hue-2: #a380ea;
+  --app-wiki-hue-3: #5ec76d;
+  --app-wiki-hue-4: #e67668;
+  --app-wiki-hue-5: #95cc58;
+}

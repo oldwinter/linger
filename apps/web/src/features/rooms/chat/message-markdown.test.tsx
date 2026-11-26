@@ -667,4 +667,55 @@ describe("Message Markdown", () => {
     fireEvent.click(link, { ctrlKey: true });
     expect(onOpenUrl).not.toHaveBeenCalled();
   });
+
+  it("highlights fenced code blocks with language badge and line count", async () => {
+    const { container } = render(
+      <MessageMarkdown
+        authorKind="agent"
+        body={"```ts\nconst answer: number = 42;\n```"}
+      />,
+    );
+
+    expect(screen.getByText("ts")).toBeVisible();
+    expect(screen.getByText("1 line")).toBeVisible();
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector(".chat-code-tok-keyword"),
+      ).toHaveTextContent("const");
+      expect(
+        container.querySelector(".chat-code-tok-number"),
+      ).toHaveTextContent("42");
+    });
+  });
+
+  it("collapses code blocks longer than 24 lines by default and expands on demand", () => {
+    const lines = Array.from(
+      { length: 30 },
+      (_, index) => `line_${index + 1}`,
+    ).join("\n");
+    const { container } = render(
+      <MessageMarkdown
+        authorKind="agent"
+        body={`\`\`\`text\n${lines}\n\`\`\``}
+      />,
+    );
+
+    expect(screen.getByText("30 lines")).toBeVisible();
+    expect(container.querySelector("pre code")?.textContent).toContain(
+      "line_16",
+    );
+    expect(container.querySelector("pre code")?.textContent).not.toContain(
+      "line_17",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Show all 30 lines" }));
+    expect(container.querySelector("pre code")?.textContent).toContain(
+      "line_30",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse" }));
+    expect(container.querySelector("pre code")?.textContent).not.toContain(
+      "line_30",
+    );
+  });
 });

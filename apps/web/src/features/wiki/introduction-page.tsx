@@ -12,6 +12,9 @@ import {
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { commonMessages } from "@/i18n/common.messages";
+import type { Message } from "@/i18n/messages";
+import { useT } from "@/i18n/use-translation";
 
 import {
   introductionLines,
@@ -21,17 +24,19 @@ import {
   type IntroductionLead,
 } from "./introduction";
 import { IntroduceInRoom } from "./introduce-in-room-control";
+import { wikiSubpagesMessages as m } from "./wiki-subpages.messages";
 
-const leads: Array<{ id: IntroductionLead; label: string }> = [
-  { id: "person", label: "Lead with who you are" },
-  { id: "talk", label: "Lead with how to talk to you" },
-  { id: "work", label: "Lead with how you work" },
+const leads: Array<{ id: IntroductionLead; label: Message<string> }> = [
+  { id: "person", label: m.leadPerson },
+  { id: "talk", label: m.leadTalk },
+  { id: "work", label: m.leadWork },
 ];
 
 /** A card Another Me would hand a friend, then kept on today's Pocket note. */
 export function IntroductionPage() {
   const { client } = useTeamHubRuntime();
   const queryClient = useQueryClient();
+  const t = useT();
   const tenantId = requireRoomRouteParam(useParams().tenantId, "Tenant");
   const profile = useQuery(personalProfileQueryOptions(client, tenantId));
   const notes = useQuery({
@@ -60,7 +65,7 @@ export function IntroductionPage() {
     if (!today || !note || pending || alreadyKept) return;
     const next = noteWithIntroduction(todayText, note);
     if (!next) {
-      setError("Today's note is full, so this introduction does not fit.");
+      setError(t(m.noteFullError));
       return;
     }
     setPending(true);
@@ -75,11 +80,7 @@ export function IntroductionPage() {
       storeTodayPocketNote(queryClient, tenantId, saved);
       setKept(true);
     } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "Today's note could not be updated.",
-      );
+      setError(cause instanceof Error ? cause.message : t(m.noteUpdateFailed));
     } finally {
       setPending(false);
     }
@@ -87,20 +88,18 @@ export function IntroductionPage() {
 
   return (
     <LibrarySubpageShell
-      backLabel="Back to Profile"
+      backLabel={t(m.backToProfile)}
       backTo={`/t/${encodeURIComponent(tenantId)}/library/wiki`}
-      subtitle="A few lines from what Another Me remembers, in an order you would actually show someone."
-      title="How Another Me would introduce you"
+      subtitle={t(m.introSubtitle)}
+      title={t(m.introTitle)}
     >
       {profile.isPending || notes.isPending ? (
         <p className="text-sm text-muted-foreground" role="status">
-          Loading your introduction.
+          {t(m.loadingIntro)}
         </p>
       ) : profile.isError || notes.isError ? (
         <div className="flex flex-col items-start gap-3" role="alert">
-          <p className="text-sm text-destructive">
-            Could not load your introduction.
-          </p>
+          <p className="text-sm text-destructive">{t(m.introLoadFailed)}</p>
           <Button
             onClick={() => {
               if (profile.isError) void profile.refetch();
@@ -109,19 +108,19 @@ export function IntroductionPage() {
             size="compact"
             tone="secondary"
           >
-            Retry
+            {t(commonMessages.retry)}
           </Button>
         </div>
       ) : !current || paragraphs.length === 0 ? (
         <p className="text-sm text-muted-foreground" role="status">
-          Another Me has not written enough to introduce you yet.
+          {t(m.notEnoughToIntroduce)}
         </p>
       ) : (
         <>
           <div
+            aria-label={t(m.openingLine)}
             className="flex flex-wrap gap-2"
             role="group"
-            aria-label="Opening line"
           >
             {leads.map((item) => (
               <Button
@@ -134,13 +133,13 @@ export function IntroductionPage() {
                 tone={lead === item.id ? "primary" : "secondary"}
                 type="button"
               >
-                {item.label}
+                {t(item.label)}
               </Button>
             ))}
           </div>
           <article
-            aria-label="Introduction"
-            className="flex flex-col gap-3 rounded-2xl border border-border bg-card px-5 py-5"
+            aria-label={t(m.introArticleLabel)}
+            className="flex flex-col gap-3 rounded-2xl border border-border bg-card px-5 py-5 shadow-xs"
           >
             {paragraphs.map((paragraph) => (
               <p className="text-sm text-foreground" key={paragraph}>
@@ -155,15 +154,16 @@ export function IntroductionPage() {
           ) : null}
           {kept || alreadyKept ? (
             <p className="text-sm text-foreground" role="status">
-              It is on today's note.
+              {t(m.onTodaysNote)}
             </p>
           ) : (
             <Button
+              data-voice-risk="never"
               disabled={pending}
               onClick={() => void keep()}
               type="button"
             >
-              {pending ? "Leaving it" : "Leave this on today's note"}
+              {pending ? t(m.leavingOnNote) : t(m.leaveOnTodaysNote)}
             </Button>
           )}
           <IntroduceInRoom

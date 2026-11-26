@@ -101,6 +101,7 @@ import {
 } from "./local-models-queries";
 import {
   buildModelGroups,
+  diskStorageSummary,
   downloadStopped,
   formatGigabytes,
   hostBlocker,
@@ -896,11 +897,20 @@ function ComputerModels({
         <EmptyState
           action={
             <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+              {status ? (
+                <Button
+                  onClick={() => changeTab("byok")}
+                  size="compact"
+                  tone="primary"
+                >
+                  {t(m.switchToByok)}
+                </Button>
+              ) : null}
               {onOpenDefaultComputer ? (
                 <Button
                   onClick={onOpenDefaultComputer}
                   size="compact"
-                  tone="primary"
+                  tone={status ? "secondary" : "primary"}
                 >
                   {defaultComputerName
                     ? t(m.openComputer, { name: defaultComputerName })
@@ -1024,6 +1034,8 @@ function Library({
   >({});
   const [unavailableOpen, setUnavailableOpen] = useState(false);
   const unavailablePanelId = useId();
+  const [cleanupOpen, setCleanupOpen] = useState(false);
+  const cleanupPanelId = useId();
   const [failure, setFailure] = useState<{
     code?: string;
     modelId: string;
@@ -1094,6 +1106,16 @@ function Library({
   const entries = useMemo(
     () => (view.available ? modelEntries(view) : []),
     [view],
+  );
+  const storage = useMemo(
+    () =>
+      diskStorageSummary(
+        view,
+        entries,
+        (entry) =>
+          usedByAgentNames(entry, assignableAgents, computerId).length === 0,
+      ),
+    [assignableAgents, computerId, entries, view],
   );
   const sections = useMemo(() => buildModelGroups(entries), [entries]);
   const hasUsableModels =
@@ -1608,15 +1630,27 @@ function Library({
       {unavailable ? (
         <EmptyState
           action={
-            canRetryUnavailable ? (
-              <Button
-                className="mt-6"
-                loading={rechecking}
-                onClick={onRefresh}
-                size="compact"
-              >
-                {t(commonMessages.tryAgain)}
-              </Button>
+            canRetryUnavailable || (onSwitchToByok && !readOnly) ? (
+              <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+                {onSwitchToByok && !readOnly ? (
+                  <Button
+                    onClick={onSwitchToByok}
+                    size="compact"
+                    tone="primary"
+                  >
+                    {t(m.switchToByok)}
+                  </Button>
+                ) : null}
+                {canRetryUnavailable ? (
+                  <Button
+                    loading={rechecking}
+                    onClick={onRefresh}
+                    size="compact"
+                  >
+                    {t(commonMessages.tryAgain)}
+                  </Button>
+                ) : null}
+              </div>
             ) : undefined
           }
           title={unavailable.title}
@@ -1625,6 +1659,135 @@ function Library({
         </EmptyState>
       ) : (
         <>
+          {storage.diskFreeBytes !== undefined ||
+          storage.downloadedCount > 0 ? (
+            <section
+              aria-label={t(m.storageSummaryRegion)}
+              className={cn(
+                "mt-3 rounded-xl border px-4 py-3",
+                storage.lowDisk
+                  ? "border-[var(--app-status-warning-border)] bg-[var(--app-status-warning-surface)]"
+                  : "border-border bg-card",
+              )}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2.5">
+                <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs tabular-nums text-muted-foreground">
+                  {storage.diskFreeBytes !== undefined ? (
+                    <span className="font-medium text-foreground">
+                      {t(m.storageFreeOnDisk, {
+                        free: formatGigabytes(storage.diskFreeBytes, t),
+                      })}
+                    </span>
+                  ) : null}
+                  {storage.diskFreeBytes !== undefined &&
+                  storage.downloadedCount > 0 ? (
+                    <span aria-hidden>·</span>
+                  ) : null}
+                  {storage.downloadedCount > 0 ? (
+                    <span>
+                      {t(m.storageUsedByModels, {
+                        count: storage.downloadedCount,
+                        size: formatGigabytes(storage.downloadedBytes, t),
+                      })}
+                    </span>
+                  ) : null}
+                  {storage.lowDisk ? (
+                    <span className="inline-flex items-center gap-1 rounded-md bg-[var(--app-status-warning-surface)] px-1.5 py-0.5 text-xs font-medium text-app-warning">
+                      <Icon icon={Alert02Icon} size={12} />
+                      {t(m.storageLowDisk)}
+                    </span>
+                  ) : null}
+                </div>
+                {!readOnly && storage.reclaimable.length > 0 ? (
+                  <button
+                    aria-controls={cleanupPanelId}
+                    aria-expanded={cleanupOpen}
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-xs font-medium text-foreground transition-colors duration-150 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+                    onClick={() => setCleanupOpen((current) => !current)}
+                    type="button"
+                  >
+                    <span>
+                      {t(m.cleanUpUnusedModels, {
+                        size: formatGigabytes(storage.reclaimableBytes, t),
+                      })}
+                    </span>
+                    <Icon
+                      className={cn(
+                        "shrink-0 text-muted-foreground transition-transform duration-200 motion-reduce:transition-none",
+                        !cleanupOpen && "-rotate-90",
+                      )}
+                      icon={ArrowDown01Icon}
+                      size={14}
+                    />
+                  </button>
+                ) : null}
+              </div>
+              {!readOnly && cleanupOpen && storage.reclaimable.length > 0 ? (
+                <AutoHeight>
+                  <div
+                    className="mt-3 space-y-2 border-t border-border pt-3"
+                    id={cleanupPanelId}
+                  >
+                    <p className="text-xs text-muted-foreground">
+                      {t(m.cleanupDescription)}
+                    </p>
+                    <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-background">
+                      {storage.reclaimable.map((entry) => {
+                        const modelId = entry.model.id;
+                        const removing = requests.get(modelId) === "remove";
+                        return (
+                          <li
+                            className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-xs"
+                            key={modelId}
+                          >
+                            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                              <span className="truncate font-medium text-foreground">
+                                {entry.model.name}
+                              </span>
+                              <span
+                                className={cn(
+                                  "rounded-sm px-1.5 py-0.5 text-[11px]",
+                                  entry.status === "failed"
+                                    ? "bg-[var(--app-status-danger-surface)] text-app-danger"
+                                    : "bg-muted text-muted-foreground",
+                                )}
+                              >
+                                {t(
+                                  entry.status === "failed"
+                                    ? m.statusFailed
+                                    : m.statusIdle,
+                                )}
+                              </span>
+                            </div>
+                            <div className="flex shrink-0 items-center gap-2.5">
+                              <span className="tabular-nums text-muted-foreground">
+                                {formatGigabytes(entry.model.download_bytes, t)}
+                              </span>
+                              <Button
+                                aria-label={t(m.removeModel, {
+                                  name: entry.model.name,
+                                })}
+                                data-voice-risk="never"
+                                disabled={offline || switching || busy(modelId)}
+                                loading={removing}
+                                onClick={() =>
+                                  setDialog({ kind: "remove", modelId })
+                                }
+                                size="compact"
+                                tone="danger"
+                              >
+                                {t(commonMessages.remove)}
+                              </Button>
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                </AutoHeight>
+              ) : null}
+            </section>
+          ) : null}
           {failure ? (
             <div className="mt-6">
               <FormFeedback tone="danger">

@@ -1,4 +1,8 @@
+import { translate, type Translate } from "@/i18n/language";
+import type { Message } from "@/i18n/messages";
+
 import type { ComputerPermissionAction } from "./computer-permissions-api";
+import { computersMessages } from "./computers.messages";
 
 type Subject = ComputerPermissionAction["subject"];
 type PermissionId = NonNullable<ComputerPermissionAction["permission"]>;
@@ -30,6 +34,44 @@ export const computerPermissionStates: Record<Entry["state"], string> = {
   unknown: "Unknown",
 };
 
+const permissionNameMessages: Record<PermissionId, Message<string>> = {
+  accessibility: computersMessages.permissionAccessibility,
+  screen_recording: computersMessages.permissionScreenRecording,
+};
+
+const subjectNameMessages: Record<Subject, Message<string>> = {
+  computer_use: computersMessages.subjectComputerUse,
+  linger: computersMessages.subjectLinger,
+};
+
+const permissionStateMessages: Record<Entry["state"], Message<string>> = {
+  denied: computersMessages.permissionDenied,
+  granted: computersMessages.permissionGranted,
+  not_determined: computersMessages.permissionNotDetermined,
+  unknown: computersMessages.permissionUnknown,
+};
+
+export function computerPermissionName(
+  permission: PermissionId,
+  t: Translate = translate,
+) {
+  return t(permissionNameMessages[permission]);
+}
+
+export function computerSubjectName(
+  subject: Subject,
+  t: Translate = translate,
+) {
+  return t(subjectNameMessages[subject]);
+}
+
+export function computerPermissionStateLabel(
+  state: Entry["state"],
+  t: Translate = translate,
+) {
+  return t(permissionStateMessages[state]);
+}
+
 /** The one step that moves a permission forward. Granted permissions wait. */
 export function nextComputerPermissionStep(
   subject: Subject,
@@ -47,11 +89,16 @@ export function nextComputerPermissionStep(
 
 export function computerPermissionActionLabel(
   action: ComputerPermissionAction,
+  t: Translate = translate,
 ) {
   const permission = action.permission
-    ? computerPermissionNames[action.permission]
-    : "the grant";
-  if (action.action === "relaunch") return `Relaunch so ${permission} applies`;
-  if (action.action === "prompt") return `Ask macOS for ${permission}`;
-  return `Open Settings for ${permission}`;
+    ? computerPermissionName(action.permission, t)
+    : t(computersMessages.permissionFallbackGrant);
+  if (action.action === "relaunch") {
+    return t(computersMessages.actionRelaunchPermission, { permission });
+  }
+  if (action.action === "prompt") {
+    return t(computersMessages.actionPromptPermission, { permission });
+  }
+  return t(computersMessages.actionOpenSettingsPermission, { permission });
 }

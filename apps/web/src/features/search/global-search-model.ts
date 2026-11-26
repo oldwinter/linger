@@ -126,8 +126,20 @@ export const HIGHLIGHT_MAX_LENGTH = 200;
 /** A message row shows a preview, not the whole Message. */
 const MESSAGE_PREVIEW_LENGTH = 300;
 
+export type SearchCommandAction = "cycle-theme";
+
+export interface SearchCommand {
+  action?: SearchCommandAction;
+  detail: string;
+  id: string;
+  keywords?: readonly string[];
+  path?: string;
+  title: string;
+}
+
 export type SearchResult =
   | { id: string; kind: "agent"; agent: TeamHubTenantAgent }
+  | { id: string; kind: "command"; command: SearchCommand }
   | { id: string; kind: "document"; document: TeamHubDocument }
   | { id: string; kind: "message"; hit: TeamHubMessageSearchHit }
   | { id: string; kind: "place"; place: JumpPlace }
@@ -139,6 +151,7 @@ export type SearchResult =
 export function buildSearchPlaces(
   tenantId: string,
   meetings: readonly TeamHubMemoryEntry[] = [],
+  t: Translate = translate,
 ): JumpPlace[] {
   const encodedTenant = encodeURIComponent(tenantId);
   const settingsSections: JumpPlace[] = [
@@ -170,7 +183,44 @@ export function buildSearchPlaces(
       title: "Shortcuts",
     },
   ];
-  const corePlaces = buildCoreProductPlaces(tenantId);
+  const quickNavigationExtras: JumpPlace[] = [
+    {
+      detail: t(m.quickNavDailyReviewDetail),
+      id: "daily-review",
+      keywords: ["day", "today", "review", "pocket", "memory"],
+      path: `/t/${encodedTenant}/library/day`,
+      title: t(m.quickNavDailyReview),
+    },
+    {
+      detail: t(m.quickNavWhoIsAwakeDetail),
+      id: "who-is-awake",
+      keywords: ["awake", "agents", "online", "available"],
+      path: `/t/${encodedTenant}/awake`,
+      title: t(m.quickNavWhoIsAwake),
+    },
+    {
+      detail: t(m.actionJumpCatchUpDetail),
+      id: "catch-up",
+      keywords: ["catch", "up", "unread", "mentions", "jump"],
+      path: `/t/${encodedTenant}/rooms/catch-up`,
+      title: t(m.actionJumpCatchUp),
+    },
+  ];
+  const corePlaces = buildCoreProductPlaces(tenantId).map((place) => {
+    if (place.id === "models") {
+      return {
+        ...place,
+        keywords: [...(place.keywords ?? []), "settings › models"],
+      };
+    }
+    if (place.id === "computers") {
+      return {
+        ...place,
+        keywords: [...(place.keywords ?? []), "settings › computers"],
+      };
+    }
+    return place;
+  });
   const settingsIndex = corePlaces.findIndex(
     (place) => place.id === "settings",
   );
@@ -184,8 +234,110 @@ export function buildSearchPlaces(
       : [...corePlaces, ...settingsSections];
   return [
     ...orderedProductPlaces,
+    ...quickNavigationExtras,
     ...buildMeetingJumpPlaces(meetings, tenantId),
   ];
+}
+
+/** Executable command-palette actions matched during search. */
+export function buildSearchCommands(
+  _tenantId: string,
+  t: Translate = translate,
+): SearchCommand[] {
+  return [
+    {
+      action: "cycle-theme",
+      detail: t(m.actionToggleAppearanceDetail),
+      id: "cycle-theme",
+      keywords: [
+        "theme",
+        "appearance",
+        "dark",
+        "light",
+        "mode",
+        "toggle",
+        "color",
+      ],
+      title: t(m.actionToggleAppearance),
+    },
+  ];
+}
+
+/** Curated navigation places and quick actions surfaced on the empty start view. */
+export function buildStartViewQuickCommands(
+  tenantId: string,
+  t: Translate = translate,
+): {
+  actions: SearchCommand[];
+  navigation: SearchCommand[];
+} {
+  const encodedTenant = encodeURIComponent(tenantId);
+  return {
+    actions: [
+      {
+        action: "cycle-theme",
+        detail: t(m.actionToggleAppearanceDetail),
+        id: "cycle-theme",
+        title: t(m.actionToggleAppearance),
+      },
+      {
+        detail: t(m.actionJumpCatchUpDetail),
+        id: "catch-up",
+        path: `/t/${encodedTenant}/rooms/catch-up`,
+        title: t(m.actionJumpCatchUp),
+      },
+    ],
+    navigation: [
+      {
+        detail: "Files & documents",
+        id: "library",
+        path: `/t/${encodedTenant}/library`,
+        title: t(m.quickNavLibrary),
+      },
+      {
+        detail: "Personal knowledge",
+        id: "wiki",
+        path: `/t/${encodedTenant}/library/wiki`,
+        title: t(m.quickNavWiki),
+      },
+      {
+        detail: "Tasks & work items",
+        id: "dashboard",
+        path: `/t/${encodedTenant}/dashboard`,
+        title: t(m.quickNavDashboard),
+      },
+      {
+        detail: "External integrations",
+        id: "connectors",
+        path: `/t/${encodedTenant}/apps`,
+        title: t(m.quickNavConnectors),
+      },
+      {
+        detail: "Settings",
+        id: "models",
+        path: `/t/${encodedTenant}/settings/models`,
+        title: t(m.quickNavSettingsModels),
+      },
+      {
+        detail: "Settings",
+        id: "computers",
+        path: `/t/${encodedTenant}/settings/computers`,
+        title: t(m.quickNavSettingsComputers),
+      },
+      {
+        detail: t(m.quickNavDailyReviewDetail),
+        id: "daily-review",
+        path: `/t/${encodedTenant}/library/day`,
+        title: t(m.quickNavDailyReview),
+      },
+      {
+        detail: t(m.quickNavWhoIsAwakeDetail),
+        id: "who-is-awake",
+        path: `/t/${encodedTenant}/awake`,
+        title: t(m.quickNavWhoIsAwake),
+      },
+    ],
+  };
 }
 
 type TargetResult = Exclude<SearchResult, { kind: "query" | "scope" }>;
@@ -226,6 +378,7 @@ export function rowScope(row: SearchResult | undefined): GroupTab | undefined {
       return "docs";
     case "agent":
       return "people";
+    case "command":
     case "place":
       return "places";
     case "room":
@@ -370,6 +523,15 @@ export function resultTarget(
         kind: "place",
         name: result.place.title,
         path: result.place.path,
+      };
+    case "command":
+      return {
+        ...(result.command.action ? { action: result.command.action } : {}),
+        ...(result.command.path ? { path: result.command.path } : {}),
+        detail: result.command.detail,
+        id: result.command.id,
+        kind: "command",
+        name: result.command.title,
       };
     case "room": {
       const { room } = result;

@@ -38,7 +38,7 @@ export function LocalRuntimeInstallGuidance({
               message={computerSetupMessages.runtimeCommand}
               tags={{
                 code: (text) => (
-                  <code className="select-all font-mono text-foreground">
+                  <code className="select-all font-mono text-foreground [overflow-wrap:anywhere]">
                     {text}
                   </code>
                 ),

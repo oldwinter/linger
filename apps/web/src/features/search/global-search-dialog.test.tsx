@@ -1283,6 +1283,100 @@ describe("Global search dialog", () => {
       screen.queryByRole("button", { name: "Remove Places scope" }),
     ).toBeNull();
   });
+
+  it("surfaces quick navigation and quick actions on the empty start view and dispatches theme toggle", async () => {
+    const themeListener = vi.fn();
+    window.addEventListener("linger:cycle-theme", themeListener);
+    try {
+      const harness = await renderDialog();
+
+      const quickNav = screen.getByRole("region", {
+        name: "Quick navigation",
+      });
+      for (const label of [
+        "Library",
+        "Wiki",
+        "Dashboard",
+        "Connectors",
+        "Settings › Models",
+        "Settings › Computers",
+        "Daily Review",
+        "Who is awake",
+      ]) {
+        expect(
+          within(quickNav).getByRole("button", { name: label }),
+        ).toBeVisible();
+      }
+
+      const quickActions = screen.getByRole("region", {
+        name: "Quick actions",
+      });
+      const toggleThemeButton = within(quickActions).getByRole("button", {
+        name: /Toggle appearance \(Dark \/ Light\)/,
+      });
+      expect(
+        within(quickActions).getByRole("button", {
+          name: /Jump to Catch up/,
+        }),
+      ).toBeVisible();
+
+      fireEvent.click(toggleThemeButton);
+      expect(themeListener).toHaveBeenCalledTimes(1);
+      expect(harness.onClose).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener("linger:cycle-theme", themeListener);
+    }
+  });
+
+  it.each([
+    ["daily review", /Daily Review/, `/t/${TENANT}/library/day`],
+    ["who is awake", /Who is awake/, `/t/${TENANT}/awake`],
+    ["catch up", /Jump to Catch up/, `/t/${TENANT}/rooms/catch-up`],
+  ])(
+    "matches and opens %s from Cmd+K query results",
+    async (query, rowPattern, expectedPath) => {
+      const harness = await renderDialog();
+      const input = screen.getByRole("combobox", { name: INPUT_NAME });
+      fireEvent.change(input, { target: { value: query } });
+
+      const option = await results().findByRole("option", { name: rowPattern });
+      fireEvent.click(option);
+
+      await waitFor(() =>
+        expect(screen.getByTestId("location")).toHaveTextContent(expectedPath),
+      );
+      expect(harness.onClose).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("matches quick actions when typing queries", async () => {
+    const themeListener = vi.fn();
+    window.addEventListener("linger:cycle-theme", themeListener);
+    try {
+      const harness = await renderDialog();
+      const input = screen.getByRole("combobox", { name: INPUT_NAME });
+
+      fireEvent.change(input, { target: { value: "appearance" } });
+      const themeOption = await results().findByRole("option", {
+        name: /Toggle appearance \(Dark \/ Light\)/,
+      });
+      fireEvent.click(themeOption);
+      expect(themeListener).toHaveBeenCalledTimes(1);
+      expect(harness.onClose).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener("linger:cycle-theme", themeListener);
+    }
+  });
+
+  it("hides quick navigation and quick actions when room-scoped", async () => {
+    await renderDialog({
+      room: { id: "room-all", name: "All hands" },
+    });
+    expect(
+      screen.queryByRole("region", { name: "Quick navigation" }),
+    ).toBeNull();
+    expect(screen.queryByRole("region", { name: "Quick actions" })).toBeNull();
+  });
 });
 
 function seededStore(): GlobalSearchStore {

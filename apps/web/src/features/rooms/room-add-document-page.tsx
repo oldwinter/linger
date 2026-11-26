@@ -7,6 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
+import { roomActionsMessages as m } from "./room-actions.messages";
 import { requireRoomRouteParam } from "./room-route-params";
 import {
   roomDocumentsQueryKey,
@@ -16,6 +19,7 @@ import { canAddDocumentToRoom } from "./room-add-document";
 
 /** Choose documents and bind them into this Room. */
 export function RoomAddDocumentPage() {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const queryClient = useQueryClient();
   const params = useParams();
@@ -80,9 +84,7 @@ export function RoomAddDocumentPage() {
       }
     } catch (cause) {
       setError(
-        cause instanceof Error
-          ? cause.message
-          : "The document could not be added.",
+        cause instanceof Error ? cause.message : t(m.addDocumentBindFailed),
       );
     } finally {
       await queryClient.invalidateQueries({
@@ -104,26 +106,25 @@ export function RoomAddDocumentPage() {
             to={chat}
           >
             <Icon icon={ArrowLeft01Icon} size={14} />
-            Back to room
+            {t(m.backToRoom)}
           </Link>
         </div>
         <header>
           <h2 className="text-xl text-foreground" id={headingId}>
-            Add a document
+            {t(m.addDocumentTitle)}
           </h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            Choose documents to keep in this room. They stay yours, and the room
-            can read them.
+            {t(m.addDocumentDescription)}
           </p>
         </header>
         {library.isPending || roomDocuments.isPending ? (
           <p className="text-sm text-muted-foreground" role="status">
-            Loading documents.
+            {t(m.addDocumentLoading)}
           </p>
         ) : library.isError || roomDocuments.isError ? (
           <div className="flex items-center justify-between gap-3" role="alert">
             <p className="text-sm text-destructive">
-              Documents could not be loaded.
+              {t(m.addDocumentLoadFailed)}
             </p>
             <Button
               onClick={() => {
@@ -134,7 +135,7 @@ export function RoomAddDocumentPage() {
               tone="secondary"
               type="button"
             >
-              Retry
+              {t(commonMessages.retry)}
             </Button>
           </div>
         ) : (
@@ -147,12 +148,12 @@ export function RoomAddDocumentPage() {
           >
             {available.length > 0 || filter ? (
               <label className="block">
-                <span className="sr-only">Filter documents</span>
+                <span className="sr-only">{t(m.addDocumentFilterLabel)}</span>
                 <input
-                  aria-label="Filter documents"
+                  aria-label={t(m.addDocumentFilterLabel)}
                   className="ui-field-control h-9 w-full text-sm text-foreground placeholder:text-app-placeholder"
                   onChange={(event) => setFilter(event.target.value)}
-                  placeholder="Search documents..."
+                  placeholder={t(m.addDocumentSearchPlaceholder)}
                   type="search"
                   value={filter}
                 />
@@ -187,11 +188,11 @@ export function RoomAddDocumentPage() {
               </ul>
             ) : available.length ? (
               <p className="text-sm text-muted-foreground" role="status">
-                No matching documents.
+                {t(m.addDocumentNoMatches)}
               </p>
             ) : (
               <p className="text-sm text-muted-foreground" role="status">
-                No documents left to add.
+                {t(m.addDocumentNoneLeft)}
               </p>
             )}
             {already.length ? (
@@ -200,7 +201,7 @@ export function RoomAddDocumentPage() {
                   className="text-sm text-foreground"
                   id="documents-already-in-room"
                 >
-                  Already in this room
+                  {t(m.addDocumentAlreadyInRoom)}
                 </h3>
                 <ul className="mt-2 flex flex-col gap-1 text-sm text-muted-foreground">
                   {already.map((document) => (
@@ -216,14 +217,12 @@ export function RoomAddDocumentPage() {
             ) : null}
             {added.length ? (
               <p className="text-sm text-foreground" role="status">
-                {added.length === 1
-                  ? "Added 1 document to this room."
-                  : `Added ${added.length} documents to this room.`}
+                {t(m.addDocumentAddedCount, { count: added.length })}
               </p>
             ) : null}
             {available.length ? (
               <Button disabled={pending || chosen.length === 0} type="submit">
-                {pending ? "Adding" : "Add to this room"}
+                {t(pending ? m.addDocumentAdding : m.addDocumentSubmit)}
               </Button>
             ) : null}
           </form>

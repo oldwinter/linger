@@ -5,7 +5,11 @@ import {
   HashtagIcon,
   Search01Icon,
 } from "@hugeicons/core-free-icons";
-import type { KeyboardEvent as ReactKeyboardEvent, RefObject } from "react";
+import {
+  useRef,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type RefObject,
+} from "react";
 
 import { Icon } from "@/components/ui/icon";
 import { Spinner } from "@/components/ui/spinner";
@@ -14,18 +18,21 @@ import { cn } from "@/lib/cn";
 
 import type { ResultKindOption } from "./global-search-kind-filter";
 import {
+  buildStartViewQuickCommands,
   emptyDetail,
   SCOPES,
   scopeText,
   type GlobalSearchTab,
   type GroupTab,
   type ResultSection,
+  type SearchCommand,
   type SearchResult,
   type TargetContext,
 } from "./global-search-model";
 import { searchMessages as m } from "./global-search.messages";
 import {
   EmptyState,
+  placeIcon,
   ResultRow,
   ScopeCard,
   ShortcutKey,
@@ -232,6 +239,7 @@ export function GlobalSearchResultList({
   roomScoped,
   scope,
   sections,
+  showingStart,
   tab,
   targetContext,
 }: {
@@ -252,6 +260,7 @@ export function GlobalSearchResultList({
   roomScoped: boolean;
   scope: Scope | undefined;
   sections: ResultSection[];
+  showingStart: boolean;
   tab: GlobalSearchTab;
   targetContext: TargetContext;
 }) {
@@ -306,57 +315,173 @@ export function GlobalSearchResultList({
             }
           />
         ) : (
-          sections.map((section) => (
-            <section className="global-search-group" key={section.key}>
-              <SectionHeader
-                enterScope={enterScope}
-                inputRef={inputRef}
-                section={section}
-              />
-              {section.loading ? (
-                <SkeletonRows />
-              ) : section.layout === "scopes" ? (
-                <div className="grid grid-cols-1 gap-2 px-3 pb-1 pt-1 sm:grid-cols-2">
-                  {section.items.map((result) => {
+          <>
+            {sections.map((section) => (
+              <section className="global-search-group" key={section.key}>
+                <SectionHeader
+                  enterScope={enterScope}
+                  inputRef={inputRef}
+                  section={section}
+                />
+                {section.loading ? (
+                  <SkeletonRows />
+                ) : section.layout === "scopes" ? (
+                  <div className="grid grid-cols-1 gap-2 px-3 pb-1 pt-1 sm:grid-cols-2">
+                    {section.items.map((result) => {
+                      const index = rowIndex++;
+                      return result.kind === "scope" ? (
+                        <ScopeCard
+                          active={index === activeIndex}
+                          highlighted={highlightShown && index === activeIndex}
+                          index={index}
+                          key={result.id}
+                          onActivate={() => hoverRow(index)}
+                          onOpen={() => void openResult(result)}
+                          tab={result.tab}
+                        />
+                      ) : null;
+                    })}
+                  </div>
+                ) : (
+                  section.items.map((result) => {
                     const index = rowIndex++;
-                    return result.kind === "scope" ? (
-                      <ScopeCard
+                    return (
+                      <ResultRow
                         active={index === activeIndex}
                         highlighted={highlightShown && index === activeIndex}
+                        context={targetContext}
+                        enterIndex={index}
                         index={index}
                         key={result.id}
                         onActivate={() => hoverRow(index)}
                         onOpen={() => void openResult(result)}
-                        tab={result.tab}
+                        onRemoveRecent={onRemoveRecent}
+                        query={debouncedQuery}
+                        result={result}
                       />
-                    ) : null;
-                  })}
-                </div>
-              ) : (
-                section.items.map((result) => {
-                  const index = rowIndex++;
-                  return (
-                    <ResultRow
-                      active={index === activeIndex}
-                      highlighted={highlightShown && index === activeIndex}
-                      context={targetContext}
-                      enterIndex={index}
-                      index={index}
-                      key={result.id}
-                      onActivate={() => hoverRow(index)}
-                      onOpen={() => void openResult(result)}
-                      onRemoveRecent={onRemoveRecent}
-                      query={debouncedQuery}
-                      result={result}
-                    />
-                  );
-                })
-              )}
-            </section>
-          ))
+                    );
+                  })
+                )}
+              </section>
+            ))}
+            {showingStart && !roomScoped ? (
+              <StartViewQuickCommands
+                onRun={(command) =>
+                  void openResult({
+                    command,
+                    id: `command:${command.id}`,
+                    kind: "command",
+                  })
+                }
+                tenantId={targetContext.tenantId}
+              />
+            ) : null}
+          </>
         )}
       </div>
     </div>
+  );
+}
+
+/** Quick navigation places and command actions surfaced on the empty start view. */
+function StartViewQuickCommands({
+  onRun,
+  tenantId,
+}: {
+  onRun: (command: SearchCommand) => void;
+  tenantId: string;
+}) {
+  const t = useT();
+  const { actions, navigation } = buildStartViewQuickCommands(tenantId, t);
+  const buttonRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const total = navigation.length + actions.length;
+
+  function onButtonKeyDown(
+    event: ReactKeyboardEvent<HTMLButtonElement>,
+    index: number,
+  ) {
+    let next: number | undefined;
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+      next = (index + 1) % total;
+    } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+      next = (index - 1 + total) % total;
+    } else if (event.key === "Home") {
+      next = 0;
+    } else if (event.key === "End") {
+      next = total - 1;
+    }
+    if (next === undefined) return;
+    event.preventDefault();
+    buttonRefs.current[next]?.focus();
+  }
+
+  return (
+    <>
+      <section
+        aria-label={t(m.quickNavigation)}
+        className="global-search-group mt-2"
+      >
+        <div className="flex h-7 items-center px-3 text-xs text-app-subtle">
+          {t(m.quickNavigation)}
+        </div>
+        <div className="flex flex-wrap gap-1.5 px-3 pb-1 pt-0.5">
+          {navigation.map((command, index) => (
+            <button
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-app-border bg-app-surface px-2.5 text-xs font-medium text-app-ink transition-colors duration-150 hover:border-app-border-strong hover:bg-app-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              key={command.id}
+              onClick={() => onRun(command)}
+              onKeyDown={(event) => onButtonKeyDown(event, index)}
+              ref={(node) => {
+                buttonRefs.current[index] = node;
+              }}
+              type="button"
+            >
+              <Icon
+                className="shrink-0 text-muted-foreground"
+                icon={placeIcon(command.id)}
+                size={14}
+              />
+              <span>{command.title}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+      <section
+        aria-label={t(m.quickActions)}
+        className="global-search-group mt-2"
+      >
+        <div className="flex h-7 items-center px-3 text-xs text-app-subtle">
+          {t(m.quickActions)}
+        </div>
+        <div className="flex flex-col gap-0.5 px-1">
+          {actions.map((command, actionIndex) => {
+            const index = navigation.length + actionIndex;
+            return (
+              <button
+                className="flex h-10 w-full items-center gap-2.5 rounded-lg px-2 text-left text-sm text-app-ink transition-colors duration-150 hover:bg-app-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                key={command.id}
+                onClick={() => onRun(command)}
+                onKeyDown={(event) => onButtonKeyDown(event, index)}
+                ref={(node) => {
+                  buttonRefs.current[index] = node;
+                }}
+                type="button"
+              >
+                <span className="grid size-7 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground">
+                  <Icon icon={placeIcon(command.id)} size={14} />
+                </span>
+                <span className="min-w-0 flex-1 truncate font-medium">
+                  {command.title}
+                </span>
+                <span className="hidden shrink-0 text-xs text-app-subtle sm:inline">
+                  {command.detail}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+    </>
   );
 }
 

@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useParams } from "react-router";
 
 import {
+  Activity01Icon,
   BookOpen01Icon,
   CheckListIcon,
   LibrariesIcon,
@@ -36,6 +37,11 @@ import { useRoomActivity } from "./use-room-activity";
 const RoomSecondaryNavigation = lazy(async () => ({
   default: (await import("./room-secondary-navigation"))
     .RoomSecondaryNavigation,
+}));
+
+const ActionCenterDrawer = lazy(async () => ({
+  default: (await import("./action-center/action-center-drawer"))
+    .ActionCenterDrawer,
 }));
 
 /** Matches --app-emphasized-duration in globals.css. */
@@ -73,6 +79,7 @@ export function RoomNavigation({
   const t = useT();
   const spaceName = t(navigationMessages.space, { name: username });
   const [expanded, setExpanded] = useState(false);
+  const [actionCenterOpen, setActionCenterOpen] = useState(false);
   // Width also changes when the Room list is dragged wider; animating only while
   // the rail is toggling keeps the drag following the pointer with no lag.
   const [railToggling, setRailToggling] = useState(false);
@@ -129,8 +136,9 @@ export function RoomNavigation({
       effectivePathname.startsWith(`${tenantPrefix}/documents/`));
   const { failedRoomIds, runningRoomIds } = useRoomActivity(
     tenant.id,
-    roomNavigationVisible && rooms.length > 0,
+    (roomNavigationVisible || actionCenterOpen) && rooms.length > 0,
   );
+  const liveOpsCount = countLiveOpsRooms(rooms, runningRoomIds, failedRoomIds);
   return (
     <NavigationDrawer
       ariaLabel="Room navigation"
@@ -263,6 +271,13 @@ export function RoomNavigation({
               onNavigate={onCloseMobile}
               to={`/t/${tenant.id}/apps`}
             />
+            <RailActionCenterButton
+              active={actionCenterOpen}
+              count={liveOpsCount}
+              expanded={railExpanded}
+              hasRunning={runningRoomIds.length > 0}
+              onClick={() => setActionCenterOpen((open) => !open)}
+            />
             <RailSearchButton
               expanded={railExpanded}
               onClick={() => {
@@ -271,6 +286,18 @@ export function RoomNavigation({
               }}
             />
           </div>
+          {actionCenterOpen ? (
+            <Suspense fallback={null}>
+              <ActionCenterDrawer
+                failedRoomIds={failedRoomIds}
+                onClose={() => setActionCenterOpen(false)}
+                onNavigate={onCloseMobile}
+                rooms={rooms}
+                runningRoomIds={runningRoomIds}
+                tenantId={tenant.id}
+              />
+            </Suspense>
+          ) : null}
           <div className="primary-navigation-footer flex shrink-0 flex-col gap-1">
             {accountMenu}
           </div>
@@ -345,6 +372,86 @@ function RailLink({
       <span className="primary-navigation-label truncate">{label}</span>
     </Link>
   );
+}
+
+function RailActionCenterButton({
+  active,
+  count,
+  expanded,
+  hasRunning,
+  onClick,
+}: {
+  active: boolean;
+  count: number;
+  expanded: boolean;
+  hasRunning: boolean;
+  onClick: () => void;
+}) {
+  const t = useT();
+  const label = t(navigationMessages.actionCenter);
+  const ariaLabel =
+    count > 0 ? t(navigationMessages.actionCenterWithCount, { count }) : label;
+  const badgeText = count > 99 ? "99+" : String(count);
+  return (
+    <button
+      aria-expanded={active}
+      aria-label={ariaLabel}
+      className={`room-rail-link relative flex cursor-pointer select-none items-center ${
+        active ? "text-app-ink" : "text-app-muted"
+      }`}
+      onClick={onClick}
+      title={ariaLabel}
+      type="button"
+    >
+      <Icon
+        className="room-rail-glyph pointer-events-none shrink-0"
+        icon={Activity01Icon}
+        size={18}
+      />
+      <span className="primary-navigation-label truncate">{label}</span>
+      {count > 0 ? (
+        <span
+          aria-hidden="true"
+          className={
+            expanded
+              ? `ml-auto mr-2 inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full px-1 text-2xs leading-none font-medium tabular-nums ${
+                  hasRunning
+                    ? "bg-app-info text-primary-foreground"
+                    : "bg-(--app-unread) text-(--app-unread-foreground)"
+                }`
+              : `pointer-events-none absolute top-1 left-5 inline-flex h-3.5 min-w-3.5 items-center justify-center rounded-full px-1 text-[9px] leading-none font-semibold tabular-nums ${
+                  hasRunning
+                    ? "bg-app-info text-primary-foreground motion-safe:animate-pulse"
+                    : "bg-(--app-unread) text-(--app-unread-foreground)"
+                }`
+          }
+        >
+          {badgeText}
+        </span>
+      ) : null}
+    </button>
+  );
+}
+
+function countLiveOpsRooms(
+  rooms: readonly TeamHubRoomListItem[],
+  runningRoomIds: readonly string[],
+  failedRoomIds: readonly string[],
+) {
+  const runningSet = new Set(runningRoomIds);
+  const failedSet = new Set(failedRoomIds);
+  const flagged = new Set<string>();
+  for (const room of rooms) {
+    if (room.kind === "thread") continue;
+    if (
+      runningSet.has(room.id) ||
+      failedSet.has(room.id) ||
+      room.unread_mention_count > 0
+    ) {
+      flagged.add(room.id);
+    }
+  }
+  return flagged.size;
 }
 
 function RailSearchButton({

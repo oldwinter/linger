@@ -5,13 +5,16 @@ import { LibrarySubpageShell } from "@/features/library/library-subpage-shell";
 import { personalProfileQueryOptions } from "@/features/settings/personal-profile-queries";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { useT } from "@/i18n/use-translation";
 
 import { lifeChapters } from "./life-telling";
 import { LifeTellingView } from "./life-telling-view";
+import { wikiSubpagesMessages as m } from "./wiki-subpages.messages";
 
 /** The life Another Me would tell, one chapter at a time. */
 export function LifePage() {
   const { client } = useTeamHubRuntime();
+  const t = useT();
   const tenantId = requireRoomRouteParam(useParams().tenantId, "Tenant");
   const profile = useQuery(personalProfileQueryOptions(client, tenantId));
   const entries = profile.data?.current?.profile.background.timeline ?? [];
@@ -19,14 +22,14 @@ export function LifePage() {
 
   return (
     <LibrarySubpageShell
-      backLabel="Back to Profile"
+      backLabel={t(m.backToProfile)}
       backTo={`/t/${encodeURIComponent(tenantId)}/library/wiki`}
-      subtitle="The years Another Me remembers, from the earliest, as lines you could say out loud."
-      title="How Another Me would tell your life"
+      subtitle={t(m.lifeSubtitle)}
+      title={t(m.lifeTitle)}
     >
       {profile.isPending ? (
         <p className="text-sm text-muted-foreground" role="status">
-          Loading your life.
+          {t(m.loadingLife)}
         </p>
       ) : profile.isError ? (
         <p className="text-sm text-destructive" role="alert">

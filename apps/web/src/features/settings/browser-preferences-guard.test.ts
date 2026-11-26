@@ -15,6 +15,8 @@ const srcRoot = fileURLToPath(new URL("../../", import.meta.url));
 const excluded: Readonly<Record<string, string>> = {
   "app/desktop-shell.ts":
     "Desktop shell Chats list collapsed state, per-Tenant layout state.",
+  "app/theme.ts":
+    "Interface appearance preference (`linger.theme`), owned by Settings -> Profile and the account menu.",
   "components/ui/use-sidebar-width.ts":
     "Resized sidebar widths, per-Tenant layout state.",
   "features/local-models/last-models-computer.ts":

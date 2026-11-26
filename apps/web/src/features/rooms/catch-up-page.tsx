@@ -6,6 +6,8 @@ import { Button, buttonClassName } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
 
 import {
   beginCatchUp,
@@ -17,6 +19,7 @@ import {
   type CatchUpWalk,
 } from "./catch-up";
 import { keepCatchUpInPocket } from "./catch-up-note";
+import { roomActionsMessages as m } from "./room-actions.messages";
 import {
   teamHubIdentityQueryOptions,
   tenantRoomsQueryOptions,
@@ -28,6 +31,7 @@ import {
  * lose the rest.
  */
 export function CatchUpPage() {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const queryClient = useQueryClient();
   const tenantId = requireRoomRouteParam(useParams().tenantId, "Tenant");
@@ -79,17 +83,17 @@ export function CatchUpPage() {
     <main className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-app-surface px-6 py-10">
       <div className="mx-auto flex w-full max-w-lg flex-col gap-6">
         <header className="flex items-baseline justify-between gap-3">
-          <h1 className="text-xl text-app-ink">Catch up</h1>
+          <h1 className="text-xl text-app-ink">{t(m.catchUpTitle)}</h1>
           <Link
             className="text-sm text-app-muted hover:text-app-ink"
             to={chatsPath}
           >
-            Back to chats
+            {t(m.backToChats)}
           </Link>
         </header>
         {identity.isError || rooms.isError ? (
           <p className="text-sm text-app-danger" role="alert">
-            Chats could not be loaded.
+            {t(m.catchUpLoadFailed)}
             <Button
               className="ml-3"
               onClick={() => {
@@ -99,7 +103,7 @@ export function CatchUpPage() {
               size="compact"
               tone="ghost"
             >
-              Retry
+              {t(commonMessages.retry)}
             </Button>
           </p>
         ) : !walk ? (
@@ -108,12 +112,15 @@ export function CatchUpPage() {
             role="status"
           >
             <Spinner />
-            <span>Loading chats…</span>
+            <span>{t(m.catchUpLoading)}</span>
           </div>
         ) : current ? (
           <section aria-label={current.name} className="flex flex-col gap-4">
             <p className="text-sm text-app-muted">
-              {walk.index + 1} of {walk.rooms.length}
+              {t(m.catchUpProgress, {
+                current: walk.index + 1,
+                total: walk.rooms.length,
+              })}
             </p>
             <h2 className="text-2xl text-app-ink">{current.name}</h2>
             {current.preview ? (
@@ -122,7 +129,7 @@ export function CatchUpPage() {
               </p>
             ) : null}
             <p className="text-sm text-app-muted">
-              {catchUpAttention(current)}
+              {catchUpAttention(current, t)}
             </p>
             <div className="flex flex-wrap items-center gap-3">
               {walk.index > 0 ? (
@@ -133,7 +140,7 @@ export function CatchUpPage() {
                   size="compact"
                   tone="secondary"
                 >
-                  Previous
+                  {t(m.previous)}
                 </Button>
               ) : null}
               <Link
@@ -143,24 +150,24 @@ export function CatchUpPage() {
                 })}
                 to={`/t/${encodeURIComponent(tenantId)}/rooms/${encodeURIComponent(current.id)}/chat`}
               >
-                Open
+                {t(commonMessages.open)}
               </Link>
               <Button
                 onClick={() => replaceWalk({ ...walk, index: walk.index + 1 })}
                 size="compact"
                 tone="secondary"
               >
-                {walk.index + 1 === walk.rooms.length ? "Finish" : "Next"}
+                {t(walk.index + 1 === walk.rooms.length ? m.finish : m.next)}
               </Button>
             </div>
           </section>
         ) : (
           <section className="flex flex-col gap-3">
-            <h2 className="text-2xl text-app-ink">You're caught up</h2>
+            <h2 className="text-2xl text-app-ink">{t(m.catchUpDoneTitle)}</h2>
             <p className="text-sm text-app-muted">
               {walk.rooms.length === 0
-                ? "No chats have new messages."
-                : `You walked ${walk.rooms.length} ${walk.rooms.length === 1 ? "chat" : "chats"}.`}
+                ? t(m.catchUpNothingNew)
+                : t(m.catchUpWalkedChats, { count: walk.rooms.length })}
             </p>
             {walk.rooms.length > 0 ? (
               <ul className="list-disc pl-5 text-sm text-app-ink">
@@ -176,27 +183,27 @@ export function CatchUpPage() {
                 <Button
                   loading={keep.isPending}
                   onClick={() => {
-                    const note = catchUpNote(walk.rooms);
+                    const note = catchUpNote(walk.rooms, t);
                     if (note) keep.mutate(note);
                   }}
                   size="compact"
                   tone="secondary"
                 >
-                  Keep this in today's note
+                  {t(m.catchUpKeepInNote)}
                 </Button>
               ) : null}
               <Button onClick={startOver} size="compact" tone="secondary">
-                Start over
+                {t(m.catchUpStartOver)}
               </Button>
             </div>
             {kept === "kept" || kept === "already" ? (
               <p className="text-sm text-app-ink" role="status">
-                Kept in today's note.
+                {t(m.catchUpKeptInNote)}
               </p>
             ) : null}
             {kept === "failed" ? (
               <p className="text-sm text-app-danger" role="alert">
-                Today's note was not saved.
+                {t(m.catchUpSaveFailed)}
               </p>
             ) : null}
           </section>

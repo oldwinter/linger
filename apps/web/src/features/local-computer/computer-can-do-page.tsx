@@ -4,12 +4,13 @@ import { Link, useParams } from "react-router";
 import { Button } from "@/components/ui/button";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { useT } from "@/i18n/use-translation";
 
 import {
   computerPermissionActionLabel,
-  computerPermissionNames,
-  computerPermissionStates,
-  computerSubjectNames,
+  computerPermissionName,
+  computerPermissionStateLabel,
+  computerSubjectName,
   nextComputerPermissionStep,
 } from "./computer-can-do";
 import {
@@ -18,10 +19,12 @@ import {
   computerPermissionsQueryKey,
   computerPermissionsQueryOptions,
 } from "./computer-permissions-api";
+import { computersMessages } from "./computers.messages";
 import { localComputersQueryOptions } from "./local-computer-queries";
 
 /** The owner asks macOS what this computer may do, then relaunches when a grant needs it. */
 export function ComputerCanDoPage() {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const queryClient = useQueryClient();
   const tenantId = requireRoomRouteParam(useParams().tenantId, "Tenant");
@@ -43,79 +46,85 @@ export function ComputerCanDoPage() {
       );
     },
   });
-  const name = computer?.display_name ?? "this computer";
+  const name =
+    computer?.display_name ?? t(computersMessages.thisComputerFallback);
 
   return (
     <div className="mx-auto flex w-full max-w-(--app-settings-width) flex-col gap-6 pb-4">
       <header>
-        <h1 className="text-2xl text-foreground">{`What ${name} can do`}</h1>
+        <h1 className="text-2xl text-foreground">
+          {t(computersMessages.whatComputerCanDo, { name })}
+        </h1>
         <p className="mt-1.5 text-sm text-muted-foreground">
-          Screen Recording and Accessibility are granted on the Mac. A new grant
-          applies after Linger relaunches.
+          {t(computersMessages.canDoIntro)}
         </p>
       </header>
       {permissions.isPending ? (
         <p className="text-sm text-muted-foreground" role="status">
-          Checking permissions.
+          {t(computersMessages.checkingPermissions)}
         </p>
       ) : permissions.isError ? (
         <p className="text-sm text-destructive" role="alert">
-          Permissions could not be read.
+          {t(computersMessages.permissionsReadError)}
         </p>
       ) : permissions.data.subjects.length === 0 ? (
         <p className="text-sm text-muted-foreground" role="status">
-          This computer does not use macOS privacy permissions.
+          {t(computersMessages.noMacPermissions)}
         </p>
       ) : (
-        permissions.data.subjects.map((subject) => (
-          <section
-            aria-label={computerSubjectNames[subject.subject]}
-            className="flex flex-col gap-3"
-            key={subject.subject}
-          >
-            <h2 className="text-sm text-foreground">
-              {computerSubjectNames[subject.subject]}
-            </h2>
-            <ul className="flex flex-col gap-2">
-              {subject.permissions.map((entry) => {
-                const step = nextComputerPermissionStep(subject.subject, entry);
-                return (
-                  <li
-                    className="flex items-center justify-between gap-3 rounded-2xl border border-border px-4 py-3"
-                    key={entry.id}
-                  >
-                    <span className="text-sm text-foreground">
-                      {computerPermissionNames[entry.id]}
-                      <span className="mt-1 block text-muted-foreground">
-                        {computerPermissionStates[entry.state]}
+        permissions.data.subjects.map((subject) => {
+          const subjectLabel = computerSubjectName(subject.subject, t);
+          return (
+            <section
+              aria-label={subjectLabel}
+              className="flex flex-col gap-3"
+              key={subject.subject}
+            >
+              <h2 className="text-sm text-foreground">{subjectLabel}</h2>
+              <ul className="flex flex-col gap-2">
+                {subject.permissions.map((entry) => {
+                  const step = nextComputerPermissionStep(
+                    subject.subject,
+                    entry,
+                  );
+                  return (
+                    <li
+                      className="flex items-center justify-between gap-3 rounded-2xl border border-border px-4 py-3"
+                      key={entry.id}
+                    >
+                      <span className="text-sm text-foreground">
+                        {computerPermissionName(entry.id, t)}
+                        <span className="mt-1 block text-muted-foreground">
+                          {computerPermissionStateLabel(entry.state, t)}
+                        </span>
                       </span>
-                    </span>
-                    {step ? (
-                      <Button
-                        disabled={act.isPending}
-                        onClick={() => act.mutate(step)}
-                        type="button"
-                      >
-                        {computerPermissionActionLabel(step)}
-                      </Button>
-                    ) : null}
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        ))
+                      {step ? (
+                        <Button
+                          disabled={act.isPending}
+                          onClick={() => act.mutate(step)}
+                          type="button"
+                        >
+                          {computerPermissionActionLabel(step, t)}
+                        </Button>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          );
+        })
       )}
       {act.isError ? (
         <p className="text-sm text-destructive" role="alert">
-          That step did not go through.
+          {t(computersMessages.permissionStepFailed)}
         </p>
       ) : null}
       <Link
         className="text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         to={`/t/${encodeURIComponent(tenantId)}/settings/computers?computer=${encodeURIComponent(computerId)}`}
       >
-        Back to the computer
+        {t(computersMessages.backToComputer)}
       </Link>
     </div>
   );

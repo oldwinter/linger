@@ -139,4 +139,19 @@ export const wikiMessages = defineMessages("wiki", {
   linkNotWikiPage: "This link does not point to an available Wiki page.",
   linkCouldNotOpen:
     "This linked Wiki page could not be opened. It may be unavailable or you may no longer have access. Please try again.",
+
+  // Wiki overview quick actions and search.
+  surpriseMe: "Surprise me",
+  surpriseMeHint: "Open one of your Wiki pages at random",
+  knowledgeGraph: "Knowledge Graph",
+  knowledgeGraphHint: "Explore connected pages and timeline",
+  searchWikiPages: "Search Wiki pages",
+  searchWikiPlaceholder: "Search pages across all collections...",
+  clearSearch: "Clear search",
+  searchResults: "Search results",
+  noPagesMatch: "No pages match “{query}”.",
+  readPagesWrittenSoFar: {
+    one: "Read {count} page written so far",
+    other: "Read {count} pages written so far",
+  },
 });

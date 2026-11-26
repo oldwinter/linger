@@ -31,6 +31,16 @@ export const localModelsMessages = defineMessages("localModels", {
   memoryFreeChecked: "{free} free · Checked {time}",
   recheckMemory: "Recheck memory",
   details: "Details",
+  storageSummaryRegion: "Disk storage",
+  storageFreeOnDisk: "{free} free on disk",
+  storageUsedByModels: {
+    one: "{size} used by {count} downloaded model",
+    other: "{size} used by {count} downloaded models",
+  },
+  storageLowDisk: "Low disk space",
+  cleanUpUnusedModels: "Clean up unused models ({size})",
+  cleanupDescription:
+    "These downloaded models are idle or failed to load. Remove any you no longer need to free disk space.",
   retrying: "Retrying…",
   switchingComputer:
     "Switching {computer}. This can take a few minutes the first time.",

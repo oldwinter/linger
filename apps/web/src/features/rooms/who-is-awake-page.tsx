@@ -4,7 +4,10 @@ import { Link, useParams } from "react-router";
 import { Button } from "@/components/ui/button";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
 
+import { roomActionsMessages as m } from "./room-actions.messages";
 import {
   tenantAgentAvailabilityQueryOptions,
   tenantAgentsQueryOptions,
@@ -18,6 +21,7 @@ import {
 
 /** Who can hear you right now, updated as agents come and go. */
 export function WhoIsAwakePage() {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const tenantId = requireRoomRouteParam(useParams().tenantId, "Tenant");
   const agents = useQuery(tenantAgentsQueryOptions(client, tenantId));
@@ -38,7 +42,7 @@ export function WhoIsAwakePage() {
       );
       return {
         actorId: agent.actor.id,
-        label: snapshot?.availability.label ?? "Status unavailable",
+        label: snapshot?.availability.label ?? t(m.whoIsAwakeStatusUnavailable),
         name: agent.actor.display_name,
         online: snapshot?.availability.status === "online",
         roomId: roomByActor.get(agent.actor.id),
@@ -54,28 +58,28 @@ export function WhoIsAwakePage() {
       <div className="mx-auto flex w-full max-w-xl flex-col gap-6">
         <header>
           <div className="flex items-baseline justify-between gap-3">
-            <h1 className="text-xl text-foreground">Who is awake</h1>
+            <h1 className="text-xl text-foreground">{t(m.whoIsAwakeTitle)}</h1>
             <Link
               className="text-sm text-app-muted hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               to={chatsPath}
             >
-              Back to chats
+              {t(m.backToChats)}
             </Link>
           </div>
           <p className="mt-2 text-sm text-muted-foreground">
-            Agents you can reach, updating as they come and go.
+            {t(m.whoIsAwakeDescription)}
           </p>
         </header>
         {loading ? (
           <p className="text-sm text-muted-foreground" role="status">
-            Checking who is awake.
+            {t(m.whoIsAwakeLoading)}
           </p>
         ) : failed ? (
           <div
             className="flex items-center gap-3 text-sm text-destructive"
             role="alert"
           >
-            <span>Who is awake could not be loaded.</span>
+            <span>{t(m.whoIsAwakeLoadFailed)}</span>
             <Button
               onClick={() => {
                 if (agents.isError) void agents.refetch();
@@ -85,15 +89,18 @@ export function WhoIsAwakePage() {
               size="compact"
               tone="ghost"
             >
-              Retry
+              {t(commonMessages.retry)}
             </Button>
           </div>
         ) : (
           <>
             <p className="text-sm text-foreground" role="status">
-              {awakeSummary(people)}
+              {awakeSummary(people, t)}
             </p>
-            <ul aria-label="Agents" className="flex flex-col gap-2">
+            <ul
+              aria-label={t(m.whoIsAwakeAgentsList)}
+              className="flex flex-col gap-2"
+            >
               {people.map((agent) => (
                 <li
                   className="flex items-center justify-between gap-3 rounded-2xl border border-border px-4 py-3"
@@ -112,7 +119,7 @@ export function WhoIsAwakePage() {
                       className="shrink-0 text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       to={`/t/${encodeURIComponent(tenantId)}/rooms/${encodeURIComponent(agent.roomId)}/chat`}
                     >
-                      {`Talk to ${agent.name}`}
+                      {t(m.whoIsAwakeTalkTo, { name: agent.name })}
                     </Link>
                   ) : null}
                 </li>

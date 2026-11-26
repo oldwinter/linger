@@ -1,5 +1,8 @@
 import type { TeamHubTeamMdDocument } from "@/features/teamhub/teamhub-types";
+import { translate, type Translate } from "@/i18n/language";
+import type { Message } from "@/i18n/messages";
 
+import { roomActionsMessages as m } from "./room-actions.messages";
 import { patternTitles } from "./task-sidebar/team-graph";
 
 export interface WorkMove {
@@ -25,6 +28,23 @@ export const patternAccounts: Record<
   "loop-until-done":
     "The work goes around again until the goal is actually met.",
 };
+
+const patternAccountMessages: Record<
+  TeamHubTeamMdDocument["collaborate_pattern"],
+  Message<string>
+> = {
+  "classify-and-act": m.workMovesPatternClassify,
+  "fan-out-and-synthesize": m.workMovesPatternFanOut,
+  "adversarial-verification": m.workMovesPatternAdversarial,
+  tournament: m.workMovesPatternTournament,
+  "loop-until-done": m.workMovesPatternLoop,
+};
+
+export function patternAccountMessage(
+  pattern: TeamHubTeamMdDocument["collaborate_pattern"],
+) {
+  return patternAccountMessages[pattern];
+}
 
 export function patternTitle(
   pattern: TeamHubTeamMdDocument["collaborate_pattern"],
@@ -72,9 +92,22 @@ export function workMoves(document: TeamHubTeamMdDocument): WorkMove[] {
   return steps;
 }
 
+export function formatWorkMove(step: WorkMove, t: Translate) {
+  if (step.kind === "start") {
+    return t(m.workMovesStepStart, { who: step.who });
+  }
+  if (step.kind === "handoff") {
+    return t(m.workMovesStepHandoff, {
+      other: step.other ?? "",
+      who: step.who,
+    });
+  }
+  return t(m.workMovesStepReport, {
+    other: step.other ?? "",
+    who: step.who,
+  });
+}
+
 export function workMoveText(step: WorkMove) {
-  if (step.kind === "start") return `${step.who} starts the work.`;
-  if (step.kind === "handoff")
-    return `${step.who} hands the work to ${step.other}.`;
-  return `${step.who} reports back to ${step.other}.`;
+  return formatWorkMove(step, translate);
 }

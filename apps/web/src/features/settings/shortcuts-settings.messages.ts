@@ -55,4 +55,6 @@ export const shortcutsSettingsMessages = defineMessages("shortcutsSettings", {
   actionClearWikiFilter: "Clear and leave the active Wiki page filter",
   actionPlayPauseMeeting: "Play or pause the Meeting recording",
   actionSeekMeeting: "Seek backward or forward 5 seconds",
+  noteDesktopOnlyReopenTab:
+    "Desktop app only — browsers reserve this shortcut to reopen closed tabs.",
 });

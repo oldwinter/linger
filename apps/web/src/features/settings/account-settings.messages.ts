@@ -175,6 +175,10 @@ export const accountSettingsMessages = defineMessages("accountSettings", {
   composioDetailFromEnvironment:
     "Connects Gmail, GitHub, Slack, Notion and other apps. Set with COMPOSIO_API_KEY on the server.",
   composioDetailCannotSave: "Not set on this server.",
+  byokKeysTitle: "Model provider API keys (BYOK)",
+  byokKeysDescription:
+    "Configure OpenAI- or Anthropic-compatible provider keys per computer in Settings › Models. Keys stay private on each computer.",
+  openModelsSettings: "Open Models settings",
 
   // Browser preferences
   thisBrowser: "This browser",

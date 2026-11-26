@@ -10,6 +10,8 @@ import { anotherMeQueryOptions } from "@/features/rooms/room-queries";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
 
 import {
   defaultReminderLocalValue,
@@ -20,6 +22,7 @@ import {
   reminderInstruction,
   reminderName,
 } from "./meeting-reminders";
+import { memorySubpagesMessages as m } from "./memory-subpages.messages";
 
 interface TodoRow {
   text: string;
@@ -32,6 +35,7 @@ interface TodoRow {
  */
 export function MeetingRemindersPage() {
   const { client } = useTeamHubRuntime();
+  const t = useT();
   const tenantId = requireRoomRouteParam(useParams().tenantId, "Tenant");
   const entryId = useSearchParams()[0].get("entry") ?? "";
   const meetings = useMeetings(tenantId);
@@ -47,7 +51,7 @@ export function MeetingRemindersPage() {
     queryKey: ["teamhub", tenantId, "personal-memory", listed?.id],
   });
   const anotherMe = useQuery(anotherMeQueryOptions(client, tenantId));
-  const label = listed ? meetingReminderLabel(listed) : "Meeting";
+  const label = listed ? meetingReminderLabel(listed) : t(m.meetingFallback);
   const todos = useMemo(
     () => (selected.data ? meetingTodoTexts(selected.data.content) : []),
     [selected.data],
@@ -84,7 +88,7 @@ export function MeetingRemindersPage() {
         if (!row) continue;
         const runAt = localValueToRunAt(row.when);
         if (!runAt) {
-          setError("Choose a time for each to-do.");
+          setError(t(m.chooseTimeError));
           return;
         }
         await teamHubData(
@@ -103,9 +107,7 @@ export function MeetingRemindersPage() {
       }
     } catch (cause) {
       setError(
-        cause instanceof Error
-          ? cause.message
-          : "Could not create the reminder.",
+        cause instanceof Error ? cause.message : t(m.createReminderFailed),
       );
     } finally {
       setPending(false);
@@ -114,20 +116,18 @@ export function MeetingRemindersPage() {
 
   return (
     <LibrarySubpageShell
-      backLabel="Back to the meeting"
+      backLabel={t(m.backToMeeting)}
       backTo={meetingPath(tenantId, entryId)}
-      subtitle="Each to-do becomes a reminder in your chat with Another Me. The meeting stays as it is."
-      title="Turn to-dos into reminders"
+      subtitle={t(m.remindersSubtitle)}
+      title={t(m.remindersTitle)}
     >
       {meetings.isPending || (listed && selected.isPending) ? (
         <p className="text-sm text-muted-foreground" role="status">
-          Loading the meeting.
+          {t(m.loadingMeeting)}
         </p>
       ) : meetings.isError || selected.isError ? (
         <div className="flex flex-col items-start gap-3" role="alert">
-          <p className="text-sm text-destructive">
-            Could not load this meeting.
-          </p>
+          <p className="text-sm text-destructive">{t(m.meetingLoadFailed)}</p>
           <Button
             onClick={() => {
               if (meetings.isError) void meetings.refetch();
@@ -136,16 +136,16 @@ export function MeetingRemindersPage() {
             size="compact"
             tone="secondary"
           >
-            Retry
+            {t(commonMessages.retry)}
           </Button>
         </div>
       ) : !listed ? (
         <p className="text-sm text-muted-foreground" role="status">
-          This meeting is not in your library.
+          {t(m.meetingNotInLibrary)}
         </p>
       ) : todos.length === 0 ? (
         <p className="text-sm text-muted-foreground" role="status">
-          This meeting has no to-dos to remind you about.
+          {t(m.noTodosToRemind)}
         </p>
       ) : (
         <form
@@ -155,29 +155,33 @@ export function MeetingRemindersPage() {
             void create();
           }}
         >
-          <h2 className="text-lg text-foreground">{label}</h2>
+          <h2 className="text-lg font-medium text-foreground">{label}</h2>
           <ul className="flex flex-col gap-3">
             {planned.map((row, index) => {
               const saved = created.includes(index);
               const leftOut = skipped.includes(index);
               return (
                 <li
-                  className="flex flex-col gap-3 rounded-2xl border border-border px-4 py-3"
+                  className="flex flex-col gap-3 rounded-2xl border border-border bg-card px-4 py-3 shadow-xs"
                   key={`${index}-${row.text}`}
                 >
                   <p className="text-sm text-foreground">{row.text}</p>
                   {leftOut ? (
-                    <p className="text-sm text-muted-foreground">Skipped.</p>
+                    <p className="text-sm text-muted-foreground">
+                      {t(m.skipped)}
+                    </p>
                   ) : saved ? (
                     <p className="text-sm text-muted-foreground">
-                      {`Reminder set for ${formatReminderWhen(row.when)}.`}
+                      {t(m.reminderSetFor, {
+                        when: formatReminderWhen(row.when),
+                      })}
                     </p>
                   ) : (
                     <label
                       className="flex flex-col gap-1 text-xs text-muted-foreground"
                       htmlFor={`todo-when-${index}`}
                     >
-                      Remind me
+                      {t(m.remindMe)}
                       <input
                         className="h-9 rounded-lg border border-border bg-background px-3 text-sm text-foreground"
                         id={`todo-when-${index}`}
@@ -197,13 +201,13 @@ export function MeetingRemindersPage() {
                   )}
                   {saved || leftOut ? null : (
                     <Button
-                      aria-label={`Skip ${row.text}`}
+                      aria-label={t(m.skipTodo, { todo: row.text })}
                       onClick={() => setSkipped([...skipped, index])}
                       size="compact"
                       tone="ghost"
                       type="button"
                     >
-                      Skip
+                      {t(m.skip)}
                     </Button>
                   )}
                 </li>
@@ -212,8 +216,7 @@ export function MeetingRemindersPage() {
           </ul>
           {roomId ? null : (
             <p className="text-sm text-muted-foreground" role="status">
-              Another Me is not set up, so these to-dos cannot become reminders
-              yet.
+              {t(m.anotherMeNotSetUp)}
             </p>
           )}
           {error ? (
@@ -223,14 +226,12 @@ export function MeetingRemindersPage() {
           ) : null}
           {created.length > 0 && remaining.length === 0 ? (
             <p className="text-sm text-foreground" role="status">
-              {created.length === 1
-                ? "Another Me will remind you."
-                : `Another Me will remind you about ${created.length} to-dos.`}
+              {t(m.anotherMeWillRemind, { count: created.length })}
             </p>
           ) : null}
           {roomId && remaining.length > 0 ? (
             <Button disabled={pending} type="submit">
-              {pending ? "Creating reminders" : "Create reminders"}
+              {pending ? t(m.creatingReminders) : t(m.createReminders)}
             </Button>
           ) : null}
         </form>

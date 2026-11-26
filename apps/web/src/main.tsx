@@ -1,5 +1,5 @@
 import { QueryClientProvider } from "@tanstack/react-query";
-import { StrictMode } from "react";
+import { lazy, StrictMode, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { createBrowserRouter } from "react-router";
 import { RouterProvider } from "react-router/dom";
@@ -26,6 +26,11 @@ import { restoreLanguage } from "@/i18n/language";
 import { useT } from "@/i18n/use-translation";
 
 installVitePreloadRecovery({ buildId: import.meta.url });
+// index.html applies the stored theme synchronously before first paint; attach
+// media/storage/hotkey listeners asynchronously to keep the initial JS graph lean.
+void import("@/app/theme").then((module) => {
+  module.initTheme();
+});
 markDesktopShell();
 loadHanFont(navigator.languages);
 
@@ -78,6 +83,18 @@ function AppUnavailable() {
   );
 }
 
+const LazyToastViewport = lazy(async () => ({
+  default: (await import("@/components/ui/toast")).ToastViewport,
+}));
+
+function AppToastHost() {
+  return (
+    <Suspense fallback={null}>
+      <LazyToastViewport />
+    </Suspense>
+  );
+}
+
 async function startBrowserApp() {
   const queryClient = createAppQueryClient();
   const runtime = createBrowserTeamHubRuntime();
@@ -103,6 +120,7 @@ async function startBrowserApp() {
         <TeamHubRuntimeProvider runtime={runtime}>
           <DesktopConnectorReturn />
           <RouterProvider router={router} />
+          <AppToastHost />
         </TeamHubRuntimeProvider>
       </QueryClientProvider>
     </StrictMode>,

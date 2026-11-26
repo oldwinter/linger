@@ -19,6 +19,8 @@ export const roomSurfaceMessages = defineMessages("chat", {
   loadingSidebar: "Loading sidebar...",
   loggingOut: "Logging out",
   retryLogout: "Retry logout",
+  readOnlyModeBanner: "No computer connected — browsing in read-only mode",
+  connectComputer: "Connect computer",
   // Connection status in the Room header.
   offline: "Offline",
   syncingRoom: "Syncing Room",

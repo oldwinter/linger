@@ -7,6 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { isRunWorking } from "@/features/teamhub/run-status";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
+import { roomActionsMessages as m } from "./room-actions.messages";
 import { requireRoomRouteParam } from "./room-route-params";
 import { roomRunStatusesQueryOptions } from "./room-queries";
 import { RuntimeActivityPath } from "./runtime-status/runtime-activity-path-view";
@@ -19,6 +22,7 @@ import { chooseRoomWorkRun } from "./room-work";
  */
 export function RoomWorkPage() {
   const { client } = useTeamHubRuntime();
+  const t = useT();
   const params = useParams();
   const tenantId = requireRoomRouteParam(params.tenantId, "Tenant");
   const roomId = requireRoomRouteParam(params.roomId, "Room");
@@ -57,29 +61,29 @@ export function RoomWorkPage() {
             to={chat}
           >
             <Icon icon={ArrowLeft01Icon} size={14} />
-            Back to room
+            {t(m.backToRoom)}
           </Link>
         </div>
         {runs.isPending ? (
           <>
             <h2 className="text-xl text-foreground" id={headingId}>
-              Watch the work
+              {t(m.roomWorkTitle)}
             </h2>
             <p className="text-sm text-muted-foreground" role="status">
-              Loading this room.
+              {t(m.roomWorkLoadingRoom)}
             </p>
           </>
         ) : runs.isError ? (
           <>
             <h2 className="text-xl text-foreground" id={headingId}>
-              Watch the work
+              {t(m.roomWorkTitle)}
             </h2>
             <div
               className="flex items-center justify-between gap-3"
               role="alert"
             >
               <p className="text-sm text-destructive">
-                This room could not be read.
+                {t(m.roomWorkLoadFailed)}
               </p>
               <Button
                 onClick={() => void runs.refetch()}
@@ -87,17 +91,17 @@ export function RoomWorkPage() {
                 tone="secondary"
                 type="button"
               >
-                Retry
+                {t(commonMessages.retry)}
               </Button>
             </div>
           </>
         ) : !run ? (
           <>
             <h2 className="text-xl text-foreground" id={headingId}>
-              Watch the work
+              {t(m.roomWorkTitle)}
             </h2>
             <p className="text-sm text-muted-foreground" role="status">
-              Nothing is happening in this room.
+              {t(m.roomWorkIdle)}
             </p>
           </>
         ) : (
@@ -105,13 +109,17 @@ export function RoomWorkPage() {
             <header>
               <h2 className="text-xl text-foreground" id={headingId}>
                 {working
-                  ? `${run.agent.display_name} is working`
-                  : `${run.agent.display_name} finished this run`}
+                  ? t(m.roomWorkAgentWorking, { name: run.agent.display_name })
+                  : t(m.roomWorkAgentFinished, {
+                      name: run.agent.display_name,
+                    })}
               </h2>
               <p className="mt-2 text-sm text-muted-foreground">
-                {working
-                  ? "This page keeps up while the agent is still working."
-                  : "The agent has replied. The path below is what it did."}
+                {t(
+                  working
+                    ? m.roomWorkWorkingSubtitle
+                    : m.roomWorkFinishedSubtitle,
+                )}
               </p>
             </header>
             {events.isError ? (
@@ -120,7 +128,7 @@ export function RoomWorkPage() {
                 role="alert"
               >
                 <p className="text-sm text-destructive">
-                  The work could not be loaded.
+                  {t(m.roomWorkEventsLoadFailed)}
                 </p>
                 <Button
                   onClick={() => void events.refetch()}
@@ -128,12 +136,12 @@ export function RoomWorkPage() {
                   tone="secondary"
                   type="button"
                 >
-                  Retry
+                  {t(commonMessages.retry)}
                 </Button>
               </div>
             ) : events.isPending ? (
               <p className="text-sm text-muted-foreground" role="status">
-                Loading the work.
+                {t(m.roomWorkLoadingWork)}
               </p>
             ) : (
               <div className="min-h-0 flex-1 overflow-y-auto">

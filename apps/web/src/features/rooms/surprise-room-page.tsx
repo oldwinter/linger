@@ -6,7 +6,10 @@ import { Button, buttonClassName } from "@/components/ui/button";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubRoomListItem } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
 
+import { roomActionsMessages as m } from "./room-actions.messages";
 import { tenantRoomsQueryOptions } from "./room-queries";
 import {
   chooseSurprise,
@@ -19,6 +22,7 @@ const SPIN_MS = 70;
 
 /** Spins the rooms you belong to and opens wherever it lands. */
 export function SurpriseRoomPage() {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const tenantId = requireRoomRouteParam(useParams().tenantId, "Tenant");
   const rooms = useQuery(tenantRoomsQueryOptions(client, tenantId));
@@ -72,48 +76,48 @@ export function SurpriseRoomPage() {
       <div className="mx-auto flex w-full max-w-xl flex-col gap-6">
         <header>
           <div className="flex items-baseline justify-between gap-3">
-            <h1 className="text-xl text-foreground">Surprise me</h1>
+            <h1 className="text-xl text-foreground">{t(m.surpriseTitle)}</h1>
             <Link
               className="text-sm text-app-muted hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               to={chatsPath}
             >
-              Back to chats
+              {t(m.backToChats)}
             </Link>
           </div>
           <p className="mt-2 text-sm text-muted-foreground">
-            Spin the rooms you belong to, then go where it lands.
+            {t(m.surpriseDescription)}
           </p>
         </header>
         {rooms.isPending ? (
           <p className="text-sm text-muted-foreground" role="status">
-            Gathering rooms.
+            {t(m.surpriseLoading)}
           </p>
         ) : rooms.isError ? (
           <div
             className="flex items-center gap-3 text-sm text-destructive"
             role="alert"
           >
-            <span>The rooms could not be gathered.</span>
+            <span>{t(m.surpriseLoadFailed)}</span>
             <Button
               onClick={() => void rooms.refetch()}
               size="compact"
               tone="ghost"
             >
-              Retry
+              {t(commonMessages.retry)}
             </Button>
           </div>
         ) : spinList.length === 0 ? (
           <p className="text-sm text-muted-foreground" role="status">
-            There is no room to land in.
+            {t(m.surpriseEmpty)}
           </p>
         ) : (
           <>
             <p className="text-2xl text-foreground" role="status">
               {phase === "idle"
-                ? "Ready when you are."
+                ? t(m.surpriseReady)
                 : phase === "spinning"
                   ? title
-                  : `It landed on ${title}.`}
+                  : t(m.surpriseLanded, { title: title ?? "" })}
             </p>
             {phase === "landed" && shown ? (
               <div className="flex flex-wrap items-center gap-3">
@@ -121,10 +125,10 @@ export function SurpriseRoomPage() {
                   className={buttonClassName({ tone: "primary" })}
                   to={`/t/${encodeURIComponent(tenantId)}/rooms/${encodeURIComponent(shown.id)}/chat`}
                 >
-                  {`Go to ${title}`}
+                  {t(m.surpriseGoTo, { title: title ?? "" })}
                 </Link>
                 <Button onClick={spin} tone="secondary" type="button">
-                  Spin again
+                  {t(m.surpriseSpinAgain)}
                 </Button>
               </div>
             ) : (
@@ -134,7 +138,9 @@ export function SurpriseRoomPage() {
                   onClick={spin}
                   type="button"
                 >
-                  {phase === "spinning" ? "Spinning" : "Spin"}
+                  {t(
+                    phase === "spinning" ? m.surpriseSpinning : m.surpriseSpin,
+                  )}
                 </Button>
               </div>
             )}

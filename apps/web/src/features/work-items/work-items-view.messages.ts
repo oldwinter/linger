@@ -1,0 +1,34 @@
+import { defineMessages } from "@/i18n/messages";
+
+/**
+ * Lazy messages for the Work Items Dashboard view switcher, list view,
+ * drag-and-drop transitions, and inline detail editing.
+ */
+export const workItemsViewMessages = defineMessages("workItemsView", {
+  viewMode: "View mode",
+  viewBoard: "Board",
+  viewList: "List",
+  workItemsList: "Work Items list",
+  columnId: "ID",
+  columnTitle: "Title",
+  columnStatus: "Status",
+  columnPriority: "Priority",
+  columnAssignees: "Assignees",
+  columnOriginRoom: "Origin Room",
+  columnExecution: "Agent execution",
+  columnUpdated: "Updated",
+  columnActions: "Actions",
+  selectAllItems: "Select all visible items",
+  selectItem: "Select {title}",
+  dragTransitionFailed: "Could not move Work Item.",
+  statusLabel: "Status",
+  statusTodo: "Todo",
+  statusInProgress: "In progress",
+  statusDone: "Done",
+  statusClosedNotPlanned: "Closed · Not planned",
+  statusClosedFailed: "Closed · Failed",
+  statusClosedDuplicate: "Closed · Duplicate",
+  editWorkItem: "Edit Work Item",
+  saving: "Saving…",
+  managedTaskStatusHint: "Status is managed by the assigned Agent.",
+});

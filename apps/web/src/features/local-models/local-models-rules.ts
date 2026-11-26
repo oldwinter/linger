@@ -989,3 +989,66 @@ export function localSwitchTargets(view: LocalModelsView): LocalModel[] {
 export function localSwitchTarget(view: LocalModelsView) {
   return localSwitchTargets(view)[0];
 }
+
+const LOW_DISK_THRESHOLD_BYTES = 10 * 1024 ** 3;
+
+export interface DiskStorageSummary {
+  diskFreeBytes?: number;
+  downloadedBytes: number;
+  downloadedCount: number;
+  reclaimable: ModelEntry[];
+  reclaimableBytes: number;
+  lowDisk: boolean;
+}
+
+/**
+ * Summarizes disk space and reclaimable downloaded models (unused idle models
+ * and failed loads that still hold files on disk).
+ */
+export function diskStorageSummary(
+  view: LocalModelsView,
+  entries: readonly ModelEntry[] = view.available ? modelEntries(view) : [],
+  isUnused: (entry: ModelEntry) => boolean = (entry) =>
+    entry.used_by.length === 0,
+): DiskStorageSummary {
+  const diskFreeBytes = view.computer.host?.disk_free_bytes;
+  const onDisk = entries.filter(
+    (entry) =>
+      entry.status === "loaded" ||
+      entry.status === "loading" ||
+      entry.status === "idle" ||
+      (entry.status === "failed" && !downloadStopped(entry.model)),
+  );
+  const downloadedBytes = onDisk.reduce(
+    (sum, entry) => sum + entry.model.download_bytes,
+    0,
+  );
+  const reclaimable = onDisk
+    .filter(
+      (entry) =>
+        (entry.status === "idle" && isUnused(entry)) ||
+        (entry.status === "failed" && !downloadStopped(entry.model)),
+    )
+    .sort((a, b) => b.model.download_bytes - a.model.download_bytes);
+  const reclaimableBytes = reclaimable.reduce(
+    (sum, entry) => sum + entry.model.download_bytes,
+    0,
+  );
+  const diskInsufficientInLibrary = entries.some(
+    (entry) =>
+      entry.model.availability.reason?.code === "DISK_INSUFFICIENT" ||
+      entry.model.error?.code === "DISK_INSUFFICIENT",
+  );
+  const lowDisk =
+    diskInsufficientInLibrary ||
+    (diskFreeBytes !== undefined && diskFreeBytes < LOW_DISK_THRESHOLD_BYTES);
+
+  return {
+    diskFreeBytes,
+    downloadedBytes,
+    downloadedCount: onDisk.length,
+    lowDisk,
+    reclaimable,
+    reclaimableBytes,
+  };
+}
