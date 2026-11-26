@@ -1,11 +1,11 @@
 package components
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/oldwinter/linger/mobile/internal/api"
+	"github.com/oldwinter/linger/mobile/internal/i18n"
 	"github.com/oldwinter/linger/mobile/internal/theme"
 )
 
@@ -32,14 +32,14 @@ func MailCanvasCard(c *ui.Context, docID string, mail api.MailCanvasState, busy 
 	}
 
 	return ui.Column(c).FillWidth().Background(t.Surface).Radius(12).
-		Border(1, t.Border).Padding(12, 12).Gap(8).Role(ui.RoleGroup).Label("Mail Canvas: " + mail.Subject).Children(func() {
+		Border(1, t.Border).Padding(12, 12).Gap(8).Role(ui.RoleGroup).Label(i18n.Tf("mail.title", map[string]any{"subject": mail.Subject})).Children(func() {
 		ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(6).Children(func() {
-			ui.Text(c, "Email Draft").FontSize(12).FontWeight(600).TextColor(t.Accent)
-			StatusPill(c, mail.Status, statusTone)
+			ui.Text(c, i18n.T("mail.draft_fallback")).FontSize(12).FontWeight(600).TextColor(t.Accent)
+			StatusPill(c, i18n.StatusLabel(mail.Status), statusTone)
 		})
 		ui.Text(c, mail.Subject).FontSize(15).FontWeight(600).TextColor(t.Text)
 		if mail.To != "" {
-			ui.Text(c, "To: "+mail.To).FontSize(12).TextColor(t.TextMuted)
+			ui.Text(c, i18n.Tf("mail.to", map[string]any{"list": mail.To})).FontSize(12).TextColor(t.TextMuted)
 		}
 		if strings.TrimSpace(mail.Body) != "" {
 			ui.Column(c).FillWidth().Padding(8, 10).Radius(8).Background(ex.MutedBg).Children(func() {
@@ -54,16 +54,16 @@ func MailCanvasCard(c *ui.Context, docID string, mail api.MailCanvasState, busy 
 			if len(shortDigest) > 18 {
 				shortDigest = shortDigest[:18] + "..."
 			}
-			ui.Text(c, fmt.Sprintf("Digest: %s", shortDigest)).FontSize(11).TextColor(t.TextMuted)
+			ui.Text(c, i18n.Tf("mail.digest", map[string]any{"digest": shortDigest})).FontSize(11).TextColor(t.TextMuted)
 		}
 
 		if mail.CanEdit && mail.Status != "declined" {
-			sendLabel := "Send Email"
+			sendLabel := i18n.T("mail.send")
 			if mail.Status == "sent" || mail.Status == "failed" {
-				sendLabel = "Send Again"
+				sendLabel = i18n.T("mail.send_again")
 			}
 			if busy {
-				sendLabel = "Sending..."
+				sendLabel = i18n.T("mail.sending")
 			}
 			ui.Row(c).FillWidth().Gap(8).Children(func() {
 				sendBtn := PrimaryTouchButton(c, sendLabel, busy)
@@ -71,7 +71,7 @@ func MailCanvasCard(c *ui.Context, docID string, mail api.MailCanvasState, busy 
 				if sendBtn.Clicked() && cb.OnSend != nil {
 					cb.OnSend(docID, mail)
 				}
-				declineBtn := SecondaryTouchButton(c, "Don't send", busy)
+				declineBtn := SecondaryTouchButton(c, i18n.T("mail.dont_send"), busy)
 				declineBtn.Grow(1).Basis(0)
 				if declineBtn.Clicked() && cb.OnDecline != nil {
 					cb.OnDecline(docID, mail)

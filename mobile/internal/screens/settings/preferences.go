@@ -2,7 +2,6 @@ package settings
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/plugins/biometrics"
@@ -10,6 +9,7 @@ import (
 	"github.com/egoist/mygo/ui/mobile"
 	"github.com/oldwinter/linger/mobile/internal/components"
 	"github.com/oldwinter/linger/mobile/internal/config"
+	"github.com/oldwinter/linger/mobile/internal/i18n"
 )
 
 func (s *Screen) viewPreferencesSection(c *ui.Context) {
@@ -19,7 +19,7 @@ func (s *Screen) viewPreferencesSection(c *ui.Context) {
 	if s.deps.Store != nil {
 		prefs = s.deps.Store.Snapshot().Prefs
 	} else {
-		prefs = config.AppPreferences{Theme: config.ThemeSystem}
+		prefs = config.AppPreferences{Theme: config.ThemeSystem, Language: config.LanguageSystem}
 	}
 
 	s.mu.Lock()
@@ -32,26 +32,26 @@ func (s *Screen) viewPreferencesSection(c *ui.Context) {
 	ui.Scroll(c).FillWidth().Grow(1).Basis(0).TrackScroll(&s.scroll[SectionPreferences]).Children(func() {
 		ui.Column(c).FillWidth().Padding(12, 16, 28, 16).Gap(12).Children(func() {
 			if s.prefsNotice != "" {
-				components.StatusBanner(c, components.ToneSuccess, s.prefsNotice, "OK", func() {
+				components.StatusBanner(c, components.ToneSuccess, s.prefsNotice, i18n.T("common.ok"), func() {
 					s.prefsNotice = ""
 				})
 			}
 
 			// Biometric App Lock
-			components.SectionCard(c, "Security", "Protect paired host credentials on this device", nil, func() {
-				bioSub := "Require Face ID / Touch ID on resume"
+			components.SectionCard(c, i18n.T("settings.prefs.security_title"), i18n.T("settings.prefs.security_subtitle"), nil, func() {
+				bioSub := i18n.T("settings.prefs.biometric_hint")
 				if bioChecked && !bioSupported {
-					bioSub = "Biometric hardware is unavailable on this device"
+					bioSub = i18n.T("settings.prefs.biometric_unavailable")
 				} else if bioSupported && bioKind != biometrics.None {
-					bioSub = "Enabled via " + string(bioKind)
+					bioSub = i18n.Tf("settings.prefs.biometric_enabled_via", map[string]any{"name": i18n.BiometricKindLabel(string(bioKind))})
 				}
 				bioOn := prefs.BiometricLock
 				ui.Row(c).FillWidth().MinHeight(44).AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
 					ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
-						ui.Text(c, "Biometric App Lock").FontSize(14).FontWeight(600).TextColor(t.Text)
+						ui.Text(c, i18n.T("settings.prefs.biometric_label")).FontSize(14).FontWeight(600).TextColor(t.Text)
 						ui.Text(c, bioSub).FontSize(12).TextColor(t.TextMuted)
 					})
-					sw := mobile.Switch(c, &bioOn).Label("Toggle Biometric App Lock").Disabled(bioChecked && !bioSupported)
+					sw := mobile.Switch(c, &bioOn).Label(i18n.T("settings.prefs.biometric_a11y")).Disabled(bioChecked && !bioSupported)
 					if sw.Changed() {
 						if s.deps.Store != nil {
 							_ = s.deps.Store.SetBiometricPreference(bioOn)
@@ -63,37 +63,32 @@ func (s *Screen) viewPreferencesSection(c *ui.Context) {
 				})
 			})
 
-			// Appearance
-			components.SectionCard(c, "Appearance", "Theme and layout density", nil, func() {
-				ui.Text(c, "Theme").FontSize(12).FontWeight(600).TextColor(t.TextMuted)
-				themeIdx := 0
-				switch prefs.Theme {
-				case config.ThemeLight:
-					themeIdx = 1
-				case config.ThemeDark:
-					themeIdx = 2
-				}
-				if components.SegmentedControl(c, &themeIdx, "System", "Town Light", "Town Dark") {
-					next := config.ThemeSystem
-					if themeIdx == 1 {
-						next = config.ThemeLight
-					} else if themeIdx == 2 {
-						next = config.ThemeDark
-					}
+			// Appearance & Language
+			components.SectionCard(c, i18n.T("appearance.title"), i18n.T("appearance.subtitle"), nil, func() {
+				components.ThemeSegmentedSelector(c, prefs.Theme, func(next config.ThemePreference) {
 					if s.deps.Store != nil {
 						_ = s.deps.Store.SetThemePreference(next)
 					}
 					if s.deps.OnThemeChanged != nil {
 						s.deps.OnThemeChanged(next)
 					}
-				}
+				})
 
-				ui.Text(c, "Density").FontSize(12).FontWeight(600).TextColor(t.TextMuted)
+				components.LanguageSegmentedSelector(c, prefs.Language, func(next config.LanguagePreference) {
+					if s.deps.Store != nil {
+						_ = s.deps.Store.SetLanguagePreference(next)
+					}
+					if s.deps.OnLanguageChanged != nil {
+						s.deps.OnLanguageChanged(next)
+					}
+				})
+
+				ui.Text(c, i18n.T("appearance.density")).FontSize(12).FontWeight(600).TextColor(t.TextMuted)
 				densIdx := 0
 				if prefs.CompactMode {
 					densIdx = 1
 				}
-				if components.SegmentedControl(c, &densIdx, "Comfortable", "Compact") {
+				if components.SegmentedControl(c, &densIdx, i18n.T("appearance.density_comfortable"), i18n.T("appearance.density_compact")) {
 					prefs.CompactMode = densIdx == 1
 					if s.deps.Store != nil {
 						_ = s.deps.Store.UpdatePreferences(prefs)
@@ -102,13 +97,13 @@ func (s *Screen) viewPreferencesSection(c *ui.Context) {
 			})
 
 			// Interaction
-			components.SectionCard(c, "Interaction", "Touch feedback and composer shortcuts", nil, func() {
+			components.SectionCard(c, i18n.T("settings.prefs.interaction_title"), i18n.T("settings.prefs.interaction_subtitle"), nil, func() {
 				ui.Row(c).FillWidth().MinHeight(44).AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
 					ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
-						ui.Text(c, "Haptic Feedback").FontSize(14).FontWeight(600).TextColor(t.Text)
-						ui.Text(c, "Subtle vibration on actions and toggles").FontSize(12).TextColor(t.TextMuted)
+						ui.Text(c, i18n.T("settings.prefs.haptic_label")).FontSize(14).FontWeight(600).TextColor(t.Text)
+						ui.Text(c, i18n.T("settings.prefs.haptic_sub")).FontSize(12).TextColor(t.TextMuted)
 					})
-					sw := mobile.Switch(c, &s.hapticsEnabled).Label("Toggle Haptic Feedback")
+					sw := mobile.Switch(c, &s.hapticsEnabled).Label(i18n.T("settings.prefs.haptic_label"))
 					if sw.Changed() {
 						if s.hapticsEnabled {
 							mygo.Haptics.Light()
@@ -119,12 +114,12 @@ func (s *Screen) viewPreferencesSection(c *ui.Context) {
 					}
 				})
 
-				ui.Text(c, "Composer Return Key").FontSize(12).FontWeight(600).TextColor(t.TextMuted)
+				ui.Text(c, i18n.T("settings.prefs.return_key_label")).FontSize(12).FontWeight(600).TextColor(t.TextMuted)
 				retIdx := 0
 				if s.composerReturnSend {
 					retIdx = 1
 				}
-				if components.SegmentedControl(c, &retIdx, "Newline", "Send") {
+				if components.SegmentedControl(c, &retIdx, i18n.T("settings.prefs.return_newline"), i18n.T("settings.prefs.return_send")) {
 					s.composerReturnSend = retIdx == 1
 					if s.deps.OnComposerReturnChanged != nil {
 						s.deps.OnComposerReturnChanged(s.composerReturnSend)
@@ -133,13 +128,20 @@ func (s *Screen) viewPreferencesSection(c *ui.Context) {
 			})
 
 			// Offline Cache
-			components.SectionCard(c, "Offline Cache (SQLite)", "Local encrypted host database stats", nil, func() {
-				ui.Text(c, fmt.Sprintf("Rooms: %d · Messages: %d · Work Items: %d",
-					stats.Rooms, stats.Messages, stats.WorkItems)).FontSize(13).TextColor(t.Text)
-				ui.Text(c, fmt.Sprintf("Routines: %d · Pocket Notes: %d · Docs: %d · Outbox: %d",
-					stats.Routines, stats.PocketNotes, stats.Documents, stats.Outbox)).FontSize(12).TextColor(t.TextMuted)
+			components.SectionCard(c, i18n.T("settings.prefs.sqlite_title"), i18n.T("settings.prefs.sqlite_subtitle"), nil, func() {
+				ui.Text(c, i18n.Tf("settings.prefs.sqlite_row1", map[string]any{
+					"rooms":    stats.Rooms,
+					"messages": stats.Messages,
+					"work":     stats.WorkItems,
+				})).FontSize(13).TextColor(t.Text)
+				ui.Text(c, i18n.Tf("settings.prefs.sqlite_row2", map[string]any{
+					"routines": stats.Routines,
+					"notes":    stats.PocketNotes,
+					"docs":     stats.Documents,
+					"outbox":   stats.Outbox,
+				})).FontSize(12).TextColor(t.TextMuted)
 
-				clearBtn := components.DangerTouchButton(c, "Clear Local Cache", false)
+				clearBtn := components.DangerTouchButton(c, i18n.T("settings.prefs.clear_cache"), false)
 				clearBtn.FillWidth()
 				if clearBtn.Clicked() {
 					s.clearCacheConfirm = true
@@ -151,11 +153,11 @@ func (s *Screen) viewPreferencesSection(c *ui.Context) {
 
 func (s *Screen) viewClearCacheConfirmSheet(c *ui.Context) {
 	mobile.ActionSheet(c, &s.clearCacheConfirm, mobile.ActionSheetOptions{
-		Title:   "Clear Local Cache?",
-		Message: "Removes cached Rooms, Messages, Work Items, and Documents from this device.",
-		Cancel:  "Cancel",
+		Title:   i18n.T("settings.prefs.clear_title"),
+		Message: i18n.T("settings.prefs.clear_body"),
+		Cancel:  i18n.T("common.cancel"),
 	}, mobile.Action{
-		Label:       "Clear Cache",
+		Label:       i18n.T("settings.prefs.clear_confirm"),
 		Destructive: true,
 		OnTap:       s.clearCacheAsync,
 	})
@@ -172,8 +174,8 @@ func (s *Screen) clearCacheAsync() {
 		}
 		s.refreshCacheStats(ctx)
 		s.enqueueUI(func() {
-			s.prefsNotice = "Local cache cleared"
-			s.toast("Local cache cleared")
+			s.prefsNotice = i18n.T("settings.prefs.toast.cleared")
+			s.toast(i18n.T("settings.prefs.toast.cleared"))
 		})
 	}()
 }

@@ -14,7 +14,6 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/plugins/imagepicker"
 	"github.com/egoist/mygo/ui"
-	"github.com/egoist/mygo/ui/golden"
 	"github.com/oldwinter/linger/mobile/internal/api"
 	"github.com/oldwinter/linger/mobile/internal/cache"
 	"github.com/oldwinter/linger/mobile/internal/screens/library"
@@ -218,7 +217,7 @@ func TestLibraryGlobalSearchFTS5LiveMergeAndEmptyState(t *testing.T) {
 	_ = cs.UpsertMessages(context.Background(), []api.Message{
 		{
 			ID: "msg_offline_1", TenantID: srv.TenantID, RoomID: "room_general", RoomSeq: &seq,
-			Author: api.ActorRef{ID: "act_human_1", TenantID: srv.TenantID, Kind: "human", DisplayName: "Alex Rivera"},
+			Author:     api.ActorRef{ID: "act_human_1", TenantID: srv.TenantID, Kind: "human", DisplayName: "Alex Rivera"},
 			RawMessage: "Offline cached TLS certificate verification note",
 		},
 	})
@@ -492,7 +491,7 @@ func TestLibraryGoldenSnapshots(t *testing.T) {
 			scr.View(c)
 		})
 	}, testutil.StandardMobileViewports[1])
-	golden.Match(t, ttLight, "testdata/library_wiki_light_390x844.png")
+	testutil.MatchGolden(t, ttLight, "testdata/library_wiki_light_390x844.png")
 
 	ttDark := testutil.NewPhoneTester(func(c *ui.Context) {
 		c.SetTheme(theme.TownDark())
@@ -500,5 +499,5 @@ func TestLibraryGoldenSnapshots(t *testing.T) {
 			scr.View(c)
 		})
 	}, testutil.StandardMobileViewports[1])
-	golden.Match(t, ttDark, "testdata/library_wiki_dark_390x844.png")
+	testutil.MatchGolden(t, ttDark, "testdata/library_wiki_dark_390x844.png")
 }

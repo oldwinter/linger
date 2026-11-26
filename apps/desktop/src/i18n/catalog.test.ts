@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import type { Message, MessageSource } from "@linger/service-kit/messages";
 import { describe, expect, it } from "vitest";
 
+import { mobileCompanionMessages } from "../shell/mobile-companion.messages.js";
 import { offlineMessages } from "../shell/offline.messages.js";
 import { quickNoteMessages } from "../shell/quick-note.messages.js";
 import { setupMessages } from "../shell/setup.messages.js";
@@ -148,6 +149,7 @@ describe("desktop message catalogs", () => {
 // A page names its messages in markup and script; a name the page's
 // namespace lacks would show as the bare name.
 describe.each([
+  ["mobile-companion.html", mobileCompanionMessages],
   ["setup.html", setupMessages],
   ["offline.html", offlineMessages],
   ["quick-note.html", quickNoteMessages],

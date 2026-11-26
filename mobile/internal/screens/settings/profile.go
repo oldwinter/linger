@@ -2,7 +2,6 @@ package settings
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -10,6 +9,7 @@ import (
 	"github.com/egoist/mygo/ui/mobile"
 	"github.com/oldwinter/linger/mobile/internal/api"
 	"github.com/oldwinter/linger/mobile/internal/components"
+	"github.com/oldwinter/linger/mobile/internal/i18n"
 	"github.com/oldwinter/linger/mobile/internal/theme"
 )
 
@@ -36,27 +36,27 @@ func (s *Screen) viewProfileSection(c *ui.Context) {
 			if acct != nil {
 				email = acct.Email
 			}
-			components.SectionCard(c, "Account Profile", email, nil, func() {
+			components.SectionCard(c, i18n.T("settings.profile.account_title"), email, nil, func() {
 				if s.acctErr != "" {
-					components.StatusBanner(c, components.ToneDanger, s.acctErr, "Dismiss", func() {
+					components.StatusBanner(c, components.ToneDanger, s.acctErr, i18n.T("common.dismiss"), func() {
 						s.acctErr = ""
 					})
 				}
 				if s.acctNotice != "" {
-					components.StatusBanner(c, components.ToneSuccess, s.acctNotice, "OK", func() {
+					components.StatusBanner(c, components.ToneSuccess, s.acctNotice, i18n.T("common.ok"), func() {
 						s.acctNotice = ""
 					})
 				}
 
-				components.FormField(c, "Display Name", "Your name", &s.acctName, false)
-				components.FormField(c, "Organization", "Company or team", &s.acctOrg, false)
+				components.FormField(c, i18n.T("settings.profile.display_name"), i18n.T("settings.profile.display_name_ph"), &s.acctName, false)
+				components.FormField(c, i18n.T("settings.profile.org"), i18n.T("settings.profile.org_ph"), &s.acctOrg, false)
 				ui.Column(c).FillWidth().Gap(4).Children(func() {
-					ui.Text(c, "Bio").FontSize(12).FontWeight(600).TextColor(t.TextMuted)
-					ui.TextArea(c, &s.acctBio).FillWidth().MinHeight(72).Placeholder("Short bio").Label("Account Bio")
+					ui.Text(c, i18n.T("settings.profile.bio")).FontSize(12).FontWeight(600).TextColor(t.TextMuted)
+					ui.TextArea(c, &s.acctBio).FillWidth().MinHeight(72).Placeholder(i18n.T("settings.profile.bio_ph")).Label(i18n.T("settings.profile.bio"))
 				})
-				saveLbl := "Save Account Profile"
+				saveLbl := i18n.T("settings.profile.save_account")
 				if s.acctSaving {
-					saveLbl = "Saving..."
+					saveLbl = i18n.T("common.saving")
 				}
 				saveBtn := components.PrimaryTouchButton(c, saveLbl, s.acctSaving)
 				saveBtn.FillWidth()
@@ -66,10 +66,10 @@ func (s *Screen) viewProfileSection(c *ui.Context) {
 			})
 
 			// Personal Profile
-			components.SectionCard(c, "Personal Profile", "How Another Me understands your working style", func() {
-				lbl := "Edit"
+			components.SectionCard(c, i18n.T("settings.profile.personal_title"), i18n.T("settings.profile.personal_sub"), func() {
+				lbl := i18n.T("common.edit")
 				if s.ppEditing {
-					lbl = "Cancel"
+					lbl = i18n.T("common.cancel")
 				}
 				btn := components.SecondaryTouchButton(c, lbl, pp == nil || pp.Current == nil)
 				btn.MinHeight(34).Padding(4, 10)
@@ -82,19 +82,19 @@ func (s *Screen) viewProfileSection(c *ui.Context) {
 				}
 			}, func() {
 				if s.ppErr != "" {
-					components.StatusBanner(c, components.ToneDanger, s.ppErr, "Dismiss", func() {
+					components.StatusBanner(c, components.ToneDanger, s.ppErr, i18n.T("common.dismiss"), func() {
 						s.ppErr = ""
 					})
 				}
 				if pp == nil || pp.Current == nil {
-					ui.Text(c, "Personal Profile has not been generated yet.").FontSize(13).TextColor(t.TextMuted)
+					ui.Text(c, i18n.T("settings.profile.personal_empty")).FontSize(13).TextColor(t.TextMuted)
 					return
 				}
 				if s.ppEditing {
-					ui.TextArea(c, &s.ppMarkdownDraft).FillWidth().MinHeight(140).Label("Personal Profile Markdown")
-					lbl := "Publish Profile Revision"
+					ui.TextArea(c, &s.ppMarkdownDraft).FillWidth().MinHeight(140).Label(i18n.T("settings.profile.personal_title"))
+					lbl := i18n.T("settings.profile.publish_revision")
 					if s.ppSaving {
-						lbl = "Saving..."
+						lbl = i18n.T("common.saving")
 					}
 					saveBtn := components.PrimaryTouchButton(c, lbl, s.ppSaving || strings.TrimSpace(s.ppMarkdownDraft) == "")
 					saveBtn.FillWidth()
@@ -104,16 +104,16 @@ func (s *Screen) viewProfileSection(c *ui.Context) {
 				} else {
 					markdown.View(c, pp.Current.Markdown, &s.mdOpts).FillWidth()
 					if len(pp.History) > 0 {
-						ui.Text(c, fmt.Sprintf("%d previous revisions", len(pp.History))).FontSize(11).TextColor(t.TextMuted)
+						ui.Text(c, i18n.Tf("settings.profile.prev_revisions", map[string]any{"count": len(pp.History)})).FontSize(11).TextColor(t.TextMuted)
 					}
 				}
 			})
 
 			// Personal Insights
-			components.SectionCard(c, fmt.Sprintf("Personal Insights (%d)", len(insights)),
-				"Learned patterns you can inspect and prune", nil, func() {
+			components.SectionCard(c, i18n.Tf("settings.profile.insights_title", map[string]any{"count": len(insights)}),
+				i18n.T("settings.profile.insights_sub"), nil, func() {
 					if len(insights) == 0 {
-						ui.Text(c, "No personal insights recorded yet.").FontSize(13).TextColor(t.TextMuted)
+						ui.Text(c, i18n.T("settings.profile.insights_empty")).FontSize(13).TextColor(t.TextMuted)
 						return
 					}
 					ui.Column(c).FillWidth().Gap(8).Children(func() {
@@ -125,7 +125,7 @@ func (s *Screen) viewProfileSection(c *ui.Context) {
 									components.StatusPill(c, ins.Dimension, components.ToneInfo)
 									ui.Text(c, ins.Statement).FontSize(13).TextColor(t.Text)
 								})
-								delBtn := components.DangerTouchButton(c, "Prune", false)
+								delBtn := components.DangerTouchButton(c, i18n.T("settings.profile.prune"), false)
 								if delBtn.Clicked() {
 									cp := ins
 									s.insightDelItem = &cp
@@ -167,7 +167,7 @@ func (s *Screen) saveAccountProfileAsync() {
 			cp := updated
 			s.accountProfile = &cp
 			s.mu.Unlock()
-			s.acctNotice = "Account profile saved"
+			s.acctNotice = i18n.T("settings.profile.toast.account_saved")
 		})
 	}()
 }
@@ -195,7 +195,7 @@ func (s *Screen) savePersonalProfileAsync(baseRevID, md string) {
 			s.personalProfile.Current = &rev
 			s.mu.Unlock()
 			s.ppEditing = false
-			s.toast("Personal profile updated")
+			s.toast(i18n.T("settings.profile.toast.personal_updated"))
 		})
 	}()
 }
@@ -207,11 +207,11 @@ func (s *Screen) viewInsightDeleteSheet(c *ui.Context) {
 		return
 	}
 	mobile.ActionSheet(c, &s.insightDelSheet, mobile.ActionSheetOptions{
-		Title:   "Prune Insight?",
+		Title:   i18n.T("settings.profile.prune_title"),
 		Message: ins.Statement,
-		Cancel:  "Cancel",
+		Cancel:  i18n.T("common.cancel"),
 	}, mobile.Action{
-		Label:       "Delete Insight",
+		Label:       i18n.T("settings.profile.prune_btn"),
 		Destructive: true,
 		OnTap:       func() { s.deleteInsightAsync(ins.ID) },
 	})
@@ -239,7 +239,7 @@ func (s *Screen) deleteInsightAsync(insightID string) {
 			s.insights = filtered
 			s.mu.Unlock()
 			s.insightDelItem = nil
-			s.toast("Insight pruned")
+			s.toast(i18n.T("settings.profile.toast.pruned"))
 		})
 	}()
 }

@@ -8,6 +8,7 @@
   "ios": {
     "orientations": ["portrait", "landscape"],
     "infoPlist": {
+      "CFBundleLocalizations": ["en", "zh-Hans"],
       "NSLocalNetworkUsageDescription": "LingerX discovers your LingerX Desktop host on the local network.",
       "NSBonjourServices": ["_linger._tcp"],
       "NSCameraUsageDescription": "Scan the pairing QR code shown on LingerX Desktop.",

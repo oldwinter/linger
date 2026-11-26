@@ -10,10 +10,17 @@ import (
 	"github.com/egoist/mygo/ui/mobile"
 	"github.com/oldwinter/linger/mobile/internal/api"
 	"github.com/oldwinter/linger/mobile/internal/components"
+	"github.com/oldwinter/linger/mobile/internal/i18n"
 	"github.com/oldwinter/linger/mobile/internal/theme"
 )
 
-var issueFilterLabels = []string{"Mine", "Open", "In Progress", "Resolved", "Archived"}
+var issueFilterKeys = []string{
+	"work.filter.mine",
+	"work.filter.open",
+	"work.filter.in_progress",
+	"work.filter.resolved",
+	"work.filter.archived",
+}
 
 func (s *Screen) viewIssuesSegment(c *ui.Context) {
 	t := c.Theme()
@@ -22,14 +29,17 @@ func (s *Screen) viewIssuesSegment(c *ui.Context) {
 	allItems := append([]api.WorkItem(nil), s.workItems...)
 	s.mu.Unlock()
 	filtered := s.filterWorkItems(allItems)
+	activeFilter := i18n.T(issueFilterKeys[s.issueFilter])
 
 	ui.Scroll(c).FillWidth().Grow(1).Basis(0).TrackScroll(&s.scroll[SegmentIssues]).Children(func() {
 		ui.Column(c).FillWidth().Padding(12, 16, 24, 16).Gap(10).Children(func() {
 			// Dedicated action header row + full-width scrollable filter pill row (zero clipped pill sliver).
 			ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
-				ui.Text(c, fmt.Sprintf("%s · %s", issueFilterLabels[s.issueFilter], components.PluralInt(len(filtered), "item", "items"))).
-					FontSize(13).FontWeight(600).TextColor(t.TextMuted).Grow(1).Basis(0).MaxLines(1)
-				newBtn := components.PrimaryTouchButton(c, "+ New", false)
+				ui.Text(c, i18n.Tf("work.issues.header", map[string]any{
+					"filter": activeFilter,
+					"count":  len(filtered),
+				})).FontSize(13).FontWeight(600).TextColor(t.TextMuted).Grow(1).Basis(0).MaxLines(1)
+				newBtn := components.PrimaryTouchButton(c, i18n.T("work.issues.new_short"), false)
 				newBtn.Shrink(0)
 				if newBtn.Clicked() {
 					s.openCreateWorkItemSheet()
@@ -37,7 +47,8 @@ func (s *Screen) viewIssuesSegment(c *ui.Context) {
 			})
 			ui.ScrollHorizontal(c).FillWidth().Children(func() {
 				ui.Row(c).Gap(6).Role(ui.RoleTabList).Children(func() {
-					for idx, label := range issueFilterLabels {
+					for idx, key := range issueFilterKeys {
+						label := i18n.T(key)
 						on := s.issueFilter == idx
 						bg := theme.Extra(t).MutedBg
 						fg := t.TextMuted
@@ -59,11 +70,11 @@ func (s *Screen) viewIssuesSegment(c *ui.Context) {
 			})
 
 			if len(filtered) == 0 {
-				msg := "No Work Items match the selected filter."
+				msg := i18n.T("work.issues.empty_filtered")
 				if len(allItems) == 0 {
-					msg = "No Work Items synced yet. Create an issue or task, or pull sync."
+					msg = i18n.T("work.issues.empty_all")
 				}
-				components.EmptyState(c, theme.IconWork, "No Work Items", msg, "New Work Item", func() {
+				components.EmptyState(c, theme.IconWork, i18n.T("work.issues.empty_title"), msg, i18n.T("work.issues.new_btn"), func() {
 					s.openCreateWorkItemSheet()
 				})
 				return
@@ -73,15 +84,18 @@ func (s *Screen) viewIssuesSegment(c *ui.Context) {
 				wi := wi
 				row := ui.Column(c.Key(wi.ID)).FillWidth().Padding(12, 12).Gap(6).
 					Radius(12).Background(t.Surface).Border(1, t.Border).
-					Role(ui.RoleButton).Label(fmt.Sprintf("Work item #%d %s", wi.Number, wi.Title))
+					Role(ui.RoleButton).Label(i18n.Tf("work.issues.item_a11y", map[string]any{
+					"num":   wi.Number,
+					"title": wi.Title,
+				}))
 				row.Children(func() {
 					ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
-						ui.Text(c, fmt.Sprintf("#%d · %s", wi.Number, strings.ToUpper(wi.Kind))).
+						ui.Text(c, fmt.Sprintf("#%d \u00b7 %s", wi.Number, strings.ToUpper(i18n.WorkKindLabel(wi.Kind)))).
 							FontSize(11).FontWeight(600).TextColor(t.TextMuted).NoWrap()
 						ui.Row(c).Gap(4).Shrink(0).Children(func() {
-							components.StatusPill(c, wi.Priority, priorityTone(wi.Priority))
+							components.StatusPill(c, i18n.WorkPriorityLabel(wi.Priority), priorityTone(wi.Priority))
 							if wi.ArchivedAt != nil {
-								components.StatusPill(c, "Archived", components.ToneNeutral)
+								components.StatusPill(c, i18n.WorkStateLabel("archived"), components.ToneNeutral)
 							} else {
 								components.StatusPill(c, formatWorkItemState(wi.State), stateTone(wi.State))
 							}
@@ -97,10 +111,11 @@ func (s *Screen) viewIssuesSegment(c *ui.Context) {
 							for _, a := range wi.Assignees {
 								names = append(names, a.Actor.DisplayName)
 							}
-							ui.Text(c, "Assigned: "+strings.Join(names, ", ")).FontSize(11).TextColor(t.TextMuted)
+							ui.Text(c, i18n.Tf("work.issues.assigned", map[string]any{"names": strings.Join(names, ", ")})).
+								FontSize(11).TextColor(t.TextMuted)
 						}
 						if wi.TaskExecution != nil {
-							components.StatusPill(c, "Exec: "+wi.TaskExecution.Status, components.ToneInfo)
+							components.StatusPill(c, i18n.Tf("work.issues.exec", map[string]any{"status": i18n.StatusLabel(wi.TaskExecution.Status)}), components.ToneInfo)
 						}
 					})
 				})
@@ -165,34 +180,38 @@ func (s *Screen) viewCreateWorkItemSheet(c *ui.Context) {
 	t := c.Theme()
 	mobile.Sheet(c, &s.createSheetOpen, mobile.SheetOptions{
 		Detents: []float32{0.92},
-		Label:   "Create Work Item",
+		Label:   i18n.T("work.issues.create_btn"),
 	}, func() {
 		ui.Scroll(c).FillWidth().Grow(1).Basis(0).Children(func() {
 			ui.Column(c).FillWidth().Padding(12, 16, 24, 16).Gap(12).Children(func() {
-				ui.Text(c, "New Work Item").FontSize(18).Bold().TextColor(t.Text)
+				ui.Text(c, i18n.T("work.issues.create_title")).FontSize(18).Bold().TextColor(t.Text)
 				if s.createError != "" {
-					components.StatusBanner(c, components.ToneDanger, s.createError, "Dismiss", func() {
+					components.StatusBanner(c, components.ToneDanger, s.createError, i18n.T("common.dismiss"), func() {
 						s.createError = ""
 					})
 				}
 
-				ui.Text(c, "Kind").FontSize(12).FontWeight(600).TextColor(t.TextMuted)
-				components.SegmentedControl(c, &s.createKind, "Issue", "Task")
+				ui.Text(c, i18n.T("work.issues.kind_label")).FontSize(12).FontWeight(600).TextColor(t.TextMuted)
+				components.SegmentedControl(c, &s.createKind, i18n.WorkKindLabel("issue"), i18n.WorkKindLabel("task"))
 
-				components.FormField(c, "Title", "Describe the work item", &s.createTitle, false)
+				components.FormField(c, i18n.T("work.issues.title_label"), i18n.T("work.issues.title_placeholder"), &s.createTitle, false)
 
 				ui.Column(c).FillWidth().Gap(4).Children(func() {
-					ui.Text(c, "Description").FontSize(12).FontWeight(600).TextColor(t.TextMuted)
+					ui.Text(c, i18n.T("work.issues.desc_label")).FontSize(12).FontWeight(600).TextColor(t.TextMuted)
 					ui.TextArea(c, &s.createDesc).FillWidth().MinHeight(88).
-						Placeholder("Optional acceptance details or context").Label("Work Item Description")
+						Placeholder(i18n.T("work.issues.desc_placeholder")).Label(i18n.T("work.issues.desc_a11y"))
 				})
 
-				ui.Text(c, "Priority").FontSize(12).FontWeight(600).TextColor(t.TextMuted)
-				components.SegmentedControl(c, &s.createPriority, "Low", "Medium", "High", "Urgent")
+				ui.Text(c, i18n.T("work.issues.priority_label")).FontSize(12).FontWeight(600).TextColor(t.TextMuted)
+				components.SegmentedControl(c, &s.createPriority,
+					i18n.WorkPriorityLabel("low"),
+					i18n.WorkPriorityLabel("medium"),
+					i18n.WorkPriorityLabel("high"),
+					i18n.WorkPriorityLabel("urgent"))
 
-				submitLabel := "Create Work Item"
+				submitLabel := i18n.T("work.issues.create_btn")
 				if s.createBusy {
-					submitLabel = "Creating..."
+					submitLabel = i18n.T("common.creating")
 				}
 				disabled := s.createBusy || strings.TrimSpace(s.createTitle) == ""
 				btn := components.PrimaryTouchButton(c, submitLabel, disabled)
@@ -212,12 +231,12 @@ func (s *Screen) submitCreateWorkItem() {
 	client := s.client()
 	tenantID := s.tenantID()
 	if client == nil || tenantID == "" {
-		s.createError = "Connect to a host before creating Work Items."
+		s.createError = i18n.T("work.issues.err_connect_first")
 		return
 	}
 	title := strings.TrimSpace(s.createTitle)
 	if title == "" {
-		s.createError = "Title is required."
+		s.createError = i18n.T("work.issues.err_title_required")
 		return
 	}
 	kind := "issue"
@@ -267,7 +286,7 @@ func (s *Screen) submitCreateWorkItem() {
 			s.createTitle = ""
 			s.createDesc = ""
 			s.createSheetOpen = false
-			s.toast(fmt.Sprintf("Created #%d", wi.Number))
+			s.toast(i18n.Tf("work.issues.toast.created", map[string]any{"num": wi.Number}))
 		})
 	}()
 }
@@ -374,7 +393,7 @@ func (s *Screen) viewWorkItemDetailSheet(c *ui.Context) {
 	t := c.Theme()
 	mobile.Sheet(c, &s.detailOpen, mobile.SheetOptions{
 		Detents: []float32{0.94},
-		Label:   "Work Item Detail",
+		Label:   i18n.T("work.issues.detail_title"),
 	}, func() {
 		wi := s.detailItem
 		if wi == nil {
@@ -383,17 +402,17 @@ func (s *Screen) viewWorkItemDetailSheet(c *ui.Context) {
 		ui.Scroll(c).FillWidth().Grow(1).Basis(0).Children(func() {
 			ui.Column(c).FillWidth().Padding(12, 16, 28, 16).Gap(12).Children(func() {
 				if s.detailError != "" {
-					components.StatusBanner(c, components.ToneDanger, s.detailError, "Dismiss", func() {
+					components.StatusBanner(c, components.ToneDanger, s.detailError, i18n.T("common.dismiss"), func() {
 						s.detailError = ""
 					})
 				}
 
 				// Title & status badges
 				ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
-					ui.Text(c, fmt.Sprintf("#%d · %s", wi.Number, strings.ToUpper(wi.Kind))).
+					ui.Text(c, fmt.Sprintf("#%d \u00b7 %s", wi.Number, strings.ToUpper(i18n.WorkKindLabel(wi.Kind)))).
 						FontSize(12).FontWeight(600).TextColor(t.TextMuted)
 					ui.Row(c).Gap(6).Children(func() {
-						components.StatusPill(c, wi.Priority, priorityTone(wi.Priority))
+						components.StatusPill(c, i18n.WorkPriorityLabel(wi.Priority), priorityTone(wi.Priority))
 						components.StatusPill(c, formatWorkItemState(wi.State), stateTone(wi.State))
 					})
 				})
@@ -404,17 +423,17 @@ func (s *Screen) viewWorkItemDetailSheet(c *ui.Context) {
 
 				// Action bar (Transition, Edit, Archive/Unarchive, Jump to Work Room)
 				ui.Row(c).FillWidth().Wrap().Gap(8).Children(func() {
-					trBtn := components.PrimaryTouchButton(c, "Transition", s.detailBusy)
+					trBtn := components.PrimaryTouchButton(c, i18n.T("work.issues.transition_btn"), s.detailBusy)
 					if trBtn.Clicked() {
 						s.transitionSheet = true
 					}
-					edBtn := components.SecondaryTouchButton(c, "Edit", s.detailBusy)
+					edBtn := components.SecondaryTouchButton(c, i18n.T("common.edit"), s.detailBusy)
 					if edBtn.Clicked() {
 						s.openEditWorkItem(*wi)
 					}
-					archLabel := "Archive"
+					archLabel := i18n.T("work.issues.archive_btn")
 					if wi.ArchivedAt != nil {
-						archLabel = "Unarchive"
+						archLabel = i18n.T("work.issues.unarchive_btn")
 					}
 					archBtn := components.SecondaryTouchButton(c, archLabel, s.detailBusy)
 					if archBtn.Clicked() {
@@ -427,7 +446,7 @@ func (s *Screen) viewWorkItemDetailSheet(c *ui.Context) {
 						roomTarget = *wi.OriginRoomID
 					}
 					if roomTarget != "" && s.deps.OnOpenRoom != nil {
-						rmBtn := components.SecondaryTouchButton(c, "Jump to Work Room", false)
+						rmBtn := components.SecondaryTouchButton(c, i18n.T("work.issues.jump_room"), false)
 						if rmBtn.Clicked() {
 							s.detailOpen = false
 							s.deps.OnOpenRoom(roomTarget)
@@ -436,15 +455,15 @@ func (s *Screen) viewWorkItemDetailSheet(c *ui.Context) {
 				})
 
 				// Assignees section
-				components.SectionCard(c, "Assignees", "", func() {
-					addBtn := components.SecondaryTouchButton(c, "+ Assign", s.detailBusy)
+				components.SectionCard(c, i18n.T("work.issues.assignees"), "", func() {
+					addBtn := components.SecondaryTouchButton(c, i18n.T("work.issues.assign_btn"), s.detailBusy)
 					addBtn.MinHeight(34).Padding(6, 10)
 					if addBtn.Clicked() {
 						s.assigneeSheet = true
 					}
 				}, func() {
 					if len(wi.Assignees) == 0 {
-						ui.Text(c, "Unassigned").FontSize(13).TextColor(t.TextMuted)
+						ui.Text(c, i18n.T("work.issues.unassigned")).FontSize(13).TextColor(t.TextMuted)
 						return
 					}
 					ui.Row(c).FillWidth().Wrap().Gap(6).Children(func() {
@@ -452,9 +471,9 @@ func (s *Screen) viewWorkItemDetailSheet(c *ui.Context) {
 							a := a
 							chip := ui.Row(c.Key(a.Actor.ID)).MinHeight(34).Padding(4, 10).Radius(999).
 								Background(theme.Extra(t).MutedBg).AlignItems(ui.Center).Gap(6).
-								Role(ui.RoleButton).Label("Remove assignee " + a.Actor.DisplayName)
+								Role(ui.RoleButton).Label(i18n.Tf("work.issues.remove_assignee_a11y", map[string]any{"name": a.Actor.DisplayName}))
 							chip.Children(func() {
-								ui.Text(c, a.Actor.DisplayName+" ×").FontSize(12).FontWeight(600).TextColor(t.Text)
+								ui.Text(c, a.Actor.DisplayName+" \u00d7").FontSize(12).FontWeight(600).TextColor(t.Text)
 							})
 							if chip.Clicked() {
 								s.removeWorkItemAssignee(wi.ID, a.Actor.ID)
@@ -469,9 +488,9 @@ func (s *Screen) viewWorkItemDetailSheet(c *ui.Context) {
 				}
 
 				// Comments thread + IME-safe composer
-				components.SectionCard(c, fmt.Sprintf("Comments (%d)", len(s.detailComments)), "", nil, func() {
+				components.SectionCard(c, i18n.Tf("work.issues.comments_title", map[string]any{"count": len(s.detailComments)}), "", nil, func() {
 					if len(s.detailComments) == 0 {
-						ui.Text(c, "No comments yet.").FontSize(13).TextColor(t.TextMuted)
+						ui.Text(c, i18n.T("work.issues.comments_empty")).FontSize(13).TextColor(t.TextMuted)
 					} else {
 						ui.Column(c).FillWidth().Gap(8).Children(func() {
 							for _, cm := range s.detailComments {
@@ -485,9 +504,9 @@ func (s *Screen) viewWorkItemDetailSheet(c *ui.Context) {
 										ui.Text(c, cm.Author.DisplayName).FontSize(12).FontWeight(600).TextColor(t.Text)
 										ui.Row(c).Gap(6).Children(func() {
 											eb := ui.Row(c).MinHeight(28).PaddingX(8).Radius(6).Background(t.Surface).
-												AlignItems(ui.Center).Role(ui.RoleButton).Label("Edit comment")
+												AlignItems(ui.Center).Role(ui.RoleButton).Label(i18n.T("work.issues.edit_comment_a11y"))
 											eb.Children(func() {
-												ui.Text(c, "Edit").FontSize(11).TextColor(t.Accent)
+												ui.Text(c, i18n.T("common.edit")).FontSize(11).TextColor(t.Accent)
 											})
 											if eb.Clicked() {
 												s.editingCommentID = cm.ID
@@ -495,9 +514,9 @@ func (s *Screen) viewWorkItemDetailSheet(c *ui.Context) {
 												s.editingCommentBody = cm.Body
 											}
 											db := ui.Row(c).MinHeight(28).PaddingX(8).Radius(6).Background(t.Surface).
-												AlignItems(ui.Center).Role(ui.RoleButton).Label("Delete comment")
+												AlignItems(ui.Center).Role(ui.RoleButton).Label(i18n.T("work.issues.delete_comment_a11y"))
 											db.Children(func() {
-												ui.Text(c, "Delete").FontSize(11).TextColor(t.Danger)
+												ui.Text(c, i18n.T("common.delete")).FontSize(11).TextColor(t.Danger)
 											})
 											if db.Clicked() {
 												s.deleteCommentAsync(wi.ID, cm.ID, cm.Version)
@@ -505,14 +524,14 @@ func (s *Screen) viewWorkItemDetailSheet(c *ui.Context) {
 										})
 									})
 									if s.editingCommentID == cm.ID {
-										ui.TextArea(c, &s.editingCommentBody).FillWidth().MinHeight(64).Label("Edit Comment")
+										ui.TextArea(c, &s.editingCommentBody).FillWidth().MinHeight(64).Label(i18n.T("work.issues.edit_comment_title"))
 										ui.Row(c).FillWidth().Gap(8).Children(func() {
-											saveBtn := components.PrimaryTouchButton(c, "Save", strings.TrimSpace(s.editingCommentBody) == "")
+											saveBtn := components.PrimaryTouchButton(c, i18n.T("common.save"), strings.TrimSpace(s.editingCommentBody) == "")
 											saveBtn.Grow(1).Basis(0)
 											if saveBtn.Clicked() {
 												s.updateCommentAsync(wi.ID, cm.ID, s.editingCommentBody, s.editingCommentVer)
 											}
-											cancelBtn := components.SecondaryTouchButton(c, "Cancel", false)
+											cancelBtn := components.SecondaryTouchButton(c, i18n.T("common.cancel"), false)
 											cancelBtn.Grow(1).Basis(0)
 											if cancelBtn.Clicked() {
 												s.editingCommentID = ""
@@ -529,7 +548,7 @@ func (s *Screen) viewWorkItemDetailSheet(c *ui.Context) {
 					// IME-safe comment composer: plain Enter sends; Shift+Enter adds newline; IME composition ignores Enter.
 					ui.Column(c).FillWidth().Gap(6).Children(func() {
 						ta := ui.TextArea(c, &s.commentDraft).FillWidth().MinHeight(68).
-							Placeholder("Add a comment (Shift+Enter for newline)").Label("Work Item Comment Input")
+							Placeholder(i18n.T("work.issues.comment_placeholder")).Label(i18n.T("work.issues.comment_a11y"))
 						ta.OnTextKey(func(k ui.TextKey) bool {
 							if k.Key != ui.KeyEnter || k.Mods != 0 {
 								return false
@@ -543,7 +562,7 @@ func (s *Screen) viewWorkItemDetailSheet(c *ui.Context) {
 							s.addCommentAsync(wi.ID, txt)
 							return true
 						})
-						sendBtn := components.PrimaryTouchButton(c, "Send Comment", s.detailBusy || strings.TrimSpace(s.commentDraft) == "")
+						sendBtn := components.PrimaryTouchButton(c, i18n.T("work.issues.send_comment"), s.detailBusy || strings.TrimSpace(s.commentDraft) == "")
 						sendBtn.FillWidth()
 						if sendBtn.Clicked() {
 							s.addCommentAsync(wi.ID, s.commentDraft)
@@ -552,25 +571,31 @@ func (s *Screen) viewWorkItemDetailSheet(c *ui.Context) {
 				})
 
 				// Activity Timeline
-				components.SectionCard(c, fmt.Sprintf("Activity Timeline (%d)", len(s.detailTimeline)), "", nil, func() {
+				components.SectionCard(c, i18n.Tf("work.issues.activity_title", map[string]any{"count": len(s.detailTimeline)}), "", nil, func() {
 					if len(s.detailTimeline) == 0 {
-						ui.Text(c, "No activity events yet.").FontSize(13).TextColor(t.TextMuted)
+						ui.Text(c, i18n.T("work.issues.activity_empty")).FontSize(13).TextColor(t.TextMuted)
 						return
 					}
 					ui.Column(c).FillWidth().Gap(6).Children(func() {
 						for i, entry := range s.detailTimeline {
 							if entry.Activity != nil {
 								act := entry.Activity
-								desc := act.Kind
+								desc := i18n.WorkActivityKindLabel(act.Kind)
 								if act.FromState != nil && act.ToState != nil {
-									desc = fmt.Sprintf("%s: %s -> %s", act.Kind, *act.FromState, *act.ToState)
+									desc = i18n.Tf("work.issues.activity_transition", map[string]any{
+										"kind": desc,
+										"from": formatWorkItemState(*act.FromState),
+										"to":   formatWorkItemState(*act.ToState),
+									})
 								}
 								ui.Row(c.Key(i)).FillWidth().Gap(6).Children(func() {
-									ui.Text(c, "• "+act.Actor.DisplayName+" — "+desc).FontSize(12).TextColor(t.TextMuted)
+									ui.Text(c, "\u2022 "+act.Actor.DisplayName+" \u2014 "+desc).FontSize(12).TextColor(t.TextMuted)
 								})
 							} else if entry.Comment != nil {
 								ui.Row(c.Key(i)).FillWidth().Gap(6).Children(func() {
-									ui.Text(c, "• "+entry.Comment.Author.DisplayName+" commented").FontSize(12).TextColor(t.TextMuted)
+									ui.Text(c, i18n.Tf("work.issues.activity_commented", map[string]any{
+										"actor": entry.Comment.Author.DisplayName,
+									})).FontSize(12).TextColor(t.TextMuted)
 								})
 							}
 						}
@@ -583,25 +608,26 @@ func (s *Screen) viewWorkItemDetailSheet(c *ui.Context) {
 
 func (s *Screen) viewTaskDetailsSection(c *ui.Context, wi api.WorkItem) {
 	t := c.Theme()
-	components.SectionCard(c, "Task Execution & Runs", "", nil, func() {
+	components.SectionCard(c, i18n.T("work.issues.exec_title"), "", nil, func() {
 		if s.detailTaskExec != nil {
 			ui.Row(c).FillWidth().Wrap().Gap(6).AlignItems(ui.Center).Children(func() {
-				components.StatusPill(c, "Status: "+s.detailTaskExec.Status, components.ToneInfo)
-				components.StatusPill(c, fmt.Sprintf("Gen %d", s.detailTaskExec.Generation), components.ToneNeutral)
+				components.StatusPill(c, i18n.Tf("work.issues.status_line", map[string]any{"status": i18n.StatusLabel(s.detailTaskExec.Status)}), components.ToneInfo)
+				components.StatusPill(c, i18n.Tf("work.issues.gen_line", map[string]any{"gen": s.detailTaskExec.Generation}), components.ToneNeutral)
 				if s.detailTaskExec.DesiredControl != "" && s.detailTaskExec.DesiredControl != "none" {
-					components.StatusPill(c, "Control: "+s.detailTaskExec.DesiredControl, components.ToneWarning)
+					components.StatusPill(c, i18n.Tf("work.issues.control_line", map[string]any{"control": i18n.TaskControlLabel(s.detailTaskExec.DesiredControl)}), components.ToneWarning)
 				}
 			})
 		} else if wi.TaskExecution != nil {
-			components.StatusPill(c, "Status: "+wi.TaskExecution.Status, components.ToneInfo)
+			components.StatusPill(c, i18n.Tf("work.issues.status_line", map[string]any{"status": i18n.StatusLabel(wi.TaskExecution.Status)}), components.ToneInfo)
 		} else {
-			ui.Text(c, "No execution projection recorded yet.").FontSize(12).TextColor(t.TextMuted)
+			ui.Text(c, i18n.T("work.issues.exec_empty")).FontSize(12).TextColor(t.TextMuted)
 		}
 
 		if s.detailTaskConv != nil && len(s.detailTaskConv.Inputs) > 0 {
-			ui.Text(c, fmt.Sprintf("Conversation Inputs (%d) · Decision Cards (%d)",
-				len(s.detailTaskConv.Inputs), len(s.detailTaskConv.Cards))).
-				FontSize(12).FontWeight(600).TextColor(t.Text)
+			ui.Text(c, i18n.Tf("work.issues.inputs_cards", map[string]any{
+				"inputs": len(s.detailTaskConv.Inputs),
+				"cards":  len(s.detailTaskConv.Cards),
+			})).FontSize(12).FontWeight(600).TextColor(t.Text)
 			for _, in := range s.detailTaskConv.Inputs {
 				ui.Text(c, in.Author.DisplayName+": "+in.Body).FontSize(12).TextColor(t.TextMuted).MaxLines(2)
 			}
@@ -609,14 +635,15 @@ func (s *Screen) viewTaskDetailsSection(c *ui.Context, wi api.WorkItem) {
 
 		if s.detailTaskRuns != nil {
 			totalRuns := len(s.detailTaskRuns.ActiveItems) + len(s.detailTaskRuns.HistoryItems)
-			ui.Text(c, fmt.Sprintf("Presentation Runs: %d active, %d history",
-				len(s.detailTaskRuns.ActiveItems), len(s.detailTaskRuns.HistoryItems))).
-				FontSize(12).TextColor(t.TextMuted)
+			ui.Text(c, i18n.Tf("work.issues.pres_runs", map[string]any{
+				"active":  len(s.detailTaskRuns.ActiveItems),
+				"history": len(s.detailTaskRuns.HistoryItems),
+			})).FontSize(12).TextColor(t.TextMuted)
 			if totalRuns > 0 {
 				for _, run := range s.detailTaskRuns.ActiveItems {
 					ui.Row(c.Key(run.RunID)).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Children(func() {
 						ui.Text(c, run.Agent.DisplayName).FontSize(12).TextColor(t.Text)
-						components.StatusPill(c, run.Status, components.ToneSuccess)
+						components.StatusPill(c, i18n.StatusLabel(run.Status), components.ToneSuccess)
 					})
 				}
 			}
@@ -632,22 +659,22 @@ func (s *Screen) viewTransitionActionSheet(c *ui.Context) {
 	}
 	actions := []mobile.Action{
 		{
-			Label: "Open",
+			Label: i18n.WorkStateLabel("open"),
 			OnTap: func() { s.transitionWorkItem(*wi, "open", nil) },
 		},
 		{
-			Label: "In Progress",
+			Label: i18n.WorkStateLabel("in_progress"),
 			OnTap: func() { s.transitionWorkItem(*wi, "in_progress", nil) },
 		},
 		{
-			Label: "Resolved (Completed)",
+			Label: i18n.T("work.issues.res_completed"),
 			OnTap: func() {
 				res := "completed"
 				s.transitionWorkItem(*wi, "resolved", &res)
 			},
 		},
 		{
-			Label: "Resolved (Not Planned)",
+			Label: i18n.T("work.issues.res_not_planned"),
 			OnTap: func() {
 				res := "not_planned"
 				s.transitionWorkItem(*wi, "resolved", &res)
@@ -655,9 +682,9 @@ func (s *Screen) viewTransitionActionSheet(c *ui.Context) {
 		},
 	}
 	mobile.ActionSheet(c, &s.transitionSheet, mobile.ActionSheetOptions{
-		Title:   fmt.Sprintf("Transition #%d", wi.Number),
-		Message: "Current state: " + formatWorkItemState(wi.State),
-		Cancel:  "Cancel",
+		Title:   i18n.Tf("work.issues.transition_title", map[string]any{"num": wi.Number}),
+		Message: i18n.Tf("work.issues.current_state", map[string]any{"state": formatWorkItemState(wi.State)}),
+		Cancel:  i18n.T("common.cancel"),
 	}, actions...)
 }
 
@@ -678,7 +705,7 @@ func (s *Screen) transitionWorkItem(wi api.WorkItem, state string, resolution *s
 			}
 			s.replaceWorkItem(updated)
 			s.loadWorkItemDetailsAsync(updated)
-			s.toast("Updated state to " + formatWorkItemState(updated.State))
+			s.toast(i18n.Tf("work.issues.toast.updated_state", map[string]any{"state": formatWorkItemState(updated.State)}))
 		})
 	}()
 }
@@ -705,7 +732,7 @@ func (s *Screen) viewWorkItemEditSheet(c *ui.Context) {
 	t := c.Theme()
 	mobile.Sheet(c, &s.editSheetOpen, mobile.SheetOptions{
 		Detents: []float32{0.72, 0.90},
-		Label:   "Edit Work Item",
+		Label:   i18n.T("work.issues.edit_a11y"),
 	}, func() {
 		wi := s.detailItem
 		if wi == nil {
@@ -713,21 +740,25 @@ func (s *Screen) viewWorkItemEditSheet(c *ui.Context) {
 		}
 		ui.Scroll(c).FillWidth().Grow(1).Basis(0).Children(func() {
 			ui.Column(c).FillWidth().Padding(12, 16, 24, 16).Gap(12).Children(func() {
-				ui.Text(c, fmt.Sprintf("Edit #%d", wi.Number)).FontSize(18).Bold().TextColor(t.Text)
+				ui.Text(c, i18n.Tf("work.issues.edit_title", map[string]any{"num": wi.Number})).FontSize(18).Bold().TextColor(t.Text)
 				if s.editError != "" {
-					components.StatusBanner(c, components.ToneDanger, s.editError, "Dismiss", func() {
+					components.StatusBanner(c, components.ToneDanger, s.editError, i18n.T("common.dismiss"), func() {
 						s.editError = ""
 					})
 				}
-				components.FormField(c, "Title", "Title", &s.editTitle, false)
+				components.FormField(c, i18n.T("work.issues.title_label"), i18n.T("work.issues.title_label"), &s.editTitle, false)
 				ui.Column(c).FillWidth().Gap(4).Children(func() {
-					ui.Text(c, "Description").FontSize(12).FontWeight(600).TextColor(t.TextMuted)
-					ui.TextArea(c, &s.editDesc).FillWidth().MinHeight(88).Label("Edit Description")
+					ui.Text(c, i18n.T("work.issues.desc_label")).FontSize(12).FontWeight(600).TextColor(t.TextMuted)
+					ui.TextArea(c, &s.editDesc).FillWidth().MinHeight(88).Label(i18n.T("work.issues.edit_desc_a11y"))
 				})
-				components.SegmentedControl(c, &s.editPriority, "Low", "Medium", "High", "Urgent")
-				saveLabel := "Save Changes"
+				components.SegmentedControl(c, &s.editPriority,
+					i18n.WorkPriorityLabel("low"),
+					i18n.WorkPriorityLabel("medium"),
+					i18n.WorkPriorityLabel("high"),
+					i18n.WorkPriorityLabel("urgent"))
+				saveLabel := i18n.T("work.issues.save_changes")
 				if s.editBusy {
-					saveLabel = "Saving..."
+					saveLabel = i18n.T("common.saving")
 				}
 				btn := components.PrimaryTouchButton(c, saveLabel, s.editBusy || strings.TrimSpace(s.editTitle) == "")
 				btn.FillWidth()
@@ -765,7 +796,7 @@ func (s *Screen) submitEditWorkItem(wi api.WorkItem) {
 			}
 			s.replaceWorkItem(updated)
 			s.editSheetOpen = false
-			s.toast("Work Item saved")
+			s.toast(i18n.T("work.issues.toast.saved"))
 		})
 	}()
 }
@@ -801,7 +832,7 @@ func (s *Screen) viewAssigneeSheet(c *ui.Context) {
 	t := c.Theme()
 	mobile.Sheet(c, &s.assigneeSheet, mobile.SheetOptions{
 		Detents: []float32{0.55, 0.85},
-		Label:   "Assign Member",
+		Label:   i18n.T("work.issues.assign_member_a11y"),
 	}, func() {
 		wi := s.detailItem
 		if wi == nil {
@@ -812,9 +843,9 @@ func (s *Screen) viewAssigneeSheet(c *ui.Context) {
 		s.mu.Unlock()
 		ui.Scroll(c).FillWidth().Grow(1).Basis(0).Children(func() {
 			ui.Column(c).FillWidth().Padding(12, 16, 24, 16).Gap(8).Children(func() {
-				ui.Text(c, "Select Assignee").FontSize(18).Bold().TextColor(t.Text)
+				ui.Text(c, i18n.T("work.issues.assign_title")).FontSize(18).Bold().TextColor(t.Text)
 				if len(actors) == 0 {
-					ui.Text(c, "No tenant actors loaded yet.").FontSize(13).TextColor(t.TextMuted)
+					ui.Text(c, i18n.T("work.issues.no_actors")).FontSize(13).TextColor(t.TextMuted)
 					return
 				}
 				for _, act := range actors {
@@ -828,15 +859,15 @@ func (s *Screen) viewAssigneeSheet(c *ui.Context) {
 					}
 					row := ui.Row(c.Key(act.ID)).FillWidth().MinHeight(48).Padding(8, 12).Gap(10).
 						Radius(10).Background(t.Surface).Border(1, t.Border).AlignItems(ui.Center).
-						Role(ui.RoleButton).Label("Assign " + act.DisplayName)
+						Role(ui.RoleButton).Label(i18n.Tf("work.issues.assign_a11y", map[string]any{"name": act.DisplayName}))
 					row.Children(func() {
 						components.AvatarBadge(c, act.DisplayName, 32)
 						ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
 							ui.Text(c, act.DisplayName).FontSize(14).FontWeight(600).TextColor(t.Text)
-							ui.Text(c, act.Kind).FontSize(11).TextColor(t.TextMuted)
+							ui.Text(c, i18n.ActorRoleLabel(act.Kind)).FontSize(11).TextColor(t.TextMuted)
 						})
 						if assigned {
-							components.StatusPill(c, "Assigned", components.ToneSuccess)
+							components.StatusPill(c, i18n.T("work.issues.assigned_badge"), components.ToneSuccess)
 						}
 					})
 					if row.Clicked() {

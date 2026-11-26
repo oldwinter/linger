@@ -2,7 +2,6 @@ package components
 
 import (
 	"encoding/json"
-	"fmt"
 	"strings"
 	"sync"
 
@@ -11,6 +10,7 @@ import (
 	"github.com/egoist/mygo/ui/editor"
 	"github.com/egoist/mygo/ui/netimage"
 	"github.com/oldwinter/linger/mobile/internal/api"
+	"github.com/oldwinter/linger/mobile/internal/i18n"
 	"github.com/oldwinter/linger/mobile/internal/theme"
 )
 
@@ -18,7 +18,7 @@ import (
 type DecisionCardCallbacks struct {
 	ResolveURL         func(path string) string
 	OnDecide           func(roomID, decisionID string, req api.DecisionRequest)
-	OnOpenSettingsKey  func(kind, key string) // provider_key / search_key / connection_auth
+	OnOpenSettingsKey  func(kind, key string)           // provider_key / search_key / connection_auth
 	OnOpenCompute      func(computerID, section string) // browser_connection / computer_permission
 	OnZoomImage        func(url, title string)
 	OnJumpToRoom       func(roomID string)
@@ -151,16 +151,16 @@ func DecisionCardView(
 
 	return ui.Column(c.Key(card.DecisionID)).FillWidth().Background(t.Surface).Radius(12).
 		Border(1, borderColor).Padding(12, 12).Gap(8).
-		Role(ui.RoleGroup).Label(fmt.Sprintf("%s decision: %s", decisionKindLabel(card.Kind), card.Title)).Children(func() {
+		Role(ui.RoleGroup).Label(i18n.Tf("decision.a11y_header", map[string]any{"kind": i18n.DecisionKindLabel(card.Kind), "title": card.Title})).Children(func() {
 		// Header row: kind pill + status pill + optional jump-to-room chip
 		ui.Row(c).FillWidth().Wrap().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(6).Children(func() {
 			ui.Row(c).Wrap().AlignItems(ui.Center).Gap(6).Children(func() {
-				StatusPill(c, decisionKindLabel(card.Kind), ToneInfo)
-				StatusPill(c, card.Status, statusTone)
+				StatusPill(c, i18n.DecisionKindLabel(card.Kind), ToneInfo)
+				StatusPill(c, i18n.StatusLabel(card.Status), statusTone)
 			})
 			if cb.ShowSourceRoomChip && roomName != "" && cb.OnJumpToRoom != nil {
 				jump := ui.Row(c).MinHeight(32).Padding(4, 8).Radius(8).Background(ex.MutedBg).
-					AlignItems(ui.Center).Role(ui.RoleButton).Label("Open room " + roomName)
+					AlignItems(ui.Center).Role(ui.RoleButton).Label(i18n.Tf("decision.open_room", map[string]any{"name": roomName}))
 				jump.Children(func() {
 					ui.Text(c, roomName+" ›").FontSize(11).FontWeight(600).TextColor(t.Accent).NoWrap()
 				})
@@ -173,7 +173,7 @@ func DecisionCardView(
 		// Card title & requester
 		ui.Text(c, card.Title).FontSize(15).FontWeight(600).TextColor(t.Text)
 		if card.Requester.DisplayName != "" {
-			meta := "Requested by " + card.Requester.DisplayName
+			meta := i18n.Tf("decision.requested_by", map[string]any{"actor": card.Requester.DisplayName})
 			if card.Intent != "" && card.Intent != card.Title {
 				meta += " · " + card.Intent
 			}
@@ -207,12 +207,12 @@ func DecisionCardView(
 		case "profile_setup_sources":
 			renderProfileSetupSourcesCard(c, roomID, card, st, pending, busy, busyAction, cb)
 		default:
-			renderApproveDenyBar(c, roomID, card, st, pending, busy, busyAction, "Approve", "Deny", false, cb)
+			renderApproveDenyBar(c, roomID, card, st, pending, busy, busyAction, i18n.T("decision.approve"), i18n.T("decision.deny"), false, cb)
 		}
 
 		// Outcome / resolved summary footer.
 		if !pending && card.Outcome != nil && *card.Outcome != "" {
-			ui.Text(c, "Outcome: "+*card.Outcome).FontSize(12).TextColor(t.TextMuted)
+			ui.Text(c, i18n.Tf("decision.outcome", map[string]any{"value": *card.Outcome})).FontSize(12).TextColor(t.TextMuted)
 		}
 	})
 }
@@ -229,7 +229,7 @@ func renderRuntimePermissionCard(
 	}
 	if v.Tool != "" {
 		ui.Row(c).Wrap().Gap(6).Children(func() {
-			StatusPill(c, "Tool: "+v.Tool, ToneNeutral)
+			StatusPill(c, i18n.Tf("decision.tool", map[string]any{"name": v.Tool}), ToneNeutral)
 			if v.Kind != "" {
 				StatusPill(c, v.Kind, ToneNeutral)
 			}
@@ -243,7 +243,7 @@ func renderRuntimePermissionCard(
 		if v.Page.TargetName != nil && *v.Page.TargetName != "" {
 			target = *v.Page.TargetName + " (" + v.Page.URL + ")"
 		}
-		ui.Text(c, "Target: "+target).FontSize(12).TextColor(t.TextMuted)
+		ui.Text(c, i18n.Tf("decision.target", map[string]any{"path": target})).FontSize(12).TextColor(t.TextMuted)
 	}
 	if v.Input != "" {
 		ui.Column(c).FillWidth().Padding(8, 10).Radius(8).Background(ex.MutedBg).Border(1, t.Border).Children(func() {
@@ -261,7 +261,7 @@ func renderRuntimePermissionCard(
 			imgURL = cb.ResolveURL(imgURL)
 		}
 		shot := ui.Box(c).FillWidth().Height(140).Radius(8).Clip().Border(1, t.Border).
-			Role(ui.RoleButton).Label("Inspect GUI screenshot")
+			Role(ui.RoleButton).Label(i18n.T("decision.inspect_screenshot"))
 		shot.Children(func() {
 			netimage.Image(c, imgURL, netimage.Options{Fit: ui.Contain, MaxSide: 900, NoFade: true}).Fill()
 		})
@@ -269,7 +269,7 @@ func renderRuntimePermissionCard(
 			cb.OnZoomImage(imgURL, card.Title)
 		}
 	}
-	renderApproveDenyBar(c, roomID, card, st, pending, busy, busyAction, "Approve", "Deny", false, cb)
+	renderApproveDenyBar(c, roomID, card, st, pending, busy, busyAction, i18n.T("decision.approve"), i18n.T("decision.deny"), false, cb)
 }
 
 func renderConnectorWriteCard(
@@ -295,19 +295,19 @@ func renderConnectorWriteCard(
 	if v.Message != nil {
 		ui.Column(c).FillWidth().Padding(8, 10).Radius(8).Background(ex.MutedBg).Border(1, t.Border).Gap(4).Children(func() {
 			if len(v.Message.To) > 0 {
-				ui.Text(c, "To: "+strings.Join(v.Message.To, ", ")).FontSize(12).TextColor(t.TextMuted)
+				ui.Text(c, i18n.Tf("decision.email.to", map[string]any{"list": strings.Join(v.Message.To, ", ")})).FontSize(12).TextColor(t.TextMuted)
 			}
 			if len(v.Message.Cc) > 0 {
-				ui.Text(c, "Cc: "+strings.Join(v.Message.Cc, ", ")).FontSize(12).TextColor(t.TextMuted)
+				ui.Text(c, i18n.Tf("decision.email.cc", map[string]any{"list": strings.Join(v.Message.Cc, ", ")})).FontSize(12).TextColor(t.TextMuted)
 			}
 			if len(v.Message.Bcc) > 0 {
-				ui.Text(c, "Bcc: "+strings.Join(v.Message.Bcc, ", ")).FontSize(12).TextColor(t.TextMuted)
+				ui.Text(c, i18n.Tf("decision.email.bcc", map[string]any{"list": strings.Join(v.Message.Bcc, ", ")})).FontSize(12).TextColor(t.TextMuted)
 			}
 			if v.Message.Destination != nil && *v.Message.Destination != "" {
-				ui.Text(c, "Channel: "+*v.Message.Destination).FontSize(12).TextColor(t.TextMuted)
+				ui.Text(c, i18n.Tf("decision.email.channel", map[string]any{"channel": *v.Message.Destination})).FontSize(12).TextColor(t.TextMuted)
 			}
 			if v.Message.Subject != nil && *v.Message.Subject != "" {
-				ui.Text(c, "Subject: "+*v.Message.Subject).FontSize(13).FontWeight(600).TextColor(t.Text)
+				ui.Text(c, i18n.Tf("decision.email.subject", map[string]any{"subject": *v.Message.Subject})).FontSize(13).FontWeight(600).TextColor(t.Text)
 			}
 			if v.Message.Body != "" {
 				ui.Text(c, v.Message.Body).FontSize(13).TextColor(t.Text)
@@ -325,11 +325,11 @@ func renderConnectorWriteCard(
 			ui.Text(c, v.Input).FontSize(12).TextColor(t.Text)
 		})
 	}
-	approveLabel := "Approve"
+	approveLabel := i18n.T("decision.approve")
 	if v.Kind == "message" {
-		approveLabel = "Send / Approve"
+		approveLabel = i18n.T("decision.email.send_approve")
 	}
-	renderApproveDenyBar(c, roomID, card, st, pending, busy, busyAction, approveLabel, "Don't send", false, cb)
+	renderApproveDenyBar(c, roomID, card, st, pending, busy, busyAction, approveLabel, i18n.T("decision.email.dont_send"), false, cb)
 }
 
 func renderQuestionCard(
@@ -371,7 +371,7 @@ func renderQuestionCard(
 			if pending {
 				txt := st.textAnswer[q.ID]
 				in := ui.TextInput(c.Key("txt_"+q.ID), &txt).FillWidth().MinHeight(40).
-					Placeholder("Optional note or custom answer").Label("Answer for " + q.Prompt).Disabled(busy)
+					Placeholder(i18n.T("decision.question.placeholder")).Label(i18n.Tf("decision.question.a11y", map[string]any{"title": q.Prompt})).Disabled(busy)
 				if in.Changed() {
 					st.textAnswer[q.ID] = txt
 				}
@@ -381,9 +381,9 @@ func renderQuestionCard(
 	if !pending {
 		return
 	}
-	label := "Submit Answer"
+	label := i18n.T("decision.question.submit")
 	if busyAction == "submit" {
-		label = "Submitting..."
+		label = i18n.T("decision.question.submitting")
 	}
 	btn := PrimaryTouchButton(c, label, busy)
 	btn.FillWidth()
@@ -427,7 +427,7 @@ func renderAgentChangeCard(
 		_ = json.Unmarshal(card.AgentChange, &v)
 	}
 	if v.AgentName != "" {
-		ui.Text(c, fmt.Sprintf("Agent: %s (%s)", v.AgentName, v.Action)).FontSize(13).FontWeight(600).TextColor(t.Text)
+		ui.Text(c, i18n.Tf("decision.agent_label", map[string]any{"name": v.AgentName, "action": i18n.AgentActionLabel(v.Action)})).FontSize(13).FontWeight(600).TextColor(t.Text)
 	}
 	for i, ch := range v.Changes {
 		ui.Column(c.Key(i)).FillWidth().Padding(8, 10).Radius(8).Background(ex.MutedBg).Gap(2).Children(func() {
@@ -438,7 +438,7 @@ func renderAgentChangeCard(
 			ui.Text(c, "+ "+ch.After).FontSize(12).TextColor(t.Success)
 		})
 	}
-	renderApproveDenyBar(c, roomID, card, st, pending, busy, busyAction, "Approve Change", "Deny", false, cb)
+	renderApproveDenyBar(c, roomID, card, st, pending, busy, busyAction, i18n.T("decision.approve_change"), i18n.T("decision.deny"), false, cb)
 }
 
 func renderRoomCreationCard(
@@ -451,16 +451,16 @@ func renderRoomCreationCard(
 		_ = json.Unmarshal(card.RoomCreation, &v)
 	}
 	if v.Name != "" {
-		ui.Text(c, "New Room: "+v.Name).FontSize(13).FontWeight(600).TextColor(t.Text)
+		ui.Text(c, i18n.Tf("decision.new_room", map[string]any{"name": v.Name})).FontSize(13).FontWeight(600).TextColor(t.Text)
 	}
 	if v.Description != nil && *v.Description != "" {
 		ui.Text(c, *v.Description).FontSize(12).TextColor(t.TextMuted)
 	}
 	if len(v.MemberIDs) > 0 {
-		ui.Text(c, fmt.Sprintf("%d initial members", len(v.MemberIDs))).FontSize(12).TextColor(t.TextMuted)
+		ui.Text(c, i18n.Tf("decision.initial_members", map[string]any{"count": len(v.MemberIDs)})).FontSize(12).TextColor(t.TextMuted)
 	}
 	// TeamHub requires a comment when denying room_creation.
-	renderApproveDenyBar(c, roomID, card, st, pending, busy, busyAction, "Create Room", "Deny", true, cb)
+	renderApproveDenyBar(c, roomID, card, st, pending, busy, busyAction, i18n.T("decision.create_room"), i18n.T("decision.deny"), true, cb)
 }
 
 func renderConnectionAuthCard(
@@ -472,19 +472,19 @@ func renderConnectionAuthCard(
 	if len(card.ConnectionAuth) > 0 {
 		_ = json.Unmarshal(card.ConnectionAuth, &v)
 	}
-	info := "App: " + v.AppKey
+	appDisplay := v.AppKey
 	if v.Account != nil && *v.Account != "" {
-		info += " (" + *v.Account + ")"
+		appDisplay += " (" + *v.Account + ")"
 	}
-	ui.Text(c, info).FontSize(13).TextColor(t.Text)
+	ui.Text(c, i18n.Tf("decision.app_line", map[string]any{"name": appDisplay})).FontSize(13).TextColor(t.Text)
 	if pending && cb.OnOpenSettingsKey != nil {
-		openBtn := SecondaryTouchButton(c, "Manage Connected Apps", busy)
+		openBtn := SecondaryTouchButton(c, i18n.T("decision.manage_apps"), busy)
 		openBtn.FillWidth()
 		if openBtn.Clicked() {
 			cb.OnOpenSettingsKey("connection_auth", v.AppKey)
 		}
 	}
-	renderApproveDenyBar(c, roomID, card, st, pending, busy, busyAction, "Approve Access", "Deny", false, cb)
+	renderApproveDenyBar(c, roomID, card, st, pending, busy, busyAction, i18n.T("decision.approve_access"), i18n.T("decision.deny"), false, cb)
 }
 
 func renderProviderKeyCard(
@@ -496,14 +496,16 @@ func renderProviderKeyCard(
 	if len(card.ProviderKey) > 0 {
 		_ = json.Unmarshal(card.ProviderKey, &v)
 	}
-	appKey := "connected apps"
+	appKey := i18n.T("decision.connected_apps_default")
+	settingsKey := "connected apps"
 	if v.AppKey != nil && *v.AppKey != "" {
 		appKey = *v.AppKey
+		settingsKey = *v.AppKey
 	}
-	ui.Text(c, "Composio API key required to authorize "+appKey+".").FontSize(13).TextColor(t.TextMuted)
-	renderSettingsOrDeclineBar(c, roomID, card, st, pending, busy, busyAction, "Configure Provider Key", func() {
+	ui.Text(c, i18n.Tf("decision.provider_key_hint", map[string]any{"app": appKey})).FontSize(13).TextColor(t.TextMuted)
+	renderSettingsOrDeclineBar(c, roomID, card, st, pending, busy, busyAction, i18n.T("decision.configure_provider_key"), func() {
 		if cb.OnOpenSettingsKey != nil {
-			cb.OnOpenSettingsKey("provider_key", appKey)
+			cb.OnOpenSettingsKey("provider_key", settingsKey)
 		}
 	}, cb)
 }
@@ -517,8 +519,8 @@ func renderSearchKeyCard(
 	if len(card.SearchKey) > 0 {
 		_ = json.Unmarshal(card.SearchKey, &v)
 	}
-	ui.Text(c, fmt.Sprintf("Web search key needed for %s (%s).", v.Backend, v.Reason)).FontSize(13).TextColor(t.TextMuted)
-	renderSettingsOrDeclineBar(c, roomID, card, st, pending, busy, busyAction, "Configure Search Key", func() {
+	ui.Text(c, i18n.Tf("decision.search_key_hint", map[string]any{"provider": v.Backend, "kind": v.Reason})).FontSize(13).TextColor(t.TextMuted)
+	renderSettingsOrDeclineBar(c, roomID, card, st, pending, busy, busyAction, i18n.T("decision.configure_search_key"), func() {
 		if cb.OnOpenSettingsKey != nil {
 			cb.OnOpenSettingsKey("search_key", v.Backend)
 		}
@@ -534,8 +536,8 @@ func renderBrowserConnectionCard(
 	if len(card.BrowserConnection) > 0 {
 		_ = json.Unmarshal(card.BrowserConnection, &v)
 	}
-	ui.Text(c, "Connect Chrome on Local Computer "+v.ComputerID+" to continue.").FontSize(13).TextColor(t.TextMuted)
-	renderSettingsOrDeclineBar(c, roomID, card, st, pending, busy, busyAction, "Open Browser Connection", func() {
+	ui.Text(c, i18n.Tf("decision.browser_hint", map[string]any{"name": v.ComputerID})).FontSize(13).TextColor(t.TextMuted)
+	renderSettingsOrDeclineBar(c, roomID, card, st, pending, busy, busyAction, i18n.T("decision.open_browser"), func() {
 		if cb.OnOpenCompute != nil {
 			cb.OnOpenCompute(v.ComputerID, "browser")
 		}
@@ -562,7 +564,7 @@ func renderComputerPermissionCard(
 	if v.Reason != nil && *v.Reason != "" {
 		ui.Text(c, *v.Reason).FontSize(12).TextColor(t.TextMuted)
 	}
-	renderSettingsOrDeclineBar(c, roomID, card, st, pending, busy, busyAction, "Open Computer Permissions", func() {
+	renderSettingsOrDeclineBar(c, roomID, card, st, pending, busy, busyAction, i18n.T("decision.open_computer_perms"), func() {
 		if cb.OnOpenCompute != nil {
 			cb.OnOpenCompute(v.ComputerID, "permissions")
 		}
@@ -588,9 +590,9 @@ func renderProfileSetupAppsCard(
 		return
 	}
 	ui.Row(c).FillWidth().Gap(8).Children(func() {
-		connLbl := "Connected"
+		connLbl := i18n.T("decision.connected_btn")
 		if busyAction == "connected" {
-			connLbl = "Saving..."
+			connLbl = i18n.T("common.saving")
 		}
 		b1 := PrimaryTouchButton(c, connLbl, busy)
 		b1.Grow(1).Basis(0)
@@ -599,7 +601,7 @@ func renderProfileSetupAppsCard(
 			st.SetBusy("connected")
 			cb.OnDecide(roomID, card.DecisionID, api.DecisionRequest{Decision: "connected", ExpectedVersion: card.Version})
 		}
-		b2 := SecondaryTouchButton(c, "Skip", busy)
+		b2 := SecondaryTouchButton(c, i18n.T("common.skip"), busy)
 		b2.Grow(1).Basis(0)
 		if b2.Clicked() && cb.OnDecide != nil {
 			st.SetBusy("skipped")
@@ -615,11 +617,11 @@ func renderProfileSetupSourcesCard(
 	if !pending {
 		return
 	}
-	FormField(c, "Share links (comma separated)", "https://github.com/...", &st.linksInput, false)
+	FormField(c, i18n.T("decision.share_links_label"), i18n.T("decision.share_links_placeholder"), &st.linksInput, false)
 	ui.Row(c).FillWidth().Gap(8).Children(func() {
-		doneLbl := "Done"
+		doneLbl := i18n.T("common.done")
 		if busyAction == "done" {
-			doneLbl = "Saving..."
+			doneLbl = i18n.T("common.saving")
 		}
 		b1 := PrimaryTouchButton(c, doneLbl, busy)
 		b1.Grow(1).Basis(0)
@@ -638,7 +640,7 @@ func renderProfileSetupSourcesCard(
 				Links:           links,
 			})
 		}
-		b2 := SecondaryTouchButton(c, "Skip", busy)
+		b2 := SecondaryTouchButton(c, i18n.T("common.skip"), busy)
 		b2.Grow(1).Basis(0)
 		if b2.Clicked() && cb.OnDecide != nil {
 			st.SetBusy("skipped")
@@ -660,9 +662,9 @@ func renderSettingsOrDeclineBar(
 		if openBtn.Clicked() && onOpen != nil {
 			onOpen()
 		}
-		denyLbl := "Decline"
+		denyLbl := i18n.T("decision.decline")
 		if busyAction == "deny" {
-			denyLbl = "Declining..."
+			denyLbl = i18n.T("decision.declining")
 		}
 		denyBtn := DangerTouchButton(c, denyLbl, busy)
 		if denyBtn.Clicked() && cb.OnDecide != nil {
@@ -681,12 +683,12 @@ func renderApproveDenyBar(
 		return
 	}
 	if st.denyExpanded {
-		FormField(c, "Reason (optional unless required)", "Add a short reason...", &st.denyReason, false)
+		FormField(c, i18n.T("decision.reason_label"), i18n.T("decision.reason_placeholder"), &st.denyReason, false)
 	}
 	ui.Row(c).FillWidth().Gap(8).Children(func() {
 		appTxt := approveLabel
 		if busyAction == "approve" {
-			appTxt = "Approving..."
+			appTxt = i18n.T("decision.approving")
 		}
 		appBtn := PrimaryTouchButton(c, appTxt, busy)
 		appBtn.Grow(1).Basis(0)
@@ -701,7 +703,7 @@ func renderApproveDenyBar(
 
 		denTxt := denyLabel
 		if busyAction == "deny" {
-			denTxt = "Denying..."
+			denTxt = i18n.T("decision.denying")
 		}
 		denBtn := DangerTouchButton(c, denTxt, busy)
 		denBtn.Grow(1).Basis(0)
@@ -732,36 +734,5 @@ func isPendingDecision(status string) bool {
 		return true
 	default:
 		return false
-	}
-}
-
-func decisionKindLabel(kind string) string {
-	switch kind {
-	case "runtime_permission":
-		return "Permission"
-	case "connector_write":
-		return "External Send"
-	case "question":
-		return "Question"
-	case "agent_change":
-		return "Agent Update"
-	case "room_creation":
-		return "New Room"
-	case "connection_auth":
-		return "App Auth"
-	case "provider_key":
-		return "Provider Key"
-	case "search_key":
-		return "Search Key"
-	case "browser_connection":
-		return "Browser Link"
-	case "computer_permission":
-		return "Host Permission"
-	case "profile_setup_apps":
-		return "Profile Apps"
-	case "profile_setup_sources":
-		return "Profile Sources"
-	default:
-		return kind
 	}
 }

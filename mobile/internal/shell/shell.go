@@ -16,7 +16,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/mobile"
 	"github.com/oldwinter/linger/mobile/internal/components"
-	"github.com/oldwinter/linger/mobile/internal/config"
+	"github.com/oldwinter/linger/mobile/internal/i18n"
 	"github.com/oldwinter/linger/mobile/internal/screens/connect"
 	"github.com/oldwinter/linger/mobile/internal/screens/library"
 	"github.com/oldwinter/linger/mobile/internal/screens/live"
@@ -45,11 +45,11 @@ type Shell struct {
 	settingsScr *settings.Screen
 	systemDark  func() bool
 
-	mu             sync.Mutex
-	hooks          TabHooks
-	syncedKey      string
-	toastMessage   string
-	toastUntil     time.Time
+	mu                   sync.Mutex
+	hooks                TabHooks
+	syncedKey            string
+	toastMessage         string
+	toastUntil           time.Time
 	unlockError          string
 	unlocking            bool
 	biometricUnsupported bool
@@ -67,6 +67,9 @@ func New(store *state.AppStore, systemDark func() bool) *Shell {
 		connectHub: connect.NewHub(store),
 		systemDark: systemDark,
 	}
+	s.connectHub.SetOnOpenPreferences(func() {
+		s.OpenMoreRoute("/more/settings?focus=prefs")
+	})
 	s.roomsCtl = rooms.NewController(store, rooms.NavigationHooks{
 		OnOpenConnect: s.OpenConnect,
 		OnOpenSettingsKey: func(kind, key string) {
@@ -100,12 +103,6 @@ func New(store *state.AppStore, systemDark func() bool) *Shell {
 		Store:         store,
 		OnOpenRoom:    s.OpenRoom,
 		OnOpenConnect: s.OpenConnect,
-		OnThemeChanged: func(pref config.ThemePreference) {
-			_ = store.SetThemePreference(pref)
-		},
-		OnBiometricChanged: func(enabled bool) {
-			_ = store.SetBiometricPreference(enabled)
-		},
 		OnComposerReturnChanged: func(sendOnEnter bool) {
 			store.SetComposerReturnSends(sendOnEnter)
 		},
@@ -305,7 +302,7 @@ func (s *Shell) View(c *ui.Context) {
 		s.mu.Unlock()
 		if toastMsg != "" {
 			ui.Box(c).FillWidth().Padding(6, 12, 0, 12).Shrink(0).Children(func() {
-				components.StatusBanner(c, components.ToneSuccess, toastMsg, "OK", func() {
+				components.StatusBanner(c, components.ToneSuccess, toastMsg, i18n.T("common.ok"), func() {
 					s.mu.Lock()
 					s.toastMessage = ""
 					s.mu.Unlock()
@@ -355,11 +352,11 @@ func (s *Shell) View(c *ui.Context) {
 
 		selected := activeTab
 		bar := mobile.BottomBar(c, &selected,
-			mobile.BarButton{Label: "Rooms", Icon: theme.IconRooms, Badge: roomsBadge},
-			mobile.BarButton{Label: "Live", Icon: theme.IconLive, Badge: liveBadge},
-			mobile.BarButton{Label: "Work", Icon: theme.IconWork, Badge: workBadge},
-			mobile.BarButton{Label: "Library", Icon: theme.IconLibrary},
-			mobile.BarButton{Label: "More", Icon: theme.IconMore},
+			mobile.BarButton{Label: i18n.T("tab.rooms"), Icon: theme.IconRooms, Badge: roomsBadge},
+			mobile.BarButton{Label: i18n.T("tab.live"), Icon: theme.IconLive, Badge: liveBadge},
+			mobile.BarButton{Label: i18n.T("tab.work"), Icon: theme.IconWork, Badge: workBadge},
+			mobile.BarButton{Label: i18n.T("tab.library"), Icon: theme.IconLibrary},
+			mobile.BarButton{Label: i18n.T("tab.more"), Icon: theme.IconMore},
 		)
 		if bar.Changed() {
 			mygo.Haptics.Light()
@@ -385,7 +382,7 @@ func (s *Shell) viewTopBar(c *ui.Context, snap state.Snapshot, tab int, router *
 	var leading func()
 	if router.CanGoBack() {
 		leading = func() {
-			if components.TopBarIconButton(c, "Back", theme.IconBack, t.Accent).Clicked() {
+			if components.TopBarIconButton(c, i18n.T("nav.back"), theme.IconBack, t.Accent).Clicked() {
 				router.Back()
 			}
 		}
@@ -417,15 +414,15 @@ func (s *Shell) topBarTitle(tab int, router *ui.Router) string {
 	}
 	switch tab {
 	case state.TabRooms:
-		return "Rooms"
+		return i18n.T("tab.rooms")
 	case state.TabLive:
-		return "Live"
+		return i18n.T("tab.live")
 	case state.TabWork:
-		return "Work"
+		return i18n.T("tab.work")
 	case state.TabLibrary:
-		return "Library"
+		return i18n.T("tab.library")
 	default:
-		return "More"
+		return i18n.T("tab.more")
 	}
 }
 
@@ -437,7 +434,7 @@ func (s *Shell) routeWork(c *ui.Context, r *ui.Route, snap state.Snapshot) {
 		hook(c, r, snap)
 		return
 	}
-	r.Title("Work")
+	r.Title(i18n.T("tab.work"))
 	if s.workScr != nil {
 		s.workScr.View(c)
 		return
@@ -452,7 +449,7 @@ func (s *Shell) routeLibrary(c *ui.Context, r *ui.Route, snap state.Snapshot) {
 		hook(c, r, snap)
 		return
 	}
-	r.Title("Library")
+	r.Title(i18n.T("tab.library"))
 	if s.libraryScr != nil {
 		s.libraryScr.View(c)
 		return
@@ -461,7 +458,7 @@ func (s *Shell) routeLibrary(c *ui.Context, r *ui.Route, snap state.Snapshot) {
 
 func (s *Shell) routeMore(c *ui.Context, r *ui.Route, snap state.Snapshot) {
 	if r.Match("/more/connect") {
-		r.Title("Connect")
+		r.Title(i18n.T("nav.connect"))
 		s.connectHub.View(c)
 		return
 	}
@@ -471,7 +468,7 @@ func (s *Shell) routeMore(c *ui.Context, r *ui.Route, snap state.Snapshot) {
 	if hook != nil && hook(c, r, snap) {
 		return
 	}
-	r.Title("More")
+	r.Title(i18n.T("tab.more"))
 	if s.settingsScr != nil {
 		s.settingsScr.View(c)
 		return
@@ -488,23 +485,23 @@ func (s *Shell) viewBiometricLockGate(c *ui.Context) {
 	s.mu.Unlock()
 
 	ui.Column(c).Fill().AlignItems(ui.Center).Justify(ui.Center).Padding(24, 24).Gap(16).
-		Role(ui.RoleDialog).Label("Biometric App Lock").Children(func() {
+		Role(ui.RoleDialog).Label(i18n.T("auth.biometric_title")).Children(func() {
 		ui.Row(c).Size(64, 64).Radius(32).Background(ex.InfoTint).AlignItems(ui.Center).Justify(ui.Center).Children(func() {
 			theme.IconBox(c, 32, t.Accent, theme.IconLock)
 		})
-		ui.Text(c, "Linger Mobile is Locked").FontSize(20).Bold().TextColor(t.Text).TextAlign(ui.Center)
-		ui.Text(c, "Authenticate to access your paired Linger Desktop hosts.").
+		ui.Text(c, i18n.T("auth.locked_title")).FontSize(20).Bold().TextColor(t.Text).TextAlign(ui.Center)
+		ui.Text(c, i18n.T("auth.locked_subtitle")).
 			FontSize(13).TextColor(t.TextMuted).TextAlign(ui.Center)
 		if unlockErr != "" {
 			components.StatusBanner(c, components.ToneWarning, unlockErr, "", nil)
 		}
-		unlockBtn := components.PrimaryTouchButton(c, "Unlock", unlocking)
+		unlockBtn := components.PrimaryTouchButton(c, i18n.T("auth.unlock"), unlocking)
 		unlockBtn.FillWidth()
 		if unlockBtn.Clicked() {
 			s.triggerBiometricUnlock()
 		}
 		if unsupported {
-			disableBtn := components.DangerTouchButton(c, "Disable Biometric Lock", false)
+			disableBtn := components.DangerTouchButton(c, i18n.T("auth.disable_biometric"), false)
 			disableBtn.FillWidth()
 			if disableBtn.Clicked() {
 				s.mu.Lock()
@@ -534,7 +531,7 @@ func (s *Shell) triggerBiometricUnlock() {
 		if authFn == nil {
 			authFn = biometrics.Authenticate
 		}
-		err := authFn(context.Background(), "Unlock Linger Mobile")
+		err := authFn(context.Background(), i18n.T("auth.unlock_prompt"))
 		s.mu.Lock()
 		s.unlocking = false
 		switch {
@@ -547,11 +544,11 @@ func (s *Shell) triggerBiometricUnlock() {
 		case errors.Is(err, errors.ErrUnsupported):
 			// Fail closed: never auto-unlock when biometric hardware is unavailable.
 			s.biometricUnsupported = true
-			s.unlockError = "Biometric authentication is unavailable on this device. Confirm below to disable Biometric Lock."
+			s.unlockError = i18n.T("auth.biometrics_unavailable")
 		case errors.Is(err, biometrics.ErrCanceled):
-			s.unlockError = "Authentication canceled. Tap Unlock to try again."
+			s.unlockError = i18n.T("auth.canceled")
 		default:
-			s.unlockError = "Authentication failed: " + err.Error()
+			s.unlockError = i18n.Tf("auth.failed", map[string]any{"err": err.Error()})
 		}
 		s.mu.Unlock()
 		s.store.Notify()

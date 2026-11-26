@@ -10,7 +10,6 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/plugins/biometrics"
 	"github.com/egoist/mygo/ui"
-	"github.com/egoist/mygo/ui/golden"
 	"github.com/oldwinter/linger/mobile/internal/cache"
 	"github.com/oldwinter/linger/mobile/internal/config"
 	"github.com/oldwinter/linger/mobile/internal/screens/settings"
@@ -68,6 +67,7 @@ func focusField(t *testing.T, tt *ui.Tester, label string) {
 		info, ok := tt.AccessByRole(ui.RoleTextField, label)
 		if ok && !info.Offscreen && info.Bounds.W > 0 && info.Bounds.H > 0 && info.Bounds.Y >= 40 && info.Bounds.Y+info.Bounds.H <= 810 {
 			tt.ClickAt(info.Bounds.X+info.Bounds.W/2, info.Bounds.Y+info.Bounds.H/2)
+			tt.Key(0, ui.KeyEnd)
 			tt.Frame()
 			return
 		}
@@ -245,7 +245,7 @@ func TestSettingsProactiveShadowRulePromotionAndEdit(t *testing.T) {
 	clickOrScroll(t, tt, "Save Rule")
 	waitUntil(t, 2*time.Second, func() bool {
 		settle(tt)
-		return tt.HasText("\u4f18\u5148\u5904\u7406")
+		return !tt.HasText("Save Rule") && tt.HasText("\u4f18\u5148\u5904\u7406")
 	})
 
 	// Test Mandate ActionSheet
@@ -253,7 +253,7 @@ func TestSettingsProactiveShadowRulePromotionAndEdit(t *testing.T) {
 	clickOrScroll(t, tt, "Create Work Item")
 	waitUntil(t, 2*time.Second, func() bool {
 		settle(tt)
-		return tt.HasText("Mandate: create")
+		return tt.HasText("Mandate: Create Work Item")
 	})
 }
 
@@ -412,7 +412,7 @@ func TestSettingsGoldenSnapshots(t *testing.T) {
 			h.screen.View(c)
 		})
 	}, testutil.StandardMobileViewports[1])
-	golden.Match(t, ttLight, "testdata/settings_overview_light_390x844.png")
+	testutil.MatchGolden(t, ttLight, "testdata/settings_overview_light_390x844.png")
 
 	ttDark := testutil.NewPhoneTester(func(c *ui.Context) {
 		c.SetTheme(theme.TownDark())
@@ -420,5 +420,5 @@ func TestSettingsGoldenSnapshots(t *testing.T) {
 			h.screen.View(c)
 		})
 	}, testutil.StandardMobileViewports[1])
-	golden.Match(t, ttDark, "testdata/settings_overview_dark_390x844.png")
+	testutil.MatchGolden(t, ttDark, "testdata/settings_overview_dark_390x844.png")
 }

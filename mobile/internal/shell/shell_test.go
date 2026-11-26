@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/egoist/mygo/ui/golden"
 	"github.com/oldwinter/linger/mobile/internal/config"
 	"github.com/oldwinter/linger/mobile/internal/screens/live"
 	"github.com/oldwinter/linger/mobile/internal/screens/settings"
@@ -159,9 +158,9 @@ func TestShellGoldenSnapshotsLightAndDark(t *testing.T) {
 	appShell.Settings().SelectSection(settings.SectionOverview)
 
 	ttLight := testutil.NewPhoneTester(appShell.View, testutil.StandardMobileViewports[1])
-	golden.Match(t, ttLight, "testdata/shell_more_light_390x844.png")
+	testutil.MatchGolden(t, ttLight, "testdata/shell_more_light_390x844.png")
 
 	_ = store.SetThemePreference(config.ThemeDark)
 	ttDark := testutil.NewPhoneTester(appShell.View, testutil.StandardMobileViewports[1])
-	golden.Match(t, ttDark, "testdata/shell_more_dark_390x844.png")
+	testutil.MatchGolden(t, ttDark, "testdata/shell_more_dark_390x844.png")
 }

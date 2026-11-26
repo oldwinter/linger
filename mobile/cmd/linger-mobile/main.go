@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,8 +11,10 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"github.com/oldwinter/linger/mobile/internal/config"
+	"github.com/oldwinter/linger/mobile/internal/i18n"
 	"github.com/oldwinter/linger/mobile/internal/shell"
 	"github.com/oldwinter/linger/mobile/internal/state"
+	"github.com/oldwinter/linger/mobile/internal/theme"
 )
 
 // keptNavState persists non-sensitive UI navigation state across OS restarts
@@ -27,6 +30,7 @@ func main() {
 		flagTLSFP     = flag.String("tls-fp", "", "Optional SPKI TLS fingerprint for --host-url")
 		flagDataDir   = flag.String("data-dir", "", "Isolated data directory for preferences, secrets, and SQLite cache")
 		flagTheme     = flag.String("theme", "", "Force theme preference: system, light, or dark")
+		flagLang      = flag.String("lang", "", "Force language preference: system, en, or zh-Hans")
 		flagPairURI   = flag.String("pair-uri", "", "Open Connection Hub directly with a linger://pair?... URI")
 		flagPlainHTTP = flag.Bool("plain-http", false, "Explicitly opt in to plain HTTP for --host-url (Tailscale/dev)")
 	)
@@ -47,20 +51,28 @@ func main() {
 	}
 
 	cfgStore := config.NewStore(prefsBackend, secretsBackend)
-	if forced := strings.ToLower(strings.TrimSpace(*flagTheme)); forced != "" {
-		switch forced {
-		case "light":
-			_ = cfgStore.SetPreferences(withTheme(cfgStore.Preferences(), config.ThemeLight))
-		case "dark":
-			_ = cfgStore.SetPreferences(withTheme(cfgStore.Preferences(), config.ThemeDark))
-		case "system":
-			_ = cfgStore.SetPreferences(withTheme(cfgStore.Preferences(), config.ThemeSystem))
+	var themeOverride *config.ThemePreference
+	if rawTheme := strings.TrimSpace(*flagTheme); rawTheme != "" {
+		if pref, ok := config.ParseThemePreference(rawTheme); ok {
+			themeOverride = &pref
+		} else {
+			fmt.Fprintf(os.Stderr, "linger-mobile: ignoring invalid --theme %q (expected system, light, or dark)\n", rawTheme)
+		}
+	}
+	var langOverride *config.LanguagePreference
+	if rawLang := strings.TrimSpace(*flagLang); rawLang != "" {
+		if pref, ok := config.ParseLanguagePreference(rawLang); ok {
+			langOverride = &pref
+		} else {
+			fmt.Fprintf(os.Stderr, "linger-mobile: ignoring invalid --lang %q (expected system, en, or zh-Hans)\n", rawLang)
 		}
 	}
 
 	appStore := state.NewAppStore(state.Options{
-		ConfigStore: cfgStore,
-		DataDir:     dataDir,
+		ConfigStore:      cfgStore,
+		DataDir:          dataDir,
+		ThemeOverride:    themeOverride,
+		LanguageOverride: langOverride,
 	})
 	appShell := shell.New(appStore, func() bool {
 		return mygo.Theme.IsDark()
@@ -98,25 +110,78 @@ func main() {
 			}
 		}
 
+		mygo.App.SetLanguages(i18n.SupportedLanguages()...)
+		i18n.SetSystemLocaleFunc(func() string {
+			return mygo.App.Locale()
+		})
+
+		initPrefs := appStore.Snapshot().Prefs
+		mygo.App.SetLocale(i18n.MyGoLocaleTarget(initPrefs.Language))
+		i18n.SetPreference(initPrefs.Language)
+		mygo.Theme.SetSource(theme.ToMyGoSource(initPrefs.Theme))
+		mygo.SystemBars.SetStyle(theme.ToSystemBarStyle(initPrefs.Theme))
+
 		if kept.ActiveTab >= 0 && kept.ActiveTab <= 4 {
 			if _, ok := cfgStore.ActiveHost(); ok {
 				appStore.SetActiveTab(kept.ActiveTab)
 			}
 		}
 
+		windowTitleForStore := func() string {
+			snap := appStore.Snapshot()
+			hostName := ""
+			if snap.Phase == state.PhaseConnected && snap.ActiveHost != nil {
+				hostName = strings.TrimSpace(snap.ActiveHost.Name)
+			}
+			return i18n.WindowTitle(hostName)
+		}
+
+		lastTitle := windowTitleForStore()
 		win := mygo.NewWindow(mygo.WindowOptions{
-			Title:     "LingerX Mobile",
-			Width:     420,
-			Height:    800,
-			MinWidth:  320,
-			MinHeight: 568,
-			Content:   ui.View(appShell.View),
+			Title:           lastTitle,
+			BackgroundColor: theme.BackgroundHex(initPrefs.Theme, mygo.Theme.IsDark()),
+			Width:           420,
+			Height:          800,
+			MinWidth:        320,
+			MinHeight:       568,
+			Content:         ui.View(appShell.View),
 		})
+		syncWindowTitle := func() {
+			if next := windowTitleForStore(); next != lastTitle {
+				lastTitle = next
+				win.SetTitle(next)
+			}
+		}
 		appShell.SetWindow(win)
 		appStore.SetNotifier(func() {
-			win.Update(func() {})
+			win.Update(func() {
+				syncWindowTitle()
+			})
+		})
+		appStore.SetOnThemeChanged(func(pref config.ThemePreference) {
+			mygo.Theme.SetSource(theme.ToMyGoSource(pref))
+			mygo.SystemBars.SetStyle(theme.ToSystemBarStyle(pref))
+			win.Update(func() {
+				_ = win.SetBackgroundColor(theme.BackgroundHex(pref, mygo.Theme.IsDark()))
+			})
+		})
+		appStore.SetOnLanguageChanged(func(pref config.LanguagePreference) {
+			mygo.App.SetLocale(i18n.MyGoLocaleTarget(pref))
+			if pref == config.LanguageSystem {
+				i18n.RefreshSystemLocale(mygo.App.Locale())
+			}
+			win.Update(func() {
+				syncWindowTitle()
+			})
 		})
 		mygo.Theme.OnUpdated(func() {
+			snap := appStore.Snapshot()
+			_ = win.SetBackgroundColor(theme.BackgroundHex(snap.Prefs.Theme, mygo.Theme.IsDark()))
+			win.Update(func() {})
+		})
+		mygo.App.OnLocaleChanged(func(locale string) {
+			i18n.RefreshSystemLocale(locale)
+			syncWindowTitle()
 			win.Update(func() {})
 		})
 
@@ -142,9 +207,4 @@ func main() {
 	})
 
 	mygo.App.Run()
-}
-
-func withTheme(p config.AppPreferences, pref config.ThemePreference) config.AppPreferences {
-	p.Theme = pref
-	return p
 }

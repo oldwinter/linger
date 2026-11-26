@@ -16,6 +16,7 @@ import (
 	"github.com/egoist/mygo/ui/netimage"
 	"github.com/oldwinter/linger/mobile/internal/api"
 	"github.com/oldwinter/linger/mobile/internal/components"
+	"github.com/oldwinter/linger/mobile/internal/i18n"
 	"github.com/oldwinter/linger/mobile/internal/state"
 	"github.com/oldwinter/linger/mobile/internal/theme"
 )
@@ -55,21 +56,21 @@ type Controller struct {
 	zoomState mobile.ZoomState
 
 	// Agents & Skills sheets
-	selectedAgent     *api.TenantAgent
-	agentSheetOpen    bool
-	agentEditName     string
-	agentEditDesc     string
-	agentEditInstr    string
-	agentEditModel    string
-	agentBindings     []api.AgentSkillBinding
-	agentBusy         bool
-	deleteAgentOpen   bool
-	createAgentOpen   bool
-	newAgentName      string
-	newAgentDesc      string
-	newAgentInstr     string
-	newAgentModel     string
-	newAgentTemplate  string
+	selectedAgent    *api.TenantAgent
+	agentSheetOpen   bool
+	agentEditName    string
+	agentEditDesc    string
+	agentEditInstr   string
+	agentEditModel   string
+	agentBindings    []api.AgentSkillBinding
+	agentBusy        bool
+	deleteAgentOpen  bool
+	createAgentOpen  bool
+	newAgentName     string
+	newAgentDesc     string
+	newAgentInstr    string
+	newAgentModel    string
+	newAgentTemplate string
 
 	// Compute / Local Models / Permissions / Browser / BYOK state
 	selectedComputerID string
@@ -144,7 +145,7 @@ func (ctl *Controller) OpenComputeSection(computerID, section string) {
 
 // Route renders Tab 2 inside Tab 2's ui.Router.
 func (ctl *Controller) Route(c *ui.Context, r *ui.Route, snap state.Snapshot) {
-	r.Title("Live Control")
+	r.Title(i18n.T("live.title"))
 	ctl.View(c, snap)
 }
 
@@ -162,41 +163,41 @@ func (ctl *Controller) View(c *ui.Context, snap state.Snapshot) {
 			activeCount++
 		}
 	}
-	runsLbl := "Runs"
+	runsLbl := i18n.T("live.tab.runs")
 	if activeCount > 0 {
-		runsLbl = fmt.Sprintf("Runs (%d)", activeCount)
+		runsLbl = i18n.Tf("live.tab.runs_count", map[string]any{"count": activeCount})
 	}
-	appLbl := "Approvals"
+	appLbl := i18n.T("live.tab.approvals")
 	if len(snap.PendingDecisions) > 0 {
-		appLbl = fmt.Sprintf("Approvals (%d)", len(snap.PendingDecisions))
+		appLbl = i18n.Tf("live.tab.approvals_count", map[string]any{"count": len(snap.PendingDecisions)})
 	}
 
 	ui.Column(c).Fill().Children(func() {
 		ui.Column(c).FillWidth().Padding(8, 12, 6, 12).Gap(8).Children(func() {
 			if snap.OfflineViewingCache {
-				components.StatusBanner(c, components.ToneWarning, "Offline — viewing cached snapshot", "", nil)
+				components.StatusBanner(c, components.ToneWarning, i18n.T("live.offline_banner"), "", nil)
 			} else if snap.TransientError != "" {
-				components.StatusBanner(c, components.ToneDanger, snap.TransientError, "Dismiss", func() {
+				components.StatusBanner(c, components.ToneDanger, snap.TransientError, i18n.T("common.dismiss"), func() {
 					ctl.store.ClearTransientError()
 				})
 			}
 			if notice != "" {
-				components.StatusBanner(c, components.ToneSuccess, notice, "OK", func() {
+				components.StatusBanner(c, components.ToneSuccess, notice, i18n.T("common.ok"), func() {
 					ctl.mu.Lock()
 					ctl.inlineNotice = ""
 					ctl.mu.Unlock()
 				})
 			}
 
-			if components.SegmentedControl(c, &seg, runsLbl, appLbl, "Agents", "Compute") {
+			if components.SegmentedControl(c, &seg, runsLbl, appLbl, i18n.T("live.tab.agents"), i18n.T("live.tab.compute")) {
 				ctl.SelectSegment(seg)
 			}
 		})
 
 		if snap.ActiveHost == nil && len(snap.ActiveRuns) == 0 && len(snap.PendingDecisions) == 0 && len(snap.Agents) == 0 {
-			components.EmptyState(c, theme.IconLive, "Live Control Room",
-				"Connect to Linger Desktop to watch active Agent runs, approve requests, manage Agents, and control Local Models.",
-				"Open Connection Hub", func() {
+			components.EmptyState(c, theme.IconLive, i18n.T("live.empty_title"),
+				i18n.T("live.empty_body"),
+				i18n.T("rooms.open_hub"), func() {
 					if ctl.nav.OnOpenConnect != nil {
 						ctl.nav.OnOpenConnect()
 					}
@@ -244,9 +245,9 @@ func (ctl *Controller) View(c *ui.Context, snap state.Snapshot) {
 func (ctl *Controller) viewActiveRuns(c *ui.Context, snap state.Snapshot) {
 	t := c.Theme()
 	if len(snap.ActiveRuns) == 0 {
-		components.EmptyState(c, theme.IconLive, "All Agents are idle",
-			"Active and recently stopped runs across every Room appear here in real time.",
-			"Refresh", func() {
+		components.EmptyState(c, theme.IconLive, i18n.T("live.runs_idle_title"),
+			i18n.T("live.runs_idle_body"),
+			i18n.T("common.refresh"), func() {
 				go func() { _ = ctl.store.RefreshActiveHost(context.Background()) }()
 			})
 		return
@@ -273,18 +274,18 @@ func (ctl *Controller) viewActiveRuns(c *ui.Context, snap state.Snapshot) {
 		elapsed := formatElapsedSince(run.CreatedAt)
 
 		components.SectionCard(c.Key(run.RunID), run.Agent.DisplayName,
-			fmt.Sprintf("Room: %s · Elapsed %s", rName, elapsed), func() {
-				components.StatusPill(c, run.Status, tone)
+			i18n.Tf("live.run_meta", map[string]any{"room": rName, "elapsed": elapsed}), func() {
+				components.StatusPill(c, i18n.StatusLabel(run.Status), tone)
 			}, func() {
-				ui.Text(c, fmt.Sprintf("Event ordinal %d · Run %s", run.EventOrdinal, run.RunID)).FontSize(12).TextColor(t.TextMuted)
+				ui.Text(c, i18n.Tf("live.run_ordinal", map[string]any{"ordinal": run.EventOrdinal, "id": run.RunID})).FontSize(12).TextColor(t.TextMuted)
 				ui.Row(c).FillWidth().Gap(8).Children(func() {
-					watchBtn := components.PrimaryTouchButton(c, "Watch Live", false)
+					watchBtn := components.PrimaryTouchButton(c, i18n.T("chat.watch_live"), false)
 					watchBtn.Grow(1).Basis(0)
 					if watchBtn.Clicked() && ctl.nav.OnWatchRun != nil {
 						ctl.nav.OnWatchRun(run.RoomID, run.RunID)
 					}
 					if run.Status == "active" {
-						stopBtn := components.DangerTouchButton(c, "Stop", false)
+						stopBtn := components.DangerTouchButton(c, i18n.T("live.stop_btn"), false)
 						if stopBtn.Clicked() {
 							mygo.Haptics.Warning()
 							go func() { _ = ctl.store.CancelRun(context.Background(), run.RoomID, run.RunID) }()
@@ -297,9 +298,9 @@ func (ctl *Controller) viewActiveRuns(c *ui.Context, snap state.Snapshot) {
 
 func (ctl *Controller) viewApprovalsInbox(c *ui.Context, snap state.Snapshot) {
 	if len(snap.PendingDecisions) == 0 {
-		components.EmptyState(c, theme.IconCheck, "No pending approvals",
-			"When an Agent asks permission to run a command, send a message, or asks a question, it appears here.",
-			"Refresh", func() {
+		components.EmptyState(c, theme.IconCheck, i18n.T("live.approvals_empty_title"),
+			i18n.T("live.approvals_empty_body"),
+			i18n.T("common.refresh"), func() {
 				go func() { _ = ctl.store.RefreshActiveHost(context.Background()) }()
 			})
 		return
@@ -365,7 +366,7 @@ func (ctl *Controller) openZoom(url, title string) {
 
 func (ctl *Controller) viewZoomLightbox(c *ui.Context) {
 	t := c.Theme()
-	mobile.Sheet(c, &ctl.zoomOpen, mobile.SheetOptions{Detents: []float32{0.88}, Label: "Screenshot Viewer"}, func() {
+	mobile.Sheet(c, &ctl.zoomOpen, mobile.SheetOptions{Detents: []float32{0.88}, Label: i18n.T("live.screenshot_title")}, func() {
 		ctl.mu.Lock()
 		u := ctl.zoomURL
 		title := ctl.zoomTitle
@@ -373,7 +374,7 @@ func (ctl *Controller) viewZoomLightbox(c *ui.Context) {
 		ui.Column(c).Fill().Padding(10, 12, 16, 12).Gap(8).Children(func() {
 			ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Children(func() {
 				ui.Text(c, title).FontSize(15).FontWeight(600).TextColor(t.Text).Grow(1).Basis(0).MaxLines(1)
-				if components.SecondaryTouchButton(c, "Close", false).Clicked() {
+				if components.SecondaryTouchButton(c, i18n.T("common.close"), false).Clicked() {
 					ctl.zoomOpen = false
 				}
 			})
@@ -392,27 +393,13 @@ func (ctl *Controller) setNotice(msg string) {
 
 func formatElapsedSince(ts time.Time) string {
 	if ts.IsZero() {
-		return "0s"
+		return i18n.FormatElapsed(0)
 	}
-	d := time.Since(ts)
-	if d < 0 {
-		d = 0
-	}
-	if d < time.Minute {
-		return fmt.Sprintf("%ds", int(d.Seconds()))
-	}
-	return fmt.Sprintf("%dm %ds", int(d.Minutes()), int(d.Seconds())%60)
+	return i18n.FormatElapsed(int64(time.Since(ts).Seconds()))
 }
 
 func formatBytesGB(b int64) string {
-	if b <= 0 {
-		return "0 GB"
-	}
-	gb := float64(b) / float64(1<<30)
-	if gb < 1 {
-		return fmt.Sprintf("%.0f MB", float64(b)/float64(1<<20))
-	}
-	return fmt.Sprintf("%.1f GB", gb)
+	return i18n.FormatMemorySize(b)
 }
 
 func nonEmptyOr(s, fallback string) string {

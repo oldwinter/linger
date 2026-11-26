@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/egoist/mygo/ui/golden"
 	"github.com/oldwinter/linger/mobile/internal/api"
 	"github.com/oldwinter/linger/mobile/internal/config"
 	"github.com/oldwinter/linger/mobile/internal/screens/rooms"
@@ -184,14 +183,14 @@ func TestRoomsGoldenSnapshots(t *testing.T) {
 
 	// 1. Rooms List (Town Light, 390x844)
 	ttList := testutil.NewPhoneTester(renderWithRouter(ui.NewRouter("/rooms"), false), testutil.StandardMobileViewports[1])
-	golden.Match(t, ttList, "testdata/rooms_list_light_390x844.png")
+	testutil.MatchGolden(t, ttList, "testdata/rooms_list_light_390x844.png")
 
 	// 2. Room Chat with inline Decision Cards (Town Light, 390x844)
 	// Use static messages without live running banner elapsed seconds so golden is 100% deterministic.
 	_ = store.CancelRun(context.Background(), "room_general", "run_1")
 	store.SetStatusMessage("")
 	ttChat := testutil.NewPhoneTester(renderWithRouter(ui.NewRouter("/rooms/room_general"), false), testutil.StandardMobileViewports[1])
-	golden.Match(t, ttChat, "testdata/rooms_chat_light_390x844.png")
+	testutil.MatchGolden(t, ttChat, "testdata/rooms_chat_light_390x844.png")
 
 	// 3. Live Run Watch (Town Dark, 390x844) with zero elapsed-seconds drift
 	ttWatch := testutil.NewPhoneTester(func(c *ui.Context) {
@@ -202,5 +201,5 @@ func TestRoomsGoldenSnapshots(t *testing.T) {
 			ctl.ViewRunWatch(c, s, "room_general", "run_1")
 		})
 	}, testutil.StandardMobileViewports[1])
-	golden.Match(t, ttWatch, "testdata/rooms_run_watch_dark_390x844.png")
+	testutil.MatchGolden(t, ttWatch, "testdata/rooms_run_watch_dark_390x844.png")
 }

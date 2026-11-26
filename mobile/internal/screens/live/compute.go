@@ -2,7 +2,7 @@ package live
 
 import (
 	"context"
-	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/egoist/mygo"
@@ -10,6 +10,7 @@ import (
 	"github.com/egoist/mygo/ui/mobile"
 	"github.com/oldwinter/linger/mobile/internal/api"
 	"github.com/oldwinter/linger/mobile/internal/components"
+	"github.com/oldwinter/linger/mobile/internal/i18n"
 	"github.com/oldwinter/linger/mobile/internal/state"
 	"github.com/oldwinter/linger/mobile/internal/theme"
 )
@@ -30,40 +31,42 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 			sub += " · " + ver
 		}
 		if snap.RTTMs > 0 {
-			sub += fmt.Sprintf(" · %dms RTT", snap.RTTMs)
+			sub += " · " + i18n.Tf("live.compute.rtt_ms", map[string]any{"ms": snap.RTTMs})
 		}
-		components.SectionCard(c, "Desktop Companion Host", sub, func() {
+		components.SectionCard(c, i18n.T("live.compute.desktop_title"), sub, func() {
 			tone := components.ToneSuccess
 			daemonOK := cs.DaemonConnection == "connected" || cs.DaemonConnection == "online"
 			if cs.LocalModelsDegraded || !daemonOK {
 				tone = components.ToneWarning
 			}
-			components.StatusPill(c, cs.RuntimeState, tone)
+			components.StatusPill(c, i18n.StatusLabel(cs.RuntimeState), tone)
 		}, func() {
 			ui.Row(c).FillWidth().Wrap().Gap(6).Children(func() {
-				components.StatusPill(c, "Daemon: "+cs.DaemonConnection, components.ToneInfo)
-				components.StatusPill(c, components.PluralInt(cs.ActiveOperations, "active op", "active ops"), components.ToneNeutral)
-				components.StatusPill(c, "Server: "+cs.LocalServerPhase, components.ToneNeutral)
-				components.StatusPill(c, "URL: "+cs.ServerURLMode, components.ToneNeutral)
+				components.StatusPill(c, i18n.Tf("live.compute.daemon", map[string]any{"status": i18n.StatusLabel(cs.DaemonConnection)}), components.ToneInfo)
+				components.StatusPill(c, i18n.Tf("live.compute.active_ops", map[string]any{"count": cs.ActiveOperations}), components.ToneNeutral)
+				components.StatusPill(c, i18n.Tf("live.compute.server", map[string]any{"status": i18n.StatusLabel(cs.LocalServerPhase)}), components.ToneNeutral)
+				components.StatusPill(c, i18n.Tf("live.compute.url", map[string]any{"url": i18n.ServerURLModeLabel(cs.ServerURLMode)}), components.ToneNeutral)
 				if cs.PreventSleep {
-					components.StatusPill(c, "Awake Guard On", components.ToneSuccess)
+					components.StatusPill(c, i18n.T("live.compute.awake_guard"), components.ToneSuccess)
 				}
 				if cs.LocalModelsDegraded {
-					components.StatusPill(c, "Local Models Degraded", components.ToneWarning)
+					components.StatusPill(c, i18n.T("live.compute.models_degraded"), components.ToneWarning)
 				}
 			})
 			if cs.ComputerID != "" {
-				ui.Text(c, fmt.Sprintf("Computer ID: %s · %s", cs.ComputerID, components.PluralInt(cs.PairedDevicesCount, "paired device", "paired devices"))).
-					FontSize(12).TextColor(t.TextMuted)
+				ui.Text(c, i18n.Tf("live.compute.computer_devices", map[string]any{
+					"id":    cs.ComputerID,
+					"count": cs.PairedDevicesCount,
+				})).FontSize(12).TextColor(t.TextMuted)
 			}
 		})
 	}
 
 	// 2. Enrolled Local Computers
 	activeCompID := ctl.activeComputerID(snap)
-	components.SectionCard(c, fmt.Sprintf("Local Computers (%d)", len(snap.Computers)), "Reuse Desktop's daemon, permissions, Chrome link & skills", nil, func() {
+	components.SectionCard(c, i18n.Tf("live.compute.computers_title", map[string]any{"count": len(snap.Computers)}), i18n.T("live.compute.computers_subtitle"), nil, func() {
 		if len(snap.Computers) == 0 {
-			ui.Text(c, "No Local Computers enrolled in this workspace.").FontSize(13).TextColor(t.TextMuted)
+			ui.Text(c, i18n.T("live.compute.computers_empty")).FontSize(13).TextColor(t.TextMuted)
 			return
 		}
 		for _, comp := range snap.Computers {
@@ -76,22 +79,23 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 				ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(6).Children(func() {
 					ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
 						ui.Text(c, comp.DisplayName).FontSize(14).FontWeight(600).TextColor(t.Text)
-						ui.Text(c, fmt.Sprintf("%s · %s",
-							components.PluralInt(comp.ActiveOperations, "active op", "active ops"),
-							components.PluralInt(len(comp.Runtimes), "runtime", "runtimes"))).FontSize(12).TextColor(t.TextMuted)
+						ui.Text(c, i18n.Tf("live.compute.computer_ops_runtimes", map[string]any{
+							"ops":      comp.ActiveOperations,
+							"runtimes": len(comp.Runtimes),
+						})).FontSize(12).TextColor(t.TextMuted)
 					})
-					components.StatusPill(c, comp.Status, tone)
+					components.StatusPill(c, i18n.StatusLabel(comp.Status), tone)
 				})
 				ui.Row(c).FillWidth().Wrap().Gap(6).Children(func() {
-					permBtn := components.SecondaryTouchButton(c, "Permissions", false)
+					permBtn := components.SecondaryTouchButton(c, i18n.T("live.compute.permissions_btn"), false)
 					if permBtn.Clicked() {
 						ctl.openPermissionsSheet(comp.ComputerID)
 					}
-					brBtn := components.SecondaryTouchButton(c, "Chrome Link", false)
+					brBtn := components.SecondaryTouchButton(c, i18n.T("live.compute.chrome_link_btn"), false)
 					if brBtn.Clicked() {
 						ctl.openBrowserSheet(comp.ComputerID)
 					}
-					scanBtn := components.SecondaryTouchButton(c, "Scan Skills", false)
+					scanBtn := components.SecondaryTouchButton(c, i18n.T("live.compute.scan_skills_btn"), false)
 					if scanBtn.Clicked() {
 						ctl.scanSkillsAsync(snap.TenantID, comp.ComputerID)
 					}
@@ -108,23 +112,27 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 
 	// 3. Model Source & BYOK Switcher (GET/POST .../model-source)
 	msMode := "local"
-	msModel := "Not configured"
+	msModel := i18n.T("live.compute.not_configured")
 	if snap.ModelSource != nil && snap.ModelSource.Status != nil {
 		msMode = snap.ModelSource.Status.Mode
 		msModel = nonEmptyOr(snap.ModelSource.Status.RuntimeModel, msModel)
 	}
-	components.SectionCard(c, "Model Source & BYOK", fmt.Sprintf("Active: %s · %s", msMode, msModel), func() {
-		components.StatusPill(c, strings.ToUpper(msMode), components.ToneInfo)
+	components.SectionCard(c, i18n.T("live.compute.source_title"), i18n.Tf("live.compute.source_active", map[string]any{
+		"source":  i18n.ModelSourceLabel(msMode),
+		"runtime": msModel,
+	}), func() {
+		components.StatusPill(c, strings.ToUpper(i18n.ModelSourceLabel(msMode)), components.ToneInfo)
 	}, func() {
 		ui.Row(c).FillWidth().Wrap().Gap(6).Children(func() {
 			for _, m := range []string{"local", "subscription", "byok"} {
 				m := m
 				isCurrent := strings.EqualFold(msMode, m)
+				label := strings.ToUpper(i18n.ModelSourceLabel(m))
 				var btn ui.Element
 				if isCurrent {
-					btn = components.PrimaryTouchButton(c, strings.ToUpper(m)+" ✓", true)
+					btn = components.PrimaryTouchButton(c, label+" \u2713", true)
 				} else {
-					btn = components.SecondaryTouchButton(c, strings.ToUpper(m), activeCompID == "")
+					btn = components.SecondaryTouchButton(c, label, activeCompID == "")
 				}
 				if btn.Clicked() {
 					switch m {
@@ -154,7 +162,7 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 					}
 				}
 			}
-			cfgBtn := components.SecondaryTouchButton(c, "Configure / Test BYOK", activeCompID == "")
+			cfgBtn := components.SecondaryTouchButton(c, i18n.T("live.compute.configure_byok"), activeCompID == "")
 			if cfgBtn.Clicked() {
 				ctl.openBYOKSheet(snap)
 			}
@@ -165,7 +173,7 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 			if curSub == "codex" {
 				subIdx = 1
 			}
-			if components.SegmentedControl(c, &subIdx, "Claude", "Codex") {
+			if components.SegmentedControl(c, &subIdx, i18n.HarnessLabel("claude"), i18n.HarnessLabel("codex")) {
 				nextRt := "claude"
 				if subIdx == 1 {
 					nextRt = "codex"
@@ -191,10 +199,13 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 		rechecking := ctl.recheckBusy
 		ctl.mu.Unlock()
 
-		components.SectionCard(c, "Local Models", fmt.Sprintf("%s · %s", lm.Computer.DisplayName, components.PluralInt(len(lm.Models), "catalog model", "catalog models")), func() {
-			recheckLbl := "Recheck"
+		components.SectionCard(c, i18n.T("live.compute.local_models_title"), i18n.Tf("live.compute.models_subtitle", map[string]any{
+			"pool":  lm.Computer.DisplayName,
+			"count": len(lm.Models),
+		}), func() {
+			recheckLbl := i18n.T("live.compute.recheck")
 			if rechecking {
-				recheckLbl = "Checking..."
+				recheckLbl = i18n.T("live.compute.checking")
 			}
 			btn := components.SecondaryTouchButton(c, recheckLbl, rechecking)
 			if btn.Clicked() {
@@ -210,8 +221,10 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 				ui.Column(c.Key(pool.ID)).FillWidth().Gap(4).Children(func() {
 					ui.Row(c).FillWidth().Justify(ui.SpaceBetween).Children(func() {
 						ui.Text(c, nonEmptyOr(pool.Label, pool.ID)).FontSize(12).FontWeight(600).TextColor(t.Text)
-						ui.Text(c, fmt.Sprintf("%s / %s used", formatBytesGB(pool.UsedBytes), formatBytesGB(pool.TotalBytes))).
-							FontSize(11).TextColor(t.TextMuted)
+						ui.Text(c, i18n.Tf("live.compute.mem_used", map[string]any{
+							"used":  i18n.FormatMemorySize(pool.UsedBytes),
+							"total": i18n.FormatMemorySize(pool.TotalBytes),
+						})).FontSize(11).TextColor(t.TextMuted)
 					})
 					ui.Progress(c, frac).FillWidth().Height(6)
 				})
@@ -247,17 +260,23 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 					ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(6).Children(func() {
 						ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
 							ui.Text(c, m.Name).FontSize(14).FontWeight(600).TextColor(t.Text).MaxLines(1)
-							ui.Text(c, fmt.Sprintf("%s · %s · %s VRAM", m.Quant, formatBytesGB(m.DownloadBytes), formatBytesGB(m.MemoryBytes))).
-								FontSize(11).TextColor(t.TextMuted)
+							ui.Text(c, i18n.Tf("live.compute.model_specs", map[string]any{
+								"quant": m.Quant,
+								"disk":  i18n.FormatMemorySize(m.DownloadBytes),
+								"vram":  i18n.FormatMemorySize(m.MemoryBytes),
+							})).FontSize(11).TextColor(t.TextMuted)
 						})
-						components.StatusPill(c, m.State, stateTone)
+						components.StatusPill(c, i18n.StatusLabel(m.State), stateTone)
 					})
 
 					if m.Download != nil && m.Download.TotalBytes > 0 {
 						pct := float64(m.Download.DoneBytes) / float64(m.Download.TotalBytes)
 						ui.Progress(c, pct).FillWidth().Height(6)
-						ui.Text(c, fmt.Sprintf("Downloading %.0f%% (%s / %s)", pct*100, formatBytesGB(m.Download.DoneBytes), formatBytesGB(m.Download.TotalBytes))).
-							FontSize(11).TextColor(t.Accent)
+						ui.Text(c, i18n.Tf("live.compute.downloading_pct", map[string]any{
+							"pct":   strconv.Itoa(int(pct*100 + 0.5)),
+							"done":  i18n.FormatMemorySize(m.Download.DoneBytes),
+							"total": i18n.FormatMemorySize(m.Download.TotalBytes),
+						})).FontSize(11).TextColor(t.Accent)
 					}
 
 					if m.Error != nil && (m.Error.Detail != nil && *m.Error.Detail != "" || m.Error.Code != "") {
@@ -272,43 +291,43 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 					ui.Row(c).FillWidth().Wrap().Gap(6).Children(func() {
 						switch m.State {
 						case "absent":
-							lbl := "Download"
+							lbl := i18n.T("live.compute.download")
 							if inFlight == "pull" {
-								lbl = "Downloading..."
+								lbl = i18n.T("live.compute.downloading")
 							}
 							b := components.PrimaryTouchButton(c, lbl, busy)
 							if b.Clicked() {
 								ctl.actOnLocalModelAsync(lm.Computer.ComputerID, m.ID, "pull", nil)
 							}
 						case "downloading":
-							lbl := "Cancel Download"
+							lbl := i18n.T("live.compute.cancel_download")
 							if inFlight == "cancel_pull" {
-								lbl = "Canceling..."
+								lbl = i18n.T("live.compute.canceling")
 							}
 							b := components.DangerTouchButton(c, lbl, busy)
 							if b.Clicked() {
 								ctl.actOnLocalModelAsync(lm.Computer.ComputerID, m.ID, "cancel_pull", nil)
 							}
 						case "idle":
-							loadLbl := "Load"
+							loadLbl := i18n.T("live.compute.load")
 							if inFlight == "load" {
-								loadLbl = "Loading..."
+								loadLbl = i18n.T("live.compute.loading")
 							}
 							b := components.PrimaryTouchButton(c, loadLbl, busy)
 							if b.Clicked() {
 								ctl.actOnLocalModelAsync(lm.Computer.ComputerID, m.ID, "load", nil)
 							}
 							if len(loadedIDs) > 0 {
-								mrLbl := "Make Room & Load"
+								mrLbl := i18n.T("live.compute.make_room_load")
 								if inFlight == "make_room_load" {
-									mrLbl = "Loading..."
+									mrLbl = i18n.T("live.compute.loading")
 								}
 								mr := components.SecondaryTouchButton(c, mrLbl, busy)
 								if mr.Clicked() {
 									ctl.actOnLocalModelAsync(lm.Computer.ComputerID, m.ID, "load", loadedIDs)
 								}
 							}
-							rm := components.DangerTouchButton(c, "Remove", busy)
+							rm := components.DangerTouchButton(c, i18n.T("common.remove"), busy)
 							if rm.Clicked() {
 								ctl.mu.Lock()
 								ctl.removeModelID = m.ID
@@ -317,15 +336,15 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 								ctl.mu.Unlock()
 							}
 						case "loaded":
-							unLbl := "Unload"
+							unLbl := i18n.T("live.compute.unload")
 							if inFlight == "unload" {
-								unLbl = "Unloading..."
+								unLbl = i18n.T("live.compute.unloading")
 							}
 							b := components.SecondaryTouchButton(c, unLbl, busy)
 							if b.Clicked() {
 								ctl.actOnLocalModelAsync(lm.Computer.ComputerID, m.ID, "unload", nil)
 							}
-							rm := components.DangerTouchButton(c, "Remove", busy)
+							rm := components.DangerTouchButton(c, i18n.T("common.remove"), busy)
 							if rm.Clicked() {
 								ctl.mu.Lock()
 								ctl.removeModelID = m.ID
@@ -367,7 +386,10 @@ func (ctl *Controller) actOnLocalModelAsync(computerID, modelID, action string, 
 		ctl.mu.Unlock()
 		if err == nil {
 			mygo.Haptics.Success()
-			ctl.setNotice(fmt.Sprintf("Model %s: %s accepted", modelID, action))
+			ctl.setNotice(i18n.Tf("live.compute.toast.model_accepted", map[string]any{
+				"id":     modelID,
+				"action": i18n.LocalModelActionLabel(key),
+			}))
 		}
 		ctl.store.Notify()
 	}()
@@ -392,11 +414,11 @@ func (ctl *Controller) viewRemoveModelConfirm(c *ui.Context, snap state.Snapshot
 	mName := ctl.removeModelName
 	ctl.mu.Unlock()
 	mobile.ActionSheet(c, &ctl.removeModelOpen, mobile.ActionSheetOptions{
-		Title:   "Remove " + mName + "?",
-		Message: "Deletes downloaded model weights from Desktop disk.",
-		Cancel:  "Cancel",
+		Title:   i18n.Tf("live.compute.remove_title", map[string]any{"name": mName}),
+		Message: i18n.T("live.compute.remove_body"),
+		Cancel:  i18n.T("common.cancel"),
 	}, mobile.Action{
-		Label:       "Delete Weights",
+		Label:       i18n.T("live.compute.delete_weights"),
 		Destructive: true,
 		OnTap: func() {
 			if snap.LocalModels != nil {
@@ -431,21 +453,21 @@ func (ctl *Controller) openPermissionsSheet(computerID string) {
 
 func (ctl *Controller) viewPermissionsSheet(c *ui.Context, snap state.Snapshot) {
 	t := c.Theme()
-	mobile.Sheet(c, &ctl.permSheetOpen, mobile.SheetOptions{Detents: []float32{0.65, 0.90}, Label: "Computer Permissions"}, func() {
+	mobile.Sheet(c, &ctl.permSheetOpen, mobile.SheetOptions{Detents: []float32{0.65, 0.90}, Label: i18n.T("live.compute.perms_a11y")}, func() {
 		ctl.mu.Lock()
 		st := ctl.permStatus
 		ctl.mu.Unlock()
 		cid := ctl.activeComputerID(snap)
 		ui.Scroll(c).FillWidth().Grow(1).Basis(0).Children(func() {
 			ui.Column(c).FillWidth().Padding(10, 16, 24, 16).Gap(10).Children(func() {
-				ui.Text(c, "Host Permissions").FontSize(18).Bold().TextColor(t.Text)
+				ui.Text(c, i18n.T("live.compute.host_perms_title")).FontSize(18).Bold().TextColor(t.Text)
 				if st == nil {
 					components.LoadingSkeleton(c, 2)
 					return
 				}
 				for _, subj := range st.Subjects {
 					subj := subj
-					components.SectionCard(c.Key(subj.Subject), "App: "+subj.Subject, st.Platform, nil, func() {
+					components.SectionCard(c.Key(subj.Subject), i18n.Tf("live.compute.app_line", map[string]any{"name": subj.Subject}), st.Platform, nil, func() {
 						for _, p := range subj.Permissions {
 							p := p
 							tone := components.ToneWarning
@@ -454,13 +476,13 @@ func (ctl *Controller) viewPermissionsSheet(c *ui.Context, snap state.Snapshot) 
 							}
 							ui.Row(c.Key(p.ID)).FillWidth().MinHeight(44).AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
 								ui.Text(c, p.ID).FontSize(13).TextColor(t.Text).Grow(1).Basis(0)
-								components.StatusPill(c, p.State, tone)
+								components.StatusPill(c, i18n.StatusLabel(p.State), tone)
 								if p.State != "granted" {
 									action := "open_settings"
-									lbl := "Settings"
+									lbl := i18n.T("live.compute.settings_btn")
 									if p.Prompt == "available" {
 										action = "prompt"
-										lbl = "Prompt"
+										lbl = i18n.T("live.compute.prompt_btn")
 									}
 									btn := components.SecondaryTouchButton(c, lbl, false)
 									if btn.Clicked() {
@@ -522,20 +544,20 @@ func (ctl *Controller) refreshBrowserStatus(computerID string) {
 
 func (ctl *Controller) viewBrowserSheet(c *ui.Context, snap state.Snapshot) {
 	t := c.Theme()
-	mobile.Sheet(c, &ctl.browserSheetOpen, mobile.SheetOptions{Detents: []float32{0.58}, Label: "Browser Connection"}, func() {
+	mobile.Sheet(c, &ctl.browserSheetOpen, mobile.SheetOptions{Detents: []float32{0.58}, Label: i18n.T("live.compute.browser_a11y")}, func() {
 		ctl.mu.Lock()
 		st := ctl.browserStatus
 		ctl.mu.Unlock()
 		cid := ctl.activeComputerID(snap)
 		ui.Scroll(c).FillWidth().Grow(1).Basis(0).Children(func() {
 			ui.Column(c).FillWidth().Padding(10, 16, 24, 16).Gap(10).Children(func() {
-				ui.Text(c, "Desktop Browser Connection").FontSize(18).Bold().TextColor(t.Text)
+				ui.Text(c, i18n.T("live.compute.browser_title")).FontSize(18).Bold().TextColor(t.Text)
 				if st != nil {
-					components.StatusPill(c, fmt.Sprintf("%s (%s)", st.State, st.Mode), components.ToneInfo)
+					components.StatusPill(c, i18n.StatusLabel(st.State)+" ("+i18n.BrowserModeLabel(st.Mode)+")", components.ToneInfo)
 				}
-				components.FormField(c, "Chrome Profile", "Default", &ctl.browserProfile, false)
+				components.FormField(c, i18n.T("live.compute.chrome_profile"), i18n.T("common.default"), &ctl.browserProfile, false)
 				ui.Row(c).FillWidth().Gap(8).Children(func() {
-					connBtn := components.PrimaryTouchButton(c, "Connect Chrome", false)
+					connBtn := components.PrimaryTouchButton(c, i18n.T("live.compute.connect_chrome"), false)
 					connBtn.Grow(1).Basis(0)
 					if connBtn.Clicked() {
 						prof := strings.TrimSpace(ctl.browserProfile)
@@ -550,7 +572,7 @@ func (ctl *Controller) viewBrowserSheet(c *ui.Context, snap state.Snapshot) {
 							}
 						}()
 					}
-					discBtn := components.DangerTouchButton(c, "Disconnect", false)
+					discBtn := components.DangerTouchButton(c, i18n.T("live.compute.disconnect"), false)
 					if discBtn.Clicked() {
 						go func() {
 							if cl := ctl.store.Client(); cl != nil {
@@ -642,7 +664,7 @@ func (ctl *Controller) openBYOKSheet(snap state.Snapshot) {
 func (ctl *Controller) viewBYOKSheet(c *ui.Context, snap state.Snapshot) {
 	t := c.Theme()
 	wasOpen := ctl.byokSheetOpen
-	mobile.Sheet(c, &ctl.byokSheetOpen, mobile.SheetOptions{Detents: []float32{0.80, 0.94}, Label: "BYOK Model Source"}, func() {
+	mobile.Sheet(c, &ctl.byokSheetOpen, mobile.SheetOptions{Detents: []float32{0.80, 0.94}, Label: i18n.T("live.compute.byok_a11y")}, func() {
 		ctl.mu.Lock()
 		busy := ctl.byokBusy
 		testMsg := ctl.byokTestMsg
@@ -654,7 +676,7 @@ func (ctl *Controller) viewBYOKSheet(c *ui.Context, snap state.Snapshot) {
 
 		ui.Scroll(c).FillWidth().Grow(1).Basis(0).Children(func() {
 			ui.Column(c).FillWidth().Padding(10, 16, 24, 16).Gap(10).Children(func() {
-				ui.Text(c, "BYOK Provider Configuration").FontSize(18).Bold().TextColor(t.Text)
+				ui.Text(c, i18n.T("live.compute.byok_title")).FontSize(18).Bold().TextColor(t.Text)
 				if testMsg != "" {
 					components.StatusBanner(c, components.ToneInfo, testMsg, "", nil)
 				}
@@ -667,8 +689,8 @@ func (ctl *Controller) viewBYOKSheet(c *ui.Context, snap state.Snapshot) {
 						break
 					}
 				}
-				ui.Text(c, "Runtime Harness").FontSize(12).FontWeight(600).TextColor(t.TextMuted)
-				if components.SegmentedControl(c, &rtIdx, "Pi", "Claude", "Codex") {
+				ui.Text(c, i18n.T("live.compute.harness_label")).FontSize(12).FontWeight(600).TextColor(t.TextMuted)
+				if components.SegmentedControl(c, &rtIdx, i18n.T("live.compute.harness_pi"), i18n.T("live.compute.harness_claude"), i18n.T("live.compute.harness_codex")) {
 					ctl.mu.Lock()
 					ctl.byokRuntime = runtimes[rtIdx]
 					ctl.mu.Unlock()
@@ -682,26 +704,26 @@ func (ctl *Controller) viewBYOKSheet(c *ui.Context, snap state.Snapshot) {
 						break
 					}
 				}
-				ui.Text(c, "Upstream Protocol").FontSize(12).FontWeight(600).TextColor(t.TextMuted)
-				if components.SegmentedControl(c, &protoIdx, "OpenAI Chat", "Responses", "Anthropic") {
+				ui.Text(c, i18n.T("live.compute.protocol_label")).FontSize(12).FontWeight(600).TextColor(t.TextMuted)
+				if components.SegmentedControl(c, &protoIdx, i18n.T("live.compute.protocol.openai_chat"), i18n.T("live.compute.protocol.responses"), i18n.T("live.compute.protocol.anthropic")) {
 					ctl.mu.Lock()
 					ctl.byokProtocol = protocols[protoIdx]
 					ctl.mu.Unlock()
 				}
 
-				components.FormField(c, "Base URL", "https://api.openai.com", &ctl.byokBaseURL, false)
-				components.FormField(c, "Path", "/v1", &ctl.byokPath, false)
-				components.FormField(c, "Endpoint", "/chat/completions", &ctl.byokEndpoint, false)
-				components.FormField(c, "Model ID", "gpt-4o-mini", &ctl.byokModelID, false)
-				components.FormField(c, "API Key (stored only on Desktop 0600)", "sk-...", &ctl.byokAPIKey, true)
+				components.FormField(c, i18n.T("live.compute.base_url"), "https://api.openai.com", &ctl.byokBaseURL, false)
+				components.FormField(c, i18n.T("live.compute.path_label"), "/v1", &ctl.byokPath, false)
+				components.FormField(c, i18n.T("live.compute.endpoint_label"), "/chat/completions", &ctl.byokEndpoint, false)
+				components.FormField(c, i18n.T("live.compute.model_id_label"), "gpt-4o-mini", &ctl.byokModelID, false)
+				components.FormField(c, i18n.T("live.compute.api_key_desktop"), "sk-...", &ctl.byokAPIKey, true)
 
 				ui.Row(c).FillWidth().Gap(8).Children(func() {
-					testBtn := components.SecondaryTouchButton(c, "Test Connection", busy)
+					testBtn := components.SecondaryTouchButton(c, i18n.T("live.compute.test_conn"), busy)
 					testBtn.Grow(1).Basis(0)
 					if testBtn.Clicked() {
 						ctl.testBYOKAsync(snap.TenantID, cid)
 					}
-					listBtn := components.SecondaryTouchButton(c, "List Models", busy)
+					listBtn := components.SecondaryTouchButton(c, i18n.T("live.compute.list_models"), busy)
 					listBtn.Grow(1).Basis(0)
 					if listBtn.Clicked() {
 						ctl.listBYOKModelsAsync(snap.TenantID, cid)
@@ -709,7 +731,7 @@ func (ctl *Controller) viewBYOKSheet(c *ui.Context, snap state.Snapshot) {
 				})
 
 				if len(models) > 0 {
-					components.SectionCard(c, fmt.Sprintf("Provider Models (%d)", len(models)), "Tap a model to select", nil, func() {
+					components.SectionCard(c, i18n.Tf("live.compute.provider_models", map[string]any{"count": len(models)}), i18n.T("live.compute.provider_models_sub"), nil, func() {
 						for _, m := range models {
 							m := m
 							lbl := m.ID
@@ -717,7 +739,7 @@ func (ctl *Controller) viewBYOKSheet(c *ui.Context, snap state.Snapshot) {
 								lbl = *m.Name + " (" + m.ID + ")"
 							}
 							row := ui.Row(c.Key("bm_"+m.ID)).FillWidth().MinHeight(40).Padding(6, 8).Radius(8).
-								AlignItems(ui.Center).Role(ui.RoleButton).Label("Select model " + m.ID)
+								AlignItems(ui.Center).Role(ui.RoleButton).Label(i18n.Tf("live.compute.select_model_a11y", map[string]any{"id": m.ID}))
 							row.Children(func() { ui.Text(c, lbl).FontSize(13).TextColor(t.Accent) })
 							if row.Clicked() {
 								ctl.mu.Lock()
@@ -728,7 +750,7 @@ func (ctl *Controller) viewBYOKSheet(c *ui.Context, snap state.Snapshot) {
 					})
 				}
 
-				applyBtn := components.PrimaryTouchButton(c, "Switch Desktop to BYOK", busy || strings.TrimSpace(ctl.byokModelID) == "")
+				applyBtn := components.PrimaryTouchButton(c, i18n.T("live.compute.switch_byok"), busy || strings.TrimSpace(ctl.byokModelID) == "")
 				applyBtn.FillWidth()
 				if applyBtn.Clicked() {
 					in := ctl.currentBYOKInput()
@@ -752,7 +774,7 @@ func (ctl *Controller) viewBYOKSheet(c *ui.Context, snap state.Snapshot) {
 								ctl.byokAPIKey = ""
 								ctl.byokSheetOpen = false
 							} else {
-								ctl.byokTestMsg = "Switch failed: " + err.Error()
+								ctl.byokTestMsg = i18n.Tf("live.compute.toast.switch_failed", map[string]any{"err": err.Error()})
 							}
 							ctl.mu.Unlock()
 						})
@@ -802,11 +824,14 @@ func (ctl *Controller) testBYOKAsync(tenantID, compID string) {
 		if cl != nil {
 			res, err := cl.TestLocalComputerModelSourceTyped(context.Background(), tenantID, compID, in)
 			if err != nil {
-				msg = "Test failed: " + err.Error()
+				msg = i18n.Tf("live.compute.toast.test_failed", map[string]any{"err": err.Error()})
 			} else if res.Ok {
-				msg = fmt.Sprintf("Connected OK · %s (%d ctx)", res.ModelID, res.ContextWindow)
+				msg = i18n.Tf("live.compute.toast.connected_ok", map[string]any{
+					"model": res.ModelID,
+					"ctx":   res.ContextWindow,
+				})
 			} else {
-				msg = "Endpoint returned not-ok"
+				msg = i18n.T("live.compute.toast.endpoint_not_ok")
 			}
 		}
 		ctl.mu.Lock()
@@ -829,10 +854,10 @@ func (ctl *Controller) listBYOKModelsAsync(tenantID, compID string) {
 		if cl != nil {
 			res, err := cl.ListLocalComputerByokModelsTyped(context.Background(), tenantID, compID, in)
 			if err != nil {
-				msg = "List failed: " + err.Error()
+				msg = i18n.Tf("live.compute.toast.list_failed", map[string]any{"err": err.Error()})
 			} else {
 				list = res.Models
-				msg = fmt.Sprintf("Loaded %s from provider", components.PluralInt(len(res.Models), "model", "models"))
+				msg = i18n.Tf("live.compute.toast.loaded_models", map[string]any{"count": len(res.Models)})
 			}
 		}
 		ctl.mu.Lock()
@@ -850,9 +875,9 @@ func (ctl *Controller) scanSkillsAsync(tenantID, compID string) {
 			_, err := cl.ScanLocalComputerSkills(context.Background(), tenantID, compID)
 			ctl.mu.Lock()
 			if err != nil {
-				ctl.scanResult = "Skill scan failed: " + err.Error()
+				ctl.scanResult = i18n.Tf("live.compute.toast.skill_scan_failed", map[string]any{"err": err.Error()})
 			} else {
-				ctl.scanResult = "Skill scan complete."
+				ctl.scanResult = i18n.T("live.compute.toast.skill_scan_ok")
 			}
 			ctl.mu.Unlock()
 			ctl.store.Notify()

@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/egoist/mygo/ui/golden"
 	"github.com/oldwinter/linger/mobile/internal/api"
 	"github.com/oldwinter/linger/mobile/internal/config"
 	"github.com/oldwinter/linger/mobile/internal/screens/live"
@@ -198,7 +197,7 @@ func TestLiveGoldenSnapshots(t *testing.T) {
 			ctl.View(c, baseSnap)
 		})
 	}, testutil.StandardMobileViewports[1])
-	golden.Match(t, ttApp, "testdata/live_approvals_light_390x844.png")
+	testutil.MatchGolden(t, ttApp, "testdata/live_approvals_light_390x844.png")
 
 	// 2. Compute & Local Models Control Center (Town Dark, 390x844)
 	ctl.SelectSegment(live.SegmentCompute)
@@ -208,5 +207,5 @@ func TestLiveGoldenSnapshots(t *testing.T) {
 			ctl.View(c, baseSnap)
 		})
 	}, testutil.StandardMobileViewports[1])
-	golden.Match(t, ttComp, "testdata/live_compute_dark_390x844.png")
+	testutil.MatchGolden(t, ttComp, "testdata/live_compute_dark_390x844.png")
 }

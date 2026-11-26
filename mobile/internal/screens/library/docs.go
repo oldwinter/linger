@@ -3,7 +3,6 @@ package library
 import (
 	"context"
 	"errors"
-	"fmt"
 	"mime"
 	"net/url"
 	"os"
@@ -19,6 +18,7 @@ import (
 	"github.com/egoist/mygo/ui/mobile"
 	"github.com/oldwinter/linger/mobile/internal/api"
 	"github.com/oldwinter/linger/mobile/internal/components"
+	"github.com/oldwinter/linger/mobile/internal/i18n"
 	"github.com/oldwinter/linger/mobile/internal/theme"
 )
 
@@ -40,28 +40,31 @@ func (s *Screen) viewDocsSegment(c *ui.Context) {
 	ui.Scroll(c).FillWidth().Grow(1).Basis(0).TrackScroll(&s.scroll[SegmentDocs]).Children(func() {
 		ui.Column(c).FillWidth().Padding(12, 16, 24, 16).Gap(10).Children(func() {
 			// Tree switcher (My Docs / Shared / Room Docs)
-			components.SegmentedControl(c, &s.docTreeTab, "My Docs", "Shared", "Room Docs")
+			components.SegmentedControl(c, &s.docTreeTab,
+				i18n.T("library.docs.view_my"),
+				i18n.T("library.docs.view_shared"),
+				i18n.T("library.docs.view_room"))
 
 			// Action bar: New Note, Upload File, Upload Photo
 			ui.Row(c).FillWidth().Wrap().Gap(8).Children(func() {
-				newBtn := components.PrimaryTouchButton(c, "+ Note", false)
+				newBtn := components.PrimaryTouchButton(c, i18n.T("library.docs.new_note_short"), false)
 				if newBtn.Clicked() {
 					s.newNoteTitle = ""
 					s.newNoteErr = ""
 					s.newNoteSheetOpen = true
 				}
-				upFileBtn := components.SecondaryTouchButton(c, "Upload File", s.uploadBusy)
+				upFileBtn := components.SecondaryTouchButton(c, i18n.T("library.docs.upload_file"), s.uploadBusy)
 				if upFileBtn.Clicked() {
 					s.triggerUploadFile()
 				}
-				upPhotoBtn := components.SecondaryTouchButton(c, "Upload Photo", s.uploadBusy)
+				upPhotoBtn := components.SecondaryTouchButton(c, i18n.T("library.docs.upload_photo"), s.uploadBusy)
 				if upPhotoBtn.Clicked() {
 					s.triggerUploadPhoto()
 				}
 			})
 
 			if s.uploadErr != "" {
-				components.StatusBanner(c, components.ToneDanger, s.uploadErr, "Dismiss", func() {
+				components.StatusBanner(c, components.ToneDanger, s.uploadErr, i18n.T("common.dismiss"), func() {
 					s.uploadErr = ""
 				})
 			}
@@ -79,7 +82,7 @@ func (s *Screen) viewDocsSegment(c *ui.Context) {
 								fg = t.AccentText
 							}
 							chip := ui.Row(c.Key(rm.ID)).MinHeight(34).PaddingX(12).Radius(999).Background(bg).
-								AlignItems(ui.Center).Shrink(0).Role(ui.RoleTab).Label("Room docs " + rm.Name).Checked(on)
+								AlignItems(ui.Center).Shrink(0).Role(ui.RoleTab).Label(i18n.Tf("library.docs.room_chip_a11y", map[string]any{"name": rm.Name})).Checked(on)
 							chip.Children(func() {
 								ui.Text(c, rm.Name).FontSize(12).FontWeight(600).TextColor(fg).NoWrap()
 							})
@@ -97,7 +100,7 @@ func (s *Screen) viewDocsSegment(c *ui.Context) {
 
 			if s.docTreeTab < 2 && s.docFolderID != "" {
 				ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
-					backBtn := components.SecondaryTouchButton(c, "← Up Folder", false)
+					backBtn := components.SecondaryTouchButton(c, i18n.T("library.docs.up_folder"), false)
 					if backBtn.Clicked() {
 						s.popDocFolder()
 					}
@@ -113,7 +116,7 @@ func (s *Screen) viewDocsSegment(c *ui.Context) {
 			case 1:
 				s.renderTreeNodes(c, sharedTree.Items, nil)
 			case 2:
-				s.renderDocumentSlice(c, roomDocs, "No documents in this Room yet.")
+				s.renderDocumentSlice(c, roomDocs, i18n.T("library.docs.room_empty"))
 			}
 		})
 	})
@@ -145,9 +148,9 @@ func (s *Screen) renderTreeNodes(c *ui.Context, nodes []api.DocumentTreeNode, fa
 	}
 
 	if len(folders) == 0 && len(docs) == 0 {
-		components.EmptyState(c, theme.IconLibrary, "No Documents",
-			"Create a note or upload a file to see it here.",
-			"Create Note", func() {
+		components.EmptyState(c, theme.IconLibrary, i18n.T("library.docs.empty_title"),
+			i18n.T("library.docs.empty_body"),
+			i18n.T("library.docs.create_note"), func() {
 				s.newNoteSheetOpen = true
 			})
 		return
@@ -155,9 +158,9 @@ func (s *Screen) renderTreeNodes(c *ui.Context, nodes []api.DocumentTreeNode, fa
 
 	for _, f := range folders {
 		f := f
-		row := ui.Row(c.Key("folder:" + f.ID)).FillWidth().MinHeight(52).Padding(10, 12).Gap(10).
+		row := ui.Row(c.Key("folder:"+f.ID)).FillWidth().MinHeight(52).Padding(10, 12).Gap(10).
 			Radius(12).Background(t.Surface).Border(1, t.Border).AlignItems(ui.Center).
-			Role(ui.RoleButton).Label("Folder " + f.Name)
+			Role(ui.RoleButton).Label(i18n.Tf("library.docs.folder_a11y", map[string]any{"name": f.Name}))
 		row.Children(func() {
 			theme.IconBox(c, 20, t.Accent, theme.IconLibrary)
 			ui.Text(c, f.Name).FontSize(14).FontWeight(600).TextColor(t.Text).Grow(1).Basis(0).MaxLines(1)
@@ -198,22 +201,22 @@ func (s *Screen) renderDocumentSlice(c *ui.Context, docs []api.Document, emptyMs
 	t := c.Theme()
 	if len(docs) == 0 {
 		if emptyMsg != "" {
-			components.EmptyState(c, theme.IconLibrary, "No Documents", emptyMsg, "", nil)
+			components.EmptyState(c, theme.IconLibrary, i18n.T("library.docs.empty_title"), emptyMsg, "", nil)
 		}
 		return
 	}
 	for _, doc := range docs {
 		doc := doc
-		row := ui.Row(c.Key("doc:" + doc.ID)).FillWidth().MinHeight(56).Padding(10, 12).Gap(10).
+		row := ui.Row(c.Key("doc:"+doc.ID)).FillWidth().MinHeight(56).Padding(10, 12).Gap(10).
 			Radius(12).Background(t.Surface).Border(1, t.Border).AlignItems(ui.Center).
-			Role(ui.RoleButton).Label("Document " + doc.Title)
+			Role(ui.RoleButton).Label(i18n.Tf("library.docs.doc_a11y", map[string]any{"name": doc.Title}))
 		row.Children(func() {
 			components.AvatarBadge(c, doc.Title, 34)
 			ui.Column(c).Grow(1).Basis(0).Gap(3).Children(func() {
 				ui.Text(c, doc.Title).FontSize(14).FontWeight(600).TextColor(t.Text).MaxLines(1)
-				ui.Text(c, doc.Format+" · "+doc.UpdatedAt.UTC().Format("Jan 2 15:04")).FontSize(11).TextColor(t.TextMuted).MaxLines(1)
+				ui.Text(c, i18n.DocKindLabel(doc.Format)+" \u00b7 "+i18n.FormatDateTimeUTC(doc.UpdatedAt)).FontSize(11).TextColor(t.TextMuted).MaxLines(1)
 			})
-			components.StatusPill(c, doc.RepresentationFormat, components.ToneNeutral)
+			components.StatusPill(c, i18n.DocKindLabel(doc.RepresentationFormat), components.ToneNeutral)
 		})
 		if row.Clicked() {
 			s.openDocument(doc)
@@ -258,7 +261,7 @@ func (s *Screen) openDocumentByID(docID string) {
 		s.openDocument(*found)
 		return
 	}
-	s.openDocument(api.Document{ID: docID, Title: "Document"})
+	s.openDocument(api.Document{ID: docID, Title: i18n.T("library.docs.document_fallback")})
 }
 
 func (s *Screen) openDocument(doc api.Document) {
@@ -287,7 +290,7 @@ func (s *Screen) openDocument(doc api.Document) {
 	client := s.client()
 	if client == nil {
 		s.readerBusy = false
-		s.readerErr = "Offline: document body cannot be downloaded without a host connection."
+		s.readerErr = i18n.T("library.docs.offline_body_err")
 		return
 	}
 
@@ -361,7 +364,7 @@ func (s *Screen) viewDocumentReaderSheet(c *ui.Context) {
 	t := c.Theme()
 	mobile.Sheet(c, &s.readerOpen, mobile.SheetOptions{
 		Detents: []float32{0.88, 0.98},
-		Label:   "Document Reader",
+		Label:   i18n.T("library.docs.reader_title"),
 	}, func() {
 		doc := s.readerDoc
 		if doc == nil {
@@ -372,52 +375,52 @@ func (s *Screen) viewDocumentReaderSheet(c *ui.Context) {
 				ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
 					ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
 						ui.Text(c, doc.Title).FontSize(18).Bold().TextColor(t.Text)
-						ui.Text(c, doc.Format+" · "+doc.RepresentationFormat).FontSize(12).TextColor(t.TextMuted)
+						ui.Text(c, i18n.DocKindLabel(doc.Format)+" \u00b7 "+i18n.DocKindLabel(doc.RepresentationFormat)).FontSize(12).TextColor(t.TextMuted)
 					})
-					components.StatusPill(c, doc.Status, components.ToneInfo)
+					components.StatusPill(c, i18n.StatusLabel(doc.Status), components.ToneInfo)
 				})
 
 				if s.readerErr != "" {
-					components.StatusBanner(c, components.ToneDanger, s.readerErr, "Retry", func() {
+					components.StatusBanner(c, components.ToneDanger, s.readerErr, i18n.T("common.retry"), func() {
 						s.openDocument(*doc)
 					})
 				}
 				if s.readerNotice != "" {
-					components.StatusBanner(c, components.ToneSuccess, s.readerNotice, "OK", func() {
+					components.StatusBanner(c, components.ToneSuccess, s.readerNotice, i18n.T("common.ok"), func() {
 						s.readerNotice = ""
 					})
 				}
 
 				// Reader toolbar
 				ui.Row(c).FillWidth().Wrap().Gap(6).Children(func() {
-					vBtn := components.SecondaryTouchButton(c, fmt.Sprintf("Versions (%d)", len(s.readerVersions)+len(s.readerHistory)), false)
+					vBtn := components.SecondaryTouchButton(c, i18n.Tf("library.docs.versions_btn", map[string]any{"count": len(s.readerVersions) + len(s.readerHistory)}), false)
 					if vBtn.Clicked() {
 						s.versionsSheetOpen = true
 					}
-					cBtn := components.SecondaryTouchButton(c, fmt.Sprintf("Comments (%d)", len(s.readerThreads)), false)
+					cBtn := components.SecondaryTouchButton(c, i18n.Tf("library.docs.comments_btn", map[string]any{"count": len(s.readerThreads)}), false)
 					if cBtn.Clicked() {
 						s.commentsSheetOpen = true
 					}
-					sBtn := components.SecondaryTouchButton(c, "Share Link", false)
+					sBtn := components.SecondaryTouchButton(c, i18n.T("library.docs.share_link"), false)
 					if sBtn.Clicked() {
 						s.linkShareSheetOpen = true
 					}
-					dlBtn := components.SecondaryTouchButton(c, "Save Copy", len(s.readerBytes) == 0)
+					dlBtn := components.SecondaryTouchButton(c, i18n.T("library.docs.save_copy"), len(s.readerBytes) == 0)
 					if dlBtn.Clicked() {
 						s.saveReaderCopy(*doc)
 					}
-					renBtn := components.SecondaryTouchButton(c, "Rename", false)
+					renBtn := components.SecondaryTouchButton(c, i18n.T("library.docs.rename"), false)
 					if renBtn.Clicked() {
 						s.renameDraft = doc.Title
 						s.renameSheetOpen = true
 					}
 					if isHTMLDoc(*doc, s.readerContentType) && len(s.readerVersions) > 0 {
-						htmlBtn := components.PrimaryTouchButton(c, "Open HTML Preview", false)
+						htmlBtn := components.PrimaryTouchButton(c, i18n.T("library.docs.open_html"), false)
 						if htmlBtn.Clicked() {
 							s.openHTMLPreview(s.readerVersions[0].ID)
 						}
 					}
-					delBtn := components.DangerTouchButton(c, "Delete", false)
+					delBtn := components.DangerTouchButton(c, i18n.T("common.delete"), false)
 					if delBtn.Clicked() {
 						s.deleteConfirmOpen = true
 					}
@@ -441,7 +444,7 @@ func (s *Screen) viewDocumentReaderSheet(c *ui.Context) {
 				case s.readerText != "":
 					markdown.View(c, s.readerText, &s.mdOpts).FillWidth()
 				case len(s.readerBytes) > 0:
-					ui.Text(c, fmt.Sprintf("Binary file (%d bytes). Use Save Copy to export.", len(s.readerBytes))).
+					ui.Text(c, i18n.Tf("library.docs.binary_info", map[string]any{"bytes": len(s.readerBytes)})).
 						FontSize(13).TextColor(t.TextMuted)
 				}
 			})
@@ -476,34 +479,34 @@ func canonicalOriginTuple(u *url.URL) (string, string, bool) {
 func validateDocPreviewURL(previewURL, hostBaseURL string, allowPlainHTTP bool) error {
 	raw := strings.TrimSpace(previewURL)
 	if raw == "" {
-		return errors.New("preview URL is empty")
+		return errors.New(i18n.T("library.docs.preview_err.empty"))
 	}
 	u, err := url.Parse(raw)
 	if err != nil {
-		return fmt.Errorf("invalid preview URL: %w", err)
+		return errors.New(i18n.Tf("library.docs.preview_err.invalid", map[string]any{"err": err.Error()}))
 	}
 	scheme := strings.ToLower(u.Scheme)
 	switch scheme {
 	case "https":
 	case "http":
 		if !allowPlainHTTP {
-			return errors.New("plain HTTP document preview is disallowed")
+			return errors.New(i18n.T("library.docs.preview_err.plain_http"))
 		}
 	default:
-		return fmt.Errorf("disallowed preview URL scheme %q", u.Scheme)
+		return errors.New(i18n.Tf("library.docs.preview_err.scheme", map[string]any{"scheme": u.Scheme}))
 	}
 	s1, h1, ok1 := canonicalOriginTuple(u)
 	if !ok1 {
-		return errors.New("preview URL is missing a valid host")
+		return errors.New(i18n.T("library.docs.preview_err.missing_host"))
 	}
 	if strings.TrimSpace(hostBaseURL) != "" {
 		base, bErr := url.Parse(strings.TrimSpace(hostBaseURL))
 		if bErr != nil {
-			return errors.New("connected host origin is invalid")
+			return errors.New(i18n.T("library.docs.preview_err.invalid_host"))
 		}
 		s2, h2, ok2 := canonicalOriginTuple(base)
 		if !ok2 || s1 != s2 || h1 != h2 {
-			return errors.New("preview URL origin does not match connected host")
+			return errors.New(i18n.T("library.docs.preview_err.origin_mismatch"))
 		}
 	}
 	return nil
@@ -569,7 +572,7 @@ func (s *Screen) openHTMLPreview(versionID string) {
 			}
 			resolvedURL := client.ResolveEndpointURL(sess.PreviewURL)
 			if vErr := validateDocPreviewURL(resolvedURL, hostBase, allowPlain); vErr != nil {
-				s.htmlPreviewErr = "Blocked unsafe preview URL: " + vErr.Error()
+				s.htmlPreviewErr = i18n.Tf("library.docs.blocked_preview", map[string]any{"err": vErr.Error()})
 				return
 			}
 			s.htmlPreviewURL = resolvedURL
@@ -612,12 +615,12 @@ func (s *Screen) viewHTMLPreviewSheet(c *ui.Context) {
 	wasOpen := s.htmlPreviewOpen
 	mobile.Sheet(c, &s.htmlPreviewOpen, mobile.SheetOptions{
 		Detents: []float32{0.92, 0.98},
-		Label:   "HTML Preview",
+		Label:   i18n.T("library.docs.html_preview_a11y"),
 	}, func() {
 		ui.Column(c).Fill().Padding(12, 16, 20, 16).Gap(10).Children(func() {
 			ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Children(func() {
-				ui.Text(c, "Sandboxed HTML Preview").FontSize(16).Bold().TextColor(t.Text)
-				closeBtn := components.SecondaryTouchButton(c, "Close", false)
+				ui.Text(c, i18n.T("library.docs.html_preview_title")).FontSize(16).Bold().TextColor(t.Text)
+				closeBtn := components.SecondaryTouchButton(c, i18n.T("common.close"), false)
 				if closeBtn.Clicked() {
 					s.closeHTMLPreview()
 				}
@@ -626,13 +629,13 @@ func (s *Screen) viewHTMLPreviewSheet(c *ui.Context) {
 				components.StatusBanner(c, components.ToneDanger, s.htmlPreviewErr, "", nil)
 			}
 			if s.htmlPreviewURL != "" {
-				ui.Text(c, "Signed preview URL: "+s.htmlPreviewURL).FontSize(11).TextColor(t.TextMuted).MaxLines(2)
+				ui.Text(c, i18n.Tf("library.docs.signed_url", map[string]any{"url": s.htmlPreviewURL})).FontSize(11).TextColor(t.TextMuted).MaxLines(2)
 			}
 			if s.htmlWebView != nil {
 				ui.WebView(c, s.htmlWebView).FillWidth().Grow(1).Basis(0)
 			} else if s.htmlPreviewURL != "" && s.htmlPreviewErr == "" {
 				components.StatusBanner(c, components.ToneInfo,
-					"WebView preview requires a native window; signed preview URL is ready above.", "", nil)
+					i18n.T("library.docs.webview_hint"), "", nil)
 			}
 		})
 	})
@@ -645,7 +648,7 @@ func (s *Screen) viewVersionsSheet(c *ui.Context) {
 	t := c.Theme()
 	mobile.Sheet(c, &s.versionsSheetOpen, mobile.SheetOptions{
 		Detents: []float32{0.68, 0.90},
-		Label:   "Document Versions and History",
+		Label:   i18n.T("library.docs.versions_a11y"),
 	}, func() {
 		doc := s.readerDoc
 		if doc == nil {
@@ -653,32 +656,32 @@ func (s *Screen) viewVersionsSheet(c *ui.Context) {
 		}
 		ui.Scroll(c).FillWidth().Grow(1).Basis(0).Children(func() {
 			ui.Column(c).FillWidth().Padding(12, 16, 24, 16).Gap(10).Children(func() {
-				ui.Text(c, "Versions & History").FontSize(18).Bold().TextColor(t.Text)
+				ui.Text(c, i18n.T("library.docs.versions_title")).FontSize(18).Bold().TextColor(t.Text)
 				for _, v := range s.readerVersions {
 					v := v
 					ui.Row(c.Key(v.ID)).FillWidth().Padding(10, 10).Radius(10).Background(t.Surface).Border(1, t.Border).
 						AlignItems(ui.Center).Justify(ui.SpaceBetween).Children(func() {
 						ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
-							ui.Text(c, fmt.Sprintf("v%d · %s", v.VersionNumber, v.Filename)).FontSize(13).FontWeight(600).TextColor(t.Text)
-							ui.Text(c, fmt.Sprintf("%s · %d bytes", v.Source, v.SizeBytes)).FontSize(11).TextColor(t.TextMuted)
+							ui.Text(c, i18n.Tf("library.docs.version_row", map[string]any{"num": v.VersionNumber, "name": v.Filename})).FontSize(13).FontWeight(600).TextColor(t.Text)
+							ui.Text(c, i18n.Tf("library.docs.version_meta", map[string]any{"source": i18n.DocVersionSourceLabel(v.Source), "bytes": v.SizeBytes})).FontSize(11).TextColor(t.TextMuted)
 						})
-						dl := components.SecondaryTouchButton(c, "Load", false)
+						dl := components.SecondaryTouchButton(c, i18n.T("library.docs.load_btn"), false)
 						if dl.Clicked() {
 							s.loadVersionContent(v.ID, v.Filename, v.MediaType)
 						}
 					})
 				}
 				if len(s.readerHistory) > 0 {
-					ui.Text(c, "Edit History").FontSize(14).FontWeight(600).TextColor(t.Text)
+					ui.Text(c, i18n.T("library.docs.history_title")).FontSize(14).FontWeight(600).TextColor(t.Text)
 					for _, h := range s.readerHistory {
 						h := h
 						ui.Row(c.Key(h.ID)).FillWidth().Padding(10, 10).Radius(10).Background(t.Surface).Border(1, t.Border).
 							AlignItems(ui.Center).Justify(ui.SpaceBetween).Children(func() {
 							ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
-								ui.Text(c, fmt.Sprintf("Seq #%d · %s", h.PersistedSeq, h.Trigger)).FontSize(13).FontWeight(600).TextColor(t.Text)
+								ui.Text(c, i18n.Tf("library.docs.history_row", map[string]any{"seq": h.PersistedSeq, "kind": i18n.DocHistoryTriggerLabel(h.Trigger)})).FontSize(13).FontWeight(600).TextColor(t.Text)
 								ui.Text(c, h.CreatedBy.DisplayName).FontSize(11).TextColor(t.TextMuted)
 							})
-							rst := components.SecondaryTouchButton(c, "Restore", false)
+							rst := components.SecondaryTouchButton(c, i18n.T("library.docs.restore_btn"), false)
 							if rst.Clicked() {
 								s.restoreHistoryAsync(doc.ID, h.ID)
 							}
@@ -708,7 +711,7 @@ func (s *Screen) loadVersionContent(verID, filename, mediaType string) {
 				s.readerText = string(data)
 			}
 			s.versionsSheetOpen = false
-			s.readerNotice = "Loaded " + filename
+			s.readerNotice = i18n.Tf("library.docs.toast.loaded_version", map[string]any{"name": filename})
 			_ = mediaType
 		})
 	}()
@@ -730,7 +733,7 @@ func (s *Screen) restoreHistoryAsync(docID, historyID string) {
 			if s.readerDoc != nil {
 				s.openDocument(*s.readerDoc)
 			}
-			s.readerNotice = "Restored history checkpoint"
+			s.readerNotice = i18n.T("library.docs.toast.restored_checkpoint")
 		})
 	}()
 }
@@ -739,7 +742,7 @@ func (s *Screen) viewDocCommentsSheet(c *ui.Context) {
 	t := c.Theme()
 	mobile.Sheet(c, &s.commentsSheetOpen, mobile.SheetOptions{
 		Detents: []float32{0.75, 0.94},
-		Label:   "Document Comments",
+		Label:   i18n.T("library.docs.comments_a11y"),
 	}, func() {
 		doc := s.readerDoc
 		if doc == nil {
@@ -747,22 +750,22 @@ func (s *Screen) viewDocCommentsSheet(c *ui.Context) {
 		}
 		ui.Scroll(c).FillWidth().Grow(1).Basis(0).Children(func() {
 			ui.Column(c).FillWidth().Padding(12, 16, 24, 16).Gap(10).Children(func() {
-				ui.Text(c, "Comment Threads").FontSize(18).Bold().TextColor(t.Text)
+				ui.Text(c, i18n.T("library.docs.comments_title")).FontSize(18).Bold().TextColor(t.Text)
 
 				for _, th := range s.readerThreads {
 					th := th
 					ui.Column(c.Key(th.ID)).FillWidth().Padding(10, 10).Radius(10).Background(theme.Extra(t).MutedBg).Gap(6).Children(func() {
 						ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Children(func() {
-							status := "Open"
+							status := i18n.WorkStateLabel("open")
 							tone := components.ToneInfo
 							if th.Resolved {
-								status = "Resolved"
+								status = i18n.WorkStateLabel("resolved")
 								tone = components.ToneSuccess
 							}
 							components.StatusPill(c, status, tone)
-							btnLbl := "Resolve"
+							btnLbl := i18n.T("library.docs.resolve_btn")
 							if th.Resolved {
-								btnLbl = "Reopen"
+								btnLbl = i18n.T("library.docs.reopen_btn")
 							}
 							resBtn := components.SecondaryTouchButton(c, btnLbl, false)
 							resBtn.MinHeight(32).Padding(4, 10)
@@ -774,20 +777,20 @@ func (s *Screen) viewDocCommentsSheet(c *ui.Context) {
 							ui.Text(c, cm.Author.DisplayName+": "+cm.Body).FontSize(13).TextColor(t.Text)
 						}
 						if s.replyThreadID == th.ID {
-							ui.TextArea(c, &s.replyInput).FillWidth().MinHeight(56).Placeholder("Reply...").Label("Reply to Thread")
+							ui.TextArea(c, &s.replyInput).FillWidth().MinHeight(56).Placeholder(i18n.T("library.docs.reply_placeholder")).Label(i18n.T("library.docs.reply_a11y"))
 							ui.Row(c).FillWidth().Gap(6).Children(func() {
-								sendR := components.PrimaryTouchButton(c, "Reply", strings.TrimSpace(s.replyInput) == "")
+								sendR := components.PrimaryTouchButton(c, i18n.T("library.docs.reply_btn"), strings.TrimSpace(s.replyInput) == "")
 								sendR.Grow(1).Basis(0)
 								if sendR.Clicked() {
 									s.replyDocThreadAsync(th.ID, s.replyInput)
 								}
-								cancR := components.SecondaryTouchButton(c, "Cancel", false)
+								cancR := components.SecondaryTouchButton(c, i18n.T("common.cancel"), false)
 								if cancR.Clicked() {
 									s.replyThreadID = ""
 								}
 							})
 						} else {
-							rb := components.SecondaryTouchButton(c, "Reply", false)
+							rb := components.SecondaryTouchButton(c, i18n.T("library.docs.reply_btn"), false)
 							rb.MinHeight(32)
 							if rb.Clicked() {
 								s.replyThreadID = th.ID
@@ -798,7 +801,7 @@ func (s *Screen) viewDocCommentsSheet(c *ui.Context) {
 				}
 
 				ta := ui.TextArea(c, &s.commentInput).FillWidth().MinHeight(68).
-					Placeholder("Start a new comment thread...").Label("New Document Comment")
+					Placeholder(i18n.T("library.docs.new_comment_placeholder")).Label(i18n.T("library.docs.new_comment_a11y"))
 				ta.OnTextKey(func(k ui.TextKey) bool {
 					if k.Key != ui.KeyEnter || k.Mods != 0 {
 						return false
@@ -812,7 +815,7 @@ func (s *Screen) viewDocCommentsSheet(c *ui.Context) {
 					s.createDocThreadAsync(doc.ID, txt)
 					return true
 				})
-				addBtn := components.PrimaryTouchButton(c, "Post Comment", strings.TrimSpace(s.commentInput) == "")
+				addBtn := components.PrimaryTouchButton(c, i18n.T("library.docs.post_comment"), strings.TrimSpace(s.commentInput) == "")
 				addBtn.FillWidth()
 				if addBtn.Clicked() {
 					s.createDocThreadAsync(doc.ID, s.commentInput)
@@ -890,7 +893,7 @@ func (s *Screen) viewLinkShareSheet(c *ui.Context) {
 	t := c.Theme()
 	mobile.Sheet(c, &s.linkShareSheetOpen, mobile.SheetOptions{
 		Detents: []float32{0.58, 0.82},
-		Label:   "Link Share",
+		Label:   i18n.T("library.docs.link_share_a11y"),
 	}, func() {
 		doc := s.readerDoc
 		if doc == nil {
@@ -898,7 +901,7 @@ func (s *Screen) viewLinkShareSheet(c *ui.Context) {
 		}
 		ui.Scroll(c).FillWidth().Grow(1).Basis(0).Children(func() {
 			ui.Column(c).FillWidth().Padding(12, 16, 24, 16).Gap(12).Children(func() {
-				ui.Text(c, "Link Sharing").FontSize(18).Bold().TextColor(t.Text)
+				ui.Text(c, i18n.T("library.docs.link_share_title")).FontSize(18).Bold().TextColor(t.Text)
 				ls := s.readerLinkShare
 				var ver int64 = 1
 				status := "inactive"
@@ -913,23 +916,23 @@ func (s *Screen) viewLinkShareSheet(c *ui.Context) {
 					}
 				}
 				ui.Row(c).Gap(6).Children(func() {
-					components.StatusPill(c, "Status: "+status, components.ToneInfo)
-					components.StatusPill(c, "Role: "+role, components.ToneNeutral)
+					components.StatusPill(c, i18n.Tf("library.docs.link_status", map[string]any{"status": i18n.StatusLabel(status)}), components.ToneInfo)
+					components.StatusPill(c, i18n.Tf("library.docs.link_role", map[string]any{"role": i18n.DocLinkRoleLabel(role)}), components.ToneNeutral)
 				})
 				if shareURL != "" {
 					ui.Text(c, shareURL).FontSize(12).TextColor(t.TextMuted)
 				}
 				ui.Row(c).FillWidth().Wrap().Gap(8).Children(func() {
-					viewBtn := components.PrimaryTouchButton(c, "Enable Viewer Link", false)
+					viewBtn := components.PrimaryTouchButton(c, i18n.T("library.docs.enable_viewer"), false)
 					if viewBtn.Clicked() {
 						s.updateLinkShareAsync(doc.ID, "viewer", ver, true)
 					}
-					editBtn := components.SecondaryTouchButton(c, "Enable Editor Link", false)
+					editBtn := components.SecondaryTouchButton(c, i18n.T("library.docs.enable_editor"), false)
 					if editBtn.Clicked() {
 						s.updateLinkShareAsync(doc.ID, "editor", ver, true)
 					}
 					if shareURL != "" {
-						shBtn := components.SecondaryTouchButton(c, "Share URL", false)
+						shBtn := components.SecondaryTouchButton(c, i18n.T("library.docs.share_url_btn"), false)
 						if shBtn.Clicked() {
 							go func() {
 								err := s.share(mygo.ShareOptions{Text: doc.Title, URL: shareURL})
@@ -940,7 +943,7 @@ func (s *Screen) viewLinkShareSheet(c *ui.Context) {
 						}
 					}
 					if status == "active" {
-						revBtn := components.DangerTouchButton(c, "Revoke", false)
+						revBtn := components.DangerTouchButton(c, i18n.T("library.docs.revoke"), false)
 						if revBtn.Clicked() {
 							s.revokeLinkShareAsync(doc.ID, ver)
 						}
@@ -965,7 +968,7 @@ func (s *Screen) updateLinkShareAsync(docID, role string, ver int64, reset bool)
 			}
 			cp := ls
 			s.readerLinkShare = &cp
-			s.readerNotice = "Link share updated"
+			s.readerNotice = i18n.T("library.docs.toast.share_updated")
 		})
 	}()
 }
@@ -986,7 +989,7 @@ func (s *Screen) revokeLinkShareAsync(docID string, ver int64) {
 				s.readerLinkShare.URL = nil
 				s.readerLinkShare.Version++
 			}
-			s.readerNotice = "Link share revoked"
+			s.readerNotice = i18n.T("library.docs.toast.share_revoked")
 		})
 	}()
 }
@@ -1016,13 +1019,13 @@ func (s *Screen) saveReaderCopy(doc api.Document) {
 		s.enqueueUI(func() {
 			if err != nil {
 				if errors.Is(err, errors.ErrUnsupported) {
-					s.readerNotice = "Save Copy is unavailable in headless preview."
+					s.readerNotice = i18n.T("library.docs.save_copy_headless")
 				} else if !errors.Is(err, mygo.ErrCanceled) {
 					s.readerErr = err.Error()
 				}
 				return
 			}
-			s.readerNotice = "Saved copy to " + outPath
+			s.readerNotice = i18n.Tf("library.docs.toast.saved_copy", map[string]any{"path": outPath})
 		})
 	}()
 }
@@ -1031,16 +1034,16 @@ func (s *Screen) viewRenameDocSheet(c *ui.Context) {
 	t := c.Theme()
 	mobile.Sheet(c, &s.renameSheetOpen, mobile.SheetOptions{
 		Detents: []float32{0.45},
-		Label:   "Rename Document",
+		Label:   i18n.T("library.docs.rename_title"),
 	}, func() {
 		doc := s.readerDoc
 		if doc == nil {
 			return
 		}
 		ui.Column(c).FillWidth().Padding(14, 16, 24, 16).Gap(12).Children(func() {
-			ui.Text(c, "Rename Document").FontSize(17).Bold().TextColor(t.Text)
-			components.FormField(c, "Title", "Document title", &s.renameDraft, false)
-			saveBtn := components.PrimaryTouchButton(c, "Save Title", strings.TrimSpace(s.renameDraft) == "")
+			ui.Text(c, i18n.T("library.docs.rename_title")).FontSize(17).Bold().TextColor(t.Text)
+			components.FormField(c, i18n.T("library.docs.title_label"), i18n.T("library.docs.title_placeholder"), &s.renameDraft, false)
+			saveBtn := components.PrimaryTouchButton(c, i18n.T("library.docs.save_title"), strings.TrimSpace(s.renameDraft) == "")
 			saveBtn.FillWidth()
 			if saveBtn.Clicked() {
 				s.renameDocAsync(doc.ID, s.renameDraft)
@@ -1066,7 +1069,7 @@ func (s *Screen) renameDocAsync(docID, title string) {
 			s.readerDoc = &cp
 			s.renameSheetOpen = false
 			s.replaceDocInList(updated)
-			s.readerNotice = "Document renamed"
+			s.readerNotice = i18n.T("library.docs.toast.renamed")
 		})
 	}()
 }
@@ -1078,11 +1081,11 @@ func (s *Screen) viewDeleteDocConfirm(c *ui.Context) {
 		return
 	}
 	mobile.ActionSheet(c, &s.deleteConfirmOpen, mobile.ActionSheetOptions{
-		Title:   "Move Document to Trash?",
+		Title:   i18n.T("library.docs.delete_title"),
 		Message: doc.Title,
-		Cancel:  "Cancel",
+		Cancel:  i18n.T("common.cancel"),
 	}, mobile.Action{
-		Label:       "Delete Document",
+		Label:       i18n.T("library.docs.delete_btn"),
 		Destructive: true,
 		OnTap: func() {
 			s.deleteDocAsync(doc.ID)
@@ -1111,7 +1114,7 @@ func (s *Screen) deleteDocAsync(docID string) {
 			s.documents = filtered
 			s.mu.Unlock()
 			s.readerOpen = false
-			s.toast("Document deleted")
+			s.toast(i18n.T("library.docs.toast.deleted"))
 		})
 	}()
 }
@@ -1120,19 +1123,19 @@ func (s *Screen) viewNewNoteSheet(c *ui.Context) {
 	t := c.Theme()
 	mobile.Sheet(c, &s.newNoteSheetOpen, mobile.SheetOptions{
 		Detents: []float32{0.48},
-		Label:   "New Markdown Note",
+		Label:   i18n.T("library.docs.new_note_a11y"),
 	}, func() {
 		ui.Column(c).FillWidth().Padding(14, 16, 24, 16).Gap(12).Children(func() {
-			ui.Text(c, "Create Note").FontSize(18).Bold().TextColor(t.Text)
+			ui.Text(c, i18n.T("library.docs.new_note_title")).FontSize(18).Bold().TextColor(t.Text)
 			if s.newNoteErr != "" {
-				components.StatusBanner(c, components.ToneDanger, s.newNoteErr, "Dismiss", func() {
+				components.StatusBanner(c, components.ToneDanger, s.newNoteErr, i18n.T("common.dismiss"), func() {
 					s.newNoteErr = ""
 				})
 			}
-			components.FormField(c, "Title", "Project Spec.md", &s.newNoteTitle, false)
-			lbl := "Create Note"
+			components.FormField(c, i18n.T("library.docs.title_label"), i18n.T("library.docs.new_note_placeholder"), &s.newNoteTitle, false)
+			lbl := i18n.T("library.docs.create_note")
 			if s.newNoteBusy {
-				lbl = "Creating..."
+				lbl = i18n.T("common.creating")
 			}
 			btn := components.PrimaryTouchButton(c, lbl, s.newNoteBusy)
 			btn.FillWidth()
@@ -1180,7 +1183,7 @@ func (s *Screen) triggerUploadFile() {
 	s.uploadBusy = true
 	s.uploadErr = ""
 	go func() {
-		paths, err := s.openFile(mygo.OpenDialogOptions{Title: "Upload Document"})
+		paths, err := s.openFile(mygo.OpenDialogOptions{Title: i18n.T("library.docs.upload_doc_a11y")})
 		if err != nil {
 			s.enqueueUI(func() {
 				s.uploadBusy = false
@@ -1206,7 +1209,7 @@ func (s *Screen) triggerUploadPhoto() {
 			s.enqueueUI(func() {
 				s.uploadBusy = false
 				if errors.Is(err, errors.ErrUnsupported) {
-					s.uploadErr = "Photo picker requires iOS or Android; use Upload File on desktop."
+					s.uploadErr = i18n.T("library.docs.photo_picker_hint")
 				} else if !errors.Is(err, mygo.ErrCanceled) {
 					s.uploadErr = err.Error()
 				}
@@ -1246,7 +1249,7 @@ func (s *Screen) uploadLocalPaths(paths []string) {
 			return
 		}
 		s.replaceDocInList(doc)
-		s.toast("Uploaded " + doc.Title)
+		s.toast(i18n.Tf("library.docs.toast.uploaded", map[string]any{"name": doc.Title}))
 	})
 }
 

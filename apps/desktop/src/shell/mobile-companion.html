@@ -6,7 +6,7 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'"
     />
-    <title>Mobile Companion</title>
+    <title data-t="title">Mobile Companion</title>
     <style>
       :root {
         --canvas: #fcfcfa;
@@ -430,12 +430,16 @@
       <section class="card">
         <div class="row">
           <div class="stack">
-            <h1>Mobile Companion</h1>
-            <span class="muted" id="subtitle"
+            <h1 data-t="title">Mobile Companion</h1>
+            <span class="muted" id="subtitle" data-t="subtitle"
               >Expose this Linger desktop securely over LAN or Tailscale.</span
             >
           </div>
-          <label class="switch" title="Enable Mobile Companion Gateway">
+          <label
+            class="switch"
+            title="Enable Mobile Companion Gateway"
+            data-t-title="toggleGatewayTitle"
+          >
             <input type="checkbox" id="toggle-enabled" />
             <span class="track"></span>
           </label>
@@ -448,13 +452,17 @@
         ></div>
 
         <dl class="meta-grid">
-          <dt>Status</dt>
-          <dd><span id="status-badge" class="badge">Stopped</span></dd>
-          <dt>Host</dt>
+          <dt data-t="statusLabel">Status</dt>
+          <dd>
+            <span id="status-badge" class="badge" data-t="statusStopped"
+              >Stopped</span
+            >
+          </dd>
+          <dt data-t="hostLabel">Host</dt>
           <dd id="host-name">—</dd>
-          <dt>Addresses</dt>
+          <dt data-t="addressesLabel">Addresses</dt>
           <dd id="addresses" class="mono">—</dd>
-          <dt>TLS Pin</dt>
+          <dt data-t="tlsPinLabel">TLS Pin</dt>
           <dd id="fingerprint" class="mono">—</dd>
         </dl>
       </section>
@@ -462,13 +470,18 @@
       <section class="card">
         <div class="row">
           <div class="stack">
-            <h2>Pair Mobile Device</h2>
-            <span class="muted"
+            <h2 data-t="pairHeading">Pair Mobile Device</h2>
+            <span class="muted" data-t="pairHint"
               >Pairing stays closed until you open a 5-minute single-use
               window.</span
             >
           </div>
-          <button id="open-pair-btn" class="primary" type="button">
+          <button
+            id="open-pair-btn"
+            class="primary"
+            type="button"
+            data-t="openPairing"
+          >
             Open Pairing
           </button>
         </div>
@@ -478,8 +491,12 @@
           <div class="pin-display" id="pin-display">000 000</div>
           <div class="muted" id="countdown">Expires in 5:00</div>
           <div class="actions-row">
-            <button id="copy-uri-btn" type="button">Copy Pairing Link</button>
-            <button id="close-pair-btn" type="button">Close Pairing</button>
+            <button id="copy-uri-btn" type="button" data-t="copyPairingLink">
+              Copy Pairing Link
+            </button>
+            <button id="close-pair-btn" type="button" data-t="closePairing">
+              Close Pairing
+            </button>
           </div>
         </div>
       </section>
@@ -487,44 +504,59 @@
       <section class="card">
         <div class="row">
           <div class="row" style="gap: 8px">
-            <h2>Paired Devices</h2>
+            <h2 data-t="pairedDevices">Paired Devices</h2>
             <span id="devices-count" class="badge">0</span>
           </div>
-          <button id="revoke-all-btn" class="danger hidden" type="button">
+          <button
+            id="revoke-all-btn"
+            class="danger hidden"
+            type="button"
+            data-t="revokeAll"
+          >
             Revoke All
           </button>
         </div>
         <div id="device-list" class="device-list"></div>
-        <p id="no-devices" class="muted" style="margin: 10px 0 0">
+        <p
+          id="no-devices"
+          class="muted"
+          style="margin: 10px 0 0"
+          data-t="noDevices"
+        >
           No mobile devices paired yet.
         </p>
       </section>
 
       <section class="card">
         <div class="row">
-          <h2>Gateway Settings</h2>
-          <button id="save-settings-btn" type="button">Save Settings</button>
+          <h2 data-t="gatewaySettings">Gateway Settings</h2>
+          <button id="save-settings-btn" type="button" data-t="saveSettings">
+            Save Settings
+          </button>
         </div>
         <div class="form-grid">
           <div class="field">
-            <label for="input-port">Listen Port</label>
+            <label for="input-port" data-t="listenPort">Listen Port</label>
             <input id="input-port" type="number" min="1024" max="65535" />
           </div>
           <div class="field">
-            <label for="input-custom-host">Custom Host (optional)</label>
+            <label for="input-custom-host" data-t="customHost"
+              >Custom Host (optional)</label
+            >
             <input
               id="input-custom-host"
               type="text"
               placeholder="mac.tailnet.ts.net"
+              data-t-placeholder="customHostPlaceholder"
             />
           </div>
           <label class="check-row">
             <input id="input-tls" type="checkbox" />
-            <span>Require TLS 1.3</span>
+            <span data-t="requireTls">Require TLS 1.3</span>
           </label>
           <label class="check-row">
             <input id="input-mdns" type="checkbox" />
-            <span>Advertise via mDNS</span>
+            <span data-t="advertiseMdns">Advertise via mDNS</span>
           </label>
         </div>
       </section>
@@ -567,14 +599,14 @@
 
       function formatRelative(iso) {
         const ms = Date.now() - Date.parse(iso);
-        if (!Number.isFinite(ms) || ms < 0) return "just now";
+        if (!Number.isFinite(ms) || ms < 0) return t("justNow");
         const sec = Math.floor(ms / 1000);
-        if (sec < 60) return "just now";
+        if (sec < 60) return t("justNow");
         const min = Math.floor(sec / 60);
-        if (min < 60) return `${min}m ago`;
+        if (min < 60) return t("minutesAgo", { n: min });
         const hr = Math.floor(min / 60);
-        if (hr < 24) return `${hr}h ago`;
-        return `${Math.floor(hr / 24)}d ago`;
+        if (hr < 24) return t("hoursAgo", { n: hr });
+        return t("daysAgo", { n: Math.floor(hr / 24) });
       }
 
       function updateCountdown() {
@@ -585,7 +617,7 @@
         const min = Math.floor(totalSec / 60);
         const sec = String(totalSec % 60).padStart(2, "0");
         countdownEl.textContent =
-          totalSec > 0 ? `Expires in ${min}:${sec}` : "Pairing window expired";
+          totalSec > 0 ? t("expiresIn", { min, sec }) : t("pairingExpired");
       }
 
       function renderQr(svgText) {
@@ -624,7 +656,12 @@
           sub.appendChild(plat);
 
           const mode = document.createElement("span");
-          mode.textContent = device.sessionMode;
+          mode.textContent =
+            device.sessionMode === "dedicated"
+              ? t("sessionDedicated")
+              : device.sessionMode === "delegated"
+                ? t("sessionDelegated")
+                : device.sessionMode;
           sub.appendChild(mode);
 
           const live = document.createElement("span");
@@ -634,9 +671,11 @@
             const dot = document.createElement("span");
             dot.className = "dot pulse";
             live.appendChild(dot);
-            live.appendChild(document.createTextNode("Live"));
+            live.appendChild(document.createTextNode(t("deviceLive")));
           } else {
-            live.textContent = `Seen ${formatRelative(device.lastSeenAt)}`;
+            live.textContent = t("deviceSeen", {
+              ago: formatRelative(device.lastSeenAt),
+            });
           }
           sub.appendChild(live);
 
@@ -646,7 +685,7 @@
           const revoke = document.createElement("button");
           revoke.type = "button";
           revoke.className = "danger";
-          revoke.textContent = "Revoke";
+          revoke.textContent = t("revoke");
           revoke.addEventListener("click", () => {
             void runCommand({ op: "device.revoke", deviceId: device.deviceId });
           });
@@ -674,43 +713,51 @@
           const dot = document.createElement("span");
           dot.className = "dot";
           statusBadge.appendChild(dot);
-          const proto = state.config.tls ? "HTTPS/TLS 1.3" : "HTTP";
-          const mdnsLabel = state.mdnsActive ? " · mDNS" : "";
+          const proto = state.config.tls ? t("protoHttps") : t("protoHttp");
+          const mdns = state.mdnsActive ? t("mdnsSuffix") : "";
           statusBadge.appendChild(
             document.createTextNode(
-              `Running on :${state.listenPort} (${proto}${mdnsLabel})`,
+              t("statusRunning", {
+                port: String(state.listenPort),
+                proto,
+                mdns,
+              }),
             ),
           );
         } else if (state.error) {
           statusBadge.dataset.tone = "danger";
-          statusBadge.textContent = "Error";
+          statusBadge.textContent = t("statusError");
         } else {
           statusBadge.dataset.tone = "";
-          statusBadge.textContent = "Disabled";
+          statusBadge.textContent = t("statusDisabled");
         }
 
         hostName.textContent = state.hostName;
         const addrParts = [];
         if (state.addresses.lan.length > 0) {
-          addrParts.push(`LAN: ${state.addresses.lan.join(", ")}`);
+          addrParts.push(
+            t("addrLan", { list: state.addresses.lan.join(", ") }),
+          );
         }
         if (state.addresses.tailscale.length > 0) {
-          addrParts.push(`Tailscale: ${state.addresses.tailscale.join(", ")}`);
+          addrParts.push(
+            t("addrTailscale", { list: state.addresses.tailscale.join(", ") }),
+          );
         }
         if (state.config.customHost) {
-          addrParts.push(`Custom: ${state.config.customHost}`);
+          addrParts.push(t("addrCustom", { host: state.config.customHost }));
         }
         addressesEl.textContent =
           addrParts.length > 0 ? addrParts.join(" · ") : "127.0.0.1";
 
         fingerprintEl.textContent = state.config.tls
           ? state.shortFingerprint || "—"
-          : "TLS disabled";
+          : t("tlsDisabled");
 
         openPairBtn.disabled = !state.running;
         openPairBtn.textContent = state.pairing
-          ? "Rotate Pairing Code"
-          : "Open Pairing";
+          ? t("rotatePairing")
+          : t("openPairing");
 
         if (state.pairing) {
           pairingBox.classList.remove("hidden");
@@ -759,10 +806,10 @@
 
       copyUriBtn.addEventListener("click", () => {
         void runCommand({ op: "pairing.copyUri" }).then(() => {
-          copyUriBtn.textContent = "Copied!";
+          copyUriBtn.textContent = t("copied");
           if (copyResetTimer) clearTimeout(copyResetTimer);
           copyResetTimer = setTimeout(() => {
-            copyUriBtn.textContent = "Copy Pairing Link";
+            copyUriBtn.textContent = t("copyPairingLink");
           }, 1600);
         });
       });
@@ -787,8 +834,7 @@
           parsedPort < 1024 ||
           parsedPort > 65535
         ) {
-          errorBanner.textContent =
-            "Port must be an integer between 1024 and 65535.";
+          errorBanner.textContent = t("portError");
           errorBanner.classList.remove("hidden");
           return;
         }
