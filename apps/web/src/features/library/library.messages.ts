@@ -126,6 +126,7 @@ export const libraryMessages = defineMessages("library", {
   rename: "Rename",
   move: "Move",
   copyLink: "Copy link",
+  linkCopied: "Link copied",
   download: "Download",
   duplicate: "Duplicate",
   // The name a new folder starts with; once created it is the folder's name.

@@ -3,9 +3,12 @@ import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { showToast } from "@/components/ui/toast-store";
 import type { TeamHubMessage } from "@/features/teamhub/teamhub-types";
+import { translate } from "@/i18n/language";
 import { writeClipboardText } from "@/lib/clipboard";
 
+import { chatMessages } from "./chat.messages";
 import { threadMarkdown } from "./thread-markdown";
 
 /** Long enough to read, matching the other copy actions. */
@@ -69,7 +72,22 @@ export function ThreadLinkCopyAction({ path }: { path?: string }) {
     feedback.begin();
     void writeClipboardText(
       new URL(path, window.location.origin).toString(),
-    ).then(feedback.copied, feedback.failed);
+    ).then(
+      () => {
+        feedback.copied();
+        showToast({
+          message: translate(chatMessages.linkCopied),
+          tone: "success",
+        });
+      },
+      () => {
+        feedback.failed();
+        showToast({
+          message: translate(chatMessages.copyFailed),
+          tone: "danger",
+        });
+      },
+    );
   }
 
   return (

@@ -8,6 +8,9 @@ import { Icon } from "@/components/ui/icon";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubRoomMemberPage } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
+import { roomActionsMessages as m } from "./room-actions.messages";
 import { requireRoomRouteParam } from "./room-route-params";
 import {
   roomMembersQueryOptions,
@@ -25,6 +28,7 @@ import {
  * the roles saved here.
  */
 export function WhoManagesPage() {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const queryClient = useQueryClient();
   const params = useParams();
@@ -90,9 +94,7 @@ export function WhoManagesPage() {
       setSaved(true);
     } catch (cause) {
       setError(
-        cause instanceof Error
-          ? cause.message
-          : "The room could not be updated.",
+        cause instanceof Error ? cause.message : t(m.whoManagesSaveFailed),
       );
     } finally {
       await queryClient.invalidateQueries({
@@ -114,26 +116,25 @@ export function WhoManagesPage() {
             to={chat}
           >
             <Icon icon={ArrowLeft01Icon} size={14} />
-            Back to room
+            {t(m.backToRoom)}
           </Link>
         </div>
         <header>
           <h2 className="text-xl text-foreground" id={headingId}>
-            Who can manage this room
+            {t(m.whoManagesTitle)}
           </h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            Someone who can manage may change the room and who belongs to it.
-            Someone who takes part can work in it. The room keeps this choice.
+            {t(m.whoManagesDescription)}
           </p>
         </header>
         {members.isPending || identity.isPending ? (
           <p className="text-sm text-muted-foreground" role="status">
-            Loading who can manage.
+            {t(m.whoManagesLoading)}
           </p>
         ) : members.isError || identity.isError ? (
           <div className="flex items-center justify-between gap-3" role="alert">
             <p className="text-sm text-destructive">
-              Who can manage could not be loaded.
+              {t(m.whoManagesLoadFailed)}
             </p>
             <Button
               onClick={() => {
@@ -144,7 +145,7 @@ export function WhoManagesPage() {
               tone="secondary"
               type="button"
             >
-              Retry
+              {t(commonMessages.retry)}
             </Button>
           </div>
         ) : (
@@ -157,7 +158,7 @@ export function WhoManagesPage() {
           >
             {isOwner ? null : (
               <p className="text-sm text-muted-foreground" role="status">
-                Only someone who can manage this room can change this.
+                {t(m.whoManagesOwnerOnly)}
               </p>
             )}
             <ul className="flex flex-col gap-3">
@@ -178,7 +179,7 @@ export function WhoManagesPage() {
                   >
                     {person.kind === "agent" ? (
                       <p className="text-sm text-foreground">
-                        {`${person.name} takes part. Agents do not manage the room.`}
+                        {t(m.whoManagesAgentRow, { name: person.name })}
                       </p>
                     ) : (
                       <fieldset
@@ -213,7 +214,11 @@ export function WhoManagesPage() {
                                 type="radio"
                                 value={value}
                               />
-                              {value === "owner" ? "Can manage" : "Takes part"}
+                              {t(
+                                value === "owner"
+                                  ? m.whoManagesRoleOwner
+                                  : m.whoManagesRoleMember,
+                              )}
                             </label>
                           ))}
                         </div>
@@ -225,7 +230,7 @@ export function WhoManagesPage() {
             </ul>
             {empty ? (
               <p className="text-sm text-destructive" role="alert">
-                The room needs someone who can manage it.
+                {t(m.whoManagesNeedOwner)}
               </p>
             ) : null}
             {error ? (
@@ -235,7 +240,7 @@ export function WhoManagesPage() {
             ) : null}
             {saved ? (
               <p className="text-sm text-foreground" role="status">
-                Saved. This room will keep that.
+                {t(m.whoManagesSaved)}
               </p>
             ) : null}
             {isOwner ? (
@@ -243,7 +248,7 @@ export function WhoManagesPage() {
                 disabled={pending || writes.length === 0 || empty}
                 type="submit"
               >
-                {pending ? "Saving" : "Save"}
+                {t(pending ? m.whoManagesSaving : commonMessages.save)}
               </Button>
             ) : null}
           </form>

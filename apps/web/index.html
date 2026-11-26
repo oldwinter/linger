@@ -11,6 +11,22 @@
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <title>Linger</title>
+    <script>
+      (function () {
+        try {
+          var p = localStorage.getItem("linger.theme");
+          var r =
+            p === "dark" || p === "light"
+              ? p
+              : window.matchMedia &&
+                  window.matchMedia("(prefers-color-scheme: dark)").matches
+                ? "dark"
+                : "light";
+          document.documentElement.dataset.theme = r;
+          document.documentElement.style.colorScheme = r;
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

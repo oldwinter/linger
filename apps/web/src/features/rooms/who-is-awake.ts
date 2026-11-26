@@ -1,3 +1,7 @@
+import { translate, type Translate } from "@/i18n/language";
+
+import { roomActionsMessages as m } from "./room-actions.messages";
+
 export interface AwakeAgent {
   actorId: string;
   label: string;
@@ -17,9 +21,11 @@ export function arrangeAwakeAgents(agents: readonly AwakeAgent[]) {
   });
 }
 
-export function awakeSummary(agents: readonly AwakeAgent[]) {
+export function awakeSummary(
+  agents: readonly AwakeAgent[],
+  t: Translate = translate,
+) {
   const online = agents.filter((agent) => agent.online).length;
-  if (online === 0) return "Everyone is quiet.";
-  if (online === 1) return "1 is awake.";
-  return `${online} are awake.`;
+  if (online === 0) return t(m.whoIsAwakeNone);
+  return t(m.whoIsAwakeCount, { count: online });
 }

@@ -2,6 +2,9 @@ import { isRecord } from "@linger/service-kit";
 
 import { markdownPlainText } from "@/features/teamhub/markdown-plain-text";
 import type { TeamHubRoomListItem } from "@/features/teamhub/teamhub-types";
+import { translate, type Translate } from "@/i18n/language";
+
+import { roomActionsMessages as m } from "./room-actions.messages";
 
 const previewLimit = 160;
 const storagePrefix = "linger.catch-up.";
@@ -52,16 +55,20 @@ export function beginCatchUp(
 }
 
 /** The frozen counts, as a sentence. */
-export function catchUpAttention(room: CatchUpRoom): string {
-  const messages =
-    room.unreadMessages === 1
-      ? "1 new message"
-      : `${room.unreadMessages} new messages`;
-  const mentions =
-    room.unreadMentions === 1 ? "1 mention" : `${room.unreadMentions} mentions`;
-  if (room.unreadMentions === 0) return `${messages} when you started`;
-  if (room.unreadMessages === 0) return `${mentions} when you started`;
-  return `${messages} and ${mentions} when you started`;
+export function catchUpAttention(
+  room: CatchUpRoom,
+  t: Translate = translate,
+): string {
+  if (room.unreadMentions === 0) {
+    return t(m.catchUpMessagesWhenStarted, { count: room.unreadMessages });
+  }
+  if (room.unreadMessages === 0) {
+    return t(m.catchUpMentionsWhenStarted, { count: room.unreadMentions });
+  }
+  return t(m.catchUpMessagesAndMentionsWhenStarted, {
+    messages: t(m.catchUpNewMessages, { count: room.unreadMessages }),
+    mentions: t(m.catchUpMentions, { count: room.unreadMentions }),
+  });
 }
 
 function storageKey(accountId: string, tenantId: string) {
@@ -83,13 +90,16 @@ function isCatchUpRoom(value: unknown): value is CatchUpRoom {
  * The finished walk as one Pocket Note block: the chats, then each last line.
  * An empty walk has nothing to keep.
  */
-export function catchUpNote(rooms: readonly CatchUpRoom[]): string {
+export function catchUpNote(
+  rooms: readonly CatchUpRoom[],
+  t: Translate = translate,
+): string {
   if (rooms.length === 0) return "";
   const lines = rooms.map((room) => {
     const preview = room.preview.replace(/\s+/gu, " ").trim();
     return preview ? `- ${room.name}: ${preview}` : `- ${room.name}`;
   });
-  return ["Caught up", "", ...lines].join("\n");
+  return [t(m.catchUpNoteHeading), "", ...lines].join("\n");
 }
 
 /**

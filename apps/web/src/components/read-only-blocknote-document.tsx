@@ -12,6 +12,7 @@ import {
 import { BlockNoteView } from "@blocknote/mantine";
 import { useCreateBlockNote } from "@blocknote/react";
 import { useMemo } from "react";
+import { useTheme } from "@/app/theme";
 import { createKnowledgeReadingExtension } from "./knowledge-reading-extension";
 import { documentEditorMessages } from "@/features/rooms/documents/document-editor.messages";
 import { roomDocumentCodeBlockSpec } from "@/features/rooms/documents/room-document-mermaid-code-block";
@@ -46,6 +47,7 @@ export function ReadOnlyBlockNoteDocument({
   resolveLink,
 }: ReadOnlyBlockNoteDocumentProps) {
   const t = useT();
+  const { resolved: theme } = useTheme();
   const mediaOmitted = t(documentEditorMessages.embeddedMediaOmitted);
   const initialContent = useMemo(
     () =>
@@ -107,7 +109,7 @@ export function ReadOnlyBlockNoteDocument({
         sideMenu={false}
         slashMenu={false}
         tableHandles={false}
-        theme="light"
+        theme={theme}
       />
     </article>
   );

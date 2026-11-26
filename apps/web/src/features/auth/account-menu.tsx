@@ -1,11 +1,16 @@
 import {
+  ComputerIcon,
   Download04Icon,
   Logout01Icon,
+  Moon02Icon,
   RefreshIcon,
   Settings01Icon,
+  Sun02Icon,
 } from "@hugeicons/core-free-icons";
 import { useSyncExternalStore } from "react";
 
+import { useTheme, type ThemePreference } from "@/app/theme";
+import { themeMessages } from "@/app/theme.messages";
 import { ActionMenu, type ActionMenuItem } from "@/components/ui/action-menu";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
@@ -117,6 +122,7 @@ export function AccountMenu({
   const inSettings = settingsOpen;
   const desktop = useDesktopUpdate();
   const t = useT();
+  const { preference, setPreference } = useTheme();
   const update = updatePresentation(desktop?.state, t);
   const action = desktop && update.action;
   const updateItems: ActionMenuItem[] = action
@@ -188,6 +194,60 @@ export function AccountMenu({
                 ) : null}
               </div>
             ) : null}
+            <div className="mt-2.5 border-t border-border pt-2.5">
+              <div
+                aria-label={t(themeMessages.appearance)}
+                className="grid grid-cols-3 gap-0.5 rounded-lg bg-muted p-0.5"
+                role="radiogroup"
+              >
+                {(
+                  [
+                    {
+                      value: "system",
+                      label: themeMessages.system,
+                      icon: ComputerIcon,
+                    },
+                    {
+                      value: "light",
+                      label: themeMessages.light,
+                      icon: Sun02Icon,
+                    },
+                    {
+                      value: "dark",
+                      label: themeMessages.dark,
+                      icon: Moon02Icon,
+                    },
+                  ] as const satisfies ReadonlyArray<{
+                    readonly value: ThemePreference;
+                    readonly label: (typeof themeMessages)[keyof typeof themeMessages];
+                    readonly icon: typeof ComputerIcon;
+                  }>
+                ).map((option) => {
+                  const active = preference === option.value;
+                  return (
+                    <button
+                      aria-checked={active}
+                      className={cn(
+                        "flex min-h-7 items-center justify-center gap-1 rounded-md px-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none",
+                        active
+                          ? "bg-card text-foreground shadow-sm"
+                          : "text-muted-foreground hover:text-foreground",
+                      )}
+                      key={option.value}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setPreference(option.value);
+                      }}
+                      role="radio"
+                      type="button"
+                    >
+                      <Icon icon={option.icon} size={14} />
+                      <span className="truncate">{t(option.label)}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </>
         }
         iconClassName="flex size-4 shrink-0 items-center justify-center text-muted-foreground"

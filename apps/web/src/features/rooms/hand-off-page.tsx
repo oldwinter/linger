@@ -8,8 +8,10 @@ import { createTeamHubIdempotencyKey } from "@/features/teamhub/teamhub-client";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import { dashboardWorkItemPath } from "@/features/work-items/work-item-routes";
 import { tenantWorkItemsDashboardQueryPrefix } from "@/features/work-items/work-item-queries";
+import { useT } from "@/i18n/use-translation";
 
 import { handOffCandidates } from "./hand-off";
+import { roomActionsMessages as m } from "./room-actions.messages";
 import {
   roomMembersQueryOptions,
   roomQueryOptions,
@@ -17,6 +19,7 @@ import {
 } from "./room-queries";
 
 export function HandOffPage() {
+  const t = useT();
   const { tenantId = "", roomId = "" } = useParams();
   const { client } = useTeamHubRuntime();
   const queryClient = useQueryClient();
@@ -55,7 +58,7 @@ export function HandOffPage() {
         (member) => member.actor.id === actorId,
       );
       setHanded({
-        name: person?.actor.display_name ?? "They",
+        name: person?.actor.display_name ?? t(m.handOffFallbackAssignee),
         workItemId,
       });
       await queryClient.invalidateQueries({
@@ -72,7 +75,7 @@ export function HandOffPage() {
   if (!ready) {
     return (
       <main className="mx-auto w-full max-w-xl px-6 py-10">
-        <p role="status">Loading this room...</p>
+        <p role="status">{t(m.loadingRoom)}</p>
       </main>
     );
   }
@@ -80,7 +83,7 @@ export function HandOffPage() {
   if (room.isError || !room.data) {
     return (
       <main className="mx-auto w-full max-w-xl px-6 py-10">
-        <p role="alert">This room could not be opened.</p>
+        <p role="alert">{t(m.roomOpenFailed)}</p>
       </main>
     );
   }
@@ -90,15 +93,15 @@ export function HandOffPage() {
   if (room.data.kind === "thread") {
     return (
       <main className="mx-auto w-full max-w-xl px-6 py-10">
-        <h1 className="text-2xl text-foreground">Hand this off</h1>
+        <h1 className="text-2xl text-foreground">{t(m.handOffTitle)}</h1>
         <p className="mt-3 text-sm text-muted-foreground">
-          A thread stays with its room. Hand work off from the room itself.
+          {t(m.handOffThreadNotice)}
         </p>
         <Link
           className="mt-6 inline-block text-sm text-foreground underline"
           to={`/t/${tenantId}/rooms`}
         >
-          Back to rooms
+          {t(m.backToRooms)}
         </Link>
       </main>
     );
@@ -115,26 +118,25 @@ export function HandOffPage() {
   return (
     <main className="mx-auto w-full max-w-xl px-6 py-10">
       <p className="text-sm text-muted-foreground">{room.data.name}</p>
-      <h1 className="mt-1 text-2xl text-foreground">Hand this off</h1>
+      <h1 className="mt-1 text-2xl text-foreground">{t(m.handOffTitle)}</h1>
       <p className="mt-3 text-sm leading-6 text-muted-foreground">
-        Name the job. The person you choose keeps it, and it shows up on the
-        dashboard.
+        {t(m.handOffDescription)}
       </p>
       {handed ? (
         <div className="mt-8">
-          <p role="status">{handed.name} has it. It waits on the dashboard.</p>
+          <p role="status">{t(m.handOffDone, { name: handed.name })}</p>
           <Link
             className="mt-4 inline-block text-sm text-foreground underline"
             to={dashboardWorkItemPath(tenantId, handed.workItemId)}
           >
-            See it on the dashboard
+            {t(m.handOffSeeDashboard)}
           </Link>
         </div>
       ) : (
         <div className="mt-8">
           <label className="block" htmlFor={titleId}>
             <span className="mb-1.5 block text-sm font-medium">
-              What needs doing
+              {t(m.handOffJobLabel)}
             </span>
             <input
               className="ui-field-control w-full"
@@ -147,7 +149,7 @@ export function HandOffPage() {
           </label>
           {people.length === 0 ? (
             <p className="mt-6 text-sm text-muted-foreground" role="status">
-              There is no one else here to hand work to.
+              {t(m.handOffNoCandidates)}
             </p>
           ) : (
             <ul className="mt-6 flex flex-col gap-2">
@@ -158,7 +160,7 @@ export function HandOffPage() {
                     onClick={() => handOff.mutate(person.id)}
                     type="button"
                   >
-                    Hand it to {person.display_name}
+                    {t(m.handOffToPerson, { name: person.display_name })}
                   </Button>
                 </li>
               ))}
@@ -166,7 +168,7 @@ export function HandOffPage() {
           )}
           {handOff.isError ? (
             <p className="mt-4 text-sm text-destructive" role="alert">
-              That handoff did not go through.
+              {t(m.handOffFailed)}
             </p>
           ) : null}
         </div>
@@ -175,7 +177,7 @@ export function HandOffPage() {
         className="mt-8 inline-block text-sm text-muted-foreground underline"
         to={chatPath}
       >
-        Back to {room.data.name}
+        {t(m.backToNamedRoom, { name: room.data.name })}
       </Link>
     </main>
   );

@@ -2763,7 +2763,7 @@ a[href][aria-disabled="true"],
 
 .message-composer-send {
   background: var(--composer-send);
-  color: #fff;
+  color: var(--app-action-foreground);
 }
 
 .message-composer-send:hover {
@@ -5678,7 +5678,7 @@ button.question-choice:focus-visible {
   padding: 5px 9px;
   border-radius: var(--radius-md);
   background: var(--app-ink);
-  color: #fdfdfc;
+  color: var(--app-action-foreground);
   font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
@@ -5755,4 +5755,117 @@ button.question-choice:focus-visible {
 :root[data-desktop-chrome="inset"]
   :is(.voice-mode-window, .recording-window-frame) {
   -webkit-app-region: no-drag;
+}
+
+/* Town Dark surface, chat, desktop-shell, and BlockNote overrides. */
+:root[data-theme="dark"] {
+  --chat-bubble-bg: hsl(var(--town-muted));
+  --chat-agent-bubble-bg: hsl(var(--town-muted));
+  --chat-own-bubble-bg: hsl(var(--town-primary));
+  --chat-own-bubble-text: hsl(var(--town-primary-foreground));
+  --chat-quote-bg: hsl(var(--town-muted) / 0.7);
+  --chat-card-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.07), 0 4px 16px rgba(0, 0, 0, 0.45);
+}
+
+:root[data-theme="dark"] .room-avatar-empty {
+  background: rgb(255 255 255 / 8%);
+}
+
+:root[data-theme="dark"] .room-members-trigger::before,
+:root[data-theme="dark"]
+  .message-row-actions
+  .message-inline-action-button[aria-expanded="true"]::before,
+:root[data-theme="dark"]
+  .message-row-actions
+  .message-inline-action-button:hover::before {
+  background: rgb(255 255 255 / 8%);
+}
+
+:root[data-theme="dark"] .room-members-trigger:hover::before {
+  background: rgb(255 255 255 / 13%);
+}
+
+:root[data-desktop-shell][data-theme="dark"] {
+  --desktop-seam: rgb(255 255 255 / 8%);
+  --app-card-shadow:
+    0 0 0 1px rgb(255 255 255 / 7%), 0 2px 6px rgb(0 0 0 / 40%),
+    0 8px 24px rgb(0 0 0 / 50%);
+}
+
+@media (min-width: 48rem) {
+  :root[data-desktop-shell][data-theme="dark"]
+    .room-secondary-navigation-search {
+    background: rgb(255 255 255 / 6%);
+  }
+
+  :root[data-desktop-shell][data-theme="dark"]
+    .room-secondary-navigation-search:hover {
+    background: rgb(255 255 255 / 10%);
+  }
+
+  :root[data-desktop-shell][data-theme="dark"]
+    .room-secondary-navigation-list
+    > section
+    > div
+    > h2
+    > button {
+    color: rgb(255 255 255 / 45%);
+  }
+
+  :root[data-desktop-shell][data-theme="dark"]
+    .room-secondary-navigation-list
+    > section
+    > div
+    > h2
+    > button:hover {
+    color: rgb(255 255 255 / 70%);
+  }
+}
+
+:root[data-theme="dark"] .bn-container {
+  --bn-colors-editor-text: var(--app-ink);
+  --bn-colors-editor-background: transparent;
+  --bn-colors-menu-text: var(--app-ink);
+  --bn-colors-menu-background: hsl(var(--town-popover));
+  --bn-colors-tooltip-text: hsl(var(--town-primary-foreground));
+  --bn-colors-tooltip-background: hsl(var(--town-primary));
+  --bn-colors-hovered-text: var(--app-ink);
+  --bn-colors-hovered-background: hsl(var(--town-accent));
+  --bn-colors-selected-text: hsl(var(--town-primary-foreground));
+  --bn-colors-selected-background: hsl(var(--town-primary));
+  --bn-colors-disabled-text: var(--app-subtle);
+  --bn-colors-disabled-background: hsl(var(--town-muted));
+  --bn-colors-shadow: rgba(0, 0, 0, 0.55);
+  --bn-colors-border: hsl(var(--town-border));
+  --bn-colors-side-menu: var(--app-subtle);
+  color: var(--app-ink);
+}
+
+:root[data-theme="dark"] .bn-container .bn-editor {
+  background: transparent;
+  color: var(--app-ink);
+}
+
+:root[data-theme="dark"] .bn-container [data-content-type="codeBlock"] pre {
+  background: hsl(var(--town-muted));
+  border-color: hsl(var(--town-border));
+}
+
+.toast-item-enter {
+  animation: toast-item-enter var(--app-floating-duration) var(--ease-town-out)
+    both;
+}
+
+@keyframes toast-item-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast-item-enter {
+    animation: none;
+  }
 }

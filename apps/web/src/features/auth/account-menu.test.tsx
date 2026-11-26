@@ -177,6 +177,26 @@ describe("AccountMenu desktop update", () => {
     view.unmount();
     expect(off).toHaveBeenCalledOnce();
   });
+
+  it("lets the user switch appearance in one click from the menu header", async () => {
+    renderMenu();
+    const menu = await openMenu();
+    const appearance = within(menu).getByRole("radiogroup", {
+      name: "Appearance",
+    });
+
+    const darkOption = within(appearance).getByRole("radio", { name: "Dark" });
+    fireEvent.click(darkOption);
+    expect(darkOption).toHaveAttribute("aria-checked", "true");
+    expect(document.documentElement.dataset.theme).toBe("dark");
+
+    const lightOption = within(appearance).getByRole("radio", {
+      name: "Light",
+    });
+    fireEvent.click(lightOption);
+    expect(lightOption).toHaveAttribute("aria-checked", "true");
+    expect(document.documentElement.dataset.theme).toBe("light");
+  });
 });
 
 function AccountMenuWithLogout({

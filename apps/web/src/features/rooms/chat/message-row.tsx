@@ -25,6 +25,7 @@ import { Fragment, memo, useEffect, useMemo, useRef, useState } from "react";
 import { ActionMenu, type ActionMenuItem } from "@/components/ui/action-menu";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { showToast } from "@/components/ui/toast-store";
 import { FileTypeIcon } from "@/features/library/workspace-file-icon";
 import { isDocumentCardSegment } from "@/features/teamhub/teamhub-message-content";
 import { useOptionalTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
@@ -42,6 +43,7 @@ import type {
 } from "@/features/teamhub/teamhub-types";
 
 import { commonMessages } from "@/i18n/common.messages";
+import { translate } from "@/i18n/language";
 import { useT } from "@/i18n/use-translation";
 
 import type { RoomCardDecision } from "../cards/room-message-card-contract";
@@ -944,8 +946,24 @@ function ConversationMessageActions({
   ) {
     void import("@/lib/clipboard")
       .then(({ writeClipboardText }) => writeClipboardText(text))
-      .then(() => setCopyFeedback({ source, status: "copied" }))
-      .catch(() => setCopyFeedback({ source, status: "failed" }));
+      .then(() => {
+        setCopyFeedback({ source, status: "copied" });
+        if (source === "link") {
+          showToast({
+            message: translate(chatMessages.linkCopied),
+            tone: "success",
+          });
+        }
+      })
+      .catch(() => {
+        setCopyFeedback({ source, status: "failed" });
+        if (source === "link") {
+          showToast({
+            message: translate(chatMessages.copyFailed),
+            tone: "danger",
+          });
+        }
+      });
   }
 
   overflowItems.push({

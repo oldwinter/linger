@@ -93,7 +93,7 @@ function RuntimeSettingsEntry({ client, registration, tenantId, busy }: Props) {
   });
   const ariaLabel = `Switch model (current: ${label})`;
   const title = effort
-    ? `Switch model (current: ${label}, ${t(reasoningEffortMessages[effort])})`
+    ? `Switch model (current: ${label}, ${reasoningEffortLabel(effort, t)})`
     : ariaLabel;
   return (
     <div className="agent-model-switch">

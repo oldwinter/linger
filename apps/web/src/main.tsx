@@ -1,5 +1,5 @@
 import { QueryClientProvider } from "@tanstack/react-query";
-import { StrictMode } from "react";
+import { lazy, StrictMode, Suspense, useSyncExternalStore } from "react";
 import { createRoot } from "react-dom/client";
 import { createBrowserRouter } from "react-router";
 import { RouterProvider } from "react-router/dom";
@@ -15,7 +15,12 @@ import "@fontsource-variable/geist";
 import "@fontsource-variable/roboto-slab";
 import "@/app/globals.css";
 import { loadHanFont } from "@/app/han-font";
+import { initTheme } from "@/app/theme";
 import { installVitePreloadRecovery } from "@/app/vite-preload-recovery";
+import {
+  getToastsSnapshot,
+  subscribeToToasts,
+} from "@/components/ui/toast-store";
 import { DesktopConnectorReturn } from "@/features/apps/desktop-connector-return";
 import { createBrowserTeamHubRuntime } from "@/features/teamhub/browser-teamhub-runtime";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
@@ -26,6 +31,7 @@ import { restoreLanguage } from "@/i18n/language";
 import { useT } from "@/i18n/use-translation";
 
 installVitePreloadRecovery({ buildId: import.meta.url });
+initTheme();
 markDesktopShell();
 loadHanFont(navigator.languages);
 
@@ -78,6 +84,24 @@ function AppUnavailable() {
   );
 }
 
+const LazyToastViewport = lazy(async () => ({
+  default: (await import("@/components/ui/toast")).ToastViewport,
+}));
+
+function AppToastHost() {
+  const hasToasts = useSyncExternalStore(
+    subscribeToToasts,
+    () => getToastsSnapshot().length > 0,
+    () => false,
+  );
+  if (!hasToasts) return null;
+  return (
+    <Suspense fallback={null}>
+      <LazyToastViewport />
+    </Suspense>
+  );
+}
+
 async function startBrowserApp() {
   const queryClient = createAppQueryClient();
   const runtime = createBrowserTeamHubRuntime();
@@ -103,6 +127,7 @@ async function startBrowserApp() {
         <TeamHubRuntimeProvider runtime={runtime}>
           <DesktopConnectorReturn />
           <RouterProvider router={router} />
+          <AppToastHost />
         </TeamHubRuntimeProvider>
       </QueryClientProvider>
     </StrictMode>,

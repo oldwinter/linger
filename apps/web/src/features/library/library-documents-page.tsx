@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { FileDropTarget } from "@/components/ui/file-drop-target";
 import { Icon } from "@/components/ui/icon";
 import { Spinner } from "@/components/ui/spinner";
+import { showToast } from "@/components/ui/toast-store";
 import { dayReviewPath } from "@/features/memory/day-review";
 import { writeDocumentLinkClipboard } from "@/features/rooms/files/document-clipboard-link";
 import { documentDetailPath } from "@/features/rooms/files/document-detail-routes";
@@ -18,6 +19,7 @@ import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubDocumentTreeSummary } from "@/features/teamhub/teamhub-types";
 import { MeetingsPanel } from "@/features/memory/meetings-panel";
 import { commonMessages } from "@/i18n/common.messages";
+import { translate } from "@/i18n/language";
 import { useT } from "@/i18n/use-translation";
 
 import {
@@ -229,13 +231,13 @@ export function LibraryDocumentsPage() {
           label={
             treeModel.movingPlacement.node_kind === "folder"
               ? treeModel.movingPlacement.name
-              : "document"
+              : undefined
           }
           onCancel={treeModel.onMoveCancel}
           onMove={(parentId) =>
             treeModel.onMove(treeModel.movingPlacement!, parentId)
           }
-          rootLabel="Owned by Me"
+          rootLabel={t(m.ownedByMe)}
         />
       ) : null}
       {confirmingDeleteFolder ? (
@@ -267,14 +269,10 @@ export function LibraryDocumentsPage() {
         <MoveFolderPickerDialog
           currentParentId={ownedFolderId}
           folders={treeFolders}
-          label={
-            bulk.moving.length === 1
-              ? "1 document"
-              : `${bulk.moving.length} documents`
-          }
+          label={t(m.bulkDocumentCount, { count: bulk.moving.length })}
           onCancel={bulk.cancel}
           onMove={(parentId) => void bulk.moveTo(parentId)}
-          rootLabel="Owned by Me"
+          rootLabel={t(m.ownedByMe)}
         />
       ) : null}
       {bulk.trashing ? (
@@ -285,7 +283,7 @@ export function LibraryDocumentsPage() {
           title={
             bulk.trashing.length === 1
               ? documentFileName(bulk.trashing[0]!)
-              : `${bulk.trashing.length} documents`
+              : t(m.bulkDocumentCount, { count: bulk.trashing.length })
           }
         />
       ) : null}
@@ -595,7 +593,19 @@ function copyDocumentLink(
     tenantId,
     title: document.title,
     url,
-  });
+  })
+    .then(() => {
+      showToast({
+        message: translate(m.linkCopied),
+        tone: "success",
+      });
+    })
+    .catch(() => {
+      showToast({
+        message: translate(m.copyFailed),
+        tone: "danger",
+      });
+    });
 }
 
 export function MyDocumentsTree(props: MyDocumentsTreeProps) {

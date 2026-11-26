@@ -14,6 +14,8 @@ export const chatMessages = defineMessages("chat", {
   replyToThread: "Reply to thread",
   addReaction: "Add reaction",
   copyMessage: "Copy message",
+  linkCopied: "Link copied",
+  copyFailed: "Copy failed",
   moreMessageActions: "More message actions",
   sending: "Sending...",
   deliveryUnknown: "Delivery status unknown",

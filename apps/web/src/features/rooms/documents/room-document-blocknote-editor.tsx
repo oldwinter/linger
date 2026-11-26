@@ -5,6 +5,7 @@ import "@/components/knowledge-document.css";
 
 import { CommentsExtension } from "@blocknote/core/comments";
 import { zh } from "@blocknote/core/locales";
+import { useTheme } from "@/app/theme";
 import { BlockNoteView } from "@blocknote/mantine";
 import {
   FilePanel,
@@ -159,6 +160,7 @@ export function RoomDocumentBlockNoteEditor({
   tenantId,
 }: RoomDocumentBlockNoteEditorProps) {
   const { language, t } = useTranslation();
+  const { resolved: resolvedTheme } = useTheme();
   const navigate = useNavigate();
   const openDocument = (path: string) => {
     void navigate(path);
@@ -580,7 +582,7 @@ export function RoomDocumentBlockNoteEditor({
           );
         }}
         slashMenu={false}
-        theme="light"
+        theme={resolvedTheme}
       >
         <FormattingToolbarController
           floatingUIOptions={{

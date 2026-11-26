@@ -1,6 +1,8 @@
 import { focusManager, onlineManager } from "@tanstack/react-query";
 import { afterEach, vi } from "vitest";
 
+import { resetThemeForTest } from "@/app/theme";
+import { clearToasts } from "@/components/ui/toast-store";
 import { resetComposerAttachmentDraftsForTest } from "@/features/rooms/chat/composer-attachment-drafts";
 import { resetLanguageForTest } from "@/i18n/language";
 import { setRoomDiagnosticsEnabledForTest } from "@/lib/room-diagnostics";
@@ -186,8 +188,10 @@ afterEach(() => {
     onlineManager.setOnline(true);
     resetDocumentGlobals();
     resetComposerAttachmentDraftsForTest();
-    // The language on screen is module state the files of a worker share.
+    // The language, theme, and active toasts are module state shared within a worker.
     resetLanguageForTest();
+    resetThemeForTest();
+    clearToasts();
     resetRoomTimelineReadingPositions?.();
     // Timers first: a later assertion that throws must not leave a leaked fake
     // timer on the window the next file shares.
