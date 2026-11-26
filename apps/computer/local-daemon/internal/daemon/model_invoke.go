@@ -158,12 +158,21 @@ func invalidModelInvokeRequest(request modelInvokeRequest) string {
 
 func (d *Daemon) runModelInvoke(ctx context.Context, stream transport.Stream, command protocol.Command, request modelInvokeRequest, entry *modelInvoke, receivedAt time.Time) {
 	slog.Info("runner.model.invoke", "phase", "started", "invoke_id", entry.id)
+	invokeModel := request.Model
+	if invokeModel == "" {
+		invokeModel = command.RuntimeType
+	}
+	if d.telemetryTracker != nil {
+		d.telemetryTracker.BeginRequest(entry.id, telemetryClientLabel(command.RuntimeType), invokeModel, invokeModel, 0)
+	}
 	var result provider.ModelInvokeResult
+	var gatewayMs float64
 	if failureCode, err := d.ensureModelGateway(ctx, command.RuntimeType, false); err != nil {
 		result = modelGatewayInvokeFailure(ctx, failureCode, err)
 	} else if failureCode, err := d.ensureLocalModel(ctx, command.RuntimeType, request.Model); err != nil {
 		result = localModelInvokeFailure(ctx, failureCode, err)
 	} else {
+		gatewayMs = float64(max(time.Since(receivedAt).Milliseconds(), 0))
 		effort := d.normalizeModelInvokeEffort(command.RuntimeType, request.Model, request.ReasoningEffort)
 		result = d.modelInvoker.Invoke(ctx, provider.ModelInvokeRequest{
 			RuntimeType: command.RuntimeType, Model: request.Model, Mode: request.Mode, ReasoningEffort: effort,
@@ -172,6 +181,30 @@ func (d *Daemon) runModelInvoke(ctx context.Context, stream transport.Stream, co
 			SessionKey: request.SessionKey, MaxOutputChars: request.MaxOutputChars,
 		})
 		result = d.networkUnavailableModelInvoke(ctx, entry.id, command.RuntimeType, request.Model, result)
+	}
+	if d.telemetryTracker != nil {
+		if result.Usage != nil {
+			reportedModel := result.Model
+			if reportedModel == "" {
+				reportedModel = invokeModel
+			}
+			d.telemetryTracker.RecordModelResponse(
+				entry.id,
+				telemetryClientLabel(command.RuntimeType),
+				reportedModel,
+				reportedModel,
+				receivedAt,
+				time.Time{},
+				time.Now(),
+				result.Usage.InputTokens,
+				result.Usage.CachedInputTokens,
+				result.Usage.OutputTokens,
+				gatewayMs,
+				0,
+			)
+		} else {
+			d.telemetryTracker.FinishRequest(entry.id)
+		}
 	}
 	entry.cancel()
 	d.modelInvokeMu.Lock()

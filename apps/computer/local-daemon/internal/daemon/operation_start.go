@@ -17,7 +17,8 @@ func (d *Daemon) handleOperationStart(ctx context.Context, stream transport.Stre
 	// only a retained Operation of this Context can hold it; its View stays.
 	viewStartedAt := time.Now()
 	var viewErr error
-	if len(command.ContextViewRef) > 0 && !d.contextHasActiveOperation(command) {
+	staleEpoch := d.welcomeSeen && command.ConnectionEpoch != d.connectionEpoch
+	if !staleEpoch && len(command.ContextViewRef) > 0 && !d.contextHasActiveOperation(command) {
 		viewErr = d.ensureContextView(ctx, command, command.ContextViewRef)
 	}
 	contextViewMs := time.Since(viewStartedAt).Milliseconds()
@@ -205,6 +206,9 @@ func (d *Daemon) operationEventEmitter(command protocol.Command, identity Operat
 		// cancelled; skipping its send would put a later event, such as the
 		// cancelled terminal, on the wire first.
 		connectionLockWait, sendDuration := d.deliverRecordedOperationEvent(context.WithoutCancel(emitCtx), recorded)
+		if event.Type == protocol.EventOperationEvent {
+			d.observeOperationTelemetry(command, event.Payload)
+		}
 		// Only the first run.started frame is logged at Info; later frames stay at Debug.
 		level := slog.LevelDebug
 		if !runStartedLogged && event.Type == protocol.EventOperationEvent && payloadType(event.Payload) == "run.started" {

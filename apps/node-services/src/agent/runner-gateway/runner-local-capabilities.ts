@@ -8,8 +8,11 @@ import type {
   CapabilityModelSourceFailed,
   CapabilityModelSourceSucceeded,
   CapabilitySkillsScanned,
+  CapabilitySystemTelemetryFailed,
+  CapabilitySystemTelemetrySucceeded,
   DaemonToAgentEnvelope,
   ModelSourceStatus,
+  SystemTelemetrySnapshot,
 } from "@linger/wire-contracts/runner-gateway/types";
 import {
   RUNNER_GATEWAY_PROTOCOL_VERSION,
@@ -18,6 +21,7 @@ import {
 import {
   FIRST_BYOK_ENDPOINT_COMPUTER_VERSION,
   FIRST_MODEL_SOURCE_COMPUTER_VERSION,
+  FIRST_SYSTEM_TELEMETRY_COMPUTER_VERSION,
   isComputerVersionAtLeast,
   LocalBrowserConnectionError,
   LocalComputerCapabilityError,
@@ -26,6 +30,7 @@ import {
   LocalComputerPermissionError,
   LocalModelSourceError,
   LocalSkillOperationError,
+  LocalSystemTelemetryError,
   type LocalBrowserConnectionCommand,
   type LocalBrowserConnectionStatus,
   type LocalComputerPermissionCommand,
@@ -33,6 +38,7 @@ import {
   type LocalModelSourceCommand,
   type LocalSkillScanCommand,
   type LocalSkillScanResult,
+  type LocalSystemTelemetryCommand,
 } from "./local-computer-management.js";
 import { isServingConnection } from "./runner-connections.js";
 import type {
@@ -47,7 +53,7 @@ export class RunnerLocalCapabilities {
   readonly #localSkillWaiters = new Map<
     string,
     Set<{
-      readonly runnerId: string;
+      readonly connection: ConnectedRunner;
       resolve(outcome: LocalSkillOutcome): void;
       reject(error: unknown): void;
     }>
@@ -92,6 +98,21 @@ export class RunnerLocalCapabilities {
       readonly action: LocalModelSourceCommand["action"];
       readonly resolve: (
         outcome: CapabilityModelSourceSucceeded | CapabilityModelSourceFailed,
+      ) => void;
+      readonly reject: (error: unknown) => void;
+    }
+  >();
+
+  readonly #telemetryWaiters = new Map<
+    string,
+    {
+      readonly connection: ConnectedRunner;
+      readonly tenantId: string;
+      readonly ownerActorId: string;
+      readonly resolve: (
+        outcome:
+          | CapabilitySystemTelemetrySucceeded
+          | CapabilitySystemTelemetryFailed,
       ) => void;
       readonly reject: (error: unknown) => void;
     }
@@ -419,7 +440,97 @@ export class RunnerLocalCapabilities {
     };
   }
 
-  /** Fails every browser, permission, and model-source command waiting on this connection. */
+  /** Samples live rootless hardware and local LLM inference telemetry from the Computer. */
+  async systemTelemetry(
+    command: LocalSystemTelemetryCommand,
+  ): Promise<SystemTelemetrySnapshot> {
+    command.signal?.throwIfAborted();
+    const connection = this.owners
+      .connections()
+      .getConnection(command.computerId);
+    if (!isServingConnection(connection)) {
+      throw new LocalComputerOfflineError();
+    }
+    if (
+      connection.tenantOwners.get(command.tenantId) !== command.ownerActorId
+    ) {
+      throw new LocalComputerNotFoundError();
+    }
+    if (
+      !isComputerVersionAtLeast(
+        connection.hello.daemon_version,
+        FIRST_SYSTEM_TELEMETRY_COMPUTER_VERSION,
+      )
+    ) {
+      throw new LocalComputerCapabilityError(
+        "Local Computer must be upgraded to report live system telemetry",
+      );
+    }
+    const commandId = this.context.createId();
+    const envelope = parseAgentToDaemonEnvelope({
+      type: "execute",
+      kind: "system_telemetry",
+      protocol_version: RUNNER_GATEWAY_PROTOCOL_VERSION,
+      command_id: commandId,
+      runner_id: command.computerId,
+      tenant_id: command.tenantId,
+      owner_actor_id: command.ownerActorId,
+      connection_epoch: connection.connectionEpoch,
+      expires_at: new Date(
+        Date.now() + SYSTEM_TELEMETRY_TIMEOUT_MS,
+      ).toISOString(),
+      action: "snapshot",
+    });
+    const signal = command.signal;
+    let onAbort: (() => void) | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const outcome = new Promise<
+      CapabilitySystemTelemetrySucceeded | CapabilitySystemTelemetryFailed
+    >((resolve, reject) => {
+      timer = setTimeout(() => {
+        reject(
+          new LocalSystemTelemetryError(
+            "SYSTEM_TELEMETRY_TIMEOUT",
+            "Local Computer did not answer the system telemetry probe",
+            true,
+          ),
+        );
+      }, SYSTEM_TELEMETRY_TIMEOUT_MS);
+      timer.unref();
+      onAbort = () => reject(signal?.reason);
+      signal?.addEventListener("abort", onAbort, { once: true });
+      this.#telemetryWaiters.set(commandId, {
+        connection,
+        tenantId: command.tenantId,
+        ownerActorId: command.ownerActorId,
+        resolve,
+        reject,
+      });
+    });
+    let result:
+      | CapabilitySystemTelemetrySucceeded
+      | CapabilitySystemTelemetryFailed;
+    try {
+      [, result] = await Promise.all([
+        this.owners.connections().sendToCurrentRunner(envelope),
+        outcome,
+      ]);
+    } finally {
+      clearTimeout(timer);
+      if (onAbort) signal?.removeEventListener("abort", onAbort);
+      this.#telemetryWaiters.delete(commandId);
+    }
+    if (result.outcome === "failed") {
+      throw new LocalSystemTelemetryError(
+        result.error.code,
+        result.error.message,
+        result.error.retryable,
+      );
+    }
+    return result.telemetry;
+  }
+
+  /** Fails every browser, permission, model-source, telemetry, and local-skill command waiting on this connection. */
   rejectConnectionWaiters(connection: ConnectedRunner): void {
     for (const [commandId, waiter] of this.#browserWaiters) {
       if (waiter.connection !== connection) continue;
@@ -435,6 +546,18 @@ export class RunnerLocalCapabilities {
       if (waiter.connection !== connection) continue;
       this.#modelSourceWaiters.delete(commandId);
       waiter.reject(new LocalComputerOfflineError());
+    }
+    for (const [commandId, waiter] of this.#telemetryWaiters) {
+      if (waiter.connection !== connection) continue;
+      this.#telemetryWaiters.delete(commandId);
+      waiter.reject(new LocalComputerOfflineError());
+    }
+    for (const [commandId, waiters] of this.#localSkillWaiters) {
+      for (const waiter of [...waiters]) {
+        if (waiter.connection !== connection) continue;
+        waiter.reject(new LocalComputerOfflineError());
+      }
+      if (waiters.size === 0) this.#localSkillWaiters.delete(commandId);
     }
   }
 
@@ -466,7 +589,7 @@ export class RunnerLocalCapabilities {
     }
     const outcome = this.#waitForLocalSkillOutcome(
       command.commandId,
-      command.computerId,
+      connection,
       command.expiresAt,
       command.signal,
     );
@@ -514,7 +637,7 @@ export class RunnerLocalCapabilities {
 
   #waitForLocalSkillOutcome(
     commandId: string,
-    runnerId: string,
+    connection: ConnectedRunner,
     expiresAt: string,
     signal?: AbortSignal,
   ): Promise<LocalSkillOutcome> {
@@ -533,7 +656,7 @@ export class RunnerLocalCapabilities {
         else reject(result.error);
       };
       const waiter = {
-        runnerId,
+        connection,
         resolve: (outcome: LocalSkillOutcome) => finish({ outcome }),
         reject: (error: unknown) => finish({ error }),
       };
@@ -670,14 +793,34 @@ export class RunnerLocalCapabilities {
     waiter.resolve(envelope);
   }
 
-  rejectLocalSkillWaiters(runnerId: string): void {
-    for (const [commandId, waiters] of this.#localSkillWaiters) {
-      for (const waiter of [...waiters]) {
-        if (waiter.runnerId !== runnerId) continue;
-        waiter.reject(new LocalComputerOfflineError());
-      }
-      if (waiters.size === 0) this.#localSkillWaiters.delete(commandId);
+  receiveSystemTelemetryOutcome(
+    connection: ConnectedRunner,
+    envelope:
+      | CapabilitySystemTelemetrySucceeded
+      | CapabilitySystemTelemetryFailed,
+  ): void {
+    if (
+      envelope.connection_epoch !== connection.connectionEpoch ||
+      connection.tenantOwners.get(envelope.tenant_id) !==
+        envelope.owner_actor_id
+    ) {
+      throw new RunnerGatewayProtocolError(
+        "Runner system telemetry outcome identity mismatch",
+      );
     }
+    const waiter = this.#telemetryWaiters.get(envelope.command_id);
+    if (!waiter) return;
+    if (
+      waiter.connection !== connection ||
+      waiter.tenantId !== envelope.tenant_id ||
+      waiter.ownerActorId !== envelope.owner_actor_id
+    ) {
+      throw new RunnerGatewayProtocolError(
+        "Runner system telemetry command identity mismatch",
+      );
+    }
+    this.#telemetryWaiters.delete(envelope.command_id);
+    waiter.resolve(envelope);
   }
 }
 
@@ -693,6 +836,7 @@ const BROWSER_CONNECTION_TIMEOUT_MS = 60_000;
 const COMPUTER_PERMISSION_TIMEOUT_MS = 30_000;
 const MODEL_SOURCE_STATUS_TIMEOUT_MS = 45_000;
 const MODEL_SOURCE_APPLY_TIMEOUT_MS = 180_000;
+const SYSTEM_TELEMETRY_TIMEOUT_MS = 10_000;
 
 const requireLocalSkillScan = (
   outcome: LocalSkillOutcome,

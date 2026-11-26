@@ -971,6 +971,55 @@ paths:
           $ref: '../components/model-source.yaml#/components/responses/ModelSourceRefused'
         '504':
           $ref: '../components/model-source.yaml#/components/responses/ModelSourceRefused'
+  /v0/tenants/{tenantId}/local-computers/{computerId}/system-telemetry:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+      - $ref: '#/components/parameters/ComputerId'
+    get:
+      tags: [Local Computers]
+      operationId: getLocalComputerSystemTelemetry
+      summary: Read one live rootless hardware and local LLM inference telemetry sample from a Local Computer.
+      responses:
+        '200':
+          description: Current system telemetry view (with online/supported status).
+          content:
+            application/json:
+              schema:
+                $ref: '../components/system-telemetry.yaml#/components/schemas/SystemTelemetryView'
+        '401':
+          $ref: '../components/common.yaml#/components/responses/Unauthenticated'
+        '404':
+          $ref: '../components/common.yaml#/components/responses/NotFound'
+        '502':
+          $ref: '../components/system-telemetry.yaml#/components/responses/SystemTelemetryRefused'
+        '503':
+          $ref: '../components/system-telemetry.yaml#/components/responses/SystemTelemetryRefused'
+        '504':
+          $ref: '../components/system-telemetry.yaml#/components/responses/SystemTelemetryRefused'
+  /v0/tenants/{tenantId}/local-computers/{computerId}/system-telemetry/stream:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+      - $ref: '#/components/parameters/ComputerId'
+    get:
+      tags: [Local Computers]
+      operationId: streamLocalComputerSystemTelemetry
+      summary: Stream live hardware and local LLM inference telemetry views for one Local Computer over SSE.
+      responses:
+        '200':
+          description: Live system telemetry SSE stream.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+              x-sse-events:
+                telemetry:
+                  $ref: '../components/system-telemetry.yaml#/components/schemas/SystemTelemetryView'
+                session.expired:
+                  $ref: '../components/room-events.yaml#/components/schemas/SessionExpiredSseEvent'
+        '401':
+          $ref: '../components/common.yaml#/components/responses/Unauthenticated'
+        '404':
+          $ref: '../components/common.yaml#/components/responses/NotFound'
   /v0/tenants/{tenantId}/local-computers/{computerId}/permissions:
     parameters:
       - $ref: '#/components/parameters/TenantId'

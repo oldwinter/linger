@@ -640,6 +640,90 @@ describe("RunnerGateway", () => {
     second.disconnect();
   });
 
+  it("isolates replacement connection local-skill waiters from delayed disconnect of the replaced socket", async () => {
+    const gateway = createTestRunnerGateway({ createId: sequenceIds() });
+    const firstPeer = new RecordingPeer();
+    const first = await acceptReadyConnection(gateway, firstPeer, {
+      ...hello(),
+      capabilities: [...hello().capabilities],
+    });
+    const staleScan = gateway
+      .scanLocalSkills({
+        tenantId: "tenant-acme",
+        ownerActorId: "actor-alice",
+        computerId: "runner-local",
+        commandId: "stale-skill-scan-cmd",
+        scanId: "stale-skill-scan",
+        runtimeType: "codex",
+        expiresAt: "2099-08-17T09:10:00.000Z",
+      })
+      .catch((error: unknown) => error);
+
+    // Replace the connection without firing first.disconnect() yet (async peer close).
+    const secondPeer = new RecordingPeer();
+    const second = await acceptReadyConnection(gateway, secondPeer, {
+      ...hello(),
+      capabilities: [...hello().capabilities],
+    });
+    try {
+      // Waiters belonging to the replaced connection fail immediately on replacement.
+      await expect(staleScan).resolves.toBeInstanceOf(
+        LocalComputerOfflineError,
+      );
+
+      // Start a live skill scan on the replacement connection, then fire delayed close on first.
+      const liveScan = gateway.scanLocalSkills({
+        tenantId: "tenant-acme",
+        ownerActorId: "actor-alice",
+        computerId: "runner-local",
+        commandId: "live-skill-scan-cmd",
+        scanId: "live-skill-scan",
+        runtimeType: "codex",
+        expiresAt: "2099-08-17T09:10:00.000Z",
+      });
+      await vi.waitFor(() =>
+        expect(
+          secondPeer.sent.some(
+            (frame) => frame.type === "execute" && frame.kind === "skills_scan",
+          ),
+        ).toBe(true),
+      );
+      first.disconnect();
+
+      const sentScan = secondPeer.sent.find(
+        (frame) => frame.type === "execute" && frame.kind === "skills_scan",
+      );
+      if (
+        !sentScan ||
+        sentScan.type !== "execute" ||
+        sentScan.kind !== "skills_scan"
+      ) {
+        throw new Error("Expected skills_scan on replacement connection");
+      }
+      await second.receive({
+        type: "executed",
+        kind: "skills_scan",
+        protocol_version: sentScan.protocol_version,
+        command_id: sentScan.command_id,
+        runner_id: sentScan.runner_id,
+        tenant_id: sentScan.tenant_id,
+        owner_actor_id: sentScan.owner_actor_id,
+        connection_epoch: sentScan.connection_epoch,
+        scan_id: sentScan.scan_id,
+        runtime_type: sentScan.runtime_type,
+        expires_at: sentScan.expires_at,
+        outcome: "succeeded",
+        items: [],
+      });
+      await expect(liveScan).resolves.toMatchObject({
+        scanId: "live-skill-scan",
+        items: [],
+      });
+    } finally {
+      second.disconnect();
+    }
+  });
+
   it("requires explicit Tenant-owner claims from the authenticated principal", async () => {
     const gateway = createTestRunnerGateway({ heartbeatIntervalMs: 1_000 });
 
@@ -1167,6 +1251,7 @@ describe("RunnerGateway local Computer reconnect wait", () => {
         touchLocalComputer,
         removeLocalComputer,
         recordLocalModels: vi.fn(),
+        reportHerdrEvent: vi.fn(),
       });
       const owner = { tenantId: "tenant-acme", ownerActorId: "actor-alice" };
       await registry.connect({

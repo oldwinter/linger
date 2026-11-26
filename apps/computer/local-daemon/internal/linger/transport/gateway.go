@@ -189,6 +189,7 @@ var agentShapes = map[string]func() wire.Shape{
 	"CapabilityComputerPermission": func() wire.Shape { return &wire.CapabilityComputerPermission{} },
 	"CapabilityLocalModelsExecute": func() wire.Shape { return &wire.CapabilityLocalModelsExecute{} },
 	"CapabilityModelSource":        func() wire.Shape { return &wire.CapabilityModelSource{} },
+	"CapabilitySystemTelemetry":    func() wire.Shape { return &wire.CapabilitySystemTelemetry{} },
 	"OperationPrepare":             func() wire.Shape { return &wire.OperationPrepare{} },
 	"ProviderPrepare":              func() wire.Shape { return &wire.ProviderPrepare{} },
 	"SessionCompact":               func() wire.Shape { return &wire.SessionCompact{} },
@@ -323,7 +324,7 @@ func decodeGatewayCommand(encoded []byte) (protocol.Command, error) {
 		protocol.CommandDebugInspect, protocol.CommandAgentCLICredentialPut,
 		protocol.CommandCapabilitySkillsScan, protocol.CommandCapabilityBrowserConnect,
 		protocol.CommandCapabilityComputerPermission, protocol.CommandCapabilityLocalModels,
-		protocol.CommandCapabilityModelSource:
+		protocol.CommandCapabilityModelSource, protocol.CommandCapabilitySystemTelemetry:
 		// Their handlers decode the generated shape from the frame itself.
 		command.Payload = append(json.RawMessage(nil), encoded...)
 	}
@@ -498,6 +499,7 @@ func (s *gatewayStream) Send(ctx context.Context, event protocol.Event) error {
 		event.Type == protocol.EventCapabilityComputerPermissionSucceeded || event.Type == protocol.EventCapabilityComputerPermissionFailed ||
 		event.Type == protocol.EventCapabilityLocalModelsAccepted || event.Type == protocol.EventCapabilityLocalModelsRefused ||
 		event.Type == protocol.EventCapabilityModelSourceSucceeded || event.Type == protocol.EventCapabilityModelSourceFailed ||
+		event.Type == protocol.EventCapabilitySystemTelemetrySucceeded || event.Type == protocol.EventCapabilitySystemTelemetryFailed ||
 		event.Type == protocol.EventLocalModels ||
 		event.Type == protocol.EventProviderPrepared || event.Type == protocol.EventSessionCompacted ||
 		event.Type == protocol.EventModelInvoked || event.Type == protocol.EventComputerToolResult ||

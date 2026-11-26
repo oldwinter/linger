@@ -371,6 +371,35 @@ paths:
           $ref: ../components/common.yaml#/components/responses/ServiceUnavailable
       security:
         - agentManagementBearer: []
+  /v1/tenants/{tenantId}/owners/{ownerActorId}/local-computers/{computerId}/system-telemetry:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+      - $ref: "#/components/parameters/OwnerActorId"
+      - $ref: "#/components/parameters/ComputerId"
+    get:
+      summary: Sample live rootless hardware and local LLM inference telemetry from an owned Local Computer
+      operationId: getLocalComputerSystemTelemetry
+      responses:
+        "200":
+          description: Current rootless hardware and inference telemetry snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: ../components/system-telemetry.yaml#/components/schemas/SystemTelemetrySnapshot
+        "401":
+          $ref: ../components/common.yaml#/components/responses/Unauthenticated
+        "404":
+          $ref: ../components/common.yaml#/components/responses/NotFound
+        "409":
+          $ref: ../components/common.yaml#/components/responses/Conflict
+        "502":
+          $ref: ../components/common.yaml#/components/responses/BadGateway
+        "503":
+          $ref: ../components/common.yaml#/components/responses/ServiceUnavailable
+        "504":
+          $ref: ../components/common.yaml#/components/responses/ServiceUnavailable
+      security:
+        - agentManagementBearer: []
   /v1/tenants/{tenantId}/owners/{ownerActorId}/local-computers/{computerId}/browser-connection:
     parameters:
       - $ref: "#/components/parameters/TenantId"

@@ -22,6 +22,7 @@ import (
 	"github.com/oldwinter/linger/mobile/internal/screens/live"
 	"github.com/oldwinter/linger/mobile/internal/screens/rooms"
 	"github.com/oldwinter/linger/mobile/internal/screens/settings"
+	"github.com/oldwinter/linger/mobile/internal/screens/terminals"
 	"github.com/oldwinter/linger/mobile/internal/screens/work"
 	"github.com/oldwinter/linger/mobile/internal/state"
 	"github.com/oldwinter/linger/mobile/internal/theme"
@@ -36,14 +37,15 @@ type TabHooks struct {
 
 // Shell owns the root 5-tab view, Biometric Lock Gate, toast overlay, and all 5 tab controllers.
 type Shell struct {
-	store       *state.AppStore
-	connectHub  *connect.Hub
-	roomsCtl    *rooms.Controller
-	liveCtl     *live.Controller
-	workScr     *work.Screen
-	libraryScr  *library.Screen
-	settingsScr *settings.Screen
-	systemDark  func() bool
+	store        *state.AppStore
+	connectHub   *connect.Hub
+	roomsCtl     *rooms.Controller
+	liveCtl      *live.Controller
+	terminalsScr *terminals.Screen
+	workScr      *work.Screen
+	libraryScr   *library.Screen
+	settingsScr  *settings.Screen
+	systemDark   func() bool
 
 	mu                   sync.Mutex
 	hooks                TabHooks
@@ -95,6 +97,13 @@ func New(store *state.AppStore, systemDark func() bool) *Shell {
 		OnOpenSettingsKey: func(kind, key string) {
 			s.OpenMoreRoute("/more/settings?focus=" + kind + "&key=" + key)
 		},
+		OnOpenTerminals: s.OpenTerminals,
+	})
+	s.terminalsScr = terminals.New(terminals.Deps{
+		Store:         store,
+		OnOpenConnect: s.OpenConnect,
+		ShowToast:     s.ShowToast,
+		OnNotify:      store.Notify,
 	})
 	s.workScr = work.New(work.Deps{
 		Store:      store,
@@ -132,6 +141,9 @@ func New(store *state.AppStore, systemDark func() bool) *Shell {
 func (s *Shell) Close() {
 	if s.roomsCtl != nil {
 		s.roomsCtl.Close()
+	}
+	if s.terminalsScr != nil {
+		s.terminalsScr.Close()
 	}
 	if s.workScr != nil {
 		s.workScr.Close()
@@ -179,6 +191,9 @@ func (s *Shell) Rooms() *rooms.Controller { return s.roomsCtl }
 // Live returns Tab 2's Live Control controller.
 func (s *Shell) Live() *live.Controller { return s.liveCtl }
 
+// Terminals returns the herdr-core Pocket Command Center screen controller.
+func (s *Shell) Terminals() *terminals.Screen { return s.terminalsScr }
+
 // Work returns Tab 3's Work screen controller.
 func (s *Shell) Work() *work.Screen { return s.workScr }
 
@@ -188,8 +203,11 @@ func (s *Shell) Library() *library.Screen { return s.libraryScr }
 // Settings returns Tab 5's More/Settings screen controller.
 func (s *Shell) Settings() *settings.Screen { return s.settingsScr }
 
-// RefreshAllTabs triggers background sync for Work, Library, and Settings screens.
+// RefreshAllTabs triggers background sync for Terminals, Work, Library, and Settings screens.
 func (s *Shell) RefreshAllTabs(ctx context.Context) {
+	if s.terminalsScr != nil {
+		go s.terminalsScr.Refresh(ctx)
+	}
 	if s.workScr != nil {
 		go s.workScr.Refresh(ctx)
 	}
@@ -237,7 +255,24 @@ func (s *Shell) OpenMoreRoute(target string) {
 // OpenLiveCompute switches to Tab 2 Compute segment and optionally opens permissions or browser sheet.
 func (s *Shell) OpenLiveCompute(computerID, section string) {
 	s.store.SetActiveTab(state.TabLive)
+	if s.store.Routers[state.TabLive].Path() != "/live" {
+		s.store.Routers[state.TabLive].Replace("/live")
+	}
 	s.liveCtl.OpenComputeSection(computerID, section)
+}
+
+// OpenTerminals switches to Tab 2 and opens the herdr-core Pocket Command Center.
+func (s *Shell) OpenTerminals(computerID string) {
+	if s.terminalsScr != nil && strings.TrimSpace(computerID) != "" {
+		s.terminalsScr.SelectComputer(computerID)
+	}
+	s.store.SetActiveTab(state.TabLive)
+	if s.store.Routers[state.TabLive].Path() != "/live/terminals" {
+		s.store.Routers[state.TabLive].Push("/live/terminals")
+	}
+	if s.terminalsScr != nil {
+		go s.terminalsScr.Refresh(context.Background())
+	}
 }
 
 func (s *Shell) applySettingsDeepLink(target string) {
@@ -323,7 +358,7 @@ func (s *Shell) View(c *ui.Context) {
 				case state.TabRooms:
 					s.roomsCtl.Route(c, r, snap)
 				case state.TabLive:
-					s.liveCtl.Route(c, r, snap)
+					s.routeLive(c, r, snap)
 				case state.TabWork:
 					s.routeWork(c, r, snap)
 				case state.TabLibrary:
@@ -390,6 +425,9 @@ func (s *Shell) navTabSpecs(c *ui.Context, snap state.Snapshot) []navTabSpec {
 	roomsBadge := formatBadge(int(unreadTotal))
 
 	liveAttention := len(snap.PendingDecisions)
+	if s.terminalsScr != nil {
+		liveAttention += s.terminalsScr.BlockedCount()
+	}
 	if liveAttention == 0 {
 		for _, run := range snap.ActiveRuns {
 			if run.Status == "active" {
@@ -711,6 +749,23 @@ func (s *Shell) viewTopBar(c *ui.Context, snap state.Snapshot, tab int, router *
 	bar.Children(func() {
 		ui.Text(c, title).FontSize(titleSize).FontWeight(700).LetterSpacing(-0.5).TextColor(t.Text).
 			Grow(1).Basis(0).MaxLines(1)
+		if tab == state.TabLive && s.terminalsScr != nil {
+			termBtn := components.TopBarIconButton(c, i18n.T("terminals.nav_a11y"), theme.IconTerminal, t.Text)
+			if s.terminalsScr.BlockedCount() > 0 {
+				dotCol := ex.Brand
+				surf := t.Background
+				termBtn.DrawOver(func(p *ui.Painter, r ui.Rect) {
+					dx := r.X + r.W - 10
+					dy := r.Y + 6
+					p.Fill(ui.Rect{X: dx - 1.5, Y: dy - 1.5, W: 10, H: 10}, surf, 5)
+					p.Fill(ui.Rect{X: dx, Y: dy, W: 7, H: 7}, dotCol, 3.5)
+				})
+			}
+			if termBtn.Clicked() {
+				mygo.Haptics.Light()
+				s.OpenTerminals("")
+			}
+		}
 		components.ConnectionHealthChip(c, hostName, connected, tlsPinned, plainHTTP, snap.RTTMs, s.OpenConnect)
 	})
 }
@@ -743,6 +798,17 @@ func (s *Shell) topBarTitle(tab int, router *ui.Router) string {
 		}
 		return i18n.T("tab.more")
 	}
+}
+
+func (s *Shell) routeLive(c *ui.Context, r *ui.Route, snap state.Snapshot) {
+	if r.Match("/live/terminals") {
+		r.Title(i18n.T("terminals.title"))
+		if s.terminalsScr != nil {
+			s.terminalsScr.View(c)
+		}
+		return
+	}
+	s.liveCtl.Route(c, r, snap)
 }
 
 func (s *Shell) routeWork(c *ui.Context, r *ui.Route, snap state.Snapshot) {

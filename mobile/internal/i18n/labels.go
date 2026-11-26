@@ -110,6 +110,8 @@ func StatusLabel(raw string) string {
 		return T("status.running")
 	case "busy":
 		return T("status.busy")
+	case "blocked":
+		return T("status.blocked")
 	case "online":
 		return T("status.online")
 	case "offline":

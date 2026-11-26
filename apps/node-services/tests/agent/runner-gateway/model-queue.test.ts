@@ -205,6 +205,74 @@ describe("ModelQueue", () => {
     expect(fifth.value).toBeDefined();
     fifth.value!.release(done);
   });
+
+  it("aborts an active background probe and requests yield when a suspended foreground lease resumes", async () => {
+    vi.stubEnv("AGENT_LOG_LEVEL", "info");
+    setAgentLogOptions({ format: "json" });
+    const output = vi.spyOn(console, "log").mockImplementation(() => {});
+    const onInteractiveWait = vi.fn();
+    try {
+      const queue = new ModelQueue(
+        () => ({ initial: 1, max: 8 }),
+        () => Date.now(),
+        onInteractiveWait,
+      );
+      // Establish the lone-unit baseline so background probing is eligible.
+      for (let i = 0; i < 3; i++) {
+        const bg = await queue.acquire(codex, call("wiki", `b${i}`), signal);
+        vi.advanceTimersByTime(10_000);
+        queue.observe(codex, callLatency(500));
+        bg.release(done);
+      }
+
+      const fg = await queue.acquire(codex, run("fg"), signal);
+      fg.suspend();
+      await flush();
+
+      const p1 = await queue.acquire(codex, call("wiki", "p1"), signal);
+      const p2 = track(queue.acquire(codex, call("wiki", "p2"), signal));
+      await flush();
+      expect(p2.value).toBeDefined();
+
+      // Resuming fg must immediately abort the probe and request yield of excess background calls.
+      fg.resume();
+      const logs = output.mock.calls.map(([line]) => JSON.parse(String(line)));
+      expect(logs).toContainEqual(
+        expect.objectContaining({
+          event: "model_queue.probe_stopped",
+          probing: 2,
+          outcome: "aborted",
+        }),
+      );
+      expect(onInteractiveWait).toHaveBeenCalledWith(
+        codex,
+        runPriorities.chat,
+        2,
+      );
+
+      // Even fast completions from the old probe calls must not promote the limit while fg runs.
+      vi.advanceTimersByTime(10_000);
+      queue.observe(codex, callLatency(500));
+      p1.release(done);
+      queue.observe(codex, callLatency(500));
+      p2.value!.release(done);
+      fg.release(done);
+      await flush();
+
+      const r1 = await queue.acquire(codex, run("r1"), signal);
+      const r2 = track(queue.acquire(codex, run("r2"), signal));
+      await flush();
+      expect(r2.value).toBeUndefined();
+      r1.release(done);
+      await flush();
+      expect(r2.value).toBeDefined();
+      r2.value!.release(done);
+    } finally {
+      setAgentLogOptions();
+      vi.unstubAllEnvs();
+      output.mockRestore();
+    }
+  });
 });
 
 describe("ModelQueue limit", () => {

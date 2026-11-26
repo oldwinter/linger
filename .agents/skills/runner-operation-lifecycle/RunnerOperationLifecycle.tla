@@ -89,11 +89,14 @@ ConnectFresh ==
        liveWaiter, liveWorkKilledByStaleDisconnect
      >>
 
-(* RunnerConnections.#replaceConnection installs a new socket while previous.peer.close is still pending async disconnect *)
+(* RunnerConnections.#replaceConnection installs a new socket, cleans up previous's in-flight calls, and closes previous.peer asynchronously *)
 ReplaceConnection ==
   /\ connPhase \in {"reconciling", "ready"}
   /\ connEpoch < MaxEpoch
-  /\ LET nextEpoch == connEpoch + 1 IN
+  /\ LET nextEpoch == connEpoch + 1
+         afterActive == qActive - bgProbeActive
+         admitWaiter == (bgProbeActive > 0 /\ liveWaiter = "waiting" /\ afterActive < 1)
+     IN
      /\ connEpoch' = nextEpoch
      /\ connPhase' = "reconciling"
      /\ staleConnClosing' = TRUE
@@ -101,28 +104,33 @@ ReplaceConnection ==
      /\ daemonConnEpoch' = nextEpoch
      /\ daemonWelcomedEpochs' = daemonWelcomedEpochs \cup {nextEpoch}
      /\ wireStartEpoch' = 0
+     /\ bgProbeActive' = 0
+     /\ qProbing' = FALSE
+     /\ IF admitWaiter
+          THEN
+            /\ liveWaiter' = "admitted"
+            /\ qActive' = afterActive + 1
+            /\ qActiveNonBg' = qActiveNonBg + 1
+          ELSE
+            /\ liveWaiter' = liveWaiter
+            /\ qActive' = afterActive
+            /\ qActiveNonBg' = qActiveNonBg
   /\ UNCHANGED <<
        daemonBoot,
        daemonLedger, daemonLedgerEpoch, daemonAcceptedPending, daemonTerminalPending,
        daemonExecCount, execAfterAccept,
        gwOpState, gwOpAccepted, gwOpEpoch, gwOpPhase,
-       opLeaseState, qActive, qSuspended, qActiveNonBg, qProbing, bgProbeActive,
-       liveWaiter, liveWorkKilledByStaleDisconnect
+       opLeaseState, qSuspended, liveWorkKilledByStaleDisconnect
      >>
 
-(* RunnerOperations.completeOperationReconciliation + RunnerOperationState.reconnectCommands *)
+(* RunnerOperations.completeOperationReconciliation + RunnerOperationState.reconnectCommands (keeps original connection_epoch immutable) *)
 ReconcileComplete ==
   /\ connPhase = "reconciling"
   /\ connPhase' = "ready"
   /\ IF gwOpState = "running"
        THEN
-         IF ~gwOpAccepted /\ ~helloReportedActive /\ gwOpEpoch /= connEpoch
-           THEN
-             /\ gwOpEpoch' = connEpoch
-             /\ wireStartEpoch' = connEpoch
-           ELSE
-             /\ gwOpEpoch' = gwOpEpoch
-             /\ wireStartEpoch' = gwOpEpoch
+         /\ gwOpEpoch' = gwOpEpoch
+         /\ wireStartEpoch' = gwOpEpoch
        ELSE
          /\ gwOpEpoch' = gwOpEpoch
          /\ wireStartEpoch' = 0
@@ -156,28 +164,18 @@ ConnectionDrop ==
        opLeaseState, qSuspended, qActiveNonBg, liveWorkKilledByStaleDisconnect
      >>
 
-(* Delayed WebSocket close on superseded socket runs RunnerConnections.disconnect(previous) *)
+(* Delayed WebSocket close on superseded socket runs RunnerConnections.disconnect(previous), which cleans only previous-epoch waiters and returns when #connections.get(runnerId) /= previous *)
 StaleDisconnectFires ==
   /\ staleConnClosing
   /\ staleConnClosing' = FALSE
-  /\ LET nextActive == qActive - bgProbeActive
-         killedLive == (connPhase = "ready" /\ (liveWaiter = "waiting" \/ bgProbeActive > 0))
-     IN
-     /\ qActive' = nextActive
-     /\ bgProbeActive' = 0
-     /\ liveWaiter' = IF liveWaiter = "waiting" THEN "none" ELSE liveWaiter
-     /\ liveWorkKilledByStaleDisconnect' = (liveWorkKilledByStaleDisconnect \/ killedLive)
-     /\ qProbing' =
-          IF qProbing /\ qActiveNonBg = 0 /\ liveWaiter /= "waiting" /\ (nextActive > 0 \/ qSuspended > 0)
-            THEN TRUE
-            ELSE FALSE
   /\ UNCHANGED <<
        connEpoch, connPhase, helloReportedActive,
        daemonBoot, daemonConnEpoch, daemonWelcomedEpochs,
        daemonLedger, daemonLedgerEpoch, daemonAcceptedPending, daemonTerminalPending,
        daemonExecCount, execAfterAccept, wireStartEpoch,
        gwOpState, gwOpAccepted, gwOpEpoch, gwOpPhase,
-       opLeaseState, qSuspended, qActiveNonBg
+       opLeaseState, qActive, qSuspended, qActiveNonBg, qProbing, bgProbeActive,
+       liveWaiter, liveWorkKilledByStaleDisconnect
      >>
 
 (* Daemon process crashes and restarts with an empty MemoryLedger and welcomedEpochs *)
@@ -372,18 +370,39 @@ DeliverTerminal ==
        gwOpAccepted, gwOpEpoch, gwOpPhase, bgProbeActive, liveWorkKilledByStaleDisconnect
      >>
 
-(* Non-task RunnerOperationState.#cancel times out and calls #complete without #onSchedulingChange *)
+(* Non-task RunnerOperationState.#cancel times out -> #complete -> #onSchedulingChange -> #retireOperation -> ModelLease.release *)
 GatewayCancelTimeout ==
   /\ gwOpState = "running"
-  /\ gwOpState' = "terminal_retained"
+  /\ LET releasedActive == IF opLeaseState = "active" THEN 1 ELSE 0
+         releasedSusp == IF opLeaseState = "suspended" THEN 1 ELSE 0
+         afterActive == qActive - releasedActive
+         afterSusp == qSuspended - releasedSusp
+         afterNonBg == qActiveNonBg - releasedActive
+         admitWaiter == (liveWaiter = "waiting" /\ afterActive < 1)
+     IN
+     /\ gwOpState' = "retired"
+     /\ opLeaseState' = "none"
+     /\ qSuspended' = afterSusp
+     /\ IF admitWaiter
+          THEN
+            /\ liveWaiter' = "admitted"
+            /\ qActive' = afterActive + 1
+            /\ qActiveNonBg' = afterNonBg + 1
+            /\ qProbing' = FALSE
+          ELSE
+            /\ liveWaiter' = liveWaiter
+            /\ qActive' = afterActive
+            /\ qActiveNonBg' = afterNonBg
+            /\ qProbing' =
+                 IF qProbing /\ afterNonBg = 0 /\ liveWaiter /= "waiting" /\ (afterActive > 0 \/ afterSusp > 0)
+                   THEN TRUE
+                   ELSE FALSE
   /\ UNCHANGED <<
        connEpoch, connPhase, staleConnClosing, helloReportedActive,
        daemonBoot, daemonConnEpoch, daemonWelcomedEpochs,
        daemonLedger, daemonLedgerEpoch, daemonAcceptedPending, daemonTerminalPending,
        daemonExecCount, execAfterAccept, wireStartEpoch,
-       gwOpAccepted, gwOpEpoch, gwOpPhase,
-       opLeaseState, qActive, qSuspended, qActiveNonBg, qProbing, bgProbeActive,
-       liveWaiter, liveWorkKilledByStaleDisconnect
+       gwOpAccepted, gwOpEpoch, gwOpPhase, bgProbeActive, liveWorkKilledByStaleDisconnect
      >>
 
 (* run.background_waiting -> RunnerOperations.receiveOperation -> ModelLease.suspend -> ModelQueue.#drain *)
@@ -421,7 +440,7 @@ DeliverBgWaiting ==
        gwOpState, gwOpAccepted, gwOpEpoch, bgProbeActive, liveWorkKilledByStaleDisconnect
      >>
 
-(* run.background_resumed -> RunnerOperations.receiveOperation -> ModelLease.resume (no #drain / no abortProbe) *)
+(* run.background_resumed -> RunnerOperations.receiveOperation -> ModelLease.resume -> #drain (aborts active background probe) *)
 DeliverBgResumed ==
   /\ connPhase \in {"reconciling", "ready"}
   /\ daemonConnEpoch = connEpoch
@@ -435,12 +454,13 @@ DeliverBgResumed ==
   /\ qSuspended' = qSuspended - 1
   /\ qActive' = qActive + 1
   /\ qActiveNonBg' = qActiveNonBg + 1
+  /\ qProbing' = FALSE
   /\ UNCHANGED <<
        connEpoch, connPhase, staleConnClosing, helloReportedActive,
        daemonBoot, daemonConnEpoch, daemonWelcomedEpochs,
        daemonLedger, daemonLedgerEpoch, daemonAcceptedPending, daemonTerminalPending,
        daemonExecCount, execAfterAccept, wireStartEpoch,
-       gwOpState, gwOpAccepted, gwOpEpoch, qProbing, bgProbeActive,
+       gwOpState, gwOpAccepted, gwOpEpoch, bgProbeActive,
        liveWaiter, liveWorkKilledByStaleDisconnect
      >>
 

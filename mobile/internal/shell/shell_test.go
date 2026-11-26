@@ -66,6 +66,15 @@ func TestFiveTabShellNavigationBiometricsHooksAndThemes(t *testing.T) {
 				t.Fatal("expected live Compute & Local Models on Tab 2")
 			}
 
+			// Tab 1 sub-route: Terminals Pocket Command Center
+			appShell.OpenTerminals("")
+			tt.Frame()
+			if store.Routers[state.TabLive].Path() != "/live/terminals" || !tt.HasText("Terminals") {
+				t.Fatalf("expected OpenTerminals to push /live/terminals route, path=%q texts=%v", store.Routers[state.TabLive].Path(), tt.Texts())
+			}
+			store.Routers[state.TabLive].Back()
+			tt.Frame()
+
 			// Tab 2: Full Work screen (Wave C-2)
 			store.SetActiveTab(state.TabWork)
 			tt.Frame()

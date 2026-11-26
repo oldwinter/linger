@@ -13,6 +13,7 @@ import type {
   ByokTestResult,
   ComputerPermissionStatus,
   ModelSourceStatus,
+  SystemTelemetrySnapshot,
 } from "@linger/wire-contracts/runner-gateway/types";
 
 export type LocalRuntimeType = "claude" | "codex" | "pi" | "antigravity";
@@ -92,6 +93,10 @@ export const FIRST_PI_SESSION_COMPACTION_COMPUTER_VERSION = "0.65.0";
 // The first release that decodes `"antigravity"` in `SessionCompact.runtime_type`.
 // Computers on 0.65.0 and earlier reject `"antigravity"` and close the connection.
 export const FIRST_ANTIGRAVITY_SESSION_COMPACTION_COMPUTER_VERSION = "0.66.0";
+
+// The first release that runs `system_telemetry` commands. Older Computers
+// reject the unknown execute kind and close the connection.
+export const FIRST_SYSTEM_TELEMETRY_COMPUTER_VERSION = "0.67.0";
 
 const COMPUTER_RELEASE_VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 
@@ -211,6 +216,10 @@ export interface LocalComputerManagement {
     readonly testResult?: ByokTestResult;
     readonly modelList?: ByokModelList;
   }>;
+
+  systemTelemetry?(
+    command: LocalSystemTelemetryCommand,
+  ): Promise<SystemTelemetrySnapshot>;
 
   /** Returns the placed model as the connected Computer reports it. */
   requireLocalPlacement(
@@ -447,6 +456,25 @@ export class LocalModelSourceError extends Error {
   ) {
     super(message);
     this.name = "LocalModelSourceError";
+  }
+}
+
+export interface LocalSystemTelemetryCommand {
+  readonly tenantId: string;
+  readonly ownerActorId: string;
+  readonly computerId: string;
+  readonly signal?: AbortSignal;
+}
+
+/** The Computer rejected a system-telemetry sample or did not answer. */
+export class LocalSystemTelemetryError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly retryable: boolean,
+  ) {
+    super(message);
+    this.name = "LocalSystemTelemetryError";
   }
 }
 

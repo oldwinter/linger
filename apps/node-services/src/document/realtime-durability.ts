@@ -50,6 +50,7 @@ export type DocumentDurabilityFailureCode =
 export class DocumentDurabilityCoordinator {
   readonly #bodies: DocumentBodyStore;
   readonly #documents = new Map<string, DocumentQueue>();
+  readonly #openWatchers = new Map<string, Set<{ stale: boolean }>>();
   readonly #onCommitted: (
     documentId: string,
     head: DocumentDurableHead,
@@ -432,11 +433,112 @@ export class DocumentDurabilityCoordinator {
     }
     queue.durableDocument.destroy();
     this.#documents.delete(documentId);
+    this.noteBodyChange(documentId);
     if (queue.failure !== undefined) this.#reportFailedQueues();
   }
 
   hasDocument(documentId: string): boolean {
     return this.#documents.has(documentId);
+  }
+
+  // Tracks writes and unloads for a Document while a session loads before
+  // registering, so a cold open never registers a pre-write snapshot.
+  watchOpenBody(documentId: string): {
+    isStale(): boolean;
+    release(): void;
+  } {
+    let watchers = this.#openWatchers.get(documentId);
+    if (watchers === undefined) {
+      watchers = new Set();
+      this.#openWatchers.set(documentId, watchers);
+    }
+    const entry = { stale: false };
+    watchers.add(entry);
+    let released = false;
+    return {
+      isStale: () => entry.stale,
+      release: () => {
+        if (released) return;
+        released = true;
+        watchers.delete(entry);
+        if (watchers.size === 0) {
+          this.#openWatchers.delete(documentId);
+        }
+      },
+    };
+  }
+
+  noteBodyChange(documentId: string): void {
+    const watchers = this.#openWatchers.get(documentId);
+    if (watchers === undefined) return;
+    for (const entry of watchers) {
+      entry.stale = true;
+    }
+  }
+
+  // Refreshes an open resident Document from document_bodies when persistence
+  // moved ahead (for example after a lost save reply or concurrent writer).
+  async reconcileSavedBody(
+    documentId: string,
+    options: { minSeq?: number } = {},
+  ): Promise<"adopted" | "current" | "unopened" | "missing"> {
+    while (true) {
+      const queue = this.#documents.get(documentId);
+      if (queue === undefined || queue.failure !== undefined) {
+        return "unopened";
+      }
+      if (queue.appendSettled !== undefined) {
+        await this.settleAppend(documentId);
+        continue;
+      }
+      if (
+        options.minSeq !== undefined &&
+        queue.head.persisted_seq >= options.minSeq
+      ) {
+        return "current";
+      }
+      const loaded = await this.#bodies.load(documentId);
+      if (loaded === undefined) {
+        return "missing";
+      }
+      const current = this.#documents.get(documentId);
+      if (
+        current === undefined ||
+        current !== queue ||
+        current.failure !== undefined
+      ) {
+        return "unopened";
+      }
+      if (loaded.seq <= current.head.persisted_seq) {
+        return "current";
+      }
+      if (current.appendSettled !== undefined) {
+        await this.settleAppend(documentId);
+        continue;
+      }
+      const document = new Y.Doc({ gc: true });
+      try {
+        Y.applyUpdate(document, loaded.state);
+      } catch (error) {
+        document.destroy();
+        throw error;
+      }
+      this.#adopt(documentId, current, {
+        document,
+        stateBytes: loaded.state,
+        head: {
+          ...current.head,
+          persisted_seq: loaded.seq,
+          state_vector: Buffer.from(loaded.stateVector).toString("base64"),
+          state_hash: sha256Hex(loaded.state),
+        },
+      });
+      addReferences(current.knownReferences, {
+        document_asset_ids: loaded.assetIds,
+        document_thread_ids: loaded.threadIds,
+      });
+      return "adopted";
+    }
   }
 
   #markPermanentFailure(
@@ -554,7 +656,12 @@ export class DocumentDurabilityCoordinator {
     }
     if (queue.head.persisted_seq >= loaded.seq) return;
     const document = new Y.Doc({ gc: true });
-    Y.applyUpdate(document, loaded.state);
+    try {
+      Y.applyUpdate(document, loaded.state);
+    } catch (error) {
+      document.destroy();
+      throw error;
+    }
     this.#adopt(documentId, queue, {
       document,
       stateBytes: loaded.state,
@@ -564,6 +671,10 @@ export class DocumentDurabilityCoordinator {
         state_vector: Buffer.from(loaded.stateVector).toString("base64"),
         state_hash: sha256Hex(loaded.state),
       },
+    });
+    addReferences(queue.knownReferences, {
+      document_asset_ids: loaded.assetIds,
+      document_thread_ids: loaded.threadIds,
     });
   }
 

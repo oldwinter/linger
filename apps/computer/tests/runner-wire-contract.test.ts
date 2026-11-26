@@ -168,6 +168,12 @@ const agentFrames = [
     },
   },
   {
+    type: "execute",
+    kind: "system_telemetry",
+    ...localCapability,
+    action: "snapshot",
+  },
+  {
     type: "prepare",
     target: "operation",
     ...operation,
