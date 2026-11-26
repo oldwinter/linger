@@ -449,6 +449,16 @@ func TestChineseLayoutSafetyAcrossPhoneViewports(t *testing.T) {
 			}
 			assertVisibleControlsHaveValidBounds(t, tt, "Live", vp)
 
+			// Live -> Terminals Pocket Command Center
+			appShell.OpenTerminals("")
+			settleFrame(tt)
+			if !tt.HasText(i18n.Tp(i18n.LocaleZhHans, "terminals.title", nil)) {
+				t.Fatalf("%s: expected Chinese Terminals title, texts=%v", vp.Name, tt.Texts())
+			}
+			assertVisibleControlsHaveValidBounds(t, tt, "Terminals", vp)
+			store.Routers[state.TabLive].Back()
+			settleFrame(tt)
+
 			// Work
 			store.SetActiveTab(state.TabWork)
 			settleFrame(tt)
