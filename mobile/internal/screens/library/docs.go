@@ -46,18 +46,18 @@ func (s *Screen) viewDocsSegment(c *ui.Context) {
 				i18n.T("library.docs.view_room"))
 
 			// Action bar: New Note, Upload File, Upload Photo
-			ui.Row(c).FillWidth().Wrap().Gap(8).Children(func() {
-				newBtn := components.PrimaryTouchButton(c, i18n.T("library.docs.new_note_short"), false)
+			ui.Row(c).FillWidth().Wrap().Gap(6).Children(func() {
+				newBtn := components.CompactPrimaryButton(c, i18n.T("library.docs.new_note_short"), nil, false)
 				if newBtn.Clicked() {
 					s.newNoteTitle = ""
 					s.newNoteErr = ""
 					s.newNoteSheetOpen = true
 				}
-				upFileBtn := components.SecondaryTouchButton(c, i18n.T("library.docs.upload_file"), s.uploadBusy)
+				upFileBtn := components.CompactSecondaryButton(c, i18n.T("library.docs.upload_file"), nil, s.uploadBusy)
 				if upFileBtn.Clicked() {
 					s.triggerUploadFile()
 				}
-				upPhotoBtn := components.SecondaryTouchButton(c, i18n.T("library.docs.upload_photo"), s.uploadBusy)
+				upPhotoBtn := components.CompactSecondaryButton(c, i18n.T("library.docs.upload_photo"), nil, s.uploadBusy)
 				if upPhotoBtn.Clicked() {
 					s.triggerUploadPhoto()
 				}
@@ -156,20 +156,33 @@ func (s *Screen) renderTreeNodes(c *ui.Context, nodes []api.DocumentTreeNode, fa
 		return
 	}
 
-	for _, f := range folders {
-		f := f
-		row := ui.Row(c.Key("folder:"+f.ID)).FillWidth().MinHeight(52).Padding(10, 12).Gap(10).
-			Radius(12).Background(t.Surface).Border(1, t.Border).AlignItems(ui.Center).
-			Role(ui.RoleButton).Label(i18n.Tf("library.docs.folder_a11y", map[string]any{"name": f.Name}))
-		row.Children(func() {
-			theme.IconBox(c, 20, t.Accent, theme.IconLibrary)
-			ui.Text(c, f.Name).FontSize(14).FontWeight(600).TextColor(t.Text).Grow(1).Basis(0).MaxLines(1)
-			ui.Text(c, "›").FontSize(18).TextColor(t.TextMuted)
+	if len(folders) > 0 {
+		ex := theme.Extra(t)
+		components.GroupedCard(c, func() {
+			for idx, f := range folders {
+				f := f
+				if idx > 0 {
+					components.InsetDivider(c, 52)
+				}
+				row := ui.Row(c.Key("folder:"+f.ID)).FillWidth().MinHeight(54).Padding(10, 14).Gap(10).
+					Background(t.Surface).AlignItems(ui.Center).
+					Role(ui.RoleButton).Label(i18n.Tf("library.docs.folder_a11y", map[string]any{"name": f.Name}))
+				if row.Pressed() {
+					row.Background(t.SurfacePressed)
+				}
+				row.Children(func() {
+					ui.Row(c).Size(32, 32).Radius(9).Background(ex.BrandTint).AlignItems(ui.Center).Justify(ui.Center).Shrink(0).Children(func() {
+						theme.IconBox(c, 16, ex.BrandText, theme.IconLibrary)
+					})
+					ui.Text(c, f.Name).FontSize(14.5).FontWeight(600).TextColor(t.Text).Grow(1).Basis(0).MaxLines(1)
+					theme.IconBox(c, 16, ex.TextSubtle, theme.IconChevronRight)
+				})
+				if row.Clicked() {
+					s.docFolderID = f.ID
+					s.docFolderTrail = append(s.docFolderTrail, f.Name)
+				}
+			}
 		})
-		if row.Clicked() {
-			s.docFolderID = f.ID
-			s.docFolderTrail = append(s.docFolderTrail, f.Name)
-		}
 	}
 
 	s.renderDocumentSlice(c, docs, "")
@@ -205,23 +218,31 @@ func (s *Screen) renderDocumentSlice(c *ui.Context, docs []api.Document, emptyMs
 		}
 		return
 	}
-	for _, doc := range docs {
-		doc := doc
-		row := ui.Row(c.Key("doc:"+doc.ID)).FillWidth().MinHeight(56).Padding(10, 12).Gap(10).
-			Radius(12).Background(t.Surface).Border(1, t.Border).AlignItems(ui.Center).
-			Role(ui.RoleButton).Label(i18n.Tf("library.docs.doc_a11y", map[string]any{"name": doc.Title}))
-		row.Children(func() {
-			components.AvatarBadge(c, doc.Title, 34)
-			ui.Column(c).Grow(1).Basis(0).Gap(3).Children(func() {
-				ui.Text(c, doc.Title).FontSize(14).FontWeight(600).TextColor(t.Text).MaxLines(1)
-				ui.Text(c, i18n.DocKindLabel(doc.Format)+" \u00b7 "+i18n.FormatDateTimeUTC(doc.UpdatedAt)).FontSize(11).TextColor(t.TextMuted).MaxLines(1)
+	components.GroupedCard(c, func() {
+		for idx, doc := range docs {
+			doc := doc
+			if idx > 0 {
+				components.InsetDivider(c, 62)
+			}
+			row := ui.Row(c.Key("doc:"+doc.ID)).FillWidth().MinHeight(62).Padding(11, 14).Gap(12).
+				Background(t.Surface).AlignItems(ui.Center).
+				Role(ui.RoleButton).Label(i18n.Tf("library.docs.doc_a11y", map[string]any{"name": doc.Title}))
+			if row.Pressed() {
+				row.Background(t.SurfacePressed)
+			}
+			row.Children(func() {
+				components.AvatarBadge(c, doc.Title, 36)
+				ui.Column(c).Grow(1).Basis(0).Gap(3).Children(func() {
+					ui.Text(c, doc.Title).FontSize(14.5).FontWeight(600).LetterSpacing(-0.1).TextColor(t.Text).MaxLines(1)
+					ui.Text(c, i18n.DocKindLabel(doc.Format)+" \u00b7 "+i18n.FormatDateTimeUTC(doc.UpdatedAt)).FontSize(11.5).TextColor(t.TextMuted).MaxLines(1)
+				})
+				components.StatusPill(c, i18n.DocKindLabel(doc.RepresentationFormat), components.ToneNeutral)
 			})
-			components.StatusPill(c, i18n.DocKindLabel(doc.RepresentationFormat), components.ToneNeutral)
-		})
-		if row.Clicked() {
-			s.openDocument(doc)
+			if row.Clicked() {
+				s.openDocument(doc)
+			}
 		}
-	}
+	})
 }
 
 func (s *Screen) fetchRoomDocsAsync(roomID string) {

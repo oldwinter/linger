@@ -30,14 +30,14 @@ func TestResolveAndAppearanceTokens(t *testing.T) {
 		t.Fatalf("unexpected dark OnAvatar token: %+v", darkExtra.OnAvatar)
 	}
 
-	if got := BackgroundHex(config.ThemeLight, true); got != "#FDFDFB" {
-		t.Fatalf("BackgroundHex light = %q, want #FDFDFB", got)
+	if got := BackgroundHex(config.ThemeLight, true); got != "#F5F4EF" {
+		t.Fatalf("BackgroundHex light = %q, want #F5F4EF", got)
 	}
-	if got := BackgroundHex(config.ThemeDark, false); got != "#171714" {
-		t.Fatalf("BackgroundHex dark = %q, want #171714", got)
+	if got := BackgroundHex(config.ThemeDark, false); got != "#11110F" {
+		t.Fatalf("BackgroundHex dark = %q, want #11110F", got)
 	}
-	if got := BackgroundHex(config.ThemeSystem, true); got != "#171714" {
-		t.Fatalf("BackgroundHex system dark = %q, want #171714", got)
+	if got := BackgroundHex(config.ThemeSystem, true); got != "#11110F" {
+		t.Fatalf("BackgroundHex system dark = %q, want #11110F", got)
 	}
 }
 

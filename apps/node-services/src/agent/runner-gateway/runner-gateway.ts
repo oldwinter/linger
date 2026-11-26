@@ -17,6 +17,7 @@ import {
   type LocalComputerPermissionCommand,
   type LocalComputerPermissionStatus,
   type LocalModelSourceCommand,
+  type LocalSystemTelemetryCommand,
   type LocalPlacementRequirement,
   type LocalReasoningEffort,
   type LocalRuntimeModelDefinition,
@@ -369,6 +370,10 @@ export class RunnerGateway
 
   async modelSource(command: LocalModelSourceCommand) {
     return this.#capabilities.modelSource(command);
+  }
+
+  async systemTelemetry(command: LocalSystemTelemetryCommand) {
+    return this.#capabilities.systemTelemetry(command);
   }
 
   async runLocalComputerMutation<T>(

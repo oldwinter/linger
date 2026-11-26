@@ -20,6 +20,7 @@ import (
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/provider"
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/provider/native"
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/provider/redact"
+	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/telemetry"
 )
 
 // SelfUpdater receives the Gateway signals that drive a Computer self-upgrade.
@@ -75,6 +76,10 @@ type Options struct {
 	LocalModels LocalModelLibrary
 	// ModelSource inspects, tests and switches the Computer's active model source.
 	ModelSource ModelSourceManager
+	// SystemTelemetry samples rootless host hardware and local LLM inference metrics.
+	SystemTelemetry SystemTelemetryProvider
+	// TelemetryTracker records privacy-safe numeric inference call metadata.
+	TelemetryTracker *telemetry.Tracker
 }
 
 // HerdrPanes types the owner's answer into a herdr agent pane that is still
@@ -192,6 +197,8 @@ type Daemon struct {
 	modelInvokes       map[string]*modelInvoke
 	localModels        LocalModelLibrary
 	modelSource        ModelSourceManager
+	systemTelemetry    SystemTelemetryProvider
+	telemetryTracker   *telemetry.Tracker
 	// dialNetwork opens and closes one connection for the reachability check
 	// after a failed model call; nil dials for real.
 	dialNetwork func(ctx context.Context, network, address string) error
@@ -292,6 +299,8 @@ func New(options Options) (*Daemon, error) {
 		modelInvokes:         make(map[string]*modelInvoke),
 		localModels:          options.LocalModels,
 		modelSource:          options.ModelSource,
+		systemTelemetry:      options.SystemTelemetry,
+		telemetryTracker:     options.TelemetryTracker,
 		contextDispatchLimit: defaultContextDispatchLimit,
 		retryDelay:           defaultRetryDelay(options.RetryDelay),
 		stableConnection:     stableGatewayConnection,

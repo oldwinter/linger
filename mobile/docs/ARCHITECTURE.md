@@ -276,22 +276,23 @@ mobile/
 
 Every color, radius, and typographic role in `mobile/internal/theme` derives directly from Linger Web's Town tokens in `apps/web/src/app/visual-theme.css` and `apps/web/src/app/globals.css`:
 
-| Semantic Role                 | Linger Web Token                                                                                                        | Mobile Town Light (`ui.Theme`)                                       | Mobile Town Dark (`ui.Theme`)        |
-| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- | ------------------------------------ |
-| Window Canvas                 | `--town-background: 60 20% 99%`                                                                                         | `#FDFDFB`                                                            | `#141412`                            |
-| Card / Input Surface          | `--town-card: 0 0% 100%`                                                                                                | `#FFFFFF`                                                            | `#1D1D1A`                            |
-| Sidebar / Bar / Muted Surface | `--town-sidebar: 75 23% 96.5%` / `--town-muted: 60 16% 95%`                                                             | `#F6F7F2` / `#F4F4EE`                                                | `#242420` / `#2A2A25`                |
-| Primary Ink / Action          | `--town-foreground: 60 8% 9.4%` / `--town-primary`                                                                      | `#1A1A16` (text on action `#FFFFFF`)                                 | `#F5F5F0` (text on action `#141412`) |
-| Muted / Metadata Text         | `--town-muted-foreground: 55 6% 42.5%`                                                                                  | `#737166`                                                            | `#A09E93`                            |
-| Border / Divider              | `--town-border: 72 9% 92%`                                                                                              | `#ECECE7`                                                            | `#2F2F2A`                            |
-| Info / Link / Mention         | `--town-info: 207 92% 42%`                                                                                              | `#0976CE`                                                            | `#4DA6F5`                            |
-| Destructive / Unread Badge    | `--town-destructive: 14 89% 41%`                                                                                        | `#C6390B`                                                            | `#EF6238`                            |
-| Success / Online              | `--town-success: 98 48% 35%`                                                                                            | `#4B842E`                                                            | `#6BB347`                            |
-| Warning / Busy                | `--town-warning: 37 100% 39%`                                                                                           | `#C77B00`                                                            | `#F0A324`                            |
-| Chat Own Bubble               | `--chat-own-bubble-bg: var(--app-ink)`                                                                                  | `#1A1A16` (text `#FFFFFF`)                                           | `#EAEAE3` (text `#141412`)           |
-| Chat Agent Bubble             | `--chat-agent-bubble-bg: hsl(var(--town-muted) / 0.7)`                                                                  | `#F4F4EE`                                                            | `#242420`                            |
-| Nature File/Entity Accents    | `sun #d95b31`, `rain #4e9ba2`, `lake #509578`, `grass #5e9662`, `lavender #a17cb9`, `acorn #b88022`, `bluebell #698cc7` | Identical semantic file-type & wiki entity chips                     | Luminance-lifted dark equivalents    |
-| Radii & Typography            | `--radius-lg: 8px`, `--app-card-radius: 12px`, `--composer-radius: 16px`, body 14–15px, meta 12–13px                    | `Radius: 8`, Card `12`, Composer `16`, Touch min target `44x44` DIPs | Same metrics                         |
+| Semantic Role                 | Linger Web Token                                                                                                        | Mobile Town Light (`ui.Theme`)                                            | Mobile Town Dark (`ui.Theme`)             |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | ----------------------------------------- |
+| Window Canvas                 | `--town-background` (warm parchment paper)                                                                              | `#F5F4EF`                                                                 | `#11110F`                                 |
+| Card / Input Surface          | `--town-card: 0 0% 100%`                                                                                                | `#FFFFFF`                                                                 | `#1B1B18`                                 |
+| Sidebar / Bar / Muted Surface | `--town-sidebar` / `--town-muted`                                                                                       | `#EFECE5` / `#EAE8E1`                                                     | `#161613` / `#242420`                     |
+| Primary Ink / Action          | `--town-foreground` / `--town-primary`                                                                                  | `#181815` (text on action `#FAFAF6`)                                      | `#F2F0E6` (text on action `#141411`)      |
+| Brand Spark (Solar Marigold)  | LingerX orb accent (`resources/icon.png`)                                                                               | `#E58A28` (text `#9B5309`, tint 12%)                                      | `#F5A442` (text `#F7B45E`, tint 16%)      |
+| Muted / Metadata Text         | `--town-muted-foreground`                                                                                               | `#6A685E` (subtle `#8E8C81`)                                              | `#9A988D` (subtle `#6E6C63`)              |
+| Border / Divider              | `--town-border`                                                                                                         | `#E5E3DB` (subtle 8% ink hairline)                                        | `#2B2B25` (subtle 8% ivory hairline)      |
+| Info / Link / Mention         | `--town-info`                                                                                                           | `#1B6DA3`                                                                 | `#6CB2EA`                                 |
+| Destructive / Unread Badge    | `--town-destructive`                                                                                                    | `#C43B1F`                                                                 | `#F27557`                                 |
+| Success / Online              | `--town-success`                                                                                                        | `#2E7A46`                                                                 | `#64BF7A`                                 |
+| Warning / Busy                | `--town-warning`                                                                                                        | `#B46A00`                                                                 | `#F0AA3E`                                 |
+| Chat Own Bubble               | `--chat-own-bubble-bg: var(--app-ink)`                                                                                  | `#1A1A16` (text `#FAFAF6`, radii `18/18/5/18`)                            | `#EAE8DF` (text `#151512`, `18/18/5/18`)  |
+| Chat Peer / Agent Bubble      | Elevated surface card                                                                                                   | `#FFFFFF` (ambient shadow, radii `5/18/18/18`)                            | `#1E1E1A` (top inner sheen, `5/18/18/18`) |
+| Nature File/Entity Accents    | `sun #d95b31`, `rain #4e9ba2`, `lake #509578`, `grass #5e9662`, `lavender #a17cb9`, `acorn #b88022`, `bluebell #698cc7` | Identical semantic file-type & wiki entity chips                          | Luminance-lifted dark equivalents         |
+| Radii & Typography            | Card `16px`, Hero `18px`, Composer `20px`, body `15px`, meta `12px`                                                     | `Radius: 12`, Card `16`, Hero `18`, Composer `20`, Touch min `44x44` DIPs | Same metrics                              |
 
 ### 3.5 Offline SQLite + FTS5 Cache & Realtime Sync Engine
 
@@ -321,7 +322,7 @@ Every color, radius, and typographic role in `mobile/internal/theme` derives dir
   "ios": {
     "minimumSystemVersion": "17.0",
     "orientations": ["portrait", "landscape"],
-    "launchScreen": { "background": "#FDFDFB", "image": "resources/icon.png" },
+    "launchScreen": { "background": "#F5F4EF", "image": "resources/icon.png" },
     "infoPlist": {
       "NSLocalNetworkUsageDescription": "Discover and connect to Linger Desktop on your local network.",
       "NSBonjourServices": ["_linger._tcp"],
@@ -334,9 +335,9 @@ Every color, radius, and typographic role in `mobile/internal/theme` derives dir
     "permissions": ["CAMERA", "CHANGE_WIFI_MULTICAST_STATE", "USE_BIOMETRIC"],
     "adaptiveIcon": {
       "foreground": "resources/icon-foreground.png",
-      "background": "#FDFDFB"
+      "background": "#F5F4EF"
     },
-    "splash": "#FDFDFB"
+    "splash": "#F5F4EF"
   }
 }
 ```

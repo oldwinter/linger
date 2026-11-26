@@ -133,16 +133,20 @@ func (ctl *Controller) viewInspectorSheet(c *ui.Context, snap state.Snapshot) {
 
 				case 1:
 					components.SectionCard(c, i18n.Tf("inspector.members_title", map[string]any{"count": len(members)}), "", nil, func() {
-						for _, m := range members {
+						for idx, m := range members {
 							m := m
-							ui.Row(c.Key(m.Actor.ID)).FillWidth().MinHeight(44).AlignItems(ui.Center).Gap(8).Children(func() {
-								components.AvatarBadge(c, m.Actor.DisplayName, 30)
+							if idx > 0 {
+								components.InsetDivider(c, 42)
+							}
+							ui.Row(c.Key(m.Actor.ID)).FillWidth().MinHeight(46).AlignItems(ui.Center).Gap(10).Children(func() {
+								components.AvatarBadge(c, m.Actor.DisplayName, 32)
 								ui.Column(c).Grow(1).Basis(0).Gap(1).Children(func() {
-									ui.Text(c, m.Actor.DisplayName).FontSize(14).FontWeight(500).TextColor(t.Text)
-									ui.Text(c, i18n.ActorRoleLabel(m.Actor.Kind)+" · "+i18n.ActorRoleLabel(m.Role)).FontSize(11).TextColor(t.TextMuted)
+									ui.Text(c, m.Actor.DisplayName).FontSize(14).FontWeight(600).TextColor(t.Text)
+									ui.Text(c, i18n.ActorRoleLabel(m.Actor.Kind)+" · "+i18n.ActorRoleLabel(m.Role)).FontSize(11.5).TextColor(t.TextMuted)
 								})
 								if m.Role != "owner" {
 									rmBtn := components.DangerTouchButton(c, i18n.T("common.remove"), false)
+									rmBtn.MinHeight(34)
 									if rmBtn.Clicked() {
 										go func() {
 											if cl := ctl.store.Client(); cl != nil {
@@ -168,11 +172,14 @@ func (ctl *Controller) viewInspectorSheet(c *ui.Context, snap state.Snapshot) {
 					}
 					if len(candidates) > 0 {
 						components.SectionCard(c, i18n.T("inspector.add_member_title"), "", nil, func() {
-							for _, act := range candidates {
+							for idx, act := range candidates {
 								act := act
+								if idx > 0 {
+									components.InsetDivider(c, 0)
+								}
 								ui.Row(c.Key("add_" + act.ID)).FillWidth().MinHeight(44).AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
-									ui.Text(c, act.DisplayName+" ("+i18n.ActorRoleLabel(act.Kind)+")").FontSize(13).TextColor(t.Text)
-									addBtn := components.SecondaryTouchButton(c, i18n.T("common.add"), false)
+									ui.Text(c, act.DisplayName+" ("+i18n.ActorRoleLabel(act.Kind)+")").FontSize(13.5).TextColor(t.Text)
+									addBtn := components.CompactSecondaryButton(c, i18n.T("common.add"), nil, false)
 									if addBtn.Clicked() {
 										go func() {
 											if cl := ctl.store.Client(); cl != nil {

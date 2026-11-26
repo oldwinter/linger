@@ -276,6 +276,7 @@ describe("Settings surfaces", () => {
       "Shortcuts",
       "Computers",
       "Models",
+      "System",
       "Language",
     ]);
     expect(
@@ -667,6 +668,7 @@ describe("Browser preferences", () => {
       "Shortcuts",
       "Computers",
       "Models",
+      "System",
       "Language",
     ]);
     for (const link of links) {

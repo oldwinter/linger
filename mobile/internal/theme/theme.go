@@ -1,5 +1,5 @@
 // Package theme defines Linger's Town Light and Town Dark ui.Theme palettes,
-// Nature semantic colors, and crisp vector icons drawn with ui.Painter.
+// Nature semantic colors, elevation tokens, and crisp vector icons drawn with ui.Painter.
 package theme
 
 import (
@@ -40,100 +40,142 @@ var Nature = NaturePalette{
 	Fawn:      ui.Hex("#B07F77"),
 }
 
-// ExtraTokens holds Town surface/muted tokens beyond ui.Theme's core fields.
+// ExtraTokens holds Town surface, elevation, brand spark, and chat tokens beyond ui.Theme.
 type ExtraTokens struct {
-	SidebarBg  ui.Color
-	MutedBg    ui.Color
-	Info       ui.Color
-	InfoTint   ui.Color
-	DangerTint ui.Color
-	WarnTint   ui.Color
-	OKTint     ui.Color
-	OnAvatar   ui.Color
+	SidebarBg     ui.Color
+	MutedBg       ui.Color
+	ElevatedBg    ui.Color
+	SubtleBorder  ui.Color
+	Divider       ui.Color
+	CardShadow    ui.Color
+	CardHighlight ui.Color
+	TextSubtle    ui.Color
+	Brand         ui.Color
+	BrandText     ui.Color
+	BrandTint     ui.Color
+	Info          ui.Color
+	InfoTint      ui.Color
+	DangerTint    ui.Color
+	WarnTint      ui.Color
+	OKTint        ui.Color
+	OwnBubbleBg   ui.Color
+	OwnBubbleText ui.Color
+	PeerBubbleBg  ui.Color
+	HeroGradFrom  ui.Color
+	HeroGradTo    ui.Color
+	OnAvatar      ui.Color
 }
 
 var (
 	townLightExtra = ExtraTokens{
-		SidebarBg:  ui.Hex("#F6F7F2"),
-		MutedBg:    ui.Hex("#F4F4EE"),
-		Info:       ui.Hex("#0976CE"),
-		InfoTint:   ui.RGBA(9, 118, 206, 0.10),
-		DangerTint: ui.RGBA(198, 57, 11, 0.10),
-		WarnTint:   ui.RGBA(199, 123, 0, 0.12),
-		OKTint:     ui.RGBA(75, 132, 46, 0.12),
-		OnAvatar:   ui.Hex("#FFFFFF"),
+		SidebarBg:     ui.Hex("#EFECE5"),
+		MutedBg:       ui.Hex("#EAE8E1"),
+		ElevatedBg:    ui.Hex("#FFFFFF"),
+		SubtleBorder:  ui.RGBA(23, 23, 20, 0.08),
+		Divider:       ui.RGBA(23, 23, 20, 0.07),
+		CardShadow:    ui.RGBA(22, 20, 16, 0.055),
+		CardHighlight: ui.RGBA(255, 255, 255, 0.90),
+		TextSubtle:    ui.Hex("#8E8C81"),
+		Brand:         ui.Hex("#E58A28"),
+		BrandText:     ui.Hex("#9B5309"),
+		BrandTint:     ui.RGBA(229, 138, 40, 0.12),
+		Info:          ui.Hex("#1B6DA3"),
+		InfoTint:      ui.RGBA(27, 109, 163, 0.10),
+		DangerTint:    ui.RGBA(196, 59, 31, 0.09),
+		WarnTint:      ui.RGBA(180, 106, 0, 0.11),
+		OKTint:        ui.RGBA(46, 122, 70, 0.10),
+		OwnBubbleBg:   ui.Hex("#1A1A16"),
+		OwnBubbleText: ui.Hex("#FAFAF6"),
+		PeerBubbleBg:  ui.Hex("#FFFFFF"),
+		HeroGradFrom:  ui.Hex("#FFFFFF"),
+		HeroGradTo:    ui.Hex("#F7F5EE"),
+		OnAvatar:      ui.Hex("#FFFFFF"),
 	}
 	townDarkExtra = ExtraTokens{
-		SidebarBg:  ui.Hex("#1C1C18"),
-		MutedBg:    ui.Hex("#282822"),
-		Info:       ui.Hex("#4DA3E8"),
-		InfoTint:   ui.RGBA(77, 163, 232, 0.16),
-		DangerTint: ui.RGBA(255, 133, 95, 0.18),
-		WarnTint:   ui.RGBA(229, 160, 50, 0.16),
-		OKTint:     ui.RGBA(117, 184, 83, 0.16),
-		OnAvatar:   ui.Hex("#F5F4EE"),
+		SidebarBg:     ui.Hex("#161613"),
+		MutedBg:       ui.Hex("#242420"),
+		ElevatedBg:    ui.Hex("#23231E"),
+		SubtleBorder:  ui.RGBA(243, 242, 235, 0.08),
+		Divider:       ui.RGBA(243, 242, 235, 0.07),
+		CardShadow:    ui.RGBA(0, 0, 0, 0.28),
+		CardHighlight: ui.RGBA(255, 252, 242, 0.05),
+		TextSubtle:    ui.Hex("#6E6C63"),
+		Brand:         ui.Hex("#F5A442"),
+		BrandText:     ui.Hex("#F7B45E"),
+		BrandTint:     ui.RGBA(245, 164, 66, 0.16),
+		Info:          ui.Hex("#6CB2EA"),
+		InfoTint:      ui.RGBA(108, 178, 234, 0.15),
+		DangerTint:    ui.RGBA(242, 117, 87, 0.16),
+		WarnTint:      ui.RGBA(240, 170, 62, 0.16),
+		OKTint:        ui.RGBA(100, 191, 122, 0.15),
+		OwnBubbleBg:   ui.Hex("#EAE8DF"),
+		OwnBubbleText: ui.Hex("#151512"),
+		PeerBubbleBg:  ui.Hex("#1E1E1A"),
+		HeroGradFrom:  ui.Hex("#21211C"),
+		HeroGradTo:    ui.Hex("#181815"),
+		OnAvatar:      ui.Hex("#F5F4EE"),
 	}
 )
 
-// TownLight returns Linger's warm paper Town Light ui.Theme matching apps/web/src/app/visual-theme.css.
+// TownLight returns Linger's warm alabaster paper & editorial obsidian ink Town Light ui.Theme.
 func TownLight() *ui.Theme {
 	return &ui.Theme{
 		Dark:            false,
-		Background:      ui.Hex("#FDFDFB"),
+		Background:      ui.Hex("#F5F4EF"),
 		Surface:         ui.Hex("#FFFFFF"),
-		SurfaceHover:    ui.Hex("#F6F7F2"),
-		SurfacePressed:  ui.Hex("#ECECE7"),
-		Border:          ui.Hex("#ECECE7"),
-		Text:            ui.Hex("#1A1A16"),
-		TextMuted:       ui.Hex("#737166"),
-		Accent:          ui.Hex("#0976CE"),
-		AccentHover:     ui.Hex("#0763AE"),
-		AccentPressed:   ui.Hex("#06508E"),
-		AccentText:      ui.Hex("#FFFFFF"),
-		InactiveAccent:  ui.Hex("#698CC7"),
-		Danger:          ui.Hex("#C6390B"),
-		Warning:         ui.Hex("#C77B00"),
-		Success:         ui.Hex("#4B842E"),
-		Selection:       ui.RGBA(9, 118, 206, 0.20),
-		Focus:           ui.RGBA(9, 118, 206, 0.55),
+		SurfaceHover:    ui.Hex("#F2F1EC"),
+		SurfacePressed:  ui.Hex("#E8E6DF"),
+		Border:          ui.Hex("#E5E3DB"),
+		Text:            ui.Hex("#171714"),
+		TextMuted:       ui.Hex("#6A685E"),
+		Accent:          ui.Hex("#181815"),
+		AccentHover:     ui.Hex("#2C2C27"),
+		AccentPressed:   ui.Hex("#0E0E0C"),
+		AccentText:      ui.Hex("#FAFAF6"),
+		InactiveAccent:  ui.Hex("#5C5A52"),
+		Danger:          ui.Hex("#C43B1F"),
+		Warning:         ui.Hex("#B46A00"),
+		Success:         ui.Hex("#2E7A46"),
+		Selection:       ui.RGBA(229, 138, 40, 0.22),
+		Focus:           ui.RGBA(24, 24, 21, 0.35),
 		FocusRingWidth:  2,
 		FocusRingOffset: 1,
-		Inverse:         ui.Hex("#1A1A16"),
-		InverseText:     ui.Hex("#FDFDFB"),
-		Scrollbar:       ui.RGBA(26, 26, 22, 0.24),
-		Radius:          10,
+		Inverse:         ui.Hex("#181815"),
+		InverseText:     ui.Hex("#FAFAF6"),
+		Scrollbar:       ui.RGBA(23, 23, 20, 0.22),
+		Radius:          12,
 		Spacing:         4,
 		FontSize:        15,
 	}
 }
 
-// TownDark returns Linger's complementary warm dark stone Town Dark ui.Theme.
+// TownDark returns Linger's complementary warm obsidian & ivory Town Dark ui.Theme.
 func TownDark() *ui.Theme {
 	return &ui.Theme{
 		Dark:            true,
-		Background:      ui.Hex("#171714"),
-		Surface:         ui.Hex("#22221D"),
-		SurfaceHover:    ui.Hex("#2B2B25"),
-		SurfacePressed:  ui.Hex("#34342D"),
-		Border:          ui.Hex("#36362F"),
-		Text:            ui.Hex("#F5F4EE"),
-		TextMuted:       ui.Hex("#A3A195"),
-		Accent:          ui.Hex("#4DA3E8"),
-		AccentHover:     ui.Hex("#6CB5EE"),
-		AccentPressed:   ui.Hex("#358CD3"),
-		AccentText:      ui.Hex("#0E151C"),
-		InactiveAccent:  ui.Hex("#698CC7"),
-		Danger:          ui.Hex("#FF855F"),
-		Warning:         ui.Hex("#E5A032"),
-		Success:         ui.Hex("#75B853"),
-		Selection:       ui.RGBA(77, 163, 232, 0.30),
-		Focus:           ui.RGBA(77, 163, 232, 0.65),
+		Background:      ui.Hex("#11110F"),
+		Surface:         ui.Hex("#1B1B18"),
+		SurfaceHover:    ui.Hex("#23231F"),
+		SurfacePressed:  ui.Hex("#2C2C27"),
+		Border:          ui.Hex("#2B2B25"),
+		Text:            ui.Hex("#F3F2EB"),
+		TextMuted:       ui.Hex("#9A988D"),
+		Accent:          ui.Hex("#F2F0E6"),
+		AccentHover:     ui.Hex("#FFFFFF"),
+		AccentPressed:   ui.Hex("#DCD9CC"),
+		AccentText:      ui.Hex("#141411"),
+		InactiveAccent:  ui.Hex("#9A988D"),
+		Danger:          ui.Hex("#F27557"),
+		Warning:         ui.Hex("#F0AA3E"),
+		Success:         ui.Hex("#64BF7A"),
+		Selection:       ui.RGBA(245, 164, 66, 0.28),
+		Focus:           ui.RGBA(242, 240, 230, 0.42),
 		FocusRingWidth:  2,
 		FocusRingOffset: 1,
-		Inverse:         ui.Hex("#F5F4EE"),
-		InverseText:     ui.Hex("#171714"),
-		Scrollbar:       ui.RGBA(245, 244, 238, 0.28),
-		Radius:          10,
+		Inverse:         ui.Hex("#F2F0E6"),
+		InverseText:     ui.Hex("#141411"),
+		Scrollbar:       ui.RGBA(243, 242, 235, 0.24),
+		Radius:          12,
 		Spacing:         4,
 		FontSize:        15,
 	}
@@ -164,15 +206,15 @@ func Resolve(pref config.ThemePreference, systemDark bool) *ui.Theme {
 
 var avatarSwatches = []ui.Color{
 	Nature.Sun,
-	Nature.Lichen,
-	Nature.Rain,
 	Nature.Lake,
-	Nature.Bubblegum,
-	Nature.Grass,
+	Nature.Rain,
 	Nature.Lavender,
 	Nature.Acorn,
 	Nature.Bluebell,
+	Nature.Grass,
 	Nature.Fawn,
+	Nature.Bubblegum,
+	Nature.Lichen,
 }
 
 // AvatarColor deterministically maps any entity name to a Nature palette swatch.

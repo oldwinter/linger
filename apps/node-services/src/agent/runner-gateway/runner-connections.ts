@@ -778,6 +778,12 @@ export class RunnerConnections {
         .receiveModelSourceOutcome(connection, envelope);
       return;
     }
+    if (envelope.type === "executed" && envelope.kind === "system_telemetry") {
+      this.owners
+        .capabilities()
+        .receiveSystemTelemetryOutcome(connection, envelope);
+      return;
+    }
     if (envelope.type === "executed" && envelope.kind === "computer_tool") {
       this.owners.computerTools().receive(connection, envelope);
       return;
