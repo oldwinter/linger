@@ -223,7 +223,7 @@ func businessAction(action string) bool {
 		"add_room_member", "create_agent", "get_agent", "update_agent", "list_connected_apps", "search_app_tools", "execute_app_tool", "manage_auto_reminders",
 		"get_personal_profile", "write_personal_profile", "start_personal_profile_build", "get_account_profile", "update_account_profile",
 		"request_browser_connection", "read_computer_permissions", "request_computer_permission", "web_search",
-		"record_shadow_divergence", "act_under_mandate", "ask_herdr_pane":
+		"record_shadow_divergence", "act_under_mandate", "ask_herdr_pane", "ask_herdr_core_terminal", "call_herdr_core":
 		return true
 	}
 	return knowledgeAction(action)
@@ -255,9 +255,12 @@ func businessCapability(i Authorization, action string) bool {
 	case "get_personal_profile", "write_personal_profile", "start_personal_profile_build", "get_account_profile", "update_account_profile":
 		// Only an AnotherMe acts on its owner's Profile, from its Meta or a Task.
 		return i.AgentType == "anotherme" && i.UserArtifactOwnerActorID != "" && i.Target.Kind != "document"
-	case "ask_herdr_pane":
+	case "ask_herdr_pane", "ask_herdr_core_terminal":
 		// Only an AnotherMe asks its owner about their terminal, from its Meta.
 		return i.AgentType == "anotherme" && i.UserArtifactOwnerActorID != "" && i.ParticipantTaskID == "" && i.Target.Kind != "document"
+	case "call_herdr_core":
+		// An Agent placed on a Local Computer may invoke allowlisted herdr_core tools.
+		return i.Target.Kind != "document"
 	case "send_message_sequence":
 		return i.AgentType == "anotherme" && i.ParticipantTaskID == "" && i.Target.Kind != "document"
 	case "record_shadow_divergence":

@@ -1901,6 +1901,51 @@ func (e GoogleCalendarAccessRole) Valid() bool {
 	}
 }
 
+// Defines values for HerdrCoreTerminalState.
+const (
+	HerdrCoreTerminalStateFinished HerdrCoreTerminalState = "finished"
+	HerdrCoreTerminalStateLive     HerdrCoreTerminalState = "live"
+)
+
+// Valid indicates whether the value is a known member of the HerdrCoreTerminalState enum.
+func (e HerdrCoreTerminalState) Valid() bool {
+	switch e {
+	case HerdrCoreTerminalStateFinished:
+		return true
+	case HerdrCoreTerminalStateLive:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for HerdrCoreTerminalStatusState.
+const (
+	HerdrCoreTerminalStatusStateBlocked HerdrCoreTerminalStatusState = "blocked"
+	HerdrCoreTerminalStatusStateDone    HerdrCoreTerminalStatusState = "done"
+	HerdrCoreTerminalStatusStateError   HerdrCoreTerminalStatusState = "error"
+	HerdrCoreTerminalStatusStateIdle    HerdrCoreTerminalStatusState = "idle"
+	HerdrCoreTerminalStatusStateWorking HerdrCoreTerminalStatusState = "working"
+)
+
+// Valid indicates whether the value is a known member of the HerdrCoreTerminalStatusState enum.
+func (e HerdrCoreTerminalStatusState) Valid() bool {
+	switch e {
+	case HerdrCoreTerminalStatusStateBlocked:
+		return true
+	case HerdrCoreTerminalStatusStateDone:
+		return true
+	case HerdrCoreTerminalStatusStateError:
+		return true
+	case HerdrCoreTerminalStatusStateIdle:
+		return true
+	case HerdrCoreTerminalStatusStateWorking:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for LocalAgentRuntimeStatusComputerStatus.
 const (
 	LocalAgentRuntimeStatusComputerStatusOffline LocalAgentRuntimeStatusComputerStatus = "offline"
@@ -4741,16 +4786,16 @@ func (e VoiceSessionStatus) Valid() bool {
 
 // Defines values for VoiceTranscriptEventLane.
 const (
-	Live     VoiceTranscriptEventLane = "live"
-	Recovery VoiceTranscriptEventLane = "recovery"
+	VoiceTranscriptEventLaneLive     VoiceTranscriptEventLane = "live"
+	VoiceTranscriptEventLaneRecovery VoiceTranscriptEventLane = "recovery"
 )
 
 // Valid indicates whether the value is a known member of the VoiceTranscriptEventLane enum.
 func (e VoiceTranscriptEventLane) Valid() bool {
 	switch e {
-	case Live:
+	case VoiceTranscriptEventLaneLive:
 		return true
-	case Recovery:
+	case VoiceTranscriptEventLaneRecovery:
 		return true
 	default:
 		return false
@@ -5137,22 +5182,22 @@ func (e WorkItemPriority) Valid() bool {
 
 // Defines values for WorkItemResolution.
 const (
-	Completed  WorkItemResolution = "completed"
-	Duplicate  WorkItemResolution = "duplicate"
-	Failed     WorkItemResolution = "failed"
-	NotPlanned WorkItemResolution = "not_planned"
+	WorkItemResolutionCompleted  WorkItemResolution = "completed"
+	WorkItemResolutionDuplicate  WorkItemResolution = "duplicate"
+	WorkItemResolutionFailed     WorkItemResolution = "failed"
+	WorkItemResolutionNotPlanned WorkItemResolution = "not_planned"
 )
 
 // Valid indicates whether the value is a known member of the WorkItemResolution enum.
 func (e WorkItemResolution) Valid() bool {
 	switch e {
-	case Completed:
+	case WorkItemResolutionCompleted:
 		return true
-	case Duplicate:
+	case WorkItemResolutionDuplicate:
 		return true
-	case Failed:
+	case WorkItemResolutionFailed:
 		return true
-	case NotPlanned:
+	case WorkItemResolutionNotPlanned:
 		return true
 	default:
 		return false
@@ -7392,6 +7437,239 @@ type GoogleCalendarPage struct {
 	NextPageToken *string          `json:"next_page_token,omitempty"`
 }
 
+// HerdrCoreCreateTerminalRequest defines model for HerdrCoreCreateTerminalRequest.
+type HerdrCoreCreateTerminalRequest struct {
+	Argv     *[]string          `json:"argv,omitempty"`
+	Cwd      *string            `json:"cwd,omitempty"`
+	Keep     *bool              `json:"keep,omitempty"`
+	Labels   *map[string]string `json:"labels,omitempty"`
+	Line     *string            `json:"line,omitempty"`
+	Name     *string            `json:"name,omitempty"`
+	NoNotify *bool              `json:"no_notify,omitempty"`
+	On       *string            `json:"on,omitempty"`
+	Parent   *string            `json:"parent,omitempty"`
+	Rm       *bool              `json:"rm,omitempty"`
+
+	// Size Initial PTY size, such as COLSxROWS string (for example 120x36) or {cols, rows}.
+	Size     interface{} `json:"size,omitempty"`
+	Task     *string     `json:"task,omitempty"`
+	Template *string     `json:"template,omitempty"`
+}
+
+// HerdrCoreDocGetResponse defines model for HerdrCoreDocGetResponse.
+type HerdrCoreDocGetResponse struct {
+	// Value Current JSON document value stored in herdr-core.
+	Value   interface{} `json:"value"`
+	Version int64       `json:"version"`
+}
+
+// HerdrCoreDocPutRequest defines model for HerdrCoreDocPutRequest.
+type HerdrCoreDocPutRequest struct {
+	// Value Next JSON document value to store in herdr-core with optimistic concurrency.
+	Value   interface{} `json:"value"`
+	Version int64       `json:"version"`
+}
+
+// HerdrCoreDocPutResponse defines model for HerdrCoreDocPutResponse.
+type HerdrCoreDocPutResponse struct {
+	Version int64 `json:"version"`
+}
+
+// HerdrCoreMachine Summary of one local or remote machine known to herdr-core.
+type HerdrCoreMachine struct {
+	Host                 *string                `json:"host,omitempty"`
+	LiveCount            *int                   `json:"live_count,omitempty"`
+	Name                 string                 `json:"name"`
+	Online               *bool                  `json:"online,omitempty"`
+	Status               *string                `json:"status,omitempty"`
+	Version              *string                `json:"version,omitempty"`
+	AdditionalProperties map[string]interface{} `json:"-"`
+}
+
+// HerdrCoreMachinesResponse defines model for HerdrCoreMachinesResponse.
+type HerdrCoreMachinesResponse struct {
+	Machines []HerdrCoreMachine `json:"machines"`
+}
+
+// HerdrCoreRuleCondition Optional My Rules filter matching herdr-core event attributes.
+type HerdrCoreRuleCondition struct {
+	// App Case-insensitive match against the OSC 7501 app or template name.
+	App *string `json:"app,omitempty"`
+
+	// Cwd Path prefix or glob match against the terminal working directory.
+	Cwd *string `json:"cwd,omitempty"`
+
+	// Labels Required label key-value pairs; value * matches any non-empty label value.
+	Labels *map[string]string `json:"labels,omitempty"`
+
+	// Machine Exact or wildcard match against the herdr-core machine name (use local for the local machine).
+	Machine *string `json:"machine,omitempty"`
+}
+
+// HerdrCoreStatusResponse defines model for HerdrCoreStatusResponse.
+type HerdrCoreStatusResponse struct {
+	Available     bool               `json:"available"`
+	BlockedCount  int                `json:"blocked_count"`
+	CoreId        string             `json:"core_id"`
+	CoreName      string             `json:"core_name"`
+	FinishedCount int                `json:"finished_count"`
+	LiveCount     int                `json:"live_count"`
+	Machines      []HerdrCoreMachine `json:"machines"`
+	Pid           int64              `json:"pid"`
+	UptimeMs      int64              `json:"uptime_ms"`
+	Version       string             `json:"version"`
+	WorkingCount  int                `json:"working_count"`
+}
+
+// HerdrCoreTemplate Reusable terminal launch template declared in herdr-core.
+type HerdrCoreTemplate struct {
+	Argv                 *[]string              `json:"argv,omitempty"`
+	Cwd                  *string                `json:"cwd,omitempty"`
+	Description          *string                `json:"description,omitempty"`
+	Keep                 *bool                  `json:"keep,omitempty"`
+	Labels               *map[string]string     `json:"labels,omitempty"`
+	Line                 *string                `json:"line,omitempty"`
+	Name                 string                 `json:"name"`
+	AdditionalProperties map[string]interface{} `json:"-"`
+}
+
+// HerdrCoreTemplatesResponse defines model for HerdrCoreTemplatesResponse.
+type HerdrCoreTemplatesResponse struct {
+	Templates []HerdrCoreTemplate `json:"templates"`
+}
+
+// HerdrCoreTerminal Canonical summary of one herdr-core terminal (local or remote machine). Standard Linger and Herdr label keys are linger.room, linger.work_item, linger.agent, linger.origin, herdr.space, and herdr.tab.
+type HerdrCoreTerminal struct {
+	// Address Local address (for example t7) or remote address (for example vps/t7).
+	Address       string            `json:"address"`
+	Cols          int               `json:"cols"`
+	CreatedMs     int64             `json:"created_ms"`
+	Cwd           string            `json:"cwd"`
+	ExitCode      *int              `json:"exit_code"`
+	FinishedMs    *int64            `json:"finished_ms"`
+	ForegroundCwd string            `json:"foreground_cwd"`
+	Keep          bool              `json:"keep"`
+	Labels        map[string]string `json:"labels"`
+
+	// Machine Remote machine name, or empty string for the local machine.
+	Machine  string                   `json:"machine"`
+	Name     string                   `json:"name"`
+	Parent   string                   `json:"parent"`
+	Rows     int                      `json:"rows"`
+	State    HerdrCoreTerminalState   `json:"state"`
+	Status   *HerdrCoreTerminalStatus `json:"status"`
+	StatusMs int64                    `json:"status_ms"`
+	Template string                   `json:"template"`
+	Title    string                   `json:"title"`
+	Turn     int64                    `json:"turn"`
+}
+
+// HerdrCoreTerminalState defines model for HerdrCoreTerminal.State.
+type HerdrCoreTerminalState string
+
+// HerdrCoreTerminalDeleteResponse defines model for HerdrCoreTerminalDeleteResponse.
+type HerdrCoreTerminalDeleteResponse struct {
+	Removed bool `json:"removed"`
+}
+
+// HerdrCoreTerminalInterruptRequest defines model for HerdrCoreTerminalInterruptRequest.
+type HerdrCoreTerminalInterruptRequest struct {
+	Address string `json:"address"`
+	Timeout *int   `json:"timeout,omitempty"`
+}
+
+// HerdrCoreTerminalInterruptResponse defines model for HerdrCoreTerminalInterruptResponse.
+type HerdrCoreTerminalInterruptResponse struct {
+	Key     string `json:"key"`
+	Outcome string `json:"outcome"`
+}
+
+// HerdrCoreTerminalKeysRequest defines model for HerdrCoreTerminalKeysRequest.
+type HerdrCoreTerminalKeysRequest struct {
+	Address string   `json:"address"`
+	Keys    []string `json:"keys"`
+}
+
+// HerdrCoreTerminalKeysResponse defines model for HerdrCoreTerminalKeysResponse.
+type HerdrCoreTerminalKeysResponse struct {
+	Status string `json:"status"`
+	Turn   int64  `json:"turn"`
+}
+
+// HerdrCoreTerminalKillRequest defines model for HerdrCoreTerminalKillRequest.
+type HerdrCoreTerminalKillRequest struct {
+	Address string `json:"address"`
+}
+
+// HerdrCoreTerminalKillResponse defines model for HerdrCoreTerminalKillResponse.
+type HerdrCoreTerminalKillResponse struct {
+	Ok bool `json:"ok"`
+}
+
+// HerdrCoreTerminalPutRequest defines model for HerdrCoreTerminalPutRequest.
+type HerdrCoreTerminalPutRequest struct {
+	Address    string `json:"address"`
+	DataBase64 string `json:"data_base64"`
+	Name       string `json:"name"`
+}
+
+// HerdrCoreTerminalPutResponse defines model for HerdrCoreTerminalPutResponse.
+type HerdrCoreTerminalPutResponse struct {
+	Bytes int64  `json:"bytes"`
+	Path  string `json:"path"`
+}
+
+// HerdrCoreTerminalReadResponse defines model for HerdrCoreTerminalReadResponse.
+type HerdrCoreTerminalReadResponse struct {
+	Complete bool   `json:"complete"`
+	How      string `json:"how"`
+	Text     string `json:"text"`
+	Why      string `json:"why"`
+}
+
+// HerdrCoreTerminalResponse defines model for HerdrCoreTerminalResponse.
+type HerdrCoreTerminalResponse struct {
+	// Terminal Canonical summary of one herdr-core terminal (local or remote machine). Standard Linger and Herdr label keys are linger.room, linger.work_item, linger.agent, linger.origin, herdr.space, and herdr.tab.
+	Terminal HerdrCoreTerminal `json:"terminal"`
+}
+
+// HerdrCoreTerminalSendRequest defines model for HerdrCoreTerminalSendRequest.
+type HerdrCoreTerminalSendRequest struct {
+	Address string  `json:"address"`
+	Force   *bool   `json:"force,omitempty"`
+	If      *string `json:"if,omitempty"`
+	Text    string  `json:"text"`
+	Timeout *int    `json:"timeout,omitempty"`
+	Wait    *bool   `json:"wait,omitempty"`
+}
+
+// HerdrCoreTerminalSendResponse defines model for HerdrCoreTerminalSendResponse.
+type HerdrCoreTerminalSendResponse struct {
+	Started bool   `json:"started"`
+	Status  string `json:"status"`
+	Turn    int64  `json:"turn"`
+}
+
+// HerdrCoreTerminalStatus Current OSC 7501 status attached to a herdr-core terminal.
+type HerdrCoreTerminalStatus struct {
+	App      *string  `json:"app,omitempty"`
+	Msg      *string  `json:"msg,omitempty"`
+	Progress *float32 `json:"progress,omitempty"`
+
+	// State OSC 7501 agent status state reported by a herdr-core terminal.
+	State HerdrCoreTerminalStatusState `json:"state"`
+	Title *string                      `json:"title,omitempty"`
+}
+
+// HerdrCoreTerminalStatusState OSC 7501 agent status state reported by a herdr-core terminal.
+type HerdrCoreTerminalStatusState string
+
+// HerdrCoreTerminalsResponse defines model for HerdrCoreTerminalsResponse.
+type HerdrCoreTerminalsResponse struct {
+	Machines  []HerdrCoreMachine  `json:"machines"`
+	Terminals []HerdrCoreTerminal `json:"terminals"`
+}
+
 // HtmlFragmentSegment defines model for HtmlFragmentSegment.
 type HtmlFragmentSegment struct {
 	// Content Raw-message text for the inline widget. show_fragment uses the exact flat, content-addressed Documents path of its projected HTML file; this is not widget markup.
@@ -8902,8 +9180,11 @@ type ProactiveRule struct {
 	CreatedAt time.Time `json:"created_at"`
 
 	// GuidelineVersion The guideline version that first held the rule as written.
-	GuidelineVersion int             `json:"guideline_version"`
-	Id               ProactiveRuleId `json:"id"`
+	GuidelineVersion int `json:"guideline_version"`
+
+	// HerdrCore Optional My Rules filter matching herdr-core event attributes.
+	HerdrCore *HerdrCoreRuleCondition `json:"herdr_core,omitempty"`
+	Id        ProactiveRuleId         `json:"id"`
 
 	// Mandate What the Human allows Another Me to do beyond reminding when a rule applies. Only the Human sets it, on an active rule; nightly learning never does.
 	Mandate ProactiveMandate `json:"mandate"`
@@ -8943,7 +9224,12 @@ type ProactiveRuleBook struct {
 
 // ProactiveRuleEditRequest defines model for ProactiveRuleEditRequest.
 type ProactiveRuleEditRequest struct {
-	Text string `json:"text"`
+	// ClearHerdrCore Clear any existing herdr_core attribute filter on this rule.
+	ClearHerdrCore *bool `json:"clear_herdr_core,omitempty"`
+
+	// HerdrCore Optional My Rules filter matching herdr-core event attributes.
+	HerdrCore *HerdrCoreRuleCondition `json:"herdr_core,omitempty"`
+	Text      string                  `json:"text"`
 }
 
 // ProactiveRuleId defines model for ProactiveRuleId.
@@ -11431,6 +11717,50 @@ type VoiceProviderKeyRefused = VoiceProviderKeyErrorResponse
 // sessionCookieContextKey is the context key for sessionCookie security scheme
 type sessionCookieContextKey string
 
+// AttachHerdrCoreTerminalParams defines parameters for AttachHerdrCoreTerminal.
+type AttachHerdrCoreTerminalParams struct {
+	Address string `form:"address" json:"address"`
+	Cols    *int   `form:"cols,omitempty" json:"cols,omitempty"`
+	Rows    *int   `form:"rows,omitempty" json:"rows,omitempty"`
+	Observe *bool  `form:"observe,omitempty" json:"observe,omitempty"`
+	History *int   `form:"history,omitempty" json:"history,omitempty"`
+}
+
+// GetHerdrCoreDocParams defines parameters for GetHerdrCoreDoc.
+type GetHerdrCoreDocParams struct {
+	On *string `form:"on,omitempty" json:"on,omitempty"`
+}
+
+// PutHerdrCoreDocParams defines parameters for PutHerdrCoreDoc.
+type PutHerdrCoreDocParams struct {
+	On *string `form:"on,omitempty" json:"on,omitempty"`
+}
+
+// DeleteHerdrCoreTerminalParams defines parameters for DeleteHerdrCoreTerminal.
+type DeleteHerdrCoreTerminalParams struct {
+	Address string `form:"address" json:"address"`
+}
+
+// GetHerdrCoreTerminalParams defines parameters for GetHerdrCoreTerminal.
+type GetHerdrCoreTerminalParams struct {
+	Address string `form:"address" json:"address"`
+}
+
+// ReadHerdrCoreTerminalParams defines parameters for ReadHerdrCoreTerminal.
+type ReadHerdrCoreTerminalParams struct {
+	Address string `form:"address" json:"address"`
+	Lines   *int   `form:"lines,omitempty" json:"lines,omitempty"`
+}
+
+// ListHerdrCoreTerminalsParams defines parameters for ListHerdrCoreTerminals.
+type ListHerdrCoreTerminalsParams struct {
+	All        *bool   `form:"all,omitempty" json:"all,omitempty"`
+	Machine    *string `form:"machine,omitempty" json:"machine,omitempty"`
+	RoomId     *string `form:"room_id,omitempty" json:"room_id,omitempty"`
+	WorkItemId *string `form:"work_item_id,omitempty" json:"work_item_id,omitempty"`
+	Status     *string `form:"status,omitempty" json:"status,omitempty"`
+}
+
 // DownloadDocumentVersionParams defines parameters for DownloadDocumentVersion.
 type DownloadDocumentVersionParams struct {
 	// Range A single RFC 9110 byte range. Multipart ranges are not supported.
@@ -11866,6 +12196,27 @@ type UnarchiveWorkItemParams struct {
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
 
+// PutHerdrCoreDocJSONRequestBody defines body for PutHerdrCoreDoc for application/json ContentType.
+type PutHerdrCoreDocJSONRequestBody = HerdrCoreDocPutRequest
+
+// InterruptHerdrCoreTerminalJSONRequestBody defines body for InterruptHerdrCoreTerminal for application/json ContentType.
+type InterruptHerdrCoreTerminalJSONRequestBody = HerdrCoreTerminalInterruptRequest
+
+// SendHerdrCoreTerminalKeysJSONRequestBody defines body for SendHerdrCoreTerminalKeys for application/json ContentType.
+type SendHerdrCoreTerminalKeysJSONRequestBody = HerdrCoreTerminalKeysRequest
+
+// KillHerdrCoreTerminalJSONRequestBody defines body for KillHerdrCoreTerminal for application/json ContentType.
+type KillHerdrCoreTerminalJSONRequestBody = HerdrCoreTerminalKillRequest
+
+// PutHerdrCoreTerminalFileJSONRequestBody defines body for PutHerdrCoreTerminalFile for application/json ContentType.
+type PutHerdrCoreTerminalFileJSONRequestBody = HerdrCoreTerminalPutRequest
+
+// SendHerdrCoreTerminalTextJSONRequestBody defines body for SendHerdrCoreTerminalText for application/json ContentType.
+type SendHerdrCoreTerminalTextJSONRequestBody = HerdrCoreTerminalSendRequest
+
+// CreateHerdrCoreTerminalJSONRequestBody defines body for CreateHerdrCoreTerminal for application/json ContentType.
+type CreateHerdrCoreTerminalJSONRequestBody = HerdrCoreCreateTerminalRequest
+
 // ChangePasswordJSONRequestBody defines body for ChangePassword for application/json ContentType.
 type ChangePasswordJSONRequestBody = PasswordChangeRequest
 
@@ -12159,6 +12510,303 @@ type TransitionWorkItemJSONRequestBody = WorkItemTransitionRequest
 
 // UnarchiveWorkItemJSONRequestBody defines body for UnarchiveWorkItem for application/json ContentType.
 type UnarchiveWorkItemJSONRequestBody = WorkItemVersionRequest
+
+// Getter for additional properties for HerdrCoreMachine. Returns the specified
+// element and whether it was found
+func (a HerdrCoreMachine) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for HerdrCoreMachine
+func (a *HerdrCoreMachine) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for HerdrCoreMachine to handle AdditionalProperties
+func (a *HerdrCoreMachine) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["host"]; found {
+		err = json.Unmarshal(raw, &a.Host)
+		if err != nil {
+			return fmt.Errorf("error reading 'host': %w", err)
+		}
+		delete(object, "host")
+	}
+
+	if raw, found := object["live_count"]; found {
+		err = json.Unmarshal(raw, &a.LiveCount)
+		if err != nil {
+			return fmt.Errorf("error reading 'live_count': %w", err)
+		}
+		delete(object, "live_count")
+	}
+
+	if raw, found := object["name"]; found {
+		err = json.Unmarshal(raw, &a.Name)
+		if err != nil {
+			return fmt.Errorf("error reading 'name': %w", err)
+		}
+		delete(object, "name")
+	}
+
+	if raw, found := object["online"]; found {
+		err = json.Unmarshal(raw, &a.Online)
+		if err != nil {
+			return fmt.Errorf("error reading 'online': %w", err)
+		}
+		delete(object, "online")
+	}
+
+	if raw, found := object["status"]; found {
+		err = json.Unmarshal(raw, &a.Status)
+		if err != nil {
+			return fmt.Errorf("error reading 'status': %w", err)
+		}
+		delete(object, "status")
+	}
+
+	if raw, found := object["version"]; found {
+		err = json.Unmarshal(raw, &a.Version)
+		if err != nil {
+			return fmt.Errorf("error reading 'version': %w", err)
+		}
+		delete(object, "version")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for HerdrCoreMachine to handle AdditionalProperties
+func (a HerdrCoreMachine) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	if a.Host != nil {
+		object["host"], err = json.Marshal(a.Host)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'host': %w", err)
+		}
+	}
+
+	if a.LiveCount != nil {
+		object["live_count"], err = json.Marshal(a.LiveCount)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'live_count': %w", err)
+		}
+	}
+
+	object["name"], err = json.Marshal(a.Name)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'name': %w", err)
+	}
+
+	if a.Online != nil {
+		object["online"], err = json.Marshal(a.Online)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'online': %w", err)
+		}
+	}
+
+	if a.Status != nil {
+		object["status"], err = json.Marshal(a.Status)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'status': %w", err)
+		}
+	}
+
+	if a.Version != nil {
+		object["version"], err = json.Marshal(a.Version)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'version': %w", err)
+		}
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
+// Getter for additional properties for HerdrCoreTemplate. Returns the specified
+// element and whether it was found
+func (a HerdrCoreTemplate) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for HerdrCoreTemplate
+func (a *HerdrCoreTemplate) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for HerdrCoreTemplate to handle AdditionalProperties
+func (a *HerdrCoreTemplate) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["argv"]; found {
+		err = json.Unmarshal(raw, &a.Argv)
+		if err != nil {
+			return fmt.Errorf("error reading 'argv': %w", err)
+		}
+		delete(object, "argv")
+	}
+
+	if raw, found := object["cwd"]; found {
+		err = json.Unmarshal(raw, &a.Cwd)
+		if err != nil {
+			return fmt.Errorf("error reading 'cwd': %w", err)
+		}
+		delete(object, "cwd")
+	}
+
+	if raw, found := object["description"]; found {
+		err = json.Unmarshal(raw, &a.Description)
+		if err != nil {
+			return fmt.Errorf("error reading 'description': %w", err)
+		}
+		delete(object, "description")
+	}
+
+	if raw, found := object["keep"]; found {
+		err = json.Unmarshal(raw, &a.Keep)
+		if err != nil {
+			return fmt.Errorf("error reading 'keep': %w", err)
+		}
+		delete(object, "keep")
+	}
+
+	if raw, found := object["labels"]; found {
+		err = json.Unmarshal(raw, &a.Labels)
+		if err != nil {
+			return fmt.Errorf("error reading 'labels': %w", err)
+		}
+		delete(object, "labels")
+	}
+
+	if raw, found := object["line"]; found {
+		err = json.Unmarshal(raw, &a.Line)
+		if err != nil {
+			return fmt.Errorf("error reading 'line': %w", err)
+		}
+		delete(object, "line")
+	}
+
+	if raw, found := object["name"]; found {
+		err = json.Unmarshal(raw, &a.Name)
+		if err != nil {
+			return fmt.Errorf("error reading 'name': %w", err)
+		}
+		delete(object, "name")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for HerdrCoreTemplate to handle AdditionalProperties
+func (a HerdrCoreTemplate) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	if a.Argv != nil {
+		object["argv"], err = json.Marshal(a.Argv)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'argv': %w", err)
+		}
+	}
+
+	if a.Cwd != nil {
+		object["cwd"], err = json.Marshal(a.Cwd)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'cwd': %w", err)
+		}
+	}
+
+	if a.Description != nil {
+		object["description"], err = json.Marshal(a.Description)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'description': %w", err)
+		}
+	}
+
+	if a.Keep != nil {
+		object["keep"], err = json.Marshal(a.Keep)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'keep': %w", err)
+		}
+	}
+
+	if a.Labels != nil {
+		object["labels"], err = json.Marshal(a.Labels)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'labels': %w", err)
+		}
+	}
+
+	if a.Line != nil {
+		object["line"], err = json.Marshal(a.Line)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'line': %w", err)
+		}
+	}
+
+	object["name"], err = json.Marshal(a.Name)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'name': %w", err)
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
 
 // AsAgentRuntimeWorkingStatusChangedEvent returns the union data inside the AgentRuntimePersistedPresentationEvent as a AgentRuntimeWorkingStatusChangedEvent
 func (t AgentRuntimePersistedPresentationEvent) AsAgentRuntimeWorkingStatusChangedEvent() (AgentRuntimeWorkingStatusChangedEvent, error) {

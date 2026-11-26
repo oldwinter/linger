@@ -540,6 +540,45 @@ paths:
           $ref: ../components/common.yaml#/components/responses/ServiceUnavailable
       security:
         - agentManagementBearer: []
+  /v1/tenants/{tenantId}/owners/{ownerActorId}/local-computers/{computerId}/herdr-core:call:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+      - $ref: "#/components/parameters/OwnerActorId"
+      - $ref: "#/components/parameters/ComputerId"
+    post:
+      summary: Invoke one structured herdr_core tool on an owned Local Computer
+      description:
+        Agent Service validates that the Computer is online, owned by ownerActorId
+        in tenantId, and supports herdr_core_v1, then dispatches one execute
+        computer_tool frame on server herdr_core and returns the Computer result.
+      operationId: callLocalComputerHerdrCore
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ../components/herdr-core.yaml#/components/schemas/LocalComputerHerdrCoreCallRequest
+      responses:
+        "200":
+          description: Result object returned by herdr-core on the Computer.
+          content:
+            application/json:
+              schema:
+                $ref: ../components/herdr-core.yaml#/components/schemas/LocalComputerHerdrCoreCallResponse
+        "400":
+          $ref: ../components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ../components/common.yaml#/components/responses/Unauthenticated
+        "404":
+          $ref: ../components/common.yaml#/components/responses/NotFound
+        "409":
+          $ref: ../components/common.yaml#/components/responses/Conflict
+        "502":
+          $ref: ../components/common.yaml#/components/responses/BadGateway
+        "503":
+          $ref: ../components/common.yaml#/components/responses/ServiceUnavailable
+      security:
+        - agentManagementBearer: []
   /v1/agents/{agentId}/registration-changes:
     parameters:
       - $ref: "#/components/parameters/ManagedAgentId"
@@ -3121,11 +3160,12 @@ components:
           type: string
         server:
           type: string
-          description: herdr answers blocked herdr panes; feishu_mail runs TeamHub's Feishu Mail calls through the owner's own lark-cli login.
+          description: herdr answers blocked herdr panes; herdr_core runs structured hc tools on the Computer; feishu_mail runs TeamHub's Feishu Mail calls through the owner's own lark-cli login.
           enum:
             - browser
             - playground
             - herdr
+            - herdr_core
             - feishu_mail
         tool_name:
           type: string

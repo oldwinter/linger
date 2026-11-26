@@ -344,6 +344,22 @@ async function respond(request: Request): Promise<Response> {
       message_id: "message_card",
       interaction_id: "interaction_one",
     });
+  if (endpoint.endsWith("/computer/herdr-core/ask"))
+    return Response.json({
+      status: "asked",
+      computer_id: "computer_one",
+      room_id: "room_one",
+      message_id: "message_card",
+      interaction_id: "interaction_one",
+    });
+  if (endpoint.endsWith("/computer/herdr-core/call")) {
+    const body = (await request.json()) as { tool_name?: string };
+    return Response.json({
+      computer_id: "computer_one",
+      tool_name: body.tool_name ?? "status",
+      result: { ok: true },
+    });
+  }
   if (endpoint.endsWith("/computer/permissions/status"))
     return Response.json({
       computer_id: "computer_one",

@@ -1,0 +1,756 @@
+status:
+  parameters:
+    - name: computerId
+      in: path
+      required: true
+      schema:
+        $ref: "../components/common.yaml#/components/schemas/Id"
+  get:
+    tags: [Herdr Core]
+    operationId: getHerdrCoreStatus
+    summary: Read herdr-core daemon status and terminal counters on an owned Local Computer.
+    responses:
+      "200":
+        description: Current herdr-core status.
+        content:
+          application/json:
+            schema:
+              $ref: "../components/herdr-core.yaml#/components/schemas/HerdrCoreStatusResponse"
+      "401":
+        $ref: "../components/common.yaml#/components/responses/Unauthenticated"
+      "403":
+        $ref: "../components/common.yaml#/components/responses/Forbidden"
+      "404":
+        $ref: "../components/common.yaml#/components/responses/NotFound"
+      "409":
+        $ref: "../components/common.yaml#/components/responses/Conflict"
+      "502":
+        $ref: "../components/common.yaml#/components/responses/BadGateway"
+      "503":
+        $ref: "../components/common.yaml#/components/responses/ServiceUnavailable"
+      "504":
+        description: The Computer did not answer within the request deadline.
+        content:
+          application/json:
+            schema:
+              $ref: "../components/common.yaml#/components/schemas/ErrorResponse"
+
+terminals:
+  parameters:
+    - name: computerId
+      in: path
+      required: true
+      schema:
+        $ref: "../components/common.yaml#/components/schemas/Id"
+  get:
+    tags: [Herdr Core]
+    operationId: listHerdrCoreTerminals
+    summary: List herdr-core terminals on an owned Local Computer.
+    parameters:
+      - name: all
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+      - name: machine
+        in: query
+        required: false
+        schema:
+          type: string
+          maxLength: 128
+      - name: room_id
+        in: query
+        required: false
+        schema:
+          type: string
+          maxLength: 128
+      - name: work_item_id
+        in: query
+        required: false
+        schema:
+          type: string
+          maxLength: 128
+      - name: status
+        in: query
+        required: false
+        schema:
+          type: string
+          maxLength: 64
+    responses:
+      "200":
+        description: Matching terminals and known machines.
+        content:
+          application/json:
+            schema:
+              $ref: "../components/herdr-core.yaml#/components/schemas/HerdrCoreTerminalsResponse"
+      "400":
+        $ref: "../components/common.yaml#/components/responses/BadRequest"
+      "401":
+        $ref: "../components/common.yaml#/components/responses/Unauthenticated"
+      "403":
+        $ref: "../components/common.yaml#/components/responses/Forbidden"
+      "404":
+        $ref: "../components/common.yaml#/components/responses/NotFound"
+      "409":
+        $ref: "../components/common.yaml#/components/responses/Conflict"
+      "502":
+        $ref: "../components/common.yaml#/components/responses/BadGateway"
+      "503":
+        $ref: "../components/common.yaml#/components/responses/ServiceUnavailable"
+      "504":
+        description: The Computer did not answer within the request deadline.
+        content:
+          application/json:
+            schema:
+              $ref: "../components/common.yaml#/components/schemas/ErrorResponse"
+  post:
+    tags: [Herdr Core]
+    operationId: createHerdrCoreTerminal
+    summary: Start a new herdr-core terminal on an owned Local Computer or one of its remote machines.
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "../components/herdr-core.yaml#/components/schemas/HerdrCoreCreateTerminalRequest"
+    responses:
+      "201":
+        description: Started terminal summary.
+        content:
+          application/json:
+            schema:
+              $ref: "../components/herdr-core.yaml#/components/schemas/HerdrCoreTerminalResponse"
+      "400":
+        $ref: "../components/common.yaml#/components/responses/BadRequest"
+      "401":
+        $ref: "../components/common.yaml#/components/responses/Unauthenticated"
+      "403":
+        $ref: "../components/common.yaml#/components/responses/Forbidden"
+      "404":
+        $ref: "../components/common.yaml#/components/responses/NotFound"
+      "409":
+        $ref: "../components/common.yaml#/components/responses/Conflict"
+      "502":
+        $ref: "../components/common.yaml#/components/responses/BadGateway"
+      "503":
+        $ref: "../components/common.yaml#/components/responses/ServiceUnavailable"
+      "504":
+        description: The Computer did not answer within the request deadline.
+        content:
+          application/json:
+            schema:
+              $ref: "../components/common.yaml#/components/schemas/ErrorResponse"
+
+terminal:
+  parameters:
+    - name: computerId
+      in: path
+      required: true
+      schema:
+        $ref: "../components/common.yaml#/components/schemas/Id"
+  get:
+    tags: [Herdr Core]
+    operationId: getHerdrCoreTerminal
+    summary: Read one herdr-core terminal summary by address.
+    parameters:
+      - name: address
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 256
+    responses:
+      "200":
+        description: Terminal summary.
+        content:
+          application/json:
+            schema:
+              $ref: "../components/herdr-core.yaml#/components/schemas/HerdrCoreTerminalResponse"
+      "400":
+        $ref: "../components/common.yaml#/components/responses/BadRequest"
+      "401":
+        $ref: "../components/common.yaml#/components/responses/Unauthenticated"
+      "403":
+        $ref: "../components/common.yaml#/components/responses/Forbidden"
+      "404":
+        $ref: "../components/common.yaml#/components/responses/NotFound"
+      "409":
+        $ref: "../components/common.yaml#/components/responses/Conflict"
+      "502":
+        $ref: "../components/common.yaml#/components/responses/BadGateway"
+      "503":
+        $ref: "../components/common.yaml#/components/responses/ServiceUnavailable"
+      "504":
+        description: The Computer did not answer within the request deadline.
+        content:
+          application/json:
+            schema:
+              $ref: "../components/common.yaml#/components/schemas/ErrorResponse"
+  delete:
+    tags: [Herdr Core]
+    operationId: deleteHerdrCoreTerminal
+    summary: Remove a finished herdr-core terminal record by address.
+    parameters:
+      - name: address
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 256
+    responses:
+      "200":
+        description: Removal outcome.
+        content:
+          application/json:
+            schema:
+              $ref: "../components/herdr-core.yaml#/components/schemas/HerdrCoreTerminalDeleteResponse"
+      "400":
+        $ref: "../components/common.yaml#/components/responses/BadRequest"
+      "401":
+        $ref: "../components/common.yaml#/components/responses/Unauthenticated"
+      "403":
+        $ref: "../components/common.yaml#/components/responses/Forbidden"
+      "404":
+        $ref: "../components/common.yaml#/components/responses/NotFound"
+      "409":
+        $ref: "../components/common.yaml#/components/responses/Conflict"
+      "502":
+        $ref: "../components/common.yaml#/components/responses/BadGateway"
+      "503":
+        $ref: "../components/common.yaml#/components/responses/ServiceUnavailable"
+      "504":
+        description: The Computer did not answer within the request deadline.
+        content:
+          application/json:
+            schema:
+              $ref: "../components/common.yaml#/components/schemas/ErrorResponse"
+
+terminalRead:
+  parameters:
+    - name: computerId
+      in: path
+      required: true
+      schema:
+        $ref: "../components/common.yaml#/components/schemas/Id"
+  get:
+    tags: [Herdr Core]
+    operationId: readHerdrCoreTerminal
+    summary: Read recent screen output from one herdr-core terminal.
+    parameters:
+      - name: address
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 256
+      - name: lines
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 5000
+          default: 120
+    responses:
+      "200":
+        description: Terminal screen text and read metadata.
+        content:
+          application/json:
+            schema:
+              $ref: "../components/herdr-core.yaml#/components/schemas/HerdrCoreTerminalReadResponse"
+      "400":
+        $ref: "../components/common.yaml#/components/responses/BadRequest"
+      "401":
+        $ref: "../components/common.yaml#/components/responses/Unauthenticated"
+      "403":
+        $ref: "../components/common.yaml#/components/responses/Forbidden"
+      "404":
+        $ref: "../components/common.yaml#/components/responses/NotFound"
+      "409":
+        $ref: "../components/common.yaml#/components/responses/Conflict"
+      "502":
+        $ref: "../components/common.yaml#/components/responses/BadGateway"
+      "503":
+        $ref: "../components/common.yaml#/components/responses/ServiceUnavailable"
+      "504":
+        description: The Computer did not answer within the request deadline.
+        content:
+          application/json:
+            schema:
+              $ref: "../components/common.yaml#/components/schemas/ErrorResponse"
+
+terminalSend:
+  parameters:
+    - name: computerId
+      in: path
+      required: true
+      schema:
+        $ref: "../components/common.yaml#/components/schemas/Id"
+  post:
+    tags: [Herdr Core]
+    operationId: sendHerdrCoreTerminalText
+    summary: Send text input to one herdr-core terminal.
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "../components/herdr-core.yaml#/components/schemas/HerdrCoreTerminalSendRequest"
+    responses:
+      "200":
+        description: Send outcome and resulting turn.
+        content:
+          application/json:
+            schema:
+              $ref: "../components/herdr-core.yaml#/components/schemas/HerdrCoreTerminalSendResponse"
+      "400":
+        $ref: "../components/common.yaml#/components/responses/BadRequest"
+      "401":
+        $ref: "../components/common.yaml#/components/responses/Unauthenticated"
+      "403":
+        $ref: "../components/common.yaml#/components/responses/Forbidden"
+      "404":
+        $ref: "../components/common.yaml#/components/responses/NotFound"
+      "409":
+        $ref: "../components/common.yaml#/components/responses/Conflict"
+      "502":
+        $ref: "../components/common.yaml#/components/responses/BadGateway"
+      "503":
+        $ref: "../components/common.yaml#/components/responses/ServiceUnavailable"
+      "504":
+        description: The Computer did not answer within the request deadline.
+        content:
+          application/json:
+            schema:
+              $ref: "../components/common.yaml#/components/schemas/ErrorResponse"
+
+terminalKeys:
+  parameters:
+    - name: computerId
+      in: path
+      required: true
+      schema:
+        $ref: "../components/common.yaml#/components/schemas/Id"
+  post:
+    tags: [Herdr Core]
+    operationId: sendHerdrCoreTerminalKeys
+    summary: Send key events to one herdr-core terminal.
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "../components/herdr-core.yaml#/components/schemas/HerdrCoreTerminalKeysRequest"
+    responses:
+      "200":
+        description: Keys delivery outcome and turn.
+        content:
+          application/json:
+            schema:
+              $ref: "../components/herdr-core.yaml#/components/schemas/HerdrCoreTerminalKeysResponse"
+      "400":
+        $ref: "../components/common.yaml#/components/responses/BadRequest"
+      "401":
+        $ref: "../components/common.yaml#/components/responses/Unauthenticated"
+      "403":
+        $ref: "../components/common.yaml#/components/responses/Forbidden"
+      "404":
+        $ref: "../components/common.yaml#/components/responses/NotFound"
+      "409":
+        $ref: "../components/common.yaml#/components/responses/Conflict"
+      "502":
+        $ref: "../components/common.yaml#/components/responses/BadGateway"
+      "503":
+        $ref: "../components/common.yaml#/components/responses/ServiceUnavailable"
+      "504":
+        description: The Computer did not answer within the request deadline.
+        content:
+          application/json:
+            schema:
+              $ref: "../components/common.yaml#/components/schemas/ErrorResponse"
+
+terminalInterrupt:
+  parameters:
+    - name: computerId
+      in: path
+      required: true
+      schema:
+        $ref: "../components/common.yaml#/components/schemas/Id"
+  post:
+    tags: [Herdr Core]
+    operationId: interruptHerdrCoreTerminal
+    summary: Interrupt the active foreground program in one herdr-core terminal.
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "../components/herdr-core.yaml#/components/schemas/HerdrCoreTerminalInterruptRequest"
+    responses:
+      "200":
+        description: Interrupt outcome.
+        content:
+          application/json:
+            schema:
+              $ref: "../components/herdr-core.yaml#/components/schemas/HerdrCoreTerminalInterruptResponse"
+      "400":
+        $ref: "../components/common.yaml#/components/responses/BadRequest"
+      "401":
+        $ref: "../components/common.yaml#/components/responses/Unauthenticated"
+      "403":
+        $ref: "../components/common.yaml#/components/responses/Forbidden"
+      "404":
+        $ref: "../components/common.yaml#/components/responses/NotFound"
+      "409":
+        $ref: "../components/common.yaml#/components/responses/Conflict"
+      "502":
+        $ref: "../components/common.yaml#/components/responses/BadGateway"
+      "503":
+        $ref: "../components/common.yaml#/components/responses/ServiceUnavailable"
+      "504":
+        description: The Computer did not answer within the request deadline.
+        content:
+          application/json:
+            schema:
+              $ref: "../components/common.yaml#/components/schemas/ErrorResponse"
+
+terminalKill:
+  parameters:
+    - name: computerId
+      in: path
+      required: true
+      schema:
+        $ref: "../components/common.yaml#/components/schemas/Id"
+  post:
+    tags: [Herdr Core]
+    operationId: killHerdrCoreTerminal
+    summary: Terminate one live herdr-core terminal.
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "../components/herdr-core.yaml#/components/schemas/HerdrCoreTerminalKillRequest"
+    responses:
+      "200":
+        description: Termination result.
+        content:
+          application/json:
+            schema:
+              $ref: "../components/herdr-core.yaml#/components/schemas/HerdrCoreTerminalKillResponse"
+      "400":
+        $ref: "../components/common.yaml#/components/responses/BadRequest"
+      "401":
+        $ref: "../components/common.yaml#/components/responses/Unauthenticated"
+      "403":
+        $ref: "../components/common.yaml#/components/responses/Forbidden"
+      "404":
+        $ref: "../components/common.yaml#/components/responses/NotFound"
+      "409":
+        $ref: "../components/common.yaml#/components/responses/Conflict"
+      "502":
+        $ref: "../components/common.yaml#/components/responses/BadGateway"
+      "503":
+        $ref: "../components/common.yaml#/components/responses/ServiceUnavailable"
+      "504":
+        description: The Computer did not answer within the request deadline.
+        content:
+          application/json:
+            schema:
+              $ref: "../components/common.yaml#/components/schemas/ErrorResponse"
+
+terminalPut:
+  parameters:
+    - name: computerId
+      in: path
+      required: true
+      schema:
+        $ref: "../components/common.yaml#/components/schemas/Id"
+  post:
+    tags: [Herdr Core]
+    operationId: putHerdrCoreTerminalFile
+    summary: Upload a small file into one herdr-core terminal workspace.
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "../components/herdr-core.yaml#/components/schemas/HerdrCoreTerminalPutRequest"
+    responses:
+      "200":
+        description: Stored file path and byte count.
+        content:
+          application/json:
+            schema:
+              $ref: "../components/herdr-core.yaml#/components/schemas/HerdrCoreTerminalPutResponse"
+      "400":
+        $ref: "../components/common.yaml#/components/responses/BadRequest"
+      "401":
+        $ref: "../components/common.yaml#/components/responses/Unauthenticated"
+      "403":
+        $ref: "../components/common.yaml#/components/responses/Forbidden"
+      "404":
+        $ref: "../components/common.yaml#/components/responses/NotFound"
+      "409":
+        $ref: "../components/common.yaml#/components/responses/Conflict"
+      "413":
+        $ref: "../components/common.yaml#/components/responses/PayloadTooLarge"
+      "502":
+        $ref: "../components/common.yaml#/components/responses/BadGateway"
+      "503":
+        $ref: "../components/common.yaml#/components/responses/ServiceUnavailable"
+      "504":
+        description: The Computer did not answer within the request deadline.
+        content:
+          application/json:
+            schema:
+              $ref: "../components/common.yaml#/components/schemas/ErrorResponse"
+
+templates:
+  parameters:
+    - name: computerId
+      in: path
+      required: true
+      schema:
+        $ref: "../components/common.yaml#/components/schemas/Id"
+  get:
+    tags: [Herdr Core]
+    operationId: listHerdrCoreTemplates
+    summary: List herdr-core launch templates on an owned Local Computer.
+    responses:
+      "200":
+        description: Declared templates.
+        content:
+          application/json:
+            schema:
+              $ref: "../components/herdr-core.yaml#/components/schemas/HerdrCoreTemplatesResponse"
+      "401":
+        $ref: "../components/common.yaml#/components/responses/Unauthenticated"
+      "403":
+        $ref: "../components/common.yaml#/components/responses/Forbidden"
+      "404":
+        $ref: "../components/common.yaml#/components/responses/NotFound"
+      "409":
+        $ref: "../components/common.yaml#/components/responses/Conflict"
+      "502":
+        $ref: "../components/common.yaml#/components/responses/BadGateway"
+      "503":
+        $ref: "../components/common.yaml#/components/responses/ServiceUnavailable"
+      "504":
+        description: The Computer did not answer within the request deadline.
+        content:
+          application/json:
+            schema:
+              $ref: "../components/common.yaml#/components/schemas/ErrorResponse"
+
+machines:
+  parameters:
+    - name: computerId
+      in: path
+      required: true
+      schema:
+        $ref: "../components/common.yaml#/components/schemas/Id"
+  get:
+    tags: [Herdr Core]
+    operationId: listHerdrCoreMachines
+    summary: List local and remote machines configured in herdr-core on an owned Local Computer.
+    responses:
+      "200":
+        description: Configured machines.
+        content:
+          application/json:
+            schema:
+              $ref: "../components/herdr-core.yaml#/components/schemas/HerdrCoreMachinesResponse"
+      "401":
+        $ref: "../components/common.yaml#/components/responses/Unauthenticated"
+      "403":
+        $ref: "../components/common.yaml#/components/responses/Forbidden"
+      "404":
+        $ref: "../components/common.yaml#/components/responses/NotFound"
+      "409":
+        $ref: "../components/common.yaml#/components/responses/Conflict"
+      "502":
+        $ref: "../components/common.yaml#/components/responses/BadGateway"
+      "503":
+        $ref: "../components/common.yaml#/components/responses/ServiceUnavailable"
+      "504":
+        description: The Computer did not answer within the request deadline.
+        content:
+          application/json:
+            schema:
+              $ref: "../components/common.yaml#/components/schemas/ErrorResponse"
+
+doc:
+  parameters:
+    - name: computerId
+      in: path
+      required: true
+      schema:
+        $ref: "../components/common.yaml#/components/schemas/Id"
+    - name: name
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+  get:
+    tags: [Herdr Core]
+    operationId: getHerdrCoreDoc
+    summary: Read one named JSON document stored in herdr-core.
+    parameters:
+      - name: on
+        in: query
+        required: false
+        schema:
+          type: string
+          maxLength: 128
+    responses:
+      "200":
+        description: Current document version and value.
+        content:
+          application/json:
+            schema:
+              $ref: "../components/herdr-core.yaml#/components/schemas/HerdrCoreDocGetResponse"
+      "400":
+        $ref: "../components/common.yaml#/components/responses/BadRequest"
+      "401":
+        $ref: "../components/common.yaml#/components/responses/Unauthenticated"
+      "403":
+        $ref: "../components/common.yaml#/components/responses/Forbidden"
+      "404":
+        $ref: "../components/common.yaml#/components/responses/NotFound"
+      "409":
+        $ref: "../components/common.yaml#/components/responses/Conflict"
+      "502":
+        $ref: "../components/common.yaml#/components/responses/BadGateway"
+      "503":
+        $ref: "../components/common.yaml#/components/responses/ServiceUnavailable"
+      "504":
+        description: The Computer did not answer within the request deadline.
+        content:
+          application/json:
+            schema:
+              $ref: "../components/common.yaml#/components/schemas/ErrorResponse"
+  put:
+    tags: [Herdr Core]
+    operationId: putHerdrCoreDoc
+    summary: Update one named JSON document stored in herdr-core with optimistic concurrency.
+    parameters:
+      - name: on
+        in: query
+        required: false
+        schema:
+          type: string
+          maxLength: 128
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "../components/herdr-core.yaml#/components/schemas/HerdrCoreDocPutRequest"
+    responses:
+      "200":
+        description: Committed document version.
+        content:
+          application/json:
+            schema:
+              $ref: "../components/herdr-core.yaml#/components/schemas/HerdrCoreDocPutResponse"
+      "400":
+        $ref: "../components/common.yaml#/components/responses/BadRequest"
+      "401":
+        $ref: "../components/common.yaml#/components/responses/Unauthenticated"
+      "403":
+        $ref: "../components/common.yaml#/components/responses/Forbidden"
+      "404":
+        $ref: "../components/common.yaml#/components/responses/NotFound"
+      "409":
+        $ref: "../components/common.yaml#/components/responses/Conflict"
+      "502":
+        $ref: "../components/common.yaml#/components/responses/BadGateway"
+      "503":
+        $ref: "../components/common.yaml#/components/responses/ServiceUnavailable"
+      "504":
+        description: The Computer did not answer within the request deadline.
+        content:
+          application/json:
+            schema:
+              $ref: "../components/common.yaml#/components/schemas/ErrorResponse"
+
+attach:
+  parameters:
+    - name: computerId
+      in: path
+      required: true
+      schema:
+        $ref: "../components/common.yaml#/components/schemas/Id"
+  get:
+    tags: [Herdr Core]
+    operationId: attachHerdrCoreTerminal
+    summary: Upgrade to a binary PTY WebSocket attached to one herdr-core terminal.
+    description: >-
+      Authenticates the owner session, mints a short-lived signed attach token,
+      and bridges the WebSocket to Node Services' independent binary PTY relay
+      (/v1/herdr-core/attach). Binary frames carry raw PTY bytes; text frames
+      carry JSON control messages (resize, mode, put, ping / attached, resize,
+      status, put_result, closed, error, pong). While observe is true, client
+      binary input and resize frames are rejected server-side.
+    parameters:
+      - name: address
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 256
+      - name: cols
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 500
+          default: 120
+      - name: rows
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 200
+          default: 36
+      - name: observe
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: true
+      - name: history
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          default: 200
+    responses:
+      "101":
+        description: Switching Protocols to the binary PTY attach WebSocket.
+      "400":
+        $ref: "../components/common.yaml#/components/responses/BadRequest"
+      "401":
+        $ref: "../components/common.yaml#/components/responses/Unauthenticated"
+      "403":
+        $ref: "../components/common.yaml#/components/responses/Forbidden"
+      "404":
+        $ref: "../components/common.yaml#/components/responses/NotFound"
+      "409":
+        $ref: "../components/common.yaml#/components/responses/Conflict"
+      "502":
+        $ref: "../components/common.yaml#/components/responses/BadGateway"
+      "503":
+        $ref: "../components/common.yaml#/components/responses/ServiceUnavailable"

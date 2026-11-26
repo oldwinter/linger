@@ -503,7 +503,7 @@ func (s *gatewayStream) Send(ctx context.Context, event protocol.Event) error {
 		event.Type == protocol.EventLocalModels ||
 		event.Type == protocol.EventProviderPrepared || event.Type == protocol.EventSessionCompacted ||
 		event.Type == protocol.EventModelInvoked || event.Type == protocol.EventComputerToolResult ||
-		event.Type == protocol.EventHerdrAgent:
+		event.Type == protocol.EventHerdrAgent || event.Type == protocol.EventHerdrCore:
 		// Their handlers already encode the generated wire shape.
 		value = event.Payload
 	default:

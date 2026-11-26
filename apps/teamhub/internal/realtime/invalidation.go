@@ -42,12 +42,15 @@ const (
 	// InvalidateLocalModels: a Local Computer's model library snapshot
 	// changed. The id is the Computer ID.
 	InvalidateLocalModels = "local-models"
+	// InvalidateHerdrCore: a Local Computer's herdr-core terminal state
+	// changed. The id is the Computer ID.
+	InvalidateHerdrCore = "herdr-core"
 )
 
 var invalidationResources = map[string]bool{
 	InvalidateRoom: true, InvalidateDirectory: true, InvalidateAgents: true, InvalidateAnotherMe: true,
 	InvalidateComputers: true, InvalidateConnections: true, InvalidateWorkItems: true, InvalidateDocument: true,
-	InvalidateDocumentAccess: true, InvalidateLocalModels: true,
+	InvalidateDocumentAccess: true, InvalidateLocalModels: true, InvalidateHerdrCore: true,
 }
 
 // ValidInvalidationResource reports whether resource is a published hint type.

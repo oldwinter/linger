@@ -41,7 +41,24 @@ func (a *App) editProactiveRule(c *gin.Context) {
 	if !ok {
 		return
 	}
-	book, err := a.proactive.EditRule(c.Request.Context(), owner, c.Param("ruleId"), request.Text)
+	var cond *proactive.HerdrCoreRuleCondition
+	if request.HerdrCore != nil {
+		cond = &proactive.HerdrCoreRuleCondition{}
+		if request.HerdrCore.Machine != nil {
+			cond.Machine = *request.HerdrCore.Machine
+		}
+		if request.HerdrCore.Cwd != nil {
+			cond.Cwd = *request.HerdrCore.Cwd
+		}
+		if request.HerdrCore.App != nil {
+			cond.App = *request.HerdrCore.App
+		}
+		if request.HerdrCore.Labels != nil {
+			cond.Labels = *request.HerdrCore.Labels
+		}
+	}
+	clearHerdrCore := request.ClearHerdrCore != nil && *request.ClearHerdrCore
+	book, err := a.proactive.EditRuleWithCondition(c.Request.Context(), owner, c.Param("ruleId"), request.Text, cond, clearHerdrCore)
 	a.writeProactiveRuleBook(c, "edit proactive rule", book, err)
 }
 

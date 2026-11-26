@@ -4340,6 +4340,260 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/computers/{computerId}/herdr-core/status": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        computerId: components["schemas"]["Id"];
+      };
+      cookie?: never;
+    };
+    /** Read herdr-core daemon status and terminal counters on an owned Local Computer. */
+    get: operations["getHerdrCoreStatus"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/computers/{computerId}/herdr-core/terminals": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        computerId: components["schemas"]["Id"];
+      };
+      cookie?: never;
+    };
+    /** List herdr-core terminals on an owned Local Computer. */
+    get: operations["listHerdrCoreTerminals"];
+    put?: never;
+    /** Start a new herdr-core terminal on an owned Local Computer or one of its remote machines. */
+    post: operations["createHerdrCoreTerminal"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/computers/{computerId}/herdr-core/terminal": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        computerId: components["schemas"]["Id"];
+      };
+      cookie?: never;
+    };
+    /** Read one herdr-core terminal summary by address. */
+    get: operations["getHerdrCoreTerminal"];
+    put?: never;
+    post?: never;
+    /** Remove a finished herdr-core terminal record by address. */
+    delete: operations["deleteHerdrCoreTerminal"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/computers/{computerId}/herdr-core/terminal/read": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        computerId: components["schemas"]["Id"];
+      };
+      cookie?: never;
+    };
+    /** Read recent screen output from one herdr-core terminal. */
+    get: operations["readHerdrCoreTerminal"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/computers/{computerId}/herdr-core/terminal/send": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        computerId: components["schemas"]["Id"];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Send text input to one herdr-core terminal. */
+    post: operations["sendHerdrCoreTerminalText"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/computers/{computerId}/herdr-core/terminal/keys": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        computerId: components["schemas"]["Id"];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Send key events to one herdr-core terminal. */
+    post: operations["sendHerdrCoreTerminalKeys"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/computers/{computerId}/herdr-core/terminal/interrupt": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        computerId: components["schemas"]["Id"];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Interrupt the active foreground program in one herdr-core terminal. */
+    post: operations["interruptHerdrCoreTerminal"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/computers/{computerId}/herdr-core/terminal/kill": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        computerId: components["schemas"]["Id"];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Terminate one live herdr-core terminal. */
+    post: operations["killHerdrCoreTerminal"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/computers/{computerId}/herdr-core/terminal/put": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        computerId: components["schemas"]["Id"];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Upload a small file into one herdr-core terminal workspace. */
+    post: operations["putHerdrCoreTerminalFile"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/computers/{computerId}/herdr-core/templates": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        computerId: components["schemas"]["Id"];
+      };
+      cookie?: never;
+    };
+    /** List herdr-core launch templates on an owned Local Computer. */
+    get: operations["listHerdrCoreTemplates"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/computers/{computerId}/herdr-core/machines": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        computerId: components["schemas"]["Id"];
+      };
+      cookie?: never;
+    };
+    /** List local and remote machines configured in herdr-core on an owned Local Computer. */
+    get: operations["listHerdrCoreMachines"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/computers/{computerId}/herdr-core/docs/{name}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        computerId: components["schemas"]["Id"];
+        name: string;
+      };
+      cookie?: never;
+    };
+    /** Read one named JSON document stored in herdr-core. */
+    get: operations["getHerdrCoreDoc"];
+    /** Update one named JSON document stored in herdr-core with optimistic concurrency. */
+    put: operations["putHerdrCoreDoc"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/computers/{computerId}/herdr-core/attach": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        computerId: components["schemas"]["Id"];
+      };
+      cookie?: never;
+    };
+    /**
+     * Upgrade to a binary PTY WebSocket attached to one herdr-core terminal.
+     * @description Authenticates the owner session, mints a short-lived signed attach token, and bridges the WebSocket to Node Services' independent binary PTY relay (/v1/herdr-core/attach). Binary frames carry raw PTY bytes; text frames carry JSON control messages (resize, mode, put, ping / attached, resize, status, put_result, closed, error, pong). While observe is true, client binary input and resize frames are rejected server-side.
+     */
+    get: operations["attachHerdrCoreTerminal"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -8964,6 +9218,19 @@ export interface components {
      * @enum {string}
      */
     ProactiveMandate: "none" | "create" | "create_and_delegate";
+    /** @description Optional My Rules filter matching herdr-core event attributes. */
+    HerdrCoreRuleCondition: {
+      /** @description Exact or wildcard match against the herdr-core machine name (use local for the local machine). */
+      machine?: string;
+      /** @description Path prefix or glob match against the terminal working directory. */
+      cwd?: string;
+      /** @description Case-insensitive match against the OSC 7501 app or template name. */
+      app?: string;
+      /** @description Required label key-value pairs; value * matches any non-empty label value. */
+      labels?: {
+        [key: string]: string;
+      };
+    };
     ProactiveRule: {
       id: components["schemas"]["ProactiveRuleId"];
       text: string;
@@ -8989,6 +9256,7 @@ export interface components {
       /** @description The guideline version that first held the rule as written. */
       guideline_version: number;
       mandate: components["schemas"]["ProactiveMandate"];
+      herdr_core?: components["schemas"]["HerdrCoreRuleCondition"];
     };
     /** @description An observation nightly learning keeps until it is strong enough to become a rule; clues never decide. */
     ProactiveClue: {
@@ -9045,6 +9313,9 @@ export interface components {
     };
     ProactiveRuleEditRequest: {
       text: string;
+      herdr_core?: components["schemas"]["HerdrCoreRuleCondition"];
+      /** @description Clear any existing herdr_core attribute filter on this rule. */
+      clear_herdr_core?: boolean;
     };
     ProactiveRulePinRequest: {
       pinned: boolean;
@@ -9286,6 +9557,198 @@ export interface components {
     GoogleCalendarPage: {
       calendars: components["schemas"]["GoogleCalendar"][];
       next_page_token?: string;
+    };
+    /** @description Summary of one local or remote machine known to herdr-core. */
+    HerdrCoreMachine: {
+      name: string;
+      host?: string;
+      status?: string;
+      online?: boolean;
+      version?: string;
+      live_count?: number;
+    } & {
+      [key: string]: unknown;
+    };
+    HerdrCoreStatusResponse: {
+      available: boolean;
+      version: string;
+      core_id: string;
+      core_name: string;
+      /** Format: int64 */
+      pid: number;
+      /** Format: int64 */
+      uptime_ms: number;
+      live_count: number;
+      finished_count: number;
+      blocked_count: number;
+      working_count: number;
+      machines: components["schemas"]["HerdrCoreMachine"][];
+    };
+    /**
+     * @description OSC 7501 agent status state reported by a herdr-core terminal.
+     * @enum {string}
+     */
+    HerdrCoreTerminalStatusState:
+      | "idle"
+      | "working"
+      | "done"
+      | "blocked"
+      | "error";
+    /** @description Current OSC 7501 status attached to a herdr-core terminal. */
+    HerdrCoreTerminalStatus: {
+      state: components["schemas"]["HerdrCoreTerminalStatusState"];
+      app?: string;
+      msg?: string;
+      progress?: number | null;
+      title?: string;
+    };
+    /** @description Canonical summary of one herdr-core terminal (local or remote machine). Standard Linger and Herdr label keys are linger.room, linger.work_item, linger.agent, linger.origin, herdr.space, and herdr.tab. */
+    HerdrCoreTerminal: {
+      /** @description Local address (for example t7) or remote address (for example vps/t7). */
+      address: string;
+      /** @description Remote machine name, or empty string for the local machine. */
+      machine: string;
+      name: string;
+      /** @enum {string} */
+      state: "live" | "finished";
+      status: components["schemas"]["HerdrCoreTerminalStatus"] | null;
+      /** Format: int64 */
+      turn: number;
+      /** Format: int64 */
+      status_ms: number;
+      cwd: string;
+      foreground_cwd: string;
+      title: string;
+      template: string;
+      parent: string;
+      keep: boolean;
+      labels: {
+        [key: string]: string;
+      };
+      cols: number;
+      rows: number;
+      /** Format: int64 */
+      created_ms: number;
+      /** Format: int64 */
+      finished_ms: number | null;
+      exit_code: number | null;
+    };
+    HerdrCoreTerminalsResponse: {
+      terminals: components["schemas"]["HerdrCoreTerminal"][];
+      machines: components["schemas"]["HerdrCoreMachine"][];
+    };
+    HerdrCoreCreateTerminalRequest: {
+      argv?: string[];
+      line?: string;
+      template?: string;
+      task?: string;
+      name?: string;
+      cwd?: string;
+      on?: string;
+      keep?: boolean;
+      labels?: {
+        [key: string]: string;
+      };
+      parent?: string;
+      rm?: boolean;
+      no_notify?: boolean;
+      /** @description Initial PTY size, such as COLSxROWS string (for example 120x36) or {cols, rows}. */
+      size?: unknown;
+    };
+    HerdrCoreTerminalResponse: {
+      terminal: components["schemas"]["HerdrCoreTerminal"];
+    };
+    HerdrCoreTerminalDeleteResponse: {
+      removed: boolean;
+    };
+    HerdrCoreTerminalReadResponse: {
+      text: string;
+      complete: boolean;
+      how: string;
+      why: string;
+    };
+    HerdrCoreTerminalSendRequest: {
+      address: string;
+      text: string;
+      if?: string;
+      force?: boolean;
+      wait?: boolean;
+      timeout?: number;
+    };
+    HerdrCoreTerminalSendResponse: {
+      status: string;
+      /** Format: int64 */
+      turn: number;
+      started: boolean;
+    };
+    HerdrCoreTerminalKeysRequest: {
+      address: string;
+      keys: string[];
+    };
+    HerdrCoreTerminalKeysResponse: {
+      status: string;
+      /** Format: int64 */
+      turn: number;
+    };
+    HerdrCoreTerminalInterruptRequest: {
+      address: string;
+      timeout?: number;
+    };
+    HerdrCoreTerminalInterruptResponse: {
+      key: string;
+      outcome: string;
+    };
+    HerdrCoreTerminalKillRequest: {
+      address: string;
+    };
+    HerdrCoreTerminalKillResponse: {
+      ok: boolean;
+    };
+    HerdrCoreTerminalPutRequest: {
+      address: string;
+      name: string;
+      data_base64: string;
+    };
+    HerdrCoreTerminalPutResponse: {
+      path: string;
+      /** Format: int64 */
+      bytes: number;
+    };
+    /** @description Reusable terminal launch template declared in herdr-core. */
+    HerdrCoreTemplate: {
+      name: string;
+      description?: string;
+      argv?: string[];
+      line?: string;
+      cwd?: string;
+      keep?: boolean;
+      labels?: {
+        [key: string]: string;
+      };
+    } & {
+      [key: string]: unknown;
+    };
+    HerdrCoreTemplatesResponse: {
+      templates: components["schemas"]["HerdrCoreTemplate"][];
+    };
+    HerdrCoreMachinesResponse: {
+      machines: components["schemas"]["HerdrCoreMachine"][];
+    };
+    HerdrCoreDocGetResponse: {
+      /** Format: int64 */
+      version: number;
+      /** @description Current JSON document value stored in herdr-core. */
+      value: unknown;
+    };
+    HerdrCoreDocPutRequest: {
+      /** Format: int64 */
+      version: number;
+      /** @description Next JSON document value to store in herdr-core with optimistic concurrency. */
+      value: unknown;
+    };
+    HerdrCoreDocPutResponse: {
+      /** Format: int64 */
+      version: number;
     };
     /** @description WebRTC audio statistics the browser observed since its previous audio_stats report, as deltas rather than cumulative totals. Reply fields come from the reply track's inbound-rtp stats and packets_sent from the microphone's outbound-rtp stats; a field is absent when the browser does not report it, a replaced reply or microphone track counts from zero, and a counter that went down (packets_lost after late packets) reports 0. No audio or text. */
     VoiceLiveAudioStats: {
@@ -16910,6 +17373,654 @@ export interface operations {
       401: components["responses"]["Unauthenticated"];
       404: components["responses"]["NotFound"];
       409: components["responses"]["Conflict"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  getHerdrCoreStatus: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        computerId: components["schemas"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Current herdr-core status. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HerdrCoreStatusResponse"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      502: components["responses"]["BadGateway"];
+      503: components["responses"]["ServiceUnavailable"];
+      /** @description The Computer did not answer within the request deadline. */
+      504: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  listHerdrCoreTerminals: {
+    parameters: {
+      query?: {
+        all?: boolean;
+        machine?: string;
+        room_id?: string;
+        work_item_id?: string;
+        status?: string;
+      };
+      header?: never;
+      path: {
+        computerId: components["schemas"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Matching terminals and known machines. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HerdrCoreTerminalsResponse"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      502: components["responses"]["BadGateway"];
+      503: components["responses"]["ServiceUnavailable"];
+      /** @description The Computer did not answer within the request deadline. */
+      504: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  createHerdrCoreTerminal: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        computerId: components["schemas"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["HerdrCoreCreateTerminalRequest"];
+      };
+    };
+    responses: {
+      /** @description Started terminal summary. */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HerdrCoreTerminalResponse"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      502: components["responses"]["BadGateway"];
+      503: components["responses"]["ServiceUnavailable"];
+      /** @description The Computer did not answer within the request deadline. */
+      504: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  getHerdrCoreTerminal: {
+    parameters: {
+      query: {
+        address: string;
+      };
+      header?: never;
+      path: {
+        computerId: components["schemas"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Terminal summary. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HerdrCoreTerminalResponse"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      502: components["responses"]["BadGateway"];
+      503: components["responses"]["ServiceUnavailable"];
+      /** @description The Computer did not answer within the request deadline. */
+      504: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  deleteHerdrCoreTerminal: {
+    parameters: {
+      query: {
+        address: string;
+      };
+      header?: never;
+      path: {
+        computerId: components["schemas"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Removal outcome. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HerdrCoreTerminalDeleteResponse"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      502: components["responses"]["BadGateway"];
+      503: components["responses"]["ServiceUnavailable"];
+      /** @description The Computer did not answer within the request deadline. */
+      504: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  readHerdrCoreTerminal: {
+    parameters: {
+      query: {
+        address: string;
+        lines?: number;
+      };
+      header?: never;
+      path: {
+        computerId: components["schemas"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Terminal screen text and read metadata. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HerdrCoreTerminalReadResponse"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      502: components["responses"]["BadGateway"];
+      503: components["responses"]["ServiceUnavailable"];
+      /** @description The Computer did not answer within the request deadline. */
+      504: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  sendHerdrCoreTerminalText: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        computerId: components["schemas"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["HerdrCoreTerminalSendRequest"];
+      };
+    };
+    responses: {
+      /** @description Send outcome and resulting turn. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HerdrCoreTerminalSendResponse"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      502: components["responses"]["BadGateway"];
+      503: components["responses"]["ServiceUnavailable"];
+      /** @description The Computer did not answer within the request deadline. */
+      504: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  sendHerdrCoreTerminalKeys: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        computerId: components["schemas"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["HerdrCoreTerminalKeysRequest"];
+      };
+    };
+    responses: {
+      /** @description Keys delivery outcome and turn. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HerdrCoreTerminalKeysResponse"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      502: components["responses"]["BadGateway"];
+      503: components["responses"]["ServiceUnavailable"];
+      /** @description The Computer did not answer within the request deadline. */
+      504: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  interruptHerdrCoreTerminal: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        computerId: components["schemas"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["HerdrCoreTerminalInterruptRequest"];
+      };
+    };
+    responses: {
+      /** @description Interrupt outcome. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HerdrCoreTerminalInterruptResponse"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      502: components["responses"]["BadGateway"];
+      503: components["responses"]["ServiceUnavailable"];
+      /** @description The Computer did not answer within the request deadline. */
+      504: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  killHerdrCoreTerminal: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        computerId: components["schemas"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["HerdrCoreTerminalKillRequest"];
+      };
+    };
+    responses: {
+      /** @description Termination result. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HerdrCoreTerminalKillResponse"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      502: components["responses"]["BadGateway"];
+      503: components["responses"]["ServiceUnavailable"];
+      /** @description The Computer did not answer within the request deadline. */
+      504: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  putHerdrCoreTerminalFile: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        computerId: components["schemas"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["HerdrCoreTerminalPutRequest"];
+      };
+    };
+    responses: {
+      /** @description Stored file path and byte count. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HerdrCoreTerminalPutResponse"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      413: components["responses"]["PayloadTooLarge"];
+      502: components["responses"]["BadGateway"];
+      503: components["responses"]["ServiceUnavailable"];
+      /** @description The Computer did not answer within the request deadline. */
+      504: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  listHerdrCoreTemplates: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        computerId: components["schemas"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Declared templates. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HerdrCoreTemplatesResponse"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      502: components["responses"]["BadGateway"];
+      503: components["responses"]["ServiceUnavailable"];
+      /** @description The Computer did not answer within the request deadline. */
+      504: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  listHerdrCoreMachines: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        computerId: components["schemas"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Configured machines. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HerdrCoreMachinesResponse"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      502: components["responses"]["BadGateway"];
+      503: components["responses"]["ServiceUnavailable"];
+      /** @description The Computer did not answer within the request deadline. */
+      504: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  getHerdrCoreDoc: {
+    parameters: {
+      query?: {
+        on?: string;
+      };
+      header?: never;
+      path: {
+        computerId: components["schemas"]["Id"];
+        name: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Current document version and value. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HerdrCoreDocGetResponse"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      502: components["responses"]["BadGateway"];
+      503: components["responses"]["ServiceUnavailable"];
+      /** @description The Computer did not answer within the request deadline. */
+      504: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  putHerdrCoreDoc: {
+    parameters: {
+      query?: {
+        on?: string;
+      };
+      header?: never;
+      path: {
+        computerId: components["schemas"]["Id"];
+        name: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["HerdrCoreDocPutRequest"];
+      };
+    };
+    responses: {
+      /** @description Committed document version. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HerdrCoreDocPutResponse"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      502: components["responses"]["BadGateway"];
+      503: components["responses"]["ServiceUnavailable"];
+      /** @description The Computer did not answer within the request deadline. */
+      504: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  attachHerdrCoreTerminal: {
+    parameters: {
+      query: {
+        address: string;
+        cols?: number;
+        rows?: number;
+        observe?: boolean;
+        history?: number;
+      };
+      header?: never;
+      path: {
+        computerId: components["schemas"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Switching Protocols to the binary PTY attach WebSocket. */
+      101: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      502: components["responses"]["BadGateway"];
       503: components["responses"]["ServiceUnavailable"];
     };
   };

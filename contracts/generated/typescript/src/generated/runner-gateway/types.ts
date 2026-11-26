@@ -45,7 +45,9 @@ export type ServiceFeature =
   | "local_models_external_holders"
   | "runtime_failure_detail"
   | "operation_background_wait"
-  | "dynamic_reasoning_efforts";
+  | "dynamic_reasoning_efforts"
+  | "herdr_core_v1"
+  | "herdr_core_stream";
 export type JsonValue =
   | null
   | boolean
@@ -227,6 +229,7 @@ export type DaemonToAgentEnvelope =
   | RunnerHeartbeat
   | RunnerRuntimeDiagnostics
   | RunnerHerdrEvent
+  | RunnerHerdrCoreEvent
   | RunnerLocalModels
   | RuntimeRegistrationObserved
   | AgentRunnerReady
@@ -1200,7 +1203,7 @@ export interface ComputerToolCall {
   owner_actor_id: Id;
   agent_id: Id;
   tool_session_id: Id;
-  server: "browser" | "playground" | "herdr" | "feishu_mail";
+  server: "browser" | "playground" | "herdr" | "herdr_core" | "feishu_mail";
   tool_name: string;
   arguments: OpaqueObject;
   deadline_ms: number;
@@ -1361,6 +1364,43 @@ export interface HerdrAgentEvent {
    * The last lines of the pane, with obvious secrets redacted.
    */
   tail?: string;
+}
+/**
+ * One herdr-core terminal state transition reported by the Computer when service_features includes herdr_core_v1.
+ */
+export interface RunnerHerdrCoreEvent {
+  type: "runner.herdr_core_event";
+  protocol_version: ProtocolVersion;
+  runner_id: Id;
+  sent_at: Timestamp;
+  event: HerdrCoreEvent;
+}
+export interface HerdrCoreEvent {
+  kind: "agent_blocked" | "agent_finished" | "agent_error" | "terminal_changed";
+  address: string;
+  machine?: string;
+  turn: NonNegativeInteger;
+  status_ms: NonNegativeInteger;
+  status?: HerdrCoreTerminalStatus;
+  name?: string;
+  cwd?: string;
+  title?: string;
+  template?: string;
+  parent?: string;
+  labels?: {
+    [k: string]: string;
+  };
+  /**
+   * The last lines of the terminal, with obvious secrets redacted.
+   */
+  tail?: string;
+}
+export interface HerdrCoreTerminalStatus {
+  state: "idle" | "working" | "done" | "blocked" | "error";
+  app?: string;
+  msg?: string;
+  progress?: number;
+  title?: string;
 }
 /**
  * The Computer's model library. Sent after a runner.welcome whose service_features names local_models, after every library change, and at most every 2 seconds while a download or load runs. revision grows within one connection.

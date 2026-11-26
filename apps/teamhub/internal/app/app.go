@@ -176,6 +176,7 @@ type App struct {
 	accountProfiles                *account.ProfileService
 	skillPackageAuditState         atomic.Int32
 	retention                      *retention.Sweeper
+	herdrCoreOps                   *herdrCoreOpCache
 }
 
 type principal struct {
@@ -642,6 +643,7 @@ func (a *App) registerCollaboration(runtimeState *agentruntimestate.Service) {
 	a.typedCards.SetOnboarding(a.collaboration.WriteOnboardingHandoff, a.onboardingConnections)
 	a.registerDecisionExecutors()
 	a.typedCards.SetHerdrDeliverer(a.deliverHerdrAnswer)
+	a.typedCards.SetHerdrCoreDeliverer(a.deliverHerdrCoreAnswer)
 }
 
 // registerAgentTools builds the Agent CLI tools, each authorized by the

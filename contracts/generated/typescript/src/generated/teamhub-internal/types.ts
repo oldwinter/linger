@@ -778,6 +778,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v0/agent-runtime/local-computers/herdr-core-events": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Hand a herdr-core terminal event to TeamHub SSE invalidation and proactive judgment
+     * @description The Agent Service forwards a runner.herdr_core_event of a connected Computer. TeamHub takes the owner from its own Local Computer record, publishes a herdr-core SSE invalidation hint for the Computer, and queues proactive judgment for agent_blocked, agent_finished, and agent_error transitions.
+     */
+    post: operations["reportLocalComputerHerdrCoreEvent"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v0/agent-runtime/local-computers/local-models": {
     parameters: {
       query?: never;
@@ -2620,6 +2640,50 @@ export interface components {
       cwd?: string;
       title?: string;
       /** @description The last lines of the pane, with obvious secrets redacted on the Computer. */
+      tail?: string;
+    };
+    /**
+     * @description OSC 7501 agent status state reported by a herdr-core terminal.
+     * @enum {string}
+     */
+    HerdrCoreTerminalStatusState:
+      | "idle"
+      | "working"
+      | "done"
+      | "blocked"
+      | "error";
+    /** @description Current OSC 7501 status attached to a herdr-core terminal. */
+    HerdrCoreTerminalStatus: {
+      state: components["schemas"]["HerdrCoreTerminalStatusState"];
+      app?: string;
+      msg?: string;
+      progress?: number | null;
+      title?: string;
+    };
+    HerdrCoreEventReport: {
+      computer_id: string;
+      /** @enum {string} */
+      kind:
+        | "agent_blocked"
+        | "agent_finished"
+        | "agent_error"
+        | "terminal_changed";
+      address: string;
+      machine?: string;
+      /** Format: int64 */
+      turn: number;
+      /** Format: int64 */
+      status_ms: number;
+      status?: components["schemas"]["HerdrCoreTerminalStatus"] | null;
+      name?: string;
+      cwd?: string;
+      title?: string;
+      template?: string;
+      parent?: string;
+      labels?: {
+        [key: string]: string;
+      };
+      /** @description Last lines of the terminal with obvious secrets redacted on the Computer. */
       tail?: string;
     };
     /**
@@ -4980,6 +5044,31 @@ export interface operations {
     };
     responses: {
       /** @description The event is queued, or was already. */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  reportLocalComputerHerdrCoreEvent: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["HerdrCoreEventReport"];
+      };
+    };
+    responses: {
+      /** @description The event is accepted, invalidated, and queued when applicable. */
       202: {
         headers: {
           [name: string]: unknown;

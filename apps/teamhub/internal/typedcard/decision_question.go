@@ -29,6 +29,7 @@ type QuestionDecision struct {
 	Questions []DecisionQuestion
 	Runtime   json.RawMessage
 	Herdr     *HerdrAnswerTarget
+	HerdrCore *HerdrCoreAnswerTarget
 }
 
 // questionView is what a question card stores and shows.
@@ -38,10 +39,11 @@ type questionView struct {
 }
 
 // decisionRuntimeRequest is the request of a card a Runtime asked for, or of
-// a herdr answer card.
+// a herdr / herdr-core answer card.
 type decisionRuntimeRequest struct {
-	Runtime json.RawMessage    `json:"runtime,omitempty"`
-	Herdr   *HerdrAnswerTarget `json:"herdr,omitempty"`
+	Runtime   json.RawMessage        `json:"runtime,omitempty"`
+	Herdr     *HerdrAnswerTarget     `json:"herdr,omitempty"`
+	HerdrCore *HerdrCoreAnswerTarget `json:"herdr_core,omitempty"`
 }
 
 func normalizePrompt(prompt string) (string, error) {

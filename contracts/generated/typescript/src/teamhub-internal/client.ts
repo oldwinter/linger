@@ -57,6 +57,8 @@ export type TouchAgentRuntimeLocalComputerRequest =
   components["schemas"]["TouchAgentRuntimeLocalComputerRequest"];
 export type HerdrAgentEventReport =
   components["schemas"]["HerdrAgentEventReport"];
+export type HerdrCoreEventReport =
+  components["schemas"]["HerdrCoreEventReport"];
 export type RemoveAgentRuntimeLocalComputerRequest =
   components["schemas"]["AgentRuntimeLocalComputerCredentialRequest"];
 export type RecordAgentLocalRunOperationRequest =
@@ -410,6 +412,8 @@ export function createTeamHubAgentRuntimeStateClient(options: {
     ) => post("local-computers/remove", body, signal),
     reportHerdrEvent: (body: HerdrAgentEventReport, signal?: AbortSignal) =>
       post("local-computers/herdr-events", body, signal),
+    reportHerdrCoreEvent: (body: HerdrCoreEventReport, signal?: AbortSignal) =>
+      post("local-computers/herdr-core-events", body, signal),
     recordLocalModels: (
       body: Schemas["RecordLocalModelsRequest"],
       signal?: AbortSignal,
