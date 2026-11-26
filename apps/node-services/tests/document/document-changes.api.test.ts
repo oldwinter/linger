@@ -290,4 +290,380 @@ describe("Document Runtime server changes", () => {
       await realtime.destroy();
     }
   });
+
+  it("reloads a stale cold open when an unopen server change commits before registration", async () => {
+    const { bodies } = await memoryBodies();
+    const openLoaded = deferred<void>();
+    const releaseOpen = deferred<void>();
+    bodies.beforeLoad = async () => {
+      if (bodies.loads.length === 1) {
+        const staleSnapshot = bodies.snapshot();
+        openLoaded.resolve();
+        await releaseOpen.promise;
+        return staleSnapshot;
+      }
+    };
+    const realtime = await startRealtimeServer(bodies);
+    const acks: DurableAck[] = [];
+    let client: Awaited<ReturnType<typeof connectRealtimeClient>> | undefined;
+    try {
+      const connecting = connectRealtimeClient({
+        token: "human_a",
+        url: wsUrl(realtime.address),
+        onStateless: (payload) => acks.push(JSON.parse(payload) as DurableAck),
+      });
+      await openLoaded.promise;
+
+      await expect(
+        realtime.changes.apply({
+          documentId,
+          operationId: "operation_unopen_race",
+          actorId: "actor_agent",
+          compute: appendChange(" by agent"),
+        }),
+      ).resolves.toMatchObject({ status: "applied", seq: 1 });
+
+      releaseOpen.resolve();
+      client = await connecting;
+
+      expect(firstText(Y.encodeStateAsUpdate(client.document))).toMatchObject([
+        { text: "Durable initial state by agent" },
+      ]);
+      await expect
+        .poll(() =>
+          acks.some(
+            (ack) =>
+              ack.type === "durability_ack" && ack.head?.persisted_seq === 1,
+          ),
+        )
+        .toBe(true);
+
+      await expect(
+        realtime.changes.apply({
+          documentId,
+          operationId: "operation_after_unopen_race",
+          actorId: "actor_agent",
+          expectedSeq: 1,
+          compute: appendChange(" followup"),
+        }),
+      ).resolves.toMatchObject({ status: "applied", seq: 2 });
+      await expect
+        .poll(() => firstText(Y.encodeStateAsUpdate(client!.document)))
+        .toMatchObject([{ text: "Durable initial state by agent followup" }]);
+    } finally {
+      releaseOpen.resolve();
+      client?.provider.destroy();
+      client?.document.destroy();
+      await realtime.destroy();
+    }
+  });
+
+  it("serializes a cold open behind an in-flight unopen server change", async () => {
+    const { bodies } = await memoryBodies();
+    const changeComputing = deferred<void>();
+    const releaseChange = deferred<void>();
+    const openLoaded = deferred<void>();
+    bodies.beforeLoad = () => {
+      if (bodies.loads.length === 2) {
+        queueMicrotask(() => openLoaded.resolve());
+      }
+    };
+    const realtime = await startRealtimeServer(bodies);
+    const acks: DurableAck[] = [];
+    let client: Awaited<ReturnType<typeof connectRealtimeClient>> | undefined;
+    try {
+      const applying = realtime.changes.apply({
+        documentId,
+        operationId: "operation_inflight_unopen",
+        actorId: "actor_agent",
+        compute: async (stateBytes) => {
+          changeComputing.resolve();
+          await releaseChange.promise;
+          return appendChange(" inflight")(stateBytes);
+        },
+      });
+      await changeComputing.promise;
+
+      const connecting = connectRealtimeClient({
+        token: "human_a",
+        url: wsUrl(realtime.address),
+        onStateless: (payload) => acks.push(JSON.parse(payload) as DurableAck),
+      });
+      await openLoaded.promise;
+      releaseChange.resolve();
+
+      const [applied, connected] = await Promise.all([applying, connecting]);
+      client = connected;
+      expect(applied).toMatchObject({ status: "applied", seq: 1 });
+      expect(firstText(Y.encodeStateAsUpdate(client.document))).toMatchObject([
+        { text: "Durable initial state inflight" },
+      ]);
+      await expect
+        .poll(() =>
+          acks.some(
+            (ack) =>
+              ack.type === "durability_ack" && ack.head?.persisted_seq === 1,
+          ),
+        )
+        .toBe(true);
+      await expect(
+        realtime.changes.apply({
+          documentId,
+          operationId: "operation_inflight_followup",
+          actorId: "actor_agent",
+          expectedSeq: 1,
+          compute: appendChange(" next"),
+        }),
+      ).resolves.toMatchObject({ status: "applied", seq: 2 });
+    } finally {
+      releaseChange.resolve();
+      client?.provider.destroy();
+      client?.document.destroy();
+      await realtime.destroy();
+    }
+  });
+
+  it("reloads when a warm open loses its resident document to unload and an unopen change", async () => {
+    const { bodies } = await memoryBodies();
+    const secondOpenLoaded = deferred<void>();
+    const releaseSecondOpen = deferred<void>();
+    bodies.beforeLoad = async () => {
+      if (bodies.loads.length === 2) {
+        const staleSnapshot = bodies.snapshot();
+        secondOpenLoaded.resolve();
+        await releaseSecondOpen.promise;
+        return staleSnapshot;
+      }
+    };
+    const realtime = await startRealtimeServer(bodies);
+    const first = await connectRealtimeClient({
+      token: "human_a",
+      url: wsUrl(realtime.address),
+    });
+    let second: Awaited<ReturnType<typeof connectRealtimeClient>> | undefined;
+    try {
+      const connectingSecond = connectRealtimeClient({
+        token: "human_b",
+        url: wsUrl(realtime.address),
+      });
+      await secondOpenLoaded.promise;
+
+      const resident = realtime.hocuspocus.documents.get(documentId);
+      first.provider.destroy();
+      first.document.destroy();
+      await expect.poll(() => resident?.getConnectionsCount() ?? 0).toBe(0);
+      if (
+        resident !== undefined &&
+        realtime.hocuspocus.documents.has(documentId)
+      ) {
+        await realtime.hocuspocus.unloadDocument(resident);
+      }
+      await expect
+        .poll(() => realtime.hocuspocus.documents.has(documentId))
+        .toBe(false);
+
+      await expect(
+        realtime.changes.apply({
+          documentId,
+          operationId: "operation_after_unload",
+          actorId: "actor_agent",
+          compute: appendChange(" while unloaded"),
+        }),
+      ).resolves.toMatchObject({ status: "applied", seq: 1 });
+      // Confirm the change really ran while no resident was open (3rd load:
+      // first open, second open, then unopen apply).
+      expect(bodies.loads).toHaveLength(3);
+
+      releaseSecondOpen.resolve();
+      second = await connectingSecond;
+
+      expect(firstText(Y.encodeStateAsUpdate(second.document))).toMatchObject([
+        { text: "Durable initial state while unloaded" },
+      ]);
+      await expect(
+        realtime.changes.apply({
+          documentId,
+          operationId: "operation_after_warm_reload",
+          actorId: "actor_agent",
+          expectedSeq: 1,
+          compute: appendChange(" synced"),
+        }),
+      ).resolves.toMatchObject({ status: "applied", seq: 2 });
+      await expect
+        .poll(() => firstText(Y.encodeStateAsUpdate(second!.document)))
+        .toMatchObject([
+          { text: "Durable initial state while unloaded synced" },
+        ]);
+    } finally {
+      releaseSecondOpen.resolve();
+      first.provider.destroy();
+      first.document.destroy();
+      second?.provider.destroy();
+      second?.document.destroy();
+      await realtime.destroy();
+    }
+  });
+
+  it("reconciles and broadcasts an open Document when a retried operation finds a lost-reply commit", async () => {
+    const { bodies } = await memoryBodies();
+    let lostFirstReply = false;
+    bodies.beforeSave = (save) => {
+      if (!lostFirstReply && save.operation?.id === "operation_lost_reply") {
+        lostFirstReply = true;
+        bodies.apply(save);
+        throw new Error("Connection reset after commit");
+      }
+    };
+    const realtime = await startRealtimeServer(bodies);
+    const acks: DurableAck[] = [];
+    const client = await connectRealtimeClient({
+      token: "human_a",
+      url: wsUrl(realtime.address),
+      onStateless: (payload) => acks.push(JSON.parse(payload) as DurableAck),
+    });
+    try {
+      const change = {
+        documentId,
+        operationId: "operation_lost_reply",
+        actorId: "actor_agent",
+        expectedSeq: 0,
+        compute: appendChange(" by agent"),
+      };
+      await expect(realtime.changes.apply(change)).rejects.toThrow(
+        "Connection reset after commit",
+      );
+      expect(bodies.rows.get(documentId)!.seq).toBe(1);
+      expect(firstText(Y.encodeStateAsUpdate(client.document))).toMatchObject([
+        { text: "Durable initial state" },
+      ]);
+
+      await expect(realtime.changes.apply(change)).resolves.toMatchObject({
+        status: "applied",
+        seq: 1,
+      });
+      expect(bodies.saves).toHaveLength(1);
+      await expect
+        .poll(() => firstText(Y.encodeStateAsUpdate(client.document)))
+        .toMatchObject([{ text: "Durable initial state by agent" }]);
+      await expect
+        .poll(() =>
+          acks.some(
+            (ack) =>
+              ack.type === "durability_ack" && ack.head?.persisted_seq === 1,
+          ),
+        )
+        .toBe(true);
+
+      await expect(
+        realtime.changes.apply({
+          documentId,
+          operationId: "operation_after_lost_reply",
+          actorId: "actor_agent",
+          expectedSeq: 1,
+          compute: appendChange(" followup"),
+        }),
+      ).resolves.toMatchObject({ status: "applied", seq: 2 });
+      await expect
+        .poll(() => firstText(Y.encodeStateAsUpdate(client.document)))
+        .toMatchObject([{ text: "Durable initial state by agent followup" }]);
+
+      appendToFirstText(client.document, " human");
+      await expect.poll(() => bodies.rows.get(documentId)!.seq).toBe(3);
+      expect(firstText(bodies.rows.get(documentId)!.state)).toMatchObject([
+        { text: "Durable initial state by agent followup human" },
+      ]);
+    } finally {
+      client.provider.destroy();
+      client.document.destroy();
+      await realtime.destroy();
+    }
+  });
+
+  it("refreshes an open resident Document after a stale save so retries apply or report stale_head", async () => {
+    const { bodies } = await memoryBodies();
+    let lostFirstReply = false;
+    bodies.beforeSave = (save) => {
+      if (!lostFirstReply && save.operation?.id === "operation_unretried") {
+        lostFirstReply = true;
+        bodies.apply(save);
+        throw new Error("Connection reset after commit");
+      }
+    };
+    const realtime = await startRealtimeServer(bodies);
+    const acks: DurableAck[] = [];
+    const client = await connectRealtimeClient({
+      token: "human_a",
+      url: wsUrl(realtime.address),
+      onStateless: (payload) => acks.push(JSON.parse(payload) as DurableAck),
+    });
+    try {
+      await expect(
+        realtime.changes.apply({
+          documentId,
+          operationId: "operation_unretried",
+          actorId: "actor_agent",
+          compute: appendChange(" first"),
+        }),
+      ).rejects.toThrow("Connection reset after commit");
+
+      // A sequenced change with expectedSeq 0 hits stale on the first save,
+      // refreshes resident durability to seq 1, and conflicts cleanly.
+      await expect(
+        realtime.changes.apply({
+          documentId,
+          operationId: "operation_stale_expected",
+          actorId: "actor_agent",
+          expectedSeq: 0,
+          compute: appendChange(" rejected"),
+        }),
+      ).resolves.toEqual({ status: "conflicted", reason: "stale_head" });
+      await expect
+        .poll(() => firstText(Y.encodeStateAsUpdate(client.document)))
+        .toMatchObject([{ text: "Durable initial state first" }]);
+
+      // Advance persistence again behind the open resident and verify an
+      // unsequenced change refreshes and succeeds on retry instead of 503.
+      bodies.commitServerChange((document) =>
+        appendToFirstText(document, " external"),
+      );
+      await expect(
+        realtime.changes.apply({
+          documentId,
+          operationId: "operation_unsequenced_after_stale",
+          actorId: "actor_agent",
+          compute: appendChange(" second"),
+        }),
+      ).resolves.toMatchObject({ status: "applied", seq: 3 });
+      await expect
+        .poll(() => firstText(Y.encodeStateAsUpdate(client.document)))
+        .toMatchObject([
+          { text: "Durable initial state first external second" },
+        ]);
+      await expect
+        .poll(() =>
+          acks.some(
+            (ack) =>
+              ack.type === "durability_ack" && ack.head?.persisted_seq === 3,
+          ),
+        )
+        .toBe(true);
+    } finally {
+      client.provider.destroy();
+      client.document.destroy();
+      await realtime.destroy();
+    }
+  });
 });
+
+interface DurableAck {
+  type: string;
+  head?: { persisted_seq?: number };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((settle) => {
+    resolve = settle;
+  });
+  return { promise, resolve };
+}

@@ -16,6 +16,8 @@ type ChangeDurability = Pick<
   | "settleAppend"
   | "hasDocument"
   | "getPermanentFailure"
+  | "reconcileSavedBody"
+  | "noteBodyChange"
 >;
 
 interface ResidentDocument {
@@ -91,12 +93,20 @@ export class DocumentChangeCoordinator {
         input.documentId,
         changeDeadlineMs,
       );
+      let attemptedSave = false;
       try {
         const earlier = await this.#bodies.findOperation(
           input.documentId,
           input.operationId,
         );
-        if (earlier !== undefined) return { status: "applied", ...earlier };
+        if (earlier !== undefined) {
+          const reconciled = await this.#reconcileResident(
+            input.documentId,
+            earlier.seq,
+          );
+          if (reconciled === "missing") throw new DocumentNotFoundError();
+          return { status: "applied", ...earlier };
+        }
         const base = await this.#readBase(input.documentId);
         if (input.expectedSeq !== undefined && input.expectedSeq !== base.seq) {
           return { status: "conflicted", reason: "stale_head" };
@@ -107,6 +117,7 @@ export class DocumentChangeCoordinator {
         }
         const assetIds = [...computed.assetIds].sort();
         const threadIds = [...computed.threadIds].sort();
+        attemptedSave = true;
         const saved = await this.#bodies.save({
           documentId: input.documentId,
           baseSeq: base.seq,
@@ -118,7 +129,11 @@ export class DocumentChangeCoordinator {
           historyPoints: false,
           operation: { id: input.operationId, title: computed.title },
         });
-        if (saved.kind === "stale") continue;
+        if (saved.kind === "stale") {
+          const reconciled = await this.#reconcileResident(input.documentId);
+          if (reconciled === "missing") throw new DocumentNotFoundError();
+          continue;
+        }
         if (saved.kind === "rejected") throw new DocumentNotFoundError();
         const stateHash = sha256Hex(computed.stateBytes);
         await this.#publish(input.documentId, base.seq, computed, {
@@ -138,6 +153,9 @@ export class DocumentChangeCoordinator {
           threadIds,
         };
       } finally {
+        if (attemptedSave) {
+          this.#durability.noteBodyChange(input.documentId);
+        }
         lease.release();
       }
     }
@@ -155,15 +173,41 @@ export class DocumentChangeCoordinator {
       }
       // A batch on the wire must land first, so the change meets its head.
       await this.#durability.settleAppend(documentId);
-      const captured = this.#durability.captureCommittedState(documentId);
-      return {
-        seq: captured.head.persisted_seq,
-        stateBytes: captured.stateBytes,
-      };
+      if (this.#durability.hasDocument(documentId)) {
+        if (this.#durability.getPermanentFailure(documentId) !== undefined) {
+          throw new DocumentChangeError("The resident Document failed to save");
+        }
+        const captured = this.#durability.captureCommittedState(documentId);
+        return {
+          seq: captured.head.persisted_seq,
+          stateBytes: captured.stateBytes,
+        };
+      }
     }
     const loaded = await this.#bodies.load(documentId);
     if (loaded === undefined) throw new DocumentNotFoundError();
     return { seq: loaded.seq, stateBytes: loaded.state };
+  }
+
+  async #reconcileResident(
+    documentId: string,
+    minSeq?: number,
+  ): Promise<"adopted" | "current" | "unopened" | "missing"> {
+    if (
+      !this.#durability.hasDocument(documentId) ||
+      this.#durability.getPermanentFailure(documentId) !== undefined
+    ) {
+      return "unopened";
+    }
+    const result = await this.#durability.reconcileSavedBody(
+      documentId,
+      minSeq === undefined ? undefined : { minSeq },
+    );
+    if (result === "adopted") {
+      const resident = this.#getResidentDocument(documentId);
+      if (resident !== undefined) await resident.waitForBroadcast();
+    }
+    return result;
   }
 
   // A Document that opened while the change ran registered either the base
@@ -179,10 +223,21 @@ export class DocumentChangeCoordinator {
   ): Promise<void> {
     if (
       !this.#durability.hasDocument(documentId) ||
-      this.#durability.getPermanentFailure(documentId) !== undefined ||
-      this.#durability.captureCommittedState(documentId).head.persisted_seq !==
-        baseSeq
+      this.#durability.getPermanentFailure(documentId) !== undefined
     ) {
+      return;
+    }
+    const currentSeq =
+      this.#durability.captureCommittedState(documentId).head.persisted_seq;
+    if (currentSeq !== baseSeq) {
+      if (currentSeq < head.persisted_seq) {
+        await this.#reconcileResident(documentId, head.persisted_seq);
+      } else {
+        const resident = this.#getResidentDocument(documentId);
+        if (resident !== undefined && computed.update.byteLength > 0) {
+          await resident.waitForBroadcast();
+        }
+      }
       return;
     }
     try {
@@ -193,13 +248,14 @@ export class DocumentChangeCoordinator {
         committedHead: head,
       });
     } catch (error) {
-      // The body is saved; the resident's next save finds it newer and
-      // adopts it, so the change still reaches every connection.
+      // The body is saved; fall back to loading and adopting it directly so
+      // open connections do not stay behind the committed sequence.
       documentLogger().log("warn", "document.change_publish_deferred", {
         document_id: documentId,
         persisted_seq: head.persisted_seq,
         error_name: error instanceof Error ? error.name : "unknown",
       });
+      await this.#reconcileResident(documentId, head.persisted_seq);
       return;
     }
     const resident = this.#getResidentDocument(documentId);
