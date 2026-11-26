@@ -143,7 +143,7 @@ export function useDesktopComputer(): DesktopComputer | undefined {
         );
         try {
           const next = await api.getStatus();
-          setStatus(next);
+          setStatus({ ...next, computerId: next.computerId ?? computerId });
         } catch {
           // Keep the enrolled computerId even if an immediate status read fails.
         }

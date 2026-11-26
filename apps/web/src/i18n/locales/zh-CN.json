@@ -3503,7 +3503,17 @@
     "workMovesPatternLoop": "工作会不断循环推进，直到真正达成目标。",
     "workMovesStepStart": "{who} 启动工作。",
     "workMovesStepHandoff": "{who} 将工作交接给 {other}。",
-    "workMovesStepReport": "{who} 向 {other} 汇报结果。"
+    "workMovesStepReport": "{who} 向 {other} 汇报结果。",
+    "roomWorkTitle": "查看工作进度",
+    "roomWorkLoadingRoom": "正在加载这个 Room。",
+    "roomWorkLoadFailed": "无法读取这个 Room。",
+    "roomWorkIdle": "这个 Room 当前没有进行中的工作。",
+    "roomWorkAgentWorking": "{name} 正在工作",
+    "roomWorkAgentFinished": "{name} 已完成本次运行",
+    "roomWorkWorkingSubtitle": "Agent 仍在工作时，此页面会持续更新。",
+    "roomWorkFinishedSubtitle": "Agent 已回复。下方展示它执行过的路径。",
+    "roomWorkEventsLoadFailed": "无法加载工作进度。",
+    "roomWorkLoadingWork": "正在加载工作进度。"
   },
   "roomDialogs": {
     "createFailed": "没能创建 Room",

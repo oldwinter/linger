@@ -10,46 +10,11 @@ const I18N_HOOK_PATTERN = /\b(?:useT|useTranslation)\s*\(/u;
 const INLINE_HEX_STYLE_PATTERN =
   /style\s*=\s*\{\{[^}]*?\b(?:color|background|backgroundColor|border|borderColor|fill|stroke)\s*:\s*["']#[0-9a-fA-F]{3,8}["']/u;
 
-const REQUIRED_LOCALIZED_PAGES = [
-  "apps/connected-apps-page.tsx",
-  "apps/oauth-complete-page.tsx",
-  "auth/teamhub-login-page.tsx",
-  "library/library-documents-page.tsx",
-  "local-computer/computer-can-do-page.tsx",
-  "local-computer/computers-page.tsx",
-  "local-computer/connect-computer-page.tsx",
-  "local-models/local-models-page.tsx",
-  "memory/meeting-page.tsx",
-  "memory/wiki-graph-page.tsx",
-  "rooms/documents/mark-moment-page.tsx",
-  "rooms/documents/shared-document-page.tsx",
-  "rooms/members/agent-can-do-page.tsx",
-  "rooms/quick-create-general-agent-page.tsx",
-  "rooms/room-empty-page.tsx",
-  "rooms/sharing/shared-room-history-page.tsx",
-  "rooms/voice-control/hearing-page.tsx",
-  "rooms/voice-control/who-is-speaking-page.tsx",
-  "settings/account-settings-page.tsx",
-  "settings/language-settings-page.tsx",
-  "settings/my-rules-page.tsx",
-  "settings/rule-next-page.tsx",
-  "settings/security-settings-page.tsx",
-  "settings/settings-page.tsx",
-  "settings/shadow-rule-review-page.tsx",
-  "settings/shortcuts-settings-page.tsx",
-  "wiki/wiki-collection-page.tsx",
-  "wiki/wiki-home-page.tsx",
-  "wiki/wiki-preview-page.tsx",
-  "wiki/wiki-profile-page.tsx",
-  "work-items/work-item-pair-page.tsx",
-  "work-items/work-item-story-page.tsx",
-  "work-items/work-items-page.tsx",
-] as const;
-
 describe("UI polish regression guardrails", () => {
-  it("keeps computer-can-do, voice/doc subpages, and core feature pages wired to i18n", async () => {
+  it("keeps every feature *-page.tsx wired to i18n", async () => {
+    const pageFiles = await collectPageFiles(featuresRoot);
     const missing: string[] = [];
-    for (const page of REQUIRED_LOCALIZED_PAGES) {
+    for (const page of pageFiles) {
       const source = await readFile(join(featuresRoot, page), "utf8");
       if (!hasI18nHook(source)) {
         missing.push(`features/${page}`);
@@ -57,7 +22,7 @@ describe("UI polish regression guardrails", () => {
     }
     expect(
       missing,
-      "Localized feature pages must remain wired to `useT()` or `useTranslation()` instead of reverting to hardcoded prose.",
+      "Every feature *-page.tsx must stay wired to `useT()` or `useTranslation()` instead of reverting to hardcoded prose.",
     ).toEqual([]);
   });
 

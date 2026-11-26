@@ -162,4 +162,16 @@ export const roomActionsMessages = defineMessages("roomActions", {
   workMovesStepStart: "{who} starts the work.",
   workMovesStepHandoff: "{who} hands the work to {other}.",
   workMovesStepReport: "{who} reports back to {other}.",
+  roomWorkTitle: "Watch the work",
+  roomWorkLoadingRoom: "Loading this room.",
+  roomWorkLoadFailed: "This room could not be read.",
+  roomWorkIdle: "Nothing is happening in this room.",
+  roomWorkAgentWorking: "{name} is working",
+  roomWorkAgentFinished: "{name} finished this run",
+  roomWorkWorkingSubtitle:
+    "This page keeps up while the agent is still working.",
+  roomWorkFinishedSubtitle:
+    "The agent has replied. The path below is what it did.",
+  roomWorkEventsLoadFailed: "The work could not be loaded.",
+  roomWorkLoadingWork: "Loading the work.",
 });
