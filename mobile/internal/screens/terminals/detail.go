@@ -554,7 +554,7 @@ func (s *Screen) removeTerminalAsync(address, displayName string) {
 func (s *Screen) viewKillConfirmSheet(c *ui.Context) {
 	addr := s.confirmTargetAdr
 	name := s.confirmTargetNm
-	mobile.ActionSheet(c, &s.killConfirmOpen, mobile.ActionSheetOptions{
+	components.ActionSheet(c, &s.killConfirmOpen, mobile.ActionSheetOptions{
 		Title:   i18n.Tf("terminals.detail.kill_title", map[string]any{"name": name}),
 		Message: i18n.T("terminals.detail.kill_body"),
 		Cancel:  i18n.T("common.cancel"),
@@ -570,7 +570,7 @@ func (s *Screen) viewKillConfirmSheet(c *ui.Context) {
 func (s *Screen) viewRemoveConfirmSheet(c *ui.Context) {
 	addr := s.confirmTargetAdr
 	name := s.confirmTargetNm
-	mobile.ActionSheet(c, &s.rmConfirmOpen, mobile.ActionSheetOptions{
+	components.ActionSheet(c, &s.rmConfirmOpen, mobile.ActionSheetOptions{
 		Title:   i18n.Tf("terminals.detail.remove_title", map[string]any{"name": name}),
 		Message: i18n.T("terminals.detail.remove_body"),
 		Cancel:  i18n.T("common.cancel"),

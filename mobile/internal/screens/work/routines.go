@@ -545,7 +545,7 @@ func (s *Screen) viewRoutineDeleteActionSheet(c *ui.Context) {
 		s.routineDeleteSheet = false
 		return
 	}
-	mobile.ActionSheet(c, &s.routineDeleteSheet, mobile.ActionSheetOptions{
+	components.ActionSheet(c, &s.routineDeleteSheet, mobile.ActionSheetOptions{
 		Title:   i18n.T("work.routines.delete_title"),
 		Message: i18n.Tf("work.routines.delete_body", map[string]any{"title": rt.Name}),
 		Cancel:  i18n.T("common.cancel"),

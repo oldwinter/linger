@@ -210,7 +210,7 @@ func (s *Screen) viewInsightDeleteSheet(c *ui.Context) {
 		s.insightDelSheet = false
 		return
 	}
-	mobile.ActionSheet(c, &s.insightDelSheet, mobile.ActionSheetOptions{
+	components.ActionSheet(c, &s.insightDelSheet, mobile.ActionSheetOptions{
 		Title:   i18n.T("settings.profile.prune_title"),
 		Message: ins.Statement,
 		Cancel:  i18n.T("common.cancel"),

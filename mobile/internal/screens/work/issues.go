@@ -695,7 +695,7 @@ func (s *Screen) viewTransitionActionSheet(c *ui.Context) {
 			},
 		},
 	}
-	mobile.ActionSheet(c, &s.transitionSheet, mobile.ActionSheetOptions{
+	components.ActionSheet(c, &s.transitionSheet, mobile.ActionSheetOptions{
 		Title:   i18n.Tf("work.issues.transition_title", map[string]any{"num": wi.Number}),
 		Message: i18n.Tf("work.issues.current_state", map[string]any{"state": formatWorkItemState(wi.State)}),
 		Cancel:  i18n.T("common.cancel"),
@@ -1021,7 +1021,7 @@ func (s *Screen) viewDeleteCommentConfirm(c *ui.Context) {
 	wiID := s.commentDelWorkItemID
 	cmID := cm.ID
 	cmVer := cm.Version
-	mobile.ActionSheet(c, &s.commentDelOpen, mobile.ActionSheetOptions{
+	components.ActionSheet(c, &s.commentDelOpen, mobile.ActionSheetOptions{
 		Title:   i18n.T("work.issues.delete_comment_title"),
 		Message: i18n.Tf("work.issues.delete_comment_body", map[string]any{"author": cm.Author.DisplayName, "body": preview}),
 		Cancel:  i18n.T("common.cancel"),

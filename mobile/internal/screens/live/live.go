@@ -343,7 +343,7 @@ func (ctl *Controller) viewStopRunConfirm(c *ui.Context) {
 		ctl.stopRunConfirmOpen = false
 		return
 	}
-	mobile.ActionSheet(c, &ctl.stopRunConfirmOpen, mobile.ActionSheetOptions{
+	components.ActionSheet(c, &ctl.stopRunConfirmOpen, mobile.ActionSheetOptions{
 		Title:   i18n.T("run.stop_dialog_title"),
 		Message: i18n.Tf("live.stop_confirm_body", map[string]any{"agent": run.Agent.DisplayName, "room": roomName}),
 		Cancel:  i18n.T("run.keep_running"),

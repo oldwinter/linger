@@ -642,7 +642,7 @@ func (s *Screen) exportDiagnostics() {
 }
 
 func (s *Screen) viewUnpairConfirm(c *ui.Context) {
-	mobile.ActionSheet(c, &s.unpairConfirm, mobile.ActionSheetOptions{
+	components.ActionSheet(c, &s.unpairConfirm, mobile.ActionSheetOptions{
 		Title:   i18n.T("settings.signout.title"),
 		Message: i18n.T("settings.signout.body"),
 		Cancel:  i18n.T("common.cancel"),

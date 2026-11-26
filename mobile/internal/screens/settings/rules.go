@@ -293,7 +293,7 @@ func (s *Screen) viewRuleMandateSheet(c *ui.Context) {
 		s.ruleMandateSheet = false
 		return
 	}
-	mobile.ActionSheet(c, &s.ruleMandateSheet, mobile.ActionSheetOptions{
+	components.ActionSheet(c, &s.ruleMandateSheet, mobile.ActionSheetOptions{
 		Title:   i18n.T("settings.rules.mandate_sheet_title"),
 		Message: r.Text,
 		Cancel:  i18n.T("common.cancel"),
@@ -319,7 +319,7 @@ func (s *Screen) viewRuleDeleteSheet(c *ui.Context) {
 		s.ruleDeleteSheet = false
 		return
 	}
-	mobile.ActionSheet(c, &s.ruleDeleteSheet, mobile.ActionSheetOptions{
+	components.ActionSheet(c, &s.ruleDeleteSheet, mobile.ActionSheetOptions{
 		Title:   i18n.T("settings.rules.delete_title"),
 		Message: r.Text,
 		Cancel:  i18n.T("common.cancel"),
@@ -336,7 +336,7 @@ func (s *Screen) viewRuleDismissSheet(c *ui.Context) {
 		s.ruleDismissSheet = false
 		return
 	}
-	mobile.ActionSheet(c, &s.ruleDismissSheet, mobile.ActionSheetOptions{
+	components.ActionSheet(c, &s.ruleDismissSheet, mobile.ActionSheetOptions{
 		Title:   i18n.T("settings.rules.dismiss_title"),
 		Message: i18n.Tf("settings.rules.dismiss_body", map[string]any{"text": r.Text}),
 		Cancel:  i18n.T("common.cancel"),

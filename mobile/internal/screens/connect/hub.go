@@ -175,7 +175,7 @@ func (h *Hub) View(c *ui.Context) {
 
 	ui.Scroll(c).FillWidth().Grow(1).Basis(0).Children(func() {
 		layout.ReadableWrap(c, m.ReadableMaxWidth, func() {
-			ui.Column(c).FillWidth().Padding(8, 16, 20, 16).Gap(10).Children(func() {
+			ui.Column(c).FillWidth().Padding(4, 16, 16, 16).Gap(7).Children(func() {
 				// Active transient error or status banners (cleared automatically on recovery).
 				if snap.TransientError != "" {
 					components.StatusBanner(c, components.ToneDanger, snap.TransientError, i18n.T("common.dismiss"), func() {
@@ -275,12 +275,16 @@ func (h *Hub) viewConnectionOverviewCard(c *ui.Context, snap state.Snapshot) {
 	plainHTTP := snap.ActiveHost != nil && !snap.ActiveHost.TLS
 	connected := snap.Phase == state.PhaseConnected
 
-	hero := ui.Column(c).FillWidth().Gradient(ex.HeroGradFrom, ex.HeroGradTo, 180).Radius(16).Padding(12, 14).Gap(8)
+	heroPadV, heroGap := float32(12), float32(8)
+	if snap.ActiveHost == nil {
+		heroPadV, heroGap = 10, 5
+	}
+	hero := ui.Column(c).FillWidth().Gradient(ex.HeroGradFrom, ex.HeroGradTo, 180).Radius(16).Padding(heroPadV, 14).Gap(heroGap)
 	components.ApplyCardElevation(hero, t)
 	hero.Children(func() {
 		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(10).Children(func() {
 			if snap.ActiveHost == nil {
-				theme.IconBox(c, 36, t.Accent, theme.IconBrandMark)
+				theme.IconBox(c, 32, t.Accent, theme.IconBrandMark)
 			} else {
 				components.AvatarBadge(c, hostName, 44)
 			}
@@ -428,7 +432,7 @@ func (h *Hub) viewPairDesktop(c *ui.Context, snap state.Snapshot, busy bool) {
 	ex := theme.Extra(t)
 
 	// 1. Primary above-the-fold CTA: Scan Desktop QR Code.
-	qrCard := ui.Column(c).FillWidth().Background(t.Surface).Radius(16).Padding(12, 14).Gap(8)
+	qrCard := ui.Column(c).FillWidth().Background(t.Surface).Radius(16).Padding(10, 14).Gap(6)
 	components.ApplyCardElevation(qrCard, t)
 	qrCard.Children(func() {
 		ui.Column(c).FillWidth().Gap(2).Children(func() {
@@ -447,7 +451,7 @@ func (h *Hub) viewPairDesktop(c *ui.Context, snap state.Snapshot, busy bool) {
 	if len(snap.Discovered) > 0 {
 		foundTone = components.ToneBrand
 	}
-	nearbyCard := ui.Column(c).FillWidth().Background(t.Surface).Radius(16).Padding(12, 14).Gap(8)
+	nearbyCard := ui.Column(c).FillWidth().Background(t.Surface).Radius(16).Padding(10, 14).Gap(6)
 	components.ApplyCardElevation(nearbyCard, t)
 	nearbyCard.Children(func() {
 		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
@@ -458,10 +462,10 @@ func (h *Hub) viewPairDesktop(c *ui.Context, snap state.Snapshot, busy bool) {
 			components.StatusDotPill(c, i18n.Tf("connect.mdns_found", map[string]any{"count": len(snap.Discovered)}), foundTone)
 		})
 		if len(snap.Discovered) == 0 {
-			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(10).Padding(2, 0).Children(func() {
+			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(10).Children(func() {
 				theme.IconBox(c, 20, t.TextMuted, theme.IconRadar)
 				ui.Text(c, i18n.T("connect.mdns_empty")).
-					Grow(1).Basis(0).FontSize(12.5).LineHeight(1.35).TextColor(t.TextMuted)
+					Grow(1).Basis(0).FontSize(12.5).LineHeight(1.3).TextColor(t.TextMuted)
 			})
 		} else {
 			ui.Column(c).FillWidth().Gap(8).Children(func() {
@@ -503,7 +507,7 @@ func (h *Hub) viewPairDesktop(c *ui.Context, snap state.Snapshot, busy bool) {
 	h.mu.Lock()
 	advOpen := h.advancedOpen
 	h.mu.Unlock()
-	advCard := ui.Column(c).FillWidth().Background(t.Surface).Radius(16).Padding(10, 14).Gap(10)
+	advCard := ui.Column(c).FillWidth().Background(t.Surface).Radius(16).Padding(6, 14).Gap(8)
 	components.ApplyCardElevation(advCard, t)
 	advCard.Children(func() {
 		toggle := ui.Row(c).FillWidth().MinHeight(44).AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).
@@ -630,7 +634,7 @@ func (h *Hub) viewHostActionSheet(c *ui.Context) {
 		},
 	})
 
-	mobile.ActionSheet(c, &h.actionSheetOpen, mobile.ActionSheetOptions{
+	components.ActionSheet(c, &h.actionSheetOpen, mobile.ActionSheetOptions{
 		Title:   host.Name,
 		Message: host.PrimaryURL,
 		Cancel:  i18n.T("common.cancel"),
@@ -645,7 +649,7 @@ func (h *Hub) viewRemoveHostConfirm(c *ui.Context) {
 		h.removeHostConfirm = false
 		return
 	}
-	mobile.ActionSheet(c, &h.removeHostConfirm, mobile.ActionSheetOptions{
+	components.ActionSheet(c, &h.removeHostConfirm, mobile.ActionSheetOptions{
 		Title:   i18n.Tf("connect.remove_confirm_title", map[string]any{"name": host.Name}),
 		Message: i18n.Tf("connect.remove_confirm_body", map[string]any{"name": host.Name, "url": host.PrimaryURL}),
 		Cancel:  i18n.T("common.cancel"),

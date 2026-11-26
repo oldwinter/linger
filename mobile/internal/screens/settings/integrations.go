@@ -370,7 +370,7 @@ func (s *Screen) viewDisconnectConfirmSheet(c *ui.Context) {
 		s.connDisconnSheet = false
 		return
 	}
-	mobile.ActionSheet(c, &s.connDisconnSheet, mobile.ActionSheetOptions{
+	components.ActionSheet(c, &s.connDisconnSheet, mobile.ActionSheetOptions{
 		Title:   i18n.Tf("settings.integrations.disconnect_title", map[string]any{"name": conn.Provider}),
 		Message: i18n.T("settings.integrations.disconnect_body"),
 		Cancel:  i18n.T("common.cancel"),

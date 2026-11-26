@@ -1145,7 +1145,7 @@ func (s *Screen) viewDeleteDocConfirm(c *ui.Context) {
 		s.deleteConfirmOpen = false
 		return
 	}
-	mobile.ActionSheet(c, &s.deleteConfirmOpen, mobile.ActionSheetOptions{
+	components.ActionSheet(c, &s.deleteConfirmOpen, mobile.ActionSheetOptions{
 		Title:   i18n.T("library.docs.delete_title"),
 		Message: doc.Title,
 		Cancel:  i18n.T("common.cancel"),

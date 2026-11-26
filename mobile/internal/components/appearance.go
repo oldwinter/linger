@@ -83,7 +83,7 @@ func AppearanceQuickCard(
 	curTheme := config.NormalizeThemePreference(string(prefs.Theme))
 	curLang := config.NormalizeLanguagePreference(string(prefs.Language))
 
-	card := ui.Column(c).FillWidth().Background(t.Surface).Radius(16).Padding(10, 14).Gap(6).
+	card := ui.Column(c).FillWidth().Background(t.Surface).Radius(16).Padding(8, 12).Gap(5).
 		Role(ui.RoleGroup).Label(i18n.T("appearance.title"))
 	ApplyCardElevation(card, t)
 	card.Children(func() {
@@ -93,7 +93,7 @@ func AppearanceQuickCard(
 				ui.Text(c, i18n.T("appearance.title")).FontSize(12.5).FontWeight(600).TextColor(t.TextMuted).NoWrap()
 			})
 			if onOpenPrefs != nil {
-				btn := ui.Row(c).MinHeight(34).Padding(4, 10).Radius(999).Background(ex.MutedBg).
+				btn := ui.Row(c).MinHeight(32).Padding(3, 9).Radius(999).Background(ex.MutedBg).
 					AlignItems(ui.Center).Gap(3).Role(ui.RoleButton).Label(i18n.T("appearance.all_prefs"))
 				if btn.Pressed() {
 					btn.Background(t.SurfacePressed)

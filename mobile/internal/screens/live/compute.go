@@ -480,7 +480,7 @@ func (ctl *Controller) viewMakeRoomConfirm(c *ui.Context) {
 		ctl.makeRoomConfirmOpen = false
 		return
 	}
-	mobile.ActionSheet(c, &ctl.makeRoomConfirmOpen, mobile.ActionSheetOptions{
+	components.ActionSheet(c, &ctl.makeRoomConfirmOpen, mobile.ActionSheetOptions{
 		Title: i18n.Tf("live.compute.make_room_title", map[string]any{"name": mName}),
 		Message: i18n.Tf("live.compute.make_room_body", map[string]any{
 			"unload": strings.Join(unloadNames, ", "),
@@ -550,7 +550,7 @@ func (ctl *Controller) viewRemoveModelConfirm(c *ui.Context, snap state.Snapshot
 	mID := ctl.removeModelID
 	mName := ctl.removeModelName
 	ctl.mu.Unlock()
-	mobile.ActionSheet(c, &ctl.removeModelOpen, mobile.ActionSheetOptions{
+	components.ActionSheet(c, &ctl.removeModelOpen, mobile.ActionSheetOptions{
 		Title:   i18n.Tf("live.compute.remove_title", map[string]any{"name": mName}),
 		Message: i18n.T("live.compute.remove_body"),
 		Cancel:  i18n.T("common.cancel"),

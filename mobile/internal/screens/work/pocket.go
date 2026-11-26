@@ -543,7 +543,7 @@ func (s *Screen) viewPocketDeleteActionSheet(c *ui.Context) {
 		return
 	}
 	dateStr := s.pocketDeleteDate
-	mobile.ActionSheet(c, &s.pocketDeleteSheet, mobile.ActionSheetOptions{
+	components.ActionSheet(c, &s.pocketDeleteSheet, mobile.ActionSheetOptions{
 		Title:   i18n.T("work.pocket.delete_title"),
 		Message: i18n.Tf("work.pocket.delete_body", map[string]any{"date": dateStr}),
 		Cancel:  i18n.T("common.cancel"),

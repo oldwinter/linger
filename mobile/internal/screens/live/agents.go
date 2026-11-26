@@ -289,7 +289,7 @@ func (ctl *Controller) viewDeleteAgentConfirm(c *ui.Context) {
 	if ag != nil {
 		name = ag.Actor.DisplayName
 	}
-	mobile.ActionSheet(c, &ctl.deleteAgentOpen, mobile.ActionSheetOptions{
+	components.ActionSheet(c, &ctl.deleteAgentOpen, mobile.ActionSheetOptions{
 		Title:   i18n.Tf("live.agents.delete_title", map[string]any{"name": name}),
 		Message: i18n.T("live.agents.delete_body"),
 		Cancel:  i18n.T("common.cancel"),

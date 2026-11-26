@@ -188,7 +188,7 @@ func (s *Screen) viewClearCacheConfirmSheet(c *ui.Context) {
 	if pendingOutbox > 0 {
 		msg = i18n.Tf("settings.prefs.clear_body_preserve_outbox", map[string]any{"count": pendingOutbox})
 	}
-	mobile.ActionSheet(c, &s.clearCacheConfirm, mobile.ActionSheetOptions{
+	components.ActionSheet(c, &s.clearCacheConfirm, mobile.ActionSheetOptions{
 		Title:   i18n.T("settings.prefs.clear_title"),
 		Message: msg,
 		Cancel:  i18n.T("common.cancel"),

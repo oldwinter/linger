@@ -403,7 +403,7 @@ func (ctl *Controller) viewMessageActionSheet(c *ui.Context) {
 			},
 		})
 	}
-	mobile.ActionSheet(c, &ctl.msgActionSheetOpen, mobile.ActionSheetOptions{
+	components.ActionSheet(c, &ctl.msgActionSheetOpen, mobile.ActionSheetOptions{
 		Title:  i18n.T("chat.msg_actions_title"),
 		Cancel: i18n.T("common.cancel"),
 	}, actions...)
@@ -982,7 +982,7 @@ func (ctl *Controller) viewReactionSheet(c *ui.Context, roomID string) {
 			},
 		})
 	}
-	mobile.ActionSheet(c, &ctl.reactSheetOpen, mobile.ActionSheetOptions{Title: i18n.T("chat.react_sheet_title"), Cancel: i18n.T("common.cancel")}, actions...)
+	components.ActionSheet(c, &ctl.reactSheetOpen, mobile.ActionSheetOptions{Title: i18n.T("chat.react_sheet_title"), Cancel: i18n.T("common.cancel")}, actions...)
 }
 
 func (ctl *Controller) viewForwardSheet(c *ui.Context, snap state.Snapshot, fromRoomID string) {
@@ -1010,7 +1010,7 @@ func (ctl *Controller) viewForwardSheet(c *ui.Context, snap state.Snapshot, from
 			},
 		})
 	}
-	mobile.ActionSheet(c, &ctl.forwardSheetOpen, mobile.ActionSheetOptions{Title: i18n.T("chat.forward_sheet_title"), Cancel: i18n.T("common.cancel")}, actions...)
+	components.ActionSheet(c, &ctl.forwardSheetOpen, mobile.ActionSheetOptions{Title: i18n.T("chat.forward_sheet_title"), Cancel: i18n.T("common.cancel")}, actions...)
 }
 
 func (ctl *Controller) toggleReactionAsync(roomID, msgID, reactionID string, remove bool) {

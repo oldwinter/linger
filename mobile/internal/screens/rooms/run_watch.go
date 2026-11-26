@@ -290,7 +290,7 @@ func (ctl *Controller) ViewRunWatch(c *ui.Context, snap state.Snapshot, roomID, 
 	})
 
 	// Cancel Run Confirmation ActionSheet + Haptics.Warning
-	mobile.ActionSheet(c, &ctl.cancelConfirmOpen, mobile.ActionSheetOptions{
+	components.ActionSheet(c, &ctl.cancelConfirmOpen, mobile.ActionSheetOptions{
 		Title:   i18n.T("run.stop_dialog_title"),
 		Message: i18n.T("run.stop_dialog_body"),
 		Cancel:  i18n.T("run.keep_running"),
@@ -372,7 +372,7 @@ func (ctl *Controller) viewCancelBackgroundTaskConfirm(c *ui.Context) {
 		ctl.bgCancelConfirmOpen = false
 		return
 	}
-	mobile.ActionSheet(c, &ctl.bgCancelConfirmOpen, mobile.ActionSheetOptions{
+	components.ActionSheet(c, &ctl.bgCancelConfirmOpen, mobile.ActionSheetOptions{
 		Title:   i18n.T("run.bg_cancel_title"),
 		Message: i18n.Tf("run.bg_cancel_body", map[string]any{"title": task.Title}),
 		Cancel:  i18n.T("run.bg_keep_running"),
