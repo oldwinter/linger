@@ -22,6 +22,7 @@ import (
 	"github.com/oldwinter/linger/mobile/internal/cache"
 	"github.com/oldwinter/linger/mobile/internal/components"
 	"github.com/oldwinter/linger/mobile/internal/i18n"
+	"github.com/oldwinter/linger/mobile/internal/layout"
 	"github.com/oldwinter/linger/mobile/internal/realtime"
 	"github.com/oldwinter/linger/mobile/internal/state"
 	"github.com/oldwinter/linger/mobile/internal/theme"
@@ -339,6 +340,7 @@ func (s *Screen) View(c *ui.Context) {
 	s.syncStoreFallback()
 
 	t := c.Theme()
+	m := layout.Of(c)
 	s.mu.Lock()
 	loading := s.loading
 	syncErr := s.syncError
@@ -346,51 +348,53 @@ func (s *Screen) View(c *ui.Context) {
 
 	ui.Column(c).Fill().Background(t.Background).Children(func() {
 		// Seamless editorial Global Search bar + segment switcher.
-		ui.Column(c).FillWidth().Padding(8, 14, 6, 14).Gap(8).Shrink(0).Children(func() {
-			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
-				sf := ui.SearchField(c, &s.searchQuery).Grow(1).Basis(0).
-					Placeholder(i18n.T("library.search.placeholder")).
-					Label(i18n.T("library.search.a11y"))
-				if sf.Changed() {
-					s.runLocalFTS5Search(s.searchQuery)
+		layout.ReadableWrap(c, m.ReadableMaxWidth, func() {
+			ui.Column(c).FillWidth().Padding(8, 14, 6, 14).Gap(8).Shrink(0).Children(func() {
+				ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
+					sf := ui.SearchField(c, &s.searchQuery).Grow(1).Basis(0).
+						Placeholder(i18n.T("library.search.placeholder")).
+						Label(i18n.T("library.search.a11y"))
+					if sf.Changed() {
+						s.runLocalFTS5Search(s.searchQuery)
+					}
+					if sf.Submitted() {
+						s.submitLiveSearch()
+					}
+					searchBtn := components.CompactPrimaryButton(c, i18n.T("library.search.btn"), nil, s.searchBusy || strings.TrimSpace(s.searchQuery) == "")
+					searchBtn.MinHeight(38)
+					if searchBtn.Clicked() {
+						s.submitLiveSearch()
+					}
+				})
+
+				if strings.TrimSpace(s.searchQuery) != "" {
+					s.viewSearchFilterChips(c)
+				} else {
+					ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
+						ui.Column(c).Grow(1).Basis(0).Children(func() {
+							components.SegmentedControl(c, &s.segment,
+								i18n.T("library.tab.docs"),
+								i18n.T("library.tab.wiki"),
+								i18n.T("library.tab.memory"))
+						})
+						refLabel := i18n.T("common.sync")
+						if loading {
+							refLabel = i18n.T("common.syncing")
+						}
+						refBtn := components.CompactSecondaryButton(c, refLabel, theme.IconRefresh, loading)
+						refBtn.MinHeight(40)
+						if refBtn.Clicked() {
+							go s.Refresh(context.Background())
+						}
+					})
 				}
-				if sf.Submitted() {
-					s.submitLiveSearch()
-				}
-				searchBtn := components.CompactPrimaryButton(c, i18n.T("library.search.btn"), nil, s.searchBusy || strings.TrimSpace(s.searchQuery) == "")
-				searchBtn.MinHeight(38)
-				if searchBtn.Clicked() {
-					s.submitLiveSearch()
+
+				if syncErr != "" {
+					components.ErrorInline(c, syncErr, func() {
+						go s.Refresh(context.Background())
+					})
 				}
 			})
-
-			if strings.TrimSpace(s.searchQuery) != "" {
-				s.viewSearchFilterChips(c)
-			} else {
-				ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
-					ui.Column(c).Grow(1).Basis(0).Children(func() {
-						components.SegmentedControl(c, &s.segment,
-							i18n.T("library.tab.docs"),
-							i18n.T("library.tab.wiki"),
-							i18n.T("library.tab.memory"))
-					})
-					refLabel := i18n.T("common.sync")
-					if loading {
-						refLabel = i18n.T("common.syncing")
-					}
-					refBtn := components.CompactSecondaryButton(c, refLabel, theme.IconRefresh, loading)
-					refBtn.MinHeight(40)
-					if refBtn.Clicked() {
-						go s.Refresh(context.Background())
-					}
-				})
-			}
-
-			if syncErr != "" {
-				components.ErrorInline(c, syncErr, func() {
-					go s.Refresh(context.Background())
-				})
-			}
 		})
 
 		if strings.TrimSpace(s.searchQuery) != "" {
@@ -537,7 +541,7 @@ func (s *Screen) submitLiveSearch() {
 					Source:   "live",
 					EntityID: doc.ID,
 					Title:    doc.Title,
-					Subtitle: i18n.DocKindLabel(doc.Format) + " \u00b7 " + i18n.StatusLabel(doc.Status),
+					Subtitle: i18n.DocKindLabel(doc.Format) + " \u00b7 " + i18n.DocStatusLabel(doc.Status),
 				})
 			}
 		}()
@@ -601,76 +605,79 @@ func (s *Screen) matchSearchFilter(h SearchHit) bool {
 
 func (s *Screen) viewGlobalSearchResults(c *ui.Context) {
 	t := c.Theme()
+	m := layout.Of(c)
 	hits := s.mergedSearchHits()
 	q := strings.TrimSpace(s.searchQuery)
 
 	ui.Scroll(c).FillWidth().Grow(1).Basis(0).Children(func() {
-		ui.Column(c).FillWidth().Padding(12, 16, 24, 16).Gap(10).Children(func() {
-			if s.searchErr != "" {
-				components.StatusBanner(c, components.ToneWarning, s.searchErr, i18n.T("common.retry"), s.submitLiveSearch)
-			}
-			if s.searchBusy && len(hits) == 0 {
-				components.LoadingSkeleton(c, 3)
-				return
-			}
-			if len(hits) == 0 {
-				title := i18n.Tf("library.search.empty_title", map[string]any{"query": strconv.Quote(q)})
-				sub := i18n.T("library.search.empty_filtered")
-				if !s.searchSubmitted {
-					sub = i18n.T("library.search.empty_offline")
+		layout.ReadableWrap(c, m.ReadableMaxWidth, func() {
+			ui.Column(c).FillWidth().Padding(12, 16, 24, 16).Gap(10).Children(func() {
+				if s.searchErr != "" {
+					components.StatusBanner(c, components.ToneWarning, s.searchErr, i18n.T("common.retry"), s.submitLiveSearch)
 				}
-				components.EmptyState(c, theme.IconLibrary, title, sub, i18n.T("library.search.clear_btn"), func() {
-					s.searchQuery = ""
-					s.runLocalFTS5Search("")
-				})
-				return
-			}
-
-			ui.Text(c, i18n.Tf("library.search.count", map[string]any{
-				"count": len(hits),
-				"query": strconv.Quote(q),
-			})).FontSize(12).FontWeight(600).TextColor(t.TextMuted)
-
-			for _, hit := range hits {
-				hit := hit
-				kindLabel := i18n.SearchSourceLabel(hit.Kind)
-				srcLabel := i18n.SearchSourceLabel(hit.Source)
-				row := ui.Column(c.Key(hit.ID)).FillWidth().Padding(13, 14).Gap(6).
-					Radius(16).Background(t.Surface).
-					Role(ui.RoleButton).Label(kindLabel + " " + hit.Title)
-				components.ApplyCardElevation(row, t)
-				if row.Pressed() {
-					row.Background(t.SurfacePressed)
+				if s.searchBusy && len(hits) == 0 {
+					components.LoadingSkeleton(c, 3)
+					return
 				}
-				row.Children(func() {
-					ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
-						ui.Text(c, hit.Title).FontSize(14).FontWeight(600).TextColor(t.Text).Grow(1).Basis(0).MaxLines(1)
-						ui.Row(c).Gap(4).Shrink(0).Children(func() {
-							components.StatusPill(c, kindLabel, components.ToneInfo)
-							srcTone := components.ToneNeutral
-							if hit.Source == "live" {
-								srcTone = components.ToneSuccess
-							}
-							components.StatusPill(c, srcLabel, srcTone)
-						})
+				if len(hits) == 0 {
+					title := i18n.Tf("library.search.empty_title", map[string]any{"query": strconv.Quote(q)})
+					sub := i18n.T("library.search.empty_filtered")
+					if !s.searchSubmitted {
+						sub = i18n.T("library.search.empty_offline")
+					}
+					components.EmptyState(c, theme.IconLibrary, title, sub, i18n.T("library.search.clear_btn"), func() {
+						s.searchQuery = ""
+						s.runLocalFTS5Search("")
 					})
-					if strings.TrimSpace(hit.Subtitle) != "" {
-						ui.Text(c, hit.Subtitle).FontSize(12).TextColor(t.TextMuted).MaxLines(2)
+					return
+				}
+
+				ui.Text(c, i18n.Tf("library.search.count", map[string]any{
+					"count": len(hits),
+					"query": strconv.Quote(q),
+				})).FontSize(12).FontWeight(600).TextColor(t.TextMuted)
+
+				layout.TwoColumnCards(c, m.GridColumns, 10, len(hits), func(i int) {
+					hit := hits[i]
+					kindLabel := i18n.SearchSourceLabel(hit.Kind)
+					srcLabel := i18n.SearchSourceLabel(hit.Source)
+					row := ui.Column(c.Key(hit.ID)).FillWidth().Padding(13, 14).Gap(6).
+						Radius(16).Background(t.Surface).
+						Role(ui.RoleButton).Label(kindLabel + " " + hit.Title)
+					components.ApplyCardElevation(row, t)
+					if row.Pressed() {
+						row.Background(t.SurfacePressed)
+					}
+					row.Children(func() {
+						ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
+							ui.Text(c, hit.Title).FontSize(14).FontWeight(600).TextColor(t.Text).Grow(1).Basis(0).MaxLines(1)
+							ui.Row(c).Gap(4).Shrink(0).Children(func() {
+								components.StatusPill(c, kindLabel, components.ToneInfo)
+								srcTone := components.ToneNeutral
+								if hit.Source == "live" {
+									srcTone = components.ToneSuccess
+								}
+								components.StatusPill(c, srcLabel, srcTone)
+							})
+						})
+						if strings.TrimSpace(hit.Subtitle) != "" {
+							ui.Text(c, hit.Subtitle).FontSize(12).TextColor(t.TextMuted).MaxLines(2)
+						}
+					})
+					if row.Clicked() {
+						switch hit.Kind {
+						case "message", "room":
+							if hit.RoomID != "" && s.deps.OnOpenRoom != nil {
+								s.deps.OnOpenRoom(hit.RoomID)
+							}
+						case "document":
+							if hit.EntityID != "" {
+								s.openDocumentByID(hit.EntityID)
+							}
+						}
 					}
 				})
-				if row.Clicked() {
-					switch hit.Kind {
-					case "message", "room":
-						if hit.RoomID != "" && s.deps.OnOpenRoom != nil {
-							s.deps.OnOpenRoom(hit.RoomID)
-						}
-					case "document":
-						if hit.EntityID != "" {
-							s.openDocumentByID(hit.EntityID)
-						}
-					}
-				}
-			}
+			})
 		})
 	})
 }

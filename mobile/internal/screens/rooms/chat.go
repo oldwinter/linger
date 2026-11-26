@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,11 +19,16 @@ import (
 	"github.com/oldwinter/linger/mobile/internal/api"
 	"github.com/oldwinter/linger/mobile/internal/components"
 	"github.com/oldwinter/linger/mobile/internal/i18n"
+	"github.com/oldwinter/linger/mobile/internal/layout"
 	"github.com/oldwinter/linger/mobile/internal/state"
 	"github.com/oldwinter/linger/mobile/internal/theme"
 )
 
 func (ctl *Controller) viewChat(c *ui.Context, snap state.Snapshot, roomID, parentRoomID string, isThread bool) {
+	ctl.viewChatPane(c, snap, roomID, parentRoomID, isThread, false)
+}
+
+func (ctl *Controller) viewChatPane(c *ui.Context, snap state.Snapshot, roomID, parentRoomID string, isThread, inSplitPane bool) {
 	t := c.Theme()
 	ex := theme.Extra(t)
 	msgs, hasMore := ctl.store.RoomMessages(roomID)
@@ -34,13 +40,20 @@ func (ctl *Controller) viewChat(c *ui.Context, snap state.Snapshot, roomID, pare
 	}
 
 	ui.Column(c).Fill().Children(func() {
-		// Slim editorial Room sub-bar: message count + tactile Inspector pill.
+		// Slim editorial Room sub-bar: room title (in split pane) + message count + tactile Inspector pill.
 		ui.Row(c).FillWidth().Padding(6, 14).Gap(8).Background(t.Background).AlignItems(ui.Center).
 			Justify(ui.SpaceBetween).BorderWidth(0, 0, 0.75, 0).BorderColor(ex.Divider).Children(func() {
 			if isThread {
 				ui.Text(c, i18n.Tf("chat.thread_in", map[string]any{"name": roomTitle(snap, parentRoomID)})).FontSize(12).FontWeight(600).TextColor(t.TextMuted).MaxLines(1).Grow(1).Basis(0)
 			} else {
-				ui.Text(c, i18n.Tf("chat.reply_count_bar", map[string]any{"count": len(msgs)})).FontSize(12).FontWeight(500).TextColor(ex.TextSubtle).Grow(1).Basis(0)
+				if inSplitPane {
+					ui.Column(c).Grow(1).Basis(0).Gap(1).Children(func() {
+						ui.Text(c, roomTitle(snap, roomID)).FontSize(15).FontWeight(700).LetterSpacing(-0.2).TextColor(t.Text).MaxLines(1)
+						ui.Text(c, i18n.Tf("chat.reply_count_bar", map[string]any{"count": len(msgs)})).FontSize(11.5).FontWeight(500).TextColor(ex.TextSubtle).MaxLines(1)
+					})
+				} else {
+					ui.Text(c, i18n.Tf("chat.reply_count_bar", map[string]any{"count": len(msgs)})).FontSize(12).FontWeight(500).TextColor(ex.TextSubtle).Grow(1).Basis(0)
+				}
 				inspBtn := components.CompactSecondaryButton(c, i18n.T("chat.inspector"), theme.IconSliders, false)
 				inspBtn.MinHeight(32).Label(i18n.T("rooms.title.inspector"))
 				if inspBtn.Clicked() {
@@ -82,7 +95,11 @@ func (ctl *Controller) viewChat(c *ui.Context, snap state.Snapshot, roomID, pare
 		}
 
 		// Scrollable Message Timeline
-		ui.Scroll(c).FillWidth().Grow(1).Basis(0).Children(func() {
+		scrollState := ctl.chatScrollState(roomID)
+		if ctl.consumeScrollToBottom(roomID) {
+			scrollState.Y = math.MaxFloat32
+		}
+		ui.Scroll(c).TrackScroll(scrollState).FillWidth().Grow(1).Basis(0).Children(func() {
 			ui.Column(c).FillWidth().Padding(10, 12, 14, 12).Gap(10).Children(func() {
 				if hasMore {
 					olderBtn := components.SecondaryTouchButton(c, i18n.T("chat.load_older"), false)
@@ -397,14 +414,30 @@ func (ctl *Controller) viewComposer(c *ui.Context, snap state.Snapshot, roomID s
 			if err == nil {
 				delete(ctl.pendingUploads, roomID)
 				delete(ctl.replyTarget, roomID)
+				ctl.scrollToBottom[roomID] = true
 			}
 			ctl.mu.Unlock()
+			if err == nil {
+				ctl.store.Notify()
+			}
 		}()
 	}
 
+	m := layout.Of(c)
+	outerPadTop, outerPadBottom := float32(6), float32(10)
+	cardPadTop, cardPadH, cardPadBottom, cardGap := float32(10), float32(12), float32(8), float32(8)
+	areaMinH, areaMaxH, sendMinH, toolPadTop := float32(42), float32(120), float32(40), float32(6)
+	if m.ShortHeight {
+		// Tighten composer chrome on short displays (iPhone Duo cover 466x678, landscape)
+		// so the conversation timeline retains comfortable scroll room.
+		outerPadTop, outerPadBottom = 4, 6
+		cardPadTop, cardPadH, cardPadBottom, cardGap = 7, 10, 6, 5
+		areaMinH, areaMaxH, sendMinH, toolPadTop = 36, 88, 36, 4
+	}
+
 	// Unified floating elevated composer card above keyboard/bottom edge.
-	ui.Box(c).FillWidth().Padding(6, 12, 10, 12).Background(t.Background).Children(func() {
-		composer := ui.Column(c).FillWidth().Background(t.Surface).Radius(20).Padding(10, 12, 8, 12).Gap(8)
+	ui.Box(c).FillWidth().Padding(outerPadTop, 12, outerPadBottom, 12).Background(t.Background).Children(func() {
+		composer := ui.Column(c).FillWidth().Background(t.Surface).Radius(20).Padding(cardPadTop, cardPadH, cardPadBottom, cardPadH).Gap(cardGap)
 		components.ApplyCardElevation(composer, t)
 		composer.Children(func() {
 			if replyMsg != nil {
@@ -442,7 +475,7 @@ func (ctl *Controller) viewComposer(c *ui.Context, snap state.Snapshot, roomID s
 			// Multiline IME-safe TextArea + sleek pill Send button
 			ui.Row(c).FillWidth().AlignItems(ui.End).Gap(8).Children(func() {
 				var area ui.Element
-				area = ui.TextArea(c.Key("draft_"+roomID), &draft).Grow(1).Basis(0).MinHeight(42).MaxHeight(120).
+				area = ui.TextArea(c.Key("draft_"+roomID), &draft).Grow(1).Basis(0).MinHeight(areaMinH).MaxHeight(areaMaxH).
 					Placeholder(i18n.T("chat.composer_placeholder")).Label(i18n.T("chat.composer_a11y")).Multiline(true)
 				area.OnTextKey(func(k ui.TextKey) bool {
 					if k.Key != ui.KeyEnter {
@@ -475,14 +508,14 @@ func (ctl *Controller) viewComposer(c *ui.Context, snap state.Snapshot, roomID s
 					}
 					return i18n.T("chat.send")
 				}(), theme.IconSend, !canSend)
-				sendBtn.MinHeight(40)
+				sendBtn.MinHeight(sendMinH)
 				if sendBtn.Clicked() {
 					sendNow(draft)
 				}
 			})
 
 			// Quiet inline tool strip tucked inside the unified composer card.
-			ui.Row(c).FillWidth().Wrap().Gap(4).AlignItems(ui.Center).BorderWidth(0.75, 0, 0, 0).BorderColor(ex.Divider).Padding(6, 0, 0, 0).Children(func() {
+			ui.Row(c).FillWidth().Wrap().Gap(4).AlignItems(ui.Center).BorderWidth(0.75, 0, 0, 0).BorderColor(ex.Divider).Padding(toolPadTop, 0, 0, 0).Children(func() {
 				composerToolChip(c, i18n.T("chat.photo"), func() { ctl.pickPhotoAndUpload(roomID) })
 				composerToolChip(c, i18n.T("chat.file"), func() { ctl.pickFileAndUpload(roomID) })
 				composerToolChip(c, i18n.T("chat.mention_btn"), func() {
@@ -990,6 +1023,30 @@ func composerToolChip(c *ui.Context, label string, onTap func()) {
 	if btn.Clicked() && onTap != nil {
 		onTap()
 	}
+}
+
+func (ctl *Controller) chatScrollState(roomID string) *ui.ScrollState {
+	ctl.mu.Lock()
+	defer ctl.mu.Unlock()
+	if ctl.chatScrolls == nil {
+		ctl.chatScrolls = map[string]*ui.ScrollState{}
+	}
+	sc, ok := ctl.chatScrolls[roomID]
+	if !ok {
+		sc = &ui.ScrollState{}
+		ctl.chatScrolls[roomID] = sc
+	}
+	return sc
+}
+
+func (ctl *Controller) consumeScrollToBottom(roomID string) bool {
+	ctl.mu.Lock()
+	defer ctl.mu.Unlock()
+	if !ctl.scrollToBottom[roomID] {
+		return false
+	}
+	delete(ctl.scrollToBottom, roomID)
+	return true
 }
 
 func formatElapsed(start time.Time) string {

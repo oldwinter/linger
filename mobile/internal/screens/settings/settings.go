@@ -21,6 +21,7 @@ import (
 	"github.com/oldwinter/linger/mobile/internal/components"
 	"github.com/oldwinter/linger/mobile/internal/config"
 	"github.com/oldwinter/linger/mobile/internal/i18n"
+	"github.com/oldwinter/linger/mobile/internal/layout"
 	"github.com/oldwinter/linger/mobile/internal/state"
 	"github.com/oldwinter/linger/mobile/internal/theme"
 )
@@ -142,7 +143,14 @@ func New(deps Deps) *Screen {
 		hapticsEnabled:  true,
 		searchKeyInputs: map[string]*string{},
 	}
-	go s.probeBiometrics(context.Background())
+	if deps.CheckBiometrics != nil {
+		go s.probeBiometrics(context.Background())
+	} else {
+		// Native mobile plugins panic if called before App.Run initializes the backend.
+		mygo.App.WhenReady(func() {
+			go s.probeBiometrics(context.Background())
+		})
+	}
 	return s
 }
 
@@ -273,19 +281,21 @@ func (s *Screen) View(c *ui.Context) {
 	s.mu.Unlock()
 
 	ui.Column(c).Fill().Background(t.Background).Children(func() {
-		ui.Column(c).FillWidth().Padding(8, 14, 6, 14).Gap(8).Shrink(0).Children(func() {
-			components.SegmentedControl(c, &s.section,
-				i18n.T("settings.tab.overview"),
-				i18n.T("settings.tab.rules"),
-				i18n.T("settings.tab.profile"),
-				i18n.T("settings.tab.connectors"),
-				i18n.T("settings.tab.prefs"),
-			)
-			if syncErr != "" {
-				components.ErrorInline(c, syncErr, func() {
-					go s.Refresh(context.Background())
-				})
-			}
+		layout.ReadableWrap(c, layout.Of(c).ReadableMaxWidth, func() {
+			ui.Column(c).FillWidth().Padding(8, 14, 6, 14).Gap(8).Shrink(0).Children(func() {
+				components.SegmentedControl(c, &s.section,
+					i18n.T("settings.tab.overview"),
+					i18n.T("settings.tab.rules"),
+					i18n.T("settings.tab.profile"),
+					i18n.T("settings.tab.connectors"),
+					i18n.T("settings.tab.prefs"),
+				)
+				if syncErr != "" {
+					components.ErrorInline(c, syncErr, func() {
+						go s.Refresh(context.Background())
+					})
+				}
+			})
 		})
 
 		switch s.section {
@@ -334,180 +344,190 @@ func (s *Screen) viewOverviewSection(c *ui.Context, loading bool) {
 	insightCount := len(s.insights)
 	s.mu.Unlock()
 
+	m := layout.Of(c)
+
 	ui.Scroll(c).FillWidth().Grow(1).Basis(0).TrackScroll(&s.scroll[SectionOverview]).Children(func() {
-		ui.Column(c).FillWidth().Padding(12, 16, 28, 16).Gap(12).Children(func() {
-			if s.hostError != "" {
-				components.StatusBanner(c, components.ToneDanger, s.hostError, i18n.T("common.dismiss"), func() {
-					s.hostError = ""
-				})
-			}
-			if s.hostNotice != "" {
-				components.StatusBanner(c, components.ToneSuccess, s.hostNotice, i18n.T("common.ok"), func() {
-					s.hostNotice = ""
-				})
-			}
+		layout.ReadableWrap(c, m.ReadableMaxWidth, func() {
+			ui.Column(c).FillWidth().Padding(12, 16, 28, 16).Gap(12).Children(func() {
+				if s.hostError != "" {
+					components.StatusBanner(c, components.ToneDanger, s.hostError, i18n.T("common.dismiss"), func() {
+						s.hostError = ""
+					})
+				}
+				if s.hostNotice != "" {
+					components.StatusBanner(c, components.ToneSuccess, s.hostNotice, i18n.T("common.ok"), func() {
+						s.hostNotice = ""
+					})
+				}
 
-			// Desktop Host Card & Switcher
-			hostName := i18n.T("settings.host.none_title")
-			hostSub := i18n.T("settings.host.none_subtitle")
-			transportLabel := i18n.T("settings.host.disconnected")
-			transportTone := components.ToneWarning
-			if snap.ActiveHost != nil {
-				hostName = snap.ActiveHost.Name
-				hostSub = snap.ActiveHost.PrimaryURL
-				switch {
-				case snap.ActiveVia == "fallback" && snap.ActiveHost.TailscaleURL != "":
-					transportLabel = i18n.T("settings.host.tailscale")
-					transportTone = components.ToneInfo
-					hostSub = snap.ActiveHost.TailscaleURL
-				case snap.ActiveHost.TLS && snap.ActiveHost.TLSFingerprint != "":
-					transportLabel = i18n.T("settings.host.lan_tls")
+				// Desktop Host Card & Switcher
+				hostName := i18n.T("settings.host.none_title")
+				hostSub := i18n.T("settings.host.none_subtitle")
+				transportLabel := i18n.T("settings.host.disconnected")
+				transportTone := components.ToneWarning
+				if snap.ActiveHost != nil {
+					hostName = snap.ActiveHost.Name
+					hostSub = snap.ActiveHost.PrimaryURL
+					switch {
+					case snap.ActiveVia == "fallback" && snap.ActiveHost.TailscaleURL != "":
+						transportLabel = i18n.T("settings.host.tailscale")
+						transportTone = components.ToneInfo
+						hostSub = snap.ActiveHost.TailscaleURL
+					case snap.ActiveHost.TLS && snap.ActiveHost.TLSFingerprint != "":
+						transportLabel = i18n.T("settings.host.lan_tls")
+						transportTone = components.ToneSuccess
+					case snap.ActiveHost.TLS:
+						transportLabel = i18n.T("settings.host.direct_https")
+						transportTone = components.ToneInfo
+					default:
+						transportLabel = i18n.T("settings.host.plain_http")
+						transportTone = components.ToneWarning
+					}
+				} else if s.client() != nil {
+					hostName = i18n.T("settings.host.connected_fallback")
+					hostSub = s.client().BaseURL()
+					transportLabel = i18n.T("settings.host.connected")
 					transportTone = components.ToneSuccess
-				case snap.ActiveHost.TLS:
-					transportLabel = i18n.T("settings.host.direct_https")
-					transportTone = components.ToneInfo
-				default:
-					transportLabel = i18n.T("settings.host.plain_http")
-					transportTone = components.ToneWarning
 				}
-			} else if s.client() != nil {
-				hostName = i18n.T("settings.host.connected_fallback")
-				hostSub = s.client().BaseURL()
-				transportLabel = i18n.T("settings.host.connected")
-				transportTone = components.ToneSuccess
-			}
 
-			ex := theme.Extra(t)
-			hostCard := ui.Column(c).FillWidth().Gradient(ex.HeroGradFrom, ex.HeroGradTo, 180).Radius(18).Padding(16, 16).Gap(12)
-			components.ApplyCardElevation(hostCard, t)
-			hostCard.Children(func() {
-				ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(12).Children(func() {
-					if snap.ActiveHost == nil && s.client() == nil {
-						theme.IconBox(c, 44, t.Accent, theme.IconBrandMark)
-					} else {
-						components.AvatarBadge(c, hostName, 44)
-					}
-					ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
-						ui.Text(c, hostName).FontSize(16.5).FontWeight(600).LetterSpacing(-0.2).TextColor(t.Text).MaxLines(1)
-						ui.Text(c, hostSub).FontSize(12).TextColor(t.TextMuted).MaxLines(1)
-					})
-				})
+				ex := theme.Extra(t)
+				renderHostCard := func() {
+					hostCard := ui.Column(c).FillWidth().Gradient(ex.HeroGradFrom, ex.HeroGradTo, 180).Radius(18).Padding(16, 16).Gap(12)
+					components.ApplyCardElevation(hostCard, t)
+					hostCard.Children(func() {
+						ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(12).Children(func() {
+							if snap.ActiveHost == nil && s.client() == nil {
+								theme.IconBox(c, 44, t.Accent, theme.IconBrandMark)
+							} else {
+								components.AvatarBadge(c, hostName, 44)
+							}
+							ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
+								ui.Text(c, hostName).FontSize(16.5).FontWeight(600).LetterSpacing(-0.2).TextColor(t.Text).MaxLines(1)
+								ui.Text(c, hostSub).FontSize(12).TextColor(t.TextMuted).MaxLines(1)
+							})
+						})
 
-				ui.Row(c).FillWidth().Wrap().Gap(6).Children(func() {
-					components.StatusDotPill(c, transportLabel, transportTone)
-					if snap.RTTMs > 0 {
-						components.StatusPill(c, i18n.Tf("settings.host.rtt", map[string]any{"ms": fmt.Sprintf("%d", snap.RTTMs)}), components.ToneNeutral)
-					}
-					if snap.SSEState != "" {
-						sseTone := components.ToneNeutral
-						if snap.SSEState == "connected" {
-							sseTone = components.ToneSuccess
+						ui.Row(c).FillWidth().Wrap().Gap(6).Children(func() {
+							components.StatusDotPill(c, transportLabel, transportTone)
+							if snap.RTTMs > 0 {
+								components.StatusPill(c, i18n.Tf("settings.host.rtt", map[string]any{"ms": fmt.Sprintf("%d", snap.RTTMs)}), components.ToneNeutral)
+							}
+							if snap.SSEState != "" {
+								sseTone := components.ToneNeutral
+								if snap.SSEState == "connected" {
+									sseTone = components.ToneSuccess
+								}
+								components.StatusDotPill(c, i18n.Tf("conn.badge.sse_status", map[string]any{"status": i18n.SSEStatusLabel(string(snap.SSEState))}), sseTone)
+							}
+						})
+
+						manageBtn := components.PrimaryTouchButton(c, i18n.T("settings.host.manage_hosts"), false)
+						manageBtn.FillWidth().MinHeight(42)
+						if manageBtn.Clicked() && s.deps.OnOpenConnect != nil {
+							s.deps.OnOpenConnect()
 						}
-						components.StatusDotPill(c, i18n.Tf("conn.badge.sse_status", map[string]any{"status": i18n.SSEStatusLabel(string(snap.SSEState))}), sseTone)
-					}
-				})
 
-				manageBtn := components.PrimaryTouchButton(c, i18n.T("settings.host.manage_hosts"), false)
-				manageBtn.FillWidth().MinHeight(42)
-				if manageBtn.Clicked() && s.deps.OnOpenConnect != nil {
-					s.deps.OnOpenConnect()
-				}
+						ui.Row(c).FillWidth().Gap(8).Children(func() {
+							isCompanion := snap.ActiveHost == nil || snap.ActiveHost.Mode == config.HostModeCompanion
+							if isCompanion && s.client() != nil {
+								rotLbl := i18n.T("settings.host.rotate_token")
+								if s.hostBusy {
+									rotLbl = i18n.T("settings.host.rotating")
+								}
+								rotBtn := components.SecondaryTouchButton(c, rotLbl, s.hostBusy)
+								rotBtn.Grow(1).Basis(0).MinHeight(38)
+								if rotBtn.Clicked() {
+									s.rotateTokenAsync()
+								}
+							}
 
-				ui.Row(c).FillWidth().Gap(8).Children(func() {
-					isCompanion := snap.ActiveHost == nil || snap.ActiveHost.Mode == config.HostModeCompanion
-					if isCompanion && s.client() != nil {
-						rotLbl := i18n.T("settings.host.rotate_token")
-						if s.hostBusy {
-							rotLbl = i18n.T("settings.host.rotating")
+							expBtn := components.SecondaryTouchButton(c, i18n.T("settings.host.export_diag"), false)
+							expBtn.Grow(1).Basis(0).MinHeight(38)
+							if expBtn.Clicked() {
+								s.exportDiagnostics()
+							}
+						})
+
+						if snap.ActiveHost != nil || s.client() != nil {
+							components.InsetDivider(c, 0)
+							signOutBtn := ui.Row(c).FillWidth().MinHeight(38).Padding(8, 12).Radius(10).
+								Background(ex.DangerTint).Border(0.75, t.Danger.Alpha(0.24)).
+								AlignItems(ui.Center).Justify(ui.Center).
+								Role(ui.RoleButton).Label(i18n.T("settings.host.unpair_signout")).Disabled(s.hostBusy)
+							if !s.hostBusy && signOutBtn.Pressed() {
+								signOutBtn.Background(t.Danger.Alpha(0.18)).Scale(0.985, 0.985)
+							}
+							signOutBtn.Children(func() {
+								ui.Text(c, i18n.T("settings.host.unpair_signout")).FontSize(13).FontWeight(600).TextColor(t.Danger).NoWrap()
+							})
+							if signOutBtn.Clicked() {
+								s.unpairConfirm = true
+							}
 						}
-						rotBtn := components.SecondaryTouchButton(c, rotLbl, s.hostBusy)
-						rotBtn.Grow(1).Basis(0).MinHeight(38)
-						if rotBtn.Clicked() {
-							s.rotateTokenAsync()
-						}
-					}
+					})
+				}
 
-					expBtn := components.SecondaryTouchButton(c, i18n.T("settings.host.export_diag"), false)
-					expBtn.Grow(1).Basis(0).MinHeight(38)
-					if expBtn.Clicked() {
-						s.exportDiagnostics()
+				renderAppearanceCard := func() {
+					// Quick-access Appearance & Language card (works offline & before pairing).
+					components.SectionCard(c, i18n.T("appearance.title"), i18n.T("appearance.quick_subtitle"), nil, func() {
+						components.ThemeSegmentedSelector(c, snap.Prefs.Theme, func(next config.ThemePreference) {
+							if s.deps.Store != nil {
+								_ = s.deps.Store.SetThemePreference(next)
+							}
+							if s.deps.OnThemeChanged != nil {
+								s.deps.OnThemeChanged(next)
+							}
+						})
+						components.LanguageSegmentedSelector(c, snap.Prefs.Language, func(next config.LanguagePreference) {
+							if s.deps.Store != nil {
+								_ = s.deps.Store.SetLanguagePreference(next)
+							}
+							if s.deps.OnLanguageChanged != nil {
+								s.deps.OnLanguageChanged(next)
+							}
+						})
+					})
+				}
+
+				layout.TwoPaneRow(c, m.GridColumns >= 2, 12, renderHostCard, renderAppearanceCard)
+
+				// Editorial Quick Hub Directory with sculpted icon tiles
+				components.SectionEyebrow(c, i18n.T("settings.nav.title"), func() {
+					refLbl := i18n.T("common.sync")
+					if loading {
+						refLbl = i18n.T("common.syncing")
+					}
+					refBtn := components.CompactSecondaryButton(c, refLbl, theme.IconRefresh, loading)
+					refBtn.MinHeight(30)
+					if refBtn.Clicked() {
+						go s.Refresh(context.Background())
 					}
 				})
-
-				if snap.ActiveHost != nil || s.client() != nil {
-					components.InsetDivider(c, 0)
-					signOutBtn := ui.Row(c).FillWidth().MinHeight(38).Padding(8, 12).Radius(10).
-						Background(ex.DangerTint).Border(0.75, t.Danger.Alpha(0.24)).
-						AlignItems(ui.Center).Justify(ui.Center).
-						Role(ui.RoleButton).Label(i18n.T("settings.host.unpair_signout")).Disabled(s.hostBusy)
-					if !s.hostBusy && signOutBtn.Pressed() {
-						signOutBtn.Background(t.Danger.Alpha(0.18)).Scale(0.985, 0.985)
-					}
-					signOutBtn.Children(func() {
-						ui.Text(c, i18n.T("settings.host.unpair_signout")).FontSize(13).FontWeight(600).TextColor(t.Danger).NoWrap()
-					})
-					if signOutBtn.Clicked() {
-						s.unpairConfirm = true
-					}
-				}
-			})
-
-			// Quick-access Appearance & Language card (works offline & before pairing).
-			components.SectionCard(c, i18n.T("appearance.title"), i18n.T("appearance.quick_subtitle"), nil, func() {
-				components.ThemeSegmentedSelector(c, snap.Prefs.Theme, func(next config.ThemePreference) {
-					if s.deps.Store != nil {
-						_ = s.deps.Store.SetThemePreference(next)
-					}
-					if s.deps.OnThemeChanged != nil {
-						s.deps.OnThemeChanged(next)
-					}
+				components.GroupedCard(c, func() {
+					s.hubRow(c, theme.IconRule, theme.Nature.Acorn,
+						i18n.T("settings.nav.rules_title"),
+						i18n.Tf("settings.nav.rules_sub", map[string]any{"active": activeRuleCount, "shadow": shadowCount}), func() {
+							s.section = SectionRules
+						})
+					components.InsetDivider(c, 60)
+					s.hubRow(c, theme.IconUser, theme.Nature.Lake,
+						i18n.T("settings.nav.profile_title"),
+						i18n.Tf("settings.nav.profile_sub", map[string]any{"count": insightCount}), func() {
+							s.section = SectionProfile
+						})
+					components.InsetDivider(c, 60)
+					s.hubRow(c, theme.IconPlug, theme.Nature.Bluebell,
+						i18n.T("settings.nav.connectors_title"),
+						i18n.Tf("settings.nav.connectors_sub", map[string]any{"count": connCount}), func() {
+							s.section = SectionIntegrations
+						})
+					components.InsetDivider(c, 60)
+					s.hubRow(c, theme.IconSliders, theme.Nature.Lavender,
+						i18n.T("settings.nav.prefs_title"),
+						i18n.T("settings.nav.prefs_sub"), func() {
+							s.section = SectionPreferences
+						})
 				})
-				components.LanguageSegmentedSelector(c, snap.Prefs.Language, func(next config.LanguagePreference) {
-					if s.deps.Store != nil {
-						_ = s.deps.Store.SetLanguagePreference(next)
-					}
-					if s.deps.OnLanguageChanged != nil {
-						s.deps.OnLanguageChanged(next)
-					}
-				})
-			})
-
-			// Editorial Quick Hub Directory with sculpted icon tiles
-			components.SectionEyebrow(c, i18n.T("settings.nav.title"), func() {
-				refLbl := i18n.T("common.sync")
-				if loading {
-					refLbl = i18n.T("common.syncing")
-				}
-				refBtn := components.CompactSecondaryButton(c, refLbl, theme.IconRefresh, loading)
-				refBtn.MinHeight(30)
-				if refBtn.Clicked() {
-					go s.Refresh(context.Background())
-				}
-			})
-			components.GroupedCard(c, func() {
-				s.hubRow(c, theme.IconRule, theme.Nature.Acorn,
-					i18n.T("settings.nav.rules_title"),
-					i18n.Tf("settings.nav.rules_sub", map[string]any{"active": activeRuleCount, "shadow": shadowCount}), func() {
-						s.section = SectionRules
-					})
-				components.InsetDivider(c, 60)
-				s.hubRow(c, theme.IconUser, theme.Nature.Lake,
-					i18n.T("settings.nav.profile_title"),
-					i18n.Tf("settings.nav.profile_sub", map[string]any{"count": insightCount}), func() {
-						s.section = SectionProfile
-					})
-				components.InsetDivider(c, 60)
-				s.hubRow(c, theme.IconPlug, theme.Nature.Bluebell,
-					i18n.T("settings.nav.connectors_title"),
-					i18n.Tf("settings.nav.connectors_sub", map[string]any{"count": connCount}), func() {
-						s.section = SectionIntegrations
-					})
-				components.InsetDivider(c, 60)
-				s.hubRow(c, theme.IconSliders, theme.Nature.Lavender,
-					i18n.T("settings.nav.prefs_title"),
-					i18n.T("settings.nav.prefs_sub"), func() {
-						s.section = SectionPreferences
-					})
 			})
 		})
 	})

@@ -9,6 +9,7 @@ import (
 	"github.com/oldwinter/linger/mobile/internal/api"
 	"github.com/oldwinter/linger/mobile/internal/components"
 	"github.com/oldwinter/linger/mobile/internal/i18n"
+	"github.com/oldwinter/linger/mobile/internal/layout"
 	"github.com/oldwinter/linger/mobile/internal/theme"
 )
 
@@ -30,105 +31,107 @@ func (s *Screen) viewRulesSection(c *ui.Context) {
 	}
 
 	ui.Scroll(c).FillWidth().Grow(1).Basis(0).TrackScroll(&s.scroll[SectionRules]).Children(func() {
-		ui.Column(c).FillWidth().Padding(12, 16, 28, 16).Gap(12).Children(func() {
-			if s.ruleError != "" {
-				components.StatusBanner(c, components.ToneDanger, s.ruleError, i18n.T("common.dismiss"), func() {
-					s.ruleError = ""
-				})
-			}
-
-			// Shadow Rule Review
-			if len(shadowRules) > 0 || len(book.Divergences) > 0 {
-				components.SectionCard(c, i18n.Tf("settings.rules.shadow_title", map[string]any{"count": len(shadowRules)}),
-					i18n.T("settings.rules.shadow_sub"), func() {
-						components.StatusPill(c, i18n.T("settings.rules.review_badge"), components.ToneWarning)
-					}, func() {
-						for _, sr := range shadowRules {
-							sr := sr
-							busy := s.ruleBusyID == sr.ID
-							ui.Column(c.Key("sh:"+sr.ID)).FillWidth().Padding(12, 12).Gap(8).
-								Radius(12).Background(theme.Extra(t).WarnTint).Border(0.75, t.Warning.Alpha(0.28)).Children(func() {
-								ui.Text(c, sr.Text).FontSize(14).FontWeight(600).TextColor(t.Text)
-								for _, d := range book.Divergences {
-									if d.RuleID == sr.ID {
-										ui.Text(c, i18n.Tf("settings.rules.divergence", map[string]any{
-											"trigger": d.Matter,
-											"actual":  d.TakenAction,
-											"shadow":  d.ShadowAction,
-										})).FontSize(12).TextColor(t.TextMuted)
-									}
-								}
-								ui.Row(c).FillWidth().Gap(8).Children(func() {
-									promBtn := components.PrimaryTouchButton(c, i18n.T("settings.rules.promote"), busy)
-									promBtn.Grow(1).Basis(0)
-									if promBtn.Clicked() {
-										s.promoteRuleAsync(sr.ID)
-									}
-									disBtn := components.DangerTouchButton(c, i18n.T("common.dismiss"), busy)
-									if disBtn.Clicked() {
-										s.deleteRuleAsync(sr.ID)
-									}
-								})
-							})
-						}
+		layout.ReadableWrap(c, layout.Of(c).ReadableMaxWidth, func() {
+			ui.Column(c).FillWidth().Padding(12, 16, 28, 16).Gap(12).Children(func() {
+				if s.ruleError != "" {
+					components.StatusBanner(c, components.ToneDanger, s.ruleError, i18n.T("common.dismiss"), func() {
+						s.ruleError = ""
 					})
-			}
+				}
 
-			// Active Rules
-			components.SectionCard(c, i18n.Tf("settings.rules.active_title", map[string]any{"count": len(activeRules)}),
-				i18n.T("settings.rules.active_sub"), nil, func() {
-					if len(activeRules) == 0 {
-						ui.Text(c, i18n.T("settings.rules.active_empty")).
-							FontSize(13).TextColor(t.TextMuted)
-						return
-					}
-					ui.Column(c).FillWidth().Gap(10).Children(func() {
-						for _, r := range activeRules {
-							r := r
-							busy := s.ruleBusyID == r.ID
-							ui.Column(c.Key("act:"+r.ID)).FillWidth().Padding(12, 12).Gap(8).
-								Radius(12).Background(theme.Extra(t).MutedBg).Border(0.75, theme.Extra(t).SubtleBorder).Children(func() {
-								ui.Text(c, r.Text).FontSize(14).FontWeight(600).TextColor(t.Text)
-								ui.Row(c).FillWidth().Wrap().Gap(6).Children(func() {
-									components.StatusPill(c, i18n.Tf("settings.rules.source_prefix", map[string]any{"src": i18n.RuleSourceLabel(r.Source)}), components.ToneNeutral)
-									components.StatusPill(c, i18n.Tf("settings.rules.mandate_prefix", map[string]any{"mandate": i18n.RuleMandateLabel(r.Mandate)}), components.ToneInfo)
-									if r.Pinned {
-										components.StatusPill(c, i18n.T("settings.rules.pinned"), components.ToneSuccess)
+				// Shadow Rule Review
+				if len(shadowRules) > 0 || len(book.Divergences) > 0 {
+					components.SectionCard(c, i18n.Tf("settings.rules.shadow_title", map[string]any{"count": len(shadowRules)}),
+						i18n.T("settings.rules.shadow_sub"), func() {
+							components.StatusPill(c, i18n.T("settings.rules.review_badge"), components.ToneWarning)
+						}, func() {
+							for _, sr := range shadowRules {
+								sr := sr
+								busy := s.ruleBusyID == sr.ID
+								ui.Column(c.Key("sh:"+sr.ID)).FillWidth().Padding(12, 12).Gap(8).
+									Radius(12).Background(theme.Extra(t).WarnTint).Border(0.75, t.Warning.Alpha(0.28)).Children(func() {
+									ui.Text(c, sr.Text).FontSize(14).FontWeight(600).TextColor(t.Text)
+									for _, d := range book.Divergences {
+										if d.RuleID == sr.ID {
+											ui.Text(c, i18n.Tf("settings.rules.divergence", map[string]any{
+												"trigger": d.Matter,
+												"actual":  d.TakenAction,
+												"shadow":  d.ShadowAction,
+											})).FontSize(12).TextColor(t.TextMuted)
+										}
 									}
+									ui.Row(c).FillWidth().Gap(8).Children(func() {
+										promBtn := components.PrimaryTouchButton(c, i18n.T("settings.rules.promote"), busy)
+										promBtn.Grow(1).Basis(0)
+										if promBtn.Clicked() {
+											s.promoteRuleAsync(sr.ID)
+										}
+										disBtn := components.DangerTouchButton(c, i18n.T("common.dismiss"), busy)
+										if disBtn.Clicked() {
+											s.deleteRuleAsync(sr.ID)
+										}
+									})
 								})
-								ui.Row(c).FillWidth().Wrap().Gap(6).Children(func() {
-									pinLbl := i18n.T("settings.rules.pin")
-									if r.Pinned {
-										pinLbl = i18n.T("settings.rules.unpin")
-									}
-									pinBtn := components.SecondaryTouchButton(c, pinLbl, busy)
-									if pinBtn.Clicked() {
-										s.pinRuleAsync(r.ID, !r.Pinned)
-									}
-									mBtn := components.SecondaryTouchButton(c, i18n.T("settings.rules.mandate_btn"), busy)
-									if mBtn.Clicked() {
-										cp := r
-										s.ruleMandateItem = &cp
-										s.ruleMandateSheet = true
-									}
-									eBtn := components.SecondaryTouchButton(c, i18n.T("common.edit"), busy)
-									if eBtn.Clicked() {
-										s.ruleEditID = r.ID
-										s.ruleEditText = r.Text
-										s.ruleEditErr = ""
-										s.ruleEditOpen = true
-									}
-									dBtn := components.DangerTouchButton(c, i18n.T("common.delete"), busy)
-									if dBtn.Clicked() {
-										cp := r
-										s.ruleDeleteItem = &cp
-										s.ruleDeleteSheet = true
-									}
-								})
-							})
+							}
+						})
+				}
+
+				// Active Rules
+				components.SectionCard(c, i18n.Tf("settings.rules.active_title", map[string]any{"count": len(activeRules)}),
+					i18n.T("settings.rules.active_sub"), nil, func() {
+						if len(activeRules) == 0 {
+							ui.Text(c, i18n.T("settings.rules.active_empty")).
+								FontSize(13).TextColor(t.TextMuted)
+							return
 						}
+						ui.Column(c).FillWidth().Gap(10).Children(func() {
+							for _, r := range activeRules {
+								r := r
+								busy := s.ruleBusyID == r.ID
+								ui.Column(c.Key("act:"+r.ID)).FillWidth().Padding(12, 12).Gap(8).
+									Radius(12).Background(theme.Extra(t).MutedBg).Border(0.75, theme.Extra(t).SubtleBorder).Children(func() {
+									ui.Text(c, r.Text).FontSize(14).FontWeight(600).TextColor(t.Text)
+									ui.Row(c).FillWidth().Wrap().Gap(6).Children(func() {
+										components.StatusPill(c, i18n.Tf("settings.rules.source_prefix", map[string]any{"src": i18n.RuleSourceLabel(r.Source)}), components.ToneNeutral)
+										components.StatusPill(c, i18n.Tf("settings.rules.mandate_prefix", map[string]any{"mandate": i18n.RuleMandateLabel(r.Mandate)}), components.ToneInfo)
+										if r.Pinned {
+											components.StatusPill(c, i18n.T("settings.rules.pinned"), components.ToneSuccess)
+										}
+									})
+									ui.Row(c).FillWidth().Wrap().Gap(6).Children(func() {
+										pinLbl := i18n.T("settings.rules.pin")
+										if r.Pinned {
+											pinLbl = i18n.T("settings.rules.unpin")
+										}
+										pinBtn := components.SecondaryTouchButton(c, pinLbl, busy)
+										if pinBtn.Clicked() {
+											s.pinRuleAsync(r.ID, !r.Pinned)
+										}
+										mBtn := components.SecondaryTouchButton(c, i18n.T("settings.rules.mandate_btn"), busy)
+										if mBtn.Clicked() {
+											cp := r
+											s.ruleMandateItem = &cp
+											s.ruleMandateSheet = true
+										}
+										eBtn := components.SecondaryTouchButton(c, i18n.T("common.edit"), busy)
+										if eBtn.Clicked() {
+											s.ruleEditID = r.ID
+											s.ruleEditText = r.Text
+											s.ruleEditErr = ""
+											s.ruleEditOpen = true
+										}
+										dBtn := components.DangerTouchButton(c, i18n.T("common.delete"), busy)
+										if dBtn.Clicked() {
+											cp := r
+											s.ruleDeleteItem = &cp
+											s.ruleDeleteSheet = true
+										}
+									})
+								})
+							}
+						})
 					})
-				})
+			})
 		})
 	})
 }

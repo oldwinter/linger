@@ -11,6 +11,7 @@ import (
 	"github.com/oldwinter/linger/mobile/internal/api"
 	"github.com/oldwinter/linger/mobile/internal/components"
 	"github.com/oldwinter/linger/mobile/internal/i18n"
+	"github.com/oldwinter/linger/mobile/internal/layout"
 	"github.com/oldwinter/linger/mobile/internal/theme"
 )
 
@@ -25,6 +26,7 @@ var issueFilterKeys = []string{
 func (s *Screen) viewIssuesSegment(c *ui.Context) {
 	t := c.Theme()
 	ex := theme.Extra(t)
+	m := layout.Of(c)
 
 	s.mu.Lock()
 	allItems := append([]api.WorkItem(nil), s.workItems...)
@@ -33,99 +35,101 @@ func (s *Screen) viewIssuesSegment(c *ui.Context) {
 	activeFilter := i18n.T(issueFilterKeys[s.issueFilter])
 
 	ui.Scroll(c).FillWidth().Grow(1).Basis(0).TrackScroll(&s.scroll[SegmentIssues]).Children(func() {
-		ui.Column(c).FillWidth().Padding(8, 14, 24, 14).Gap(10).Children(func() {
-			// Editorial eyebrow header + sleek "+ New" pill CTA.
-			components.SectionEyebrow(c, i18n.Tf("work.issues.header", map[string]any{
-				"filter": activeFilter,
-				"count":  len(filtered),
-			}), func() {
-				newBtn := components.CompactPrimaryButton(c, i18n.T("work.issues.new_short"), nil, false)
-				if newBtn.Clicked() {
-					s.openCreateWorkItemSheet()
-				}
-			})
-
-			filterLabels := make([]string, len(issueFilterKeys))
-			for i, k := range issueFilterKeys {
-				filterLabels[i] = i18n.T(k)
-			}
-			components.FilterPillBar(c, &s.issueFilter, filterLabels...)
-
-			if len(filtered) == 0 {
-				msg := i18n.T("work.issues.empty_filtered")
-				if len(allItems) == 0 {
-					msg = i18n.T("work.issues.empty_all")
-				}
-				components.EmptyState(c, theme.IconWork, i18n.T("work.issues.empty_title"), msg, i18n.T("work.issues.new_btn"), func() {
-					s.openCreateWorkItemSheet()
+		layout.ReadableWrap(c, m.ReadableMaxWidth, func() {
+			ui.Column(c).FillWidth().Padding(8, 14, 24, 14).Gap(10).Children(func() {
+				// Editorial eyebrow header + sleek "+ New" pill CTA.
+				components.SectionEyebrow(c, i18n.Tf("work.issues.header", map[string]any{
+					"filter": activeFilter,
+					"count":  len(filtered),
+				}), func() {
+					newBtn := components.CompactPrimaryButton(c, i18n.T("work.issues.new_short"), nil, false)
+					if newBtn.Clicked() {
+						s.openCreateWorkItemSheet()
+					}
 				})
-				return
-			}
 
-			for _, wi := range filtered {
-				wi := wi
-				railCol := ex.TextSubtle
-				switch wi.Priority {
-				case "urgent":
-					railCol = t.Danger
-				case "high":
-					railCol = ex.Brand
-				case "medium":
-					railCol = ex.Info
+				filterLabels := make([]string, len(issueFilterKeys))
+				for i, k := range issueFilterKeys {
+					filterLabels[i] = i18n.T(k)
 				}
-				row := ui.Column(c.Key(wi.ID)).FillWidth().Padding(13, 14, 13, 18).Gap(7).
-					Radius(16).Background(t.Surface).Clip().
-					Role(ui.RoleButton).Label(i18n.Tf("work.issues.item_a11y", map[string]any{
-					"num":   wi.Number,
-					"title": wi.Title,
-				}))
-				components.ApplyCardElevation(row, t)
-				if row.Pressed() {
-					row.Background(t.SurfacePressed)
-				}
-				row.DrawOver(func(p *ui.Painter, r ui.Rect) {
-					p.Fill(ui.Rect{X: r.X, Y: r.Y + 12, W: 3.5, H: r.H - 24}, railCol, 2)
-				})
-				row.Children(func() {
-					ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
-						ui.Text(c, fmt.Sprintf("#%d \u00b7 %s", wi.Number, strings.ToUpper(i18n.WorkKindLabel(wi.Kind)))).
-							FontSize(11).FontWeight(600).LetterSpacing(0.3).TextColor(ex.TextSubtle).NoWrap()
-						ui.Row(c).Gap(5).Shrink(0).Children(func() {
-							components.StatusPill(c, i18n.WorkPriorityLabel(wi.Priority), priorityTone(wi.Priority))
-							if wi.ArchivedAt != nil {
-								components.StatusDotPill(c, i18n.WorkStateLabel("archived"), components.ToneNeutral)
-							} else {
-								components.StatusDotPill(c, formatWorkItemState(wi.State), stateTone(wi.State))
-							}
-						})
+				components.FilterPillBar(c, &s.issueFilter, filterLabels...)
+
+				if len(filtered) == 0 {
+					msg := i18n.T("work.issues.empty_filtered")
+					if len(allItems) == 0 {
+						msg = i18n.T("work.issues.empty_all")
+					}
+					components.EmptyState(c, theme.IconWork, i18n.T("work.issues.empty_title"), msg, i18n.T("work.issues.new_btn"), func() {
+						s.openCreateWorkItemSheet()
 					})
-					ui.Text(c, wi.Title).FontSize(15.5).FontWeight(600).LetterSpacing(-0.15).LineHeight(1.3).TextColor(t.Text).MaxLines(2)
-					if strings.TrimSpace(wi.Description) != "" {
-						ui.Text(c, wi.Description).FontSize(13).LineHeight(1.38).TextColor(t.TextMuted).MaxLines(2)
+					return
+				}
+
+				layout.TwoColumnCards(c, m.GridColumns, 10, len(filtered), func(i int) {
+					wi := filtered[i]
+					railCol := ex.TextSubtle
+					switch wi.Priority {
+					case "urgent":
+						railCol = t.Danger
+					case "high":
+						railCol = ex.Brand
+					case "medium":
+						railCol = ex.Info
 					}
-					if len(wi.Assignees) > 0 || wi.TaskExecution != nil {
-						ui.Row(c).FillWidth().Wrap().Gap(8).AlignItems(ui.Center).Justify(ui.SpaceBetween).Padding(2, 0, 0, 0).Children(func() {
-							if len(wi.Assignees) > 0 {
-								names := make([]string, 0, len(wi.Assignees))
-								for _, a := range wi.Assignees {
-									names = append(names, a.Actor.DisplayName)
+					row := ui.Column(c.Key(wi.ID)).FillWidth().Padding(13, 14, 13, 18).Gap(7).
+						Radius(16).Background(t.Surface).Clip().
+						Role(ui.RoleButton).Label(i18n.Tf("work.issues.item_a11y", map[string]any{
+						"num":   wi.Number,
+						"title": wi.Title,
+					}))
+					components.ApplyCardElevation(row, t)
+					if row.Pressed() {
+						row.Background(t.SurfacePressed)
+					}
+					row.DrawOver(func(p *ui.Painter, r ui.Rect) {
+						p.Fill(ui.Rect{X: r.X, Y: r.Y + 12, W: 3.5, H: r.H - 24}, railCol, 2)
+					})
+					row.Children(func() {
+						ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
+							ui.Text(c, fmt.Sprintf("#%d \u00b7 %s", wi.Number, strings.ToUpper(i18n.WorkKindLabel(wi.Kind)))).
+								FontSize(11).FontWeight(600).LetterSpacing(0.3).TextColor(ex.TextSubtle).NoWrap()
+							ui.Row(c).Gap(5).Shrink(0).Children(func() {
+								components.StatusPill(c, i18n.WorkPriorityLabel(wi.Priority), priorityTone(wi.Priority))
+								if wi.ArchivedAt != nil {
+									components.StatusDotPill(c, i18n.WorkStateLabel("archived"), components.ToneNeutral)
+								} else {
+									components.StatusDotPill(c, formatWorkItemState(wi.State), stateTone(wi.State))
 								}
-								ui.Row(c).AlignItems(ui.Center).Gap(6).Children(func() {
-									components.AvatarBadge(c, wi.Assignees[0].Actor.DisplayName, 20)
-									ui.Text(c, i18n.Tf("work.issues.assigned", map[string]any{"names": strings.Join(names, ", ")})).
-										FontSize(11.5).TextColor(t.TextMuted)
-								})
-							}
-							if wi.TaskExecution != nil {
-								components.StatusDotPill(c, i18n.Tf("work.issues.exec", map[string]any{"status": i18n.StatusLabel(wi.TaskExecution.Status)}), components.ToneBrand)
-							}
+							})
 						})
+						ui.Text(c, wi.Title).FontSize(15.5).FontWeight(600).LetterSpacing(-0.15).LineHeight(1.3).TextColor(t.Text).MaxLines(2)
+						if strings.TrimSpace(wi.Description) != "" {
+							ui.Text(c, wi.Description).FontSize(13).LineHeight(1.38).TextColor(t.TextMuted).MaxLines(2)
+						}
+						if len(wi.Assignees) > 0 || wi.TaskExecution != nil {
+							ui.Row(c).FillWidth().Wrap().Gap(8).AlignItems(ui.Center).Justify(ui.SpaceBetween).Padding(2, 0, 0, 0).Children(func() {
+								if len(wi.Assignees) > 0 {
+									names := make([]string, 0, len(wi.Assignees))
+									for _, a := range wi.Assignees {
+										names = append(names, a.Actor.DisplayName)
+									}
+									ui.Row(c).AlignItems(ui.Center).Gap(6).Children(func() {
+										components.AvatarBadge(c, wi.Assignees[0].Actor.DisplayName, 20)
+										ui.Text(c, i18n.Tf("work.issues.assigned", map[string]any{"names": strings.Join(names, ", ")})).
+											FontSize(11.5).TextColor(t.TextMuted)
+									})
+								}
+								if wi.TaskExecution != nil {
+									components.StatusDotPill(c, i18n.Tf("work.issues.exec", map[string]any{"status": i18n.StatusLabel(wi.TaskExecution.Status)}), components.ToneBrand)
+								}
+							})
+						}
+					})
+					if row.Clicked() {
+						s.openWorkItemDetail(wi)
 					}
 				})
-				if row.Clicked() {
-					s.openWorkItemDetail(wi)
-				}
-			}
+			})
 		})
 	})
 }

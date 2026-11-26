@@ -65,6 +65,16 @@ func ConnectionProtocolBadge(tlsPinned, tls bool) string {
 	return T("conn.badge.https")
 }
 
+// DocStatusLabel translates document lifecycle status codes without reusing active-run wording.
+func DocStatusLabel(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "active":
+		return T("status.doc_active")
+	default:
+		return StatusLabel(raw)
+	}
+}
+
 // SSEStatusLabel returns the localized label for an SSE connection phase.
 func SSEStatusLabel(phase string) string {
 	switch strings.ToLower(strings.TrimSpace(phase)) {
@@ -190,6 +200,8 @@ func StatusLabel(raw string) string {
 		return T("status.environment")
 	case "missing":
 		return T("status.missing")
+	case "not_required":
+		return T("status.not_required")
 	case "uninitialized":
 		return T("status.uninitialized")
 	case "open":

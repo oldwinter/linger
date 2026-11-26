@@ -9,6 +9,7 @@ import (
 	"github.com/oldwinter/linger/mobile/internal/api"
 	"github.com/oldwinter/linger/mobile/internal/components"
 	"github.com/oldwinter/linger/mobile/internal/i18n"
+	"github.com/oldwinter/linger/mobile/internal/layout"
 	"github.com/oldwinter/linger/mobile/internal/theme"
 )
 
@@ -23,163 +24,165 @@ func (s *Screen) viewIntegrationsSection(c *ui.Context) {
 	s.mu.Unlock()
 
 	ui.Scroll(c).FillWidth().Grow(1).Basis(0).TrackScroll(&s.scroll[SectionIntegrations]).Children(func() {
-		ui.Column(c).FillWidth().Padding(12, 16, 28, 16).Gap(12).Children(func() {
-			if s.integError != "" {
-				components.StatusBanner(c, components.ToneDanger, s.integError, i18n.T("common.dismiss"), func() {
-					s.integError = ""
-				})
-			}
-			if s.integNotice != "" {
-				components.StatusBanner(c, components.ToneSuccess, s.integNotice, i18n.T("common.ok"), func() {
-					s.integNotice = ""
-				})
-			}
-
-			// 1. External Apps & Connections
-			components.SectionCard(c, i18n.Tf("settings.integrations.ext_title", map[string]any{"count": len(conns)}),
-				i18n.Tf("settings.integrations.ext_sub", map[string]any{"count": len(apps.Apps)}), nil, func() {
-					if len(conns) == 0 {
-						ui.Text(c, i18n.T("settings.integrations.ext_empty")).FontSize(13).TextColor(t.TextMuted)
-					} else {
-						ui.Column(c).FillWidth().Gap(10).Children(func() {
-							for _, conn := range conns {
-								conn := conn
-								busy := s.integBusyID == conn.ID
-								ui.Column(c.Key(conn.ID)).FillWidth().Padding(12, 12).Gap(8).
-									Radius(12).Background(theme.Extra(t).MutedBg).Border(0.75, theme.Extra(t).SubtleBorder).Children(func() {
-									ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
-										lbl := conn.Provider
-										if conn.IdentityLabel != nil && *conn.IdentityLabel != "" {
-											lbl += " · " + *conn.IdentityLabel
-										}
-										ui.Text(c, lbl).FontSize(14).FontWeight(600).TextColor(t.Text).Grow(1).Basis(0).MaxLines(1)
-										tone := components.ToneInfo
-										if conn.Status == "connected" {
-											tone = components.ToneSuccess
-										} else if conn.Status == "disconnected" || conn.Status == "error" {
-											tone = components.ToneDanger
-										}
-										components.StatusPill(c, i18n.StatusLabel(conn.Status), tone)
-									})
-
-									if conn.StatusCheckedAt != nil {
-										ui.Text(c, i18n.Tf("settings.integrations.checked_prefix", map[string]any{"time": i18n.FormatDateTimeUTC(*conn.StatusCheckedAt)})).
-											FontSize(11).TextColor(t.TextMuted)
-									}
-
-									ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Children(func() {
-										ui.Text(c, i18n.T("settings.integrations.auto_reminders")).FontSize(12).TextColor(t.TextMuted)
-										autoRem := conn.AutoReminders
-										sw := mobile.Switch(c, &autoRem).Label(i18n.Tf("settings.integrations.auto_reminders_a11y", map[string]any{"name": conn.Provider})).Disabled(busy)
-										if sw.Changed() {
-											s.toggleConnAutoRemindersAsync(conn.ID, autoRem)
-										}
-									})
-
-									ui.Row(c).FillWidth().Wrap().Gap(6).Children(func() {
-										chkLbl := i18n.T("settings.integrations.check_status")
-										if busy {
-											chkLbl = i18n.T("settings.integrations.checking")
-										}
-										chkBtn := components.PrimaryTouchButton(c, chkLbl, busy)
-										if chkBtn.Clicked() {
-											s.checkConnStatusAsync(conn)
-										}
-										grantBtn := components.SecondaryTouchButton(c, i18n.T("settings.integrations.agent_grants"), busy)
-										if grantBtn.Clicked() {
-											s.openAgentGrantsSheet(conn)
-										}
-										disBtn := components.DangerTouchButton(c, i18n.T("settings.integrations.disconnect"), busy)
-										if disBtn.Clicked() {
-											cp := conn
-											s.connDisconnItem = &cp
-											s.connDisconnSheet = true
-										}
-									})
-								})
-							}
-						})
-					}
-				})
-
-			// 2. Web Search Backends
-			defSearch := ws.DefaultSearch
-			if defSearch == "" {
-				defSearch = i18n.T("common.none")
-			}
-			components.SectionCard(c, i18n.T("settings.integrations.search_title"), i18n.Tf("settings.integrations.search_sub", map[string]any{"name": defSearch}), nil, func() {
-				if len(ws.Backends) == 0 {
-					ui.Text(c, i18n.T("settings.integrations.search_empty")).FontSize(13).TextColor(t.TextMuted)
-					return
+		layout.ReadableWrap(c, layout.Of(c).ReadableMaxWidth, func() {
+			ui.Column(c).FillWidth().Padding(12, 16, 28, 16).Gap(12).Children(func() {
+				if s.integError != "" {
+					components.StatusBanner(c, components.ToneDanger, s.integError, i18n.T("common.dismiss"), func() {
+						s.integError = ""
+					})
 				}
-				ui.Column(c).FillWidth().Gap(10).Children(func() {
-					for _, b := range ws.Backends {
-						b := b
-						isDefault := ws.DefaultSearch == b.ID
-						buf := s.searchKeyBuf(b.ID)
-						ui.Column(c.Key("ws:"+b.ID)).FillWidth().Padding(12, 12).Gap(8).
-							Radius(12).Background(theme.Extra(t).MutedBg).Border(0.75, theme.Extra(t).SubtleBorder).Children(func() {
-							ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
-								ui.Text(c, b.Name).FontSize(14).FontWeight(600).TextColor(t.Text).Grow(1).Basis(0)
-								ui.Row(c).Gap(4).Children(func() {
-									if isDefault {
-										components.StatusPill(c, i18n.T("settings.integrations.default_badge"), components.ToneSuccess)
-									}
-									components.StatusPill(c, i18n.StatusLabel(b.KeyState), components.ToneNeutral)
-								})
-							})
-							ui.Text(c, b.Description).FontSize(12).TextColor(t.TextMuted)
+				if s.integNotice != "" {
+					components.StatusBanner(c, components.ToneSuccess, s.integNotice, i18n.T("common.ok"), func() {
+						s.integNotice = ""
+					})
+				}
 
-							if !isDefault && (b.Keyless || b.Status == "ready") {
-								defBtn := components.SecondaryTouchButton(c, i18n.T("settings.integrations.set_default"), false)
-								if defBtn.Clicked() {
-									s.setDefaultWebSearchAsync(b.ID)
+				// 1. External Apps & Connections
+				components.SectionCard(c, i18n.Tf("settings.integrations.ext_title", map[string]any{"count": len(conns)}),
+					i18n.Tf("settings.integrations.ext_sub", map[string]any{"count": len(apps.Apps)}), nil, func() {
+						if len(conns) == 0 {
+							ui.Text(c, i18n.T("settings.integrations.ext_empty")).FontSize(13).TextColor(t.TextMuted)
+						} else {
+							ui.Column(c).FillWidth().Gap(10).Children(func() {
+								for _, conn := range conns {
+									conn := conn
+									busy := s.integBusyID == conn.ID
+									ui.Column(c.Key(conn.ID)).FillWidth().Padding(12, 12).Gap(8).
+										Radius(12).Background(theme.Extra(t).MutedBg).Border(0.75, theme.Extra(t).SubtleBorder).Children(func() {
+										ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
+											lbl := conn.Provider
+											if conn.IdentityLabel != nil && *conn.IdentityLabel != "" {
+												lbl += " · " + *conn.IdentityLabel
+											}
+											ui.Text(c, lbl).FontSize(14).FontWeight(600).TextColor(t.Text).Grow(1).Basis(0).MaxLines(1)
+											tone := components.ToneInfo
+											if conn.Status == "connected" {
+												tone = components.ToneSuccess
+											} else if conn.Status == "disconnected" || conn.Status == "error" {
+												tone = components.ToneDanger
+											}
+											components.StatusPill(c, i18n.StatusLabel(conn.Status), tone)
+										})
+
+										if conn.StatusCheckedAt != nil {
+											ui.Text(c, i18n.Tf("settings.integrations.checked_prefix", map[string]any{"time": i18n.FormatDateTimeUTC(*conn.StatusCheckedAt)})).
+												FontSize(11).TextColor(t.TextMuted)
+										}
+
+										ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Children(func() {
+											ui.Text(c, i18n.T("settings.integrations.auto_reminders")).FontSize(12).TextColor(t.TextMuted)
+											autoRem := conn.AutoReminders
+											sw := mobile.Switch(c, &autoRem).Label(i18n.Tf("settings.integrations.auto_reminders_a11y", map[string]any{"name": conn.Provider})).Disabled(busy)
+											if sw.Changed() {
+												s.toggleConnAutoRemindersAsync(conn.ID, autoRem)
+											}
+										})
+
+										ui.Row(c).FillWidth().Wrap().Gap(6).Children(func() {
+											chkLbl := i18n.T("settings.integrations.check_status")
+											if busy {
+												chkLbl = i18n.T("settings.integrations.checking")
+											}
+											chkBtn := components.PrimaryTouchButton(c, chkLbl, busy)
+											if chkBtn.Clicked() {
+												s.checkConnStatusAsync(conn)
+											}
+											grantBtn := components.SecondaryTouchButton(c, i18n.T("settings.integrations.agent_grants"), busy)
+											if grantBtn.Clicked() {
+												s.openAgentGrantsSheet(conn)
+											}
+											disBtn := components.DangerTouchButton(c, i18n.T("settings.integrations.disconnect"), busy)
+											if disBtn.Clicked() {
+												cp := conn
+												s.connDisconnItem = &cp
+												s.connDisconnSheet = true
+											}
+										})
+									})
 								}
-							}
-							if ws.CanSaveKeys && !b.Keyless {
-								components.FormField(c, i18n.Tf("settings.integrations.api_key_for", map[string]any{"name": b.Name}), i18n.T("settings.integrations.api_key_ph"), buf, true)
-								ui.Row(c).FillWidth().Gap(8).Children(func() {
-									saveBtn := components.PrimaryTouchButton(c, i18n.T("settings.integrations.save_key"), strings.TrimSpace(*buf) == "")
-									saveBtn.Grow(1).Basis(0)
-									if saveBtn.Clicked() {
-										keyVal := strings.TrimSpace(*buf)
-										*buf = "" // immediately wipe secret from UI state
-										s.saveWebSearchKeyAsync(b.ID, keyVal)
-									}
-									if b.KeyState == "saved" {
-										rmBtn := components.DangerTouchButton(c, i18n.T("settings.integrations.remove_key"), false)
-										if rmBtn.Clicked() {
-											s.deleteWebSearchKeyAsync(b.ID)
-										}
-									}
-								})
-							}
-						})
-					}
-				})
-			})
+							})
+						}
+					})
 
-			// 3. Voice Media Policy & Provider Keys
-			components.SectionCard(c, i18n.T("settings.integrations.voice_title"), i18n.T("settings.integrations.voice_sub"), nil, func() {
-				if vp == nil {
-					ui.Text(c, i18n.T("settings.integrations.voice_unavailable")).FontSize(13).TextColor(t.TextMuted)
-					return
+				// 2. Web Search Backends
+				defSearch := ws.DefaultSearch
+				if defSearch == "" {
+					defSearch = i18n.T("common.none")
 				}
-				ui.Row(c).FillWidth().Wrap().Gap(6).Children(func() {
-					if vp.VoiceMediaSupported {
-						components.StatusPill(c, i18n.T("settings.integrations.stt_ready"), components.ToneSuccess)
-					} else {
-						components.StatusPill(c, i18n.T("settings.integrations.stt_off"), components.ToneNeutral)
+				components.SectionCard(c, i18n.T("settings.integrations.search_title"), i18n.Tf("settings.integrations.search_sub", map[string]any{"name": defSearch}), nil, func() {
+					if len(ws.Backends) == 0 {
+						ui.Text(c, i18n.T("settings.integrations.search_empty")).FontSize(13).TextColor(t.TextMuted)
+						return
 					}
-					if vp.LiveEnabled != nil && *vp.LiveEnabled {
-						components.StatusPill(c, i18n.T("settings.integrations.live_on"), components.ToneSuccess)
-					} else {
-						components.StatusPill(c, i18n.T("settings.integrations.live_off"), components.ToneNeutral)
-					}
+					ui.Column(c).FillWidth().Gap(10).Children(func() {
+						for _, b := range ws.Backends {
+							b := b
+							isDefault := ws.DefaultSearch == b.ID
+							buf := s.searchKeyBuf(b.ID)
+							ui.Column(c.Key("ws:"+b.ID)).FillWidth().Padding(12, 12).Gap(8).
+								Radius(12).Background(theme.Extra(t).MutedBg).Border(0.75, theme.Extra(t).SubtleBorder).Children(func() {
+								ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
+									ui.Text(c, b.Name).FontSize(14).FontWeight(600).TextColor(t.Text).Grow(1).Basis(0)
+									ui.Row(c).Gap(4).Children(func() {
+										if isDefault {
+											components.StatusPill(c, i18n.T("settings.integrations.default_badge"), components.ToneSuccess)
+										}
+										components.StatusPill(c, i18n.StatusLabel(b.KeyState), components.ToneNeutral)
+									})
+								})
+								ui.Text(c, b.Description).FontSize(12).TextColor(t.TextMuted)
+
+								if !isDefault && (b.Keyless || b.Status == "ready") {
+									defBtn := components.SecondaryTouchButton(c, i18n.T("settings.integrations.set_default"), false)
+									if defBtn.Clicked() {
+										s.setDefaultWebSearchAsync(b.ID)
+									}
+								}
+								if ws.CanSaveKeys && !b.Keyless {
+									components.FormField(c, i18n.Tf("settings.integrations.api_key_for", map[string]any{"name": b.Name}), i18n.T("settings.integrations.api_key_ph"), buf, true)
+									ui.Row(c).FillWidth().Gap(8).Children(func() {
+										saveBtn := components.PrimaryTouchButton(c, i18n.T("settings.integrations.save_key"), strings.TrimSpace(*buf) == "")
+										saveBtn.Grow(1).Basis(0)
+										if saveBtn.Clicked() {
+											keyVal := strings.TrimSpace(*buf)
+											*buf = "" // immediately wipe secret from UI state
+											s.saveWebSearchKeyAsync(b.ID, keyVal)
+										}
+										if b.KeyState == "saved" {
+											rmBtn := components.DangerTouchButton(c, i18n.T("settings.integrations.remove_key"), false)
+											if rmBtn.Clicked() {
+												s.deleteWebSearchKeyAsync(b.ID)
+											}
+										}
+									})
+								}
+							})
+						}
+					})
 				})
 
-				s.viewVoiceKeyEditor(c, i18n.T("settings.integrations.soniox_label"), "soniox", vp.SonioxKey, &s.sonioxKeyInput)
-				s.viewVoiceKeyEditor(c, i18n.T("settings.integrations.xai_label"), "xai", vp.XaiKey, &s.xaiKeyInput)
+				// 3. Voice Media Policy & Provider Keys
+				components.SectionCard(c, i18n.T("settings.integrations.voice_title"), i18n.T("settings.integrations.voice_sub"), nil, func() {
+					if vp == nil {
+						ui.Text(c, i18n.T("settings.integrations.voice_unavailable")).FontSize(13).TextColor(t.TextMuted)
+						return
+					}
+					ui.Row(c).FillWidth().Wrap().Gap(6).Children(func() {
+						if vp.VoiceMediaSupported {
+							components.StatusPill(c, i18n.T("settings.integrations.stt_ready"), components.ToneSuccess)
+						} else {
+							components.StatusPill(c, i18n.T("settings.integrations.stt_off"), components.ToneNeutral)
+						}
+						if vp.LiveEnabled != nil && *vp.LiveEnabled {
+							components.StatusPill(c, i18n.T("settings.integrations.live_on"), components.ToneSuccess)
+						} else {
+							components.StatusPill(c, i18n.T("settings.integrations.live_off"), components.ToneNeutral)
+						}
+					})
+
+					s.viewVoiceKeyEditor(c, i18n.T("settings.integrations.soniox_label"), "soniox", vp.SonioxKey, &s.sonioxKeyInput)
+					s.viewVoiceKeyEditor(c, i18n.T("settings.integrations.xai_label"), "xai", vp.XaiKey, &s.xaiKeyInput)
+				})
 			})
 		})
 	})

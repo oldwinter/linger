@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"mime"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -19,6 +20,7 @@ import (
 	"github.com/oldwinter/linger/mobile/internal/api"
 	"github.com/oldwinter/linger/mobile/internal/components"
 	"github.com/oldwinter/linger/mobile/internal/i18n"
+	"github.com/oldwinter/linger/mobile/internal/layout"
 	"github.com/oldwinter/linger/mobile/internal/theme"
 )
 
@@ -38,86 +40,88 @@ func (s *Screen) viewDocsSegment(c *ui.Context) {
 	s.mu.Unlock()
 
 	ui.Scroll(c).FillWidth().Grow(1).Basis(0).TrackScroll(&s.scroll[SegmentDocs]).Children(func() {
-		ui.Column(c).FillWidth().Padding(12, 16, 24, 16).Gap(10).Children(func() {
-			// Tree switcher (My Docs / Shared / Room Docs)
-			components.SegmentedControl(c, &s.docTreeTab,
-				i18n.T("library.docs.view_my"),
-				i18n.T("library.docs.view_shared"),
-				i18n.T("library.docs.view_room"))
+		layout.ReadableWrap(c, layout.Of(c).ReadableMaxWidth, func() {
+			ui.Column(c).FillWidth().Padding(12, 16, 24, 16).Gap(10).Children(func() {
+				// Tree switcher (My Docs / Shared / Room Docs)
+				components.SegmentedControl(c, &s.docTreeTab,
+					i18n.T("library.docs.view_my"),
+					i18n.T("library.docs.view_shared"),
+					i18n.T("library.docs.view_room"))
 
-			// Action bar: New Note, Upload File, Upload Photo
-			ui.Row(c).FillWidth().Wrap().Gap(6).Children(func() {
-				newBtn := components.CompactPrimaryButton(c, i18n.T("library.docs.new_note_short"), nil, false)
-				if newBtn.Clicked() {
-					s.newNoteTitle = ""
-					s.newNoteErr = ""
-					s.newNoteSheetOpen = true
-				}
-				upFileBtn := components.CompactSecondaryButton(c, i18n.T("library.docs.upload_file"), nil, s.uploadBusy)
-				if upFileBtn.Clicked() {
-					s.triggerUploadFile()
-				}
-				upPhotoBtn := components.CompactSecondaryButton(c, i18n.T("library.docs.upload_photo"), nil, s.uploadBusy)
-				if upPhotoBtn.Clicked() {
-					s.triggerUploadPhoto()
-				}
-			})
-
-			if s.uploadErr != "" {
-				components.StatusBanner(c, components.ToneDanger, s.uploadErr, i18n.T("common.dismiss"), func() {
-					s.uploadErr = ""
+				// Action bar: New Note, Upload File, Upload Photo
+				ui.Row(c).FillWidth().Wrap().Gap(6).Children(func() {
+					newBtn := components.CompactPrimaryButton(c, i18n.T("library.docs.new_note_short"), nil, false)
+					if newBtn.Clicked() {
+						s.newNoteTitle = ""
+						s.newNoteErr = ""
+						s.newNoteSheetOpen = true
+					}
+					upFileBtn := components.CompactSecondaryButton(c, i18n.T("library.docs.upload_file"), nil, s.uploadBusy)
+					if upFileBtn.Clicked() {
+						s.triggerUploadFile()
+					}
+					upPhotoBtn := components.CompactSecondaryButton(c, i18n.T("library.docs.upload_photo"), nil, s.uploadBusy)
+					if upPhotoBtn.Clicked() {
+						s.triggerUploadPhoto()
+					}
 				})
-			}
 
-			if s.docTreeTab == 2 && len(rooms) > 0 {
-				ui.ScrollHorizontal(c).FillWidth().Children(func() {
-					ui.Row(c).Gap(6).Children(func() {
-						for _, rm := range rooms {
-							rm := rm
-							on := selectedDocRoomID == rm.ID
-							bg := theme.Extra(t).MutedBg
-							fg := t.TextMuted
-							if on {
-								bg = t.Accent
-								fg = t.AccentText
+				if s.uploadErr != "" {
+					components.StatusBanner(c, components.ToneDanger, s.uploadErr, i18n.T("common.dismiss"), func() {
+						s.uploadErr = ""
+					})
+				}
+
+				if s.docTreeTab == 2 && len(rooms) > 0 {
+					ui.ScrollHorizontal(c).FillWidth().Children(func() {
+						ui.Row(c).Gap(6).Children(func() {
+							for _, rm := range rooms {
+								rm := rm
+								on := selectedDocRoomID == rm.ID
+								bg := theme.Extra(t).MutedBg
+								fg := t.TextMuted
+								if on {
+									bg = t.Accent
+									fg = t.AccentText
+								}
+								chip := ui.Row(c.Key(rm.ID)).MinHeight(34).PaddingX(12).Radius(999).Background(bg).
+									AlignItems(ui.Center).Shrink(0).Role(ui.RoleTab).Label(i18n.Tf("library.docs.room_chip_a11y", map[string]any{"name": rm.Name})).Checked(on)
+								chip.Children(func() {
+									ui.Text(c, rm.Name).FontSize(12).FontWeight(600).TextColor(fg).NoWrap()
+								})
+								if chip.Clicked() {
+									s.mu.Lock()
+									s.docRoomID = rm.ID
+									s.mu.Unlock()
+									selectedDocRoomID = rm.ID
+									s.fetchRoomDocsAsync(rm.ID)
+								}
 							}
-							chip := ui.Row(c.Key(rm.ID)).MinHeight(34).PaddingX(12).Radius(999).Background(bg).
-								AlignItems(ui.Center).Shrink(0).Role(ui.RoleTab).Label(i18n.Tf("library.docs.room_chip_a11y", map[string]any{"name": rm.Name})).Checked(on)
-							chip.Children(func() {
-								ui.Text(c, rm.Name).FontSize(12).FontWeight(600).TextColor(fg).NoWrap()
-							})
-							if chip.Clicked() {
-								s.mu.Lock()
-								s.docRoomID = rm.ID
-								s.mu.Unlock()
-								selectedDocRoomID = rm.ID
-								s.fetchRoomDocsAsync(rm.ID)
-							}
+						})
+					})
+				}
+
+				if s.docTreeTab < 2 && s.docFolderID != "" {
+					ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
+						backBtn := components.SecondaryTouchButton(c, i18n.T("library.docs.up_folder"), false)
+						if backBtn.Clicked() {
+							s.popDocFolder()
+						}
+						if len(s.docFolderTrail) > 0 {
+							ui.Text(c, strings.Join(s.docFolderTrail, " / ")).FontSize(12).TextColor(t.TextMuted).MaxLines(1)
 						}
 					})
-				})
-			}
+				}
 
-			if s.docTreeTab < 2 && s.docFolderID != "" {
-				ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
-					backBtn := components.SecondaryTouchButton(c, i18n.T("library.docs.up_folder"), false)
-					if backBtn.Clicked() {
-						s.popDocFolder()
-					}
-					if len(s.docFolderTrail) > 0 {
-						ui.Text(c, strings.Join(s.docFolderTrail, " / ")).FontSize(12).TextColor(t.TextMuted).MaxLines(1)
-					}
-				})
-			}
-
-			switch s.docTreeTab {
-			case 0:
-				s.renderTreeNodes(c, myTree.Items, allDocs)
-			case 1:
-				s.renderTreeNodes(c, sharedTree.Items, nil)
-			case 2:
-				s.renderDocumentSlice(c, roomDocs, i18n.T("library.docs.room_empty"))
-			}
+				switch s.docTreeTab {
+				case 0:
+					s.renderTreeNodes(c, myTree.Items, allDocs)
+				case 1:
+					s.renderTreeNodes(c, sharedTree.Items, nil)
+				case 2:
+					s.renderDocumentSlice(c, roomDocs, i18n.T("library.docs.room_empty"))
+				}
+			})
 		})
 	})
 }
@@ -398,7 +402,7 @@ func (s *Screen) viewDocumentReaderSheet(c *ui.Context) {
 						ui.Text(c, doc.Title).FontSize(18).Bold().TextColor(t.Text)
 						ui.Text(c, i18n.DocKindLabel(doc.Format)+" \u00b7 "+i18n.DocKindLabel(doc.RepresentationFormat)).FontSize(12).TextColor(t.TextMuted)
 					})
-					components.StatusPill(c, i18n.StatusLabel(doc.Status), components.ToneInfo)
+					components.StatusPill(c, i18n.DocStatusLabel(doc.Status), components.ToneInfo)
 				})
 
 				if s.readerErr != "" {
@@ -578,6 +582,32 @@ func (s *Screen) openHTMLPreview(versionID string) {
 	s.mu.Unlock()
 	go func() {
 		sess, err := client.CreateDocumentPreviewSession(context.Background(), versionID)
+		var (
+			resolvedURL string
+			inlineHTML  string
+			useInline   bool
+			preErr      string
+		)
+		if err != nil {
+			preErr = err.Error()
+		} else {
+			resolvedURL = client.ResolveEndpointURL(sess.PreviewURL)
+			if vErr := validateDocPreviewURL(resolvedURL, hostBase, allowPlain); vErr != nil {
+				preErr = i18n.Tf("library.docs.blocked_preview", map[string]any{"err": vErr.Error()})
+			} else if client.TLSFingerprint() != "" {
+				// System WebViews reject Desktop Companion's self-signed SPKI-pinned TLS certificate
+				// (NSURLErrorServerCertificateUntrusted -1202 on iOS). Fetch the preview HTML via our
+				// SPKI-pinned HTTP client and load it directly into an untrusted sandboxed WebView.
+				useInline = true
+				if u, uErr := url.Parse(resolvedURL); uErr != nil {
+					preErr = uErr.Error()
+				} else if raw, _, fErr := client.DoBytes(context.Background(), http.MethodGet, u.RequestURI(), nil, nil); fErr != nil {
+					preErr = fErr.Error()
+				} else {
+					inlineHTML = string(raw)
+				}
+			}
+		}
 		s.enqueueUI(func() {
 			s.mu.Lock()
 			stale := s.closed || s.htmlPreviewGen != gen
@@ -587,13 +617,8 @@ func (s *Screen) openHTMLPreview(versionID string) {
 			if !s.htmlPreviewOpen || stale {
 				return
 			}
-			if err != nil {
-				s.htmlPreviewErr = err.Error()
-				return
-			}
-			resolvedURL := client.ResolveEndpointURL(sess.PreviewURL)
-			if vErr := validateDocPreviewURL(resolvedURL, hostBase, allowPlain); vErr != nil {
-				s.htmlPreviewErr = i18n.Tf("library.docs.blocked_preview", map[string]any{"err": vErr.Error()})
+			if preErr != "" {
+				s.htmlPreviewErr = preErr
 				return
 			}
 			s.htmlPreviewURL = resolvedURL
@@ -602,18 +627,30 @@ func (s *Screen) openHTMLPreview(versionID string) {
 			}
 			if createWV != nil {
 				s.destroyPreviewWebView()
-				if wv, wErr := createWV(mygo.WebViewOptions{
-					URL: resolvedURL,
+				opts := mygo.WebViewOptions{
 					Page: mygo.PageOptions{
 						Untrusted: true,
 					},
-				}); wErr == nil {
+				}
+				if !useInline {
+					opts.URL = resolvedURL
+				}
+				if wv, wErr := createWV(opts); wErr == nil {
 					if wv != nil {
 						wv.Page().OnWillNavigate(func(e *mygo.NavigateEvent) {
+							if useInline {
+								if u := strings.TrimSpace(e.URL); u != "" && !strings.EqualFold(u, "about:blank") {
+									e.PreventDefault()
+								}
+								return
+							}
 							if !allowDocPreviewNavigation(e.URL, resolvedURL, hostBase, allowPlain) {
 								e.PreventDefault()
 							}
 						})
+						if useInline {
+							wv.Page().LoadHTML(inlineHTML, "")
+						}
 					}
 					s.htmlWebView = wv
 				} else {

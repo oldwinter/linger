@@ -13,6 +13,7 @@ import (
 	"github.com/oldwinter/linger/mobile/internal/api"
 	"github.com/oldwinter/linger/mobile/internal/components"
 	"github.com/oldwinter/linger/mobile/internal/i18n"
+	"github.com/oldwinter/linger/mobile/internal/layout"
 	"github.com/oldwinter/linger/mobile/internal/realtime"
 	"github.com/oldwinter/linger/mobile/internal/theme"
 )
@@ -41,64 +42,68 @@ func (s *Screen) viewMemorySegment(c *ui.Context) {
 		}
 	}
 
+	m := layout.Of(c)
+
 	ui.Scroll(c).FillWidth().Grow(1).Basis(0).TrackScroll(&s.scroll[SegmentMemory]).Children(func() {
-		ui.Column(c).FillWidth().Padding(12, 16, 24, 16).Gap(10).Children(func() {
-			// Active Voice Capture banner when recording
-			if activeCap != nil {
-				components.SectionCard(c, i18n.T("library.memory.active_capture"), i18n.Tf("library.memory.room_line", map[string]any{"id": activeCap.RoomID}), func() {
-					components.StatusPill(c, i18n.StatusLabel(activeCap.Status), components.ToneSuccess)
-				}, func() {
-					btn := components.PrimaryTouchButton(c, i18n.T("library.memory.open_transcript"), false)
-					btn.FillWidth()
-					if btn.Clicked() {
-						s.openVoiceCapture(*activeCap)
-					}
-				})
-			}
-
-			// Filter pills
-			memLabels := make([]string, len(memoryFilterKeys))
-			for i, k := range memoryFilterKeys {
-				memLabels[i] = i18n.T(k)
-			}
-			components.FilterPillBar(c, &s.memoryFilter, memLabels...)
-
-			if len(filtered) == 0 {
-				components.EmptyState(c, theme.IconLive, i18n.T("library.memory.empty_title"),
-					i18n.T("library.memory.empty_body"), "", nil)
-				return
-			}
-
-			for _, entry := range filtered {
-				entry := entry
-				row := ui.Column(c.Key(entry.ID)).FillWidth().Padding(13, 14).Gap(6).
-					Radius(16).Background(t.Surface).
-					Role(ui.RoleButton).Label(i18n.Tf("library.memory.entry_a11y", map[string]any{"title": entry.Title}))
-				components.ApplyCardElevation(row, t)
-				if row.Pressed() {
-					row.Background(t.SurfacePressed)
-				}
-				row.Children(func() {
-					ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
-						ui.Text(c, entry.Title).FontSize(15).FontWeight(600).LetterSpacing(-0.15).TextColor(t.Text).Grow(1).Basis(0).MaxLines(1)
-						components.StatusDotPill(c, i18n.MemoryKindLabel(entry.Kind), components.ToneInfo)
+		layout.ReadableWrap(c, m.ReadableMaxWidth, func() {
+			ui.Column(c).FillWidth().Padding(12, 16, 24, 16).Gap(10).Children(func() {
+				// Active Voice Capture banner when recording
+				if activeCap != nil {
+					components.SectionCard(c, i18n.T("library.memory.active_capture"), i18n.Tf("library.memory.room_line", map[string]any{"id": activeCap.RoomID}), func() {
+						components.StatusPill(c, i18n.StatusLabel(activeCap.Status), components.ToneSuccess)
+					}, func() {
+						btn := components.PrimaryTouchButton(c, i18n.T("library.memory.open_transcript"), false)
+						btn.FillWidth()
+						if btn.Clicked() {
+							s.openVoiceCapture(*activeCap)
+						}
 					})
-					if entry.Summary != "" {
-						ui.Text(c, entry.Summary).FontSize(13).LineHeight(1.38).TextColor(t.TextMuted).MaxLines(2)
+				}
+
+				// Filter pills
+				memLabels := make([]string, len(memoryFilterKeys))
+				for i, k := range memoryFilterKeys {
+					memLabels[i] = i18n.T(k)
+				}
+				components.FilterPillBar(c, &s.memoryFilter, memLabels...)
+
+				if len(filtered) == 0 {
+					components.EmptyState(c, theme.IconLive, i18n.T("library.memory.empty_title"),
+						i18n.T("library.memory.empty_body"), "", nil)
+					return
+				}
+
+				layout.TwoColumnCards(c, m.GridColumns, 10, len(filtered), func(i int) {
+					entry := filtered[i]
+					row := ui.Column(c.Key(entry.ID)).FillWidth().Padding(13, 14).Gap(6).
+						Radius(16).Background(t.Surface).
+						Role(ui.RoleButton).Label(i18n.Tf("library.memory.entry_a11y", map[string]any{"title": entry.Title}))
+					components.ApplyCardElevation(row, t)
+					if row.Pressed() {
+						row.Background(t.SurfacePressed)
 					}
-					if entry.Meeting != nil {
-						ui.Row(c).Wrap().Gap(6).Children(func() {
-							components.StatusDotPill(c, i18n.T("library.memory.voice_capture_title"), components.ToneSuccess)
-							if entry.Meeting.RecordingFilename != "" {
-								components.StatusPill(c, entry.Meeting.RecordingFilename, components.ToneNeutral)
-							}
+					row.Children(func() {
+						ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
+							ui.Text(c, entry.Title).FontSize(15).FontWeight(600).LetterSpacing(-0.15).TextColor(t.Text).Grow(1).Basis(0).MaxLines(1)
+							components.StatusDotPill(c, i18n.MemoryKindLabel(entry.Kind), components.ToneInfo)
 						})
+						if entry.Summary != "" {
+							ui.Text(c, entry.Summary).FontSize(13).LineHeight(1.38).TextColor(t.TextMuted).MaxLines(2)
+						}
+						if entry.Meeting != nil {
+							ui.Row(c).Wrap().Gap(6).Children(func() {
+								components.StatusDotPill(c, i18n.T("library.memory.voice_capture_title"), components.ToneSuccess)
+								if entry.Meeting.RecordingFilename != "" {
+									components.StatusPill(c, entry.Meeting.RecordingFilename, components.ToneNeutral)
+								}
+							})
+						}
+					})
+					if row.Clicked() {
+						s.openMemoryEntry(entry)
 					}
 				})
-				if row.Clicked() {
-					s.openMemoryEntry(entry)
-				}
-			}
+			})
 		})
 	})
 }

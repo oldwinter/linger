@@ -12,6 +12,7 @@ import (
 	"github.com/oldwinter/linger/mobile/internal/api"
 	"github.com/oldwinter/linger/mobile/internal/components"
 	"github.com/oldwinter/linger/mobile/internal/i18n"
+	"github.com/oldwinter/linger/mobile/internal/layout"
 	"github.com/oldwinter/linger/mobile/internal/theme"
 )
 
@@ -32,59 +33,61 @@ func (s *Screen) viewWikiSegment(c *ui.Context) {
 	s.mu.Unlock()
 
 	ui.Scroll(c).FillWidth().Grow(1).Basis(0).TrackScroll(&s.scroll[SegmentWiki]).Children(func() {
-		ui.Column(c).FillWidth().Padding(8, 14, 24, 14).Gap(10).Children(func() {
-			if s.wikiErr != "" {
-				components.StatusBanner(c, components.ToneDanger, s.wikiErr, i18n.T("common.dismiss"), func() {
-					s.wikiErr = ""
-				})
-			}
-
-			// Compact editorial Wiki Status & Refresh strip so Knowledge Graph leads above the fold.
-			stateStr := "uninitialized"
-			gen := int64(0)
-			if wiki != nil {
-				stateStr = wiki.State
-				gen = wiki.PublishedGeneration
-			}
-			tone := components.ToneInfo
-			if stateStr == "ready" {
-				tone = components.ToneSuccess
-			} else if stateStr == "failed" {
-				tone = components.ToneDanger
-			}
-			wikiCard := ui.Column(c).FillWidth().Background(t.Surface).Radius(16).Padding(13, 14).Gap(6)
-			components.ApplyCardElevation(wikiCard, t)
-			wikiCard.Children(func() {
-				ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(10).Children(func() {
-					ui.Column(c).Grow(1).Basis(0).Gap(4).Children(func() {
-						ui.Row(c).AlignItems(ui.Center).Gap(7).Wrap().Children(func() {
-							ui.Text(c, i18n.T("library.wiki.title")).FontSize(15).FontWeight(600).LetterSpacing(-0.15).TextColor(t.Text)
-							components.StatusDotPill(c, i18n.StatusLabel(stateStr), tone)
-						})
-						ui.Text(c, i18n.Tf("library.wiki.generation", map[string]any{"gen": gen})).FontSize(12).TextColor(t.TextMuted)
+		layout.ReadableWrap(c, layout.Of(c).ReadableMaxWidth, func() {
+			ui.Column(c).FillWidth().Padding(8, 14, 24, 14).Gap(10).Children(func() {
+				if s.wikiErr != "" {
+					components.StatusBanner(c, components.ToneDanger, s.wikiErr, i18n.T("common.dismiss"), func() {
+						s.wikiErr = ""
 					})
-					refLbl := i18n.T("library.wiki.refresh_btn")
-					if s.wikiRefreshing {
-						refLbl = i18n.T("library.wiki.refreshing")
-					}
-					btn := components.CompactSecondaryButton(c, refLbl, theme.IconRefresh, s.wikiRefreshing)
-					if btn.Clicked() {
-						s.refreshWikiAsync()
+				}
+
+				// Compact editorial Wiki Status & Refresh strip so Knowledge Graph leads above the fold.
+				stateStr := "uninitialized"
+				gen := int64(0)
+				if wiki != nil {
+					stateStr = wiki.State
+					gen = wiki.PublishedGeneration
+				}
+				tone := components.ToneInfo
+				if stateStr == "ready" {
+					tone = components.ToneSuccess
+				} else if stateStr == "failed" {
+					tone = components.ToneDanger
+				}
+				wikiCard := ui.Column(c).FillWidth().Background(t.Surface).Radius(16).Padding(13, 14).Gap(6)
+				components.ApplyCardElevation(wikiCard, t)
+				wikiCard.Children(func() {
+					ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(10).Children(func() {
+						ui.Column(c).Grow(1).Basis(0).Gap(4).Children(func() {
+							ui.Row(c).AlignItems(ui.Center).Gap(7).Wrap().Children(func() {
+								ui.Text(c, i18n.T("library.wiki.title")).FontSize(15).FontWeight(600).LetterSpacing(-0.15).TextColor(t.Text)
+								components.StatusDotPill(c, i18n.StatusLabel(stateStr), tone)
+							})
+							ui.Text(c, i18n.Tf("library.wiki.generation", map[string]any{"gen": gen})).FontSize(12).TextColor(t.TextMuted)
+						})
+						refLbl := i18n.T("library.wiki.refresh_btn")
+						if s.wikiRefreshing {
+							refLbl = i18n.T("library.wiki.refreshing")
+						}
+						btn := components.CompactSecondaryButton(c, refLbl, theme.IconRefresh, s.wikiRefreshing)
+						if btn.Clicked() {
+							s.refreshWikiAsync()
+						}
+					})
+					if len(preview) > 0 {
+						ui.Text(c, i18n.Tf("library.wiki.preview_ready", map[string]any{"count": len(preview)})).
+							FontSize(12).TextColor(t.TextMuted)
 					}
 				})
-				if len(preview) > 0 {
-					ui.Text(c, i18n.Tf("library.wiki.preview_ready", map[string]any{"count": len(preview)})).
-						FontSize(12).TextColor(t.TextMuted)
+
+				components.SegmentedControl(c, &s.wikiViewMode, i18n.T("library.wiki.view_graph"), i18n.T("library.wiki.view_pages"))
+
+				if s.wikiViewMode == 0 {
+					s.viewKnowledgeGraph(c, graph, wikiDocs)
+				} else {
+					s.renderDocumentSlice(c, wikiDocs, i18n.T("library.wiki.pages_empty"))
 				}
 			})
-
-			components.SegmentedControl(c, &s.wikiViewMode, i18n.T("library.wiki.view_graph"), i18n.T("library.wiki.view_pages"))
-
-			if s.wikiViewMode == 0 {
-				s.viewKnowledgeGraph(c, graph, wikiDocs)
-			} else {
-				s.renderDocumentSlice(c, wikiDocs, i18n.T("library.wiki.pages_empty"))
-			}
 		})
 	})
 }
@@ -186,61 +189,83 @@ func (s *Screen) viewKnowledgeGraph(c *ui.Context, graph *api.WikiGraphData, fal
 		}
 	})
 
-	// Zoomable architectural ui.Painter canvas with dot-grid & pill-backed labels.
-	const canvasH = float32(288)
-	zoomBox := mobile.Zoomable(c, &s.graphZoom, mobile.ZoomOptions{
-		Min:       0.5,
-		Max:       4.0,
-		DoubleTap: 2.0,
-	}, func() {
-		canvas := ui.Box(c).FillWidth().Height(canvasH).Background(t.Surface).
-			Radius(16).
-			Role(ui.RoleImage).Label(i18n.T("library.wiki.graph_a11y"))
-		canvas.Draw(func(p *ui.Painter, r ui.Rect) {
-			if r.W <= 1 || r.H <= 1 {
-				return
+	m := layout.Of(c)
+	canvasH := float32(288)
+	if m.GridColumns >= 2 {
+		canvasH = 360
+		if m.ShortHeight {
+			canvasH = 300
+		}
+	}
+
+	renderCanvas := func() {
+		// Zoomable architectural ui.Painter canvas with dot-grid & pill-backed labels.
+		zoomBox := mobile.Zoomable(c, &s.graphZoom, mobile.ZoomOptions{
+			Min:       0.5,
+			Max:       4.0,
+			DoubleTap: 2.0,
+		}, func() {
+			canvas := ui.Box(c).FillWidth().Height(canvasH).Background(t.Surface).
+				Radius(16).
+				Role(ui.RoleImage).Label(i18n.T("library.wiki.graph_a11y"))
+			canvas.Draw(func(p *ui.Painter, r ui.Rect) {
+				if r.W <= 1 || r.H <= 1 {
+					return
+				}
+				s.graphBoxRect = r
+				positions := computeGraphLayout(visibleNodes, visibleEdges, r.W, r.H)
+				s.graphLayoutCache = positions
+				paintKnowledgeGraph(p, r, t, positions, visibleEdges, s.wikiSelectedNode)
+			})
+			if canvas.Clicked() {
+				if px, py, ok := canvas.PointerPosition(); ok {
+					if hit := hitTestGraphNode(s.graphLayoutCache, px, py); hit != nil {
+						cp := *hit
+						s.wikiSelectedNode = &cp
+						s.wikiPageSheet = true
+					}
+				}
 			}
-			s.graphBoxRect = r
-			positions := computeGraphLayout(visibleNodes, visibleEdges, r.W, r.H)
-			s.graphLayoutCache = positions
-			paintKnowledgeGraph(p, r, t, positions, visibleEdges, s.wikiSelectedNode)
 		})
-		if canvas.Clicked() {
-			if px, py, ok := canvas.PointerPosition(); ok {
-				if hit := hitTestGraphNode(s.graphLayoutCache, px, py); hit != nil {
-					cp := *hit
+		zoomBox.FillWidth().Height(canvasH).Radius(16)
+		components.ApplyCardElevation(zoomBox, t)
+	}
+
+	renderLegend := func() {
+		// Accessible node legend pills for reliable tapping & screen-reader navigation.
+		ui.Row(c).FillWidth().Wrap().Gap(7).Children(func() {
+			for _, n := range visibleNodes {
+				n := n
+				col := wikiCategoryColor(n.Category)
+				chip := ui.Row(c.Key("node:"+n.ID)).MinHeight(34).Padding(6, 11).Radius(999).
+					Background(t.Surface).AlignItems(ui.Center).Gap(7).
+					Role(ui.RoleButton).Label(i18n.Tf("library.wiki.open_node_a11y", map[string]any{"title": n.Title}))
+				components.ApplyCardElevation(chip, t)
+				if chip.Pressed() {
+					chip.Background(t.SurfacePressed)
+				}
+				chip.Children(func() {
+					ui.Box(c).Size(8, 8).Radius(4).Background(col).Shrink(0)
+					ui.Text(c, n.Title).FontSize(12).FontWeight(600).TextColor(t.Text).MaxLines(1)
+				})
+				if chip.Clicked() {
+					cp := n
 					s.wikiSelectedNode = &cp
 					s.wikiPageSheet = true
 				}
 			}
-		}
-	})
-	zoomBox.FillWidth().Height(canvasH).Radius(16)
-	components.ApplyCardElevation(zoomBox, t)
+		})
+	}
 
-	// Accessible node legend pills below canvas for reliable tapping & screen-reader navigation
-	ui.Row(c).FillWidth().Wrap().Gap(7).Children(func() {
-		for _, n := range visibleNodes {
-			n := n
-			col := wikiCategoryColor(n.Category)
-			chip := ui.Row(c.Key("node:"+n.ID)).MinHeight(34).Padding(6, 11).Radius(999).
-				Background(t.Surface).AlignItems(ui.Center).Gap(7).
-				Role(ui.RoleButton).Label(i18n.Tf("library.wiki.open_node_a11y", map[string]any{"title": n.Title}))
-			components.ApplyCardElevation(chip, t)
-			if chip.Pressed() {
-				chip.Background(t.SurfacePressed)
-			}
-			chip.Children(func() {
-				ui.Box(c).Size(8, 8).Radius(4).Background(col).Shrink(0)
-				ui.Text(c, n.Title).FontSize(12).FontWeight(600).TextColor(t.Text).MaxLines(1)
-			})
-			if chip.Clicked() {
-				cp := n
-				s.wikiSelectedNode = &cp
-				s.wikiPageSheet = true
-			}
-		}
-	})
+	if m.GridColumns >= 2 {
+		ui.Row(c).FillWidth().Gap(12).AlignItems(ui.Start).Children(func() {
+			ui.Column(c).Grow(3).Basis(0).Children(renderCanvas)
+			ui.Column(c).Grow(2).Basis(0).Gap(8).Children(renderLegend)
+		})
+		return
+	}
+	renderCanvas()
+	renderLegend()
 }
 
 func (s *Screen) viewWikiPageDetailSheet(c *ui.Context) {

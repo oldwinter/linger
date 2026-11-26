@@ -26,33 +26,33 @@ type C2FakeServer struct {
 	Fingerprint string
 	ShortCode   string
 
-	mu          sync.Mutex
-	ValidToken  string
-	DeviceID    string
-	HostID      string
-	HostName    string
-	TenantID    string
-	Identity    api.CurrentIdentity
-	Actors      []api.Actor
-	Rooms       []api.RoomListItem
-	DirectRoom  api.Room
-	AnotherMe   api.Actor
-	Messages    map[string][]api.Message
-	NextSeq     int64
+	mu         sync.Mutex
+	ValidToken string
+	DeviceID   string
+	HostID     string
+	HostName   string
+	TenantID   string
+	Identity   api.CurrentIdentity
+	Actors     []api.Actor
+	Rooms      []api.RoomListItem
+	DirectRoom api.Room
+	AnotherMe  api.Actor
+	Messages   map[string][]api.Message
+	NextSeq    int64
 
 	// Work Items
-	WorkItems          []api.WorkItem
-	WorkItemComments   map[string][]api.WorkItemComment
-	WorkItemTimeline   map[string][]api.WorkItemTimelineEntry
-	TaskExecutions     map[string]api.TaskExecutionProjection
-	TaskConversations  map[string]api.TaskConversation
-	TaskRuns           map[string]api.TaskRuntimePresentationRunPage
+	WorkItems         []api.WorkItem
+	WorkItemComments  map[string][]api.WorkItemComment
+	WorkItemTimeline  map[string][]api.WorkItemTimelineEntry
+	TaskExecutions    map[string]api.TaskExecutionProjection
+	TaskConversations map[string]api.TaskConversation
+	TaskRuns          map[string]api.TaskRuntimePresentationRunPage
 
 	// Routines
-	RoutinesByRoom    map[string][]api.Routine
-	RoutineSaveDelay  time.Duration
-	RoutineSaveGate   chan struct{}
-	FailNextRoutine   string
+	RoutinesByRoom   map[string][]api.Routine
+	RoutineSaveDelay time.Duration
+	RoutineSaveGate  chan struct{}
+	FailNextRoutine  string
 
 	// Pocket Notes
 	PocketNotes       []api.PocketNoteRecord
@@ -73,16 +73,16 @@ type C2FakeServer struct {
 	PreviewFiles      map[string]string
 
 	// Wiki & Memory & Voice
-	PersonalWiki        api.PersonalWiki
-	WikiPreview         map[string]string
-	WikiDocuments       []api.Document
-	WikiGraph           api.WikiGraphData
-	MemoryEntries       []api.PersonalMemoryEntryC2
-	VoiceSession        api.VoiceSession
-	VoiceCapture        api.VoiceCapture
-	VoiceTranscripts    []api.VoiceTranscriptEvent
-	VoiceQuestions      []api.VoiceCaptureQuestion
-	voiceSSESubs        map[chan SSEFrame]struct{}
+	PersonalWiki     api.PersonalWiki
+	WikiPreview      map[string]string
+	WikiDocuments    []api.Document
+	WikiGraph        api.WikiGraphData
+	MemoryEntries    []api.PersonalMemoryEntryC2
+	VoiceSession     api.VoiceSession
+	VoiceCapture     api.VoiceCapture
+	VoiceTranscripts []api.VoiceTranscriptEvent
+	VoiceQuestions   []api.VoiceCaptureQuestion
+	voiceSSESubs     map[chan SSEFrame]struct{}
 
 	// Settings
 	ProactiveRules    api.ProactiveRuleBookC2
@@ -291,9 +291,9 @@ func newC2FakeServerState(useTLS bool) *C2FakeServer {
 					ID: "rt_1", RoomID: room1, Name: "Morning Standup Digest",
 					Instruction: "Summarize open Work Items and recent commits.",
 					Enabled:     true, Revision: 1,
-					Cadence:     json.RawMessage(`{"kind":"daily","timezone":"UTC","hour":9,"minute":0}`),
-					NextRunAt:   timePtr(now.Add(18 * time.Hour)), CreatedByActorID: human.ID,
-					CreatedAt:   now.Add(-72 * time.Hour), UpdatedAt: now.Add(-time.Hour),
+					Cadence:   json.RawMessage(`{"kind":"daily","timezone":"UTC","hour":9,"minute":0}`),
+					NextRunAt: timePtr(now.Add(18 * time.Hour)), CreatedByActorID: human.ID,
+					CreatedAt: now.Add(-72 * time.Hour), UpdatedAt: now.Add(-time.Hour),
 				},
 			},
 			room2: {
@@ -301,9 +301,9 @@ func newC2FakeServerState(useTLS bool) *C2FakeServer {
 					ID: "rt_2", RoomID: room2, Name: "Release Health Check",
 					Instruction: "Verify CI pipelines and mobile test results.",
 					Enabled:     false, Revision: 2,
-					Cadence:     json.RawMessage(`{"kind":"every_n_hours","timezone":"UTC","interval_hours":4}`),
+					Cadence:          json.RawMessage(`{"kind":"every_n_hours","timezone":"UTC","interval_hours":4}`),
 					CreatedByActorID: human.ID,
-					CreatedAt:   now.Add(-48 * time.Hour), UpdatedAt: now.Add(-2 * time.Hour),
+					CreatedAt:        now.Add(-48 * time.Hour), UpdatedAt: now.Add(-2 * time.Hour),
 				},
 			},
 		},
@@ -352,7 +352,7 @@ func newC2FakeServerState(useTLS bool) *C2FakeServer {
 			"doc_1": {
 				{
 					ID: "dct_1", DocumentID: "doc_1", AnchorStatus: "attached", Resolved: false, CreatedBy: human,
-					Comments: []api.DocumentComment{{ID: "dc_1", Body: "Should we add offline FTS5 notes here?", Author: human, CreatedAt: now.Add(-20 * time.Minute), UpdatedAt: now.Add(-20 * time.Minute)}},
+					Comments:  []api.DocumentComment{{ID: "dc_1", Body: "Should we add offline FTS5 notes here?", Author: human, CreatedAt: now.Add(-20 * time.Minute), UpdatedAt: now.Add(-20 * time.Minute)}},
 					CreatedAt: now.Add(-20 * time.Minute), UpdatedAt: now.Add(-20 * time.Minute),
 				},
 			},
@@ -375,7 +375,7 @@ func newC2FakeServerState(useTLS bool) *C2FakeServer {
 			{ID: "doc_1", TenantID: "ten_1", Title: "projects/linger-mobile", Format: "markdown", RepresentationFormat: "markdown", Status: "active", CreatedAt: now, UpdatedAt: now},
 		},
 		WikiGraph: api.WikiGraphData{
-			Root: "Knowledge Graph",
+			Root:  "Knowledge Graph",
 			Types: []string{"Project", "Topic", "Session", "Contact"},
 			Nodes: []api.WikiGraphNode{
 				{ID: "projects/linger-mobile", Title: "Linger Mobile", Category: "Project", Description: "Native companion app", Body: "# Linger Mobile\n\nBuilt on MyGo UI.", Tags: []string{"mobile", "go"}, Links: []string{"topics/tls-pinning", "topics/offline-sync"}, Size: 1200},
@@ -394,19 +394,19 @@ func newC2FakeServerState(useTLS bool) *C2FakeServer {
 				ID: "mem_daily_1", Kind: "daily", Title: "Daily Journal 2026-11-24",
 				Summary: "Completed Wave C-2 API types and offline Pocket Notes design.",
 				Content: "# 2026-11-24\n\n- Verified TeamHub handler routes\n- Built FTS5 offline search",
-				Date: strPtr("2026-11-24"), Path: "timeline/daily/2026-11-24.md", UpdatedAt: now,
+				Date:    strPtr("2026-11-24"), Path: "timeline/daily/2026-11-24.md", UpdatedAt: now,
 			},
 			{
 				ID: "mem_weekly_1", Kind: "weekly", Title: "Weekly Digest W47",
 				Summary: "Shipped Companion Gateway and Connection Hub.",
 				Content: "# Week 47\n\nStrong progress on mobile protocol client.",
-				Path: "timeline/weekly/2026-W47.md", UpdatedAt: now.Add(-24 * time.Hour),
+				Path:    "timeline/weekly/2026-W47.md", UpdatedAt: now.Add(-24 * time.Hour),
 			},
 			{
 				ID: "mem_meet_1", Kind: "meeting", Title: "Release Sync Meeting",
 				Summary: "Discussed Wave C-2 QA gates and biometric lock fallback.",
 				Content: "# Release Sync\n\nAgreed on 320px minimum viewport width.",
-				Path: "timeline/meetings/vc_1.md", UpdatedAt: now.Add(-2 * time.Hour),
+				Path:    "timeline/meetings/vc_1.md", UpdatedAt: now.Add(-2 * time.Hour),
 				Meeting: &api.MemoryMeetingFiles{
 					CaptureID:            "vc_1",
 					StartedAt:            now.Add(-3 * time.Hour),
@@ -426,7 +426,7 @@ func newC2FakeServerState(useTLS bool) *C2FakeServer {
 		VoiceCapture: api.VoiceCapture{
 			ID: "vc_1", VoiceSessionID: "vs_1", RoomID: room1, Status: "recording",
 			AudioDocumentVersionID: strPtr("dv_rec_1"),
-			GapCount: 1, GapDurationMs: 1200, TranscriptRecoveryStatus: strPtr("needed"),
+			GapCount:               1, GapDurationMs: 1200, TranscriptRecoveryStatus: strPtr("needed"),
 			CreatedAt: now, UpdatedAt: now,
 		},
 		VoiceTranscripts: []api.VoiceTranscriptEvent{
@@ -612,7 +612,7 @@ func (s *C2FakeServer) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		seq := int64(len(s.Messages[roomID]) + 1)
 		msg := api.Message{
 			ID: s.nextID("msg"), TenantID: s.TenantID, RoomID: roomID, RoomSeq: &seq,
-			Author: api.ActorRef{ID: "act_human_1", TenantID: s.TenantID, Kind: "human", DisplayName: "Alex Rivera"},
+			Author:      api.ActorRef{ID: "act_human_1", TenantID: s.TenantID, Kind: "human", DisplayName: "Alex Rivera"},
 			MessageKind: "conversation", RawMessage: req.RawMessage, CreatedAt: time.Now().UTC(),
 		}
 		s.Messages[roomID] = append(s.Messages[roomID], msg)
@@ -1072,7 +1072,7 @@ func (s *C2FakeServer) handleTransitionWorkItem(w http.ResponseWriter, r *http.R
 				Type: "activity",
 				Activity: &api.WorkItemActivity{
 					ID: s.nextID("wia"), WorkItemID: id, Kind: "state_transition",
-					Actor: api.ActorRef{ID: "act_human_1", TenantID: s.TenantID, Kind: "human", DisplayName: "Alex Rivera"},
+					Actor:     api.ActorRef{ID: "act_human_1", TenantID: s.TenantID, Kind: "human", DisplayName: "Alex Rivera"},
 					FromState: &from, ToState: &req.State, OccurredAt: time.Now().UTC(),
 				},
 			})
@@ -1175,7 +1175,7 @@ func (s *C2FakeServer) handleWorkItemComments(w http.ResponseWriter, r *http.Req
 		c := api.WorkItemComment{
 			ID: s.nextID("wic"), TenantID: s.TenantID, WorkItemID: wiID,
 			Author: api.ActorRef{ID: "act_human_1", TenantID: s.TenantID, Kind: "human", DisplayName: "Alex Rivera"},
-			Body: req.Body, Version: 1, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+			Body:   req.Body, Version: 1, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
 		}
 		s.WorkItemComments[wiID] = append(s.WorkItemComments[wiID], c)
 		s.WorkItemTimeline[wiID] = append(s.WorkItemTimeline[wiID], api.WorkItemTimelineEntry{Type: "comment", Comment: &c})
@@ -1615,7 +1615,7 @@ func (s *C2FakeServer) handleDocCommentThreads(w http.ResponseWriter, r *http.Re
 		s.mu.Lock()
 		th := api.DocumentCommentThread{
 			ID: s.nextID("dct"), DocumentID: docID, AnchorStatus: "attached", CreatedBy: human,
-			Comments: []api.DocumentComment{{ID: s.nextID("dc"), Body: body, Author: human, CreatedAt: now, UpdatedAt: now}},
+			Comments:  []api.DocumentComment{{ID: s.nextID("dc"), Body: body, Author: human, CreatedAt: now, UpdatedAt: now}},
 			CreatedAt: now, UpdatedAt: now,
 		}
 		s.DocCommentThreads[docID] = append(s.DocCommentThreads[docID], th)
@@ -1763,7 +1763,7 @@ func (s *C2FakeServer) handleVoiceQuestions(w http.ResponseWriter, r *http.Reque
 	s.mu.Lock()
 	q := api.VoiceCaptureQuestion{
 		ID: s.nextID("vq"), Kind: "question", Question: req.Question,
-		Answer: "Confirmed in transcript at 00:01: " + req.Question,
+		Answer:   "Confirmed in transcript at 00:01: " + req.Question,
 		Answered: true, CutoffOffsetMs: 4200, CreatedAt: time.Now().UTC(),
 	}
 	s.VoiceQuestions = append([]api.VoiceCaptureQuestion{q}, s.VoiceQuestions...)

@@ -17,6 +17,7 @@ import (
 	"github.com/oldwinter/linger/mobile/internal/api"
 	"github.com/oldwinter/linger/mobile/internal/components"
 	"github.com/oldwinter/linger/mobile/internal/i18n"
+	"github.com/oldwinter/linger/mobile/internal/layout"
 	"github.com/oldwinter/linger/mobile/internal/state"
 	"github.com/oldwinter/linger/mobile/internal/theme"
 )
@@ -173,26 +174,30 @@ func (ctl *Controller) View(c *ui.Context, snap state.Snapshot) {
 		appLbl = i18n.Tf("live.tab.approvals_count", map[string]any{"count": len(snap.PendingDecisions)})
 	}
 
-	ui.Column(c).Fill().Children(func() {
-		ui.Column(c).FillWidth().Padding(8, 12, 6, 12).Gap(8).Children(func() {
-			if snap.OfflineViewingCache {
-				components.StatusBanner(c, components.ToneWarning, i18n.T("live.offline_banner"), "", nil)
-			} else if snap.TransientError != "" {
-				components.StatusBanner(c, components.ToneDanger, snap.TransientError, i18n.T("common.dismiss"), func() {
-					ctl.store.ClearTransientError()
-				})
-			}
-			if notice != "" {
-				components.StatusBanner(c, components.ToneSuccess, notice, i18n.T("common.ok"), func() {
-					ctl.mu.Lock()
-					ctl.inlineNotice = ""
-					ctl.mu.Unlock()
-				})
-			}
+	m := layout.Of(c)
 
-			if components.SegmentedControl(c, &seg, runsLbl, appLbl, i18n.T("live.tab.agents"), i18n.T("live.tab.compute")) {
-				ctl.SelectSegment(seg)
-			}
+	ui.Column(c).Fill().Children(func() {
+		layout.ReadableWrap(c, m.ReadableMaxWidth, func() {
+			ui.Column(c).FillWidth().Padding(8, 12, 6, 12).Gap(8).Children(func() {
+				if snap.OfflineViewingCache {
+					components.StatusBanner(c, components.ToneWarning, i18n.T("live.offline_banner"), "", nil)
+				} else if snap.TransientError != "" {
+					components.StatusBanner(c, components.ToneDanger, snap.TransientError, i18n.T("common.dismiss"), func() {
+						ctl.store.ClearTransientError()
+					})
+				}
+				if notice != "" {
+					components.StatusBanner(c, components.ToneSuccess, notice, i18n.T("common.ok"), func() {
+						ctl.mu.Lock()
+						ctl.inlineNotice = ""
+						ctl.mu.Unlock()
+					})
+				}
+
+				if components.SegmentedControl(c, &seg, runsLbl, appLbl, i18n.T("live.tab.agents"), i18n.T("live.tab.compute")) {
+					ctl.SelectSegment(seg)
+				}
+			})
 		})
 
 		if snap.ActiveHost == nil && len(snap.ActiveRuns) == 0 && len(snap.PendingDecisions) == 0 && len(snap.Agents) == 0 {
@@ -217,17 +222,19 @@ func (ctl *Controller) View(c *ui.Context, snap state.Snapshot) {
 			}()
 		}
 		scroll.Children(func() {
-			ui.Column(c).FillWidth().Padding(8, 14, 24, 14).Gap(12).Children(func() {
-				switch seg {
-				case SegmentRuns:
-					ctl.viewActiveRuns(c, snap)
-				case SegmentApprovals:
-					ctl.viewApprovalsInbox(c, snap)
-				case SegmentAgents:
-					ctl.viewAgents(c, snap)
-				case SegmentCompute:
-					ctl.viewCompute(c, snap)
-				}
+			layout.ReadableWrap(c, m.ReadableMaxWidth, func() {
+				ui.Column(c).FillWidth().Padding(8, 14, 24, 14).Gap(12).Children(func() {
+					switch seg {
+					case SegmentRuns:
+						ctl.viewActiveRuns(c, snap)
+					case SegmentApprovals:
+						ctl.viewApprovalsInbox(c, snap)
+					case SegmentAgents:
+						ctl.viewAgents(c, snap)
+					case SegmentCompute:
+						ctl.viewCompute(c, snap)
+					}
+				})
 			})
 		})
 	})
@@ -259,8 +266,12 @@ func (ctl *Controller) viewActiveRuns(c *ui.Context, snap state.Snapshot) {
 		roomNames[rm.ID] = rm.Name
 	}
 
-	for _, run := range snap.ActiveRuns {
-		run := run
+	cols := 1
+	if layout.Of(c).Class == layout.ClassExpanded {
+		cols = 2
+	}
+	layout.TwoColumnCards(c, cols, 10, len(snap.ActiveRuns), func(i int) {
+		run := snap.ActiveRuns[i]
 		rName := roomNames[run.RoomID]
 		if rName == "" {
 			rName = run.RoomID
@@ -302,7 +313,7 @@ func (ctl *Controller) viewActiveRuns(c *ui.Context, snap state.Snapshot) {
 				}
 			})
 		})
-	}
+	})
 }
 
 func (ctl *Controller) viewApprovalsInbox(c *ui.Context, snap state.Snapshot) {

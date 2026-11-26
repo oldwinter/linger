@@ -10,13 +10,15 @@ import (
 	"github.com/egoist/mygo/ui/golden"
 )
 
-// MobileViewport describes a target phone screen geometry for UI layout tests.
+// MobileViewport describes a target phone or foldable screen geometry for UI layout tests.
 type MobileViewport struct {
 	Name   string
 	Width  int
 	Height int
 	Top    float32
+	Right  float32
 	Bottom float32
+	Left   float32
 }
 
 // StandardMobileViewports covers narrow (320px), standard iPhone (390px), and preview (420px) widths.
@@ -26,11 +28,27 @@ var StandardMobileViewports = []MobileViewport{
 	{Name: "420x800", Width: 420, Height: 800, Top: 59, Bottom: 34},
 }
 
-// NewPhoneTester builds a ui.Tester configured with realistic iPhone safe-area insets.
+// FoldableViewports covers real Android book-style foldables and iPhone Duo outer/inner displays.
+var FoldableViewports = []MobileViewport{
+	{Name: "android_zfold_cover_344x882", Width: 344, Height: 882, Top: 32, Bottom: 24},
+	{Name: "android_zfold_unfolded_720x840", Width: 720, Height: 840, Top: 28, Bottom: 24},
+	{Name: "android_pixel_fold_800x840", Width: 800, Height: 840, Top: 28, Bottom: 24},
+	{Name: "iphone_duo_cover_466x678", Width: 466, Height: 678, Top: 0, Right: 84, Bottom: 21},
+	{Name: "iphone_duo_unfolded_669x951", Width: 669, Height: 951, Top: 24, Bottom: 21},
+	{Name: "iphone_duo_landscape_951x669", Width: 951, Height: 669, Top: 24, Bottom: 21, Left: 54},
+}
+
+// NewPhoneTester builds a ui.Tester configured with realistic safe-area insets.
 func NewPhoneTester(view func(c *ui.Context), vp MobileViewport) *ui.Tester {
 	tt := ui.NewTester(view, vp.Width, vp.Height)
-	tt.SetInsets(vp.Top, 0, vp.Bottom, 0)
+	tt.SetInsets(vp.Top, vp.Right, vp.Bottom, vp.Left)
 	return tt
+}
+
+// ResizeViewport transitions an existing ui.Tester to vp (simulating fold/unfold/rotation).
+func ResizeViewport(tt *ui.Tester, vp MobileViewport) {
+	tt.SetSize(vp.Width, vp.Height)
+	tt.SetInsets(vp.Top, vp.Right, vp.Bottom, vp.Left)
 }
 
 // ApplyKeyboardInset simulates an open soft keyboard over the bottom edge.

@@ -16,6 +16,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/oldwinter/linger/mobile/internal/components"
 	"github.com/oldwinter/linger/mobile/internal/i18n"
+	"github.com/oldwinter/linger/mobile/internal/layout"
 	"github.com/oldwinter/linger/mobile/internal/screens/connect"
 	"github.com/oldwinter/linger/mobile/internal/screens/library"
 	"github.com/oldwinter/linger/mobile/internal/screens/live"
@@ -70,6 +71,15 @@ func New(store *state.AppStore, systemDark func() bool) *Shell {
 	}
 	s.connectHub.SetOnOpenPreferences(func() {
 		s.OpenMoreRoute("/more/settings?focus=prefs")
+	})
+	s.connectHub.SetOnConnected(func(toastMsg string) {
+		if s.store.Routers[state.TabMore].Path() != "/more" {
+			s.store.Routers[state.TabMore].Replace("/more")
+		}
+		s.store.SetActiveTab(state.TabRooms)
+		if toastMsg != "" {
+			s.ShowToast(toastMsg)
+		}
 	})
 	s.roomsCtl = rooms.NewController(store, rooms.NavigationHooks{
 		OnOpenConnect: s.OpenConnect,
@@ -310,21 +320,11 @@ func (s *Shell) View(c *ui.Context) {
 	resolvedTheme := theme.Resolve(snap.Prefs.Theme, s.systemDark())
 	c.SetTheme(resolvedTheme)
 	t := c.Theme()
+	m := layout.Of(c)
 
-	// MyGo's window root already keeps content inside SafeArea insets; do not add
-	// SafeArea padding a second time so TopBar and BottomBar sit flush with system bars.
-	root := ui.Column(c).Fill().Background(t.Background)
-	root.Children(func() {
-		if snap.BiometricLocked {
-			s.viewBiometricLockGate(c)
-			return
-		}
-
-		activeTab := snap.ActiveTab
-		router := s.store.Routers[activeTab]
-
+	renderMainStage := func(activeTab int, router *ui.Router) {
 		// Editorial top navigation bar with live connection health beacon.
-		s.viewTopBar(c, snap, activeTab, router)
+		s.viewTopBar(c, snap, activeTab, router, m)
 
 		// Optional transient toast banner.
 		s.mu.Lock()
@@ -346,6 +346,13 @@ func (s *Shell) View(c *ui.Context) {
 
 		// Active tab router stack (each tab preserves independent navigation history).
 		ui.Column(c.Key(activeTab)).FillWidth().Grow(1).Basis(0).Children(func() {
+			if activeTab == state.TabRooms && m.UseSplitPane && (snap.ActiveHost != nil || len(snap.Rooms) > 0) {
+				// Render Tab 1 split-pane directly from router state so the left Master
+				// list stays pinned at the physical fold crease without duplicating
+				// stateful scroll/swipe handles during router push/pop animations.
+				s.roomsCtl.ViewSplitPane(c, router, snap, m)
+				return
+			}
 			router.View(c, func(r *ui.Route) {
 				switch activeTab {
 				case state.TabRooms:
@@ -361,9 +368,39 @@ func (s *Shell) View(c *ui.Context) {
 				}
 			})
 		})
+	}
+
+	if snap.BiometricLocked {
+		ui.Column(c).Fill().Background(t.Background).Children(func() {
+			s.viewBiometricLockGate(c, m)
+		})
+		return
+	}
+
+	activeTab := snap.ActiveTab
+	router := s.store.Routers[activeTab]
+
+	// Unfolded foldables (iPhone Duo inner 669pt+, Galaxy Z Fold 720dp+, Pixel Fold 800dp+,
+	// and landscape tablets) switch to an editorial left Navigation Rail so vertical space
+	// goes directly to content and two-pane layouts.
+	if m.UseNavRail {
+		ui.Row(c).Fill().Background(t.Background).Children(func() {
+			s.viewNavRail(c, snap, activeTab, m)
+			ui.Column(c).Grow(1).Basis(0).FillHeight().Children(func() {
+				renderMainStage(activeTab, router)
+			})
+		})
+		return
+	}
+
+	// MyGo's window root already keeps content inside SafeArea insets; do not add
+	// SafeArea padding a second time so TopBar and BottomBar sit flush with system bars.
+	root := ui.Column(c).Fill().Background(t.Background)
+	root.Children(func() {
+		renderMainStage(activeTab, router)
 
 		// Refined 5-destination elevated dock bar with duotone active icons and haloed badges.
-		s.viewBottomBar(c, snap, activeTab)
+		s.viewBottomBar(c, snap, activeTab, m)
 	})
 }
 
@@ -377,7 +414,7 @@ type navTabSpec struct {
 	BadgeText  ui.Color
 }
 
-func (s *Shell) viewBottomBar(c *ui.Context, snap state.Snapshot, activeTab int) {
+func (s *Shell) navTabSpecs(c *ui.Context, snap state.Snapshot) []navTabSpec {
 	t := c.Theme()
 	ex := theme.Extra(t)
 
@@ -405,7 +442,7 @@ func (s *Shell) viewBottomBar(c *ui.Context, snap state.Snapshot, activeTab int)
 		workBadge = formatBadge(s.workScr.BadgeCount())
 	}
 
-	tabs := []navTabSpec{
+	return []navTabSpec{
 		{
 			Index:      state.TabRooms,
 			Label:      i18n.T("tab.rooms"),
@@ -446,10 +483,157 @@ func (s *Shell) viewBottomBar(c *ui.Context, snap state.Snapshot, activeTab int)
 			ActiveIcon: theme.IconMoreActive,
 		},
 	}
+}
 
-	dock := ui.Row(c).FillWidth().Background(t.Surface).Padding(6, 6, 6, 6).Gap(2).Shrink(0).
+func (s *Shell) activateNavTab(snap state.Snapshot, idx int, active bool) {
+	if !active {
+		mygo.Haptics.Light()
+		s.store.SetActiveTab(idx)
+	} else if idx == state.TabMore && snap.Phase == state.PhaseConnected &&
+		strings.HasPrefix(s.store.Routers[state.TabMore].Path(), "/more/connect") {
+		mygo.Haptics.Light()
+		s.store.Routers[state.TabMore].Replace("/more")
+	}
+}
+
+func (s *Shell) viewNavRail(c *ui.Context, snap state.Snapshot, activeTab int, m layout.Metrics) {
+	t := c.Theme()
+	ex := theme.Extra(t)
+	tabs := s.navTabSpecs(c, snap)
+
+	bleedBottom := m.SafeBottom
+	if m.SafeBottom > 120 {
+		bleedBottom = 0
+	}
+
+	rail := ui.Column(c).Width(m.RailWidth+m.SafeLeft).
+		Background(t.Surface).
+		Padding(12+m.SafeTop, 6, 12+bleedBottom, 6+m.SafeLeft).
+		Margin(-m.SafeTop, 0, -bleedBottom, -m.SafeLeft).
+		Gap(8).AlignItems(ui.Center).Shrink(0).
+		BorderWidth(0, 0.75, 0, 0).BorderColor(ex.SubtleBorder).
+		Role(ui.RoleTabList).Label("Navigation")
+	if m.Height > 0 {
+		rail.Height(m.Height - (m.SafeBottom - bleedBottom))
+	} else {
+		rail.FillHeight()
+	}
+
+	rail.Children(func() {
+		// Subtle brand mark at the top of the rail.
+		brandWrap := ui.Row(c).Size(36, 36).Radius(11).Background(ex.MutedBg).
+			AlignItems(ui.Center).Justify(ui.Center).Shrink(0)
+		brandWrap.Children(func() {
+			theme.IconBox(c, 22, t.Text, theme.IconBrandMark)
+		})
+
+		ui.Box(c).FillWidth().Height(2).Shrink(0)
+
+		for _, item := range tabs {
+			item := item
+			active := item.Index == activeTab
+			iconCol := ex.TextSubtle
+			lblCol := ex.TextSubtle
+			iconFn := item.Icon
+			pillBg := ui.Transparent
+			if active {
+				iconCol = t.Text
+				lblCol = t.Text
+				iconFn = item.ActiveIcon
+				pillBg = ex.MutedBg
+			}
+
+			tabBtn := ui.Column(c.Key(item.Index)).FillWidth().MinHeight(54).Padding(4, 2).Gap(3).
+				Radius(12).AlignItems(ui.Center).Justify(ui.Center).Shrink(0).
+				Role(ui.RoleTab).Label(item.Label).Checked(active)
+			if tabBtn.Pressed() {
+				tabBtn.Scale(0.95, 0.95)
+			}
+			tabBtn.Children(func() {
+				renderTabIconPill(c, item, iconCol, iconFn, pillBg, t.Surface)
+				txt := ui.Text(c, item.Label).FontSize(10.5).TextColor(lblCol).NoWrap().MaxLines(1)
+				if active {
+					txt.FontWeight(600)
+				} else {
+					txt.FontWeight(500)
+				}
+			})
+			if tabBtn.Clicked() {
+				s.activateNavTab(snap, item.Index, active)
+			}
+		}
+	})
+}
+
+func renderTabIconPill(c *ui.Context, item navTabSpec, iconCol ui.Color, iconFn theme.IconFunc, pillBg, haloSurf ui.Color) {
+	pill := ui.Row(c).Size(46, 27).Radius(13.5).Background(pillBg).
+		AlignItems(ui.Center).Justify(ui.Center)
+	if item.Badge != "" {
+		badgeTxt := item.Badge
+		badgeBg := item.BadgeColor
+		badgeFg := item.BadgeText
+		pill.DrawOver(func(p *ui.Painter, r ui.Rect) {
+			bw := float32(16)
+			if len(badgeTxt) >= 2 {
+				bw = 21
+			}
+			if len(badgeTxt) >= 3 {
+				bw = 26
+			}
+			bh := float32(16)
+			bx := r.X + r.W - bw + 3
+			by := r.Y - 3
+			outer := ui.Rect{X: bx - 1.5, Y: by - 1.5, W: bw + 3, H: bh + 3}
+			p.Fill(outer, haloSurf, (bh+3)/2)
+			p.Fill(ui.Rect{X: bx, Y: by, W: bw, H: bh}, badgeBg, bh/2)
+			tw, th := p.MeasureText(0, ui.Span{Text: badgeTxt, Size: 9.5})
+			tx := bx + (bw-tw)/2
+			if tx < bx+2 {
+				tx = bx + 2
+			}
+			ty := by + (bh-th)/2
+			p.Text(tx, ty, badgeTxt, 9.5, badgeFg)
+		})
+	}
+	pill.Children(func() {
+		theme.IconBox(c, 20, iconCol, iconFn)
+	})
+}
+
+func (s *Shell) viewBottomBar(c *ui.Context, snap state.Snapshot, activeTab int, m layout.Metrics) {
+	t := c.Theme()
+	ex := theme.Extra(t)
+	tabs := s.navTabSpecs(c, snap)
+
+	safeBottom := m.SafeBottom
+	if safeBottom > 120 {
+		// Hide the dock bar while the mobile software keyboard is visible, matching mobile.BottomBar.
+		return
+	}
+
+	padTop := float32(6)
+	padBottom := 6 + safeBottom
+	btnMinH := float32(48)
+	if m.ShortHeight {
+		// Compact vertical chrome on short displays such as iPhone Duo cover (466x678).
+		padTop = 4
+		padBottom = 4 + safeBottom
+		btnMinH = 44
+	}
+
+	dock := ui.Row(c).Background(t.Surface).
+		Padding(padTop, 6+m.SafeRight, padBottom, 6+m.SafeLeft).
+		Margin(0, -m.SafeRight, -safeBottom, -m.SafeLeft).
+		Gap(2).Shrink(0).
 		BorderWidth(0.75, 0, 0, 0).BorderColor(ex.SubtleBorder).
 		Role(ui.RoleTabList).Label("Navigation")
+	if (m.SafeLeft > 0 || m.SafeRight > 0) && m.Width > 0 {
+		// Bleed edge-to-edge under horizontal safe-area insets (e.g. iPhone Duo cover
+		// screen's right-edge Dynamic Island status pillar or landscape phone cutouts).
+		dock.Width(m.Width)
+	} else {
+		dock.FillWidth()
+	}
 	if !t.Dark {
 		dock.Shadow(0, -2, 12, 0, ex.CardShadow)
 	}
@@ -468,46 +652,14 @@ func (s *Shell) viewBottomBar(c *ui.Context, snap state.Snapshot, activeTab int)
 				pillBg = ex.MutedBg
 			}
 
-			tabBtn := ui.Column(c.Key(item.Index)).Grow(1).Basis(0).MinHeight(48).Padding(2, 2).Gap(3).
+			tabBtn := ui.Column(c.Key(item.Index)).Grow(1).Basis(0).MinHeight(btnMinH).Padding(2, 2).Gap(3).
 				Radius(12).AlignItems(ui.Center).Justify(ui.Center).
 				Role(ui.RoleTab).Label(item.Label).Checked(active)
 			if tabBtn.Pressed() {
 				tabBtn.Scale(0.95, 0.95)
 			}
 			tabBtn.Children(func() {
-				pill := ui.Row(c).Size(46, 27).Radius(13.5).Background(pillBg).
-					AlignItems(ui.Center).Justify(ui.Center)
-				if item.Badge != "" {
-					badgeTxt := item.Badge
-					badgeBg := item.BadgeColor
-					badgeFg := item.BadgeText
-					surf := t.Surface
-					pill.DrawOver(func(p *ui.Painter, r ui.Rect) {
-						bw := float32(16)
-						if len(badgeTxt) >= 2 {
-							bw = 21
-						}
-						if len(badgeTxt) >= 3 {
-							bw = 26
-						}
-						bh := float32(16)
-						bx := r.X + r.W - bw + 3
-						by := r.Y - 3
-						outer := ui.Rect{X: bx - 1.5, Y: by - 1.5, W: bw + 3, H: bh + 3}
-						p.Fill(outer, surf, (bh+3)/2)
-						p.Fill(ui.Rect{X: bx, Y: by, W: bw, H: bh}, badgeBg, bh/2)
-						tw, th := p.MeasureText(0, ui.Span{Text: badgeTxt, Size: 9.5})
-						tx := bx + (bw-tw)/2
-						if tx < bx+2 {
-							tx = bx + 2
-						}
-						ty := by + (bh-th)/2
-						p.Text(tx, ty, badgeTxt, 9.5, badgeFg)
-					})
-				}
-				pill.Children(func() {
-					theme.IconBox(c, 20, iconCol, iconFn)
-				})
+				renderTabIconPill(c, item, iconCol, iconFn, pillBg, t.Surface)
 				txt := ui.Text(c, item.Label).FontSize(10.5).TextColor(lblCol).NoWrap().MaxLines(1)
 				if active {
 					txt.FontWeight(600)
@@ -515,9 +667,8 @@ func (s *Shell) viewBottomBar(c *ui.Context, snap state.Snapshot, activeTab int)
 					txt.FontWeight(500)
 				}
 			})
-			if tabBtn.Clicked() && !active {
-				mygo.Haptics.Light()
-				s.store.SetActiveTab(item.Index)
+			if tabBtn.Clicked() {
+				s.activateNavTab(snap, item.Index, active)
 			}
 		}
 	})
@@ -533,10 +684,25 @@ func formatBadge(n int) string {
 	return fmt.Sprintf("%d", n)
 }
 
-func (s *Shell) viewTopBar(c *ui.Context, snap state.Snapshot, tab int, router *ui.Router) {
+func isTopLevelRoomPath(path string) bool {
+	if path == "" || path == "/rooms" {
+		return true
+	}
+	if !strings.HasPrefix(path, "/rooms/") {
+		return false
+	}
+	rest := strings.TrimPrefix(path, "/rooms/")
+	return rest != "" && !strings.Contains(rest, "/")
+}
+
+func (s *Shell) viewTopBar(c *ui.Context, snap state.Snapshot, tab int, router *ui.Router, m layout.Metrics) {
 	t := c.Theme()
 	ex := theme.Extra(t)
+	suppressSplitBack := tab == state.TabRooms && m.UseSplitPane && isTopLevelRoomPath(router.Path())
 	title := s.topBarTitle(tab, router)
+	if suppressSplitBack {
+		title = i18n.T("tab.rooms")
+	}
 
 	tlsPinned := snap.ActiveHost != nil && snap.ActiveHost.TLS && snap.ActiveHost.TLSFingerprint != ""
 	plainHTTP := snap.ActiveHost != nil && !snap.ActiveHost.TLS
@@ -546,9 +712,13 @@ func (s *Shell) viewTopBar(c *ui.Context, snap state.Snapshot, tab int, router *
 		hostName = snap.ActiveHost.Name
 	}
 
-	if router.CanGoBack() {
+	if router.CanGoBack() && !suppressSplitBack {
 		// Compact pushed sub-screen bar with back chevron and hairline separator.
-		ui.Row(c).FillWidth().MinHeight(48).Padding(4, 14, 6, 6).Gap(6).Background(t.Background).
+		minH := float32(48)
+		if m.ShortHeight {
+			minH = 42
+		}
+		ui.Row(c).FillWidth().MinHeight(minH).Padding(4, 14, 6, 6).Gap(6).Background(t.Background).
 			AlignItems(ui.Center).BorderWidth(0, 0, 0.75, 0).BorderColor(ex.Divider).Shrink(0).Children(func() {
 			if components.TopBarIconButton(c, i18n.T("nav.back"), theme.IconBack, t.Text).Clicked() {
 				router.Back()
@@ -561,9 +731,23 @@ func (s *Shell) viewTopBar(c *ui.Context, snap state.Snapshot, tab int, router *
 	}
 
 	// Editorial root-tab header: bold left-aligned display title flowing seamlessly onto canvas.
-	ui.Row(c).FillWidth().MinHeight(50).Padding(8, 16, 6, 16).Gap(10).Background(t.Background).
-		AlignItems(ui.Center).Justify(ui.SpaceBetween).Shrink(0).Children(func() {
-		ui.Text(c, title).FontSize(24).FontWeight(700).LetterSpacing(-0.5).TextColor(t.Text).
+	minH := float32(50)
+	padTop := float32(8)
+	padBottom := float32(6)
+	titleSize := float32(24)
+	if m.ShortHeight {
+		minH = 42
+		padTop = 4
+		padBottom = 4
+		titleSize = 21
+	}
+	bar := ui.Row(c).FillWidth().MinHeight(minH).Padding(padTop, 16, padBottom, 16).Gap(10).Background(t.Background).
+		AlignItems(ui.Center).Justify(ui.SpaceBetween).Shrink(0)
+	if m.UseSplitPane && tab == state.TabRooms {
+		bar.BorderWidth(0, 0, 0.75, 0).BorderColor(ex.Divider)
+	}
+	bar.Children(func() {
+		ui.Text(c, title).FontSize(titleSize).FontWeight(700).LetterSpacing(-0.5).TextColor(t.Text).
 			Grow(1).Basis(0).MaxLines(1)
 		if tab == state.TabLive && s.terminalsScr != nil {
 			termBtn := components.TopBarIconButton(c, i18n.T("terminals.nav_a11y"), theme.IconTerminal, t.Text)
@@ -587,6 +771,15 @@ func (s *Shell) viewTopBar(c *ui.Context, snap state.Snapshot, tab int, router *
 }
 
 func (s *Shell) topBarTitle(tab int, router *ui.Router) string {
+	path := router.Path()
+	if tab == state.TabRooms {
+		if strings.Contains(path, "/runs/") {
+			return i18n.T("rooms.title.live_run")
+		}
+		if strings.Contains(path, "/thread/") {
+			return i18n.T("rooms.title.thread")
+		}
+	}
 	if title := router.Title(); title != "" {
 		return title
 	}
@@ -600,6 +793,9 @@ func (s *Shell) topBarTitle(tab int, router *ui.Router) string {
 	case state.TabLibrary:
 		return i18n.T("tab.library")
 	default:
+		if strings.HasPrefix(path, "/more/connect") {
+			return i18n.T("nav.connect")
+		}
 		return i18n.T("tab.more")
 	}
 }
@@ -664,7 +860,7 @@ func (s *Shell) routeMore(c *ui.Context, r *ui.Route, snap state.Snapshot) {
 	}
 }
 
-func (s *Shell) viewBiometricLockGate(c *ui.Context) {
+func (s *Shell) viewBiometricLockGate(c *ui.Context, m layout.Metrics) {
 	t := c.Theme()
 	s.mu.Lock()
 	unlockErr := s.unlockError
@@ -676,6 +872,9 @@ func (s *Shell) viewBiometricLockGate(c *ui.Context) {
 		Role(ui.RoleDialog).Label(i18n.T("auth.biometric_title")).Children(func() {
 		card := ui.Column(c).FillWidth().Background(t.Surface).Radius(22).Padding(28, 22).
 			AlignItems(ui.Center).Gap(16)
+		if m.SheetMaxWidth > 0 {
+			card.MaxWidth(440)
+		}
 		components.ApplyCardElevation(card, t)
 		card.Children(func() {
 			theme.IconBox(c, 58, t.Text, theme.IconBrandMark)

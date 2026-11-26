@@ -158,3 +158,55 @@ func TestOpenHTMLPreviewMidRPCCloseAndStaleGenSkipWebViewAllocation(t *testing.T
 		t.Fatalf("expected Screen.Close() mid-RPC to skip WebView allocation, alloc=%d", allocCalls.Load())
 	}
 }
+
+func TestOpenHTMLPreviewPinnedTLSFetchesInlineHTML(t *testing.T) {
+	srv, err := testutil.NewFakeServer(true)
+	if err != nil {
+		t.Fatalf("NewFakeServer: %v", err)
+	}
+	defer srv.Close()
+	srv.SeedAllFixtures()
+
+	cl, err := api.NewClient(api.ClientConfig{
+		BaseURL:        srv.URL,
+		Mode:           api.AuthModeCompanion,
+		Token:          srv.ValidToken,
+		TLSFingerprint: srv.Fingerprint,
+	})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+
+	var allocCalls atomic.Int32
+	var lastOpts mygo.WebViewOptions
+	scr := New(Deps{Client: cl})
+	scr.previewWebViewFactory = func(opts mygo.WebViewOptions) (*mygo.WebView, error) {
+		allocCalls.Add(1)
+		lastOpts = opts
+		return nil, nil
+	}
+	defer scr.Close()
+
+	scr.openHTMLPreview("dv_3")
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		scr.mu.Lock()
+		n := len(scr.pending)
+		scr.mu.Unlock()
+		if n > 0 {
+			scr.drainPending()
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	if allocCalls.Load() != 1 {
+		t.Fatalf("expected 1 inline WebView allocation for SPKI-pinned preview, got %d (err=%q)", allocCalls.Load(), scr.htmlPreviewErr)
+	}
+	if !lastOpts.Page.Untrusted {
+		t.Fatal("expected SPKI-pinned inline HTML preview WebView to keep Untrusted=true")
+	}
+	if lastOpts.URL != "" {
+		t.Fatalf("expected SPKI-pinned HTML preview to load fetched HTML inline instead of direct URL %q (which OS WebViews reject with -1202)", lastOpts.URL)
+	}
+}
