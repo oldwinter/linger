@@ -4,7 +4,6 @@ import (
 	"context"
 	"strings"
 
-	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/mobile"
 	"github.com/oldwinter/linger/mobile/internal/components"
@@ -191,7 +190,7 @@ func (s *Screen) submitLaunch() {
 
 	s.launchBusy = true
 	s.launchErr = ""
-	mygo.Haptics.Light()
+	components.HapticLight()
 
 	go func() {
 		launched, err := cl.Launch(context.Background(), req)
@@ -202,7 +201,7 @@ func (s *Screen) submitLaunch() {
 			})
 			return
 		}
-		mygo.Haptics.Success()
+		components.HapticSuccess()
 		s.enqueueUI(func() {
 			s.launchBusy = false
 			s.launchOpen = false

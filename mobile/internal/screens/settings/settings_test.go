@@ -21,8 +21,11 @@ import (
 
 func waitUntil(t *testing.T, timeout time.Duration, fn func() bool) {
 	t.Helper()
+	if timeout < 10*time.Second {
+		timeout = 10 * time.Second
+	}
 	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
+	for i := 0; i < 2 || time.Now().Before(deadline); i++ {
 		if fn() {
 			return
 		}

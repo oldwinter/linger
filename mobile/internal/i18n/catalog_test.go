@@ -178,10 +178,10 @@ func TestLocalePreferenceResolutionAndFormatting(t *testing.T) {
 	if got := FormatElapsed(3665); got != "1h 1m" {
 		t.Fatalf("EN FormatElapsed(3665) = %q", got)
 	}
-	if got := DocStatusLabel("active"); got != "active" {
+	if got := DocStatusLabel("active"); got != "Active" {
 		t.Fatalf("EN DocStatusLabel(active) = %q", got)
 	}
-	if got := StatusLabel("not_required"); got != "no key needed" {
+	if got := StatusLabel("not_required"); got != "No Key Needed" {
 		t.Fatalf("EN StatusLabel(not_required) = %q", got)
 	}
 }

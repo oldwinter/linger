@@ -1303,7 +1303,7 @@
   "terminals.list.computer_a11y": "主机 {name}",
   "terminals.list.machine_a11y": "机器 {name}",
   "terminals.empty.connect_title": "连接主机以查看终端",
-  "terminals.empty.connect_body": "配对 Linger 桌面端或登录 TeamHub，即可实时监控与操控 herdr-core 终端。",
+  "terminals.empty.connect_body": "配对 LingerX 桌面端或登录 TeamHub，即可实时监控与操控 herdr-core 终端。",
   "terminals.empty.no_computers_title": "暂无已接入主机",
   "terminals.empty.no_computers_body": "接入运行 herdr-core 的本地主机后，即可启动与审批编程智能体。",
   "terminals.empty.unavailable_title": "herdr-core 暂不可用",

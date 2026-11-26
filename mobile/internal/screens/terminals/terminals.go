@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"github.com/oldwinter/linger/mobile/internal/api"
 	"github.com/oldwinter/linger/mobile/internal/components"
@@ -488,7 +487,7 @@ func (s *Screen) viewTopActionRow(c *ui.Context, computers []api.LocalComputer, 
 						ui.Text(c, comp.DisplayName).FontSize(12).FontWeight(600).TextColor(fg).NoWrap()
 					})
 					if chip.Clicked() && !active {
-						mygo.Haptics.Light()
+						components.HapticLight()
 						s.SelectComputer(comp.ComputerID)
 					}
 				}
@@ -498,7 +497,7 @@ func (s *Screen) viewTopActionRow(c *ui.Context, computers []api.LocalComputer, 
 		launchBtn := components.CompactPrimaryButton(c, i18n.T("terminals.launch_short"), nil, unavailable)
 		launchBtn.MinHeight(34)
 		if launchBtn.Clicked() {
-			mygo.Haptics.Light()
+			components.HapticLight()
 			s.openLaunchSheet()
 		}
 
@@ -813,7 +812,7 @@ func (s *Screen) sendBlockedReplyAsync(address, displayName, text string) {
 	if !s.trySetBusy(address) {
 		return
 	}
-	mygo.Haptics.Light()
+	components.HapticLight()
 	go func() {
 		_, err := cl.Send(context.Background(), herdr.SendRequest{
 			Address: address,
@@ -834,7 +833,7 @@ func (s *Screen) sendBlockedReplyAsync(address, displayName, text string) {
 			s.notify()
 			return
 		}
-		mygo.Haptics.Success()
+		components.HapticSuccess()
 		s.enqueueUI(func() {
 			if d := s.blockedDrafts[address]; d != nil {
 				*d = ""
@@ -853,7 +852,7 @@ func (s *Screen) sendKeysAsync(address, displayName string, keys []string, keyLa
 	if !s.trySetBusy(address) {
 		return
 	}
-	mygo.Haptics.Light()
+	components.HapticLight()
 	go func() {
 		_, err := cl.Keys(context.Background(), herdr.KeysRequest{
 			Address: address,
@@ -868,7 +867,7 @@ func (s *Screen) sendKeysAsync(address, displayName string, keys []string, keyLa
 			s.notify()
 			return
 		}
-		mygo.Haptics.Success()
+		components.HapticSuccess()
 		s.toast(i18n.Tf("terminals.toast.keys_sent", map[string]any{"key": keyLabel, "name": displayName}))
 		if s.currentDetailAddress() == address {
 			s.refreshDetailSnapshot(context.Background(), address)

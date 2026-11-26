@@ -821,7 +821,7 @@ func (s *Shell) viewTopBar(c *ui.Context, snap state.Snapshot, tab int, router *
 				})
 			}
 			if termBtn.Clicked() {
-				mygo.Haptics.Light()
+				components.HapticLight()
 				s.OpenTerminals("")
 			}
 		}

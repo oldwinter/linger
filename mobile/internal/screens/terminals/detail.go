@@ -5,7 +5,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/mobile"
 	"github.com/oldwinter/linger/mobile/internal/components"
@@ -411,7 +410,7 @@ func (s *Screen) detailSendPromptAsync(address, displayName, text string, forceB
 	if !s.trySetBusy(address) {
 		return
 	}
-	mygo.Haptics.Light()
+	components.HapticLight()
 	go func() {
 		s.mu.Lock()
 		att := s.attach
@@ -437,7 +436,7 @@ func (s *Screen) detailSendPromptAsync(address, displayName, text string, forceB
 			s.notify()
 			return
 		}
-		mygo.Haptics.Success()
+		components.HapticSuccess()
 		s.enqueueUI(func() {
 			s.detailPrompt = ""
 		})
@@ -456,7 +455,7 @@ func (s *Screen) detailSendKeysAsync(address, displayName, key, label string) {
 		if !s.trySetBusy(address) {
 			return
 		}
-		mygo.Haptics.Light()
+		components.HapticLight()
 		go func() {
 			err := att.Keys(context.Background(), key)
 			s.clearBusy(address)
@@ -482,7 +481,7 @@ func (s *Screen) interruptTerminalAsync(address, displayName string) {
 	if !s.trySetBusy(address) {
 		return
 	}
-	mygo.Haptics.Warning()
+	components.HapticWarning()
 	go func() {
 		_, err := cl.Interrupt(context.Background(), herdr.InterruptRequest{Address: address, Timeout: 10})
 		s.clearBusy(address)
@@ -507,7 +506,7 @@ func (s *Screen) killTerminalAsync(address, displayName string) {
 	if !s.trySetBusy(address) {
 		return
 	}
-	mygo.Haptics.Warning()
+	components.HapticWarning()
 	go func() {
 		_, err := cl.Kill(context.Background(), address)
 		s.clearBusy(address)
@@ -533,7 +532,7 @@ func (s *Screen) removeTerminalAsync(address, displayName string) {
 	if !s.trySetBusy(address) {
 		return
 	}
-	mygo.Haptics.Warning()
+	components.HapticWarning()
 	go func() {
 		_, err := cl.Remove(context.Background(), address)
 		s.clearBusy(address)
