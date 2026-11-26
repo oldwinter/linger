@@ -75,6 +75,7 @@ export function WorkItemDetailDrawer({
         return;
       }
       if (event.key !== "Escape") return;
+      if (document.querySelector("dialog[open]")) return;
       if (editing) {
         event.preventDefault();
         setEditingItemId(null);

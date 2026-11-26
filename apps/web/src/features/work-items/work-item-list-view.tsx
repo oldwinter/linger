@@ -61,7 +61,7 @@ export function WorkItemListView({
       <div className="overflow-x-auto rounded-xl border border-app-border bg-card shadow-xs">
         <table
           aria-label={t(vm.workItemsList)}
-          className="w-full min-w-[820px] border-collapse text-left text-sm"
+          className="w-full min-w-[960px] border-collapse text-left text-sm"
         >
           <thead>
             <tr className="border-b border-app-border bg-muted/40 text-xs font-medium text-muted-foreground">
@@ -79,15 +79,29 @@ export function WorkItemListView({
                   type="checkbox"
                 />
               </th>
-              <th className="w-20 px-3 py-2.5">{t(vm.columnId)}</th>
-              <th className="px-3 py-2.5">{t(vm.columnTitle)}</th>
-              <th className="w-32 px-3 py-2.5">{t(vm.columnStatus)}</th>
-              <th className="w-28 px-3 py-2.5">{t(vm.columnPriority)}</th>
-              <th className="w-36 px-3 py-2.5">{t(vm.columnAssignees)}</th>
-              <th className="w-36 px-3 py-2.5">{t(vm.columnOriginRoom)}</th>
-              <th className="w-40 px-3 py-2.5">{t(vm.columnExecution)}</th>
-              <th className="w-32 px-3 py-2.5">{t(vm.columnUpdated)}</th>
-              <th className="w-36 px-3 py-2.5 text-right">
+              <th className="w-16 whitespace-nowrap px-3 py-2.5">
+                {t(vm.columnId)}
+              </th>
+              <th className="min-w-[14rem] px-3 py-2.5">{t(vm.columnTitle)}</th>
+              <th className="whitespace-nowrap px-3 py-2.5">
+                {t(vm.columnStatus)}
+              </th>
+              <th className="whitespace-nowrap px-3 py-2.5">
+                {t(vm.columnPriority)}
+              </th>
+              <th className="whitespace-nowrap px-3 py-2.5">
+                {t(vm.columnAssignees)}
+              </th>
+              <th className="whitespace-nowrap px-3 py-2.5">
+                {t(vm.columnOriginRoom)}
+              </th>
+              <th className="whitespace-nowrap px-3 py-2.5">
+                {t(vm.columnExecution)}
+              </th>
+              <th className="whitespace-nowrap px-3 py-2.5">
+                {t(vm.columnUpdated)}
+              </th>
+              <th className="whitespace-nowrap px-3 py-2.5 text-right">
                 {t(vm.columnActions)}
               </th>
             </tr>
@@ -121,10 +135,10 @@ export function WorkItemListView({
                   <td className="whitespace-nowrap px-3 py-2.5 align-middle text-xs font-medium tabular-nums text-muted-foreground">
                     #{item.number}
                   </td>
-                  <td className="max-w-sm px-3 py-2.5 align-middle">
+                  <td className="min-w-[14rem] max-w-sm px-3 py-2.5 align-middle">
                     <Link
                       aria-current={isFocused ? "location" : undefined}
-                      className="block font-medium text-foreground [overflow-wrap:anywhere] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+                      className="block font-medium text-foreground [overflow-wrap:break-word] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
                       data-work-item-id={item.id}
                       onClick={(event) => {
                         if (

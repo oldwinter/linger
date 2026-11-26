@@ -544,3 +544,105 @@ button.agent-mention:focus-visible {
   .agent-mention {
   color: color-mix(in srgb, var(--agent-mention-color) 45%, white);
 }
+
+/* The writer's own bubble uses a dark surface in both light and dark themes,
+   so embedded fenced code blocks always use dark-calibrated surfaces, chrome,
+   fade masks, and high-contrast syntax tokens. */
+.room-message-card[data-current-actor="true"]
+  .room-message-bubble
+  .message-markdown {
+  --chat-code-tok-comment: #9ca3af;
+  --chat-code-tok-string: #5eead4;
+  --chat-code-tok-number: #fbbf24;
+  --chat-code-tok-keyword: #c4b5fd;
+  --chat-code-tok-type: #7dd3fc;
+  --chat-code-tok-punctuation: #cbd5e1;
+}
+
+.room-message-card[data-current-actor="true"]
+  .room-message-bubble
+  .message-code-block {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: #1c1c19;
+  color: #e8e7e2;
+}
+
+.room-message-card[data-current-actor="true"]
+  .room-message-bubble
+  .message-code-block
+  pre {
+  background: transparent;
+  color: #e8e7e2;
+}
+
+.room-message-card[data-current-actor="true"]
+  .room-message-bubble
+  .message-code-header {
+  border-bottom-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.room-message-card[data-current-actor="true"]
+  .room-message-bubble
+  .message-code-lang {
+  color: #e8e7e2;
+}
+
+.room-message-card[data-current-actor="true"]
+  .room-message-bubble
+  .message-code-lines,
+.room-message-card[data-current-actor="true"]
+  .room-message-bubble
+  .message-code-toggle,
+.room-message-card[data-current-actor="true"]
+  .room-message-bubble
+  .message-code-action-btn,
+.room-message-card[data-current-actor="true"]
+  .room-message-bubble
+  .message-code-expand-footer {
+  color: #b4b3aa;
+}
+
+.room-message-card[data-current-actor="true"]
+  .room-message-bubble
+  :is(
+    .message-code-toggle,
+    .message-code-action-btn,
+    .message-code-expand-footer
+  ):hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f4f3ee;
+}
+
+.room-message-card[data-current-actor="true"]
+  .room-message-bubble
+  .message-code-expand-footer {
+  border-top-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.room-message-card[data-current-actor="true"]
+  .room-message-bubble
+  .message-code-fade {
+  background: linear-gradient(to bottom, transparent, #1c1c19 90%);
+}
+
+.room-message-card[data-current-actor="true"]
+  .room-message-bubble
+  .message-mermaid-toggle {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.room-message-card[data-current-actor="true"]
+  .room-message-bubble
+  .message-mermaid-toggle-btn {
+  color: #b4b3aa;
+}
+
+.room-message-card[data-current-actor="true"]
+  .room-message-bubble
+  .message-mermaid-toggle-btn.is-active {
+  background: rgba(255, 255, 255, 0.18);
+  color: #f4f3ee;
+  box-shadow: none;
+}

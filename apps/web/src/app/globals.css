@@ -3178,6 +3178,11 @@ a[href][aria-disabled="true"],
   box-shadow: none;
 }
 
+:root[data-theme="dark"] .another-me-card[data-active="true"] {
+  border-color: color-mix(in srgb, var(--am-brand) 38%, transparent);
+  background-color: color-mix(in srgb, var(--am-brand) 24%, var(--app-surface));
+}
+
 .another-me-card[data-active="true"]::before {
   opacity: 0;
 }
@@ -5791,11 +5796,17 @@ button.question-choice:focus-visible {
 :root[data-theme="dark"] {
   --chat-bubble-bg: hsl(var(--town-muted));
   --chat-agent-bubble-bg: hsl(var(--town-muted));
-  --chat-own-bubble-bg: hsl(var(--town-primary));
-  --chat-own-bubble-text: hsl(var(--town-primary-foreground));
+  --chat-own-bubble-bg: hsl(60 5.5% 20%);
+  --chat-own-bubble-text: hsl(var(--town-foreground));
   --chat-quote-bg: hsl(var(--town-muted) / 0.7);
   --chat-card-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.07), 0 4px 16px rgba(0, 0, 0, 0.45);
+}
+
+:root[data-theme="dark"]
+  .room-message-card[data-current-actor="true"]
+  .room-message-bubble {
+  box-shadow: var(--town-shadow-outline);
 }
 
 :root[data-theme="dark"] .room-avatar-empty {
