@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/linger/herdr"
+	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/linger/herdrcore"
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/platform/privatefs"
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/provider"
 )
@@ -247,6 +248,42 @@ func herdrCheck(installation herdr.Installation, version string, running bool) d
 		detail = found + " at " + installation.Executable + "; its server is not running at " + installation.Socket + ", so there are no agents to hear yet"
 	}
 	return doctorCheck{Name: "herdr", Category: categoryConfiguration, Status: "pass", Detail: detail}
+}
+
+// inspectHerdrCore reports herdr-core (hc), an optional cross-platform terminal
+// runtime integration. Without hc or herdr-core on the terminal PATH there is
+// no line at all; probing status never starts a stopped core.
+func inspectHerdrCore(ctx context.Context, environment map[string]string) (doctorCheck, bool) {
+	installation, ok := herdrcore.Locate(provider.TerminalEnvironment(ctx, environment))
+	if !ok {
+		return doctorCheck{}, false
+	}
+	version := installation.Version(ctx)
+	status, _ := installation.ProbeStatus(ctx)
+	return herdrCoreCheck(installation, version, status), true
+}
+
+func herdrCoreCheck(installation herdrcore.Installation, version string, status *herdrcore.StatusResult) doctorCheck {
+	found := "herdr-core"
+	if version != "" {
+		found += " " + version
+	} else if status != nil && status.Version != "" {
+		found += " " + status.Version
+	}
+	endpoint := "via hc connect (session " + installation.Session + ")"
+	if installation.Transport == herdrcore.TransportUnixSocket && installation.Socket != "" {
+		endpoint = "through " + installation.Socket
+	}
+	if status != nil {
+		detail := fmt.Sprintf("%s at %s; core running %s (live=%d finished=%d)", found, installation.Executable, endpoint, status.Live, status.Finished)
+		return doctorCheck{Name: "herdr-core", Category: categoryConfiguration, Status: "pass", Detail: detail}
+	}
+	if installation.Transport == herdrcore.TransportUnixSocket && installation.Socket != "" {
+		detail := found + " at " + installation.Executable + "; its server is not running at " + installation.Socket + ", so there are no terminals to watch yet"
+		return doctorCheck{Name: "herdr-core", Category: categoryConfiguration, Status: "pass", Detail: detail}
+	}
+	detail := found + " at " + installation.Executable + "; its server is not running for session " + installation.Session + ", so there are no terminals to watch yet"
+	return doctorCheck{Name: "herdr-core", Category: categoryConfiguration, Status: "pass", Detail: detail}
 }
 
 // playwrightExtensionID identifies the Playwright Extension in Chrome profiles.

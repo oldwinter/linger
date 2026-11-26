@@ -117,6 +117,15 @@ third_party/licenses/.
    of its own, and types only into panes it created or the user named.
    License text: third_party/licenses/Apache-2.0.txt
 
+9. herdr-core (herdrdev/herdr-core)
+   Copyright the herdr-core authors. Apache License 2.0.
+   Source: https://github.com/herdrdev/herdr-core/tree/v0.1.21
+   skills/builtin/herdr-core/1.0.0/SKILL.md is adapted from herdr-core's
+   built-in `hc --skill` manual. Changes: adds Linger permission review rules,
+   `linger.*` terminal label conventions, `teamhub computer hc` control-plane
+   context, and blocked-agent handoff through Linger question cards.
+   License text: third_party/licenses/Apache-2.0.txt
+
 README demo materials
    Files: assets/linger-story.webp, assets/linger-story.mp4
    Metal 011 by ambientCG, released under CC0 1.0 Universal.
