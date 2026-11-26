@@ -64,7 +64,7 @@ it("stops only the selected Run and keeps uncertain cancellation distinct from s
     await screen.findByRole("button", { name: "Stop Local's task" }),
   );
   const stopAlert = await screen.findByRole("alert");
-  expect(stopAlert).toHaveTextContent("Stop not confirmed");
+  expect(stopAlert).toHaveTextContent("Stop didn't go through");
   expect(stopAlert).not.toHaveClass("max-w-28", "truncate");
   expect(cancel).toHaveBeenCalledTimes(1);
   const requestId = (cancel.mock.calls[0]![0].body as { request_id: string })

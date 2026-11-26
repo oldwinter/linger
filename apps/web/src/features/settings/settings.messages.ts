@@ -16,10 +16,8 @@ export const settingsMessages = defineMessages("settings", {
   securityPageDescription: "Manage your sign-in password and server API keys.",
   loadingComputers: "Loading Computers",
   loadingContent: "Loading content",
-  languageDescription: "Choose the language Linger is shown in.",
   interfaceLanguage: "Interface language",
-  interfaceLanguageHint:
-    "Saved on this device. Text written by Agents and other people stays as they wrote it.",
+  interfaceLanguageHint: "Saved on this device.",
   languageUnavailable:
     "That language could not be loaded. Check your connection and try again.",
   saveDiagnostics: "Save diagnostics…",

@@ -118,9 +118,6 @@ describe("Security password through the live HTTP client", () => {
       await screen.findByRole("button", { name: "Change password" }),
     );
     const dialog = screen.getByRole("dialog", { name: "Change password" });
-    expect(
-      within(dialog).getByText(/Other browsers and devices/),
-    ).toBeVisible();
     for (const [label, value] of [
       ["Current password", "wrong-password"],
       ["New password", "new-password"],

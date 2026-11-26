@@ -66,6 +66,53 @@ describe("Runtime activity path", () => {
       expect.objectContaining({ kind: "outcome", tone: "failed" }),
     ]);
   });
+  it("renders redacted failure detail in Activity when present and omits the detail block when absent", () => {
+    const detail =
+      "FAILED_PRECONDITION (code 400): User location is not supported for the API use.";
+    const { container, rerender } = render(
+      <RuntimeActivityPath
+        records={[
+          record("1", {
+            type: "status.changed",
+            status: "stopped",
+            outcome: "failed",
+            failure: {
+              code: "execution_failed",
+              runtime_type: "antigravity",
+              runtime_version: "1.5.16",
+              detail,
+            },
+          }),
+        ]}
+        lifecycle="ended"
+        embedded
+      />,
+    );
+    expect(screen.getByText(detail)).toBeVisible();
+    expect(
+      container.querySelector("[data-runtime-failure-detail]"),
+    ).toHaveTextContent(detail);
+
+    rerender(
+      <RuntimeActivityPath
+        records={[
+          record("2", {
+            type: "status.changed",
+            status: "stopped",
+            outcome: "failed",
+            failure: {
+              code: "execution_failed",
+              runtime_type: "antigravity",
+              runtime_version: "1.5.16",
+            },
+          }),
+        ]}
+        lifecycle="ended"
+        embedded
+      />,
+    );
+    expect(container.querySelector("[data-runtime-failure-detail]")).toBeNull();
+  });
   it("keeps each Task step its own item whatever kind the Computer gave it", () => {
     const input = (command: string) => [
       {
@@ -1180,6 +1227,32 @@ describe("Runtime activity path", () => {
     expect(icons[0]).toHaveClass("[@media(hover:none)]:opacity-0");
     expect(icons[1]).toHaveClass("[@media(hover:none)]:opacity-100");
     expect(icons[1]?.getAttribute("class")).not.toMatch(/\bhidden\b/);
+  });
+
+  it("marks an active thinking item inactive when entering waiting_background", () => {
+    const items = projectRuntimeActivityPath(
+      [
+        record("1", {
+          status: "thinking",
+          title: "Checking workspace",
+          type: "status.changed",
+        }),
+        record("2", {
+          status: "waiting_background",
+          type: "status.changed",
+        }),
+      ],
+      new Map(),
+      "active",
+    );
+    expect(items).toEqual([
+      {
+        active: false,
+        key: "thinking:1",
+        kind: "thinking",
+        title: "Checking workspace",
+      },
+    ]);
   });
 });
 

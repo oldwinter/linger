@@ -403,9 +403,14 @@ describe("TeamHub routes", () => {
 
     expect(await screen.findByText("Room shell")).toBeVisible();
     expect(
-      screen.getByRole("heading", { name: "This view could not be loaded" }),
+      screen.getByRole("heading", { name: "Couldn't load this page" }),
     ).toBeVisible();
-    expect(screen.getByText("Chat projection unavailable.")).toBeVisible();
+    expect(
+      screen.getByText("Check your connection and try again."),
+    ).toBeVisible();
+    expect(
+      screen.queryByText("Chat projection unavailable."),
+    ).not.toBeInTheDocument();
   });
 
   it("opens an authorized Room without waiting for the sidebar Room list", async () => {
@@ -568,7 +573,7 @@ describe("TeamHub routes", () => {
 
     expect(await screen.findByText("Room shell")).toBeVisible();
     expect(
-      screen.getByRole("heading", { name: "This view could not be loaded" }),
+      screen.getByRole("heading", { name: "Couldn't load this page" }),
     ).toBeVisible();
     expect(screen.getByRole("button", { name: "Try again" })).toBeVisible();
   });
@@ -596,11 +601,11 @@ describe("TeamHub routes", () => {
       }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { name: "Linger unavailable" }),
+      screen.getByRole("heading", { name: "Can't reach Linger" }),
     ).toBeVisible();
   });
 
-  it("shows a reload hint instead of Back to my Rooms for non-restricted Room errors", async () => {
+  it("offers Try again instead of Back to my Rooms for non-restricted Room errors", async () => {
     const runtime = createTestTeamHubRuntime();
     runtime.server.on("GET", "/v0/tenants/{tenantId}", () =>
       teamHubErrorResponse(500, "INTERNAL", "Server unavailable."),
@@ -613,13 +618,10 @@ describe("TeamHub routes", () => {
     renderApp(queryClient, runtime, router);
 
     expect(
-      await screen.findByRole("heading", { name: "Linger unavailable" }),
+      await screen.findByRole("heading", { name: "Can't reach Linger" }),
     ).toBeVisible();
     expect(screen.getByRole("button", { name: "Try again" })).toBeVisible();
     expect(screen.queryByText(/Back to my Rooms/)).not.toBeInTheDocument();
-    expect(
-      screen.getByText(/Use “Try again” to reload this view\./),
-    ).toBeVisible();
   });
 
   it("offers Open Messages on unknown Space paths", async () => {

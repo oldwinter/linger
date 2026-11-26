@@ -63,7 +63,7 @@ func (s *Service) ExecuteTenantAgentUpdate(
 	runtime := *request.Runtime
 	placement := runtime.Placement
 	computerChanged := *placement.ComputerId != row.ComputerID.String
-	var targetComputer store.LocalComputer
+	var targetComputer store.RuntimeLocalComputer
 	var hasTargetComputer bool
 	if computerChanged || *placement.WorkspaceGrantId != row.WorkspaceGrantID.String {
 		var err error
@@ -127,6 +127,14 @@ func (s *Service) ExecuteTenantAgentUpdate(
 	}
 	if updated != 1 {
 		return httpapi.TenantAgent{}, ErrAgentConfigurationConflict
+	}
+	if shouldClearAnotherMeBackgroundFailures(
+		row.AgentType, row.ComputerID.String, row.LocalRuntimeType.String, row.RuntimeModel,
+		*placement.ComputerId, string(*placement.RuntimeType), runtime.Model,
+	) {
+		if err := clearAnotherMeBackgroundFailuresTx(ctx, queries, tenantID, actorID); err != nil {
+			return httpapi.TenantAgent{}, err
+		}
 	}
 	if request.Name != nil {
 		if updated, err := queries.UpdateAgentActorDisplayName(ctx, store.UpdateAgentActorDisplayNameParams{

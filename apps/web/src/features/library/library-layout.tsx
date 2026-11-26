@@ -13,7 +13,8 @@ import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 
 import { libraryFolderBackPath } from "./library-folder-back";
 import { MyDocumentsTree } from "./library-documents-page";
-import { LibrarySidebar, type LibrarySection } from "./library-sidebar";
+import { sectionHasSidebar, workspaceSection } from "./library-section";
+import { LibrarySidebar } from "./library-sidebar";
 import { WORKSPACE_TREE_ID, WorkspaceTreeContext } from "./workspace-tree";
 
 /**
@@ -29,7 +30,7 @@ export function LibraryLayout() {
   const tenantId = requireRoomRouteParam(params.tenantId, "Tenant");
   const documentId = params.documentId;
   const section = workspaceSection(location.pathname);
-  const hasList = section !== "wiki" && section !== "overview";
+  const hasList = sectionHasSidebar(section);
   // A tree opened over a phone-width page belongs to that page.
   const [treeOpenAt, setTreeOpenAt] = useState<string | null>(null);
   const treeOpen = treeOpenAt === location.pathname;
@@ -128,20 +129,4 @@ export function LibraryLayout() {
       </DesktopBarSlot>
     </WorkspaceTreeContext>
   );
-}
-
-function workspaceSection(pathname: string): LibrarySection | null {
-  const rest = pathname.match(/^\/t\/[^/]+\/library(?=\/|$)(.*)$/)?.[1];
-  if (rest === undefined) return null;
-  if (rest.startsWith("/wiki")) return "wiki";
-  // This day is a reading page, like the Library home, with no file tree.
-  if (rest === "/day") return "overview";
-  // An open meeting, carrying one of its decisions, and the clock to the next one keep the Library sidebar beside them.
-  if (
-    rest.startsWith("/meetings") ||
-    rest.startsWith("/carry-decision") ||
-    rest.startsWith("/up-next")
-  )
-    return null;
-  return "overview";
 }

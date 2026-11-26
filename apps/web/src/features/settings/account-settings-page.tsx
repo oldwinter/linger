@@ -23,10 +23,7 @@ export function AccountSettingsPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-(--app-settings-width) flex-col gap-8 pb-4">
-      <SettingsPageHeading
-        description={t(settingsMessages.profilePageDescription)}
-        title={t(settingsMessages.profile)}
-      />
+      <SettingsPageHeading title={t(settingsMessages.profile)} />
 
       <AccountProfileSettings client={client} tenantId={tenantId} />
 

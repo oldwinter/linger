@@ -137,6 +137,7 @@ async function main(): Promise<void> {
   };
   const loginShell = resolveLoginShell(log);
   const daemonPath = daemonExecutable();
+  const nodeBinaryName = process.platform === "win32" ? "node.exe" : "node";
   const localServer = new LocalServerModule({
     home,
     daemonDirectory,
@@ -145,6 +146,9 @@ async function main(): Promise<void> {
     inspectEnv: inspectEnv(loginShell),
     macosVersion: () => process.getSystemVersion(),
     installerDirectory: path.join(here, "../installer"),
+    bundledNodePath: app.isPackaged
+      ? path.join(process.resourcesPath, "runtime", "bin", nodeBinaryName)
+      : path.join(here, "../computer/runtime/bin", nodeBinaryName),
     ...(__SOURCE_ARCHIVE__ ? { sourceArchive: __SOURCE_ARCHIVE__ } : {}),
     ...(__SOURCE_DEPENDENCIES__
       ? { sourceDependencies: __SOURCE_DEPENDENCIES__ }
@@ -208,7 +212,7 @@ async function main(): Promise<void> {
     preload: path.join(here, "../preload/setup.cjs"),
     version: VERSION,
     defaultDisplayName,
-    show: !background && needsSetup,
+    show: () => !background && !config.get().computerId,
     loginItem: {
       get: () => app.getLoginItemSettings().openAtLogin,
       set: (on) =>

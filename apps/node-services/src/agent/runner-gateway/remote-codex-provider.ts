@@ -1,8 +1,4 @@
-import {
-  runPriorities,
-  RunPriority,
-  type CapacityPriority,
-} from "../../model-tasks.js";
+import { runPriorities, RunPriority } from "../../model-tasks.js";
 import { displayText } from "@linger/service-kit";
 import {
   OPERATION_OUTCOME_UNKNOWN,
@@ -29,6 +25,7 @@ import type {
   RuntimeSession,
 } from "../executor/provider.js";
 import {
+  formatRuntimeFailureDetail,
   RuntimeExecutionError,
   StreamingAgentRun,
   ProviderRunCleanupError,
@@ -165,14 +162,11 @@ export class RemoteRuntimeProvider implements AgentProvider {
   #capacityPermit?: RunnerCapacityPermit;
   readonly #closed = new AbortController();
 
-  async acquireRunCapacity(
-    signal: AbortSignal,
-    priority?: CapacityPriority,
-  ): Promise<() => void> {
+  async acquireRunCapacity(signal: AbortSignal): Promise<() => void> {
     let permit: RunnerCapacityPermit | undefined;
     try {
       permit = await this.#dispatcher.acquireOperationCapacity?.(
-        { ...this.#target, priority },
+        this.#target,
         AbortSignal.any([signal, this.#closed.signal]),
       );
     } catch (error) {
@@ -563,6 +557,7 @@ export class RemoteRuntimeProvider implements AgentProvider {
         throw new RuntimeExecutionError({
           code: "protocol_incompatible",
           runtime_type: this.#runtime.type,
+          detail: "Runtime did not return an initial session checkpoint",
         });
       }
       replaceOpaqueObject(mutableSession, checkpoint);
@@ -787,7 +782,7 @@ export class RemoteRuntimeProvider implements AgentProvider {
     const permit =
       this.#capacityPermit ??
       (await this.#dispatcher.acquireOperationCapacity?.(
-        { ...this.#target, priority },
+        this.#target,
         preemptSignal ? AbortSignal.any([signal, preemptSignal]) : signal,
       ));
     try {
@@ -1171,10 +1166,12 @@ const localRunFailure = (
     !executionStarted &&
     (error.code === "RUNNER_STOPPED" || error.code === "RUNTIME_NOT_ENABLED")
   ) {
+    const detail = formatRuntimeFailureDetail(error.message);
     return new RuntimeExecutionError(
       {
         code: "computer_unavailable",
         ...(runtimeType ? { runtime_type: runtimeType } : {}),
+        ...(detail ? { detail } : {}),
       },
       { cause: error },
     );
@@ -1372,6 +1369,16 @@ const toRunEvent = (event: WireRunEvent): RunEvent | null => {
     case "file.updated":
     case "file.deleted":
       return { type: event.type, path: event.path };
+    case "run.background_waiting":
+      return {
+        type: "status.changed",
+        status: "waiting_background",
+      };
+    case "run.background_resumed":
+      return {
+        type: "status.changed",
+        status: "working",
+      };
     case "run.completed":
       return event;
     case "run.failed":

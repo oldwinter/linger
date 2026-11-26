@@ -180,8 +180,10 @@ build:assets` to check the initial JS budget.
   carries `background_failure` (three or more failed background model calls
   in a row), worded from its reason code (an unknown code reads as unknown).
   It links directly to Models or Computers settings for recovery, can be
-  dismissed for the current failure batch (reappearing if failures keep
-  climbing or the reason changes), and clears once a background call completes.
+  dismissed for the current session for its active reason code (kept in memory
+  per Room and cleared on sign-out), and reappears if the reason changes, if
+  TeamHub clears the streak (observed by `RoomShell` even while viewing another
+  Room), or on reload.
 - Switching between Meeting and Voice Mode ends the previous session and
   releases its microphone before the new mode starts. Meeting saving can
   continue in the background. The sidebar Meeting entry spins only while a

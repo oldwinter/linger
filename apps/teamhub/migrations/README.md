@@ -40,6 +40,7 @@ whitelist function that uses the resulting schema.
 | 00892            | 00896        | meta_chat_preempts                        |
 | 00893            | 00897        | transcript_only_captures                  |
 | 00894            | 00898        | room_handoff_reports                      |
+| 00895            | 00899        | runtime_local_computers                   |
 
 This sequence supports an empty database and an existing fork database,
 including one at version `00869`. Goose records numeric versions without a

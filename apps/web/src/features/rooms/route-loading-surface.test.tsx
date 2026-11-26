@@ -54,6 +54,20 @@ describe("AuthenticatedRouteLoading", () => {
     ).toHaveAttribute("data-loading-route", kind);
   });
 
+  it.each([
+    ["/t/tenant-northstar/library", false],
+    ["/t/tenant-northstar/library/wiki", false],
+    ["/t/tenant-northstar/library/meetings/meeting-1", true],
+    ["/t/library-co/library/meetings/meeting-1", true],
+  ])(
+    "draws the Library sidebar for %s only where the page has one",
+    (pathname, sidebar) => {
+      render(<AuthenticatedRouteLoading pathname={pathname} rooms={[]} />);
+
+      expect(screen.queryByText("Shared with me") !== null).toBe(sidebar);
+    },
+  );
+
   it("renders skeleton chrome without stale sidebar labels while a Document loads", () => {
     render(
       <AuthenticatedRouteLoading
@@ -68,19 +82,5 @@ describe("AuthenticatedRouteLoading", () => {
     expect(
       screen.getByRole("status", { name: "Loading Document body" }),
     ).toBeVisible();
-  });
-
-  it("omits the obsolete sidebar placeholder while a Library route loads", () => {
-    const { container } = render(
-      <AuthenticatedRouteLoading
-        pathname="/t/tenant-northstar/library/meetings"
-        rooms={[]}
-      />,
-    );
-
-    expect(container.querySelector("aside")).toBeNull();
-    for (const item of ["Overview", "Search", "Wiki", "My pages"]) {
-      expect(screen.queryByText(item)).toBeNull();
-    }
   });
 });

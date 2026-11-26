@@ -1,9 +1,17 @@
 # Local Computer Daemon
 
 This Go module is the resident Local Computer Daemon.
+
 It carries the frozen Linger execution implementation needed for local process,
 provider, workspace, and daemon lifecycle behavior while adapting all product
 control through Linger's Runner Gateway.
+
+Each execution Context can run one Operation at a time. Different Contexts on
+the same Computer can run concurrently, subject to their model endpoint's
+queue. On upgrade, the Daemon removes the retired `max_concurrent_operations`
+setting from existing Computer configuration on first load. Existing
+`linger-computer login` scripts can still pass `--max-concurrent-runs` or
+`--no-max-concurrent-runs`. The CLI prints a warning and ignores both options.
 
 ## Ownership
 
@@ -110,10 +118,13 @@ authentication probe for Desktop setup and the local installer. It shares
 via `computerconfig.RuntimeEnvironment`) and `provider.Discover` (with
 `SkipModelCatalog: true`) with `linger-computer` and the resident Daemon.
 It accepts repeatable `--runtime <codex|claude|pi|antigravity>` (defaulting to
-`codex`, `claude`, and `pi`) and optional `--timeout-ms`, and emits a single
-`linger.daemon.runtime-probe/v1` JSON object on stdout carrying per-runtime
-`type`, `status`, `installed`, `authenticated`, redacted `version`,
-`required_version`, `executable`, and optional `error`.
+`codex`, `claude`, and `pi`), optional `--include-bundled` (off by default so
+setup inspection reports only host-installed runtimes; enabled for runtime
+reconciliation so bundled Pi is discovered when absent from `PATH`), and
+optional `--timeout-ms`, and emits a single `linger.daemon.runtime-probe/v1`
+JSON object on stdout carrying per-runtime `type`, `status`, `installed`,
+`authenticated`, redacted `version`, `required_version`, `executable`, and
+optional `error`.
 
 ## One-shot model calls
 
@@ -411,8 +422,10 @@ the `byok_endpoint` service feature. `localmodels` writes
 non-harness paths from before the rewrite alongside any `runtime_paths` that
 `apply` reported, without pinning paths inside `<home>/runtime/harness`. The
 Daemon re-reads the file on every discovery tick to overlay the Runtimes'
-environment (`OverlayEnvironment`) and executable paths (`OverlayRuntimePaths`),
-scanning `<home>/runtime/harness/bin/<runtime>` and the highest-version
+environment (`OverlayEnvironment`) and executable paths
+(`ResolveRuntimePathsWithBundled`, which keeps harness-managed Pi in
+`ManagedPaths` after user `PATH` and before bundled Pi), scanning
+`<home>/runtime/harness/bin/<runtime>` and the highest-version
 `<home>/runtime/harness/tools/<runtime>/<version>/<runtime>` on each read so
 managed Runtime updates take effect without rewriting `model-source.json`. It
 also drops any stale `byok-home` entry in `local` mode in favor of the managed
@@ -611,9 +624,12 @@ for a browser sign-in when signed out.
   is not zero finishes as failed. Otherwise
   the adapter selects the allow option, as the Runtime runs with the Agent's
   full local authority.
-- Antigravity reports a model error, such as a rejected API key, as reply text
-  and ends the turn with `end_turn`. With no structured signal, such a Run
-  completes and the Room shows the text.
+- Antigravity can report a model or preflight error (such as a rejected API key
+  or unsupported region) as plain text and end the turn with `end_turn` without
+  emitting model usage or any tool, thought, or plan activity. Because a normal
+  model turn reports usage or activity, the adapter fails such a Run, retires
+  the process instead of parking it, and surfaces the trimmed redacted notice in
+  `failure.detail` when the Agent Service announces `runtime_failure_detail`.
 - History reads, Local Skill scans and local models do not support
   Antigravity, so Agent Memory skips Antigravity Agents.
 - The Gateway hello leaves out the Antigravity diagnostic while `agy` is not
@@ -1035,7 +1051,13 @@ mouse events. Cua's background refusals, which recommend a foreground retry or
 background route instead. Cua 0.35.4 refuses a background scroll in a
 Chromium window, so the Agent reads such a page with a `get_window_state`
 query instead; elsewhere a list or pane scrolls by its own `element_token`
-through UI Automation. Windows Operations get `WindowsToolGuide`.
+through UI Automation. Before a `get_window_state` or an input names a
+minimized window by `window_id`, the Daemon restores that window without
+activating it and orders it right below the window in front, so the user's
+foreground window and keyboard focus stay unchanged and background input then
+reaches it. An input to a window the Daemon just restored is not sent: the
+element positions of the earlier read belonged to the minimized window, so the
+Agent reads the window again first. Windows Operations get `WindowsToolGuide`.
 
 Linux controls the signed-in user's X11 desktop. The driver `local_linux.py` is
 embedded in the Go binary; it reads windows through AT-SPI and sends input with

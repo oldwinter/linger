@@ -52,7 +52,6 @@ type Options struct {
 	OperationResolver   OperationResolver
 	RetryDelay          func(attempt int) time.Duration
 	DisplayName         string
-	Capacity            *int
 	Runtimes            []string
 	EnabledRuntimes     []string
 	RuntimeDiagnostics  json.RawMessage
@@ -163,6 +162,12 @@ type Daemon struct {
 	// modelGatewayUnavailable holds whether the current Agent Service declared
 	// serviceFeatureModelGatewayUnavailable in its welcome.
 	modelGatewayUnavailable atomic.Bool
+	// runtimeFailureDetail holds whether the current Agent Service declared
+	// serviceFeatureRuntimeFailureDetail in its welcome.
+	runtimeFailureDetail atomic.Bool
+	// operationBackgroundWait holds whether the current Agent Service declared
+	// serviceFeatureOperationBackgroundWait in its welcome.
+	operationBackgroundWait atomic.Bool
 	// authorityRevision counts, under admissionMu, the commands that can change
 	// what an accepted Operation may start with: Registration snapshots, Agent
 	// Runner commands and Context commands. A start whose revision is unchanged
@@ -201,7 +206,6 @@ type Daemon struct {
 	stableConnection    time.Duration
 	now                 func() time.Time
 	displayName         string
-	capacity            *int
 	runtimes            []string
 	runtimeDiagnostics  json.RawMessage
 	workspaceGrants     json.RawMessage
@@ -289,7 +293,6 @@ func New(options Options) (*Daemon, error) {
 		stableConnection:     stableGatewayConnection,
 		now:                  time.Now,
 		displayName:          options.DisplayName,
-		capacity:             options.Capacity,
 		runtimes:             append([]string(nil), options.Runtimes...),
 		runtimeDiagnostics:   append(json.RawMessage(nil), options.RuntimeDiagnostics...),
 		workspaceGrants:      append(json.RawMessage(nil), options.WorkspaceGrants...),
@@ -324,6 +327,7 @@ func New(options Options) (*Daemon, error) {
 func (d *Daemon) Run(ctx context.Context) error {
 	defer func() {
 		_, _ = native.StopAllParkedResidents()
+		_ = native.CloseAntigravitySharedHookEndpoint()
 		if d.modelInvoker != nil {
 			d.modelInvoker.Close()
 		}

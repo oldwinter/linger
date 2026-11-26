@@ -1,7 +1,7 @@
 import { AlertCircleIcon, Cancel01Icon } from "@hugeicons/core-free-icons";
 import type { components } from "@linger/wire-contracts/teamhub-public/types";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useSyncExternalStore } from "react";
 import { Link, useInRouterContext } from "react-router";
 
 import { Icon } from "@/components/ui/icon";
@@ -10,6 +10,11 @@ import { useT } from "@/i18n/use-translation";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
 
 import { anotherMeQueryOptions } from "../room-queries";
+import {
+  dismissBackgroundFailure,
+  readDismissedBackgroundFailure,
+  subscribeDismissedBackgroundFailures,
+} from "./another-me-background-failure-dismissal";
 import { chatMessages as m } from "./chat.messages";
 
 type BackgroundFailureReason =
@@ -23,8 +28,9 @@ const reasonMessages: Record<BackgroundFailureReason, Message<PluralForms>> = {
 };
 
 /** Tops the Another Me Chat while its background model calls keep failing.
- * TeamHub sends the failure from the third in a row and drops it after the
- * next completed call; dismissing acknowledges only the current failure batch. */
+ * TeamHub sends the failure from the third in a row and drops it once a call
+ * completes or the Runtime changes; the Human can also dismiss it for the
+ * current failure reason. */
 export function AnotherMeBackgroundFailureBanner({
   client,
   roomId,
@@ -36,14 +42,16 @@ export function AnotherMeBackgroundFailureBanner({
 }) {
   const t = useT();
   const inRouter = useInRouterContext();
-  const [dismissedKey, setDismissedKey] = useState<string | null>(null);
   const { data } = useQuery(anotherMeQueryOptions(client, tenantId));
   const failure =
     data?.room_id === roomId ? data.background_failure : undefined;
-  const failureKey = failure
-    ? `${failure.reason}:${failure.consecutive_failures}`
-    : null;
-  if (!failure || dismissedKey === failureKey) return null;
+  const dismissedReason = useSyncExternalStore(
+    subscribeDismissedBackgroundFailures,
+    () => readDismissedBackgroundFailure(tenantId, roomId),
+    () => undefined,
+  );
+
+  if (!failure || dismissedReason === failure.reason) return null;
   const message = Object.hasOwn(reasonMessages, failure.reason)
     ? reasonMessages[failure.reason]
     : m.backgroundFailedUnknown;
@@ -81,10 +89,12 @@ export function AnotherMeBackgroundFailureBanner({
             </a>
           )}
           <button
-            aria-label={t(m.backgroundFailedDismiss)}
+            aria-label={t(m.dismissBackgroundFailureNotice)}
             className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-[var(--app-status-danger-text)]/80 transition-colors hover:bg-background/60 hover:text-[var(--app-status-danger-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             data-voice-close=""
-            onClick={() => setDismissedKey(failureKey)}
+            onClick={() =>
+              dismissBackgroundFailure(tenantId, roomId, failure.reason)
+            }
             type="button"
           >
             <Icon icon={Cancel01Icon} size={14} />
