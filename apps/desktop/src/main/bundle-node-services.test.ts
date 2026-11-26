@@ -333,7 +333,9 @@ describe("bundleNodeServices isolated runtime verification", () => {
   let fixture: BundleFixture;
 
   beforeAll(async () => {
-    const workDir = mkdtempSync(path.join(tmpdir(), "bundle-node-services-"));
+    const workDir = realpathSync(
+      mkdtempSync(path.join(tmpdir(), "bundle-node-services-")),
+    );
     // Must live outside the repository so Node cannot fall back to workspace node_modules.
     expect(path.relative(REPO_ROOT, workDir).startsWith("..")).toBe(true);
     const servicesDir = path.join(workDir, "node-services");
