@@ -388,7 +388,7 @@ export function PdfPreviewAdapter({
       role="document"
     >
       <style>{pdfTextLayerStyle}</style>
-      <div className="flex min-h-11 shrink-0 flex-wrap items-center justify-center gap-1 border-b border-app-border bg-app-surface px-2 py-1">
+      <div className="flex min-h-11 shrink-0 flex-wrap items-center justify-center gap-1 bg-app-surface px-2 py-1">
         <Button
           aria-label={t(m.previousPdfPage)}
           disabled={!document || pageNumber <= 1}

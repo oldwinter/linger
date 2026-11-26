@@ -37,6 +37,9 @@ VIAddVersionKey "LegalCopyright" "LingerX"
 ; questions below stay visible. /S still installs without any window.
 Var Updating
 Var Relaunch
+; Set when an update's fast-path wait expires or the user clicks Retry: forces
+; the full --stop even during /update.
+Var ForceFullStop
 ; Set once the install starts replacing files: the earlier app can no longer
 ; start after a failure.
 Var Replacing
@@ -73,8 +76,9 @@ Function SkipWhenUpdating
   Abort
 FunctionEnd
 
-; A running LingerX holds its files open. Its services, run on LingerX.exe, are
-; stopped again on Retry, in case it started them before it quit.
+; A running LingerX holds its files open. On Retry, install forces a full
+; --stop (even during /update) before retrying in case services or an earlier
+; release still hold LingerX.exe; uninstall always runs the full --stop.
 !macro CLOSE_LINGER UN
 Function ${UN}CloseLinger
   retry:
@@ -85,6 +89,9 @@ Function ${UN}CloseLinger
   MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "LingerX is running. Quit it from its icon in the notification area, then select Retry." IDRETRY again
   Abort
   again:
+!if "${UN}" == ""
+  StrCpy $ForceFullStop 1
+!endif
   Call ${UN}StopLinger
   Goto retry
   done:
@@ -93,12 +100,16 @@ FunctionEnd
 !insertmacro CLOSE_LINGER ""
 !insertmacro CLOSE_LINGER "un."
 
-; Uninstalling, and installing over an earlier release, stops what LingerX
-; runs, so nothing keeps running or holds a file (the services run on
-; LingerX.exe as their Node): a running LingerX quits (index.ts), then an
-; installer script, run by the app's own Node, stops the installation manager
-; and the services of the local installation (TeamHub, web, node-services,
-; LiveKit, PostgreSQL). The script ends on its own after a time limit. An
+; Uninstalling, and manual installs over an earlier release, stop what LingerX
+; runs so nothing keeps running or holds a file: a running LingerX quits
+; (index.ts), then an installer script, run by the app's own Node, stops the
+; installation manager and the services of the local installation (TeamHub,
+; web, node-services, LiveKit, PostgreSQL). Self-updates (/update) skip that
+; initial --stop after --quit so warm external-Node services stay up for the
+; new version's in-place resume; if LingerX.exe is still locked after waiting
+; (such as upgrading from an earlier release whose services ran on LingerX.exe),
+; StopLinger falls back once to --stop before CloseLinger prompts, and Retry
+; always forces --stop. The script ends on its own after a time limit. An
 ; install goes on whatever it reports, and LingerX starts the services again.
 ; An uninstall that cannot stop them asks to retry; cancelled (or silent), it
 ; fails with exit code 1 and removes nothing, so it can be run again. Data
@@ -108,10 +119,20 @@ FunctionEnd
 ; $R0 is the installer script that stops the services.
 !macro STOP_LINGER UN
 Function ${UN}StopLinger
+!if "${UN}" == ""
+  StrCpy $2 0
+!endif
   IfFileExists "$INSTDIR\LingerX.exe" 0 done
   IfFileExists "${STOP_MARKER}" 0 stop
   ; Without a running LingerX this exits at once.
   ExecWait '"$INSTDIR\LingerX.exe" --quit'
+!if "${UN}" == ""
+  StrCmp $Updating 1 0 stop
+  StrCmp $ForceFullStop 1 stop 0
+  StrCpy $2 1
+  DetailPrint "Waiting for LingerX to close before updating..."
+  Goto wait_start
+!endif
   stop:
   IfFileExists "$R0" 0 stopped
   DetailPrint "Stopping LingerX on this computer..."
@@ -130,6 +151,9 @@ Function ${UN}StopLinger
   ; Only a release that was asked to quit is waited for; a running earlier
   ; one never exits on its own and CloseLinger asks at once.
   IfFileExists "${STOP_MARKER}" 0 done
+!if "${UN}" == ""
+  wait_start:
+!endif
   ; The app takes a moment to quit; CloseLinger asks after that.
   StrCpy $1 0
   wait:
@@ -137,9 +161,25 @@ Function ${UN}StopLinger
   Delete "$INSTDIR\LingerX.exe"
   IfErrors 0 done
   IntOp $1 $1 + 1
+!if "${UN}" == ""
+  IntCmp $1 20 wait_expired
+!else
   IntCmp $1 20 done
+!endif
   Sleep 500
   Goto wait
+!if "${UN}" == ""
+  wait_expired:
+  ; Self-update skipped the full stop so warm services stay up; if
+  ; LingerX.exe is still locked (for example upgrading from an earlier
+  ; release whose services ran on LingerX.exe), fall back once to the full
+  ; stop before CloseLinger prompts the user.
+  StrCmp $2 1 0 done
+  StrCpy $2 0
+  StrCpy $ForceFullStop 1
+  DetailPrint "LingerX is still in use; stopping local services before updating..."
+  Goto stop
+!endif
   done:
 FunctionEnd
 !macroend

@@ -291,9 +291,7 @@ export function ActionMenu({
                   onScroll={() => setActiveSubmenu(null)}
                 >
                   {header ? (
-                    <div className="-mx-1 mb-1 border-b border-border px-3 py-2">
-                      {header}
-                    </div>
+                    <div className="-mx-1 mb-1 px-3 py-2">{header}</div>
                   ) : null}
                   {items.map((item, index) => (
                     <ActionMenuItemButton
@@ -460,7 +458,7 @@ function ActionMenuItemButton({
   return (
     <div>
       {item.separatorBefore ? (
-        <div className="-mx-1 my-1 border-t border-border" role="separator" />
+        <div className="-mx-1 my-1" role="separator" />
       ) : null}
       <button
         aria-expanded={item.children ? submenuOpen : undefined}

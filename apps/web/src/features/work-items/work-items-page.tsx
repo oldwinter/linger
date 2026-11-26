@@ -453,7 +453,7 @@ function WorkItemsLoadedView({
 
   return (
     <main className="work-items-surface flex min-h-0 flex-1 flex-col overflow-hidden bg-app-surface">
-      <header className="work-items-header shrink-0 border-b border-app-border px-5 py-3 sm:px-8">
+      <header className="work-items-header shrink-0 px-5 py-3 sm:px-8">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="text-2xl text-foreground">{t(m.dashboard)}</h1>
@@ -1306,7 +1306,7 @@ function WorkItemColumn({
                 {item.mandate ? (
                   <WorkItemMandateNote mandate={item.mandate} />
                 ) : null}
-                <span className="mt-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 border-t border-app-border pt-2 text-[12px] leading-4 text-app-subtle">
+                <span className="mt-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 pt-2 text-[12px] leading-4 text-app-subtle">
                   <span className="flex min-w-0 items-center gap-2">
                     <span className="[overflow-wrap:anywhere]">
                       {originRoomLabel(item)}

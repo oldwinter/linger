@@ -62,12 +62,10 @@ const segmentColors = ["bg-rain-500", "bg-lichen-500", "bg-sun-500"] as const;
 const componentColor = "bg-muted-foreground/40";
 
 function Fact({
-  bordered = true,
   children,
   className,
   label,
 }: {
-  bordered?: boolean;
   children: ReactNode;
   className?: string;
   label: string;
@@ -76,7 +74,6 @@ function Fact({
     <div
       className={cn(
         "flex min-h-9 items-center gap-3 py-1.5 text-sm",
-        bordered && "border-t border-border/70",
         className,
       )}
     >
@@ -645,7 +642,7 @@ export function AdvancedDialog({
             <h3 className="mb-2 text-xs font-medium text-muted-foreground">
               {t(m.factMemory)}
             </h3>
-            <div className="divide-y divide-border rounded-xl border border-border bg-app-canvas/40 px-3.5">
+            <div className="rounded-xl border border-border bg-app-canvas/40 px-3.5">
               {view.pools.map((pool) => (
                 <PoolBar
                   colorOf={colorOf}
@@ -698,17 +695,12 @@ export function AdvancedDialog({
             </h3>
             <div className="rounded-xl border border-border bg-app-canvas/40 px-3.5">
               {host.os_label ? (
-                <Fact bordered={false} label={t(m.factSystem)}>
-                  {host.os_label}
-                </Fact>
+                <Fact label={t(m.factSystem)}>{host.os_label}</Fact>
               ) : null}
               {host.engine_label ? (
                 <Fact label={t(m.factEngine)}>{host.engine_label}</Fact>
               ) : null}
-              <Fact
-                bordered={Boolean(host.os_label || host.engine_label)}
-                label={t(m.factMemory)}
-              >
+              <Fact label={t(m.factMemory)}>
                 {formatGigabytes(host.ram_total_bytes, t)}
               </Fact>
               {host.gpus.map((gpu) => (

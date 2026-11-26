@@ -121,6 +121,7 @@ func (t *piTurn) noteFailure(message string) {
 	}
 	t.mu.Lock()
 	t.failure = message
+	t.aborted = false
 	t.mu.Unlock()
 }
 
@@ -206,7 +207,8 @@ func (t *piTurn) applyMessageEnd(message piWireMessage, observed time.Time) {
 		t.output = piFilterMarkup(t.output)
 	}
 	t.failure = ""
-	if message.StopReason == "error" || message.StopReason == "aborted" {
+	t.aborted = message.StopReason == "aborted"
+	if message.StopReason == "error" || t.aborted {
 		t.failure = message.ErrorMessage
 		if t.failure == "" {
 			t.failure = "Pi assistant message stopped: " + message.StopReason
@@ -259,13 +261,14 @@ func piMessageText(content json.RawMessage) string {
 // piToolActivities classifies Pi's built-in tools; MCP tools follow their
 // server and anything else is a generic tool.
 var piToolActivities = map[string]string{
-	"read":  ActivityRead,
-	"edit":  ActivityFileChange,
-	"write": ActivityFileChange,
-	"grep":  ActivitySearch,
-	"find":  ActivitySearch,
-	"ls":    ActivitySearch,
-	"bash":  ActivityCommand,
+	"read":       ActivityRead,
+	"edit":       ActivityFileChange,
+	"write":      ActivityFileChange,
+	"grep":       ActivitySearch,
+	"find":       ActivitySearch,
+	"ls":         ActivitySearch,
+	"bash":       ActivityCommand,
+	"powershell": ActivityCommand,
 }
 
 // piInvocationID hashes the whole native call id, so composite ids that
