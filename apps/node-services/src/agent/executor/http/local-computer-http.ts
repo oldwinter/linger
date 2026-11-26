@@ -11,6 +11,7 @@ import {
   LocalComputerPermissionError,
   LocalModelSourceError,
   LocalSkillOperationError,
+  LocalSystemTelemetryError,
   type LocalBrowserConnectionCommand,
   type LocalComputerPermissionCommand,
   type LocalComputerManagement,
@@ -26,7 +27,7 @@ import {
   validByokPath,
 } from "@linger/service-kit/byok-endpoint";
 
-type LocalComputerHttpStatus = 400 | 404 | 405 | 409 | 410 | 502 | 503;
+type LocalComputerHttpStatus = 400 | 404 | 405 | 409 | 410 | 502 | 503 | 504;
 
 export class LocalComputerHttpError extends Error {
   constructor(
@@ -58,6 +59,9 @@ export interface LocalComputerRouteHandlers {
   applyLocalComputerModelSource(context: Context): Promise<Response> | Response;
   testLocalComputerByok(context: Context): Promise<Response> | Response;
   listLocalComputerByokModels(context: Context): Promise<Response> | Response;
+  getLocalComputerSystemTelemetry(
+    context: Context,
+  ): Promise<Response> | Response;
 }
 
 export const createLocalComputerRouteHandlers = (options: {
@@ -334,6 +338,29 @@ export const createLocalComputerRouteHandlers = (options: {
       throw modelSourceRequestError(error);
     }
   },
+  getLocalComputerSystemTelemetry: async (context) => {
+    const available = requireLocalComputerManagement(
+      options.localComputerManagement,
+    );
+    if (!available.systemTelemetry) {
+      throw new LocalComputerHttpError(
+        503,
+        "SYSTEM_TELEMETRY_SERVICE_UNAVAILABLE",
+        "System telemetry is unavailable",
+      );
+    }
+    try {
+      const snapshot = await available.systemTelemetry({
+        tenantId: options.pathId(context, "tenantId"),
+        ownerActorId: options.pathId(context, "ownerActorId"),
+        computerId: options.pathId(context, "computerId"),
+        signal: context.req.raw.signal,
+      });
+      return writeJson(context, 200, snapshot);
+    } catch (error) {
+      throw systemTelemetryRequestError(error);
+    }
+  },
 });
 
 const requireModelSourceManagement = (
@@ -580,6 +607,56 @@ export function registerLocalComputerModelSourceRoutes(
   app.all(testPath, (context) => methodNotAllowed(context, "POST"));
   app.post(modelsPath, handlers.listLocalComputerByokModels);
   app.all(modelsPath, (context) => methodNotAllowed(context, "POST"));
+}
+
+const systemTelemetryRequestError = (error: unknown): Error => {
+  if (error instanceof LocalComputerHttpError) return error;
+  if (error instanceof LocalComputerOfflineError) {
+    return new LocalComputerHttpError(
+      503,
+      "LOCAL_COMPUTER_OFFLINE",
+      "Local Computer is offline",
+    );
+  }
+  if (error instanceof LocalComputerNotFoundError) {
+    return new LocalComputerHttpError(
+      404,
+      "local_computer_not_found",
+      "Local Computer was not found",
+    );
+  }
+  if (error instanceof LocalComputerCapabilityError) {
+    return new LocalComputerHttpError(
+      409,
+      "SYSTEM_TELEMETRY_UNSUPPORTED",
+      error.message,
+    );
+  }
+  if (error instanceof LocalSystemTelemetryError) {
+    if (error.code === "SYSTEM_TELEMETRY_UNSUPPORTED") {
+      return new LocalComputerHttpError(409, error.code, error.message);
+    }
+    if (
+      error.code === "SYSTEM_TELEMETRY_TIMEOUT" ||
+      error.code === "SYSTEM_TELEMETRY_EXPIRED"
+    ) {
+      return new LocalComputerHttpError(504, error.code, error.message);
+    }
+    return new LocalComputerHttpError(502, error.code, error.message);
+  }
+  return error instanceof Error
+    ? error
+    : new Error("System telemetry probe failed");
+};
+
+export function registerLocalComputerSystemTelemetryRoutes(
+  app: Hono,
+  handlers: Pick<LocalComputerRouteHandlers, "getLocalComputerSystemTelemetry">,
+): void {
+  const path =
+    "/v1/tenants/:tenantId/owners/:ownerActorId/local-computers/:computerId/system-telemetry";
+  app.get(path, handlers.getLocalComputerSystemTelemetry);
+  app.all(path, (context) => methodNotAllowed(context, "GET"));
 }
 
 const computerPermissions = async (

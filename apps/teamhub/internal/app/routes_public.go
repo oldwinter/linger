@@ -185,6 +185,8 @@ func (a *App) publicRoutes() []contractRoute {
 		route(http.MethodPost, "/v0/tenants/:tenantId/local-computers/:computerId/model-source", nil, session, a.switchLocalComputerModelSource),
 		route(http.MethodPost, "/v0/tenants/:tenantId/local-computers/:computerId/model-source/test", nil, session, a.testLocalComputerModelSource),
 		route(http.MethodPost, "/v0/tenants/:tenantId/local-computers/:computerId/model-source/models", nil, session, a.listLocalComputerByokModels),
+		route(http.MethodGet, "/v0/tenants/:tenantId/local-computers/:computerId/system-telemetry", nil, session, a.getLocalComputerSystemTelemetry),
+		route(http.MethodGet, "/v0/tenants/:tenantId/local-computers/:computerId/system-telemetry/stream", nil, session, a.streamLocalComputerSystemTelemetry),
 		route(http.MethodGet, "/v0/tenants/:tenantId/local-computers/:computerId/permissions", nil, session, a.getLocalComputerPermissions),
 		route(http.MethodPost, "/v0/tenants/:tenantId/local-computers/:computerId/permissions", nil, session, a.actOnLocalComputerPermission),
 		route(http.MethodPost, "/v0/tenants/:tenantId/local-computers/:computerId/skill-scans", nil, session, a.scanLocalSkills),
