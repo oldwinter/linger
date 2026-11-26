@@ -13,10 +13,12 @@ interface DocumentOrderingRequest {
 }
 
 interface WaitingOperation {
+  abort?: () => void;
   deadlineAt: number;
   queueName: string;
   reject(error: Error): void;
   resolve(lease: DocumentOrderingLease): void;
+  signal?: AbortSignal;
   timeout: ReturnType<typeof setTimeout>;
 }
 
@@ -39,16 +41,30 @@ export class DocumentOrderingQueue {
   acquireSessionLoad(
     documentId: string,
     timeoutMs: number,
+    signal?: AbortSignal,
   ): Promise<DocumentOrderingLease> {
-    return this.#acquire(documentId, timeoutMs, "Document session load queue")
-      .lease;
+    return this.#acquire(
+      documentId,
+      timeoutMs,
+      "Document session load queue",
+      signal,
+    ).lease;
   }
 
   #acquire(
     documentId: string,
     timeoutMs: number,
     queueName: string,
+    signal?: AbortSignal,
   ): DocumentOrderingRequest {
+    if (signal?.aborted) {
+      return {
+        lease: Promise.reject(
+          new RuntimeConnectionError("Document connection admission expired"),
+        ),
+        extendDeadline: () => undefined,
+      };
+    }
     const deadlineAt = Date.now() + timeoutMs;
     const existing = this.#documents.get(documentId);
     const state = existing ?? { active: false, waiting: [] };
@@ -72,9 +88,26 @@ export class DocumentOrderingQueue {
         queueName,
         reject,
         resolve,
+        ...(signal === undefined ? {} : { signal }),
         timeout: undefined as unknown as ReturnType<typeof setTimeout>,
       };
-      waiting.timeout = this.#waitingTimeout(state, waiting);
+      if (signal !== undefined) {
+        waiting.abort = () => {
+          const index = state.waiting.indexOf(waiting);
+          if (index >= 0) {
+            state.waiting.splice(index, 1);
+          }
+          clearTimeout(waiting.timeout);
+          if (!state.active && state.waiting.length === 0) {
+            this.#documents.delete(documentId);
+          }
+          waiting.reject(
+            new RuntimeConnectionError("Document connection admission expired"),
+          );
+        };
+        signal.addEventListener("abort", waiting.abort, { once: true });
+      }
+      waiting.timeout = this.#waitingTimeout(documentId, state, waiting);
       state.waiting.push(waiting);
     });
     return {
@@ -88,12 +121,13 @@ export class DocumentOrderingQueue {
         }
         waiting.deadlineAt = extendedDeadlineAt;
         clearTimeout(waiting.timeout);
-        waiting.timeout = this.#waitingTimeout(state, waiting);
+        waiting.timeout = this.#waitingTimeout(documentId, state, waiting);
       },
     };
   }
 
   #waitingTimeout(
+    documentId: string,
     state: DocumentOrderingState,
     waiting: WaitingOperation,
   ): ReturnType<typeof setTimeout> {
@@ -102,6 +136,12 @@ export class DocumentOrderingQueue {
         const index = state.waiting.indexOf(waiting);
         if (index >= 0) {
           state.waiting.splice(index, 1);
+        }
+        if (waiting.signal !== undefined && waiting.abort !== undefined) {
+          waiting.signal.removeEventListener("abort", waiting.abort);
+        }
+        if (!state.active && state.waiting.length === 0) {
+          this.#documents.delete(documentId);
         }
         waiting.reject(
           new RuntimeConnectionError(`${waiting.queueName} timed out`),
@@ -138,6 +178,9 @@ export class DocumentOrderingQueue {
         return;
       }
       clearTimeout(next.timeout);
+      if (next.signal !== undefined && next.abort !== undefined) {
+        next.signal.removeEventListener("abort", next.abort);
+      }
       if (next.deadlineAt <= Date.now()) {
         next.reject(new RuntimeConnectionError(`${next.queueName} timed out`));
         continue;

@@ -54,7 +54,10 @@
   loads the body and the Document's permission count in one statement and
   refuses the connection when the count differs from the token's or the
   Document is not an active native Document. A failed load is retried once
-  inside the admission window. It logs `document.connection_authenticated`,
+  inside the admission window. Before creating a new resident queue, `open`
+  serializes with `DocumentOrderingQueue` and reloads if a server change or
+  unload occurred after its initial load, so a stale snapshot never replaces a
+  newer body. It logs `document.connection_authenticated`,
   `document.connection_token_stale` and `document.body_load_retry`.
 - Frames read nothing from the database, except that a frame adding an Asset
   or Comment Thread reference the Document has not had before checks it once,
@@ -91,7 +94,9 @@
   the change's `operation_id` to the body's `server_operations` (the latest
   32); a change whose ID is already there returns the sequence and title it
   saved without applying it again, so TeamHub's retry after a lost commit is
-  idempotent. A behind
+  idempotent. On an open Document, both a stale save retry and an idempotent
+  `server_operations` hit reconcile the resident Y.Doc from `document_bodies`
+  and broadcast any newer body before retrying or returning. A behind
   `expected_seq` is a `stale_head` conflict. `importDocument` and
   `exportDocument` only compute and touch no database.
 - Connections are limited per token session (4) and in total (1,000); there

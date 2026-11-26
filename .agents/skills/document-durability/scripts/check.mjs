@@ -66,20 +66,24 @@ async function ensureTlcJar() {
   return CACHE_JAR;
 }
 
-function resolveJavaBinary(jarPath) {
-  const candidate = process.env.JAVA || "java";
-  const probe = spawnSync(candidate, ["-cp", jarPath, "tlc2.TLC", "-h"], {
+function canRunTlc(javaBin, jarPath) {
+  const probe = spawnSync(javaBin, ["-cp", jarPath, "tlc2.TLC", "-h"], {
     encoding: "utf8",
   });
-  if (probe.error === undefined && probe.status === 0) {
-    return candidate;
+  return probe.error === undefined && probe.status === 0;
+}
+
+function resolveJavaBinary(jarPath) {
+  if (process.env.JAVA) {
+    if (canRunTlc(process.env.JAVA, jarPath)) {
+      return process.env.JAVA;
+    }
+    throw new Error(
+      `JAVA (${process.env.JAVA}) cannot run tla2tools.jar v${TLC_VERSION}`,
+    );
   }
-  const output = `${probe.stdout ?? ""}\n${probe.stderr ?? ""}`;
-  const needsNewerJava =
-    probe.error !== undefined ||
-    /UnsupportedClassVersionError|class file version/i.test(output);
-  if (!needsNewerJava) {
-    return candidate;
+  if (canRunTlc("java", jarPath)) {
+    return "java";
   }
   const where = spawnSync(
     "mise",
@@ -89,7 +93,10 @@ function resolveJavaBinary(jarPath) {
     },
   );
   if (where.status === 0 && where.stdout.trim()) {
-    return where.stdout.trim();
+    const miseJava = where.stdout.trim();
+    if (canRunTlc(miseJava, jarPath)) {
+      return miseJava;
+    }
   }
   const install = spawnSync("mise", ["install", JAVA_FALLBACK_TOOL], {
     encoding: "utf8",

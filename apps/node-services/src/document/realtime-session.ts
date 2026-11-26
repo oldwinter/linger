@@ -10,15 +10,20 @@ import * as Y from "yjs";
 
 import type { DocumentBodyStore, LoadedDocumentBody } from "./bodies.js";
 import { DocumentDurabilityCoordinator } from "./realtime-durability.js";
+import type { DocumentOrderingQueue } from "./realtime-ordering.js";
 import type { RealtimeConnectionAdmission } from "./realtime-admission.js";
 import type {
   ConnectionDisconnects,
   DisconnectMark,
 } from "./connection-disconnects.js";
 import { documentLogger } from "./log.js";
-import { verifyConnectionToken } from "./connection-token.js";
+import {
+  verifyConnectionToken,
+  type ConnectionTokenClaims,
+} from "./connection-token.js";
 
 type DocumentDurableHead = components["schemas"]["DocumentDurableHead"];
+const defaultSessionLoadDeadlineMs = 14_000;
 
 export interface RoomDocumentConnectionContext {
   admission: RealtimeConnectionAdmission;
@@ -35,18 +40,24 @@ export class DocumentSessionManager {
   readonly #disconnects: ConnectionDisconnects;
   readonly #connectionTokenKey: string;
   readonly #durability: DocumentDurabilityCoordinator;
+  readonly #ordering: DocumentOrderingQueue;
   readonly #bodies: DocumentBodyStore;
+  readonly #loadDeadlineMs: number;
 
   constructor(input: {
     disconnects: ConnectionDisconnects;
     connectionTokenKey: string;
     durability: DocumentDurabilityCoordinator;
+    ordering: DocumentOrderingQueue;
     bodies: DocumentBodyStore;
+    loadDeadlineMs?: number;
   }) {
     this.#disconnects = input.disconnects;
     this.#connectionTokenKey = input.connectionTokenKey;
     this.#durability = input.durability;
+    this.#ordering = input.ordering;
     this.#bodies = input.bodies;
+    this.#loadDeadlineMs = input.loadDeadlineMs ?? defaultSessionLoadDeadlineMs;
   }
 
   // The token is the connection's whole authorization: TeamHub signed it with
@@ -69,36 +80,42 @@ export class DocumentSessionManager {
     // Taken before the load, so a disconnect that lands while the body loads
     // still covers this connection.
     const disconnectMark = this.#disconnects.mark(documentId, claims.actorId);
+    const bodyWatch = this.#durability.watchOpenBody(documentId);
     try {
-      const loaded = await this.#load(documentId, admission.signal);
-      if (loaded === undefined) {
-        throw new RuntimeConnectionError("Document authentication is invalid");
-      }
-      if (loaded.permissionCount !== claims.permissionCount) {
-        documentLogger().log("warn", "document.connection_token_stale", {
-          document_id: documentId,
-          actor_id: claims.actorId,
-          session_id: claims.sessionId,
-          token_permission_count: claims.permissionCount,
-          permission_count: loaded.permissionCount,
-        });
-        throw new RuntimeConnectionError(
-          "Document permissions changed since the connection token was issued",
-        );
-      }
-      const head = await admission.runRecovery(async () =>
-        verifyDocumentBody(documentId, loaded),
+      let { loaded, head } = await this.#loadAndVerify(
+        documentId,
+        claims,
+        admission,
       );
       this.#assertConnected(documentId, claims.actorId, disconnectMark);
-      const registered = this.#durability.registerDocument({
-        documentId,
-        head,
-        stateBytes: loaded.state,
-        references: {
-          document_asset_ids: loaded.assetIds,
-          document_thread_ids: loaded.threadIds,
-        },
-      });
+      let registered: { head: DocumentDurableHead; stateBytes: Uint8Array };
+      if (this.#durability.hasDocument(documentId)) {
+        registered = this.#registerLoaded(documentId, head, loaded);
+      } else {
+        // Serialize first registration with server changes so an unopen
+        // change cannot commit after our load and skip publish.
+        const lease = await this.#ordering.acquireSessionLoad(
+          documentId,
+          this.#loadDeadlineMs,
+          admission.signal,
+        );
+        try {
+          if (
+            !this.#durability.hasDocument(documentId) &&
+            bodyWatch.isStale()
+          ) {
+            ({ loaded, head } = await this.#loadAndVerify(
+              documentId,
+              claims,
+              admission,
+            ));
+          }
+          this.#assertConnected(documentId, claims.actorId, disconnectMark);
+          registered = this.#registerLoaded(documentId, head, loaded);
+        } finally {
+          lease.release();
+        }
+      }
       documentLogger().log("info", "document.connection_authenticated", {
         document_id: documentId,
         actor_id: claims.actorId,
@@ -119,7 +136,52 @@ export class DocumentSessionManager {
     } catch (error) {
       disconnectMark.release();
       throw error;
+    } finally {
+      bodyWatch.release();
     }
+  }
+
+  async #loadAndVerify(
+    documentId: string,
+    claims: ConnectionTokenClaims,
+    admission: RealtimeConnectionAdmission,
+  ): Promise<{ loaded: LoadedDocumentBody; head: DocumentDurableHead }> {
+    const loaded = await this.#load(documentId, admission.signal);
+    if (loaded === undefined) {
+      throw new RuntimeConnectionError("Document authentication is invalid");
+    }
+    if (loaded.permissionCount !== claims.permissionCount) {
+      documentLogger().log("warn", "document.connection_token_stale", {
+        document_id: documentId,
+        actor_id: claims.actorId,
+        session_id: claims.sessionId,
+        token_permission_count: claims.permissionCount,
+        permission_count: loaded.permissionCount,
+      });
+      throw new RuntimeConnectionError(
+        "Document permissions changed since the connection token was issued",
+      );
+    }
+    const head = await admission.runRecovery(async () =>
+      verifyDocumentBody(documentId, loaded),
+    );
+    return { loaded, head };
+  }
+
+  #registerLoaded(
+    documentId: string,
+    head: DocumentDurableHead,
+    loaded: LoadedDocumentBody,
+  ): { head: DocumentDurableHead; stateBytes: Uint8Array } {
+    return this.#durability.registerDocument({
+      documentId,
+      head,
+      stateBytes: loaded.state,
+      references: {
+        document_asset_ids: loaded.assetIds,
+        document_thread_ids: loaded.threadIds,
+      },
+    });
   }
 
   // One retry covers a dropped database connection inside the admission
