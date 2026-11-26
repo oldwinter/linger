@@ -58,13 +58,14 @@
     },
     "platform": {
       "owner": "out-of-env",
-      "description": "Variables injected by the runtime environment: image build info, the teamhub-cli runtime, Computer on user machines, deployment platforms, and the Room Document E2E harness. On Linux the Computer reads the desktop session's DISPLAY and WAYLAND_DISPLAY before it opens a browser window. The Computer finds the user's herdr socket through HERDR_SOCKET_PATH and herdr-core (hc) session/socket through HC_SESSION and HC_SOCKET. The Desktop WSL launcher and Windows Local Computer Daemon use WSLENV and WSL_DISTRO_NAME to forward TeamHub CLI configuration and resolve local attachment paths across the Windows/WSL boundary. Not part of .env.",
+      "description": "Variables injected by the runtime environment: image build info, the teamhub-cli runtime, Computer on user machines, deployment platforms, and the Room Document E2E harness. On Linux the Computer reads the desktop session's DISPLAY and WAYLAND_DISPLAY before it opens a browser window. The Computer and Desktop find the user's herdr socket through HERDR_SOCKET_PATH and herdr-core (hc) install/session/socket through HC_INSTALL_DIR, HC_SESSION, and HC_SOCKET. The Desktop WSL launcher and Windows Local Computer Daemon use WSLENV and WSL_DISTRO_NAME to forward TeamHub CLI configuration and resolve local attachment paths across the Windows/WSL boundary. Not part of .env.",
       "names": [
         "APP_VERSION",
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
         "CLAUDE_CONFIG_DIR",
         "CODEX_HOME",
         "DISPLAY",
+        "HC_INSTALL_DIR",
         "HC_SESSION",
         "HC_SOCKET",
         "PI_CODING_AGENT_DIR",
