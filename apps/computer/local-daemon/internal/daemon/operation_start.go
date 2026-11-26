@@ -205,6 +205,9 @@ func (d *Daemon) operationEventEmitter(command protocol.Command, identity Operat
 		// cancelled; skipping its send would put a later event, such as the
 		// cancelled terminal, on the wire first.
 		connectionLockWait, sendDuration := d.deliverRecordedOperationEvent(context.WithoutCancel(emitCtx), recorded)
+		if event.Type == protocol.EventOperationEvent {
+			d.observeOperationTelemetry(command, event.Payload)
+		}
 		// Only the first run.started frame is logged at Info; later frames stay at Debug.
 		level := slog.LevelDebug
 		if !runStartedLogged && event.Type == protocol.EventOperationEvent && payloadType(event.Payload) == "run.started" {

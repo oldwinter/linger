@@ -39,6 +39,7 @@ import (
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/provider/native"
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/provider/redact"
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/selfupdate"
+	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/telemetry"
 	localworkspace "github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/workspace"
 	wire "github.com/simplexai-labs/linger/contracts-go/runnergateway"
 )
@@ -455,6 +456,10 @@ func run(args []string) (resultErr error) {
 		herdrClient = &herdr.Client{Socket: installation.Socket}
 		herdrPanes = herdrClient
 	}
+	telemetryCollector := telemetry.NewCollector(telemetry.Options{
+		SnapshotLocalModels: localModels.Snapshot,
+		LocalModelsStateDir: localModelsStateDir,
+	})
 	localDaemon, err = daemon.New(daemon.Options{
 		ComputerID: computer.ComputerID, DisplayName: computer.DisplayName,
 		Runtimes:           runtimes,
@@ -484,6 +489,8 @@ func run(args []string) (resultErr error) {
 		HerdrPanes:          herdrPanes,
 		LocalModels:         localModels,
 		ModelSource:         modelSource,
+		SystemTelemetry:     telemetryCollector,
+		TelemetryTracker:    telemetryCollector.Tracker(),
 		ModelInvoker: provider.ModelInvoker{
 			TempBase:         operationTempBase,
 			ClaudeConfigRoot: filepath.Join(computer.StateDirectory, "model-invoke", "claude", ".claude"),

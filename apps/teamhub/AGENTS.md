@@ -21,6 +21,10 @@ Go service owning Human HTTP/SSE, Agent callbacks, and active product state.
 
 - `internal/app`: routing, authentication, request decoding, response encoding,
   and error mapping. `app.go` and `feature*.go` build the domain services.
+  `handlers_system_telemetry.go` serves owner-only live Local Computer hardware
+  and inference telemetry snapshots (`GET .../system-telemetry`) and 1 Hz SSE
+  streams (`GET .../system-telemetry/stream`) by proxying through Node Services
+  and returning `supported: false` cleanly for Daemons older than `0.67.0`.
 - Connector authorization defaults to the public Web callback. For a desktop
   request, pass only a validated one-time loopback address to Composio.
   TeamHub verifies connection status independently under the signed-in Account.

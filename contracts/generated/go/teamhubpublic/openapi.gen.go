@@ -3953,6 +3953,309 @@ func (e SlackConversationKind) Valid() bool {
 	}
 }
 
+// Defines values for SystemTelemetryArch.
+const (
+	SystemTelemetryArchArm64 SystemTelemetryArch = "arm64"
+	SystemTelemetryArchX8664 SystemTelemetryArch = "x86_64"
+)
+
+// Valid indicates whether the value is a known member of the SystemTelemetryArch enum.
+func (e SystemTelemetryArch) Valid() bool {
+	switch e {
+	case SystemTelemetryArchArm64:
+		return true
+	case SystemTelemetryArchX8664:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SystemTelemetryArchitecture.
+const (
+	SystemTelemetryArchitectureDiscrete SystemTelemetryArchitecture = "discrete"
+	SystemTelemetryArchitectureUma      SystemTelemetryArchitecture = "uma"
+)
+
+// Valid indicates whether the value is a known member of the SystemTelemetryArchitecture enum.
+func (e SystemTelemetryArchitecture) Valid() bool {
+	switch e {
+	case SystemTelemetryArchitectureDiscrete:
+		return true
+	case SystemTelemetryArchitectureUma:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SystemTelemetryBandwidthSource.
+const (
+	SystemTelemetryBandwidthSourceEstimated   SystemTelemetryBandwidthSource = "estimated"
+	SystemTelemetryBandwidthSourceUnavailable SystemTelemetryBandwidthSource = "unavailable"
+)
+
+// Valid indicates whether the value is a known member of the SystemTelemetryBandwidthSource enum.
+func (e SystemTelemetryBandwidthSource) Valid() bool {
+	switch e {
+	case SystemTelemetryBandwidthSourceEstimated:
+		return true
+	case SystemTelemetryBandwidthSourceUnavailable:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SystemTelemetryBottleneckKind.
+const (
+	SystemTelemetryBottleneckHealthy             SystemTelemetryBottleneckKind = "healthy"
+	SystemTelemetryBottleneckIdle                SystemTelemetryBottleneckKind = "idle"
+	SystemTelemetryBottleneckKvCacheBound        SystemTelemetryBottleneckKind = "kv_cache_bound"
+	SystemTelemetryBottleneckMemoryBwBound       SystemTelemetryBottleneckKind = "memory_bw_bound"
+	SystemTelemetryBottleneckPrefillComputeBound SystemTelemetryBottleneckKind = "prefill_compute_bound"
+	SystemTelemetryBottleneckThermalThrottled    SystemTelemetryBottleneckKind = "thermal_throttled"
+	SystemTelemetryBottleneckVramPressure        SystemTelemetryBottleneckKind = "vram_pressure"
+)
+
+// Valid indicates whether the value is a known member of the SystemTelemetryBottleneckKind enum.
+func (e SystemTelemetryBottleneckKind) Valid() bool {
+	switch e {
+	case SystemTelemetryBottleneckHealthy:
+		return true
+	case SystemTelemetryBottleneckIdle:
+		return true
+	case SystemTelemetryBottleneckKvCacheBound:
+		return true
+	case SystemTelemetryBottleneckMemoryBwBound:
+		return true
+	case SystemTelemetryBottleneckPrefillComputeBound:
+		return true
+	case SystemTelemetryBottleneckThermalThrottled:
+		return true
+	case SystemTelemetryBottleneckVramPressure:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SystemTelemetryBottleneckSeverity.
+const (
+	SystemTelemetryBottleneckSeverityCritical SystemTelemetryBottleneckSeverity = "critical"
+	SystemTelemetryBottleneckSeverityHealthy  SystemTelemetryBottleneckSeverity = "healthy"
+	SystemTelemetryBottleneckSeverityInfo     SystemTelemetryBottleneckSeverity = "info"
+	SystemTelemetryBottleneckSeverityWarning  SystemTelemetryBottleneckSeverity = "warning"
+)
+
+// Valid indicates whether the value is a known member of the SystemTelemetryBottleneckSeverity enum.
+func (e SystemTelemetryBottleneckSeverity) Valid() bool {
+	switch e {
+	case SystemTelemetryBottleneckSeverityCritical:
+		return true
+	case SystemTelemetryBottleneckSeverityHealthy:
+		return true
+	case SystemTelemetryBottleneckSeverityInfo:
+		return true
+	case SystemTelemetryBottleneckSeverityWarning:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SystemTelemetryCpuClusterKind.
+const (
+	SystemTelemetryCpuClusterKindEfficiency  SystemTelemetryCpuClusterKind = "efficiency"
+	SystemTelemetryCpuClusterKindGeneric     SystemTelemetryCpuClusterKind = "generic"
+	SystemTelemetryCpuClusterKindPerformance SystemTelemetryCpuClusterKind = "performance"
+	SystemTelemetryCpuClusterKindSuper       SystemTelemetryCpuClusterKind = "super"
+)
+
+// Valid indicates whether the value is a known member of the SystemTelemetryCpuClusterKind enum.
+func (e SystemTelemetryCpuClusterKind) Valid() bool {
+	switch e {
+	case SystemTelemetryCpuClusterKindEfficiency:
+		return true
+	case SystemTelemetryCpuClusterKindGeneric:
+		return true
+	case SystemTelemetryCpuClusterKindPerformance:
+		return true
+	case SystemTelemetryCpuClusterKindSuper:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SystemTelemetryErrorCode.
+const (
+	SystemTelemetryErrorCodeFailed               SystemTelemetryErrorCode = "SYSTEM_TELEMETRY_FAILED"
+	SystemTelemetryErrorCodeLocalComputerOffline SystemTelemetryErrorCode = "LOCAL_COMPUTER_OFFLINE"
+	SystemTelemetryErrorCodeServiceUnavailable   SystemTelemetryErrorCode = "SYSTEM_TELEMETRY_SERVICE_UNAVAILABLE"
+	SystemTelemetryErrorCodeTimeout              SystemTelemetryErrorCode = "SYSTEM_TELEMETRY_TIMEOUT"
+	SystemTelemetryErrorCodeUnsupported          SystemTelemetryErrorCode = "SYSTEM_TELEMETRY_UNSUPPORTED"
+)
+
+// Valid indicates whether the value is a known member of the SystemTelemetryErrorCode enum.
+func (e SystemTelemetryErrorCode) Valid() bool {
+	switch e {
+	case SystemTelemetryErrorCodeFailed:
+		return true
+	case SystemTelemetryErrorCodeLocalComputerOffline:
+		return true
+	case SystemTelemetryErrorCodeServiceUnavailable:
+		return true
+	case SystemTelemetryErrorCodeTimeout:
+		return true
+	case SystemTelemetryErrorCodeUnsupported:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SystemTelemetryMemoryPressure.
+const (
+	SystemTelemetryMemoryPressureCritical SystemTelemetryMemoryPressure = "critical"
+	SystemTelemetryMemoryPressureNormal   SystemTelemetryMemoryPressure = "normal"
+	SystemTelemetryMemoryPressureWarning  SystemTelemetryMemoryPressure = "warning"
+)
+
+// Valid indicates whether the value is a known member of the SystemTelemetryMemoryPressure enum.
+func (e SystemTelemetryMemoryPressure) Valid() bool {
+	switch e {
+	case SystemTelemetryMemoryPressureCritical:
+		return true
+	case SystemTelemetryMemoryPressureNormal:
+		return true
+	case SystemTelemetryMemoryPressureWarning:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SystemTelemetryModelEngine.
+const (
+	SystemTelemetryModelEngineLlamaCpp   SystemTelemetryModelEngine = "llama.cpp"
+	SystemTelemetryModelEngineMlx        SystemTelemetryModelEngine = "mlx"
+	SystemTelemetryModelEngineOther      SystemTelemetryModelEngine = "other"
+	SystemTelemetryModelEnginePolystrata SystemTelemetryModelEngine = "polystrata"
+	SystemTelemetryModelEngineStrata     SystemTelemetryModelEngine = "strata"
+)
+
+// Valid indicates whether the value is a known member of the SystemTelemetryModelEngine enum.
+func (e SystemTelemetryModelEngine) Valid() bool {
+	switch e {
+	case SystemTelemetryModelEngineLlamaCpp:
+		return true
+	case SystemTelemetryModelEngineMlx:
+		return true
+	case SystemTelemetryModelEngineOther:
+		return true
+	case SystemTelemetryModelEnginePolystrata:
+		return true
+	case SystemTelemetryModelEngineStrata:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SystemTelemetryModelStatus.
+const (
+	SystemTelemetryModelStatusDecoding   SystemTelemetryModelStatus = "decoding"
+	SystemTelemetryModelStatusIdle       SystemTelemetryModelStatus = "idle"
+	SystemTelemetryModelStatusPrefilling SystemTelemetryModelStatus = "prefilling"
+	SystemTelemetryModelStatusServing    SystemTelemetryModelStatus = "serving"
+)
+
+// Valid indicates whether the value is a known member of the SystemTelemetryModelStatus enum.
+func (e SystemTelemetryModelStatus) Valid() bool {
+	switch e {
+	case SystemTelemetryModelStatusDecoding:
+		return true
+	case SystemTelemetryModelStatusIdle:
+		return true
+	case SystemTelemetryModelStatusPrefilling:
+		return true
+	case SystemTelemetryModelStatusServing:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SystemTelemetryPlatform.
+const (
+	SystemTelemetryPlatformDarwin  SystemTelemetryPlatform = "darwin"
+	SystemTelemetryPlatformLinux   SystemTelemetryPlatform = "linux"
+	SystemTelemetryPlatformWindows SystemTelemetryPlatform = "windows"
+)
+
+// Valid indicates whether the value is a known member of the SystemTelemetryPlatform enum.
+func (e SystemTelemetryPlatform) Valid() bool {
+	switch e {
+	case SystemTelemetryPlatformDarwin:
+		return true
+	case SystemTelemetryPlatformLinux:
+		return true
+	case SystemTelemetryPlatformWindows:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SystemTelemetryRequestStage.
+const (
+	SystemTelemetryRequestStageCompleted  SystemTelemetryRequestStage = "completed"
+	SystemTelemetryRequestStageDecoding   SystemTelemetryRequestStage = "decoding"
+	SystemTelemetryRequestStagePrefilling SystemTelemetryRequestStage = "prefilling"
+	SystemTelemetryRequestStageQueued     SystemTelemetryRequestStage = "queued"
+)
+
+// Valid indicates whether the value is a known member of the SystemTelemetryRequestStage enum.
+func (e SystemTelemetryRequestStage) Valid() bool {
+	switch e {
+	case SystemTelemetryRequestStageCompleted:
+		return true
+	case SystemTelemetryRequestStageDecoding:
+		return true
+	case SystemTelemetryRequestStagePrefilling:
+		return true
+	case SystemTelemetryRequestStageQueued:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SystemTelemetryThermalState.
+const (
+	SystemTelemetryThermalStateCritical SystemTelemetryThermalState = "critical"
+	SystemTelemetryThermalStateFair     SystemTelemetryThermalState = "fair"
+	SystemTelemetryThermalStateNominal  SystemTelemetryThermalState = "nominal"
+	SystemTelemetryThermalStateSerious  SystemTelemetryThermalState = "serious"
+)
+
+// Valid indicates whether the value is a known member of the SystemTelemetryThermalState enum.
+func (e SystemTelemetryThermalState) Valid() bool {
+	switch e {
+	case SystemTelemetryThermalStateCritical:
+		return true
+	case SystemTelemetryThermalStateFair:
+		return true
+	case SystemTelemetryThermalStateNominal:
+		return true
+	case SystemTelemetryThermalStateSerious:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for TaskAttemptSummaryStatus.
 const (
 	TaskAttemptSummaryStatusPassed  TaskAttemptSummaryStatus = "passed"
@@ -9592,6 +9895,285 @@ type SlackConversationPage struct {
 // StateVector defines model for StateVector.
 type StateVector = string
 
+// SystemTelemetryArch defines model for SystemTelemetryArch.
+type SystemTelemetryArch string
+
+// SystemTelemetryArchitecture Host memory architecture class.
+type SystemTelemetryArchitecture string
+
+// SystemTelemetryBandwidth defines model for SystemTelemetryBandwidth.
+type SystemTelemetryBandwidth struct {
+	EffectiveDecodeGbS *float32 `json:"effective_decode_gb_s,omitempty"`
+
+	// Source Provenance of effective decode bandwidth. estimated means derived from active model weight footprint multiplied by live decode tokens/s.
+	Source         SystemTelemetryBandwidthSource `json:"source"`
+	TheoreticalGbS *float32                       `json:"theoretical_gb_s,omitempty"`
+	UtilizationPct *float32                       `json:"utilization_pct,omitempty"`
+}
+
+// SystemTelemetryBandwidthSource Provenance of effective decode bandwidth. estimated means derived from active model weight footprint multiplied by live decode tokens/s.
+type SystemTelemetryBandwidthSource string
+
+// SystemTelemetryBottleneck defines model for SystemTelemetryBottleneck.
+type SystemTelemetryBottleneck struct {
+	DominantFactorPct *float32                          `json:"dominant_factor_pct,omitempty"`
+	Kind              SystemTelemetryBottleneckKind     `json:"kind"`
+	ReasonCode        string                            `json:"reason_code"`
+	Severity          SystemTelemetryBottleneckSeverity `json:"severity"`
+}
+
+// SystemTelemetryBottleneckKind defines model for SystemTelemetryBottleneckKind.
+type SystemTelemetryBottleneckKind string
+
+// SystemTelemetryBottleneckSeverity defines model for SystemTelemetryBottleneckSeverity.
+type SystemTelemetryBottleneckSeverity string
+
+// SystemTelemetryCpu defines model for SystemTelemetryCpu.
+type SystemTelemetryCpu struct {
+	Clusters   []SystemTelemetryCpuCluster `json:"clusters"`
+	LoadAvg    *[]float32                  `json:"load_avg,omitempty"`
+	LoadPct    *float32                    `json:"load_pct,omitempty"`
+	TotalCores int                         `json:"total_cores"`
+}
+
+// SystemTelemetryCpuCluster defines model for SystemTelemetryCpuCluster.
+type SystemTelemetryCpuCluster struct {
+	Cores   int                           `json:"cores"`
+	FreqGhz *float32                      `json:"freq_ghz,omitempty"`
+	Id      string                        `json:"id"`
+	Kind    SystemTelemetryCpuClusterKind `json:"kind"`
+	LoadPct *float32                      `json:"load_pct,omitempty"`
+	Name    string                        `json:"name"`
+}
+
+// SystemTelemetryCpuClusterKind defines model for SystemTelemetryCpuClusterKind.
+type SystemTelemetryCpuClusterKind string
+
+// SystemTelemetryDisk defines model for SystemTelemetryDisk.
+type SystemTelemetryDisk struct {
+	FreeBytes       *int64   `json:"free_bytes,omitempty"`
+	ModelCacheBytes *int64   `json:"model_cache_bytes,omitempty"`
+	ReadMbS         *float32 `json:"read_mb_s,omitempty"`
+	TotalBytes      *int64   `json:"total_bytes,omitempty"`
+	WriteMbS        *float32 `json:"write_mb_s,omitempty"`
+}
+
+// SystemTelemetryError defines model for SystemTelemetryError.
+type SystemTelemetryError struct {
+	Code      SystemTelemetryErrorCode `json:"code"`
+	Details   *[]ErrorDetail           `json:"details,omitempty"`
+	Message   string                   `json:"message"`
+	RequestId string                   `json:"request_id"`
+}
+
+// SystemTelemetryErrorCode defines model for SystemTelemetryErrorCode.
+type SystemTelemetryErrorCode string
+
+// SystemTelemetryErrorResponse defines model for SystemTelemetryErrorResponse.
+type SystemTelemetryErrorResponse struct {
+	Error SystemTelemetryError `json:"error"`
+}
+
+// SystemTelemetryGpu defines model for SystemTelemetryGpu.
+type SystemTelemetryGpu struct {
+	AllocSystemBytes *int64   `json:"alloc_system_bytes,omitempty"`
+	AneUtilPct       *float32 `json:"ane_util_pct,omitempty"`
+	FreqMhz          *float32 `json:"freq_mhz,omitempty"`
+	InUseSystemBytes *int64   `json:"in_use_system_bytes,omitempty"`
+	MaxFreqMhz       *float32 `json:"max_freq_mhz,omitempty"`
+	RendererPct      *float32 `json:"renderer_pct,omitempty"`
+	TilerPct         *float32 `json:"tiler_pct,omitempty"`
+	UtilPct          *float32 `json:"util_pct,omitempty"`
+}
+
+// SystemTelemetryHardware defines model for SystemTelemetryHardware.
+type SystemTelemetryHardware struct {
+	AneCores *int                `json:"ane_cores,omitempty"`
+	Arch     SystemTelemetryArch `json:"arch"`
+
+	// Architecture Host memory architecture class.
+	Architecture SystemTelemetryArchitecture `json:"architecture"`
+	Bandwidth    SystemTelemetryBandwidth    `json:"bandwidth"`
+	ChipName     string                      `json:"chip_name"`
+	Cpu          SystemTelemetryCpu          `json:"cpu"`
+	Disk         SystemTelemetryDisk         `json:"disk"`
+	Gpu          SystemTelemetryGpu          `json:"gpu"`
+	GpuCoreCount *int                        `json:"gpu_core_count,omitempty"`
+	GpuName      *string                     `json:"gpu_name,omitempty"`
+	Hostname     string                      `json:"hostname"`
+	Memory       SystemTelemetryMemory       `json:"memory"`
+	OsLabel      string                      `json:"os_label"`
+	Platform     SystemTelemetryPlatform     `json:"platform"`
+	Power        SystemTelemetryPower        `json:"power"`
+	Thermal      SystemTelemetryThermal      `json:"thermal"`
+}
+
+// SystemTelemetryInference defines model for SystemTelemetryInference.
+type SystemTelemetryInference struct {
+	ActiveRequestsCount          int                          `json:"active_requests_count"`
+	ActiveSlots                  int                          `json:"active_slots"`
+	BandwidthEfficiencyPct       *float32                     `json:"bandwidth_efficiency_pct,omitempty"`
+	Bottleneck                   SystemTelemetryBottleneck    `json:"bottleneck"`
+	DecodeTokS                   float32                      `json:"decode_tok_s"`
+	KvCacheTokensCapacity        int64                        `json:"kv_cache_tokens_capacity"`
+	KvCacheTokensUsed            int64                        `json:"kv_cache_tokens_used"`
+	KvCacheUsedPct               *float32                     `json:"kv_cache_used_pct,omitempty"`
+	LoadedModels                 []SystemTelemetryLoadedModel `json:"loaded_models"`
+	PrefillTokS                  float32                      `json:"prefill_tok_s"`
+	PrefixCacheHitRatePct        *float32                     `json:"prefix_cache_hit_rate_pct,omitempty"`
+	QueuedRequestsCount          int                          `json:"queued_requests_count"`
+	Requests                     []SystemTelemetryRequest     `json:"requests"`
+	Slots                        []SystemTelemetrySlot        `json:"slots"`
+	TheoreticalDecodeCeilingTokS *float32                     `json:"theoretical_decode_ceiling_tok_s,omitempty"`
+	TotalSlots                   int                          `json:"total_slots"`
+	TotalTokensSession           int64                        `json:"total_tokens_session"`
+	TtftLiveMs                   *float32                     `json:"ttft_live_ms,omitempty"`
+	TtftP50Ms                    *float32                     `json:"ttft_p50_ms,omitempty"`
+	TtftP95Ms                    *float32                     `json:"ttft_p95_ms,omitempty"`
+}
+
+// SystemTelemetryLoadedModel defines model for SystemTelemetryLoadedModel.
+type SystemTelemetryLoadedModel struct {
+	ActiveSlots           int                        `json:"active_slots"`
+	ContextWindow         int64                      `json:"context_window"`
+	Engine                SystemTelemetryModelEngine `json:"engine"`
+	Id                    string                     `json:"id"`
+	KeepAliveRemainingSec *int64                     `json:"keep_alive_remaining_sec,omitempty"`
+	KvBytes               *int64                     `json:"kv_bytes,omitempty"`
+	Name                  string                     `json:"name"`
+	Quant                 string                     `json:"quant"`
+	RamBytes              *int64                     `json:"ram_bytes,omitempty"`
+	Slots                 int                        `json:"slots"`
+	Status                SystemTelemetryModelStatus `json:"status"`
+	VramBytes             int64                      `json:"vram_bytes"`
+	WarmDecodeTokS        *float32                   `json:"warm_decode_tok_s,omitempty"`
+	WarmPrefillTokS       *float32                   `json:"warm_prefill_tok_s,omitempty"`
+}
+
+// SystemTelemetryMemory defines model for SystemTelemetryMemory.
+type SystemTelemetryMemory struct {
+	ActiveAppsBytes            int64                          `json:"active_apps_bytes"`
+	CompressedBytes            int64                          `json:"compressed_bytes"`
+	ComputeBufferBytes         int64                          `json:"compute_buffer_bytes"`
+	FreeHeadroomBytes          int64                          `json:"free_headroom_bytes"`
+	KvCacheBytes               int64                          `json:"kv_cache_bytes"`
+	MemoryPressure             *SystemTelemetryMemoryPressure `json:"memory_pressure,omitempty"`
+	ModelWeightsBytes          int64                          `json:"model_weights_bytes"`
+	OsWiredBytes               int64                          `json:"os_wired_bytes"`
+	RecommendedWorkingSetBytes *int64                         `json:"recommended_working_set_bytes,omitempty"`
+	SwapIoMbS                  *float32                       `json:"swap_io_mb_s,omitempty"`
+	SwapTotalBytes             *int64                         `json:"swap_total_bytes,omitempty"`
+	SwapUsedBytes              *int64                         `json:"swap_used_bytes,omitempty"`
+	SystemRamAvailableBytes    int64                          `json:"system_ram_available_bytes"`
+	SystemRamTotalBytes        int64                          `json:"system_ram_total_bytes"`
+	SystemRamUsedBytes         int64                          `json:"system_ram_used_bytes"`
+	TotalBytes                 int64                          `json:"total_bytes"`
+	UsedBytes                  int64                          `json:"used_bytes"`
+	VramFreeBytes              *int64                         `json:"vram_free_bytes,omitempty"`
+	VramTotalBytes             *int64                         `json:"vram_total_bytes,omitempty"`
+	VramUsedBytes              *int64                         `json:"vram_used_bytes,omitempty"`
+}
+
+// SystemTelemetryMemoryPressure defines model for SystemTelemetryMemoryPressure.
+type SystemTelemetryMemoryPressure string
+
+// SystemTelemetryModelEngine defines model for SystemTelemetryModelEngine.
+type SystemTelemetryModelEngine string
+
+// SystemTelemetryModelStatus defines model for SystemTelemetryModelStatus.
+type SystemTelemetryModelStatus string
+
+// SystemTelemetryPlatform defines model for SystemTelemetryPlatform.
+type SystemTelemetryPlatform string
+
+// SystemTelemetryPower defines model for SystemTelemetryPower.
+type SystemTelemetryPower struct {
+	AneW     *float32 `json:"ane_w,omitempty"`
+	CpuW     *float32 `json:"cpu_w,omitempty"`
+	GpuW     *float32 `json:"gpu_w,omitempty"`
+	LimitW   *float32 `json:"limit_w,omitempty"`
+	PackageW *float32 `json:"package_w,omitempty"`
+}
+
+// SystemTelemetryRequest Privacy-stripped timing and token metadata for one in-flight or recent local inference call. No prompt or completion text is ever recorded.
+type SystemTelemetryRequest struct {
+	CachedPromptTokens int64                       `json:"cached_prompt_tokens"`
+	Client             string                      `json:"client"`
+	CompletedAtMs      *int64                      `json:"completed_at_ms,omitempty"`
+	ContextUsedPct     *float32                    `json:"context_used_pct,omitempty"`
+	DecodeMs           float32                     `json:"decode_ms"`
+	DecodedTokens      int64                       `json:"decoded_tokens"`
+	GatewayMs          float32                     `json:"gateway_ms"`
+	Id                 string                      `json:"id"`
+	LiveDecodeTokS     *float32                    `json:"live_decode_tok_s,omitempty"`
+	ModelId            string                      `json:"model_id"`
+	ModelName          string                      `json:"model_name"`
+	PrefillMs          float32                     `json:"prefill_ms"`
+	PromptProcessed    int64                       `json:"prompt_processed"`
+	PromptTokens       int64                       `json:"prompt_tokens"`
+	SlotId             *int                        `json:"slot_id,omitempty"`
+	Stage              SystemTelemetryRequestStage `json:"stage"`
+	StartedAtMs        int64                       `json:"started_at_ms"`
+	TtftMs             *float32                    `json:"ttft_ms,omitempty"`
+}
+
+// SystemTelemetryRequestStage defines model for SystemTelemetryRequestStage.
+type SystemTelemetryRequestStage string
+
+// SystemTelemetrySlot Numeric occupancy metadata for one inference server slot. Prompt and completion text are stripped at the collector boundary.
+type SystemTelemetrySlot struct {
+	Busy               bool     `json:"busy"`
+	CachedPromptTokens *int64   `json:"cached_prompt_tokens,omitempty"`
+	Client             *string  `json:"client,omitempty"`
+	DecodedTokens      *int64   `json:"decoded_tokens,omitempty"`
+	Id                 int      `json:"id"`
+	LiveDecodeTokS     *float32 `json:"live_decode_tok_s,omitempty"`
+	ModelId            string   `json:"model_id"`
+	NCtx               *int64   `json:"n_ctx,omitempty"`
+	PromptProcessed    *int64   `json:"prompt_processed,omitempty"`
+	PromptTokens       *int64   `json:"prompt_tokens,omitempty"`
+}
+
+// SystemTelemetrySnapshot Point-in-time rootless hardware and local LLM inference telemetry sampled by a Local Computer Daemon.
+type SystemTelemetrySnapshot struct {
+	Hardware  SystemTelemetryHardware  `json:"hardware"`
+	Inference SystemTelemetryInference `json:"inference"`
+
+	// ObservedAt UTC timestamp in RFC 3339 format with an explicit offset.
+	ObservedAt       Timestamp `json:"observed_at"`
+	SampleIntervalMs *int64    `json:"sample_interval_ms,omitempty"`
+}
+
+// SystemTelemetryThermal defines model for SystemTelemetryThermal.
+type SystemTelemetryThermal struct {
+	CpuSpeedLimitPct *float32                     `json:"cpu_speed_limit_pct,omitempty"`
+	FanMaxRpm        *float32                     `json:"fan_max_rpm,omitempty"`
+	FanPct           *float32                     `json:"fan_pct,omitempty"`
+	FanRpm           *float32                     `json:"fan_rpm,omitempty"`
+	GpuTempC         *float32                     `json:"gpu_temp_c,omitempty"`
+	SocTempC         *float32                     `json:"soc_temp_c,omitempty"`
+	State            *SystemTelemetryThermalState `json:"state,omitempty"`
+	ThrottleReason   *string                      `json:"throttle_reason,omitempty"`
+	ThrottleTempC    *float32                     `json:"throttle_temp_c,omitempty"`
+	Throttling       bool                         `json:"throttling"`
+}
+
+// SystemTelemetryThermalState defines model for SystemTelemetryThermalState.
+type SystemTelemetryThermalState string
+
+// SystemTelemetryView Live hardware and LLM inference telemetry view of one Local Computer as presented in Settings > System.
+type SystemTelemetryView struct {
+	// ComputerId Opaque, case-sensitive identifier. Clients must not infer type or time from it.
+	ComputerId  Id     `json:"computer_id"`
+	DisplayName string `json:"display_name"`
+	Online      bool   `json:"online"`
+
+	// Supported False when the connected Local Computer Daemon predates live system telemetry.
+	Supported     bool                     `json:"supported"`
+	Telemetry     *SystemTelemetrySnapshot `json:"telemetry,omitempty"`
+	ViewerIsOwner bool                     `json:"viewer_is_owner"`
+}
+
 // TaskAttemptPolicyV1 defines model for TaskAttemptPolicyV1.
 type TaskAttemptPolicyV1 struct {
 	MaxRetries          int  `json:"max_retries"`
@@ -10833,6 +11415,9 @@ type PayloadTooLarge = ErrorResponse
 
 // ServiceUnavailable defines model for ServiceUnavailable.
 type ServiceUnavailable = ErrorResponse
+
+// SystemTelemetryRefused defines model for SystemTelemetryRefused.
+type SystemTelemetryRefused = SystemTelemetryErrorResponse
 
 // TooManyRequests defines model for TooManyRequests.
 type TooManyRequests = ErrorResponse

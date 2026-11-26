@@ -21,7 +21,7 @@ info:
     prepared (target operation or provider), cancel (target operation or
     model_invoke), execute and executed (kind session_compact, model_invoke,
     computer_tool, skills_scan, browser_connect, computer_permission,
-    local_models, model_source, debug_history or
+    local_models, model_source, system_telemetry, debug_history or
     cli_credential), agent_runner.state (state ready, removed or failed) and
     operation.input_result (outcome accepted, rejected or closed); the
     Operation family carries operation.start, operation.input, operation.ack,
@@ -107,6 +107,10 @@ info:
     runner.welcome whose service_features names dynamic_reasoning_efforts;
     runner.hello always filters to legacy efforts so older Agent Services can
     accept the connection.
+    execute with kind system_telemetry samples rootless hardware and local LLM
+    inference telemetry (prompt/completion text stripped) on demand. The service
+    sends it only to Computer 0.67.0 and later so older Computers never close
+    their connection on an unknown execute kind.
 x-frame-limits:
   maxBytes: 4194304
   maxDepth: 32

@@ -306,6 +306,16 @@ func (d *Daemon) handleConnectionCommand(ctx, connectionCtx context.Context, str
 				slog.Warn("model_source.outcome_not_sent", "error", err)
 			}
 		}()
+	case protocol.CommandCapabilitySystemTelemetry:
+		if !d.welcomeSeen || command.ConnectionEpoch != d.connectionEpoch {
+			return errors.New("System telemetry command uses a stale connection epoch")
+		}
+		// Host hardware and loopback inference probes run off the receive loop.
+		go func() {
+			if err := d.handleSystemTelemetryCommand(connectionCtx, stream, command); err != nil {
+				slog.Warn("system_telemetry.outcome_not_sent", "error", err)
+			}
+		}()
 	case protocol.CommandOperationCancel:
 		if !dispatch.followOperation(command, func() error { return d.handleOperationCancel(command) }) {
 			if err := d.handleOperationCancel(command); err != nil {

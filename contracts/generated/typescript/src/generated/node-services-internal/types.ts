@@ -191,6 +191,27 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/tenants/{tenantId}/owners/{ownerActorId}/local-computers/{computerId}/system-telemetry": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+        ownerActorId: components["parameters"]["OwnerActorId"];
+        computerId: components["parameters"]["ComputerId"];
+      };
+      cookie?: never;
+    };
+    /** Sample live rootless hardware and local LLM inference telemetry from an owned Local Computer */
+    get: operations["getLocalComputerSystemTelemetry"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/tenants/{tenantId}/owners/{ownerActorId}/local-computers/{computerId}/browser-connection": {
     parameters: {
       query?: never;
@@ -1680,6 +1701,286 @@ export interface components {
       model_id: string;
       context_window: number;
     };
+    /**
+     * @description Host memory architecture class.
+     * @enum {string}
+     */
+    SystemTelemetryArchitecture: "uma" | "discrete";
+    /** @enum {string} */
+    SystemTelemetryPlatform: "darwin" | "linux" | "windows";
+    /** @enum {string} */
+    SystemTelemetryArch: "x86_64" | "arm64";
+    /** @enum {string} */
+    SystemTelemetryMemoryPressure: "normal" | "warning" | "critical";
+    SystemTelemetryMemory: {
+      /** Format: int64 */
+      total_bytes: number;
+      /** Format: int64 */
+      used_bytes: number;
+      /** Format: int64 */
+      recommended_working_set_bytes?: number | null;
+      /** Format: int64 */
+      model_weights_bytes: number;
+      /** Format: int64 */
+      kv_cache_bytes: number;
+      /** Format: int64 */
+      compute_buffer_bytes: number;
+      /** Format: int64 */
+      os_wired_bytes: number;
+      /** Format: int64 */
+      active_apps_bytes: number;
+      /** Format: int64 */
+      compressed_bytes: number;
+      /** Format: int64 */
+      free_headroom_bytes: number;
+      /** Format: int64 */
+      vram_total_bytes?: number | null;
+      /** Format: int64 */
+      vram_used_bytes?: number | null;
+      /** Format: int64 */
+      vram_free_bytes?: number | null;
+      /** Format: int64 */
+      system_ram_total_bytes: number;
+      /** Format: int64 */
+      system_ram_used_bytes: number;
+      /** Format: int64 */
+      system_ram_available_bytes: number;
+      memory_pressure?:
+        | components["schemas"]["SystemTelemetryMemoryPressure"]
+        | null;
+      /** Format: int64 */
+      swap_used_bytes?: number | null;
+      /** Format: int64 */
+      swap_total_bytes?: number | null;
+      swap_io_mb_s?: number | null;
+    };
+    /**
+     * @description Provenance of effective decode bandwidth. estimated means derived from active model weight footprint multiplied by live decode tokens/s.
+     * @enum {string}
+     */
+    SystemTelemetryBandwidthSource: "estimated" | "unavailable";
+    SystemTelemetryBandwidth: {
+      effective_decode_gb_s?: number | null;
+      theoretical_gb_s?: number | null;
+      utilization_pct?: number | null;
+      source: components["schemas"]["SystemTelemetryBandwidthSource"];
+    };
+    SystemTelemetryDisk: {
+      /** Format: int64 */
+      total_bytes?: number | null;
+      /** Format: int64 */
+      free_bytes?: number | null;
+      /** Format: int64 */
+      model_cache_bytes?: number | null;
+      read_mb_s?: number | null;
+      write_mb_s?: number | null;
+    };
+    /** @enum {string} */
+    SystemTelemetryCpuClusterKind:
+      | "super"
+      | "performance"
+      | "efficiency"
+      | "generic";
+    SystemTelemetryCpuCluster: {
+      id: string;
+      name: string;
+      kind: components["schemas"]["SystemTelemetryCpuClusterKind"];
+      cores: number;
+      load_pct?: number | null;
+      freq_ghz?: number | null;
+    };
+    SystemTelemetryCpu: {
+      total_cores: number;
+      load_pct?: number | null;
+      load_avg?: number[];
+      clusters: components["schemas"]["SystemTelemetryCpuCluster"][];
+    };
+    SystemTelemetryGpu: {
+      util_pct?: number | null;
+      renderer_pct?: number | null;
+      tiler_pct?: number | null;
+      /** Format: int64 */
+      alloc_system_bytes?: number | null;
+      /** Format: int64 */
+      in_use_system_bytes?: number | null;
+      freq_mhz?: number | null;
+      max_freq_mhz?: number | null;
+      ane_util_pct?: number | null;
+    };
+    SystemTelemetryPower: {
+      package_w?: number | null;
+      limit_w?: number | null;
+      cpu_w?: number | null;
+      gpu_w?: number | null;
+      ane_w?: number | null;
+    };
+    /** @enum {string} */
+    SystemTelemetryThermalState: "nominal" | "fair" | "serious" | "critical";
+    SystemTelemetryThermal: {
+      soc_temp_c?: number | null;
+      gpu_temp_c?: number | null;
+      throttle_temp_c?: number | null;
+      state?: components["schemas"]["SystemTelemetryThermalState"] | null;
+      throttling: boolean;
+      cpu_speed_limit_pct?: number | null;
+      throttle_reason?: string | null;
+      fan_rpm?: number | null;
+      fan_max_rpm?: number | null;
+      fan_pct?: number | null;
+    };
+    SystemTelemetryHardware: {
+      architecture: components["schemas"]["SystemTelemetryArchitecture"];
+      platform: components["schemas"]["SystemTelemetryPlatform"];
+      arch: components["schemas"]["SystemTelemetryArch"];
+      hostname: string;
+      chip_name: string;
+      os_label: string;
+      gpu_name?: string | null;
+      gpu_core_count?: number | null;
+      ane_cores?: number | null;
+      memory: components["schemas"]["SystemTelemetryMemory"];
+      bandwidth: components["schemas"]["SystemTelemetryBandwidth"];
+      disk: components["schemas"]["SystemTelemetryDisk"];
+      cpu: components["schemas"]["SystemTelemetryCpu"];
+      gpu: components["schemas"]["SystemTelemetryGpu"];
+      power: components["schemas"]["SystemTelemetryPower"];
+      thermal: components["schemas"]["SystemTelemetryThermal"];
+    };
+    /** @enum {string} */
+    SystemTelemetryModelEngine:
+      | "llama.cpp"
+      | "polystrata"
+      | "strata"
+      | "mlx"
+      | "other";
+    /** @enum {string} */
+    SystemTelemetryModelStatus: "serving" | "prefilling" | "decoding" | "idle";
+    SystemTelemetryLoadedModel: {
+      id: string;
+      name: string;
+      engine: components["schemas"]["SystemTelemetryModelEngine"];
+      quant: string;
+      /** Format: int64 */
+      vram_bytes: number;
+      /** Format: int64 */
+      kv_bytes?: number | null;
+      /** Format: int64 */
+      ram_bytes?: number | null;
+      /** Format: int64 */
+      context_window: number;
+      slots: number;
+      active_slots: number;
+      /** Format: int64 */
+      keep_alive_remaining_sec?: number | null;
+      status: components["schemas"]["SystemTelemetryModelStatus"];
+      warm_decode_tok_s?: number | null;
+      warm_prefill_tok_s?: number | null;
+    };
+    /** @description Numeric occupancy metadata for one inference server slot. Prompt and completion text are stripped at the collector boundary. */
+    SystemTelemetrySlot: {
+      id: number;
+      model_id: string;
+      busy: boolean;
+      /** Format: int64 */
+      n_ctx?: number | null;
+      /** Format: int64 */
+      prompt_tokens?: number | null;
+      /** Format: int64 */
+      prompt_processed?: number | null;
+      /** Format: int64 */
+      cached_prompt_tokens?: number | null;
+      /** Format: int64 */
+      decoded_tokens?: number | null;
+      live_decode_tok_s?: number | null;
+      client?: string | null;
+    };
+    /** @enum {string} */
+    SystemTelemetryRequestStage:
+      | "queued"
+      | "prefilling"
+      | "decoding"
+      | "completed";
+    /** @description Privacy-stripped timing and token metadata for one in-flight or recent local inference call. No prompt or completion text is ever recorded. */
+    SystemTelemetryRequest: {
+      id: string;
+      client: string;
+      model_id: string;
+      model_name: string;
+      stage: components["schemas"]["SystemTelemetryRequestStage"];
+      slot_id?: number | null;
+      /** Format: int64 */
+      prompt_tokens: number;
+      /** Format: int64 */
+      prompt_processed: number;
+      /** Format: int64 */
+      cached_prompt_tokens: number;
+      /** Format: int64 */
+      decoded_tokens: number;
+      ttft_ms?: number | null;
+      gateway_ms: number;
+      prefill_ms: number;
+      decode_ms: number;
+      live_decode_tok_s?: number | null;
+      context_used_pct?: number | null;
+      /** Format: int64 */
+      started_at_ms: number;
+      /** Format: int64 */
+      completed_at_ms?: number | null;
+    };
+    /** @enum {string} */
+    SystemTelemetryBottleneckKind:
+      | "idle"
+      | "healthy"
+      | "memory_bw_bound"
+      | "kv_cache_bound"
+      | "vram_pressure"
+      | "thermal_throttled"
+      | "prefill_compute_bound";
+    /** @enum {string} */
+    SystemTelemetryBottleneckSeverity:
+      | "healthy"
+      | "info"
+      | "warning"
+      | "critical";
+    SystemTelemetryBottleneck: {
+      kind: components["schemas"]["SystemTelemetryBottleneckKind"];
+      severity: components["schemas"]["SystemTelemetryBottleneckSeverity"];
+      dominant_factor_pct?: number | null;
+      reason_code: string;
+    };
+    SystemTelemetryInference: {
+      ttft_live_ms?: number | null;
+      ttft_p50_ms?: number | null;
+      ttft_p95_ms?: number | null;
+      prefill_tok_s: number;
+      decode_tok_s: number;
+      theoretical_decode_ceiling_tok_s?: number | null;
+      bandwidth_efficiency_pct?: number | null;
+      active_requests_count: number;
+      queued_requests_count: number;
+      active_slots: number;
+      total_slots: number;
+      kv_cache_used_pct?: number | null;
+      /** Format: int64 */
+      kv_cache_tokens_used: number;
+      /** Format: int64 */
+      kv_cache_tokens_capacity: number;
+      prefix_cache_hit_rate_pct?: number | null;
+      /** Format: int64 */
+      total_tokens_session: number;
+      loaded_models: components["schemas"]["SystemTelemetryLoadedModel"][];
+      slots: components["schemas"]["SystemTelemetrySlot"][];
+      requests: components["schemas"]["SystemTelemetryRequest"][];
+      bottleneck: components["schemas"]["SystemTelemetryBottleneck"];
+    };
+    /** @description Point-in-time rootless hardware and local LLM inference telemetry sampled by a Local Computer Daemon. */
+    SystemTelemetrySnapshot: {
+      observed_at: components["schemas"]["Timestamp"];
+      /** Format: int64 */
+      sample_interval_ms?: number | null;
+      hardware: components["schemas"]["SystemTelemetryHardware"];
+      inference: components["schemas"]["SystemTelemetryInference"];
+    };
     /** @description A Chrome profile directory name inside the user's Chrome data directory. */
     BrowserProfile: string;
     /** @description The browser that browser tools of this owner's Agents drive on one Local Computer. It never contains the Playwright Extension token. */
@@ -2548,6 +2849,36 @@ export interface operations {
       409: components["responses"]["Conflict"];
       502: components["responses"]["BadGateway"];
       503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  getLocalComputerSystemTelemetry: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+        ownerActorId: components["parameters"]["OwnerActorId"];
+        computerId: components["parameters"]["ComputerId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Current rootless hardware and inference telemetry snapshot. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SystemTelemetrySnapshot"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      502: components["responses"]["BadGateway"];
+      503: components["responses"]["ServiceUnavailable"];
+      504: components["responses"]["ServiceUnavailable"];
     };
   };
   getLocalComputerBrowserConnection: {

@@ -16,6 +16,7 @@ export type AgentToDaemonEnvelope =
   | CapabilityComputerPermission
   | CapabilityLocalModelsExecute
   | CapabilityModelSource
+  | CapabilitySystemTelemetry
   | OperationPrepare
   | ProviderPrepare
   | SessionCompact
@@ -142,6 +143,11 @@ export type CapabilityModelSource = LocalSkillCommandIdentity & {
  */
 export type ByokUrlPath = string;
 export type ByokProtocol = "openai-chat" | "openai-responses" | "anthropic";
+export type CapabilitySystemTelemetry = LocalSkillCommandIdentity & {
+  type: "execute";
+  kind: "system_telemetry";
+  action: "snapshot";
+};
 export type OperationPrepare = OperationIdentity & {
   type: "prepare";
   command_id: Id;
@@ -239,6 +245,8 @@ export type DaemonToAgentEnvelope =
   | CapabilityLocalModelsRefused
   | CapabilityModelSourceSucceeded
   | CapabilityModelSourceFailed
+  | CapabilitySystemTelemetrySucceeded
+  | CapabilitySystemTelemetryFailed
   | OperationPrepared
   | ProviderPrepared
   | SessionCompacted
@@ -537,6 +545,20 @@ export type CapabilityModelSourceFailed = LocalSkillCommandIdentity & {
   type: "executed";
   kind: "model_source";
   action: "status" | "test" | "models" | "apply";
+  error: AgentRunnerError;
+  outcome: "failed";
+};
+export type CapabilitySystemTelemetrySucceeded = LocalSkillCommandIdentity & {
+  type: "executed";
+  kind: "system_telemetry";
+  action: "snapshot";
+  outcome: "succeeded";
+  telemetry: SystemTelemetrySnapshot;
+};
+export type CapabilitySystemTelemetryFailed = LocalSkillCommandIdentity & {
+  type: "executed";
+  kind: "system_telemetry";
+  action: "snapshot";
   error: AgentRunnerError;
   outcome: "failed";
 };
@@ -2202,6 +2224,207 @@ export interface ByokModelList {
     name?: string;
     context_window?: number;
   }[];
+}
+export interface SystemTelemetrySnapshot {
+  observed_at: Timestamp;
+  sample_interval_ms?: NonNegativeInteger;
+  hardware: SystemTelemetryHardware;
+  inference: SystemTelemetryInference;
+}
+export interface SystemTelemetryHardware {
+  architecture: "uma" | "discrete";
+  platform: "darwin" | "linux" | "windows";
+  arch: "x86_64" | "arm64";
+  hostname: string;
+  chip_name: string;
+  os_label: string;
+  gpu_name?: string;
+  gpu_core_count?: number;
+  ane_cores?: number;
+  memory: SystemTelemetryMemory;
+  bandwidth: SystemTelemetryBandwidth;
+  disk: SystemTelemetryDisk;
+  cpu: SystemTelemetryCpu;
+  gpu: SystemTelemetryGpu;
+  power: SystemTelemetryPower;
+  thermal: SystemTelemetryThermal;
+}
+export interface SystemTelemetryMemory {
+  total_bytes: NonNegativeInteger;
+  used_bytes: NonNegativeInteger;
+  recommended_working_set_bytes?: NonNegativeInteger;
+  model_weights_bytes: NonNegativeInteger;
+  kv_cache_bytes: NonNegativeInteger;
+  compute_buffer_bytes: NonNegativeInteger;
+  os_wired_bytes: NonNegativeInteger;
+  active_apps_bytes: NonNegativeInteger;
+  compressed_bytes: NonNegativeInteger;
+  free_headroom_bytes: NonNegativeInteger;
+  vram_total_bytes?: NonNegativeInteger;
+  vram_used_bytes?: NonNegativeInteger;
+  vram_free_bytes?: NonNegativeInteger;
+  system_ram_total_bytes: NonNegativeInteger;
+  system_ram_used_bytes: NonNegativeInteger;
+  system_ram_available_bytes: NonNegativeInteger;
+  memory_pressure?: "normal" | "warning" | "critical";
+  swap_used_bytes?: NonNegativeInteger;
+  swap_total_bytes?: NonNegativeInteger;
+  swap_io_mb_s?: number;
+}
+export interface SystemTelemetryBandwidth {
+  effective_decode_gb_s?: number;
+  theoretical_gb_s?: number;
+  utilization_pct?: number;
+  source: "estimated" | "unavailable";
+}
+export interface SystemTelemetryDisk {
+  total_bytes?: NonNegativeInteger;
+  free_bytes?: NonNegativeInteger;
+  model_cache_bytes?: NonNegativeInteger;
+  read_mb_s?: number;
+  write_mb_s?: number;
+}
+export interface SystemTelemetryCpu {
+  total_cores: number;
+  load_pct?: number;
+  /**
+   * @minItems 3
+   * @maxItems 3
+   */
+  load_avg?: [number, number, number];
+  /**
+   * @maxItems 32
+   */
+  clusters: SystemTelemetryCpuCluster[];
+}
+export interface SystemTelemetryCpuCluster {
+  id: string;
+  name: string;
+  kind: "super" | "performance" | "efficiency" | "generic";
+  cores: number;
+  load_pct?: number;
+  freq_ghz?: number;
+}
+export interface SystemTelemetryGpu {
+  util_pct?: number;
+  renderer_pct?: number;
+  tiler_pct?: number;
+  alloc_system_bytes?: NonNegativeInteger;
+  in_use_system_bytes?: NonNegativeInteger;
+  freq_mhz?: number;
+  max_freq_mhz?: number;
+  ane_util_pct?: number;
+}
+export interface SystemTelemetryPower {
+  package_w?: number;
+  limit_w?: number;
+  cpu_w?: number;
+  gpu_w?: number;
+  ane_w?: number;
+}
+export interface SystemTelemetryThermal {
+  soc_temp_c?: number;
+  gpu_temp_c?: number;
+  throttle_temp_c?: number;
+  state?: "nominal" | "fair" | "serious" | "critical";
+  throttling: boolean;
+  cpu_speed_limit_pct?: number;
+  throttle_reason?: string;
+  fan_rpm?: number;
+  fan_max_rpm?: number;
+  fan_pct?: number;
+}
+export interface SystemTelemetryInference {
+  ttft_live_ms?: number;
+  ttft_p50_ms?: number;
+  ttft_p95_ms?: number;
+  prefill_tok_s: number;
+  decode_tok_s: number;
+  theoretical_decode_ceiling_tok_s?: number;
+  bandwidth_efficiency_pct?: number;
+  active_requests_count: NonNegativeInteger;
+  queued_requests_count: NonNegativeInteger;
+  active_slots: NonNegativeInteger;
+  total_slots: NonNegativeInteger;
+  kv_cache_used_pct?: number;
+  kv_cache_tokens_used: NonNegativeInteger;
+  kv_cache_tokens_capacity: NonNegativeInteger;
+  prefix_cache_hit_rate_pct?: number;
+  total_tokens_session: NonNegativeInteger;
+  /**
+   * @maxItems 32
+   */
+  loaded_models: SystemTelemetryLoadedModel[];
+  /**
+   * @maxItems 64
+   */
+  slots: SystemTelemetrySlot[];
+  /**
+   * @maxItems 32
+   */
+  requests: SystemTelemetryRequest[];
+  bottleneck: SystemTelemetryBottleneck;
+}
+export interface SystemTelemetryLoadedModel {
+  id: string;
+  name: string;
+  engine: "llama.cpp" | "polystrata" | "strata" | "mlx" | "other";
+  quant: string;
+  vram_bytes: NonNegativeInteger;
+  kv_bytes?: NonNegativeInteger;
+  ram_bytes?: NonNegativeInteger;
+  context_window: NonNegativeInteger;
+  slots: number;
+  active_slots: number;
+  keep_alive_remaining_sec?: NonNegativeInteger;
+  status: "serving" | "prefilling" | "decoding" | "idle";
+  warm_decode_tok_s?: number;
+  warm_prefill_tok_s?: number;
+}
+export interface SystemTelemetrySlot {
+  id: number;
+  model_id: string;
+  busy: boolean;
+  n_ctx?: NonNegativeInteger;
+  prompt_tokens?: NonNegativeInteger;
+  prompt_processed?: NonNegativeInteger;
+  cached_prompt_tokens?: NonNegativeInteger;
+  decoded_tokens?: NonNegativeInteger;
+  live_decode_tok_s?: number;
+  client?: string;
+}
+export interface SystemTelemetryRequest {
+  id: string;
+  client: string;
+  model_id: string;
+  model_name: string;
+  stage: "queued" | "prefilling" | "decoding" | "completed";
+  slot_id?: number;
+  prompt_tokens: NonNegativeInteger;
+  prompt_processed: NonNegativeInteger;
+  cached_prompt_tokens: NonNegativeInteger;
+  decoded_tokens: NonNegativeInteger;
+  ttft_ms?: number;
+  gateway_ms: number;
+  prefill_ms: number;
+  decode_ms: number;
+  live_decode_tok_s?: number;
+  context_used_pct?: number;
+  started_at_ms: NonNegativeInteger;
+  completed_at_ms?: NonNegativeInteger;
+}
+export interface SystemTelemetryBottleneck {
+  kind:
+    | "idle"
+    | "healthy"
+    | "memory_bw_bound"
+    | "kv_cache_bound"
+    | "vram_pressure"
+    | "thermal_throttled"
+    | "prefill_compute_bound";
+  severity: "healthy" | "info" | "warning" | "critical";
+  dominant_factor_pct?: number;
+  reason_code: string;
 }
 export interface NativeResumeMeasurement {
   duration_ms: NonNegativeInteger;

@@ -128,6 +128,18 @@ build:assets` to check the initial JS budget.
   `LOCAL_COMPUTER_OFFLINE` disables BYOK edits immediately. A Computer's detail
   on the Computers page links here, reads `model-source` for its active runtime
   pill, and reads no local model library state itself.
+- `src/features/system-monitor`: Settings › System (`settings/system?computer=<id>`),
+  lazy-loaded so it stays out of the initial JS bundle. Renders the Magpie
+  Cockpit live hardware and local LLM inference monitor over TeamHub's
+  `GET .../system-telemetry` snapshot and `GET .../system-telemetry/stream` SSE
+  endpoint (`openEventStream`, subscribed only after the initial read confirms
+  the Computer is online, owned, and supports telemetry). Displays UMA
+  7-segment unified memory (with Metal working-set marker) or discrete VRAM
+  plus separate Host System RAM, animated inference odometers (respecting
+  `prefers-reduced-motion`), expandable 4-phase request waterfalls (metadata
+  only, never prompt/completion text), and rootless silicon/thermal meters that
+  render unavailable sensors honestly and badge estimated decode bandwidth as
+  `est.`.
 - `src/i18n`: the interface languages (English and Simplified Chinese).
   `messages.ts` re-exports the React-free core from
   `@linger/service-kit/messages`, which the desktop shell shares,
