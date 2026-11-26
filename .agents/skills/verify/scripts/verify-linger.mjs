@@ -18,8 +18,14 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const PLAYWRIGHT_SESSION_SCRIPT = path.join(
+  SCRIPT_DIR,
+  "playwright-browser-session.mjs",
+);
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "../../../..");
-const RESERVED_PORTS = new Set([3000, 4319, 4321, 5432, 8080, 17880, 54339]);
+const RESERVED_PORTS = new Set([
+  3000, 4319, 4321, 5432, 8080, 17880, 44177, 48210, 54339,
+]);
 const RUN_ID_PATTERN = /^[a-z0-9][a-z0-9-]{1,39}$/;
 
 function printUsage() {
@@ -28,15 +34,15 @@ function printUsage() {
       "Usage: verify-linger.mjs <command> [options]",
       "",
       "Commands:",
-      "  up [--run-id <id>] [--evidence-dir <dir>] [--live-provider]",
+      "  up [--run-id <id>] [--evidence-dir <dir>] [--live-provider] [--browser-backend auto|agent-browser|playwright]",
       "      Start an isolated Linger stack (PostgreSQL, TeamHub, Node Services, Web, Local Computer)",
       "      and wait until Another Me is provisioned and the UI gate is cleared.",
       "  doctor --run-id <id>",
       "      Run read-only checks on PIDs, port ownership, HTTP probes, owner login, Another Me, and Gateway.",
       "  sign-in --run-id <id> [--return-to /connect-computer?<query>]",
-      "      Sign into the isolated Web UI through /login inside the run's agent-browser session.",
-      "  browser --run-id <id> -- <agent-browser args...>",
-      "      Run agent-browser scoped to this run's --session.",
+      "      Sign into the isolated Web UI through /login inside the run's browser session.",
+      "  browser --run-id <id> -- <browser-args...>",
+      "      Run browser commands scoped to this run's isolated session (agent-browser or built-in Playwright).",
       "  api --run-id <id> GET <path>",
       "      Run a strictly read-only GET request against TeamHub as the run's owner.",
       "  sql --run-id <id> <query>",
@@ -95,7 +101,8 @@ function parseRunOptions(argv) {
     if (
       token === "--run-id" ||
       token === "--evidence-dir" ||
-      token === "--return-to"
+      token === "--return-to" ||
+      token === "--browser-backend"
     ) {
       const value = head[index + 1];
       if (!value || value.startsWith("--")) {
@@ -187,13 +194,18 @@ async function discoverNativePostgresBin() {
   if (process.env.LINGER_VERIFY_PG_BIN?.trim()) {
     candidates.push(process.env.LINGER_VERIFY_PG_BIN.trim());
   }
-  const simplexComponentsDir = path.join(
-    os.homedir(),
-    ".simplexai/tools/native/components",
-  );
-  if (existsSync(simplexComponentsDir)) {
-    for (const entry of await readdir(simplexComponentsDir)) {
-      candidates.push(path.join(simplexComponentsDir, entry, "bin"));
+  const nativeHomes = [
+    process.env.LINGER_HOME?.trim(),
+    path.join(os.homedir(), ".lingerx"),
+    path.join(os.homedir(), ".linger"),
+    path.join(os.homedir(), ".simplexai"),
+  ].filter(Boolean);
+  for (const homeDir of new Set(nativeHomes)) {
+    const componentsDir = path.join(homeDir, "tools/native/components");
+    if (existsSync(componentsDir)) {
+      for (const entry of await readdir(componentsDir)) {
+        candidates.push(path.join(componentsDir, entry, "bin"));
+      }
     }
   }
   candidates.push(
@@ -211,6 +223,51 @@ async function discoverNativePostgresBin() {
     }
   }
   return undefined;
+}
+
+function resolveBrowserBackend(requested = "auto") {
+  if (
+    requested !== "auto" &&
+    requested !== "agent-browser" &&
+    requested !== "playwright"
+  ) {
+    fail(
+      `Invalid --browser-backend "${requested}". Use auto, agent-browser, or playwright.`,
+      2,
+    );
+  }
+  const hasAgentBrowser = commandExists("agent-browser");
+  const hasPlaywright = existsSync(
+    path.join(REPO_ROOT, "node_modules/@playwright/test/package.json"),
+  );
+  if (requested === "agent-browser") {
+    if (!hasAgentBrowser) {
+      fail(
+        "Requested --browser-backend agent-browser, but agent-browser was not found on PATH.",
+        2,
+      );
+    }
+    return "agent-browser";
+  }
+  if (requested === "playwright") {
+    if (!hasPlaywright) {
+      fail(
+        "Requested --browser-backend playwright, but @playwright/test is missing. Run `pnpm install --frozen-lockfile --prefer-offline` first.",
+        2,
+      );
+    }
+    return "playwright";
+  }
+  if (hasAgentBrowser) {
+    return "agent-browser";
+  }
+  if (hasPlaywright) {
+    return "playwright";
+  }
+  fail(
+    "No browser backend available: neither `agent-browser` on PATH nor `@playwright/test` in workspace node_modules was found.",
+    2,
+  );
 }
 
 function dockerDaemonReachable() {
@@ -362,6 +419,7 @@ async function waitForPostgresReady(pgBin, port, password, timeoutMs) {
 function buildComputerCliEnv(state, liveProvider) {
   const env = { ...process.env };
   delete env.HERDR_SOCKET_PATH;
+  delete env.LINGER_HOME;
   delete env.CODEX_HOME;
   delete env.CLAUDE_CONFIG_DIR;
   delete env.PI_CODING_AGENT_DIR;
@@ -372,6 +430,7 @@ function buildComputerCliEnv(state, liveProvider) {
   delete env.LINGER_CODEX_PATH;
   delete env.LINGER_CLAUDE_PATH;
   delete env.LINGER_PI_PATH;
+  env.LINGER_HOME = path.join(state.run_dir, "linger-home");
   if (!liveProvider) {
     env.HOME = path.join(state.run_dir, "computer-home");
     env.PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
@@ -497,7 +556,37 @@ async function unlockTree(dirPath) {
 }
 
 async function teardownRun(state) {
-  if (state.browser_session && commandExists("agent-browser")) {
+  if (
+    state.browser_backend === "playwright" &&
+    state.paths?.browserSessionState
+  ) {
+    const browserStatePath = state.paths.browserSessionState;
+    let browserPid;
+    if (existsSync(browserStatePath)) {
+      try {
+        const parsed = JSON.parse(await readFile(browserStatePath, "utf8"));
+        browserPid = parsed?.pid;
+      } catch {
+        browserPid = undefined;
+      }
+      spawnSync(
+        process.execPath,
+        [
+          PLAYWRIGHT_SESSION_SCRIPT,
+          "exec",
+          "--state-file",
+          browserStatePath,
+          "--",
+          "close",
+        ],
+        { encoding: "utf8", timeout: 8_000 },
+      );
+      await stopOwnedPid(browserPid, [
+        state.run_dir,
+        "playwright-browser-session.mjs",
+      ]);
+    }
+  } else if (state.browser_session && commandExists("agent-browser")) {
     spawnSync("agent-browser", ["--session", state.browser_session, "close"], {
       encoding: "utf8",
       timeout: 5_000,
@@ -600,7 +689,7 @@ async function cmdUp(flags) {
   if (process.getuid?.() === 0) {
     fail("Do not run as root; PostgreSQL refuses to run as UID 0.", 2);
   }
-  for (const cmd of ["go", "node", "agent-browser"]) {
+  for (const cmd of ["go", "node"]) {
     if (!commandExists(cmd)) {
       fail(`Required executable not found on PATH: ${cmd}`, 2);
     }
@@ -616,6 +705,9 @@ async function cmdUp(flags) {
       2,
     );
   }
+  const browserBackend = resolveBrowserBackend(
+    flags["browser-backend"] ?? "auto",
+  );
 
   const runId = flags["run-id"] ?? defaultRunId();
   const runDir = resolveRunDir(runId);
@@ -661,6 +753,7 @@ async function cmdUp(flags) {
     run_id: runId,
     run_dir: runDir,
     evidence_dir: evidenceDir,
+    browser_backend: browserBackend,
     browser_session: browserSession,
     provider_mode: liveProvider ? "live" : "fixture",
     db_mode: dbMode,
@@ -690,6 +783,8 @@ async function cmdUp(flags) {
       computerConfig: path.join(runDir, "computer/config.json"),
       computerStateDir: path.join(runDir, "computer/state"),
       verifyEnv: path.join(runDir, "verify.env"),
+      browserSessionState: path.join(runDir, "browser-session.json"),
+      browserSessionLog: path.join(runDir, "logs/browser.log"),
     },
   };
 
@@ -699,6 +794,7 @@ async function cmdUp(flags) {
   for (const sub of [
     "logs",
     "bin",
+    "linger-home",
     "agent-home",
     "computer-release",
     "teamhub-artifacts",
@@ -843,6 +939,7 @@ async function cmdUp(flags) {
 
     const serviceEnv = {
       ...process.env,
+      LINGER_HOME: path.join(runDir, "linger-home"),
       LOCAL_ENV_FILE: state.paths.verifyEnv,
       TEAMHUB_DATABASE_URL: databaseUrl,
       WEB_PUBLIC_ORIGIN: webUrl,
@@ -1189,7 +1286,9 @@ async function cmdUp(flags) {
           run_id: state.run_id,
           run_dir: state.run_dir,
           evidence_dir: state.evidence_dir,
+          browser_backend: state.browser_backend,
           browser_session: state.browser_session,
+          ports: state.ports,
           web_url: state.web_url,
           teamhub_url: state.teamhub_url,
           node_services_url: state.node_services_url,
@@ -1371,6 +1470,37 @@ async function cmdDoctor(flags) {
     );
   }
 
+  const backend = state.browser_backend ?? "agent-browser";
+  if (backend === "playwright") {
+    const pwAvailable = existsSync(PLAYWRIGHT_SESSION_SCRIPT);
+    let detail = "backend=playwright (idle)";
+    let ok = pwAvailable;
+    const browserStateFile = state.paths?.browserSessionState;
+    if (pwAvailable && browserStateFile && existsSync(browserStateFile)) {
+      try {
+        const bState = JSON.parse(await readFile(browserStateFile, "utf8"));
+        const alive = isPidAlive(bState?.pid);
+        ok = alive;
+        detail = alive
+          ? `backend=playwright pid=${bState.pid} port=${bState.port}`
+          : `backend=playwright stale pid=${String(bState?.pid)}`;
+      } catch (error) {
+        ok = false;
+        detail = `backend=playwright invalid session state (${error instanceof Error ? error.message : String(error)})`;
+      }
+    }
+    record("browser.backend", ok, detail);
+  } else {
+    const hasAgentBrowser = commandExists("agent-browser");
+    record(
+      "browser.backend",
+      hasAgentBrowser,
+      hasAgentBrowser
+        ? "backend=agent-browser"
+        : "backend=agent-browser missing from PATH",
+    );
+  }
+
   const allOk = checks.every((check) => check.ok);
   process.stdout.write(
     `${JSON.stringify({ ok: allOk, run_id: runId, checks }, null, 2)}\n`,
@@ -1380,15 +1510,38 @@ async function cmdDoctor(flags) {
   }
 }
 
-function runBrowserCommand(session, args) {
-  const result = spawnSync("agent-browser", ["--session", session, ...args], {
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      AGENT_BROWSER_DEFAULT_TIMEOUT:
-        process.env.AGENT_BROWSER_DEFAULT_TIMEOUT ?? "25000",
-    },
-  });
+function runBrowserCommand(state, args, options = {}) {
+  const env = {
+    ...process.env,
+    AGENT_BROWSER_DEFAULT_TIMEOUT:
+      process.env.AGENT_BROWSER_DEFAULT_TIMEOUT ?? "25000",
+  };
+  const backend = state.browser_backend ?? "agent-browser";
+  const result =
+    backend === "playwright"
+      ? spawnSync(
+          process.execPath,
+          [
+            PLAYWRIGHT_SESSION_SCRIPT,
+            "exec",
+            "--state-file",
+            state.paths.browserSessionState,
+            "--log-file",
+            state.paths.browserSessionLog,
+            "--",
+            ...args,
+          ],
+          { encoding: "utf8", env, ...options },
+        )
+      : spawnSync(
+          "agent-browser",
+          ["--session", state.browser_session, ...args],
+          {
+            encoding: "utf8",
+            env,
+            ...options,
+          },
+        );
   if (result.error) {
     throw result.error;
   }
@@ -1429,24 +1582,32 @@ async function cmdSignIn(flags) {
     ? `${state.web_url}/login?return_to=${encodeURIComponent(returnTo)}`
     : `${state.web_url}/login`;
 
-  const openRes = runBrowserCommand(state.browser_session, ["open", loginUrl]);
+  const openRes = runBrowserCommand(state, ["open", loginUrl]);
   if (openRes.status !== 0) {
-    fail(openRes.stderr || openRes.stdout || "agent-browser open failed");
+    fail(openRes.stderr || openRes.stdout || "browser open failed");
   }
-  runBrowserCommand(state.browser_session, ["wait", "--load", "load"]);
-  const currentAfterOpen = runBrowserCommand(state.browser_session, [
+  runBrowserCommand(state, ["wait", "--load", "load"]);
+  const currentAfterOpen = runBrowserCommand(state, [
     "get",
     "url",
   ]).stdout.trim();
   const currentPathname = new URL(currentAfterOpen).pathname;
   if (currentPathname === "/login") {
+    // Ensure English UI before using English form labels if a previous step switched language.
+    const langCheck = runBrowserCommand(state, [
+      "eval",
+      'Boolean(document.querySelector(\'button[lang="en"][aria-pressed="false"]\'))',
+    ]);
+    if (langCheck.status === 0 && langCheck.stdout.trim() === "true") {
+      runBrowserCommand(state, ["click", 'button[lang="en"]']);
+    }
     for (const args of [
       ["wait", "--text", "Log in"],
       ["find", "label", "Email", "fill", owner.owner_email],
       ["find", "label", "Password", "fill", owner.owner_password],
       ["find", "role", "button", "click", "--name", "Log in"],
     ]) {
-      const step = runBrowserCommand(state.browser_session, args);
+      const step = runBrowserCommand(state, args);
       if (step.status !== 0) {
         fail(
           `sign-in step (${args.slice(0, 3).join(" ")}) failed: ${step.stderr || step.stdout}`,
@@ -1454,7 +1615,7 @@ async function cmdSignIn(flags) {
       }
     }
     const expectedPrefix = returnTo ? returnTo.split("?")[0] : "/t/";
-    const waitNav = runBrowserCommand(state.browser_session, [
+    const waitNav = runBrowserCommand(state, [
       "wait",
       "--fn",
       `window.location.pathname.startsWith(${JSON.stringify(expectedPrefix)})`,
@@ -1463,10 +1624,7 @@ async function cmdSignIn(flags) {
       fail(`sign-in redirect timed out: ${waitNav.stderr || waitNav.stdout}`);
     }
   }
-  const finalUrl = runBrowserCommand(state.browser_session, [
-    "get",
-    "url",
-  ]).stdout.trim();
+  const finalUrl = runBrowserCommand(state, ["get", "url"]).stdout.trim();
   process.stdout.write(
     `${JSON.stringify({ signed_in_as: owner.owner_email, url: finalUrl }, null, 2)}\n`,
   );
@@ -1475,27 +1633,13 @@ async function cmdSignIn(flags) {
 async function cmdBrowser(flags, passthrough) {
   const runId = flags["run-id"];
   if (!runId) {
-    fail("browser requires --run-id <id> -- <agent-browser args...>", 2);
+    fail("browser requires --run-id <id> -- <browser-args...>", 2);
   }
   if (passthrough.length === 0) {
     fail("browser requires arguments after --", 2);
   }
   const state = await loadState(runId);
-  const result = spawnSync(
-    "agent-browser",
-    ["--session", state.browser_session, ...passthrough],
-    {
-      stdio: "inherit",
-      env: {
-        ...process.env,
-        AGENT_BROWSER_DEFAULT_TIMEOUT:
-          process.env.AGENT_BROWSER_DEFAULT_TIMEOUT ?? "25000",
-      },
-    },
-  );
-  if (result.error) {
-    throw result.error;
-  }
+  const result = runBrowserCommand(state, passthrough, { stdio: "inherit" });
   process.exit(result.status ?? 1);
 }
 
