@@ -5,7 +5,6 @@ package work
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"sync"
 
@@ -13,6 +12,7 @@ import (
 	"github.com/oldwinter/linger/mobile/internal/api"
 	"github.com/oldwinter/linger/mobile/internal/cache"
 	"github.com/oldwinter/linger/mobile/internal/components"
+	"github.com/oldwinter/linger/mobile/internal/i18n"
 	"github.com/oldwinter/linger/mobile/internal/state"
 	"github.com/oldwinter/linger/mobile/internal/theme"
 )
@@ -351,11 +351,14 @@ func (s *Screen) View(c *ui.Context) {
 			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
 				segWrap := ui.Column(c).Grow(1).Basis(0)
 				segWrap.Children(func() {
-					components.SegmentedControl(c, &s.segment, "Issues", "Routines", "Pocket")
+					components.SegmentedControl(c, &s.segment,
+						i18n.T("work.tab.issues"),
+						i18n.T("work.tab.routines"),
+						i18n.T("work.tab.pocket"))
 				})
-				refreshLabel := "Sync"
+				refreshLabel := i18n.T("common.sync")
 				if loading {
-					refreshLabel = "..."
+					refreshLabel = i18n.T("common.syncing")
 				}
 				refBtn := components.SecondaryTouchButton(c, refreshLabel, loading)
 				refBtn.MinWidth(60)
@@ -574,7 +577,7 @@ func (s *Screen) roomName(roomID string) string {
 		}
 	}
 	if roomID == "" {
-		return "Workspace"
+		return i18n.T("work.workspace_fallback")
 	}
 	return roomID
 }
@@ -623,23 +626,12 @@ func stateTone(st string) components.Tone {
 }
 
 func formatWorkItemState(st string) string {
-	switch st {
-	case "in_progress":
-		return "In Progress"
-	case "resolved":
-		return "Resolved"
-	case "open":
-		return "Open"
-	default:
-		if st == "" {
-			return "Open"
-		}
-		return st
+	if st == "" {
+		return i18n.WorkStateLabel("open")
 	}
+	return i18n.WorkStateLabel(st)
 }
 
 func unusedThemeRef(t *ui.Theme) ui.Color {
 	return theme.Extra(t).MutedBg
 }
-
-var _ = fmt.Sprintf

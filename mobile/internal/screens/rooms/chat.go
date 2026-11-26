@@ -17,6 +17,7 @@ import (
 	"github.com/egoist/mygo/ui/netimage"
 	"github.com/oldwinter/linger/mobile/internal/api"
 	"github.com/oldwinter/linger/mobile/internal/components"
+	"github.com/oldwinter/linger/mobile/internal/i18n"
 	"github.com/oldwinter/linger/mobile/internal/state"
 	"github.com/oldwinter/linger/mobile/internal/theme"
 )
@@ -37,13 +38,13 @@ func (ctl *Controller) viewChat(c *ui.Context, snap state.Snapshot, roomID, pare
 		ui.Row(c).FillWidth().Padding(6, 12).Gap(8).Background(ex.SidebarBg).AlignItems(ui.Center).
 			Justify(ui.SpaceBetween).Border(0.5, t.Border).Children(func() {
 			if isThread {
-				ui.Text(c, "Thread in "+roomTitle(snap, parentRoomID)).FontSize(12).FontWeight(600).TextColor(t.TextMuted).MaxLines(1).Grow(1).Basis(0)
+				ui.Text(c, i18n.Tf("chat.thread_in", map[string]any{"name": roomTitle(snap, parentRoomID)})).FontSize(12).FontWeight(600).TextColor(t.TextMuted).MaxLines(1).Grow(1).Basis(0)
 			} else {
-				ui.Text(c, components.PluralInt(len(msgs), "message", "messages")).FontSize(12).TextColor(t.TextMuted).Grow(1).Basis(0)
+				ui.Text(c, i18n.Tf("chat.reply_count_bar", map[string]any{"count": len(msgs)})).FontSize(12).TextColor(t.TextMuted).Grow(1).Basis(0)
 				inspBtn := ui.Row(c).MinHeight(36).PaddingX(10).Radius(8).Background(t.Surface).
-					Border(1, t.Border).AlignItems(ui.Center).Role(ui.RoleButton).Label("Room Inspector")
+					Border(1, t.Border).AlignItems(ui.Center).Role(ui.RoleButton).Label(i18n.T("rooms.title.inspector"))
 				inspBtn.Children(func() {
-					ui.Text(c, "Inspector").FontSize(12).FontWeight(600).TextColor(t.Accent).NoWrap()
+					ui.Text(c, i18n.T("chat.inspector")).FontSize(12).FontWeight(600).TextColor(t.Accent).NoWrap()
 				})
 				if inspBtn.Clicked() {
 					ctl.openInspector(roomID, snap)
@@ -58,13 +59,13 @@ func (ctl *Controller) viewChat(c *ui.Context, snap state.Snapshot, roomID, pare
 			}
 			run := run
 			tone := components.ToneInfo
-			msg := fmt.Sprintf("%s is working (%s)", run.Agent.DisplayName, formatElapsed(run.CreatedAt))
+			msg := i18n.Tf("chat.working_banner", map[string]any{"actor": run.Agent.DisplayName, "elapsed": formatElapsed(run.CreatedAt)})
 			if run.Status == "aborted" {
 				tone = components.ToneWarning
-				msg = fmt.Sprintf("%s stopped (%s)", run.Agent.DisplayName, run.Status)
+				msg = i18n.Tf("chat.stopped_banner", map[string]any{"actor": run.Agent.DisplayName, "status": i18n.StatusLabel(run.Status)})
 			}
 			ui.Box(c.Key("run_banner_"+run.RunID)).FillWidth().Padding(6, 12, 0, 12).Children(func() {
-				components.StatusBanner(c, tone, msg, "Watch Live", func() {
+				components.StatusBanner(c, tone, msg, i18n.T("chat.watch_live"), func() {
 					ctl.OpenRunWatch(roomID, run.RunID)
 				})
 			})
@@ -73,11 +74,11 @@ func (ctl *Controller) viewChat(c *ui.Context, snap state.Snapshot, roomID, pare
 		// Offline / transient error banner (disappears automatically on recovery).
 		if snap.OfflineViewingCache {
 			ui.Box(c).FillWidth().Padding(6, 12, 0, 12).Children(func() {
-				components.StatusBanner(c, components.ToneWarning, "Offline — viewing cached messages", "", nil)
+				components.StatusBanner(c, components.ToneWarning, i18n.T("chat.offline_cached"), "", nil)
 			})
 		} else if snap.TransientError != "" {
 			ui.Box(c).FillWidth().Padding(6, 12, 0, 12).Children(func() {
-				components.StatusBanner(c, components.ToneDanger, snap.TransientError, "Dismiss", func() {
+				components.StatusBanner(c, components.ToneDanger, snap.TransientError, i18n.T("common.dismiss"), func() {
 					ctl.store.ClearTransientError()
 				})
 			})
@@ -87,15 +88,15 @@ func (ctl *Controller) viewChat(c *ui.Context, snap state.Snapshot, roomID, pare
 		ui.Scroll(c).FillWidth().Grow(1).Basis(0).Children(func() {
 			ui.Column(c).FillWidth().Padding(10, 12, 14, 12).Gap(10).Children(func() {
 				if hasMore {
-					olderBtn := components.SecondaryTouchButton(c, "Load Older Messages", false)
+					olderBtn := components.SecondaryTouchButton(c, i18n.T("chat.load_older"), false)
 					olderBtn.FillWidth()
 					if olderBtn.Clicked() {
 						go func() { _ = ctl.store.LoadRoomMessages(context.Background(), roomID, true) }()
 					}
 				}
 				if len(msgs) == 0 {
-					components.EmptyState(c, theme.IconRooms, "No messages yet",
-						"Send a message below or mention an Agent with @.", "", nil)
+					components.EmptyState(c, theme.IconRooms, i18n.T("chat.empty_title"),
+						i18n.T("chat.empty_body"), "", nil)
 				}
 				for _, m := range msgs {
 					m := m
@@ -147,9 +148,9 @@ func (ctl *Controller) viewMessageRow(c *ui.Context, snap state.Snapshot, roomID
 			}
 			ui.Text(c, m.Author.DisplayName).FontSize(12).FontWeight(600).TextColor(t.TextMuted)
 			if m.RoutineName != nil && *m.RoutineName != "" {
-				components.StatusPill(c, "Routine: "+*m.RoutineName, components.ToneInfo)
+				components.StatusPill(c, i18n.Tf("chat.routine_label", map[string]any{"id": *m.RoutineName}), components.ToneInfo)
 			}
-			ui.Text(c, formatRelativeTime(m.CreatedAt)).FontSize(11).TextColor(t.TextMuted)
+			ui.Text(c, i18n.FormatRoomTime(m.CreatedAt)).FontSize(11).TextColor(t.TextMuted)
 		})
 
 		// Bubble body
@@ -168,15 +169,15 @@ func (ctl *Controller) viewMessageRow(c *ui.Context, snap state.Snapshot, roomID
 					seg := seg
 					title := seg.Content
 					if title == "" {
-						title = "Interactive HTML Widget"
+						title = i18n.T("chat.html_widget_title")
 					}
 					ui.Row(c.Key(si)).FillWidth().Padding(8, 10).Radius(8).Background(ex.MutedBg).
 						Border(1, t.Border).AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
 						ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
 							ui.Text(c, title).FontSize(13).FontWeight(600).TextColor(t.Text)
-							ui.Text(c, "Sandboxed HTML fragment — tap to preview").FontSize(11).TextColor(t.TextMuted)
+							ui.Text(c, i18n.T("chat.html_widget_subtitle")).FontSize(11).TextColor(t.TextMuted)
 						})
-						prevBtn := components.SecondaryTouchButton(c, "Preview", false)
+						prevBtn := components.SecondaryTouchButton(c, i18n.T("chat.preview_btn"), false)
 						if prevBtn.Clicked() {
 							ctl.openHTMLPreview(title, seg.HTML)
 						}
@@ -212,7 +213,7 @@ func (ctl *Controller) viewMessageRow(c *ui.Context, snap state.Snapshot, roomID
 					reacted := rx.ReactedBy(currentActorID)
 					pill := ui.Row(c.Key("rx_"+rx.ReactionID)).MinHeight(32).Padding(4, 8).Radius(999).
 						Background(ex.MutedBg).Border(1, t.Border).AlignItems(ui.Center).
-						Role(ui.RoleButton).Label("Toggle reaction " + rx.ReactionID)
+						Role(ui.RoleButton).Label(i18n.Tf("chat.react_a11y", map[string]any{"emoji": rx.ReactionID}))
 					pill.Children(func() {
 						ui.Text(c, fmt.Sprintf("%s %d", rx.DisplayEmoji(), rx.Count())).FontSize(12).TextColor(t.Text).NoWrap()
 					})
@@ -222,30 +223,30 @@ func (ctl *Controller) viewMessageRow(c *ui.Context, snap state.Snapshot, roomID
 				}
 				if !isThread && m.Thread != nil && m.Thread.ReplyCount > 0 {
 					thBtn := ui.Row(c).MinHeight(32).Padding(4, 8).Radius(999).Background(ex.InfoTint).
-						AlignItems(ui.Center).Role(ui.RoleButton).Label("Open thread")
+						AlignItems(ui.Center).Role(ui.RoleButton).Label(i18n.T("chat.thread_btn"))
 					thBtn.Children(func() {
-						ui.Text(c, components.Plural(m.Thread.ReplyCount, "reply", "replies")+" ›").FontSize(12).FontWeight(600).TextColor(t.Accent).NoWrap()
+						ui.Text(c, i18n.Tf("chat.thread_replies", map[string]any{"count": m.Thread.ReplyCount})+" ›").FontSize(12).FontWeight(600).TextColor(t.Accent).NoWrap()
 					})
 					if thBtn.Clicked() {
 						ctl.store.Routers[state.TabRooms].Push("/rooms/" + roomID + "/thread/" + m.Thread.ThreadRoomID)
 					}
 				}
-				miniActionButton(c, "+ React", func() {
+				miniActionButton(c, i18n.T("chat.add_react"), func() {
 					ctl.mu.Lock()
 					mCopy := m
 					ctl.reactTargetMsg = &mCopy
 					ctl.reactSheetOpen = true
 					ctl.mu.Unlock()
 				})
-				miniActionButton(c, "Pin", func() {
+				miniActionButton(c, i18n.T("chat.pin"), func() {
 					go func() {
 						if cl := ctl.store.Client(); cl != nil {
 							_ = cl.PutMessagePin(context.Background(), roomID, m.ID)
-							ctl.store.SetStatusMessage("Message pinned")
+							ctl.store.SetStatusMessage(i18n.T("chat.toast.pinned"))
 						}
 					}()
 				})
-				miniActionButton(c, "Forward", func() {
+				miniActionButton(c, i18n.T("chat.forward"), func() {
 					ctl.mu.Lock()
 					mCopy := m
 					ctl.forwardTargetMsg = &mCopy
@@ -253,7 +254,7 @@ func (ctl *Controller) viewMessageRow(c *ui.Context, snap state.Snapshot, roomID
 					ctl.mu.Unlock()
 				})
 				if !isThread {
-					miniActionButton(c, "Thread", func() {
+					miniActionButton(c, i18n.T("chat.thread_btn"), func() {
 						go func() {
 							if cl := ctl.store.Client(); cl != nil {
 								if th, err := cl.CreateOrGetMessageThread(context.Background(), roomID, m.ID); err == nil {
@@ -283,7 +284,7 @@ func (ctl *Controller) viewAttachment(c *ui.Context, idx int, att api.MessageAtt
 
 	if strings.HasPrefix(strings.ToLower(att.MediaType), "image/") {
 		imgBox := ui.Box(c.Key(idx)).FillWidth().Height(150).Radius(8).Clip().Border(1, t.Border).
-			Role(ui.RoleButton).Label("Zoom image " + att.Filename)
+			Role(ui.RoleButton).Label(i18n.Tf("chat.zoom_image_a11y", map[string]any{"name": att.Filename}))
 		imgBox.Children(func() {
 			netimage.Image(c, resolvedURL, netimage.Options{Fit: ui.Cover, MaxSide: 900, NoFade: true}).Fill()
 		})
@@ -298,15 +299,15 @@ func (ctl *Controller) viewAttachment(c *ui.Context, idx int, att api.MessageAtt
 		Border(1, t.Border).AlignItems(ui.Center).Gap(8).Children(func() {
 		ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
 			ui.Text(c, att.Filename).FontSize(13).FontWeight(600).TextColor(t.Text).MaxLines(1)
-			ui.Text(c, fmt.Sprintf("%s · %d KB", att.MediaType, max(1, att.SizeBytes/1024))).FontSize(11).TextColor(t.TextMuted)
+			ui.Text(c, att.MediaType+" · "+i18n.FormatKB(int64(att.SizeBytes))).FontSize(11).TextColor(t.TextMuted)
 		})
 		if strings.Contains(strings.ToLower(att.MediaType), "mail") || strings.HasSuffix(strings.ToLower(att.Filename), ".mail.md") {
-			mailBtn := components.SecondaryTouchButton(c, "Open Mail", false)
+			mailBtn := components.SecondaryTouchButton(c, i18n.T("chat.open_mail"), false)
 			if mailBtn.Clicked() {
 				ctl.openMailCanvas(att.DocumentID)
 			}
 		} else {
-			shareBtn := components.SecondaryTouchButton(c, "Share", false)
+			shareBtn := components.SecondaryTouchButton(c, i18n.T("chat.share"), false)
 			if shareBtn.Clicked() {
 				ctl.downloadAndShareAttachment(att)
 			}
@@ -364,8 +365,8 @@ func (ctl *Controller) viewComposer(c *ui.Context, snap state.Snapshot, roomID s
 	ui.Column(c).FillWidth().Background(t.Surface).Border(0.5, t.Border).Padding(8, 10, 8, 10).Gap(6).Children(func() {
 		if replyMsg != nil {
 			ui.Row(c).FillWidth().Padding(4, 8).Radius(8).Background(ex.MutedBg).AlignItems(ui.Center).Justify(ui.SpaceBetween).Children(func() {
-				ui.Text(c, "Replying to "+replyMsg.Author.DisplayName).FontSize(12).TextColor(t.TextMuted).MaxLines(1)
-				miniActionButton(c, "Cancel", func() {
+				ui.Text(c, i18n.Tf("chat.replying_to", map[string]any{"text": replyMsg.Author.DisplayName})).FontSize(12).TextColor(t.TextMuted).MaxLines(1)
+				miniActionButton(c, i18n.T("common.cancel"), func() {
 					ctl.mu.Lock()
 					delete(ctl.replyTarget, roomID)
 					ctl.mu.Unlock()
@@ -377,13 +378,13 @@ func (ctl *Controller) viewComposer(c *ui.Context, snap state.Snapshot, roomID s
 		if len(uploads) > 0 || uploading {
 			ui.Row(c).FillWidth().Wrap().Gap(6).AlignItems(ui.Center).Children(func() {
 				if uploading {
-					components.StatusPill(c, "Uploading...", components.ToneInfo)
+					components.StatusPill(c, i18n.T("chat.uploading"), components.ToneInfo)
 				}
 				for _, up := range uploads {
 					up := up
 					ui.Row(c.Key(up.ID)).MinHeight(32).Padding(4, 8).Radius(999).Background(ex.InfoTint).Gap(6).AlignItems(ui.Center).Children(func() {
 						ui.Text(c, up.Filename).FontSize(11).TextColor(t.Text).MaxLines(1)
-						rmBtn := ui.Row(c).Size(24, 24).AlignItems(ui.Center).Justify(ui.Center).Role(ui.RoleButton).Label("Remove " + up.Filename)
+						rmBtn := ui.Row(c).Size(24, 24).AlignItems(ui.Center).Justify(ui.Center).Role(ui.RoleButton).Label(i18n.Tf("chat.remove_att_a11y", map[string]any{"name": up.Filename}))
 						rmBtn.Children(func() { ui.Text(c, "×").FontSize(14).TextColor(t.Danger) })
 						if rmBtn.Clicked() {
 							ctl.removeUploadAsync(roomID, up.ID)
@@ -395,14 +396,14 @@ func (ctl *Controller) viewComposer(c *ui.Context, snap state.Snapshot, roomID s
 
 		// Toolbar row: Attach Photo / Attach File / @Mention / /Skill
 		ui.Row(c).FillWidth().Wrap().Gap(6).AlignItems(ui.Center).Children(func() {
-			miniActionButton(c, "Photo", func() { ctl.pickPhotoAndUpload(roomID) })
-			miniActionButton(c, "File", func() { ctl.pickFileAndUpload(roomID) })
-			miniActionButton(c, "@Mention", func() {
+			miniActionButton(c, i18n.T("chat.photo"), func() { ctl.pickPhotoAndUpload(roomID) })
+			miniActionButton(c, i18n.T("chat.file"), func() { ctl.pickFileAndUpload(roomID) })
+			miniActionButton(c, i18n.T("chat.mention_btn"), func() {
 				ctl.mu.Lock()
 				ctl.mentionSheetOpen = true
 				ctl.mu.Unlock()
 			})
-			miniActionButton(c, "/Skill", func() {
+			miniActionButton(c, i18n.T("chat.skill_btn"), func() {
 				ctl.mu.Lock()
 				ctl.skillSheetOpen = true
 				ctl.mu.Unlock()
@@ -413,7 +414,7 @@ func (ctl *Controller) viewComposer(c *ui.Context, snap state.Snapshot, roomID s
 		ui.Row(c).FillWidth().AlignItems(ui.End).Gap(8).Children(func() {
 			var area ui.Element
 			area = ui.TextArea(c.Key("draft_"+roomID), &draft).Grow(1).Basis(0).MinHeight(44).MaxHeight(120).
-				Placeholder("Message room... (@ to mention)").Label("Message composer").Multiline(true)
+				Placeholder(i18n.T("chat.composer_placeholder")).Label(i18n.T("chat.composer_a11y")).Multiline(true)
 			area.OnTextKey(func(k ui.TextKey) bool {
 				if k.Key != ui.KeyEnter {
 					return false
@@ -441,9 +442,9 @@ func (ctl *Controller) viewComposer(c *ui.Context, snap state.Snapshot, roomID s
 			canSend := !sending && (strings.TrimSpace(draft) != "" || len(uploads) > 0)
 			sendBtn := components.PrimaryTouchButton(c, func() string {
 				if sending {
-					return "..."
+					return i18n.T("common.syncing")
 				}
-				return "Send"
+				return i18n.T("chat.send")
 			}(), !canSend)
 			sendBtn.MinWidth(64)
 			if sendBtn.Clicked() {
@@ -487,7 +488,7 @@ func (ctl *Controller) viewZoomLightbox(c *ui.Context) {
 	t := c.Theme()
 	mobile.Sheet(c, &ctl.zoomOpen, mobile.SheetOptions{
 		Detents: []float32{0.88},
-		Label:   "Image Viewer",
+		Label:   i18n.T("chat.image_viewer_title"),
 	}, func() {
 		ctl.mu.Lock()
 		u := ctl.zoomURL
@@ -496,7 +497,7 @@ func (ctl *Controller) viewZoomLightbox(c *ui.Context) {
 		ui.Column(c).Fill().Padding(8, 12, 16, 12).Gap(8).Children(func() {
 			ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Children(func() {
 				ui.Text(c, title).FontSize(15).FontWeight(600).TextColor(t.Text).MaxLines(1).Grow(1).Basis(0)
-				if components.SecondaryTouchButton(c, "Close", false).Clicked() {
+				if components.SecondaryTouchButton(c, i18n.T("common.close"), false).Clicked() {
 					ctl.zoomOpen = false
 				}
 			})
@@ -559,7 +560,7 @@ func (ctl *Controller) viewHTMLPreviewSheet(c *ui.Context) {
 	wasOpen := ctl.htmlOpen
 	mobile.Sheet(c, &ctl.htmlOpen, mobile.SheetOptions{
 		Detents: []float32{0.75, 0.92},
-		Label:   "HTML Fragment Preview",
+		Label:   i18n.T("chat.html_preview_title"),
 	}, func() {
 		ctl.mu.Lock()
 		title := ctl.htmlTitle
@@ -569,7 +570,7 @@ func (ctl *Controller) viewHTMLPreviewSheet(c *ui.Context) {
 		ui.Column(c).Fill().Padding(10, 14, 16, 14).Gap(8).Children(func() {
 			ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Children(func() {
 				ui.Text(c, title).FontSize(16).Bold().TextColor(t.Text).Grow(1).Basis(0).MaxLines(1)
-				if components.SecondaryTouchButton(c, "Close", false).Clicked() {
+				if components.SecondaryTouchButton(c, i18n.T("common.close"), false).Clicked() {
 					ctl.htmlOpen = false
 					ctl.destroyHTMLWebView()
 				}
@@ -602,7 +603,7 @@ func (ctl *Controller) openMailCanvas(docID string) {
 		if cl == nil {
 			ctl.mu.Lock()
 			ctl.mailBusy = false
-			ctl.mailError = "Not connected"
+			ctl.mailError = i18n.T("state.err.not_connected")
 			ctl.mu.Unlock()
 			return
 		}
@@ -621,7 +622,7 @@ func (ctl *Controller) openMailCanvas(docID string) {
 func (ctl *Controller) viewMailCanvasSheet(c *ui.Context) {
 	mobile.Sheet(c, &ctl.mailOpen, mobile.SheetOptions{
 		Detents: []float32{0.68, 0.90},
-		Label:   "Mail Canvas",
+		Label:   i18n.T("chat.mail_canvas_title"),
 	}, func() {
 		ctl.mu.Lock()
 		docID := ctl.mailDocID
@@ -694,19 +695,19 @@ func (ctl *Controller) viewMailCanvasSheet(c *ui.Context) {
 
 func (ctl *Controller) viewMentionSheet(c *ui.Context, snap state.Snapshot, roomID string) {
 	t := c.Theme()
-	mobile.Sheet(c, &ctl.mentionSheetOpen, mobile.SheetOptions{Detents: []float32{0.5}, Label: "Mention Member or Agent"}, func() {
+	mobile.Sheet(c, &ctl.mentionSheetOpen, mobile.SheetOptions{Detents: []float32{0.5}, Label: i18n.T("chat.mention_sheet_a11y")}, func() {
 		ui.Scroll(c).FillWidth().Grow(1).Basis(0).Children(func() {
 			ui.Column(c).FillWidth().Padding(12, 16, 20, 16).Gap(8).Children(func() {
-				ui.Text(c, "Insert @Mention").FontSize(16).Bold().TextColor(t.Text)
+				ui.Text(c, i18n.T("chat.mention_sheet_title")).FontSize(16).Bold().TextColor(t.Text)
 				for _, act := range snap.Actors {
 					act := act
 					row := ui.Row(c.Key("m_"+act.ID)).FillWidth().MinHeight(44).Padding(8, 10).Gap(8).
 						Radius(10).Background(t.Surface).Border(1, t.Border).AlignItems(ui.Center).
-						Role(ui.RoleButton).Label("Mention " + act.DisplayName)
+						Role(ui.RoleButton).Label(i18n.Tf("chat.mention_a11y", map[string]any{"name": act.DisplayName}))
 					row.Children(func() {
 						components.AvatarBadge(c, act.DisplayName, 28)
 						ui.Text(c, "@"+act.DisplayName).FontSize(14).TextColor(t.Text).Grow(1).Basis(0)
-						components.StatusPill(c, act.Kind, components.ToneNeutral)
+						components.StatusPill(c, i18n.ActorRoleLabel(act.Kind), components.ToneNeutral)
 					})
 					if row.Clicked() {
 						cur := ctl.store.GetDraft(roomID)
@@ -725,18 +726,18 @@ func (ctl *Controller) viewMentionSheet(c *ui.Context, snap state.Snapshot, room
 
 func (ctl *Controller) viewSkillSheet(c *ui.Context, snap state.Snapshot, roomID string) {
 	t := c.Theme()
-	mobile.Sheet(c, &ctl.skillSheetOpen, mobile.SheetOptions{Detents: []float32{0.5}, Label: "Insert Skill"}, func() {
+	mobile.Sheet(c, &ctl.skillSheetOpen, mobile.SheetOptions{Detents: []float32{0.5}, Label: i18n.T("chat.skill_sheet_a11y")}, func() {
 		ui.Scroll(c).FillWidth().Grow(1).Basis(0).Children(func() {
 			ui.Column(c).FillWidth().Padding(12, 16, 20, 16).Gap(8).Children(func() {
-				ui.Text(c, "Insert /Skill").FontSize(16).Bold().TextColor(t.Text)
+				ui.Text(c, i18n.T("chat.skill_sheet_title")).FontSize(16).Bold().TextColor(t.Text)
 				if len(snap.SkillManifests) == 0 {
-					ui.Text(c, "No skill manifests available.").FontSize(13).TextColor(t.TextMuted)
+					ui.Text(c, i18n.T("chat.skill_empty")).FontSize(13).TextColor(t.TextMuted)
 				}
 				for _, sk := range snap.SkillManifests {
 					sk := sk
 					row := ui.Row(c.Key("sk_"+sk.SkillID)).FillWidth().MinHeight(48).Padding(8, 10).Gap(6).
 						Radius(10).Background(t.Surface).Border(1, t.Border).AlignItems(ui.Center).
-						Role(ui.RoleButton).Label("Insert skill " + sk.Name)
+						Role(ui.RoleButton).Label(i18n.Tf("chat.skill_a11y", map[string]any{"id": sk.Name}))
 					row.Children(func() {
 						ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
 							ui.Text(c, "/"+sk.Name).FontSize(14).FontWeight(600).TextColor(t.Accent)
@@ -770,7 +771,7 @@ func (ctl *Controller) viewReactionSheet(c *ui.Context, roomID string) {
 	for _, q := range quick {
 		q := q
 		actions = append(actions, mobile.Action{
-			Label: q.label + " " + q.id,
+			Label: q.label + " " + i18n.ReactionLabel(q.id),
 			OnTap: func() {
 				ctl.mu.Lock()
 				target := ctl.reactTargetMsg
@@ -781,7 +782,7 @@ func (ctl *Controller) viewReactionSheet(c *ui.Context, roomID string) {
 			},
 		})
 	}
-	mobile.ActionSheet(c, &ctl.reactSheetOpen, mobile.ActionSheetOptions{Title: "Add Reaction", Cancel: "Cancel"}, actions...)
+	mobile.ActionSheet(c, &ctl.reactSheetOpen, mobile.ActionSheetOptions{Title: i18n.T("chat.react_sheet_title"), Cancel: i18n.T("common.cancel")}, actions...)
 }
 
 func (ctl *Controller) viewForwardSheet(c *ui.Context, snap state.Snapshot, fromRoomID string) {
@@ -792,7 +793,7 @@ func (ctl *Controller) viewForwardSheet(c *ui.Context, snap state.Snapshot, from
 		}
 		rm := rm
 		actions = append(actions, mobile.Action{
-			Label: "Forward to " + rm.Name,
+			Label: i18n.Tf("chat.forward_to", map[string]any{"name": rm.Name}),
 			OnTap: func() {
 				ctl.mu.Lock()
 				target := ctl.forwardTargetMsg
@@ -803,13 +804,13 @@ func (ctl *Controller) viewForwardSheet(c *ui.Context, snap state.Snapshot, from
 				go func() {
 					if cl := ctl.store.Client(); cl != nil {
 						_, _ = cl.ForwardRoomMessage(context.Background(), fromRoomID, target.ID, rm.ID, fmt.Sprintf("fwd_%d", time.Now().UnixNano()))
-						ctl.store.SetStatusMessage("Forwarded to " + rm.Name)
+						ctl.store.SetStatusMessage(i18n.Tf("chat.toast.forwarded", map[string]any{"name": rm.Name}))
 					}
 				}()
 			},
 		})
 	}
-	mobile.ActionSheet(c, &ctl.forwardSheetOpen, mobile.ActionSheetOptions{Title: "Forward Message", Cancel: "Cancel"}, actions...)
+	mobile.ActionSheet(c, &ctl.forwardSheetOpen, mobile.ActionSheetOptions{Title: i18n.T("chat.forward_sheet_title"), Cancel: i18n.T("common.cancel")}, actions...)
 }
 
 func (ctl *Controller) toggleReactionAsync(roomID, msgID, reactionID string, remove bool) {
@@ -844,7 +845,7 @@ func (ctl *Controller) pickPhotoAndUpload(roomID string) {
 
 func (ctl *Controller) pickFileAndUpload(roomID string) {
 	go func() {
-		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Title: "Attach file"})
+		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Title: i18n.T("chat.pick_attach")})
 		if err != nil || len(paths) == 0 {
 			return
 		}
@@ -859,7 +860,7 @@ func (ctl *Controller) uploadFilePath(roomID, path, mediaType string) {
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		ctl.store.SetTransientError("Cannot read attachment: " + err.Error())
+		ctl.store.SetTransientError(i18n.Tf("chat.err_read_attach", map[string]any{"err": err.Error()}))
 		return
 	}
 	ctl.mu.Lock()
@@ -873,7 +874,7 @@ func (ctl *Controller) uploadFilePath(roomID, path, mediaType string) {
 	}
 	ctl.mu.Unlock()
 	if err != nil {
-		ctl.store.SetTransientError("Attachment upload failed: " + err.Error())
+		ctl.store.SetTransientError(i18n.Tf("chat.err_upload_attach", map[string]any{"err": err.Error()}))
 	}
 }
 
@@ -903,7 +904,7 @@ func (ctl *Controller) downloadAndShareAttachment(att api.MessageAttachment) {
 		}
 		data, _, err := cl.DownloadDocumentVersion(context.Background(), att.DocumentVersionID)
 		if err != nil {
-			ctl.store.SetTransientError("Download failed: " + err.Error())
+			ctl.store.SetTransientError(i18n.Tf("chat.err_download", map[string]any{"err": err.Error()}))
 			return
 		}
 		tmpPath := filepath.Join(os.TempDir(), filepath.Base(att.Filename))
@@ -927,14 +928,7 @@ func miniActionButton(c *ui.Context, label string, onTap func()) {
 
 func formatElapsed(start time.Time) string {
 	if start.IsZero() {
-		return "0s"
+		return i18n.FormatElapsed(0)
 	}
-	d := time.Since(start)
-	if d < 0 {
-		d = 0
-	}
-	if d < time.Minute {
-		return fmt.Sprintf("%ds", int(d.Seconds()))
-	}
-	return fmt.Sprintf("%dm %ds", int(d.Minutes()), int(d.Seconds())%60)
+	return i18n.FormatElapsed(int64(time.Since(start).Seconds()))
 }

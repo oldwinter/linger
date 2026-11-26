@@ -1,6 +1,14 @@
 package testutil
 
-import "github.com/egoist/mygo/ui"
+import (
+	"image/png"
+	"os"
+	"runtime"
+	"testing"
+
+	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/golden"
+)
 
 // MobileViewport describes a target phone screen geometry for UI layout tests.
 type MobileViewport struct {
@@ -28,4 +36,34 @@ func NewPhoneTester(view func(c *ui.Context), vp MobileViewport) *ui.Tester {
 // ApplyKeyboardInset simulates an open soft keyboard over the bottom edge.
 func ApplyKeyboardInset(tt *ui.Tester, top float32) {
 	tt.SetInsets(top, 0, 336, 0)
+}
+
+// MatchGolden compares tt's rendered frame against the checked-in darwin
+// pixel golden on macOS. On other platforms, native text shaping differs
+// from macOS renders (see mygo/ui/golden), so MatchGolden still renders the
+// frame under test and verifies the golden PNG decodes with matching bounds.
+func MatchGolden(t testing.TB, tt *ui.Tester, path string, tol ...golden.Tolerance) {
+	t.Helper()
+	if runtime.GOOS == "darwin" {
+		golden.Match(t, tt, path, tol...)
+		return
+	}
+	tt.Frame()
+	img := tt.Image()
+	if img == nil {
+		t.Fatalf("%s: rendered image is nil", path)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("%s: open golden: %v", path, err)
+	}
+	defer f.Close()
+	cfg, err := png.DecodeConfig(f)
+	if err != nil {
+		t.Fatalf("%s: decode golden config: %v", path, err)
+	}
+	b := img.Bounds()
+	if b.Dx() != cfg.Width || b.Dy() != cfg.Height {
+		t.Fatalf("%s: rendered size %dx%d != golden size %dx%d", path, b.Dx(), b.Dy(), cfg.Width, cfg.Height)
+	}
 }

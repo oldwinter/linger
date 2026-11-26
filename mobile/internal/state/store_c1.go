@@ -11,6 +11,7 @@ import (
 
 	"github.com/oldwinter/linger/mobile/internal/api"
 	"github.com/oldwinter/linger/mobile/internal/cache"
+	"github.com/oldwinter/linger/mobile/internal/i18n"
 )
 
 // PendingDecisionItem aggregates an unresolved DecisionRequestedMessageCard with its source Room context.
@@ -138,7 +139,7 @@ func (s *AppStore) LoadRoomMessages(ctx context.Context, roomID string, older bo
 		s.offlineViewingCache = true
 		s.mu.Unlock()
 		s.notify()
-		return errors.New("offline — viewing cached messages")
+		return errors.New(i18n.T("state.toast.offline_cached_messages"))
 	}
 
 	page, err := client.ListMessages(ctx, roomID, 50, cursor)
@@ -203,7 +204,7 @@ func (s *AppStore) LoadRoomMessages(ctx context.Context, roomID string, older bo
 func (s *AppStore) SendMessage(ctx context.Context, roomID, text string, replyToID *string, uploadIDs []string) (api.Message, error) {
 	text = strings.TrimSpace(text)
 	if text == "" && len(uploadIDs) == 0 {
-		return api.Message{}, errors.New("message cannot be empty")
+		return api.Message{}, errors.New(i18n.T("state.err.empty_message"))
 	}
 	ikey := fmt.Sprintf("mob_%d", time.Now().UnixNano())
 	segments := []api.MessageSegment{}
@@ -228,10 +229,10 @@ func (s *AppStore) SendMessage(ctx context.Context, roomID, text string, replyTo
 		s.mu.RUnlock()
 		if cs != nil {
 			_ = cs.EnqueueOutbox(ctx, ikey, "message.create", roomID, req)
-			s.SetStatusMessage("Offline: message queued in outbox")
+			s.SetStatusMessage(i18n.T("state.toast.offline_queued_outbox"))
 			return api.Message{}, nil
 		}
-		return api.Message{}, errors.New("not connected")
+		return api.Message{}, errors.New(i18n.T("state.err.not_connected"))
 	}
 
 	msg, err := client.CreateMessage(ctx, roomID, req, ikey)
@@ -292,7 +293,7 @@ func (s *AppStore) DrainMessageOutbox(ctx context.Context) (int, error) {
 func (s *AppStore) ToggleRoomPin(ctx context.Context, roomID string, pinned bool) error {
 	client := s.Client()
 	if client == nil {
-		return errors.New("not connected")
+		return errors.New(i18n.T("state.err.not_connected"))
 	}
 	if err := client.UpdateRoomPin(ctx, roomID, pinned); err != nil {
 		s.SetTransientError(err.Error())
@@ -319,7 +320,7 @@ func (s *AppStore) ToggleRoomPin(ctx context.Context, roomID string, pinned bool
 func (s *AppStore) MarkRoomRead(ctx context.Context, roomID string) error {
 	client := s.Client()
 	if client == nil {
-		return errors.New("not connected")
+		return errors.New(i18n.T("state.err.not_connected"))
 	}
 	var seq int64
 	s.mu.RLock()
@@ -357,7 +358,7 @@ func (s *AppStore) MarkAllRoomsRead(ctx context.Context) error {
 			_ = s.MarkRoomRead(ctx, r.ID)
 		}
 	}
-	s.SetStatusMessage("All rooms marked caught up")
+	s.SetStatusMessage(i18n.T("state.toast.all_caught_up"))
 	return nil
 }
 
@@ -365,7 +366,7 @@ func (s *AppStore) MarkAllRoomsRead(ctx context.Context) error {
 func (s *AppStore) SetRoomParticipation(ctx context.Context, roomID, status string) error {
 	client := s.Client()
 	if client == nil {
-		return errors.New("not connected")
+		return errors.New(i18n.T("state.err.not_connected"))
 	}
 	if _, err := client.SetRoomParticipation(ctx, roomID, status); err != nil {
 		s.SetTransientError(err.Error())
@@ -389,7 +390,7 @@ func (s *AppStore) CreateRoom(ctx context.Context, name, description string, mem
 	client := s.Client()
 	tenantID := s.Snapshot().TenantID
 	if client == nil || tenantID == "" {
-		return api.Room{}, errors.New("not connected")
+		return api.Room{}, errors.New(i18n.T("state.err.not_connected"))
 	}
 	rm, err := client.CreateRoom(ctx, tenantID, strings.TrimSpace(name), strings.TrimSpace(description), memberIDs)
 	if err != nil {
@@ -405,7 +406,7 @@ func (s *AppStore) OpenDirectRoom(ctx context.Context, peerActorID string) (api.
 	client := s.Client()
 	tenantID := s.Snapshot().TenantID
 	if client == nil || tenantID == "" {
-		return api.Room{}, errors.New("not connected")
+		return api.Room{}, errors.New(i18n.T("state.err.not_connected"))
 	}
 	rm, err := client.OpenDirectRoom(ctx, tenantID, peerActorID)
 	if err != nil {
@@ -421,7 +422,7 @@ func (s *AppStore) OpenDirectRoom(ctx context.Context, peerActorID string) (api.
 func (s *AppStore) DecideCard(ctx context.Context, roomID, decisionID string, req api.DecisionRequest) (api.Message, error) {
 	client := s.Client()
 	if client == nil {
-		return api.Message{}, errors.New("not connected")
+		return api.Message{}, errors.New(i18n.T("state.err.not_connected"))
 	}
 	updated, err := client.DecideDecision(ctx, decisionID, req)
 	if err != nil {
@@ -456,7 +457,7 @@ func (s *AppStore) DecideCard(ctx context.Context, roomID, decisionID string, re
 func (s *AppStore) SyncRunPresentation(ctx context.Context, roomID, runID string) error {
 	client := s.Client()
 	if client == nil {
-		return errors.New("not connected")
+		return errors.New(i18n.T("state.err.not_connected"))
 	}
 	s.mu.RLock()
 	existing := s.runPresEvents[runID]
@@ -489,7 +490,7 @@ func (s *AppStore) SyncRunPresentation(ctx context.Context, roomID, runID string
 func (s *AppStore) CancelRun(ctx context.Context, roomID, runID string) error {
 	client := s.Client()
 	if client == nil {
-		return errors.New("not connected")
+		return errors.New(i18n.T("state.err.not_connected"))
 	}
 	if err := client.CancelRoomRun(ctx, roomID, runID); err != nil {
 		s.SetTransientError(err.Error())
@@ -504,7 +505,7 @@ func (s *AppStore) CancelRun(ctx context.Context, roomID, runID string) error {
 	s.rebuildWorkingRoomsLocked()
 	s.transientError = ""
 	s.mu.Unlock()
-	s.SetStatusMessage("Run cancellation requested")
+	s.SetStatusMessage(i18n.T("state.toast.run_cancel_requested"))
 	return nil
 }
 
@@ -512,13 +513,13 @@ func (s *AppStore) CancelRun(ctx context.Context, roomID, runID string) error {
 func (s *AppStore) RedeliverRunInputs(ctx context.Context, roomID, runID string) error {
 	client := s.Client()
 	if client == nil {
-		return errors.New("not connected")
+		return errors.New(i18n.T("state.err.not_connected"))
 	}
 	if err := client.RedeliverRoomRunUnconfirmedInputs(ctx, roomID, runID); err != nil {
 		s.SetTransientError(err.Error())
 		return err
 	}
-	s.SetStatusMessage("Unconfirmed inputs redelivered")
+	s.SetStatusMessage(i18n.T("state.toast.inputs_redelivered"))
 	return nil
 }
 
@@ -527,7 +528,7 @@ func (s *AppStore) ActOnLocalModel(ctx context.Context, computerID, modelID, act
 	client := s.Client()
 	tenantID := s.Snapshot().TenantID
 	if client == nil || tenantID == "" {
-		return errors.New("not connected")
+		return errors.New(i18n.T("state.err.not_connected"))
 	}
 	if err := client.ActOnLocalComputerModelWithUnload(ctx, tenantID, computerID, modelID, action, unloadFirst); err != nil {
 		s.SetTransientError(err.Error())
@@ -548,7 +549,7 @@ func (s *AppStore) RecheckLocalModels(ctx context.Context, computerID string) er
 	client := s.Client()
 	tenantID := s.Snapshot().TenantID
 	if client == nil || tenantID == "" {
-		return errors.New("not connected")
+		return errors.New(i18n.T("state.err.not_connected"))
 	}
 	if err := client.RefreshLocalComputerModels(ctx, tenantID, computerID); err != nil {
 		s.SetTransientError(err.Error())
@@ -560,7 +561,7 @@ func (s *AppStore) RecheckLocalModels(ctx context.Context, computerID string) er
 		s.transientError = ""
 		s.mu.Unlock()
 	}
-	s.SetStatusMessage("Hardware recheck requested")
+	s.SetStatusMessage(i18n.T("state.toast.recheck_requested"))
 	return nil
 }
 
@@ -569,7 +570,7 @@ func (s *AppStore) SwitchModelSource(ctx context.Context, computerID string, req
 	client := s.Client()
 	tenantID := s.Snapshot().TenantID
 	if client == nil || tenantID == "" {
-		return api.ModelSourceView{}, errors.New("not connected")
+		return api.ModelSourceView{}, errors.New(i18n.T("state.err.not_connected"))
 	}
 	view, err := client.SwitchLocalComputerModelSource(ctx, tenantID, computerID, req)
 	if err != nil {
@@ -580,7 +581,7 @@ func (s *AppStore) SwitchModelSource(ctx context.Context, computerID string, req
 	s.modelSource = &view
 	s.transientError = ""
 	s.mu.Unlock()
-	s.SetStatusMessage("Model source updated to " + req.Mode)
+	s.SetStatusMessage(i18n.Tf("state.toast.model_source_updated", map[string]any{"source": i18n.ModelSourceLabel(req.Mode)}))
 	return view, nil
 }
 
@@ -631,7 +632,7 @@ func (s *AppStore) handleLiveRoomEvent(ctx context.Context, ev api.RoomEventEnve
 				}
 			}
 			if !updated && p.Status == "active" {
-				agentName := "Agent"
+				agentName := i18n.T("role.agent")
 				agentID := ""
 				if ev.Actor != nil {
 					agentName = ev.Actor.DisplayName

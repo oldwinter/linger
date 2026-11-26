@@ -60,11 +60,18 @@ func TestInspectorRefreshPreservesEditsNotifiesAndAvoidsDataRaces(t *testing.T) 
 	}
 
 	deadline := time.After(3 * time.Second)
-	for notifies.Load() <= before {
+	for {
+		ctl.mu.Lock()
+		populated := len(ctl.inspMembers) > 0 && len(ctl.inspPins) > 0 && len(ctl.inspShares) > 0 && ctl.inspTeamMd != nil
+		ctl.mu.Unlock()
+		if notifies.Load() > before && populated {
+			break
+		}
 		select {
 		case <-notifyCh:
+		case <-time.After(10 * time.Millisecond):
 		case <-deadline:
-			t.Fatal("timed out waiting for Notify after refreshInspectorData")
+			t.Fatalf("timed out waiting for Notify and inspector data after refreshInspectorData (notifies=%d before=%d populated=%v)", notifies.Load(), before, populated)
 		}
 	}
 

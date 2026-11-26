@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/egoist/mygo/audio"
@@ -13,11 +12,17 @@ import (
 	"github.com/egoist/mygo/ui/mobile"
 	"github.com/oldwinter/linger/mobile/internal/api"
 	"github.com/oldwinter/linger/mobile/internal/components"
+	"github.com/oldwinter/linger/mobile/internal/i18n"
 	"github.com/oldwinter/linger/mobile/internal/realtime"
 	"github.com/oldwinter/linger/mobile/internal/theme"
 )
 
-var memoryFilterLabels = []string{"All", "Daily", "Weekly", "Meetings"}
+var memoryFilterKeys = []string{
+	"library.memory.filter_all",
+	"library.memory.filter_daily",
+	"library.memory.filter_weekly",
+	"library.memory.filter_meetings",
+}
 var memoryFilterKinds = []string{"", "daily", "weekly", "meeting"}
 
 func (s *Screen) viewMemorySegment(c *ui.Context) {
@@ -40,10 +45,10 @@ func (s *Screen) viewMemorySegment(c *ui.Context) {
 		ui.Column(c).FillWidth().Padding(12, 16, 24, 16).Gap(10).Children(func() {
 			// Active Voice Capture banner when recording
 			if activeCap != nil {
-				components.SectionCard(c, "Active Voice Capture", "Room "+activeCap.RoomID, func() {
-					components.StatusPill(c, activeCap.Status, components.ToneSuccess)
+				components.SectionCard(c, i18n.T("library.memory.active_capture"), i18n.Tf("library.memory.room_line", map[string]any{"id": activeCap.RoomID}), func() {
+					components.StatusPill(c, i18n.StatusLabel(activeCap.Status), components.ToneSuccess)
 				}, func() {
-					btn := components.PrimaryTouchButton(c, "Open Live Transcript & Q&A", false)
+					btn := components.PrimaryTouchButton(c, i18n.T("library.memory.open_transcript"), false)
 					btn.FillWidth()
 					if btn.Clicked() {
 						s.openVoiceCapture(*activeCap)
@@ -54,7 +59,8 @@ func (s *Screen) viewMemorySegment(c *ui.Context) {
 			// Filter pills
 			ui.ScrollHorizontal(c).FillWidth().Children(func() {
 				ui.Row(c).Gap(6).Role(ui.RoleTabList).Children(func() {
-					for i, lbl := range memoryFilterLabels {
+					for i, key := range memoryFilterKeys {
+						lbl := i18n.T(key)
 						on := s.memoryFilter == i
 						bg := theme.Extra(t).MutedBg
 						fg := t.TextMuted
@@ -75,8 +81,8 @@ func (s *Screen) viewMemorySegment(c *ui.Context) {
 			})
 
 			if len(filtered) == 0 {
-				components.EmptyState(c, theme.IconLive, "No Memory Entries",
-					"Daily journals, weekly digests, and recorded meetings will appear here.", "", nil)
+				components.EmptyState(c, theme.IconLive, i18n.T("library.memory.empty_title"),
+					i18n.T("library.memory.empty_body"), "", nil)
 				return
 			}
 
@@ -84,18 +90,18 @@ func (s *Screen) viewMemorySegment(c *ui.Context) {
 				entry := entry
 				row := ui.Column(c.Key(entry.ID)).FillWidth().Padding(12, 12).Gap(6).
 					Radius(12).Background(t.Surface).Border(1, t.Border).
-					Role(ui.RoleButton).Label("Memory " + entry.Title)
+					Role(ui.RoleButton).Label(i18n.Tf("library.memory.entry_a11y", map[string]any{"title": entry.Title}))
 				row.Children(func() {
 					ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
 						ui.Text(c, entry.Title).FontSize(15).FontWeight(600).TextColor(t.Text).Grow(1).Basis(0).MaxLines(1)
-						components.StatusPill(c, firstWikiStr(entry.Kind, "journal"), components.ToneInfo)
+						components.StatusPill(c, i18n.MemoryKindLabel(entry.Kind), components.ToneInfo)
 					})
 					if entry.Summary != "" {
 						ui.Text(c, entry.Summary).FontSize(12).TextColor(t.TextMuted).MaxLines(2)
 					}
 					if entry.Meeting != nil {
 						ui.Row(c).Wrap().Gap(6).Children(func() {
-							components.StatusPill(c, "Voice Capture", components.ToneSuccess)
+							components.StatusPill(c, i18n.T("library.memory.voice_capture_title"), components.ToneSuccess)
 							if entry.Meeting.RecordingFilename != "" {
 								components.StatusPill(c, entry.Meeting.RecordingFilename, components.ToneNeutral)
 							}
@@ -133,7 +139,7 @@ func (s *Screen) viewMemoryDetailSheet(c *ui.Context) {
 	t := c.Theme()
 	mobile.Sheet(c, &s.memoryDetailOpen, mobile.SheetOptions{
 		Detents: []float32{0.82, 0.96},
-		Label:   "Memory Journal Detail",
+		Label:   i18n.T("library.memory.journal_detail_title"),
 	}, func() {
 		entry := s.memoryDetailEntry
 		if entry == nil {
@@ -143,15 +149,15 @@ func (s *Screen) viewMemoryDetailSheet(c *ui.Context) {
 			ui.Column(c).FillWidth().Padding(12, 16, 28, 16).Gap(12).Children(func() {
 				ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
 					ui.Text(c, entry.Title).FontSize(18).Bold().TextColor(t.Text).Grow(1).Basis(0)
-					components.StatusPill(c, entry.Kind, components.ToneInfo)
+					components.StatusPill(c, i18n.MemoryKindLabel(entry.Kind), components.ToneInfo)
 				})
 				if entry.Path != "" {
 					ui.Text(c, entry.Path).FontSize(11).TextColor(t.TextMuted)
 				}
 				if entry.Meeting != nil {
 					mt := entry.Meeting
-					components.SectionCard(c, "Meeting Recording & Q&A", mt.RecordingFilename, nil, func() {
-						openCapBtn := components.PrimaryTouchButton(c, "Open Transcript, Audio & Q&A", false)
+					components.SectionCard(c, i18n.T("library.memory.meeting_card_title"), mt.RecordingFilename, nil, func() {
+						openCapBtn := components.PrimaryTouchButton(c, i18n.T("library.memory.open_meeting_btn"), false)
 						openCapBtn.FillWidth()
 						if openCapBtn.Clicked() {
 							s.memoryDetailOpen = false
@@ -289,7 +295,7 @@ func (s *Screen) viewVoiceCaptureSheet(c *ui.Context) {
 	wasOpen := s.voiceSheetOpen
 	mobile.Sheet(c, &s.voiceSheetOpen, mobile.SheetOptions{
 		Detents: []float32{0.86, 0.96},
-		Label:   "Voice Capture and Meeting Q&A",
+		Label:   i18n.T("library.memory.voice_sheet_a11y"),
 	}, func() {
 		vc := s.voiceCapture
 		if vc == nil {
@@ -298,25 +304,25 @@ func (s *Screen) viewVoiceCaptureSheet(c *ui.Context) {
 		ui.Scroll(c).FillWidth().Grow(1).Basis(0).Children(func() {
 			ui.Column(c).FillWidth().Padding(12, 16, 28, 16).Gap(12).Children(func() {
 				ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
-					ui.Text(c, "Voice Capture "+vc.ID).FontSize(17).Bold().TextColor(t.Text).Grow(1).Basis(0)
-					components.StatusPill(c, vc.Status, components.ToneInfo)
+					ui.Text(c, i18n.Tf("library.memory.voice_header", map[string]any{"id": vc.ID})).FontSize(17).Bold().TextColor(t.Text).Grow(1).Basis(0)
+					components.StatusPill(c, i18n.StatusLabel(vc.Status), components.ToneInfo)
 				})
 
 				if s.voiceErr != "" {
-					components.StatusBanner(c, components.ToneDanger, s.voiceErr, "Dismiss", func() {
+					components.StatusBanner(c, components.ToneDanger, s.voiceErr, i18n.T("common.dismiss"), func() {
 						s.voiceErr = ""
 					})
 				}
 
 				ui.Row(c).FillWidth().Wrap().Gap(8).Children(func() {
 					if vc.Status == "recording" || vc.Status == "active" {
-						stopBtn := components.DangerTouchButton(c, "Stop Capture", s.voiceBusy)
+						stopBtn := components.DangerTouchButton(c, i18n.T("library.memory.stop_capture"), s.voiceBusy)
 						if stopBtn.Clicked() {
 							s.stopCaptureAsync(vc.ID)
 						}
 					}
 					if vc.GapCount > 0 || (vc.TranscriptRecoveryStatus != nil && *vc.TranscriptRecoveryStatus == "needed") {
-						recBtn := components.SecondaryTouchButton(c, "Retry Transcript Recovery", s.voiceBusy)
+						recBtn := components.SecondaryTouchButton(c, i18n.T("library.memory.retry_recovery"), s.voiceBusy)
 						if recBtn.Clicked() {
 							s.retryTranscriptRecoveryAsync(vc.ID)
 						}
@@ -324,7 +330,7 @@ func (s *Screen) viewVoiceCaptureSheet(c *ui.Context) {
 				})
 
 				// Recorded Audio Playback section
-				components.SectionCard(c, "Recorded Audio", "", nil, func() {
+				components.SectionCard(c, i18n.T("library.memory.recorded_audio"), "", nil, func() {
 					if s.voiceAudioStatus != "" {
 						ui.Text(c, s.voiceAudioStatus).FontSize(12).TextColor(t.TextMuted)
 					}
@@ -335,25 +341,25 @@ func (s *Screen) viewVoiceCaptureSheet(c *ui.Context) {
 								verID = strings.TrimSpace(*vc.AudioDocumentVersionID)
 							}
 							if verID == "" && s.voiceAudioStatus == "" {
-								ui.Text(c, "No audio recording available for this capture.").FontSize(12).TextColor(t.TextMuted).Grow(1).Basis(0)
+								ui.Text(c, i18n.T("library.memory.no_audio")).FontSize(12).TextColor(t.TextMuted).Grow(1).Basis(0)
 							} else {
-								playBtn := components.SecondaryTouchButton(c, "Load Audio", s.voiceBusy || verID == "")
+								playBtn := components.SecondaryTouchButton(c, i18n.T("library.memory.load_audio"), s.voiceBusy || verID == "")
 								playBtn.Grow(1).Basis(0)
 								if playBtn.Clicked() {
 									s.loadAudioVersion(verID)
 								}
 							}
 						} else {
-							lbl := "Play"
+							lbl := i18n.T("library.memory.play")
 							if s.voiceAudioPlaying {
-								lbl = "Pause"
+								lbl = i18n.T("library.memory.pause")
 							}
 							toggleBtn := components.PrimaryTouchButton(c, lbl, false)
 							toggleBtn.Grow(1).Basis(0)
 							if toggleBtn.Clicked() {
 								s.toggleAudioPlayback()
 							}
-							stopAudioBtn := components.SecondaryTouchButton(c, "Stop Audio", false)
+							stopAudioBtn := components.SecondaryTouchButton(c, i18n.T("library.memory.stop_audio"), false)
 							if stopAudioBtn.Clicked() {
 								s.stopAudioPlayerOnly()
 							}
@@ -362,27 +368,27 @@ func (s *Screen) viewVoiceCaptureSheet(c *ui.Context) {
 				})
 
 				// Live & Historical Transcript
-				components.SectionCard(c, fmt.Sprintf("Transcript (%d turns)", len(s.voiceTranscripts)), "", nil, func() {
+				components.SectionCard(c, i18n.Tf("library.memory.transcript_title", map[string]any{"count": len(s.voiceTranscripts)}), "", nil, func() {
 					if len(s.voiceTranscripts) == 0 && s.voicePartial == "" {
-						ui.Text(c, "Waiting for transcript segments...").FontSize(13).TextColor(t.TextMuted)
+						ui.Text(c, i18n.T("library.memory.transcript_waiting")).FontSize(13).TextColor(t.TextMuted)
 					} else {
 						for _, tr := range s.voiceTranscripts {
 							speaker := tr.Lane
 							if tr.SpeakerID != nil && *tr.SpeakerID != "" {
 								speaker = *tr.SpeakerID
 							}
-							ui.Text(c, fmt.Sprintf("[%s] %s", speaker, tr.Text)).FontSize(13).TextColor(t.Text)
+							ui.Text(c, "["+speaker+"] "+tr.Text).FontSize(13).TextColor(t.Text)
 						}
 						if s.voicePartial != "" {
-							ui.Text(c, "Live: "+s.voicePartial).FontSize(13).TextColor(t.Accent)
+							ui.Text(c, i18n.Tf("library.memory.live_prefix", map[string]any{"text": s.voicePartial})).FontSize(13).TextColor(t.Accent)
 						}
 					}
 				})
 
 				// Meeting Q&A
-				components.SectionCard(c, "Ask Meeting Q&A", "", nil, func() {
+				components.SectionCard(c, i18n.T("library.memory.ask_qa_title"), "", nil, func() {
 					ta := ui.TextArea(c, &s.voiceQuestionDraft).FillWidth().MinHeight(64).
-						Placeholder("Ask a question about this recording...").Label("Meeting Question Input")
+						Placeholder(i18n.T("library.memory.qa_placeholder")).Label(i18n.T("library.memory.meeting_a11y"))
 					ta.OnTextKey(func(k ui.TextKey) bool {
 						if k.Key != ui.KeyEnter || k.Mods != 0 {
 							return false
@@ -396,7 +402,7 @@ func (s *Screen) viewVoiceCaptureSheet(c *ui.Context) {
 						s.askVoiceQuestionAsync(vc.ID, q)
 						return true
 					})
-					askBtn := components.PrimaryTouchButton(c, "Ask Question", s.voiceBusy || strings.TrimSpace(s.voiceQuestionDraft) == "")
+					askBtn := components.PrimaryTouchButton(c, i18n.T("library.memory.ask_btn"), s.voiceBusy || strings.TrimSpace(s.voiceQuestionDraft) == "")
 					askBtn.FillWidth()
 					if askBtn.Clicked() {
 						s.askVoiceQuestionAsync(vc.ID, s.voiceQuestionDraft)
@@ -405,13 +411,13 @@ func (s *Screen) viewVoiceCaptureSheet(c *ui.Context) {
 					for _, q := range s.voiceQuestions {
 						q := q
 						ui.Column(c.Key(q.ID)).FillWidth().Padding(10, 10).Radius(10).Background(theme.Extra(t).MutedBg).Gap(4).Children(func() {
-							ui.Text(c, "Q: "+q.Question).FontSize(13).FontWeight(600).TextColor(t.Text)
+							ui.Text(c, i18n.Tf("library.memory.q_prefix", map[string]any{"text": q.Question})).FontSize(13).FontWeight(600).TextColor(t.Text)
 							if q.Answered {
-								ui.Text(c, "A: "+q.Answer).FontSize(13).TextColor(t.TextMuted)
+								ui.Text(c, i18n.Tf("library.memory.a_prefix", map[string]any{"text": q.Answer})).FontSize(13).TextColor(t.TextMuted)
 							} else {
-								ui.Text(c, "Answering...").FontSize(12).TextColor(t.Accent)
+								ui.Text(c, i18n.T("library.memory.answering")).FontSize(12).TextColor(t.Accent)
 							}
-							taskBtn := components.SecondaryTouchButton(c, "Send to Task", q.TaskTitle != nil)
+							taskBtn := components.SecondaryTouchButton(c, i18n.T("library.memory.send_to_task"), q.TaskTitle != nil)
 							taskBtn.MinHeight(32)
 							if taskBtn.Clicked() {
 								s.sendVoiceQuestionTaskAsync(vc.ID, q.ID)
@@ -443,7 +449,7 @@ func (s *Screen) stopCaptureAsync(captureID string) {
 			}
 			cp := updated
 			s.voiceCapture = &cp
-			s.toast("Capture stopped")
+			s.toast(i18n.T("library.memory.toast.capture_stopped"))
 		})
 	}()
 }
@@ -464,7 +470,7 @@ func (s *Screen) retryTranscriptRecoveryAsync(captureID string) {
 			}
 			cp := updated
 			s.voiceCapture = &cp
-			s.toast("Transcript recovery queued")
+			s.toast(i18n.T("library.memory.toast.recovery_queued"))
 		})
 	}()
 }
@@ -507,7 +513,7 @@ func (s *Screen) sendVoiceQuestionTaskAsync(captureID, questionID string) {
 					s.voiceQuestions[i] = updated
 				}
 			}
-			s.toast("Sent answer to Task")
+			s.toast(i18n.T("library.memory.toast.sent_task"))
 		})
 	}()
 }
@@ -526,20 +532,20 @@ func (s *Screen) loadAudioVersion(verID string) {
 	myGen := s.audioGen
 	s.mu.Unlock()
 
-	s.voiceAudioStatus = "Downloading recording..."
+	s.voiceAudioStatus = i18n.T("library.memory.downloading_audio")
 	go func() {
 		data, ct, err := client.DownloadDocumentVersion(context.Background(), verID)
 		if err != nil {
 			s.enqueueUI(func() {
-				s.voiceAudioStatus = "Could not load recording: " + err.Error()
+				s.voiceAudioStatus = i18n.Tf("library.memory.err_load_audio", map[string]any{"err": err.Error()})
 			})
 			return
 		}
 		player, pErr := audio.OpenStream(bytes.NewReader(data))
 		if pErr != nil {
-			msg := "Unsupported recording audio format (" + ct + "); transcript remains available below."
+			msg := i18n.Tf("library.memory.err_audio_format", map[string]any{"mime": ct})
 			if !errors.Is(pErr, audio.ErrFormat) {
-				msg = "Audio playback unavailable: " + pErr.Error()
+				msg = i18n.Tf("library.memory.err_playback", map[string]any{"err": pErr.Error()})
 			}
 			s.enqueueUI(func() {
 				s.voiceAudioLoaded = false
@@ -565,7 +571,7 @@ func (s *Screen) loadAudioVersion(verID string) {
 		s.enqueueUI(func() {
 			s.voiceAudioLoaded = true
 			s.voiceAudioPlaying = true
-			s.voiceAudioStatus = "Playing recording"
+			s.voiceAudioStatus = i18n.T("library.memory.playing_recording")
 		})
 	}()
 }
@@ -580,11 +586,11 @@ func (s *Screen) toggleAudioPlayback() {
 	if s.voiceAudioPlaying {
 		p.Pause()
 		s.voiceAudioPlaying = false
-		s.voiceAudioStatus = "Paused"
+		s.voiceAudioStatus = i18n.T("library.memory.status_paused")
 	} else {
 		p.Play()
 		s.voiceAudioPlaying = true
-		s.voiceAudioStatus = "Playing"
+		s.voiceAudioStatus = i18n.T("library.memory.status_playing")
 	}
 }
 
@@ -600,5 +606,5 @@ func (s *Screen) stopAudioPlayerOnly() {
 	}
 	s.voiceAudioLoaded = false
 	s.voiceAudioPlaying = false
-	s.voiceAudioStatus = "Stopped"
+	s.voiceAudioStatus = i18n.T("library.memory.status_stopped")
 }

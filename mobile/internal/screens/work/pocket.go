@@ -14,6 +14,7 @@ import (
 	"github.com/oldwinter/linger/mobile/internal/api"
 	"github.com/oldwinter/linger/mobile/internal/cache"
 	"github.com/oldwinter/linger/mobile/internal/components"
+	"github.com/oldwinter/linger/mobile/internal/i18n"
 	"github.com/oldwinter/linger/mobile/internal/theme"
 )
 
@@ -62,51 +63,53 @@ func (s *Screen) viewPocketSegment(c *ui.Context) {
 	ui.Scroll(c).FillWidth().Grow(1).Basis(0).TrackScroll(&s.scroll[SegmentPocket]).Children(func() {
 		ui.Column(c).FillWidth().Padding(12, 16, 28, 16).Gap(12).Children(func() {
 			if s.pocketActionErr != "" {
-				components.StatusBanner(c, components.ToneDanger, s.pocketActionErr, "Dismiss", func() {
+				components.StatusBanner(c, components.ToneDanger, s.pocketActionErr, i18n.T("common.dismiss"), func() {
 					s.pocketActionErr = ""
 				})
 			}
 
 			// Today's Note card with explicit Save status indicator & offline sync retry
-			components.SectionCard(c, "Today's Pocket Note", todayDate, func() {
+			components.SectionCard(c, i18n.T("work.pocket.today_title"), todayDate, func() {
 				s.viewPocketStatusPill(c, state)
 			}, func() {
 				if state == PocketStateError && lastErr != "" {
-					components.StatusBanner(c, components.ToneDanger, "Couldn't save: "+lastErr, "Retry Sync", func() {
-						go func() { _ = s.SyncPocketOutbox(context.Background()) }()
-					})
+					components.StatusBanner(c, components.ToneDanger,
+						i18n.Tf("work.pocket.couldnt_save", map[string]any{"err": lastErr}),
+						i18n.T("work.pocket.retry_sync"), func() {
+							go func() { _ = s.SyncPocketOutbox(context.Background()) }()
+						})
 				} else if state == PocketStateSavedOffline {
 					components.StatusBanner(c, components.ToneWarning,
-						fmt.Sprintf("Saved offline (%d pending) · waiting to sync", maxInt(outboxCount, 1)),
-						"Retry Sync", func() {
+						i18n.Tf("work.pocket.offline_pending", map[string]any{"count": maxInt(outboxCount, 1)}),
+						i18n.T("work.pocket.retry_sync"), func() {
 							go func() { _ = s.SyncPocketOutbox(context.Background()) }()
 						})
 				}
 
 				ta := ui.TextArea(c, &s.pocketDraft).FillWidth().MinHeight(140).
-					Placeholder("Jot quick thoughts, meeting notes, or reminders...").
-					Label("Today Pocket Note")
+					Placeholder(i18n.T("work.pocket.placeholder")).
+					Label(i18n.T("work.pocket.note_input_a11y"))
 				if ta.Changed() {
 					s.pocketDirty = true
 					s.queuePocketSave(s.pocketDraft)
 				}
 
 				ui.Row(c).FillWidth().Wrap().Gap(8).Children(func() {
-					saveBtn := components.PrimaryTouchButton(c, "Save Now", state == PocketStateSaving)
+					saveBtn := components.PrimaryTouchButton(c, i18n.T("work.pocket.save_now"), state == PocketStateSaving)
 					saveBtn.Grow(1).Basis(0)
 					if saveBtn.Clicked() {
 						s.pocketDirty = true
 						s.queuePocketSave(s.pocketDraft)
 					}
 
-					retryBtn := components.SecondaryTouchButton(c, "Retry Sync", state == PocketStateSaving)
+					retryBtn := components.SecondaryTouchButton(c, i18n.T("work.pocket.retry_sync"), state == PocketStateSaving)
 					if retryBtn.Clicked() {
 						go func() { _ = s.SyncPocketOutbox(context.Background()) }()
 					}
 
-					sendLabel := "Send to Another Me"
+					sendLabel := i18n.T("work.pocket.send_another_me")
 					if s.pocketSendBusy {
-						sendLabel = "Sending..."
+						sendLabel = i18n.T("work.pocket.sending")
 					}
 					sendBtn := components.SecondaryTouchButton(c, sendLabel, s.pocketSendBusy || strings.TrimSpace(s.pocketDraft) == "")
 					sendBtn.FillWidth()
@@ -123,9 +126,9 @@ func (s *Screen) viewPocketSegment(c *ui.Context) {
 					past = append(past, n)
 				}
 			}
-			components.SectionCard(c, fmt.Sprintf("Past Days (%d)", len(past)), "Earlier daily Pocket Notes", nil, func() {
+			components.SectionCard(c, i18n.Tf("work.pocket.past_days_title", map[string]any{"count": len(past)}), i18n.T("work.pocket.past_days_sub"), nil, func() {
 				if len(past) == 0 {
-					ui.Text(c, "No previous days recorded yet.").FontSize(13).TextColor(t.TextMuted)
+					ui.Text(c, i18n.T("work.pocket.past_days_empty")).FontSize(13).TextColor(t.TextMuted)
 					return
 				}
 				ui.Column(c).FillWidth().Gap(8).Children(func() {
@@ -137,7 +140,7 @@ func (s *Screen) viewPocketSegment(c *ui.Context) {
 						card.Children(func() {
 							ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
 								hdr := ui.Row(c).Grow(1).Basis(0).MinHeight(36).AlignItems(ui.Center).
-									Role(ui.RoleButton).Label("Pocket note " + n.Date)
+									Role(ui.RoleButton).Label(i18n.Tf("work.pocket.note_a11y", map[string]any{"date": n.Date}))
 								hdr.Children(func() {
 									ui.Text(c, n.Date).FontSize(13).FontWeight(600).TextColor(t.Text)
 								})
@@ -149,9 +152,9 @@ func (s *Screen) viewPocketSegment(c *ui.Context) {
 									}
 								}
 								delBtn := ui.Row(c).MinHeight(32).PaddingX(10).Radius(8).Background(t.Surface).
-									AlignItems(ui.Center).Role(ui.RoleButton).Label("Delete note " + n.Date)
+									AlignItems(ui.Center).Role(ui.RoleButton).Label(i18n.Tf("work.pocket.delete_a11y", map[string]any{"date": n.Date}))
 								delBtn.Children(func() {
-									ui.Text(c, "Delete").FontSize(11).FontWeight(600).TextColor(t.Danger)
+									ui.Text(c, i18n.T("common.delete")).FontSize(11).FontWeight(600).TextColor(t.Danger)
 								})
 								if delBtn.Clicked() {
 									s.pocketDeleteDate = n.Date
@@ -173,13 +176,13 @@ func (s *Screen) viewPocketSegment(c *ui.Context) {
 func (s *Screen) viewPocketStatusPill(c *ui.Context, st PocketSaveState) {
 	switch st {
 	case PocketStateSaving:
-		components.StatusPill(c, "Saving...", components.ToneInfo)
+		components.StatusPill(c, i18n.T("work.pocket.status.saving"), components.ToneInfo)
 	case PocketStateSavedOffline:
-		components.StatusPill(c, "Saved offline · waiting to sync", components.ToneWarning)
+		components.StatusPill(c, i18n.T("work.pocket.status.saved_offline"), components.ToneWarning)
 	case PocketStateError:
-		components.StatusPill(c, "Couldn't save · Retry", components.ToneDanger)
+		components.StatusPill(c, i18n.T("work.pocket.status.error"), components.ToneDanger)
 	default:
-		components.StatusPill(c, "Saved", components.ToneSuccess)
+		components.StatusPill(c, i18n.T("work.pocket.status.saved"), components.ToneSuccess)
 	}
 }
 
@@ -495,7 +498,7 @@ func (s *Screen) sendPocketToAnotherMe(text string) {
 		if am.RoomID == nil || strings.TrimSpace(*am.RoomID) == "" {
 			s.enqueueUI(func() {
 				s.pocketSendBusy = false
-				s.pocketActionErr = "Another Me direct room is unavailable."
+				s.pocketActionErr = i18n.T("work.pocket.another_me_unavailable")
 			})
 			return
 		}
@@ -510,7 +513,7 @@ func (s *Screen) sendPocketToAnotherMe(text string) {
 				s.pocketActionErr = msgErr.Error()
 				return
 			}
-			s.toast("Sent note to Another Me")
+			s.toast(i18n.T("work.pocket.toast.sent_another_me"))
 			if s.deps.OnOpenRoom != nil {
 				s.deps.OnOpenRoom(targetRoomID)
 			}
@@ -525,11 +528,11 @@ func (s *Screen) viewPocketDeleteActionSheet(c *ui.Context) {
 	}
 	dateStr := s.pocketDeleteDate
 	mobile.ActionSheet(c, &s.pocketDeleteSheet, mobile.ActionSheetOptions{
-		Title:   "Delete Pocket Note?",
-		Message: "Hide note from " + dateStr + "?",
-		Cancel:  "Cancel",
+		Title:   i18n.T("work.pocket.delete_title"),
+		Message: i18n.Tf("work.pocket.delete_body", map[string]any{"date": dateStr}),
+		Cancel:  i18n.T("common.cancel"),
 	}, mobile.Action{
-		Label:       "Delete Note",
+		Label:       i18n.T("work.pocket.delete_btn"),
 		Destructive: true,
 		OnTap: func() {
 			s.deletePocketNote(dateStr)
@@ -559,7 +562,7 @@ func (s *Screen) deletePocketNote(noteDate string) {
 			s.pocketNotes = filtered
 			s.mu.Unlock()
 			s.pocketDeleteDate = ""
-			s.toast("Deleted note " + noteDate)
+			s.toast(i18n.Tf("work.pocket.toast.deleted", map[string]any{"date": noteDate}))
 		})
 	}()
 }

@@ -2,7 +2,6 @@ package library
 
 import (
 	"context"
-	"fmt"
 	"math"
 	"sort"
 	"strings"
@@ -12,6 +11,7 @@ import (
 	"github.com/egoist/mygo/ui/mobile"
 	"github.com/oldwinter/linger/mobile/internal/api"
 	"github.com/oldwinter/linger/mobile/internal/components"
+	"github.com/oldwinter/linger/mobile/internal/i18n"
 	"github.com/oldwinter/linger/mobile/internal/theme"
 )
 
@@ -34,7 +34,7 @@ func (s *Screen) viewWikiSegment(c *ui.Context) {
 	ui.Scroll(c).FillWidth().Grow(1).Basis(0).TrackScroll(&s.scroll[SegmentWiki]).Children(func() {
 		ui.Column(c).FillWidth().Padding(12, 16, 24, 16).Gap(12).Children(func() {
 			if s.wikiErr != "" {
-				components.StatusBanner(c, components.ToneDanger, s.wikiErr, "Dismiss", func() {
+				components.StatusBanner(c, components.ToneDanger, s.wikiErr, i18n.T("common.dismiss"), func() {
 					s.wikiErr = ""
 				})
 			}
@@ -46,20 +46,20 @@ func (s *Screen) viewWikiSegment(c *ui.Context) {
 				stateStr = wiki.State
 				gen = wiki.PublishedGeneration
 			}
-			components.SectionCard(c, "Personal Knowledge Wiki",
-				fmt.Sprintf("Published generation #%d", gen), func() {
+			components.SectionCard(c, i18n.T("library.wiki.title"),
+				i18n.Tf("library.wiki.generation", map[string]any{"gen": gen}), func() {
 					tone := components.ToneInfo
 					if stateStr == "ready" {
 						tone = components.ToneSuccess
 					} else if stateStr == "failed" {
 						tone = components.ToneDanger
 					}
-					components.StatusPill(c, stateStr, tone)
+					components.StatusPill(c, i18n.StatusLabel(stateStr), tone)
 				}, func() {
 					ui.Row(c).FillWidth().Gap(8).Children(func() {
-						refLbl := "Refresh Wiki"
+						refLbl := i18n.T("library.wiki.refresh_btn")
 						if s.wikiRefreshing {
-							refLbl = "Refreshing..."
+							refLbl = i18n.T("library.wiki.refreshing")
 						}
 						btn := components.PrimaryTouchButton(c, refLbl, s.wikiRefreshing)
 						btn.Grow(1).Basis(0)
@@ -68,17 +68,17 @@ func (s *Screen) viewWikiSegment(c *ui.Context) {
 						}
 					})
 					if len(preview) > 0 {
-						ui.Text(c, fmt.Sprintf("Preview ready: %d updated pages", len(preview))).
+						ui.Text(c, i18n.Tf("library.wiki.preview_ready", map[string]any{"count": len(preview)})).
 							FontSize(12).TextColor(t.TextMuted)
 					}
 				})
 
-			components.SegmentedControl(c, &s.wikiViewMode, "Knowledge Graph", "Wiki Pages")
+			components.SegmentedControl(c, &s.wikiViewMode, i18n.T("library.wiki.view_graph"), i18n.T("library.wiki.view_pages"))
 
 			if s.wikiViewMode == 0 {
 				s.viewKnowledgeGraph(c, graph, wikiDocs)
 			} else {
-				s.renderDocumentSlice(c, wikiDocs, "No Personal Wiki pages published yet. Tap Refresh Wiki to build your knowledge base.")
+				s.renderDocumentSlice(c, wikiDocs, i18n.T("library.wiki.pages_empty"))
 			}
 		})
 	})
@@ -103,9 +103,9 @@ func (s *Screen) viewKnowledgeGraph(c *ui.Context, graph *api.WikiGraphData, fal
 	}
 
 	if len(nodes) == 0 {
-		components.EmptyState(c, theme.IconRadar, "No Graph Nodes Yet",
-			"Refresh your Personal Wiki to build entity nodes and cross-links.",
-			"Refresh Wiki", s.refreshWikiAsync)
+		components.EmptyState(c, theme.IconRadar, i18n.T("library.wiki.graph_empty_title"),
+			i18n.T("library.wiki.graph_empty_body"),
+			i18n.T("library.wiki.refresh_btn"), s.refreshWikiAsync)
 		return
 	}
 
@@ -120,13 +120,13 @@ func (s *Screen) viewKnowledgeGraph(c *ui.Context, graph *api.WikiGraphData, fal
 						return t.Accent
 					}
 					return theme.Extra(t).MutedBg
-				}()).AlignItems(ui.Center).Shrink(0).Role(ui.RoleTab).Label("All Categories").Checked(allOn)
+				}()).AlignItems(ui.Center).Shrink(0).Role(ui.RoleTab).Label(i18n.T("library.wiki.all_cat_a11y")).Checked(allOn)
 			allChip.Children(func() {
 				fg := t.TextMuted
 				if allOn {
 					fg = t.AccentText
 				}
-				ui.Text(c, "All").FontSize(12).FontWeight(600).TextColor(fg).NoWrap()
+				ui.Text(c, i18n.T("library.wiki.cat_all")).FontSize(12).FontWeight(600).TextColor(fg).NoWrap()
 			})
 			if allChip.Clicked() {
 				s.wikiCategory = ""
@@ -134,6 +134,7 @@ func (s *Screen) viewKnowledgeGraph(c *ui.Context, graph *api.WikiGraphData, fal
 
 			for _, cat := range cats {
 				cat := cat
+				catLbl := i18n.WikiCategoryLabel(cat)
 				on := s.wikiCategory == cat
 				chip := ui.Row(c.Key(cat)).MinHeight(34).PaddingX(12).Radius(999).
 					Background(func() ui.Color {
@@ -141,13 +142,13 @@ func (s *Screen) viewKnowledgeGraph(c *ui.Context, graph *api.WikiGraphData, fal
 							return t.Accent
 						}
 						return theme.Extra(t).MutedBg
-					}()).AlignItems(ui.Center).Shrink(0).Role(ui.RoleTab).Label("Category " + cat).Checked(on)
+					}()).AlignItems(ui.Center).Shrink(0).Role(ui.RoleTab).Label(i18n.Tf("library.wiki.cat_a11y", map[string]any{"cat": catLbl})).Checked(on)
 				chip.Children(func() {
 					fg := t.TextMuted
 					if on {
 						fg = t.AccentText
 					}
-					ui.Text(c, cat).FontSize(12).FontWeight(600).TextColor(fg).NoWrap()
+					ui.Text(c, catLbl).FontSize(12).FontWeight(600).TextColor(fg).NoWrap()
 				})
 				if chip.Clicked() {
 					s.wikiCategory = cat
@@ -176,11 +177,11 @@ func (s *Screen) viewKnowledgeGraph(c *ui.Context, graph *api.WikiGraphData, fal
 	}
 
 	ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Children(func() {
-		ui.Text(c, fmt.Sprintf("%s · %s",
-			components.PluralInt(len(visibleNodes), "node", "nodes"),
-			components.PluralInt(len(visibleEdges), "link", "links"))).
-			FontSize(12).TextColor(t.TextMuted)
-		resetBtn := components.SecondaryTouchButton(c, "Reset Zoom", false)
+		ui.Text(c, i18n.Tf("library.wiki.stats", map[string]any{
+			"nodes": len(visibleNodes),
+			"links": len(visibleEdges),
+		})).FontSize(12).TextColor(t.TextMuted)
+		resetBtn := components.SecondaryTouchButton(c, i18n.T("library.wiki.reset_zoom"), false)
 		resetBtn.MinHeight(32).Padding(4, 10)
 		if resetBtn.Clicked() {
 			s.graphZoom.Reset()
@@ -196,7 +197,7 @@ func (s *Screen) viewKnowledgeGraph(c *ui.Context, graph *api.WikiGraphData, fal
 	}, func() {
 		canvas := ui.Box(c).FillWidth().Height(canvasH).Background(t.Surface).
 			Radius(12).Border(1, t.Border).
-			Role(ui.RoleImage).Label("Personal Knowledge Graph")
+			Role(ui.RoleImage).Label(i18n.T("library.wiki.graph_a11y"))
 		canvas.Draw(func(p *ui.Painter, r ui.Rect) {
 			if r.W <= 1 || r.H <= 1 {
 				return
@@ -223,9 +224,9 @@ func (s *Screen) viewKnowledgeGraph(c *ui.Context, graph *api.WikiGraphData, fal
 		for _, n := range visibleNodes {
 			n := n
 			col := wikiCategoryColor(n.Category)
-			chip := ui.Row(c.Key("node:" + n.ID)).MinHeight(36).Padding(6, 10).Radius(10).
+			chip := ui.Row(c.Key("node:"+n.ID)).MinHeight(36).Padding(6, 10).Radius(10).
 				Background(t.Surface).Border(1, col.Alpha(0.55)).AlignItems(ui.Center).Gap(6).
-				Role(ui.RoleButton).Label("Open wiki node " + n.Title)
+				Role(ui.RoleButton).Label(i18n.Tf("library.wiki.open_node_a11y", map[string]any{"title": n.Title}))
 			chip.Children(func() {
 				ui.Box(c).Size(8, 8).Radius(4).Background(col).Shrink(0)
 				ui.Text(c, n.Title).FontSize(12).FontWeight(600).TextColor(t.Text).MaxLines(1)
@@ -243,7 +244,7 @@ func (s *Screen) viewWikiPageDetailSheet(c *ui.Context) {
 	t := c.Theme()
 	mobile.Sheet(c, &s.wikiPageSheet, mobile.SheetOptions{
 		Detents: []float32{0.72, 0.94},
-		Label:   "Wiki Page Detail",
+		Label:   i18n.T("library.wiki.detail_a11y"),
 	}, func() {
 		node := s.wikiSelectedNode
 		if node == nil {
@@ -260,7 +261,7 @@ func (s *Screen) viewWikiPageDetailSheet(c *ui.Context) {
 			ui.Column(c).FillWidth().Padding(12, 16, 24, 16).Gap(10).Children(func() {
 				ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
 					ui.Text(c, node.Title).FontSize(18).Bold().TextColor(t.Text).Grow(1).Basis(0)
-					components.StatusPill(c, firstWikiStr(node.Category, "Page"), components.ToneInfo)
+					components.StatusPill(c, i18n.WikiCategoryLabel(firstWikiStr(node.Category, i18n.T("library.wiki.page_fallback"))), components.ToneInfo)
 				})
 				if node.Description != "" {
 					ui.Text(c, node.Description).FontSize(13).TextColor(t.TextMuted)
@@ -276,7 +277,7 @@ func (s *Screen) viewWikiPageDetailSheet(c *ui.Context) {
 				linkedIDs := append([]string(nil), node.Links...)
 				linkedIDs = append(linkedIDs, node.Backlinks...)
 				if len(linkedIDs) > 0 {
-					ui.Text(c, "Connected Pages").FontSize(13).FontWeight(600).TextColor(t.Text)
+					ui.Text(c, i18n.T("library.wiki.connected_pages")).FontSize(13).FontWeight(600).TextColor(t.Text)
 					ui.Row(c).FillWidth().Wrap().Gap(6).Children(func() {
 						for _, id := range linkedIDs {
 							id := id
@@ -286,7 +287,7 @@ func (s *Screen) viewWikiPageDetailSheet(c *ui.Context) {
 								lbl = target.Title
 							}
 							btn := components.SecondaryTouchButton(c, lbl, target == nil)
-							btn.MinHeight(34).Padding(4, 10).Label("Jump to " + lbl)
+							btn.MinHeight(34).Padding(4, 10).Label(i18n.Tf("library.wiki.jump_a11y", map[string]any{"title": lbl}))
 							if btn.Clicked() && target != nil {
 								cp := *target
 								s.wikiSelectedNode = &cp
@@ -299,7 +300,7 @@ func (s *Screen) viewWikiPageDetailSheet(c *ui.Context) {
 				if strings.TrimSpace(node.Body) != "" {
 					markdown.View(c, node.Body, &s.mdOpts).FillWidth()
 				} else {
-					ui.Text(c, "No body content captured for this node yet.").FontSize(13).TextColor(t.TextMuted)
+					ui.Text(c, i18n.T("library.wiki.body_empty")).FontSize(13).TextColor(t.TextMuted)
 				}
 			})
 		})
@@ -348,7 +349,7 @@ func (s *Screen) refreshWikiAsync() {
 				s.wikiDocs = docs.Items
 			}
 			s.mu.Unlock()
-			s.toast("Wiki refresh requested")
+			s.toast(i18n.T("library.wiki.toast.refreshed"))
 		})
 	}()
 }
@@ -491,17 +492,43 @@ func paintKnowledgeGraph(p *ui.Painter, r ui.Rect, t *ui.Theme, positions []grap
 			p.Fill(ui.Rect{X: cx - np.R, Y: cy - np.R, W: np.R * 2, H: np.R * 2}, col, np.R)
 			p.Stroke(ui.Rect{X: cx - np.R, Y: cy - np.R, W: np.R * 2, H: np.R * 2}, t.Surface, np.R, 1.5)
 
-			lbl := np.Node.Title
-			if len(lbl) > 18 {
-				lbl = lbl[:17] + "..."
-			}
-			lblX := cx - float32(len(lbl))*2.7
+			lbl, units := truncateGraphLabel(np.Node.Title, 18)
+			lblX := cx - float32(units)*2.7
 			if lblX < r.X+6 {
 				lblX = r.X + 6
 			}
 			p.Text(lblX, cy+np.R+4, lbl, 10, t.Text)
 		}
 	})
+}
+
+func truncateGraphLabel(s string, maxUnits int) (string, int) {
+	total := 0
+	for _, r := range s {
+		if r >= 0x1100 {
+			total += 2
+		} else {
+			total++
+		}
+	}
+	if total <= maxUnits {
+		return s, total
+	}
+	var b strings.Builder
+	units := 0
+	limit := maxUnits - 1
+	for _, r := range s {
+		w := 1
+		if r >= 0x1100 {
+			w = 2
+		}
+		if units+w > limit {
+			break
+		}
+		b.WriteRune(r)
+		units += w
+	}
+	return b.String() + "...", units + 3
 }
 
 func hitTestGraphNode(positions []graphNodePos, px, py float32) *api.WikiGraphNode {
