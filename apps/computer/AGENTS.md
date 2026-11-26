@@ -27,7 +27,11 @@
 
 - `local-daemon/` is a Go module. Its `internal/daemon` owns the daemon
   lifecycle; `internal/process`, `internal/provider`, and `internal/workspace`
-  contain local execution mechanics; `internal/linger` contains Linger
+  contain local execution mechanics; `internal/telemetry` implements the
+  pure-Go (`CGO_ENABLED=0`) rootless host hardware and loopback `llama-server`
+  inference telemetry collector (stripping all prompt/completion text at the
+  collector boundary and returning `null` for sensors unavailable without
+  elevated privileges); `internal/linger` contains Linger
   transport, identity, process-instance lease, Registration, Context, Local MCP
   Relay, and Local Skill adapters, and the optional herdr bridge
   (`internal/linger/herdr`): it watches herdr agent panes over herdr's socket

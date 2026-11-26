@@ -118,7 +118,7 @@ func TestRunnerWireContractFixtures(t *testing.T) {
 		for _, kind := range []string{protocol.CommandRunnerWelcome, protocol.CommandRunnerReconciled, protocol.CommandRegistrationSnapshot,
 			protocol.CommandAgentRunnerEnsure, protocol.CommandAgentRunnerRemove, protocol.CommandAgentCLICredentialPut,
 			protocol.CommandDebugInspect, protocol.CommandCapabilitySkillsScan, protocol.CommandCapabilityBrowserConnect,
-			protocol.CommandCapabilityComputerPermission, protocol.CommandCapabilityLocalModels, protocol.CommandCapabilityModelSource, protocol.CommandOperationPrepare, protocol.CommandOperationStart, protocol.CommandOperationInput,
+			protocol.CommandCapabilityComputerPermission, protocol.CommandCapabilityLocalModels, protocol.CommandCapabilityModelSource, protocol.CommandCapabilitySystemTelemetry, protocol.CommandOperationPrepare, protocol.CommandOperationStart, protocol.CommandOperationInput,
 			protocol.CommandOperationCancel, protocol.CommandOperationAck, protocol.CommandProviderPrepare,
 			protocol.CommandSessionCompact, protocol.CommandModelInvoke, protocol.CommandModelInvokeCancel,
 			protocol.CommandComputerToolCall} {
@@ -239,6 +239,27 @@ func runnerWireDaemonEvents(t *testing.T) []protocol.Event {
 	capability(protocol.EventCapabilityLocalModelsRefused, "local_models", "refused", map[string]any{"action": "refresh", "refusal": map[string]any{"code": "TOOL_NOT_INSTALLED"}})
 	capability(protocol.EventCapabilityModelSourceSucceeded, "model_source", "succeeded", map[string]any{"action": "test", "test_result": map[string]any{"ok": true, "protocol": "anthropic", "url": "https://api.example.com/v1/messages", "model_id": "vendor/model", "context_window": 200000}})
 	capability(protocol.EventCapabilityModelSourceFailed, "model_source", "failed", map[string]any{"action": "apply", "error": failure})
+	telemetrySnapshot := map[string]any{
+		"observed_at": "2026-11-27T00:00:00Z",
+		"hardware": map[string]any{
+			"architecture": "uma", "platform": "darwin", "arch": "arm64", "hostname": "mac", "chip_name": "Apple M6", "os_label": "macOS 27.2",
+			"memory":    map[string]any{"total_bytes": 1000, "used_bytes": 400, "model_weights_bytes": 0, "kv_cache_bytes": 0, "compute_buffer_bytes": 0, "os_wired_bytes": 200, "active_apps_bytes": 150, "compressed_bytes": 50, "free_headroom_bytes": 600, "system_ram_total_bytes": 1000, "system_ram_used_bytes": 400, "system_ram_available_bytes": 600},
+			"bandwidth": map[string]any{"source": "unavailable"},
+			"disk":      map[string]any{},
+			"cpu":       map[string]any{"total_cores": 12, "clusters": []any{}},
+			"gpu":       map[string]any{},
+			"power":     map[string]any{},
+			"thermal":   map[string]any{"throttling": false},
+		},
+		"inference": map[string]any{
+			"prefill_tok_s": 0, "decode_tok_s": 0, "active_requests_count": 0, "queued_requests_count": 0,
+			"active_slots": 0, "total_slots": 0, "kv_cache_tokens_used": 0, "kv_cache_tokens_capacity": 0, "total_tokens_session": 0,
+			"loaded_models": []any{}, "slots": []any{}, "requests": []any{},
+			"bottleneck": map[string]any{"kind": "idle", "severity": "info", "reason_code": "no_active_inference"},
+		},
+	}
+	capability(protocol.EventCapabilitySystemTelemetrySucceeded, "system_telemetry", "succeeded", map[string]any{"action": "snapshot", "telemetry": telemetrySnapshot})
+	capability(protocol.EventCapabilitySystemTelemetryFailed, "system_telemetry", "failed", map[string]any{"action": "snapshot", "error": failure})
 	appendEvent(protocol.EventLocalModels, map[string]any{"type": "runner.local_models", "protocol_version": "2", "runner_id": "computer-1", "sent_at": "2026-10-28T00:00:00Z", "revision": 1, "local_models": map[string]any{"available": false, "reason": map[string]any{"code": "TOOL_NOT_INSTALLED"}, "observed_at": "2026-10-28T00:00:00Z", "pools": []any{}, "models": []any{}}})
 	appendEvent(protocol.EventOperationPrepared, map[string]any{"prepare_command_id": "prepare-1", "prepared": true, "outcome": "ready", "duration_ms": 1})
 	appendEvent(protocol.EventOperationAccepted, map[string]any{"runner_pid": 123})

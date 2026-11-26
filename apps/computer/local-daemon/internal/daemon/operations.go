@@ -130,6 +130,9 @@ func (d *Daemon) finishOperation(ctx context.Context, command protocol.Command, 
 	d.activeMu.Lock()
 	delete(d.activeOperations, command.OperationID)
 	d.activeMu.Unlock()
+	if d.telemetryTracker != nil {
+		d.telemetryTracker.FinishRequest(command.OperationID)
+	}
 }
 
 func (d *Daemon) handleOperationCancel(command protocol.Command) error {
