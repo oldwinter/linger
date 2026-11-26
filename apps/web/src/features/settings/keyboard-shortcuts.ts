@@ -11,6 +11,8 @@ export interface KeyboardShortcut {
     /** The keys elsewhere, set only when another platform differs. */
     other?: string;
   };
+  /** Optional platform or browser availability note shown under the action. */
+  note?: string;
 }
 
 export interface KeyboardShortcutGroup {
@@ -43,6 +45,7 @@ export const keyboardShortcutGroups: readonly KeyboardShortcutGroup[] = [
       {
         action: "Reopen the last closed sidebar tab",
         keys: { mac: "⌘⇧T", other: "Ctrl Shift T" },
+        note: "Desktop app only — browsers reserve this shortcut to reopen closed tabs.",
       },
       {
         action: "Switch to the previous or next sidebar tab",

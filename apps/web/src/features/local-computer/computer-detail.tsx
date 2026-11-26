@@ -4,6 +4,7 @@ import {
   AiChipIcon,
   ArrowDown01Icon,
   ArrowRight01Icon,
+  ComputerTerminal01Icon,
   Delete02Icon,
   Folder01Icon,
   InformationCircleIcon,
@@ -65,7 +66,7 @@ import { relativeTime } from "./computer-relative-time";
 import { ComputerRow, ProgressChip, RowMark, StatusDot } from "./computer-row";
 import { computersMessages } from "./computers.messages";
 import { isUpgradeRecommended } from "./computer-version";
-import { useDesktopComputer } from "./desktop-computer";
+import { type DesktopComputer, useDesktopComputer } from "./desktop-computer";
 import { DesktopPreventSleep } from "./desktop-prevent-sleep";
 import { localRuntimeMessage } from "./local-runtime-message";
 
@@ -86,6 +87,7 @@ export function ComputerDetail({
   localModelsHref,
   onConnect,
   onOpenAgent,
+  onRefreshStatus,
   onRemove,
 }: {
   /** Active runtime from the Computer's current model source when known. */
@@ -103,6 +105,8 @@ export function ComputerDetail({
   localModelsHref?: string;
   onConnect?: () => void;
   onOpenAgent: (actorId: string) => void;
+  /** Refreshes TeamHub computer queries alongside live desktop status checks. */
+  onRefreshStatus?: () => Promise<void> | void;
   onRemove?: () => void;
 }) {
   const t = useT();
@@ -139,12 +143,33 @@ export function ComputerDetail({
   );
   const [setup, setSetup] = useState<AppSetup | null>(null);
   const [updateOpen, setUpdateOpen] = useState(false);
+  const [desktopChecked, setDesktopChecked] = useState(false);
   const desktopComputer = useDesktopComputer();
   const isThisComputer =
     desktopComputer?.status?.computerId === computer.computer_id;
+  const thisDesktopComputer =
+    isThisComputer && desktopComputer ? desktopComputer : undefined;
   const online = displayStatus === "online";
   const openSetup = (app: TeamHubLocalRuntimeType, choosable = false) =>
     setSetup({ app, choosable });
+
+  function handleDesktopRefresh() {
+    if (!thisDesktopComputer) return;
+    setDesktopChecked(false);
+    void Promise.all([
+      thisDesktopComputer.refreshStatus(),
+      Promise.resolve(onRefreshStatus?.()),
+    ]).then(([nextStatus]) => {
+      if (nextStatus !== undefined) setDesktopChecked(true);
+    });
+  }
+
+  function handleDesktopReconnect() {
+    if (!thisDesktopComputer) return;
+    setDesktopChecked(false);
+    thisDesktopComputer.connect();
+    void Promise.resolve(onRefreshStatus?.());
+  }
 
   return (
     <div
@@ -158,8 +183,15 @@ export function ComputerDetail({
         browserChip={browserConnection?.("chip")}
         cliInstallAvailable={cliInstallAvailable}
         computer={computer}
+        desktopComputer={thisDesktopComputer}
         displayStatus={displayStatus}
         onConnect={onConnect}
+        onDesktopReconnect={
+          thisDesktopComputer ? handleDesktopReconnect : undefined
+        }
+        onDesktopRefresh={
+          thisDesktopComputer ? handleDesktopRefresh : undefined
+        }
         onSetUp={openSetup}
         onUpdate={cliInstallAvailable ? () => setUpdateOpen(true) : undefined}
         readiness={readiness}
@@ -170,7 +202,7 @@ export function ComputerDetail({
             className="text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             to={canDoHref}
           >
-            What this Mac can do
+            {t(computersMessages.whatThisMacCanDo)}
           </Link>
         </p>
       ) : null}
@@ -251,6 +283,14 @@ export function ComputerDetail({
         <AdvancedRows
           cliInstallAvailable={cliInstallAvailable}
           computer={computer}
+          desktopChecked={desktopChecked}
+          desktopComputer={thisDesktopComputer}
+          onDesktopReconnect={
+            thisDesktopComputer ? handleDesktopReconnect : undefined
+          }
+          onDesktopRefresh={
+            thisDesktopComputer ? handleDesktopRefresh : undefined
+          }
           onRemove={onRemove}
           onUpdate={cliInstallAvailable ? () => setUpdateOpen(true) : undefined}
         />
@@ -304,8 +344,11 @@ function ComputerSummary({
   browserChip,
   cliInstallAvailable,
   computer,
+  desktopComputer,
   displayStatus,
   onConnect,
+  onDesktopReconnect,
+  onDesktopRefresh,
   onSetUp,
   onUpdate,
   readiness,
@@ -313,8 +356,11 @@ function ComputerSummary({
   browserChip?: ReactNode;
   cliInstallAvailable: boolean;
   computer: LocalComputer;
+  desktopComputer?: DesktopComputer;
   displayStatus: ComputerDisplayStatus;
   onConnect?: () => void;
+  onDesktopReconnect?: () => void;
+  onDesktopRefresh?: () => void;
   onSetUp: (app: TeamHubLocalRuntimeType, choosable?: boolean) => void;
   onUpdate?: () => void;
   readiness: ComputerReadiness;
@@ -336,14 +382,24 @@ function ComputerSummary({
         {t(computersMessages.updateApp, { app: appNames[readiness.app] })}
       </Button>
     ) : readiness.kind === "check" ? (
-      <RuntimeCheckCard
-        align="end"
-        app={readiness.app}
-        cliInstallAvailable={cliInstallAvailable}
-        computer={computer}
-      >
-        <Button tone="primary">{t(computersMessages.checkAgain)}</Button>
-      </RuntimeCheckCard>
+      desktopComputer && onDesktopRefresh ? (
+        <Button
+          loading={desktopComputer.refreshing}
+          onClick={onDesktopRefresh}
+          tone="primary"
+        >
+          {t(computersMessages.checkAgain)}
+        </Button>
+      ) : (
+        <RuntimeCheckCard
+          align="end"
+          app={readiness.app}
+          cliInstallAvailable={cliInstallAvailable}
+          computer={computer}
+        >
+          <Button tone="primary">{t(computersMessages.checkAgain)}</Button>
+        </RuntimeCheckCard>
+      )
     ) : readiness.kind === "setUp" ? (
       <Button onClick={() => onSetUp(readiness.app, true)} tone="primary">
         {t(computersMessages.setUpApp, { app: appNames[readiness.app] })}
@@ -372,7 +428,14 @@ function ComputerSummary({
           </span>
         </Hint>
         <div className="min-w-0 flex-1">
-          <h2 className="truncate text-base">{computer.display_name}</h2>
+          <h2 className="flex items-center gap-2 text-base">
+            <span className="truncate">{computer.display_name}</span>
+            {desktopComputer ? (
+              <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-xs font-medium text-secondary-foreground">
+                {t(computersMessages.thisComputerBadge)}
+              </span>
+            ) : null}
+          </h2>
           <p
             className="flex items-center gap-1.5 text-sm text-muted-foreground"
             role="status"
@@ -386,7 +449,10 @@ function ComputerSummary({
         <OfflineSteps
           cliInstallAvailable={cliInstallAvailable}
           computer={computer}
+          desktopComputer={desktopComputer}
           onConnect={onConnect}
+          onDesktopReconnect={onDesktopReconnect}
+          onDesktopRefresh={onDesktopRefresh}
         />
       ) : (
         <div
@@ -536,17 +602,66 @@ function SummaryStatus({
 function OfflineSteps({
   cliInstallAvailable,
   computer,
+  desktopComputer,
   onConnect,
+  onDesktopReconnect,
+  onDesktopRefresh,
 }: {
   cliInstallAvailable: boolean;
   computer: LocalComputer;
+  desktopComputer?: DesktopComputer;
   onConnect?: () => void;
+  onDesktopReconnect?: () => void;
+  onDesktopRefresh?: () => void;
 }) {
   const t = useT();
   const step =
     "inline-flex h-8 items-center gap-2 rounded-full bg-card pr-3 pl-1.5 text-xs text-secondary-foreground shadow-outline";
   const bubble =
     "flex size-[22px] items-center justify-center rounded-full bg-muted";
+  if (desktopComputer && onDesktopReconnect) {
+    return (
+      <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl bg-muted px-3.5 py-3">
+        <Button
+          loading={desktopComputer.connecting}
+          onClick={onDesktopReconnect}
+          size="compact"
+          tone="primary"
+        >
+          {desktopComputer.connecting ? null : (
+            <Icon icon={Link01Icon} size={14} />
+          )}
+          {t(
+            desktopComputer.connecting
+              ? computersMessages.reconnectingThisComputer
+              : computersMessages.reconnectThisComputer,
+          )}
+        </Button>
+        {onDesktopRefresh ? (
+          <Button
+            loading={desktopComputer.refreshing}
+            onClick={onDesktopRefresh}
+            size="compact"
+            tone="secondary"
+          >
+            {desktopComputer.refreshing ? null : (
+              <Icon icon={RefreshIcon} size={14} />
+            )}
+            {t(
+              desktopComputer.refreshing
+                ? computersMessages.checkingStatus
+                : computersMessages.checkStatus,
+            )}
+          </Button>
+        ) : null}
+        {desktopComputer.error ? (
+          <p className="w-full text-xs text-app-danger" role="alert">
+            {desktopComputer.error}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
   return (
     <div className="mt-3 flex flex-wrap items-center gap-2.5 rounded-xl bg-muted px-3.5 py-3">
       <Hint focusable placement="bottom" text={t(computersMessages.turnOnHint)}>
@@ -887,11 +1002,19 @@ function WorkspaceRows({ computer }: { computer: LocalComputer }) {
 function AdvancedRows({
   cliInstallAvailable,
   computer,
+  desktopChecked = false,
+  desktopComputer,
+  onDesktopReconnect,
+  onDesktopRefresh,
   onRemove,
   onUpdate,
 }: {
   cliInstallAvailable: boolean;
   computer: LocalComputer;
+  desktopChecked?: boolean;
+  desktopComputer?: DesktopComputer;
+  onDesktopReconnect?: () => void;
+  onDesktopRefresh?: () => void;
   onRemove?: () => void;
   onUpdate?: () => void;
 }) {
@@ -906,6 +1029,7 @@ function AdvancedRows({
   ];
   const row = "flex min-h-11 items-center gap-3 px-2.5";
   const label = "w-28 shrink-0 text-sm text-muted-foreground";
+  const desktopStatus = desktopComputer?.status;
   return (
     <>
       <div className={row}>
@@ -937,34 +1061,136 @@ function AdvancedRows({
           {computer.computer_id}
         </span>
       </div>
-      {cliInstallAvailable ? (
+      {desktopComputer && desktopStatus ? (
+        <div className={cn(row, "items-start py-2")}>
+          <span className={cn(label, "pt-1.5")}>
+            {t(computersMessages.liveDiagnostics)}
+          </span>
+          <div className="min-w-0 flex-1 space-y-2.5">
+            <dl className="grid grid-cols-1 gap-2 rounded-xl border border-border bg-muted/40 px-3 py-2.5 text-xs sm:grid-cols-3">
+              <div>
+                <dt className="text-muted-foreground">
+                  {t(computersMessages.diagnosticBridge)}
+                </dt>
+                <dd className="mt-0.5 flex items-center gap-1.5 font-medium text-foreground">
+                  <StatusDot tone={bridgeStatusTone(desktopStatus.bridge)} />
+                  <span>{bridgeStatusLabel(desktopStatus.bridge, t)}</span>
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">
+                  {t(computersMessages.diagnosticRuntime)}
+                </dt>
+                <dd className="mt-0.5 flex items-center gap-1.5 font-medium text-foreground">
+                  <StatusDot tone={runtimeStatusTone(desktopStatus.runtime)} />
+                  <span>{runtimeStatusLabel(desktopStatus.runtime, t)}</span>
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">
+                  {t(computersMessages.diagnosticActiveOps)}
+                </dt>
+                <dd className="mt-0.5 font-medium tabular-nums text-foreground">
+                  {desktopStatus.activeOperations}
+                </dd>
+              </div>
+            </dl>
+            <div className="flex flex-wrap items-center gap-2">
+              {onDesktopRefresh ? (
+                <Button
+                  loading={desktopComputer.refreshing}
+                  onClick={onDesktopRefresh}
+                  size="compact"
+                  tone="secondary"
+                >
+                  {desktopComputer.refreshing ? null : (
+                    <Icon icon={RefreshIcon} size={14} />
+                  )}
+                  {t(
+                    desktopComputer.refreshing
+                      ? computersMessages.checkingStatus
+                      : computersMessages.checkStatus,
+                  )}
+                </Button>
+              ) : null}
+              {onDesktopReconnect ? (
+                <Button
+                  loading={desktopComputer.connecting}
+                  onClick={onDesktopReconnect}
+                  size="compact"
+                  tone="secondary"
+                >
+                  {desktopComputer.connecting ? null : (
+                    <Icon icon={Link01Icon} size={14} />
+                  )}
+                  {t(
+                    desktopComputer.connecting
+                      ? computersMessages.reconnectingThisComputer
+                      : computersMessages.reconnectThisComputer,
+                  )}
+                </Button>
+              ) : null}
+              {desktopChecked &&
+              !desktopComputer.refreshing &&
+              !desktopComputer.error ? (
+                <span className="text-xs text-app-success" role="status">
+                  {t(computersMessages.statusChecked)}
+                </span>
+              ) : null}
+            </div>
+            {desktopComputer.error ? (
+              <p className="text-xs text-app-danger" role="alert">
+                {desktopComputer.error}
+              </p>
+            ) : null}
+          </div>
+        </div>
+      ) : cliInstallAvailable ? (
         <div className={cn(row, "items-start py-1.5")}>
           <span className={cn(label, "pt-1.5")}>
             {t(computersMessages.troubleshoot)}
           </span>
-          <span className="flex flex-wrap gap-1">
-            {tools.map(([icon, name, toolCommand]) => (
-              <HintCard
-                content={
-                  <>
-                    <span className="block text-sm font-medium text-foreground">
-                      {t(name)}
-                    </span>
-                    {t(computersMessages.runInTerminalOn, {
-                      computer: computer.display_name,
+          <div className="min-w-0 flex-1 space-y-1.5">
+            <p className="text-xs text-muted-foreground">
+              {t(computersMessages.remoteCommandsHint, {
+                computer: computer.display_name,
+              })}
+            </p>
+            <span className="flex flex-wrap gap-1">
+              {tools.map(([icon, name, toolCommand]) => (
+                <HintCard
+                  content={
+                    <>
+                      <span className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-sm font-medium text-foreground">
+                          {t(name)}
+                        </span>
+                        <span className="inline-flex items-center gap-1 rounded-sm bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+                          <Icon icon={ComputerTerminal01Icon} size={12} />
+                          {t(computersMessages.terminalCommandBadge)}
+                        </span>
+                      </span>
+                      {t(computersMessages.runInTerminalOn, {
+                        computer: computer.display_name,
+                      })}
+                      <CommandLine command={toolCommand} />
+                    </>
+                  }
+                  key={name.id}
+                >
+                  <Button
+                    title={t(computersMessages.showTerminalCommand, {
+                      action: t(name),
                     })}
-                    <CommandLine command={toolCommand} />
-                  </>
-                }
-                key={name.id}
-              >
-                <Button tone="ghost">
-                  <Icon icon={icon} size={14} />
-                  {t(name)}
-                </Button>
-              </HintCard>
-            ))}
-          </span>
+                    tone="ghost"
+                  >
+                    <Icon icon={icon} size={14} />
+                    {t(name)}
+                  </Button>
+                </HintCard>
+              ))}
+            </span>
+          </div>
         </div>
       ) : null}
       {onRemove ? (
@@ -983,6 +1209,62 @@ function AdvancedRows({
       ) : null}
     </>
   );
+}
+
+function bridgeStatusTone(bridge: string): "neutral" | "success" | "warning" {
+  if (bridge === "online" || bridge === "connected") return "success";
+  if (
+    bridge === "auth_failed" ||
+    bridge === "identity_conflict" ||
+    bridge === "upgrade_required"
+  ) {
+    return "warning";
+  }
+  return "neutral";
+}
+
+function bridgeStatusLabel(bridge: string, t: Translate) {
+  switch (bridge) {
+    case "online":
+    case "connected":
+      return t(computersMessages.bridgeOnline);
+    case "connecting":
+      return t(computersMessages.bridgeConnecting);
+    case "disconnected":
+      return t(computersMessages.bridgeDisconnected);
+    case "auth_failed":
+      return t(computersMessages.bridgeAuthFailed);
+    case "identity_conflict":
+      return t(computersMessages.bridgeIdentityConflict);
+    case "upgrade_required":
+      return t(computersMessages.bridgeUpgradeRequired);
+    default:
+      return bridge;
+  }
+}
+
+function runtimeStatusTone(runtime: string): "neutral" | "success" | "warning" {
+  if (runtime === "ready" || runtime === "running") return "success";
+  if (runtime === "crashed" || runtime === "draining") return "warning";
+  return "neutral";
+}
+
+function runtimeStatusLabel(runtime: string, t: Translate) {
+  switch (runtime) {
+    case "ready":
+    case "running":
+      return t(computersMessages.runtimeReady);
+    case "starting":
+      return t(computersMessages.runtimeStarting);
+    case "stopped":
+      return t(computersMessages.runtimeStopped);
+    case "draining":
+      return t(computersMessages.runtimeDraining);
+    case "crashed":
+      return t(computersMessages.runtimeCrashed);
+    default:
+      return runtime;
+  }
 }
 
 function UpgradeCommand({ platform }: { platform?: ComputerPlatform }) {

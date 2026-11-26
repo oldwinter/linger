@@ -54,10 +54,13 @@ const pollIntervalMs = 3_000;
  * loads its first local model. It exists only while no hosted runtime does.
  */
 export function LocalComputerGate({
+  onBrowseReadOnly,
   onSignOut,
   signingOut,
   tenantId,
 }: {
+  /** Optional escape hatch letting the user browse existing rooms read-only. */
+  onBrowseReadOnly?: () => void;
   onSignOut: () => void;
   signingOut: boolean;
   tenantId: string;
@@ -89,14 +92,14 @@ export function LocalComputerGate({
   const command = computerCommand();
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-3 backdrop-blur-sm sm:p-4">
       <section
         aria-labelledby="local-computer-gate-title"
         aria-modal="true"
-        className="workspace-scrollbar flex max-h-full w-full max-w-[560px] flex-col overflow-y-auto rounded-2xl border border-border bg-card text-foreground shadow-lg"
+        className="workspace-scrollbar flex max-h-full w-full max-w-[560px] flex-col overflow-x-hidden overflow-y-auto rounded-2xl border border-border bg-card text-foreground shadow-lg"
         role="dialog"
       >
-        <header className="px-6 pb-4 pt-5">
+        <header className="px-4 pb-4 pt-5 sm:px-6">
           <h2 className="text-lg" id="local-computer-gate-title">
             {t(computersMessages.gateTitle)}
           </h2>
@@ -109,7 +112,7 @@ export function LocalComputerGate({
         </header>
 
         {computers.isError ? (
-          <div className="px-6 pt-4">
+          <div className="px-4 pt-4 sm:px-6">
             <FormFeedback tone="danger">
               <span className="flex flex-wrap items-center gap-2">
                 <span>
@@ -132,14 +135,14 @@ export function LocalComputerGate({
 
         {ready ? (
           <p
-            className="flex items-center justify-center gap-2 px-6 py-10 text-sm"
+            className="flex items-center justify-center gap-2 px-4 py-10 text-sm sm:px-6"
             role="status"
           >
             <Spinner size={14} />
             {t(computersMessages.gateReady)}
           </p>
         ) : (
-          <ol className="px-6">
+          <ol className="px-4 sm:px-6">
             {desktopOnlyStep && desktop ? (
               <GateStep
                 number={1}
@@ -198,12 +201,22 @@ export function LocalComputerGate({
           </ol>
         )}
         {ready || desktop ? null : (
-          <div className="px-6 pb-5">
+          <div className="px-4 pb-5 sm:px-6">
             <ServerConnection tenantId={tenantId} />
           </div>
         )}
 
-        <footer className="flex justify-end bg-muted/40 px-6 py-3">
+        <footer
+          className={cn(
+            "flex flex-wrap items-center gap-2 bg-muted/40 px-4 py-3 sm:px-6",
+            onBrowseReadOnly ? "justify-between" : "justify-end",
+          )}
+        >
+          {onBrowseReadOnly ? (
+            <Button onClick={onBrowseReadOnly} tone="secondary">
+              {t(computersMessages.browseReadOnly)}
+            </Button>
+          ) : null}
           <Button
             data-voice-risk="never"
             disabled={signingOut}
@@ -256,7 +269,9 @@ function ConnectionStatus({
         <RichMessage
           message={computersMessages.computerOfflineStart}
           tags={{
-            code: (text) => <code className="font-mono">{text}</code>,
+            code: (text) => (
+              <code className="font-mono [overflow-wrap:anywhere]">{text}</code>
+            ),
           }}
           values={{
             command: `${command} daemon start`,
@@ -291,7 +306,7 @@ function AppSetup({
     (app) => appStatus(computer, app) === "authentication_required",
   );
   return (
-    <div className="mt-2 space-y-3">
+    <div className="mt-2 min-w-0 space-y-3">
       <p className="text-xs text-muted-foreground">
         {t(computersMessages.aiAppsHint)}
       </p>
@@ -362,7 +377,7 @@ function AppRow({
 }) {
   const t = useT();
   return (
-    <li className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+    <li className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-3 py-2 text-sm">
       {appNames[app]}
       <span
         className={cn(

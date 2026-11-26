@@ -760,6 +760,18 @@ describe("Voice API keys", () => {
     expect(screen.getByText("Not set")).toBeVisible();
     expect(screen.queryByRole("alert")).toBeNull();
   });
+
+  it("links Security settings directly to Settings › Models for BYOK provider keys", async () => {
+    const runtime = await testRuntime();
+    renderSettings(runtime, "/t/tenant-northstar/settings/security");
+
+    const byokCard = await screen.findByRole("region", {
+      name: "Model provider API keys (BYOK)",
+    });
+    expect(
+      within(byokCard).getByRole("link", { name: "Open Models settings" }),
+    ).toHaveAttribute("href", "/t/tenant-northstar/settings/models");
+  });
 });
 
 async function testRuntime() {

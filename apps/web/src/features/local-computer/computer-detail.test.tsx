@@ -329,3 +329,105 @@ it("tells an older Computer to update Linger instead of offering Antigravity", (
   // Pi can still be added; Antigravity cannot until Linger is updated.
   expect(screen.getAllByRole("button", { name: "Add" })).toHaveLength(1);
 });
+
+it("shows live in-app diagnostics and actions for this desktop computer instead of CLI command popups", async () => {
+  const getStatus = vi
+    .fn()
+    .mockResolvedValueOnce({
+      activeOperations: 2,
+      bridge: "online",
+      computerId: "this-mac",
+      runtime: "ready",
+    })
+    .mockResolvedValueOnce({
+      activeOperations: 0,
+      bridge: "online",
+      computerId: "this-mac",
+      runtime: "ready",
+    });
+  const enroll = vi.fn(async () => ({ computerId: "this-mac" }));
+  const onRefreshStatus = vi.fn();
+  Object.assign(window, {
+    lingerDesktop: {
+      computer: {
+        enroll,
+        getStatus,
+        onStatus: vi.fn(() => () => {}),
+      },
+      settings: {
+        get: vi.fn(async () => ({ preventSleep: false })),
+        onChange: vi.fn(() => () => {}),
+        set: vi.fn(async (patch: { preventSleep: boolean }) => patch),
+      },
+    },
+  });
+  const computer: TeamHubLocalComputerPage["items"][number] = {
+    active_operations: 2,
+    computer_id: "this-mac",
+    display_name: "Studio Mac",
+    platform: "darwin",
+    runtimes: [{ models: [], status: "ready", type: "codex" }],
+    status: "online",
+    upgrade_required: false,
+    workspace_grants: [],
+  };
+  render(
+    <ComputerDetail
+      agentAvailabilities={new Map()}
+      agents={[]}
+      computer={computer}
+      onOpenAgent={vi.fn()}
+      onRefreshStatus={onRefreshStatus}
+    />,
+  );
+
+  expect(await screen.findByText("This computer")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
+  expect(screen.getByText("Live diagnostics")).toBeVisible();
+  expect(screen.getByText("Active operations")).toBeVisible();
+  expect(screen.getByText("2")).toBeVisible();
+  expect(
+    screen.queryByText(/commands do not run remotely/u),
+  ).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Check status" }));
+  expect(await screen.findByText("Status refreshed.")).toBeVisible();
+  expect(getStatus).toHaveBeenCalledTimes(2);
+  expect(onRefreshStatus).toHaveBeenCalledTimes(1);
+
+  fireEvent.click(
+    screen.getByRole("button", { name: "Reconnect this computer" }),
+  );
+  expect(enroll).toHaveBeenCalledTimes(1);
+});
+
+it("labels remote CLI troubleshooting commands honestly as copyable terminal commands", () => {
+  const computer: TeamHubLocalComputerPage["items"][number] = {
+    active_operations: 0,
+    computer_id: "remote-linux",
+    display_name: "Build Box",
+    platform: "linux",
+    runtimes: [{ models: [], status: "ready", type: "codex" }],
+    status: "online",
+    upgrade_required: false,
+    workspace_grants: [],
+  };
+  render(
+    <ComputerDetail
+      agentAvailabilities={new Map()}
+      agents={[]}
+      computer={computer}
+      onOpenAgent={vi.fn()}
+    />,
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
+  expect(
+    screen.getByText(
+      /Each button reveals a copyable command to run in Terminal on Build Box/u,
+    ),
+  ).toBeVisible();
+  expect(screen.getAllByText("Terminal command").length).toBeGreaterThanOrEqual(
+    5,
+  );
+});

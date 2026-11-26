@@ -88,7 +88,7 @@ export function HintCard({
       {/* The transparent top padding bridges the gap so the card stays open while the pointer moves onto it. */}
       <span
         className={cn(
-          "invisible absolute top-full z-30 w-80 pt-1.5 opacity-0 transition-opacity delay-150 duration-150 group-focus-within/card:visible group-focus-within/card:opacity-100 group-hover/card:visible group-hover/card:opacity-100 motion-reduce:transition-none",
+          "invisible absolute top-full z-30 w-[min(24rem,calc(100vw-2rem))] pt-1.5 opacity-0 transition-opacity delay-150 duration-150 group-focus-within/card:visible group-focus-within/card:opacity-100 group-hover/card:visible group-hover/card:opacity-100 motion-reduce:transition-none",
           align === "end" ? "right-0" : "left-0",
           pinned && "visible opacity-100",
         )}

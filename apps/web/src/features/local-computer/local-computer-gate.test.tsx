@@ -371,6 +371,64 @@ describe("Local Computer gate", () => {
       within(gate).getByText("npm install -g @earendil-works/pi-coding-agent"),
     ).toBeVisible();
     expect(within(gate).getAllByText("Needs Node.js.")).toHaveLength(1);
+    expect(gate).toHaveClass("overflow-x-hidden");
+    expect(
+      within(gate).getByText("npm install -g @earendil-works/pi-coding-agent"),
+    ).toHaveClass("[overflow-wrap:anywhere]");
+  });
+
+  it("lets the user browse in read-only mode with a top banner and reopen the gate", async () => {
+    const fixture = await renderShell(newMac);
+
+    const gate = await screen.findByRole("dialog", {
+      name: "Connect your computer",
+    });
+    fireEvent.click(
+      within(gate).getByRole("button", { name: "Browse in read-only mode" }),
+    );
+
+    expect(
+      screen.queryByRole("dialog", { name: "Connect your computer" }),
+    ).toBeNull();
+    expect(screen.getByText("Shell content").closest("[inert]")).toBeNull();
+    const banner = screen.getByRole("status");
+    expect(banner).toHaveTextContent(
+      "No computer connected — browsing in read-only mode",
+    );
+
+    fireEvent.click(
+      within(banner).getByRole("button", { name: "Connect computer" }),
+    );
+    expect(
+      await screen.findByRole("dialog", { name: "Connect your computer" }),
+    ).toBeVisible();
+    expect(screen.getByText("Shell content").closest("[inert]")).not.toBeNull();
+
+    // Bypass again, then confirm the banner clears once Another Me arrives.
+    fireEvent.click(
+      screen.getByRole("button", { name: "Browse in read-only mode" }),
+    );
+    expect(
+      screen.getByText("No computer connected — browsing in read-only mode"),
+    ).toBeVisible();
+
+    fixture.anotherMe = {
+      agent_actor_id: "actor-anotherme",
+      room_id: "room-another-me",
+    };
+    await act(() =>
+      fixture.queryClient.invalidateQueries({
+        queryKey: anotherMeQueryKey("tenant-northstar"),
+      }),
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.queryByText(
+          "No computer connected — browsing in read-only mode",
+        ),
+      ).toBeNull(),
+    );
   });
 });
 

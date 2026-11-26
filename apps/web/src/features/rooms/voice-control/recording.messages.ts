@@ -156,4 +156,20 @@ export const recordingMessages = defineMessages("recording", {
   switchingTarget: "Switching recording target. Please wait",
   stopBeforeSwitching: "Stop the current recording before switching targets",
   startInDirectChat: "Start recording in the Agent direct chat",
+
+  // Live hearing & speaker naming subpages.
+  hearingTitle: "Right now",
+  hearingSubtitle: "The words this recording is hearing, as they arrive.",
+  hearingNothing: "Nothing is being heard.",
+  hearingListening: "Listening.",
+  hearingEarlierLabel: "Earlier in this recording",
+  backToMessages: "Back to messages",
+  whoIsSpeakingTitle: "Who is speaking",
+  whoIsSpeakingSubtitle:
+    "Give each voice a name. This recording uses it from then on, on this computer.",
+  whoIsSpeakingEmpty:
+    "No voices yet. Start a recording, and each voice will show up here to be named.",
+  whoIsSpeakingNamePlaceholder: "Name",
+  whoIsSpeakingSubmit: "Use these names",
+  whoIsSpeakingSaved: "This recording will use those names.",
 });

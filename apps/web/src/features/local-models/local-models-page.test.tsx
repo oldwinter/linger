@@ -6014,4 +6014,124 @@ describe("Featured Inkling 2 Mini spotlight", () => {
       }
     }
   });
+
+  it("shows disk storage summary, low-disk warning, and unused model cleanup confirmation", async () => {
+    const loadedModel = localModel({
+      download_bytes: gb(12),
+      id: "loaded-model",
+      memory_bytes: gb(12),
+      name: "Active Loaded Model",
+      state: "loaded",
+    });
+    const idleUnused = localModel({
+      download_bytes: gb(6.5),
+      id: "idle-unused",
+      memory_bytes: gb(6.5),
+      name: "Idle Unused Model",
+      state: "idle",
+    });
+    const failedDamaged = localModel({
+      download_bytes: gb(4),
+      error: { code: "CHECKSUM_MISMATCH" },
+      id: "failed-damaged",
+      memory_bytes: gb(4),
+      name: "Damaged Model",
+      state: "failed",
+    });
+    const idleInUse = localModel({
+      download_bytes: gb(3),
+      id: "idle-in-use",
+      memory_bytes: gb(3),
+      name: "Idle Assigned Model",
+      state: "idle",
+    });
+    const view = labView({
+      computer: {
+        ...labView().computer,
+        host: {
+          ...labView().computer.host!,
+          disk_free_bytes: gb(8),
+        },
+      },
+      models: [
+        modelView(loadedModel, ["Another Me"]),
+        modelView(idleUnused),
+        modelView(failedDamaged),
+        modelView(idleInUse, ["Code Reviewer"]),
+      ],
+    });
+    const fixture = setup([view]);
+    await renderPage(fixture);
+    await findModels();
+
+    const storageRegion = screen.getByRole("region", { name: "Disk storage" });
+    expect(storageRegion).toHaveTextContent("8 GB free on disk");
+    expect(storageRegion).toHaveTextContent(
+      "25.5 GB used by 4 downloaded models",
+    );
+    expect(storageRegion).toHaveTextContent("Low disk space");
+
+    const toggle = within(storageRegion).getByRole("button", {
+      name: "Clean up unused models (10.5 GB)",
+    });
+    fireEvent.click(toggle);
+
+    expect(storageRegion).toHaveTextContent("Idle Unused Model");
+    expect(storageRegion).toHaveTextContent("Damaged Model");
+    expect(storageRegion).not.toHaveTextContent("Active Loaded Model");
+    expect(storageRegion).not.toHaveTextContent("Idle Assigned Model");
+
+    fireEvent.click(
+      within(storageRegion).getByRole("button", {
+        name: "Remove Damaged Model",
+      }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "Remove Damaged Model?",
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Remove" }));
+    await waitFor(() =>
+      expect(fixture.actions).toContainEqual({
+        body: { action: "remove" },
+        computerId: "computer-lab",
+        modelId: "failed-damaged",
+      }),
+    );
+  });
+
+  it("keeps BYOK accessible via tabs and action button when the local model engine is unavailable", async () => {
+    const fixture = setup([
+      labView({
+        available: false,
+        models: [],
+        pools: [],
+        reason: { code: "TOOL_NOT_INSTALLED" },
+      }),
+    ]);
+    fixture.runtime.server.on("GET", modelSourcePath, ({ params }) =>
+      Response.json({
+        computer_id: params.computerId,
+        online: true,
+        status: {
+          byok: { configured: false, key_saved: false },
+          mode: "subscription",
+          runtime: "claude",
+          runtime_model: "",
+        },
+        viewer_is_owner: true,
+      }),
+    );
+
+    await renderPage(fixture);
+    const tabs = await screen.findByRole("tablist", { name: "Model source" });
+    expect(within(tabs).getByRole("tab", { name: /BYOK/u })).toBeVisible();
+    const switchBtn = await screen.findByRole("button", {
+      name: "Switch to BYOK",
+    });
+    fireEvent.click(switchBtn);
+
+    expect(
+      await screen.findByRole("form", { name: "BYOK" }),
+    ).toBeInTheDocument();
+  });
 });

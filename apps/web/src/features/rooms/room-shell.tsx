@@ -145,8 +145,17 @@ function RoomShellReady({
   // Settings stays open under the gate: a Computer whose only app is Pi gets
   // its first model from Settings › Models.
   const onSettings = useMatch("/t/:tenantId/settings/*") !== null;
-  const gated =
-    anotherMeQuery.isSuccess && !anotherMe?.agent_actor_id && !onSettings;
+  const needsComputer = anotherMeQuery.isSuccess && !anotherMe?.agent_actor_id;
+  const gated = needsComputer && !onSettings;
+  const [bypassAccountId, setBypassAccountId] = useState<string | null>(null);
+  if (
+    bypassAccountId !== null &&
+    (!needsComputer || bypassAccountId !== identity.account.id)
+  ) {
+    setBypassAccountId(null);
+  }
+  const readOnlyBypass = gated && bypassAccountId === identity.account.id;
+  const gateBlocking = gated && !readOnlyBypass;
   const navigate = useNavigate();
   const wasGated = useRef(false);
   const anotherMeRoomId = anotherMe?.room_id;
@@ -215,7 +224,7 @@ function RoomShellReady({
     accountId: identity.account.id,
     activeRoomId,
     client,
-    gated,
+    gated: gateBlocking,
     navigate,
     onRoomRoute,
     queryClient,
@@ -237,9 +246,10 @@ function RoomShellReady({
       <TeamHubEventSync />
       {/* Voice Mode lives above the Room routes so it survives navigation. */}
       <VoiceModeSessionProvider key={`${identity.account.id}:${tenantId}`}>
-        {gated ? (
+        {gateBlocking ? (
           <Suspense fallback={null}>
             <LocalComputerGate
+              onBrowseReadOnly={() => setBypassAccountId(identity.account.id)}
               onSignOut={logout.mutate}
               signingOut={logout.isPending}
               tenantId={tenantId}
@@ -247,8 +257,11 @@ function RoomShellReady({
           </Suspense>
         ) : null}
         <RoomShellContent
-          inert={gated}
+          inert={gateBlocking}
           logout={logout}
+          onConnectComputer={
+            readOnlyBypass ? () => setBypassAccountId(null) : undefined
+          }
           rooms={
             navigationPending ? EMPTY_ROOMS : (rooms?.items ?? EMPTY_ROOMS)
           }
@@ -339,6 +352,7 @@ function spaceOwnerNameFor(identity: TeamHubCurrentIdentity, tenantId: string) {
 function RoomShellContent({
   inert,
   logout,
+  onConnectComputer,
   anotherMeActorId,
   anotherMeRoomId,
   navigationStatus,
@@ -347,6 +361,7 @@ function RoomShellContent({
 }: {
   inert: boolean;
   logout: ReturnType<typeof useLogout>;
+  onConnectComputer?: () => void;
   anotherMeActorId?: string;
   anotherMeRoomId?: string;
   rooms: TeamHubRoomListItem[];
@@ -525,6 +540,21 @@ function RoomShellContent({
                 </span>
               </div>
             )}
+            {onConnectComputer ? (
+              <div
+                className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-[var(--app-status-warning-border)] bg-[var(--app-status-warning-surface)] px-4 py-2 text-xs text-foreground"
+                role="status"
+              >
+                <span>{t(roomSurfaceMessages.readOnlyModeBanner)}</span>
+                <Button
+                  onClick={onConnectComputer}
+                  size="compact"
+                  tone="secondary"
+                >
+                  {t(roomSurfaceMessages.connectComputer)}
+                </Button>
+              </div>
+            ) : null}
             {logout.error ? (
               <div
                 className="flex shrink-0 items-center gap-3 px-4 py-3 text-sm text-app-danger"

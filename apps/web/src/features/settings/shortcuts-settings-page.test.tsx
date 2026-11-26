@@ -11,6 +11,11 @@ describe("Shortcuts settings page", () => {
     expect(
       screen.getByRole("heading", { level: 1, name: "Shortcuts" }),
     ).toBeVisible();
+    expect(
+      screen.getByText(
+        "Desktop app only — browsers reserve this shortcut to reopen closed tabs.",
+      ),
+    ).toBeVisible();
     for (const group of keyboardShortcutGroups) {
       expect(
         screen.getByRole("heading", { level: 2, name: group.title }),

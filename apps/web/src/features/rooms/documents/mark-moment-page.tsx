@@ -9,9 +9,13 @@ import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
 import { documentQueryOptions } from "@/features/rooms/room-queries";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { useT } from "@/i18n/use-translation";
+
+import { documentPageMessages as m } from "./document-page.messages";
 
 /** Keeps the document exactly as it is now, as a history checkpoint. */
 export function MarkMomentPage() {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const tenantId = requireRoomRouteParam(useParams().tenantId, "Tenant");
   const documentId = requireRoomRouteParam(useParams().documentId, "Document");
@@ -24,26 +28,28 @@ export function MarkMomentPage() {
         }),
       ),
   });
-  const name = document.data ? documentFileName(document.data) : "This page";
+  const name = document.data
+    ? documentFileName(document.data)
+    : t(m.markMomentThisPage);
 
   return (
     <LibrarySubpageShell
-      backLabel="Back to the page"
+      backLabel={t(m.markMomentBack)}
       backTo={documentDetailPath({ documentId, tenantId })}
-      subtitle={`${name} stays in its history as it is right now. Later edits do not erase the mark.`}
-      title="Mark this moment"
+      subtitle={t(m.markMomentSubtitle, { name })}
+      title={t(m.markMomentTitle)}
     >
       {document.isPending ? (
         <p className="text-sm text-muted-foreground" role="status">
-          Opening the page.
+          {t(m.markMomentOpening)}
         </p>
       ) : document.isError ? (
         <p className="text-sm text-destructive" role="alert">
-          This page could not be opened.
+          {t(m.markMomentOpenError)}
         </p>
       ) : mark.isSuccess ? (
         <p className="text-sm text-foreground" role="status">
-          Marked. This moment stays in the page history.
+          {t(m.markMomentMarked)}
         </p>
       ) : (
         <Button
@@ -51,12 +57,12 @@ export function MarkMomentPage() {
           onClick={() => mark.mutate()}
           type="button"
         >
-          {mark.isPending ? "Marking" : "Mark it"}
+          {t(mark.isPending ? m.markMomentMarking : m.markMomentAction)}
         </Button>
       )}
       {mark.isError ? (
         <p className="text-sm text-destructive" role="alert">
-          The moment could not be marked.
+          {t(m.markMomentError)}
         </p>
       ) : null}
     </LibrarySubpageShell>

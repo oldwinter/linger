@@ -60,6 +60,8 @@ const shortcutTextMessages: Readonly<Record<string, Message<string>>> = {
   "Clear and leave the active Wiki page filter": m.actionClearWikiFilter,
   "Play or pause the Meeting recording": m.actionPlayPauseMeeting,
   "Seek backward or forward 5 seconds": m.actionSeekMeeting,
+  "Desktop app only — browsers reserve this shortcut to reopen closed tabs.":
+    m.noteDesktopOnlyReopenTab,
 };
 
 export function ShortcutsSettingsPage() {
@@ -74,6 +76,7 @@ export function ShortcutsSettingsPage() {
       shortcuts: group.shortcuts.map((shortcut) => ({
         ...shortcut,
         action: translateShortcutText(shortcut.action),
+        note: shortcut.note ? translateShortcutText(shortcut.note) : undefined,
       })),
       title: translateShortcutText(group.title),
     }));
@@ -177,8 +180,13 @@ export function ShortcutsSettingsPage() {
                     className="flex items-center justify-between gap-4 py-2.5"
                     key={shortcut.action}
                   >
-                    <dt className="text-sm text-foreground">
-                      {shortcut.action}
+                    <dt className="min-w-0 text-sm text-foreground">
+                      <span>{shortcut.action}</span>
+                      {shortcut.note ? (
+                        <span className="mt-0.5 block text-xs text-muted-foreground">
+                          {shortcut.note}
+                        </span>
+                      ) : null}
                     </dt>
                     <dd className="flex shrink-0 items-center gap-1.5">
                       <KeyCap>{shortcut.keys.mac}</KeyCap>

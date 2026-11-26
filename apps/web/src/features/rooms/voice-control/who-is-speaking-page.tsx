@@ -3,7 +3,9 @@ import { Link, useParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
+import { useT } from "@/i18n/use-translation";
 
+import { recordingMessages as m } from "./recording.messages";
 import {
   useSpeakerNames,
   voicesInTranscript,
@@ -17,6 +19,7 @@ import {
 
 /** Names for the voices in the recording that is open now. */
 export function WhoIsSpeakingPage() {
+  const t = useT();
   const voice = useOptionalVoiceControl();
   const tenantId = requireRoomRouteParam(useParams().tenantId, "Tenant");
   const captureId = captureIdOf(voice?.captureState);
@@ -30,16 +33,14 @@ export function WhoIsSpeakingPage() {
     <main className="min-h-0 flex-1 overflow-y-auto bg-app-surface px-5 py-7">
       <div className="mx-auto flex w-full max-w-xl flex-col gap-6">
         <header>
-          <h1 className="text-xl text-foreground">Who is speaking</h1>
+          <h1 className="text-xl text-foreground">{t(m.whoIsSpeakingTitle)}</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Give each voice a name. This recording uses it from then on, on this
-            computer.
+            {t(m.whoIsSpeakingSubtitle)}
           </p>
         </header>
         {voices.length === 0 || !captureId ? (
           <p className="text-sm text-muted-foreground" role="status">
-            No voices yet. Start a recording, and each voice will show up here
-            to be named.
+            {t(m.whoIsSpeakingEmpty)}
           </p>
         ) : (
           <VoiceNameForm
@@ -53,7 +54,7 @@ export function WhoIsSpeakingPage() {
           className="text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           to={`/t/${encodeURIComponent(tenantId)}/rooms`}
         >
-          Back to messages
+          {t(m.backToMessages)}
         </Link>
       </div>
     </main>
@@ -69,6 +70,7 @@ function VoiceNameForm({
   saved: SpeakerNameMap;
   voices: ReturnType<typeof voicesInTranscript>;
 }) {
+  const t = useT();
   const [draft, setDraft] = useState(saved);
   const [savedNotice, setSavedNotice] = useState(false);
 
@@ -98,7 +100,7 @@ function VoiceNameForm({
               {voice.fallback}
             </label>
             <input
-              className="rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-app-placeholder focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               id={`voice-${voice.id}`}
               maxLength={40}
               onChange={(event) => {
@@ -108,7 +110,7 @@ function VoiceNameForm({
                   [voice.id]: event.target.value,
                 }));
               }}
-              placeholder="Name"
+              placeholder={t(m.whoIsSpeakingNamePlaceholder)}
               value={draft[voice.id] ?? ""}
             />
             <div>
@@ -127,10 +129,10 @@ function VoiceNameForm({
           </section>
         );
       })}
-      <Button type="submit">Use these names</Button>
+      <Button type="submit">{t(m.whoIsSpeakingSubmit)}</Button>
       {savedNotice ? (
         <p className="text-sm text-foreground" role="status">
-          This recording will use those names.
+          {t(m.whoIsSpeakingSaved)}
         </p>
       ) : null}
     </form>

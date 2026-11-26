@@ -81,8 +81,10 @@ export function useCliInstallAvailable(): boolean {
 export interface DesktopComputer {
   readonly status: DesktopComputerStatus | undefined;
   readonly connecting: boolean;
+  readonly refreshing: boolean;
   readonly error: string | undefined;
   connect(): void;
+  refreshStatus(): Promise<DesktopComputerStatus | undefined>;
 }
 
 // The computer this desktop app runs on, or undefined in a browser.
@@ -90,6 +92,7 @@ export function useDesktopComputer(): DesktopComputer | undefined {
   const [api] = useState(desktopComputerApi);
   const [status, setStatus] = useState<DesktopComputerStatus>();
   const [connecting, setConnecting] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string>();
 
   useEffect(() => {
@@ -108,17 +111,43 @@ export function useDesktopComputer(): DesktopComputer | undefined {
     };
   }, [api]);
 
+  const refreshStatus = useCallback(async () => {
+    if (!api) return undefined;
+    setRefreshing(true);
+    setError(undefined);
+    try {
+      const next = await api.getStatus();
+      setStatus(next);
+      return next;
+    } catch (reason: unknown) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : translate(computersMessages.couldNotCheck),
+      );
+      return undefined;
+    } finally {
+      setRefreshing(false);
+    }
+  }, [api]);
+
   const connect = useCallback(() => {
     if (!api) return;
     setConnecting(true);
     setError(undefined);
     api
       .enroll()
-      .then(({ computerId }) =>
+      .then(async ({ computerId }) => {
         setStatus((current) =>
           current ? { ...current, computerId } : current,
-        ),
-      )
+        );
+        try {
+          const next = await api.getStatus();
+          setStatus(next);
+        } catch {
+          // Keep the enrolled computerId even if an immediate status read fails.
+        }
+      })
       .catch((reason: unknown) =>
         setError(
           reason instanceof Error
@@ -129,7 +158,9 @@ export function useDesktopComputer(): DesktopComputer | undefined {
       .finally(() => setConnecting(false));
   }, [api]);
 
-  return api ? { status, connecting, error, connect } : undefined;
+  return api
+    ? { status, connecting, refreshing, error, connect, refreshStatus }
+    : undefined;
 }
 
 // A permission step the desktop app takes on its own Mac without TeamHub.

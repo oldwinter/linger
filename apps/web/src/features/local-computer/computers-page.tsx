@@ -7,7 +7,10 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 
-import { modelSourceQueryOptions } from "@/features/local-models/model-source-queries";
+import {
+  modelSourceQueryKey,
+  modelSourceQueryOptions,
+} from "@/features/local-models/model-source-queries";
 import {
   tenantRoomsQueryOptions,
   tenantAgentAvailabilityQueryOptions,
@@ -299,6 +302,19 @@ export function ComputersPage() {
               onConnect={cliInstallAvailable ? openSetup : undefined}
               onOpenAgent={(actorId) => {
                 if (!openAgent.isPending) openAgent.mutate(actorId);
+              }}
+              onRefreshStatus={async () => {
+                await Promise.all([
+                  queryClient.invalidateQueries({
+                    queryKey: localComputersQueryKey(tenantId),
+                  }),
+                  queryClient.invalidateQueries({
+                    queryKey: modelSourceQueryKey(
+                      tenantId,
+                      selectedComputer.computer_id,
+                    ),
+                  }),
+                ]);
               }}
               onRemove={() => {
                 removeMutation.reset();

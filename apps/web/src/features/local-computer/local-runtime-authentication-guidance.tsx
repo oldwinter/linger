@@ -26,7 +26,11 @@ export function LocalRuntimeAuthenticationGuidance({
       <p className="mt-1 text-muted-foreground">
         <RichMessage
           message={computerSetupMessages.signInGuidance}
-          tags={{ code: (text) => <code className="font-mono">{text}</code> }}
+          tags={{
+            code: (text) => (
+              <code className="font-mono [overflow-wrap:anywhere]">{text}</code>
+            ),
+          }}
           values={{
             command: signInCommand(runtimeType, computer, desktop),
             computer: computerName,

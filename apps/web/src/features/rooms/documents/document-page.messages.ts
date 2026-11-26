@@ -93,4 +93,15 @@ export const documentPageMessages = defineMessages("documentPage", {
   nameYou: "{name} (you)",
   collaborator: "Collaborator",
   cursor: "{name} cursor",
+  markMomentThisPage: "This page",
+  markMomentBack: "Back to the page",
+  markMomentSubtitle:
+    "{name} stays in its history as it is right now. Later edits do not erase the mark.",
+  markMomentTitle: "Mark this moment",
+  markMomentOpening: "Opening the page.",
+  markMomentOpenError: "This page could not be opened.",
+  markMomentMarked: "Marked. This moment stays in the page history.",
+  markMomentMarking: "Marking",
+  markMomentAction: "Mark it",
+  markMomentError: "The moment could not be marked.",
 });
