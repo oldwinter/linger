@@ -259,7 +259,7 @@ export function ModelSourceTabs({
   }
 
   return (
-    <div className="mt-5 border-b border-border">
+    <div className="mt-5">
       <div
         aria-label={t(m.modelSource)}
         className="relative -ml-3 inline-flex max-w-full self-start gap-1"

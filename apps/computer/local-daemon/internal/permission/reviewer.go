@@ -63,7 +63,8 @@ func (r *Reviewer) Review(ctx context.Context, request Request) Verdict {
 		r.LocalAllowed != nil && r.LocalAllowed(request.Action.Tool, request.Action.Input) {
 		return Verdict{Decision: Allow}
 	}
-	if request.Action.Tool == "Bash" {
+	switch request.Action.Tool {
+	case "Bash":
 		delegations, unread := HerdrDelegations(request.Action.Command)
 		// Quoting can hide a program name from the raw command, but the pane
 		// receives the delegated text whole.
@@ -85,6 +86,13 @@ func (r *Reviewer) Review(ctx context.Context, request Request) Verdict {
 			return Verdict{Decision: Deny, Message: RunAloneMessage(confirm)}
 		}
 		request.Evidence = withDelegations(request.Evidence, delegations, unread)
+	case "PowerShell":
+		switch decision, confirm := ShellPowerShell(request.Action.Command, r.TeamHubCommands); decision {
+		case ShellAllow:
+			return Verdict{Decision: Allow}
+		case ShellRunAlone:
+			return Verdict{Decision: Deny, Message: RunAloneMessage(confirm)}
+		}
 	}
 	reuseKey, reusable := GUIReuseKey(request.Action.Tool, request.Action.Input)
 	if reusable && r.reused(reuseKey) {

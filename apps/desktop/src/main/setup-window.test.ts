@@ -1,79 +1,106 @@
+import os from "node:os";
 import path from "node:path";
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => {
   /* eslint-disable @typescript-eslint/no-require-imports */
   const { EventEmitter } =
     require("node:events") as typeof import("node:events");
   /* eslint-enable @typescript-eslint/no-require-imports */
+
   const windows: MockBrowserWindow[] = [];
   const theme = Object.assign(new EventEmitter(), {
     shouldUseDarkColors: false,
   });
+  const ipcHandlers = new Map<
+    string,
+    (event: unknown, ...args: unknown[]) => unknown
+  >();
 
   class MockWebContents extends EventEmitter {
-    readonly setWindowOpenHandler = vi.fn();
-    readonly send = vi.fn();
-    isDestroyed(): boolean {
-      return false;
-    }
-  }
-
-  class MockBrowserWindow extends EventEmitter {
-    readonly webContents = new MockWebContents();
-    readonly show = vi.fn();
-    readonly focus = vi.fn();
-    readonly loadURL = vi.fn(async () => {});
-    readonly setBackgroundColor = vi.fn();
-    readonly destroy = vi.fn(() => {
-      this.destroyed = true;
-    });
     destroyed = false;
-
-    constructor() {
-      super();
-      windows.push(this);
-    }
-
+    readonly send = vi.fn();
+    readonly setWindowOpenHandler = vi.fn();
     isDestroyed(): boolean {
       return this.destroyed;
     }
   }
 
-  return { windows, theme, MockBrowserWindow };
+  class MockBrowserWindow extends EventEmitter {
+    readonly webContents = new MockWebContents();
+    destroyed = false;
+    readonly show = vi.fn();
+    readonly focus = vi.fn();
+    readonly setBackgroundColor = vi.fn();
+    readonly close = vi.fn(() => {
+      this.destroyed = true;
+      this.emit("closed");
+    });
+    readonly destroy = vi.fn(() => {
+      this.destroyed = true;
+    });
+    readonly loadURL = vi.fn(async () => {});
+    isDestroyed(): boolean {
+      return this.destroyed;
+    }
+    constructor() {
+      super();
+      windows.push(this);
+    }
+  }
+
+  const cookies = new EventEmitter();
+  const partitionSession = {
+    protocol: {
+      handle: vi.fn(),
+      unhandle: vi.fn(),
+    },
+  };
+
+  return {
+    windows,
+    theme,
+    ipcHandlers,
+    MockBrowserWindow,
+    cookies,
+    partitionSession,
+  };
 });
 
 vi.mock("electron", () => ({
   BrowserWindow: state.MockBrowserWindow,
-  Notification: class {},
+  Notification: class {
+    static isSupported(): boolean {
+      return false;
+    }
+  },
   clipboard: { readText: vi.fn(() => ""), writeText: vi.fn() },
   dialog: { showOpenDialog: vi.fn() },
   ipcMain: {
-    handle: vi.fn(),
-    removeHandler: vi.fn(),
+    handle: vi.fn(
+      (
+        channel: string,
+        handler: (event: unknown, ...args: unknown[]) => unknown,
+      ) => {
+        state.ipcHandlers.set(channel, handler);
+      },
+    ),
+    removeHandler: vi.fn((channel: string) => {
+      state.ipcHandlers.delete(channel);
+    }),
   },
   nativeImage: {
     createFromBuffer: vi.fn(() => ({})),
   },
   nativeTheme: state.theme,
   session: {
-    defaultSession: {
-      cookies: {
-        on: vi.fn(),
-        off: vi.fn(),
-      },
-    },
-    fromPartition: vi.fn(() => ({
-      protocol: {
-        handle: vi.fn(),
-        unhandle: vi.fn(),
-      },
-    })),
+    defaultSession: { cookies: state.cookies },
+    fromPartition: vi.fn(() => state.partitionSession),
   },
   shell: {
-    showItemInFolder: vi.fn(),
     openExternal: vi.fn(async () => {}),
+    showItemInFolder: vi.fn(),
   },
 }));
 
@@ -102,16 +129,25 @@ vi.mock("../shell/setup.html", () => ({
   default: '<html lang="en"><script>/* setup */</script></html>',
 }));
 
+import { SETUP_IPC, type SetupState } from "../shared/setup.js";
 import { ConfigStore } from "./config.js";
 import { LanguageModule } from "./language.js";
+import type { LocalServerStatus } from "./local-server.js";
 import { EventBus, ModuleHost, type Module } from "./modules.js";
 import { SetupWindowModule } from "./setup-window.js";
-import { silentLog, stubModule, tempDirectory } from "./test-support.js";
+import {
+  silentLog,
+  stubModule,
+  tempDirectory,
+  testHost,
+} from "./test-support.js";
 
 function setupHost(options: {
   initialComputerId?: string;
   onLocalServerStart?: (config: ConfigStore) => void;
   show: boolean | ((config: ConfigStore) => boolean);
+  localStatus?: () => LocalServerStatus;
+  refreshLocationSpace?: () => Promise<void>;
 }) {
   const config = new ConfigStore(path.join(tempDirectory(), "config.json"), {
     ...(options.initialComputerId
@@ -122,6 +158,22 @@ function setupHost(options: {
       : {}),
   });
   const inspect = vi.fn();
+  const cancelPrestage = vi.fn();
+  const refreshLocationSpace = vi.fn(
+    options.refreshLocationSpace ?? (async () => {}),
+  );
+  const defaultStatus = (): LocalServerStatus => ({
+    available: true,
+    phase: "idle",
+    message: "",
+    steps: ["prepare", "services", "connect", "agents"],
+    step: "prepare",
+    progress: 0,
+    attempt: 0,
+    localModels: { state: "unchecked" },
+    location: { path: "/tmp/linger", custom: false },
+    keys: { composio: false },
+  });
   const localServer: Module = {
     name: "LocalServer",
     dependsOn: ["WindowManager", "Enrollment"],
@@ -129,10 +181,12 @@ function setupHost(options: {
       options.onLocalServerStart?.(config);
     },
     stop: async () => {},
-    ...({ inspect, status: () => ({ phase: "idle" }) } as Record<
-      string,
-      unknown
-    >),
+    ...({
+      inspect,
+      cancelPrestage,
+      refreshLocationSpace,
+      status: () => options.localStatus?.() ?? defaultStatus(),
+    } as Record<string, unknown>),
   };
   const showOption = options.show;
   const setup = new SetupWindowModule({
@@ -147,9 +201,21 @@ function setupHost(options: {
     [
       stubModule("Config"),
       new LanguageModule({ systemLanguages: () => ["en-US"] }),
-      stubModule("Diagnostics"),
-      stubModule("Enrollment"),
-      stubModule("PowerGuard"),
+      {
+        ...stubModule("Diagnostics"),
+        ...({
+          uploadUrl: () => undefined,
+          sender: { state: () => ({ phase: "idle" }) },
+        } as Record<string, unknown>),
+      },
+      {
+        ...stubModule("Enrollment"),
+        ...({ signedIn: async () => false } as Record<string, unknown>),
+      },
+      {
+        ...stubModule("PowerGuard"),
+        ...({ alwaysOn: () => false } as Record<string, unknown>),
+      },
       stubModule("WindowManager"),
       stubModule("WorkspaceGrants"),
       localServer,
@@ -161,14 +227,26 @@ function setupHost(options: {
       bus: new EventBus(),
     },
   );
-  return { host, config, inspect, setup };
+  return {
+    host,
+    config,
+    inspect,
+    cancelPrestage,
+    refreshLocationSpace,
+    setup,
+  };
 }
 
-describe("SetupWindowModule startup visibility", () => {
+describe("SetupWindowModule", () => {
   beforeEach(() => {
     state.windows.length = 0;
     state.theme.shouldUseDarkColors = false;
     state.theme.removeAllListeners("updated");
+    state.ipcHandlers.clear();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("evaluates a show predicate after LocalServer.start() so orphaned recovery opens Setup", async () => {
@@ -216,5 +294,242 @@ describe("SetupWindowModule startup visibility", () => {
     await shown.host.start();
     expect(state.windows).toHaveLength(1);
     await shown.host.stop("quit");
+  });
+
+  it("cancels idle pre-staging when the setup window closes", async () => {
+    const inspect = vi.fn();
+    const cancelPrestage = vi.fn();
+    const bus = new EventBus();
+    const setup = new SetupWindowModule({
+      preload: "/preload.js",
+      version: "0.17.0",
+      defaultDisplayName: "My Mac",
+      show: true,
+      loginItem: { get: () => false, set: () => {} },
+    });
+
+    const host = testHost(
+      [
+        {
+          ...stubModule("Diagnostics"),
+          uploadUrl: () => undefined,
+          sender: { state: () => ({ phase: "idle" }), cancel: vi.fn() },
+        } as never,
+        {
+          ...stubModule("Enrollment"),
+          signedIn: vi.fn(async () => false),
+        } as never,
+        {
+          ...stubModule("Language"),
+          current: () => "en",
+          t: (message: { en: string }) => message.en,
+        } as never,
+        {
+          ...stubModule("LocalServer"),
+          inspect,
+          cancelPrestage,
+          refreshLocationSpace: vi.fn(async () => {}),
+          account: vi.fn(),
+          status: () => ({
+            available: true,
+            phase: "idle",
+            message: "",
+            steps: [],
+            step: "prepare",
+            progress: 0,
+            attempt: 0,
+            localModels: { state: "unchecked" },
+            location: { path: "/home", custom: false },
+            keys: { composio: false },
+          }),
+        } as never,
+        {
+          ...stubModule("PowerGuard"),
+          alwaysOn: () => false,
+        } as never,
+        {
+          ...stubModule("WindowManager"),
+          show: vi.fn(),
+          markOpenFromSetup: vi.fn(),
+        } as never,
+        {
+          ...stubModule("WorkspaceGrants"),
+        } as never,
+        setup,
+      ],
+      {},
+      bus,
+    );
+
+    await host.start();
+    expect(state.windows).toHaveLength(1);
+    expect(inspect).toHaveBeenCalledOnce();
+    expect(cancelPrestage).not.toHaveBeenCalled();
+
+    state.windows[0]!.emit("closed");
+    expect(cancelPrestage).toHaveBeenCalledOnce();
+
+    await host.stop("quit");
+  });
+
+  it("awaits refreshLocationSpace before returning initial state over SETUP_IPC.state", async () => {
+    const GiB = 1024 ** 3;
+    let freeBytes: number | undefined;
+    let finishRefresh!: () => void;
+    const { host, refreshLocationSpace } = setupHost({
+      show: true,
+      localStatus: () => ({
+        available: true,
+        phase: "idle",
+        message: "",
+        steps: ["prepare", "services", "connect", "agents"],
+        step: "prepare",
+        progress: 0,
+        attempt: 0,
+        localModels: { state: "unchecked" },
+        location: {
+          path: "/tmp/linger",
+          custom: false,
+          ...(freeBytes !== undefined
+            ? { freeBytes, minFreeBytes: 20 * GiB }
+            : {}),
+        },
+        keys: { composio: false },
+      }),
+      refreshLocationSpace: async () => {
+        await new Promise<void>((resolve) => {
+          finishRefresh = () => {
+            freeBytes = 12 * GiB;
+            resolve();
+          };
+        });
+      },
+    });
+    await host.start();
+    try {
+      const window = state.windows[0]!;
+      const handler = state.ipcHandlers.get(SETUP_IPC.state)!;
+      const pending = handler({
+        sender: window.webContents,
+        senderFrame: { url: "app://setup/" },
+      }) as Promise<SetupState>;
+      expect(refreshLocationSpace).toHaveBeenCalledOnce();
+      finishRefresh();
+      const result = await pending;
+      expect(result.localServer.location).toEqual({
+        path: "/tmp/linger",
+        custom: false,
+        freeBytes: 12 * GiB,
+        minFreeBytes: 20 * GiB,
+      });
+    } finally {
+      await host.stop("quit");
+    }
+  });
+
+  it("refreshes location space on window focus with throttling and skips when ready or unavailable", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:10.000Z"));
+    let available = true;
+    let phase: LocalServerStatus["phase"] = "idle";
+    const { host, refreshLocationSpace } = setupHost({
+      show: true,
+      localStatus: () => ({
+        available,
+        phase,
+        message: "",
+        steps: ["prepare", "services", "connect", "agents"],
+        step: "prepare",
+        progress: 0,
+        attempt: 0,
+        localModels: { state: "unchecked" },
+        location: { path: "/tmp/linger", custom: false },
+        keys: { composio: false },
+      }),
+    });
+    await host.start();
+    try {
+      const window = state.windows[0]!;
+      window.emit("focus");
+      expect(refreshLocationSpace).toHaveBeenCalledTimes(1);
+
+      // Within the 2000 ms throttle window: skipped.
+      vi.advanceTimersByTime(1999);
+      window.emit("focus");
+      expect(refreshLocationSpace).toHaveBeenCalledTimes(1);
+
+      // Past 2000 ms while failed: refreshes again.
+      phase = "failed";
+      vi.advanceTimersByTime(1);
+      window.emit("focus");
+      expect(refreshLocationSpace).toHaveBeenCalledTimes(2);
+
+      // Ready phase: skipped even past the throttle window.
+      phase = "ready";
+      vi.advanceTimersByTime(3000);
+      window.emit("focus");
+      expect(refreshLocationSpace).toHaveBeenCalledTimes(2);
+
+      // Unavailable: skipped.
+      phase = "idle";
+      available = false;
+      vi.advanceTimersByTime(3000);
+      window.emit("focus");
+      expect(refreshLocationSpace).toHaveBeenCalledTimes(2);
+    } finally {
+      await host.stop("quit");
+    }
+  });
+
+  it("throttles immediate focus refresh after SETUP_IPC.state and shortens rejectedPath under homedir", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:10.000Z"));
+    const home = os.homedir();
+    const rejectedInHome = path.join(home, "locked-linger");
+    const { host, refreshLocationSpace } = setupHost({
+      show: true,
+      localStatus: () => ({
+        available: true,
+        phase: "idle",
+        message: "",
+        steps: ["prepare", "services", "connect", "agents"],
+        step: "prepare",
+        progress: 0,
+        attempt: 0,
+        localModels: { state: "unchecked" },
+        location: {
+          path: path.join(home, ".linger"),
+          custom: false,
+          error: "Linger can't write to this folder. Choose another one.",
+          rejectedPath: rejectedInHome,
+        },
+        keys: { composio: false },
+      }),
+    });
+    await host.start();
+    try {
+      const window = state.windows[0]!;
+      const handler = state.ipcHandlers.get(SETUP_IPC.state)!;
+      const result = (await handler({
+        sender: window.webContents,
+        senderFrame: { url: "app://setup/" },
+      })) as SetupState;
+      expect(refreshLocationSpace).toHaveBeenCalledTimes(1);
+      expect(result.localServer.location.path).toBe(`~${path.sep}.linger`);
+      expect(result.localServer.location.rejectedPath).toBe(
+        `~${path.sep}locked-linger`,
+      );
+
+      // An immediate focus event right after SETUP_IPC.state does not fire a redundant probe.
+      window.emit("focus");
+      expect(refreshLocationSpace).toHaveBeenCalledTimes(1);
+
+      // Past the 2000 ms throttle window, focus refreshes again.
+      vi.advanceTimersByTime(2000);
+      window.emit("focus");
+      expect(refreshLocationSpace).toHaveBeenCalledTimes(2);
+    } finally {
+      await host.stop("quit");
+    }
   });
 });

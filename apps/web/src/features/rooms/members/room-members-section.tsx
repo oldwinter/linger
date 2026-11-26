@@ -11,6 +11,10 @@ import {
   Search01Icon,
 } from "@hugeicons/core-free-icons";
 import { Icon } from "@/components/ui/icon";
+import {
+  SettingsGroup,
+  SettingsGroupAction,
+} from "@/components/ui/settings-group";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -192,47 +196,62 @@ export function RoomMembersSection({
   });
 
   return (
-    <section aria-label={t(m.roomMembers)} className="px-5 py-3">
-      {membersPending ? (
-        <p className="text-xs text-app-muted" role="status">
-          {t(m.loadingMembers)}
-        </p>
-      ) : null}
-      {!membersPending && memberItems.length > 0 ? (
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <label className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg border border-border bg-card px-2.5 text-muted-foreground transition-colors hover:border-border-hover focus-within:border-foreground focus-within:ring-2 focus-within:ring-ring/40">
-            <Icon icon={Search01Icon} size={14} />
-            <input
-              aria-label={t(m.searchMembers)}
-              className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-app-placeholder"
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={t(m.searchMembers)}
-              role="searchbox"
-              type="text"
-              value={query}
-            />
-            {query ? (
-              <button
-                aria-label="Clear member search"
-                className="flex size-5 shrink-0 items-center justify-center rounded-full hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
-                onClick={() => setQuery("")}
-                type="button"
+    <>
+      <SettingsGroup
+        action={
+          <SettingsGroupAction
+            onClick={() => {
+              putMember.reset();
+              setAddOpen(true);
+            }}
+          >
+            <Icon icon={PlusSignIcon} size={14} />
+            {t(m.addMember)}
+          </SettingsGroupAction>
+        }
+        ariaLabel={t(m.roomMembers)}
+        label={t(m.members)}
+        meta={memberItems.length}
+      >
+        {membersPending ? (
+          <p className="px-3.5 py-2 text-xs text-app-muted" role="status">
+            {t(m.loadingMembers)}
+          </p>
+        ) : null}
+        {!membersPending && memberItems.length > 0 ? (
+          <div className="flex items-center justify-between gap-2 px-3 py-2">
+            <label className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg border border-border bg-card px-2.5 text-muted-foreground transition-colors hover:border-border-hover focus-within:border-foreground focus-within:ring-2 focus-within:ring-ring/40">
+              <Icon icon={Search01Icon} size={14} />
+              <input
+                aria-label={t(m.searchMembers)}
+                className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-app-placeholder"
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder={t(m.searchMembers)}
+                role="searchbox"
+                type="text"
+                value={query}
+              />
+              {query ? (
+                <button
+                  aria-label="Clear member search"
+                  className="flex size-5 shrink-0 items-center justify-center rounded-full hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+                  onClick={() => setQuery("")}
+                  type="button"
+                >
+                  <Icon icon={Cancel01Icon} size={12} />
+                </button>
+              ) : null}
+            </label>
+            {filtering ? (
+              <span
+                aria-live="polite"
+                className="shrink-0 text-2xs text-app-subtle"
               >
-                <Icon icon={Cancel01Icon} size={12} />
-              </button>
+                {search.count} of {memberItems.length}
+              </span>
             ) : null}
-          </label>
-          {filtering ? (
-            <span
-              aria-live="polite"
-              className="shrink-0 text-2xs text-app-subtle"
-            >
-              {search.count} of {memberItems.length}
-            </span>
-          ) : null}
-        </div>
-      ) : null}
-      <div className="space-y-1">
+          </div>
+        ) : null}
         {filtering && search.count === 0 ? (
           <div className="flex flex-col items-center gap-2 px-2 py-6 text-center">
             <p className="text-xs text-app-muted">
@@ -254,14 +273,14 @@ export function RoomMembersSection({
             const role = ROLE_LABELS[member.role];
             return (
               <div
-                className="group flex min-h-13 w-full items-center rounded-lg transition-colors duration-300 hover:bg-muted/70"
+                className="group flex w-full items-center transition-colors duration-150 hover:bg-accent/60"
                 key={member.actor.id}
               >
                 <button
                   aria-label={t(agentInfoMessages.openProfile, {
                     name: member.actor.display_name,
                   })}
-                  className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-2 text-left focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-app-focus"
+                  className="flex min-h-11 min-w-0 flex-1 items-center gap-2.5 py-1.5 pl-3.5 pr-2 text-left focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-app-focus"
                   onClick={() => onOpenProfile?.(member.actor.id)}
                   type="button"
                 >
@@ -271,41 +290,41 @@ export function RoomMembersSection({
                     name={member.actor.display_name}
                     size="sm"
                   />
-                  <span className="min-w-0 flex-1">
-                    <span className="flex items-center gap-1.5">
-                      <span className="truncate text-sm font-medium">
-                        <HighlightedText
-                          query={query}
-                          text={member.actor.display_name}
+                  {/* One line per member: the name and its tags, then an
+                      Agent's status at the end; only a non-member role is named. */}
+                  <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                    <span className="truncate text-[14px] font-medium leading-[18px]">
+                      <HighlightedText
+                        query={query}
+                        text={member.actor.display_name}
+                      />
+                    </span>
+                    {member.role !== "member" ? (
+                      <span className="shrink-0 rounded-sm bg-muted px-1.5 py-0.5 text-2xs font-medium text-muted-foreground">
+                        {role ? t(role) : member.role}
+                      </span>
+                    ) : null}
+                    {member.actor.kind === "agent" ? (
+                      <span className="shrink-0 rounded-sm bg-muted px-1.5 py-0.5 text-2xs font-medium text-muted-foreground">
+                        {t(agentInfoMessages.agent)}
+                      </span>
+                    ) : null}
+                    {sponsoredAgentIds.has(member.actor.id) ? (
+                      <span className="shrink-0 rounded-sm bg-muted px-1.5 py-0.5 text-2xs font-medium text-foreground">
+                        {t(m.yours)}
+                      </span>
+                    ) : null}
+                    {member.actor.kind === "agent" &&
+                    agent &&
+                    availabilityByActorId.has(member.actor.id) ? (
+                      <span className="ml-auto shrink-0 pl-2 text-xs text-muted-foreground">
+                        <AgentStatus
+                          availability={
+                            availabilityByActorId.get(member.actor.id)!
+                          }
                         />
                       </span>
-                      {member.actor.kind === "agent" ? (
-                        <span className="rounded-sm bg-muted px-1.5 py-0.5 text-2xs font-medium text-muted-foreground">
-                          {t(agentInfoMessages.agent)}
-                        </span>
-                      ) : null}
-                      {sponsoredAgentIds.has(member.actor.id) ? (
-                        <span className="rounded-sm bg-muted px-1.5 py-0.5 text-2xs font-medium text-foreground">
-                          {t(m.yours)}
-                        </span>
-                      ) : null}
-                    </span>
-                    <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-                      <span>{role ? t(role) : member.role}</span>
-                      {member.actor.kind === "agent" &&
-                      agent &&
-                      availabilityByActorId.has(member.actor.id) ? (
-                        <>
-                          <span aria-hidden>·</span>
-                          <AgentStatus
-                            availability={
-                              availabilityByActorId.get(member.actor.id)!
-                            }
-                            showDetails
-                          />
-                        </>
-                      ) : null}
-                    </span>
+                    ) : null}
                   </span>
                 </button>
                 {isOwner && member.actor.id !== currentActorId ? (
@@ -332,9 +351,9 @@ export function RoomMembersSection({
             );
           })
         )}
-      </div>
+      </SettingsGroup>
 
-      <div className="mt-3 flex items-center justify-between gap-3">
+      <div className="flex items-center justify-between gap-3 px-3">
         <Button
           disabled={copyDisabled}
           onClick={copyMembers}
@@ -356,20 +375,10 @@ export function RoomMembersSection({
       </div>
 
       {!addOpen && putMember.error ? (
-        <p className="mt-3 text-sm text-app-danger" role="alert">
+        <p className="px-3 text-sm text-app-danger" role="alert">
           {putMember.error.message}
         </p>
       ) : null}
-      <Button
-        className="mt-3 w-full"
-        onClick={() => {
-          putMember.reset();
-          setAddOpen(true);
-        }}
-      >
-        <Icon className="text-muted-foreground" icon={PlusSignIcon} size={16} />
-        {t(m.addMember)}
-      </Button>
 
       {addOpen ? (
         <AddMemberDialog
@@ -402,7 +411,7 @@ export function RoomMembersSection({
           onRemove={() => removeMember.mutate(removeTarget.id)}
         />
       ) : null}
-    </section>
+    </>
   );
 }
 

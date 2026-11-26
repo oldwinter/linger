@@ -954,7 +954,7 @@ function RoomHeader({
   return (
     <header
       ref={headerRef}
-      className={`room-chat-header room-header ${isChatView ? "room-header--chat" : ""} grid h-(--app-header-height) shrink-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-b border-transparent bg-app-surface pl-3 pr-4`}
+      className={`room-chat-header room-header ${isChatView ? "room-header--chat" : ""} grid h-(--app-header-height) shrink-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 bg-app-surface pl-3 pr-4`}
     >
       <div className="flex min-w-0 items-center">
         <MobileNavigationButton />

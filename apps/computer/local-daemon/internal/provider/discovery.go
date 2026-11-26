@@ -100,6 +100,48 @@ var runtimeDefinitions = []runtimeDefinition{
 	{"antigravity", "agy", "acp"},
 }
 
+// AllRuntimeTypes returns every supported Runtime type in canonical discovery order.
+func AllRuntimeTypes() []string {
+	types := make([]string, len(runtimeDefinitions))
+	for i, definition := range runtimeDefinitions {
+		types[i] = definition.Type
+	}
+	return types
+}
+
+// MergeRuntimeDiagnostics combines base diagnostics with additions, replacing
+// matching types and ordering known Runtimes in canonical discovery order.
+func MergeRuntimeDiagnostics(base, additions []RuntimeDiagnostic) DiscoveryResult {
+	byType := make(map[string]RuntimeDiagnostic, len(base)+len(additions))
+	for _, diagnostic := range base {
+		byType[diagnostic.Type] = diagnostic
+	}
+	for _, diagnostic := range additions {
+		byType[diagnostic.Type] = diagnostic
+	}
+	merged := make([]RuntimeDiagnostic, 0, len(byType))
+	for _, definition := range runtimeDefinitions {
+		if diagnostic, ok := byType[definition.Type]; ok {
+			merged = append(merged, diagnostic)
+			delete(byType, definition.Type)
+		}
+	}
+	if len(byType) > 0 {
+		for _, source := range [][]RuntimeDiagnostic{base, additions} {
+			for _, diagnostic := range source {
+				if value, ok := byType[diagnostic.Type]; ok {
+					merged = append(merged, value)
+					delete(byType, diagnostic.Type)
+				}
+			}
+		}
+	}
+	return DiscoveryResult{
+		Diagnostics:   merged,
+		Installations: InstallationsFromDiagnostics(merged),
+	}
+}
+
 // ValidateRuntimeSelection accepts an omitted scope or a nonempty unique supported subset.
 func ValidateRuntimeSelection(types []string) error {
 	if types == nil {
@@ -326,8 +368,11 @@ func normalizeRuntimeModels(catalog []native.ModelOption) []RuntimeModel {
 		}
 		if entry.Effort != nil {
 			for _, effort := range entry.Effort.Options {
-				if validRuntimeReasoningEffort(effort.Value) && !slices.Contains(model.AllowedReasoningEffort, effort.Value) {
+				if ValidRuntimeReasoningEffort(effort.Value) && !slices.Contains(model.AllowedReasoningEffort, effort.Value) {
 					model.AllowedReasoningEffort = append(model.AllowedReasoningEffort, effort.Value)
+					if len(model.AllowedReasoningEffort) == MaxRuntimeModelReasoningEfforts {
+						break
+					}
 				}
 			}
 			if slices.Contains(model.AllowedReasoningEffort, entry.Effort.Default) {
@@ -342,11 +387,12 @@ func normalizeRuntimeModels(catalog []native.ModelOption) []RuntimeModel {
 	return result
 }
 
-// Bounds of a Runtime's model catalog: how many models it lists, and how
-// many runes a model ID or label may have.
+// Bounds of a Runtime's model catalog: how many models it lists, how many
+// reasoning efforts a model lists, and how many runes a model ID or label may have.
 const (
-	MaxRuntimeModels         = 100
-	MaxRuntimeModelTextRunes = 160
+	MaxRuntimeModels                = 100
+	MaxRuntimeModelReasoningEfforts = 32
+	MaxRuntimeModelTextRunes        = 160
 )
 
 // MaxRuntimeModelContextWindow is the largest context window a catalog
@@ -360,11 +406,12 @@ const MaxRuntimeModelContextWindow = maxModelContextWindow
 // link.
 func ValidRuntimeModel(model RuntimeModel) bool {
 	if strings.TrimSpace(model.ID) != model.ID || model.ID == "" || len([]rune(model.ID)) > MaxRuntimeModelTextRunes ||
-		model.Label == "" || len([]rune(model.Label)) > MaxRuntimeModelTextRunes || model.AllowedReasoningEffort == nil {
+		model.Label == "" || len([]rune(model.Label)) > MaxRuntimeModelTextRunes || model.AllowedReasoningEffort == nil ||
+		len(model.AllowedReasoningEffort) > MaxRuntimeModelReasoningEfforts {
 		return false
 	}
 	for index, effort := range model.AllowedReasoningEffort {
-		if !validRuntimeReasoningEffort(effort) || slices.Contains(model.AllowedReasoningEffort[:index], effort) {
+		if !ValidRuntimeReasoningEffort(effort) || slices.Contains(model.AllowedReasoningEffort[:index], effort) {
 			return false
 		}
 	}
@@ -382,8 +429,59 @@ func ClipRuntimeModelLabel(label string) string {
 	return truncateRunes(label, MaxRuntimeModelTextRunes)
 }
 
-func validRuntimeReasoningEffort(value string) bool {
-	return slices.Contains([]string{"none", "low", "medium", "high", "xhigh", "max", "ultra"}, value)
+// ValidRuntimeReasoningEffort reports whether value matches the wire
+// reasoning-effort token grammar.
+func ValidRuntimeReasoningEffort(value string) bool {
+	return native.ValidEffortToken(value)
+}
+
+// LegacyRuntimeReasoningEffort reports whether value is one of the seven
+// reasoning efforts accepted by Agent Services before dynamic_reasoning_efforts.
+func LegacyRuntimeReasoningEffort(value string) bool {
+	switch value {
+	case "none", "low", "medium", "high", "xhigh", "max", "ultra":
+		return true
+	default:
+		return false
+	}
+}
+
+// FilterLegacyReasoningEfforts returns a copy of observations with any
+// non-legacy reasoning efforts removed from each model's catalog, and reports
+// whether anything was removed.
+func FilterLegacyReasoningEfforts(observations []RuntimeDiagnostic) ([]RuntimeDiagnostic, bool) {
+	changed := false
+	filtered := make([]RuntimeDiagnostic, len(observations))
+	for i, diagnostic := range observations {
+		filtered[i] = diagnostic
+		if diagnostic.Models == nil {
+			continue
+		}
+		models := make([]RuntimeModel, len(diagnostic.Models))
+		for j, model := range diagnostic.Models {
+			models[j] = model
+			if model.AllowedReasoningEffort != nil {
+				kept := make([]string, 0, len(model.AllowedReasoningEffort))
+				for _, effort := range model.AllowedReasoningEffort {
+					if LegacyRuntimeReasoningEffort(effort) {
+						kept = append(kept, effort)
+					} else {
+						changed = true
+					}
+				}
+				models[j].AllowedReasoningEffort = kept
+			}
+			if model.DefaultReasoningEffort != "" && !LegacyRuntimeReasoningEffort(model.DefaultReasoningEffort) {
+				models[j].DefaultReasoningEffort = ""
+				changed = true
+			}
+		}
+		filtered[i].Models = models
+	}
+	if !changed {
+		return observations, false
+	}
+	return filtered, true
 }
 func truncateRunes(value string, limit int) string {
 	characters := []rune(value)

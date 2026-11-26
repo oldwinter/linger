@@ -226,7 +226,7 @@ export function LibraryDocumentResults({
       );
     }
     return (
-      <div className="flex flex-col items-center justify-center gap-4 border-y border-app-border py-16 text-center">
+      <div className="flex flex-col items-center justify-center gap-4 py-16 text-center">
         <p className="text-sm text-app-muted">{activeView.empty}</p>
         {emptyActions ? (
           <div className="flex flex-wrap items-center justify-center gap-2">

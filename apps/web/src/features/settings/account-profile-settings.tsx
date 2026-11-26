@@ -251,7 +251,7 @@ function PersonalInsightsPanel({
           <p>{t(accountSettingsMessages.insightsAppearHint)}</p>
         </div>
       ) : (
-        <div className="mt-3 divide-y divide-border">
+        <div className="mt-3">
           {items.map((item) => (
             <div
               className="flex min-h-20 items-start justify-between gap-5 py-4"

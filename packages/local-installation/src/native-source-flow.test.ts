@@ -25,7 +25,9 @@ import os from "node:os";
 import { afterEach, expect, test, vi } from "vitest";
 import {
   compileFailureExcerpt,
+  createVoiceToolsBackgroundLauncher,
   installNativeSource,
+  prepareVoiceToolsAndStartLiveKit,
   stopNativeSource,
 } from "./native-source.js";
 import {
@@ -44,6 +46,7 @@ import type { InstallOutcome, InstallerEvent } from "./events.js";
 import {
   prepareNativeDependencies,
   prepareNativeVoiceTools,
+  resolveNativeVoiceToolsPlan,
 } from "./native-dependencies.js";
 import {
   prepareLiveKitSettings,
@@ -63,7 +66,11 @@ import {
 import { prepareRuntime, type RuntimeDescriptor } from "./managed-runtimes.js";
 import { managedRuntimeEnvironment } from "./managed-codex.js";
 import { applyNativeSource, prepareByokRuntime } from "./byok-source.js";
-import { atomicPrivate, privateDirectory } from "./instance.js";
+import {
+  atomicPrivate,
+  privateDirectory,
+  withInstanceLock,
+} from "./instance.js";
 import {
   prepareLocalModels,
   restoreByokSource,
@@ -73,6 +80,7 @@ import {
   inspectNativeListeners,
   inspectNativeProcess,
   nativeConfigurationChanged,
+  reclaimNativeOrphans,
   SERVICE_RESTART_POLICY,
   startNativeProcess,
   stopNativeProcess,
@@ -89,6 +97,7 @@ vi.mock("./apple-developer-tools.js", () => ({
 vi.mock("./native-dependencies.js", () => ({
   prepareNativeDependencies: vi.fn(),
   prepareNativeVoiceTools: vi.fn(),
+  resolveNativeVoiceToolsPlan: vi.fn(),
 }));
 vi.mock("./native-livekit.js", async (original) => {
   const actual = await original<typeof import("./native-livekit.js")>();
@@ -141,7 +150,7 @@ vi.mock("./native-process.js", () => {
           })),
         ),
     ),
-    reclaimNativeOrphans: async () => [],
+    reclaimNativeOrphans: vi.fn(async () => []),
     nativeConfigurationChanged: vi.fn(),
     startNativeProcess: vi.fn(),
     stopNativeProcess: vi.fn(),
@@ -213,6 +222,7 @@ async function fixture() {
     return { running: true, pid: 100 };
   });
   vi.mocked(nativeConfigurationChanged).mockResolvedValue(false);
+  vi.mocked(reclaimNativeOrphans).mockResolvedValue([]);
   vi.mocked(stopNativeProcess).mockImplementation(async (_root, name) => {
     running.delete(name);
   });
@@ -1328,16 +1338,43 @@ test("a stopped TeamHub never stops node-services up front", async () => {
   );
 });
 
-test("a running node-services stops before TeamHub restarts", async () => {
+test("a running node-services stops before TeamHub restarts and services start concurrently without pre-stopping web", async () => {
   const f = await fixture();
   for (const name of ["teamhub", "node-services", "web"]) f.running.add(name);
   vi.mocked(nativeConfigurationChanged).mockImplementation(
     async (options) => options.name === "teamhub",
   );
+  let nodeServicesStopped = false;
+  const baseStop = vi.mocked(stopNativeProcess).getMockImplementation()!;
+  vi.mocked(stopNativeProcess).mockImplementation(async (root, name) => {
+    const result = await baseStop(root, name);
+    if (name === "node-services") nodeServicesStopped = true;
+    return result;
+  });
+  const baseStart = vi.mocked(startNativeProcess).getMockImplementation()!;
+  const entered = new Set<string>();
+  let releaseAll!: () => void;
+  const allEntered = new Promise<void>((resolve) => {
+    releaseAll = resolve;
+  });
+  vi.mocked(startNativeProcess).mockImplementation(async (options) => {
+    if (
+      options.name === "teamhub" ||
+      options.name === "node-services" ||
+      options.name === "web"
+    ) {
+      expect(nodeServicesStopped).toBe(true);
+      entered.add(options.name);
+      if (entered.size === 3) releaseAll();
+      await allEntered;
+    }
+    return baseStart(options);
+  });
   await runFlow(f);
   expect(
     vi.mocked(stopNativeProcess).mock.calls.map((call) => call[1]),
   ).toEqual(["node-services"]);
+  expect(entered).toEqual(new Set(["teamhub", "node-services", "web"]));
   const teamHubStart = vi
     .mocked(startNativeProcess)
     .mock.calls.findIndex(([options]) => options.name === "teamhub");
@@ -1345,22 +1382,64 @@ test("a running node-services stops before TeamHub restarts", async () => {
     vi.mocked(startNativeProcess).mock.invocationCallOrder[teamHubStart]!,
   );
   expect(f.running.has("node-services")).toBe(true);
+  expect(f.running.has("web")).toBe(true);
 });
 
-test("a failure after the restart keeps the node-services that ran before", async () => {
+test("a failure after pre-stopping keeps pre-existing teamhub, node-services, and web running without rollback stopping them", async () => {
+  const f = await fixture();
+  for (const name of ["postgres", "teamhub", "node-services", "web"])
+    f.running.add(name);
+  vi.mocked(nativeConfigurationChanged).mockImplementation(
+    async (options) => options.name === "teamhub",
+  );
+  vi.mocked(startNativeProcess).mockImplementation(async (options) => {
+    if (options.name === "teamhub") throw new Error("teamhub failed");
+    f.running.add(options.name);
+    return { running: true, pid: 100 };
+  });
+  const result = await runFlow(f);
+  expect(result.code).toBe(1);
+  // Only the node-services pre-stop ran; rollback must not stop pre-existing web, node-services, or teamhub.
+  expect(
+    vi.mocked(stopNativeProcess).mock.calls.map((call) => call[1]),
+  ).toEqual(["node-services"]);
+  expect(vi.mocked(stopNativeProcess)).toHaveBeenCalledTimes(1);
+  expect(f.running.has("node-services")).toBe(true);
+  expect(f.running.has("web")).toBe(true);
+});
+
+test("a failure after the restart settles concurrent starts and keeps the node-services and TeamHub that ran before", async () => {
   const f = await fixture();
   for (const name of ["postgres", "teamhub", "node-services"])
     f.running.add(name);
   vi.mocked(nativeConfigurationChanged).mockImplementation(
     async (options) => options.name === "teamhub",
   );
+  const entered = new Set<string>();
+  const settled = new Set<string>();
+  let releaseAll!: () => void;
+  const allEntered = new Promise<void>((resolve) => {
+    releaseAll = resolve;
+  });
   vi.mocked(startNativeProcess).mockImplementation(async (options) => {
+    if (
+      options.name === "teamhub" ||
+      options.name === "node-services" ||
+      options.name === "web"
+    ) {
+      entered.add(options.name);
+      if (entered.size === 3) releaseAll();
+      await allEntered;
+    }
     if (options.name === "web") throw new Error("web failed");
     f.running.add(options.name);
+    settled.add(options.name);
     return { running: true, pid: 100 };
   });
   const result = await runFlow(f);
   expect(result.code).toBe(1);
+  expect(entered).toEqual(new Set(["teamhub", "node-services", "web"]));
+  expect(settled).toEqual(new Set(["teamhub", "node-services"]));
   // The pre-stop hands in-flight Runs back; the rollback stops only what this
   // run started, never the node-services or TeamHub that were already running.
   expect(
@@ -1368,6 +1447,59 @@ test("a failure after the restart keeps the node-services that ran before", asyn
   ).toEqual(["node-services", "web"]);
   expect(f.running.has("teamhub")).toBe(true);
   expect(f.running.has("node-services")).toBe(true);
+});
+
+test("waitHealthy reports stopped services in watchedServices priority order from the periodic listener snapshot", async () => {
+  const f = await fixture();
+  vi.mocked(prepareRuntime).mockResolvedValue({
+    code: 0,
+    state: "ready",
+    message: "ready",
+  });
+  let started = 0;
+  vi.mocked(startNativeProcess).mockImplementation(async (options) => {
+    f.running.add(options.name);
+    if (++started === 3) {
+      vi.mocked(inspectNativeProcess).mockClear();
+      vi.mocked(inspectNativeListeners).mockClear();
+    }
+    return { running: true, pid: 100 };
+  });
+  let healthCalls = 0;
+  vi.useFakeTimers({ toFake: ["Date"] });
+  try {
+    vi.mocked(inspectNativeListeners).mockImplementation(
+      async (_root, listeners) =>
+        listeners.map(({ name }) => ({
+          running: name === "node-services",
+        })),
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url) => {
+        const text = String(url);
+        if (text.endsWith("/healthz") || text.endsWith("/readyz")) {
+          healthCalls += 1;
+          if (healthCalls === 5) vi.setSystemTime(Date.now() + 5_000);
+        }
+        return new Response("{}", { status: 503 });
+      }),
+    );
+    const result = await installNativeSource({
+      ...f,
+      name: "native-flow-wait-order",
+      setupChoice: "pi",
+      signal: new AbortController().signal,
+      onEvent: () => {},
+    });
+    expect(result.code).toBe(1);
+    expect(inspectNativeListeners).toHaveBeenCalledTimes(1);
+    expect(inspectNativeProcess).not.toHaveBeenCalled();
+    // Both teamhub and web reported stopped; teamhub comes first in watchedServices.
+    expect(result.message).toContain("Native teamhub stopped during startup.");
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 test("stops native business services even if owned gateway shutdown reports a failure", async () => {
@@ -2720,6 +2852,695 @@ test("a changed voice key leaves the voice setting alone", async () => {
   expect(second.env("node-services").XAI_API_KEY).toBe("xai-2");
 });
 
+test("cold first install defers voice tools extraction, reserves LiveKit HTTP port, and commits after releasing it", async () => {
+  const f = await fixture();
+  const actual = await vi.importActual<typeof import("./native-livekit.js")>(
+    "./native-livekit.js",
+  );
+  vi.mocked(readLiveKitSettings).mockImplementation(actual.readLiveKitSettings);
+  vi.mocked(prepareRuntime).mockResolvedValue({
+    code: 0,
+    state: "ready",
+    message: "ready",
+  });
+  const bin = path.join(
+    f.home,
+    "tools",
+    "native",
+    "components",
+    "a".repeat(64),
+    "bin",
+  );
+  const livekit = path.join(bin, "livekit-server");
+  vi.mocked(resolveNativeVoiceToolsPlan).mockResolvedValue({
+    bin,
+    livekit,
+    prepared: false,
+    damaged: false,
+  });
+
+  const tryBind = (port: number) =>
+    new Promise<"free" | "in_use">((resolve, reject) => {
+      const probe = net.createServer();
+      probe.once("error", (error: NodeJS.ErrnoException) => {
+        if (error.code === "EADDRINUSE") resolve("in_use");
+        else reject(error);
+      });
+      probe.listen({ host: "127.0.0.1", port, exclusive: true }, () => {
+        probe.close(() => resolve("free"));
+      });
+    });
+
+  let portStateDuringRuntime: "free" | "in_use" | undefined;
+  vi.mocked(prepareRuntime).mockImplementation(async () => {
+    const root = path.join(f.home, "instances", "native-voice-async");
+    const liveKitSettings = (await actual.readLiveKitSettings(root))!;
+    portStateDuringRuntime = await tryBind(liveKitSettings.httpPort);
+    return { code: 0, state: "ready", message: "ready" };
+  });
+
+  let liveKitHttpPort: number | undefined;
+  let portStateDuringFoundation: "free" | "in_use" | undefined;
+  vi.mocked(prepareFoundationServices).mockImplementation(async (instance) => {
+    const liveKitSettings = (await actual.readLiveKitSettings(instance.root))!;
+    liveKitHttpPort = liveKitSettings.httpPort;
+    portStateDuringFoundation = await tryBind(liveKitHttpPort);
+  });
+
+  const order: string[] = [];
+  let portStateAtLaunch: Promise<"free" | "in_use"> | undefined;
+  vi.mocked(reclaimNativeOrphans).mockImplementation(async () => {
+    order.push("reclaim");
+    return [];
+  });
+  let portStateAtCommit: Promise<"free" | "in_use"> | undefined;
+  const commit = vi.fn(() => {
+    order.push("commit");
+    if (liveKitHttpPort !== undefined) {
+      portStateAtCommit = tryBind(liveKitHttpPort);
+    }
+  });
+  const abort = vi.fn(() => {
+    order.push("abort");
+  });
+  const launchVoiceToolsBackground = vi.fn(() => {
+    order.push("launch");
+    const root = path.join(f.home, "instances", "native-voice-async");
+    portStateAtLaunch = actual
+      .readLiveKitSettings(root)
+      .then((settings) => tryBind(settings!.httpPort));
+    return { commit, abort };
+  });
+  const events: string[] = [];
+
+  const result = await installNativeSource({
+    home: f.home,
+    repo: f.repo,
+    name: "native-voice-async",
+    setupChoice: "pi",
+    externalComputer: true,
+    signal: new AbortController().signal,
+    onEvent: (event) => events.push(event.message),
+    launchVoiceToolsBackground,
+  });
+
+  expect(result.code, result.message).toBe(0);
+  expect(launchVoiceToolsBackground).toHaveBeenCalledTimes(1);
+  expect(prepareNativeVoiceTools).not.toHaveBeenCalled();
+  expect(startNativeLiveKit).not.toHaveBeenCalled();
+  expect(portStateDuringRuntime).toBe("in_use");
+  expect(await portStateAtLaunch).toBe("in_use");
+  expect(portStateDuringFoundation).toBe("in_use");
+  expect(await portStateAtCommit).toBe("free");
+  expect(order).toEqual(["reclaim", "launch", "commit"]);
+  expect(commit).toHaveBeenCalledTimes(1);
+  expect(abort).not.toHaveBeenCalled();
+  expect(events.join("")).toContain(
+    "Voice tools preparation and LiveKit startup are continuing in the background.",
+  );
+
+  const services = vi
+    .mocked(startNativeProcess)
+    .mock.calls.map(([options]) => options)
+    .filter((options) => options.name !== "postgres");
+  const env = (name: string) =>
+    services.find((options) => options.name === name)!.env;
+  for (const options of services) {
+    expect(JSON.parse(options.settings!).voice).toBe(bin);
+  }
+  expect(env("teamhub").TEAMHUB_VOICE_TOOLS_BIN).toBe(bin);
+  expect(env("node-services").TEAMHUB_VOICE_TOOLS_BIN).toBeUndefined();
+  expect(env("web").TEAMHUB_VOICE_TOOLS_BIN).toBeUndefined();
+  for (const name of ["teamhub", "node-services"]) {
+    expect(env(name).PATH!.split(path.delimiter)[0]).toBe(bin);
+    expect(env(name).TEAMHUB_VOICE_MEDIA).toBeUndefined();
+    expect(env(name).LIVEKIT_URL).toMatch(/^ws:\/\/127\.0\.0\.1:\d+$/);
+    expect(env(name).LIVEKIT_API_KEY).toBeTruthy();
+    expect(env(name).LIVEKIT_API_SECRET).toBeTruthy();
+  }
+});
+
+test("cold install rollback releases LiveKit port reservation and aborts background voice worker", async () => {
+  const f = await fixture();
+  const actual = await vi.importActual<typeof import("./native-livekit.js")>(
+    "./native-livekit.js",
+  );
+  vi.mocked(readLiveKitSettings).mockImplementation(actual.readLiveKitSettings);
+  vi.mocked(prepareRuntime).mockResolvedValue({
+    code: 0,
+    state: "ready",
+    message: "ready",
+  });
+  const bin = path.join(
+    f.home,
+    "tools",
+    "native",
+    "components",
+    "b".repeat(64),
+    "bin",
+  );
+  vi.mocked(resolveNativeVoiceToolsPlan).mockResolvedValue({
+    bin,
+    livekit: path.join(bin, "livekit-server"),
+    prepared: false,
+    damaged: false,
+  });
+
+  let reservedPort: number | undefined;
+  vi.mocked(prepareFoundationServices).mockImplementation(async (instance) => {
+    reservedPort = (await actual.readLiveKitSettings(instance.root))!.httpPort;
+    throw new Error("foundation failed");
+  });
+
+  const commit = vi.fn();
+  const abort = vi.fn();
+  const result = await installNativeSource({
+    home: f.home,
+    repo: f.repo,
+    name: "native-voice-async-fail",
+    setupChoice: "pi",
+    externalComputer: true,
+    signal: new AbortController().signal,
+    onEvent: () => {},
+    launchVoiceToolsBackground: () => ({ commit, abort }),
+  });
+
+  expect(result.code).toBe(1);
+  expect(abort).toHaveBeenCalledTimes(1);
+  expect(commit).not.toHaveBeenCalled();
+  expect(reservedPort).toBeDefined();
+  const portAfterFailure = await new Promise<"free" | "in_use">(
+    (resolve, reject) => {
+      const probe = net.createServer();
+      probe.once("error", (error: NodeJS.ErrnoException) => {
+        if (error.code === "EADDRINUSE") resolve("in_use");
+        else reject(error);
+      });
+      probe.listen(
+        { host: "127.0.0.1", port: reservedPort!, exclusive: true },
+        () => {
+          probe.close(() => resolve("free"));
+        },
+      );
+    },
+  );
+  expect(portAfterFailure).toBe("free");
+});
+
+test("prepareVoiceToolsAndStartLiveKit starts LiveKit only on go when the instance is still running", async () => {
+  const f = await fixture();
+  const { prepareNativeConfiguration } = await import("./native-source.js");
+  const configured = await prepareNativeConfiguration(f.repo, {
+    home: f.home,
+    name: "native-bg-worker",
+    externalComputer: true,
+  });
+  const liveKitSettings = {
+    httpPort: 31234,
+    rtcPort: 31235,
+    apiKey: "APIabcdef123456",
+    apiSecret: "s".repeat(64),
+  };
+  const livekitBin = path.join(f.home, "voice", "bin", "livekit-server");
+  vi.mocked(prepareNativeVoiceTools).mockResolvedValue({
+    bin: path.dirname(livekitBin),
+    livekit: livekitBin,
+  });
+  vi.mocked(readLiveKitSettings).mockResolvedValue(liveKitSettings);
+
+  async function* chunks(items: string[]) {
+    for (const item of items) yield item;
+  }
+
+  // Running postgres + teamhub + "go\n" starts LiveKit.
+  f.running.add("postgres");
+  f.running.add("teamhub");
+  await prepareVoiceToolsAndStartLiveKit({
+    home: f.home,
+    instanceName: configured.instance.name,
+    waitForGoOnStdin: true,
+    stdin: chunks(["go\n"]),
+  });
+  expect(prepareNativeVoiceTools).toHaveBeenCalledTimes(1);
+  expect(startNativeLiveKit).toHaveBeenCalledTimes(1);
+  expect(startNativeLiveKit).toHaveBeenCalledWith(
+    expect.objectContaining({
+      root: configured.instance.root,
+      executable: livekitBin,
+      settings: liveKitSettings,
+    }),
+  );
+
+  // "abort\n" skips LiveKit.
+  vi.mocked(startNativeLiveKit).mockClear();
+  await prepareVoiceToolsAndStartLiveKit({
+    home: f.home,
+    instanceName: configured.instance.name,
+    waitForGoOnStdin: true,
+    stdin: chunks(["abort\n"]),
+  });
+  expect(startNativeLiveKit).not.toHaveBeenCalled();
+
+  // Empty EOF skips LiveKit.
+  await prepareVoiceToolsAndStartLiveKit({
+    home: f.home,
+    instanceName: configured.instance.name,
+    waitForGoOnStdin: true,
+    stdin: chunks([]),
+  });
+  expect(startNativeLiveKit).not.toHaveBeenCalled();
+
+  // Only postgres running (teamhub stopped by --stop) skips LiveKit.
+  f.running.clear();
+  f.running.add("postgres");
+  await prepareVoiceToolsAndStartLiveKit({
+    home: f.home,
+    instanceName: configured.instance.name,
+    waitForGoOnStdin: true,
+    stdin: chunks(["go\n"]),
+  });
+  expect(startNativeLiveKit).not.toHaveBeenCalled();
+
+  // Already running livekit skips duplicate startup.
+  f.running.add("teamhub");
+  f.running.add("livekit");
+  await prepareVoiceToolsAndStartLiveKit({
+    home: f.home,
+    instanceName: configured.instance.name,
+    waitForGoOnStdin: true,
+    stdin: chunks(["go\n"]),
+  });
+  expect(startNativeLiveKit).not.toHaveBeenCalled();
+
+  // Serializes with withInstanceLock: waits until lock is released before starting LiveKit.
+  f.running.delete("livekit");
+  let lockHeld!: () => void;
+  let releaseLock!: () => void;
+  const held = new Promise<void>((resolve) => {
+    lockHeld = resolve;
+  });
+  const holder = withInstanceLock(configured.instance, async () => {
+    lockHeld();
+    await new Promise<void>((resolve) => {
+      releaseLock = resolve;
+    });
+  });
+  await held;
+  const lockedRun = prepareVoiceToolsAndStartLiveKit({
+    home: f.home,
+    instanceName: configured.instance.name,
+    waitForGoOnStdin: true,
+    stdin: chunks(["go\n"]),
+    lockWaitMs: 5_000,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  expect(startNativeLiveKit).not.toHaveBeenCalled();
+  releaseLock();
+  await holder;
+  await lockedRun;
+  expect(startNativeLiveKit).toHaveBeenCalledTimes(1);
+
+  const log = await readFile(
+    path.join(configured.instance.root, "native", "logs", "livekit.log"),
+    "utf8",
+  );
+  expect(log).toContain(
+    "Instance core services are not running; skipping background LiveKit startup.",
+  );
+  expect(log).toContain(
+    "Native LiveKit is already running; skipping duplicate startup.",
+  );
+});
+
+test("existing provisioned account, configured voice key, or damaged cache keeps voice tools synchronous", async () => {
+  for (const scenario of [
+    "provisioned_account",
+    "soniox_key",
+    "xai_key",
+    "damaged_cache",
+  ] as const) {
+    const f = await fixture();
+    const actual = await vi.importActual<typeof import("./native-livekit.js")>(
+      "./native-livekit.js",
+    );
+    vi.mocked(readLiveKitSettings).mockImplementation(
+      actual.readLiveKitSettings,
+    );
+    vi.mocked(prepareRuntime).mockResolvedValue({
+      code: 0,
+      state: "ready",
+      message: "ready",
+    });
+    const instanceName = `native-sync-${scenario.replace(/_/g, "-")}`;
+    const instanceRoot = path.join(f.home, "instances", instanceName);
+    if (scenario === "provisioned_account") {
+      const { prepareNativeConfiguration } = await import("./native-source.js");
+      await prepareNativeConfiguration(f.repo, {
+        home: f.home,
+        name: instanceName,
+        externalComputer: true,
+      });
+      await atomicPrivate(
+        path.join(instanceRoot, "local-account.json"),
+        JSON.stringify({
+          email: "owner@example.com",
+          password: "secret-password-123",
+          provisioned: true,
+        }),
+      );
+    } else if (scenario === "soniox_key") {
+      await updateUserKeys(instanceRoot, { SONIOX_API_KEY: "soniox-key" });
+    } else if (scenario === "xai_key") {
+      await updateUserKeys(instanceRoot, { XAI_API_KEY: "xai-key" });
+    }
+
+    const bin = path.join(f.home, "voice", "bin");
+    const livekit = path.join(bin, "livekit-server");
+    vi.mocked(resolveNativeVoiceToolsPlan).mockResolvedValue({
+      bin,
+      livekit,
+      prepared: false,
+      damaged: scenario === "damaged_cache",
+    });
+    vi.mocked(prepareNativeVoiceTools).mockResolvedValue({ bin, livekit });
+    const launchVoiceToolsBackground = vi.fn();
+
+    const result = await installNativeSource({
+      home: f.home,
+      repo: f.repo,
+      name: instanceName,
+      setupChoice: "pi",
+      externalComputer: true,
+      signal: new AbortController().signal,
+      onEvent: () => {},
+      launchVoiceToolsBackground,
+    });
+
+    expect(result.code, `${scenario}: ${result.message}`).toBe(0);
+    expect(launchVoiceToolsBackground).not.toHaveBeenCalled();
+    expect(prepareNativeVoiceTools).toHaveBeenCalled();
+    expect(startNativeLiveKit).toHaveBeenCalled();
+    vi.mocked(prepareNativeVoiceTools).mockClear();
+    vi.mocked(startNativeLiveKit).mockClear();
+  }
+});
+
+test("persistent EADDRINUSE on LiveKit port disables voice instead of deferring unreserved", async () => {
+  const f = await fixture();
+  const actual = await vi.importActual<typeof import("./native-livekit.js")>(
+    "./native-livekit.js",
+  );
+  vi.mocked(prepareRuntime).mockResolvedValue({
+    code: 0,
+    state: "ready",
+    message: "ready",
+  });
+  const blocker = net.createServer();
+  await new Promise<void>((resolve, reject) => {
+    blocker.once("error", reject);
+    blocker.listen({ host: "127.0.0.1", port: 0, exclusive: true }, () => {
+      blocker.off("error", reject);
+      resolve();
+    });
+  });
+  const occupiedPort = (blocker.address() as net.AddressInfo).port;
+  try {
+    const blockedSettings = {
+      httpPort: occupiedPort,
+      rtcPort: occupiedPort + 1,
+      apiKey: "APIabcdef123456",
+      apiSecret: "s".repeat(64),
+    };
+    vi.mocked(prepareLiveKitSettings).mockResolvedValueOnce(blockedSettings);
+    vi.mocked(readLiveKitSettings).mockImplementation(
+      actual.readLiveKitSettings,
+    );
+    const bin = path.join(f.home, "voice", "bin");
+    vi.mocked(resolveNativeVoiceToolsPlan).mockResolvedValue({
+      bin,
+      livekit: path.join(bin, "livekit-server"),
+      prepared: false,
+      damaged: false,
+    });
+    const launchVoiceToolsBackground = vi.fn();
+    const events: string[] = [];
+
+    const result = await installNativeSource({
+      home: f.home,
+      repo: f.repo,
+      name: "native-voice-eaddrinuse",
+      setupChoice: "pi",
+      externalComputer: true,
+      signal: new AbortController().signal,
+      onEvent: (event) => events.push(event.message),
+      launchVoiceToolsBackground,
+    });
+
+    expect(result.code, result.message).toBe(0);
+    expect(launchVoiceToolsBackground).not.toHaveBeenCalled();
+    expect(prepareNativeVoiceTools).not.toHaveBeenCalled();
+    expect(startNativeLiveKit).not.toHaveBeenCalled();
+    expect(events.join("")).toContain(
+      `Voice stays off: LiveKit could not reserve local port ${occupiedPort} (EADDRINUSE).`,
+    );
+    const teamhub = vi
+      .mocked(startNativeProcess)
+      .mock.calls.map(([options]) => options)
+      .find((options) => options.name === "teamhub")!;
+    expect(teamhub.env.TEAMHUB_VOICE_MEDIA).toBe("off");
+    expect(teamhub.env.TEAMHUB_VOICE_TOOLS_BIN).toBeUndefined();
+    expect(JSON.parse(teamhub.settings!).voice).toBe("off");
+  } finally {
+    await new Promise<void>((resolve) => blocker.close(() => resolve()));
+  }
+});
+
+test("non-desktop install aborted during computer stage aborts background voice worker instead of committing", async () => {
+  const f = await fixture();
+  const actual = await vi.importActual<typeof import("./native-livekit.js")>(
+    "./native-livekit.js",
+  );
+  vi.mocked(readLiveKitSettings).mockImplementation(actual.readLiveKitSettings);
+  vi.mocked(prepareRuntime).mockResolvedValue({
+    code: 0,
+    state: "ready",
+    message: "ready",
+  });
+  const bin = path.join(f.home, "voice", "bin");
+  vi.mocked(resolveNativeVoiceToolsPlan).mockResolvedValue({
+    bin,
+    livekit: path.join(bin, "livekit-server"),
+    prepared: false,
+    damaged: false,
+  });
+
+  const controller = new AbortController();
+  const commit = vi.fn();
+  const abort = vi.fn();
+  vi.mocked(connectComputer).mockImplementationOnce(async () => {
+    controller.abort();
+    throw new DOMException("Aborted", "AbortError");
+  });
+
+  const result = await installNativeSource({
+    home: f.home,
+    repo: f.repo,
+    name: "native-voice-computer-abort",
+    setupChoice: "pi",
+    externalComputer: false,
+    signal: controller.signal,
+    onEvent: () => {},
+    launchVoiceToolsBackground: () => ({ commit, abort }),
+  });
+
+  expect(result.code).toBe(130);
+  expect(result.state).toBe("cancelled");
+  expect(commit).not.toHaveBeenCalled();
+  expect(abort).toHaveBeenCalledTimes(1);
+});
+
+test("prepareVoiceToolsAndStartLiveKit cancels in-flight extraction cleanly on stdin abort", async () => {
+  const f = await fixture();
+  const { prepareNativeConfiguration } = await import("./native-source.js");
+  const configured = await prepareNativeConfiguration(f.repo, {
+    home: f.home,
+    name: "native-bg-abort-inflight",
+    externalComputer: true,
+  });
+
+  let extractionStarted!: () => void;
+  const started = new Promise<void>((resolve) => {
+    extractionStarted = resolve;
+  });
+  let extractionAborted = false;
+  vi.mocked(prepareNativeVoiceTools).mockImplementation(
+    ({ signal }) =>
+      new Promise((_resolve, reject) => {
+        extractionStarted();
+        const abortNow = () => {
+          extractionAborted = true;
+          reject(new DOMException("Aborted", "AbortError"));
+        };
+        if (signal.aborted) {
+          abortNow();
+          return;
+        }
+        signal.addEventListener("abort", abortNow, { once: true });
+      }),
+  );
+
+  let sendAbort!: () => void;
+  async function* controlledStdin() {
+    await new Promise<void>((resolve) => {
+      sendAbort = resolve;
+    });
+    yield "abort\n";
+  }
+
+  const running = prepareVoiceToolsAndStartLiveKit({
+    home: f.home,
+    instanceName: configured.instance.name,
+    waitForGoOnStdin: true,
+    stdin: controlledStdin(),
+  });
+  await started;
+  sendAbort();
+  await expect(running).resolves.toBeUndefined();
+  expect(extractionAborted).toBe(true);
+  expect(startNativeLiveKit).not.toHaveBeenCalled();
+
+  const log = await readFile(
+    path.join(configured.instance.root, "native", "logs", "livekit.log"),
+    "utf8",
+  );
+  expect(log).toContain('installer signaled "abort"');
+});
+
+test("createVoiceToolsBackgroundLauncher spawns the explicit script path and delivers commit or abort over stdin", async () => {
+  const dir = await realpath(
+    await mkdtemp(path.join(os.tmpdir(), "linger-voice-launcher-")),
+  );
+  try {
+    const script = path.join(dir, "custom-entry.mjs");
+    await writeFile(
+      script,
+      [
+        'import { renameSync, writeFileSync } from "node:fs";',
+        'let stdin = "";',
+        "for await (const chunk of process.stdin) stdin += String(chunk);",
+        "const out = process.env.VOICE_LAUNCHER_OUT;",
+        "const tmp = `${out}.tmp`;",
+        "writeFileSync(tmp, JSON.stringify({ argv: process.argv.slice(1), stdin, marker: process.env.VOICE_LAUNCHER_MARKER }));",
+        "renameSync(tmp, out);",
+      ].join("\n"),
+    );
+
+    const relativeScript = path.relative(process.cwd(), script);
+    const launcher = createVoiceToolsBackgroundLauncher(relativeScript);
+    const home = path.join(dir, "home");
+
+    const commitOut = path.join(dir, "commit.json");
+    const commitHandle = launcher({
+      home,
+      instanceName: "voice-commit",
+      env: {
+        ...process.env,
+        VOICE_LAUNCHER_OUT: commitOut,
+        VOICE_LAUNCHER_MARKER: "commit-marker",
+      },
+    });
+    commitHandle.commit();
+    commitHandle.abort();
+    await vi.waitFor(() => expect(existsSync(commitOut)).toBe(true), {
+      timeout: 10_000,
+    });
+    expect(JSON.parse(await readFile(commitOut, "utf8"))).toEqual({
+      argv: [
+        path.resolve(relativeScript),
+        "--prepare-voice-tools",
+        "--home",
+        home,
+        "--instance",
+        "voice-commit",
+      ],
+      stdin: "go\n",
+      marker: "commit-marker",
+    });
+
+    const abortOut = path.join(dir, "abort.json");
+    const abortHandle = launcher({
+      home,
+      instanceName: "voice-abort",
+      env: {
+        ...process.env,
+        VOICE_LAUNCHER_OUT: abortOut,
+        VOICE_LAUNCHER_MARKER: "abort-marker",
+      },
+    });
+    abortHandle.abort();
+    abortHandle.commit();
+    await vi.waitFor(() => expect(existsSync(abortOut)).toBe(true), {
+      timeout: 10_000,
+    });
+    expect(JSON.parse(await readFile(abortOut, "utf8"))).toEqual({
+      argv: [
+        path.resolve(relativeScript),
+        "--prepare-voice-tools",
+        "--home",
+        home,
+        "--instance",
+        "voice-abort",
+      ],
+      stdin: "abort\n",
+      marker: "abort-marker",
+    });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("omitting launchVoiceToolsBackground keeps voice tools synchronous regardless of process.argv[1]", async () => {
+  const f = await fixture();
+  const actual = await vi.importActual<typeof import("./native-livekit.js")>(
+    "./native-livekit.js",
+  );
+  vi.mocked(readLiveKitSettings).mockImplementation(actual.readLiveKitSettings);
+  vi.mocked(prepareRuntime).mockResolvedValue({
+    code: 0,
+    state: "ready",
+    message: "ready",
+  });
+  const bin = path.join(f.home, "voice", "bin");
+  const livekit = path.join(bin, "livekit-server");
+  vi.mocked(resolveNativeVoiceToolsPlan).mockResolvedValue({
+    bin,
+    livekit,
+    prepared: false,
+    damaged: false,
+  });
+  vi.mocked(prepareNativeVoiceTools).mockResolvedValue({ bin, livekit });
+
+  const originalArgv1 = process.argv[1];
+  process.argv[1] = "/opt/linger/dist/installer.js";
+  try {
+    const result = await installNativeSource({
+      home: f.home,
+      repo: f.repo,
+      name: "native-voice-no-argv-sniff",
+      setupChoice: "pi",
+      externalComputer: true,
+      signal: new AbortController().signal,
+      onEvent: () => {},
+    });
+    expect(result.code, result.message).toBe(0);
+    expect(prepareNativeVoiceTools).toHaveBeenCalledTimes(1);
+    expect(startNativeLiveKit).toHaveBeenCalledTimes(1);
+  } finally {
+    if (originalArgv1 === undefined) process.argv.splice(1, 1);
+    else process.argv[1] = originalArgv1;
+  }
+});
+
 test("fresh install overlaps migrate, services, and account with pending runtime while holding succeeded until both finish", async () => {
   const f = await fixture();
   let resolveRuntime!: (outcome: InstallOutcome) => void;
@@ -3313,6 +4134,570 @@ for (const variant of ["resume", "setup choice"] as const)
     expect((await runPromise).code).toBe(0);
     expect(migrateSawRuntimeDone).toBe(true);
   });
+
+test("checkout switch orders runtime, migrate, and LiveKit, then runs local stack in parallel with services and defers source binding", async () => {
+  const f = await fixture();
+  const name = "native-flow-switch-parallel";
+  vi.mocked(prepareRuntime).mockResolvedValue({
+    code: 0,
+    state: "ready",
+    message: "ready",
+  });
+  const initial = await installNativeSource({
+    ...f,
+    name,
+    setupChoice: "pi",
+    externalComputer: true,
+    signal: new AbortController().signal,
+    onEvent: () => {},
+  });
+  expect(initial.code).toBe(0);
+  const saved = await loadInstance({ name, home: f.home });
+  const repoA = saved!.releaseDir;
+  await stopNativeSource(saved!, new AbortController().signal);
+
+  const next = path.join(f.home, "next");
+  await cp(f.repo, next, { recursive: true });
+  const repoB = await realpath(next);
+
+  const actualLiveKit = await vi.importActual<
+    typeof import("./native-livekit.js")
+  >("./native-livekit.js");
+  vi.mocked(readLiveKitSettings).mockImplementation(
+    actualLiveKit.readLiveKitSettings,
+  );
+  vi.mocked(prepareNativeVoiceTools).mockResolvedValue({
+    bin: path.join(f.home, "voice"),
+    livekit: path.join(f.home, "voice", "livekit-server"),
+  });
+
+  const order: string[] = [];
+  let runtimeDone = false;
+  let liveKitBound = false;
+  vi.mocked(prepareRuntime).mockImplementationOnce(async () => {
+    runtimeDone = true;
+    order.push("runtime");
+    return { code: 0, state: "ready", message: "ready" };
+  });
+
+  const baseRun = vi.mocked(runProcess).getMockImplementation()!;
+  vi.mocked(runProcess).mockImplementation(async (command, args, options) => {
+    if (args.includes("migrate")) {
+      expect(runtimeDone).toBe(true);
+      order.push("migrate");
+    }
+    return baseRun(command, args, options);
+  });
+
+  vi.mocked(startNativeLiveKit).mockClear();
+  vi.mocked(startNativeLiveKit).mockImplementationOnce(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    f.running.add("livekit");
+    liveKitBound = true;
+    order.push("livekit");
+  });
+
+  vi.mocked(prepareFoundationServices).mockImplementationOnce(async () => {
+    expect(liveKitBound).toBe(true);
+    order.push("foundation");
+  });
+
+  // Bidirectional barrier proves prepareModelGateway and startNativeProcess
+  // run concurrently: sequential execution in either order would deadlock.
+  let markGatewayEntered!: () => void;
+  const gatewayEntered = new Promise<void>((resolve) => {
+    markGatewayEntered = resolve;
+  });
+  let markServiceStartEntered!: () => void;
+  const serviceStartEntered = new Promise<void>((resolve) => {
+    markServiceStartEntered = resolve;
+  });
+  let releaseGateway!: () => void;
+  const gatewayReleased = new Promise<void>((resolve) => {
+    releaseGateway = resolve;
+  });
+
+  vi.mocked(prepareModelGateway).mockImplementationOnce(async () => {
+    markGatewayEntered();
+    await serviceStartEntered;
+    await gatewayReleased;
+  });
+
+  const baseStart = vi.mocked(startNativeProcess).getMockImplementation()!;
+  vi.mocked(startNativeProcess).mockImplementation(async (options) => {
+    markServiceStartEntered();
+    await gatewayEntered;
+    return baseStart(options);
+  });
+
+  let clock = 0;
+  let loginCalled = false;
+  let markWaitingForBranch1!: () => void;
+  const waitingForBranch1 = new Promise<void>((resolve) => {
+    markWaitingForBranch1 = resolve;
+  });
+  const baseFetch = vi.mocked(fetch).getMockImplementation()!;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url, init?: RequestInit) => {
+      const response = await baseFetch(url, init);
+      if (String(url).endsWith("/v0/auth/login")) loginCalled = true;
+      return response;
+    }),
+  );
+
+  const events: InstallerEvent[] = [];
+  const runPromise = installNativeSource(
+    {
+      ...f,
+      repo: next,
+      name,
+      externalComputer: true,
+      resume: true,
+      signal: new AbortController().signal,
+      onEvent: (event) => events.push(event),
+    },
+    () => {
+      // After /v0/auth/login finishes, the next stageTimer read is
+      // timer.enter("runtime") once branch2 has settled while branch1 is open.
+      if (loginCalled) markWaitingForBranch1();
+      return clock;
+    },
+  );
+
+  await waitingForBranch1;
+  // Branch 2 finished service startup and account verification while Branch 1
+  // is still pending: source binding and succeeded events must stay deferred.
+  expect((await loadInstance({ name, home: f.home }))?.releaseDir).toBe(repoA);
+  expect(
+    events.some(
+      (event) =>
+        event.kind === "stage" &&
+        (event.stage === "services" || event.stage === "account") &&
+        event.state === "succeeded",
+    ),
+  ).toBe(false);
+
+  clock += 3000;
+  releaseGateway();
+  const outcome = await runPromise;
+
+  expect(outcome.code, outcome.message).toBe(0);
+  expect(startNativeLiveKit).toHaveBeenCalledTimes(1);
+  expect(order).toEqual(["runtime", "migrate", "livekit", "foundation"]);
+  expect((await loadInstance({ name, home: f.home }))?.releaseDir).toBe(repoB);
+  expect(events).toContainEqual(
+    expect.objectContaining({
+      kind: "stage",
+      stage: "services",
+      state: "succeeded",
+    }),
+  );
+  expect(events).toContainEqual(
+    expect.objectContaining({
+      kind: "stage",
+      stage: "account",
+      state: "succeeded",
+    }),
+  );
+  expect(
+    (outcome.details as { timings: Record<string, number> }).timings.runtime,
+  ).toBe(3);
+});
+
+for (const failureKind of ["throw", "outcome"] as const)
+  test(`checkout switch skips migrate, local stack, and service start when runtime fails by ${failureKind}`, async () => {
+    const f = await fixture();
+    const name = `native-flow-switch-runtime-${failureKind}`;
+    vi.mocked(prepareRuntime).mockResolvedValue({
+      code: 0,
+      state: "ready",
+      message: "ready",
+    });
+    const initial = await installNativeSource({
+      ...f,
+      name,
+      setupChoice: "pi",
+      externalComputer: true,
+      signal: new AbortController().signal,
+      onEvent: () => {},
+    });
+    expect(initial.code).toBe(0);
+    const saved = await loadInstance({ name, home: f.home });
+    const repoA = saved!.releaseDir;
+    await stopNativeSource(saved!, new AbortController().signal);
+
+    const next = path.join(f.home, "next");
+    await cp(f.repo, next, { recursive: true });
+
+    vi.mocked(runProcess).mockClear();
+    vi.mocked(prepareFoundationServices).mockClear();
+    vi.mocked(prepareModelGateway).mockClear();
+    vi.mocked(startNativeProcess).mockClear();
+
+    // Hold runtime failure until PostgreSQL is ready so execution reaches the
+    // !overlapWithRuntime runtime wait immediately before migrate().
+    let markDatabaseReady!: () => void;
+    const databaseReady = new Promise<void>((resolve) => {
+      markDatabaseReady = resolve;
+    });
+    const baseDb = vi.mocked(prepareNativeDatabase).getMockImplementation()!;
+    vi.mocked(prepareNativeDatabase).mockImplementationOnce(async (options) => {
+      const result = await baseDb(options);
+      markDatabaseReady();
+      return result;
+    });
+    vi.mocked(prepareRuntime).mockImplementationOnce(async () => {
+      await databaseReady;
+      if (failureKind === "throw") throw new Error("runtime upgrade failed");
+      return {
+        code: 4,
+        state: "action_required",
+        message: "The runtime is not ready.",
+        details: { code: "LOCAL_MODELS_RECOVERY_REQUIRED" },
+      };
+    });
+
+    const outcome = await installNativeSource({
+      ...f,
+      repo: next,
+      name,
+      externalComputer: true,
+      resume: true,
+      signal: new AbortController().signal,
+      onEvent: () => {},
+    });
+
+    if (failureKind === "throw") {
+      expect(outcome).toMatchObject({
+        code: 1,
+        state: "failed",
+        details: { stage: "runtime" },
+      });
+      expect(outcome.message).toContain("runtime upgrade failed");
+    } else {
+      expect(outcome).toMatchObject({
+        code: 4,
+        state: "action_required",
+        message: "The runtime is not ready.",
+        details: {
+          code: "LOCAL_MODELS_RECOVERY_REQUIRED",
+          stage: "runtime",
+        },
+      });
+    }
+    expect(
+      vi
+        .mocked(runProcess)
+        .mock.calls.some(([, args]) => args.includes("migrate")),
+    ).toBe(false);
+    expect(prepareFoundationServices).not.toHaveBeenCalled();
+    expect(prepareModelGateway).not.toHaveBeenCalled();
+    expect(startNativeProcess).not.toHaveBeenCalled();
+    expect((await loadInstance({ name, home: f.home }))?.releaseDir).toBe(
+      repoA,
+    );
+  });
+
+test("checkout switch gateway failure aborts service startup, drains before rollback, and preserves earlier checkout binding", async () => {
+  const f = await fixture();
+  const name = "native-flow-switch-gateway-fail";
+  vi.mocked(prepareRuntime).mockResolvedValue({
+    code: 0,
+    state: "ready",
+    message: "ready",
+  });
+  const initial = await installNativeSource({
+    ...f,
+    name,
+    setupChoice: "pi",
+    externalComputer: true,
+    signal: new AbortController().signal,
+    onEvent: () => {},
+  });
+  expect(initial.code).toBe(0);
+  const saved = await loadInstance({ name, home: f.home });
+  const repoA = saved!.releaseDir;
+  await stopNativeSource(saved!, new AbortController().signal);
+
+  const next = path.join(f.home, "next");
+  await cp(f.repo, next, { recursive: true });
+
+  vi.mocked(startNativeProcess).mockClear();
+  vi.mocked(stopNativeProcess).mockClear();
+
+  let markReadyzEntered!: () => void;
+  const readyzEntered = new Promise<void>((resolve) => {
+    markReadyzEntered = resolve;
+  });
+  let branch2Aborted = false;
+  let pendingReadyz = 0;
+  const baseFetch = vi.mocked(fetch).getMockImplementation()!;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url, init?: RequestInit) => {
+      if (String(url).endsWith("/readyz")) {
+        pendingReadyz += 1;
+        markReadyzEntered();
+        return new Promise<Response>((_resolve, reject) => {
+          const onAbort = () => {
+            branch2Aborted = true;
+            setTimeout(() => {
+              pendingReadyz -= 1;
+              reject(new DOMException("Aborted", "AbortError"));
+            }, 15);
+          };
+          if (init?.signal?.aborted) onAbort();
+          else init?.signal?.addEventListener("abort", onAbort, { once: true });
+        });
+      }
+      return baseFetch(url, init);
+    }),
+  );
+
+  vi.mocked(prepareModelGateway).mockImplementationOnce(async () => {
+    await readyzEntered;
+    throw new Error("gateway failed during upgrade");
+  });
+
+  const baseStop = vi.mocked(stopNativeProcess).getMockImplementation()!;
+  let rollbackSawPendingBranch2 = false;
+  const stopped: string[] = [];
+  vi.mocked(stopNativeProcess).mockImplementation(async (root, service) => {
+    if (pendingReadyz > 0) rollbackSawPendingBranch2 = true;
+    stopped.push(service);
+    await baseStop(root, service);
+  });
+
+  const outcome = await installNativeSource({
+    ...f,
+    repo: next,
+    name,
+    externalComputer: true,
+    resume: true,
+    signal: new AbortController().signal,
+    onEvent: () => {},
+  });
+
+  expect(outcome).toMatchObject({
+    code: 1,
+    state: "failed",
+    details: { stage: "runtime" },
+  });
+  expect(outcome.message).toContain("gateway failed during upgrade");
+  expect(branch2Aborted).toBe(true);
+  expect(pendingReadyz).toBe(0);
+  expect(rollbackSawPendingBranch2).toBe(false);
+  expect(stopped).toEqual(["web", "node-services", "teamhub", "postgres"]);
+  expect(f.running.size).toBe(0);
+  expect((await loadInstance({ name, home: f.home }))?.releaseDir).toBe(repoA);
+});
+
+for (const failingStage of ["services", "account"] as const)
+  test(`checkout switch ${failingStage} failure aborts local stack branch, drains before rollback, and preserves earlier checkout binding`, async () => {
+    const f = await fixture();
+    const name = `native-flow-switch-${failingStage}-fail`;
+    vi.mocked(prepareRuntime).mockResolvedValue({
+      code: 0,
+      state: "ready",
+      message: "ready",
+    });
+    const initial = await installNativeSource({
+      ...f,
+      name,
+      setupChoice: "pi",
+      externalComputer: true,
+      signal: new AbortController().signal,
+      onEvent: () => {},
+    });
+    expect(initial.code).toBe(0);
+    const saved = await loadInstance({ name, home: f.home });
+    const repoA = saved!.releaseDir;
+    await stopNativeSource(saved!, new AbortController().signal);
+
+    const next = path.join(f.home, "next");
+    await cp(f.repo, next, { recursive: true });
+
+    vi.mocked(stopNativeProcess).mockClear();
+
+    let markBranch1Entered!: () => void;
+    const branch1Entered = new Promise<void>((resolve) => {
+      markBranch1Entered = resolve;
+    });
+    let branch1Aborted = false;
+    let branch1Settled = false;
+    const holdUntilAborted = (signal: AbortSignal) =>
+      new Promise<void>((_resolve, reject) => {
+        markBranch1Entered();
+        const onAbort = () => {
+          branch1Aborted = true;
+          setTimeout(() => {
+            branch1Settled = true;
+            reject(new DOMException("Aborted", "AbortError"));
+          }, 15);
+        };
+        if (signal.aborted) onAbort();
+        else signal.addEventListener("abort", onAbort, { once: true });
+      });
+
+    if (failingStage === "services") {
+      vi.mocked(prepareFoundationServices).mockImplementationOnce(
+        (_instance, _choice, options) => holdUntilAborted(options.signal),
+      );
+      const baseStart = vi.mocked(startNativeProcess).getMockImplementation()!;
+      vi.mocked(startNativeProcess).mockImplementation(async (options) => {
+        if (options.name === "teamhub") {
+          await branch1Entered;
+          throw new Error("teamhub failed on upgrade");
+        }
+        return baseStart(options);
+      });
+    } else {
+      vi.mocked(prepareModelGateway).mockImplementationOnce(
+        (_instance, _choice, options) => holdUntilAborted(options.signal),
+      );
+      const baseFetch = vi.mocked(fetch).getMockImplementation()!;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url, init?: RequestInit) => {
+          if (String(url).endsWith("/v0/auth/login")) {
+            await branch1Entered;
+            return new Response("{}", { status: 401 });
+          }
+          return baseFetch(url, init);
+        }),
+      );
+      const baseRun = vi.mocked(runProcess).getMockImplementation()!;
+      vi.mocked(runProcess).mockImplementation(
+        async (command, args, options) => {
+          if (args.includes("owner"))
+            return { code: 1, stdout: "", stderr: "" };
+          return baseRun(command, args, options);
+        },
+      );
+    }
+
+    const baseStop = vi.mocked(stopNativeProcess).getMockImplementation()!;
+    let settledBeforeRollback = true;
+    vi.mocked(stopNativeProcess).mockImplementation(async (root, service) => {
+      if (!branch1Settled) settledBeforeRollback = false;
+      await baseStop(root, service);
+    });
+
+    const outcome = await installNativeSource({
+      ...f,
+      repo: next,
+      name,
+      externalComputer: true,
+      resume: true,
+      signal: new AbortController().signal,
+      onEvent: () => {},
+    });
+
+    expect(outcome).toMatchObject({
+      code: 1,
+      state: "failed",
+      details: { stage: failingStage },
+    });
+    expect(branch1Aborted).toBe(true);
+    expect(branch1Settled).toBe(true);
+    expect(settledBeforeRollback).toBe(true);
+    expect((await loadInstance({ name, home: f.home }))?.releaseDir).toBe(
+      repoA,
+    );
+    expect(
+      (outcome.details as { timings?: Record<string, number> }).timings,
+    ).not.toHaveProperty("runtime");
+  });
+
+test("checkout switch degraded local-models resume swallows non-abort gateway failure while running in parallel", async () => {
+  const f = await fixture();
+  const name = "native-flow-switch-degraded-local";
+  vi.mocked(prepareLocalModels).mockResolvedValueOnce(undefined);
+  const initial = await installNativeSource({
+    ...f,
+    name,
+    setupChoice: "local-models",
+    externalComputer: true,
+    signal: new AbortController().signal,
+    onEvent: () => {},
+  });
+  expect(initial.code).toBe(0);
+  const saved = await loadInstance({ name, home: f.home });
+  await stopNativeSource(saved!, new AbortController().signal);
+
+  const next = path.join(f.home, "next");
+  await cp(f.repo, next, { recursive: true });
+  const repoB = await realpath(next);
+
+  vi.mocked(prepareLocalModels).mockResolvedValueOnce({
+    code: 4,
+    state: "action_required",
+    message: "The upstream tool could not verify the local stack binding.",
+    details: {
+      code: "LOCAL_MODELS_RECOVERY_REQUIRED",
+      reasons: ["binding-unavailable"],
+    },
+  });
+
+  let markGatewayEntered!: () => void;
+  const gatewayEntered = new Promise<void>((resolve) => {
+    markGatewayEntered = resolve;
+  });
+  let markServiceStartEntered!: () => void;
+  const serviceStartEntered = new Promise<void>((resolve) => {
+    markServiceStartEntered = resolve;
+  });
+  vi.mocked(prepareModelGateway).mockImplementationOnce(async () => {
+    markGatewayEntered();
+    await serviceStartEntered;
+    throw new Error("local model gateway unavailable");
+  });
+  const baseStart = vi.mocked(startNativeProcess).getMockImplementation()!;
+  vi.mocked(startNativeProcess).mockImplementation(async (options) => {
+    markServiceStartEntered();
+    await gatewayEntered;
+    return baseStart(options);
+  });
+
+  const logs: InstallerEvent[] = [];
+  const upgraded = await installNativeSource({
+    ...f,
+    repo: next,
+    name,
+    externalComputer: true,
+    resume: true,
+    signal: new AbortController().signal,
+    onEvent: (event) => {
+      if (event.kind === "log") logs.push(event);
+    },
+  });
+
+  expect(upgraded).toMatchObject({
+    code: 0,
+    state: "ready",
+    details: {
+      localModelsDegraded: {
+        code: "LOCAL_MODELS_RECOVERY_REQUIRED",
+        message: "The upstream tool could not verify the local stack binding.",
+        reasons: ["binding-unavailable"],
+      },
+    },
+  });
+  expect((await loadInstance({ name, home: f.home }))?.releaseDir).toBe(repoB);
+  expect(logs).toContainEqual(
+    expect.objectContaining({
+      kind: "log",
+      stage: "runtime",
+      message: expect.stringContaining(
+        "Local model gateway preparation skipped during degraded resume: local model gateway unavailable",
+      ),
+    }),
+  );
+  expect(logs.map((event) => event.message).join("")).toContain(
+    "Linger is starting without local models",
+  );
+});
 
 test("a repeated resume after a successful resume succeeds without provisioning the owner again", async () => {
   const f = await fixture();

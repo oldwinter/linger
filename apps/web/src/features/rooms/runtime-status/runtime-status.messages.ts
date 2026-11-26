@@ -23,6 +23,10 @@ export const runtimeStatusMessages = defineMessages("runtimeStatus", {
   runCanceled: "Run canceled",
   runFailed: "Couldn't finish",
   runFailedWith: "Couldn't finish. {reason}",
+  // A Run that ended while its Agent waits on a Human's decision card.
+  waitingForDecision: "Waiting for you to answer its request",
+  // Opens the Activity panel from an ended Run's status line.
+  details: "Details",
   followUpUnconfirmed: "Your follow-up may not have arrived",
   // An interrupted Run whose follow-ups may not have arrived.
   stoppedFollowUpUnconfirmed: "{reason} Your follow-up may not have arrived.",
@@ -36,6 +40,7 @@ export const runtimeStatusMessages = defineMessages("runtimeStatus", {
     one: "{count} agent working",
     other: "{count} agents working",
   },
+  dismissAgentStatus: "Dismiss {name}'s status",
   // Stop and Resend beside the status line.
   stopAgentTask: "Stop {name}'s task",
   stop: "Stop",
@@ -159,7 +164,7 @@ export const runtimeStatusMessages = defineMessages("runtimeStatus", {
   failureReplyUndelivered: "Its reply didn't reach this chat.",
   failureReplyNotSent: "It finished without replying. Ask again.",
   failureInterrupted:
-    "Its computer restarted or it was stopped. Check the result before asking again.",
+    "The run was interrupted. Check the result before asking again.",
   failureComputerUnavailable: "Its computer wasn't available.",
   failureCleanupUnconfirmed: "Couldn't confirm it stopped on its computer.",
   failureResponseTooLarge:

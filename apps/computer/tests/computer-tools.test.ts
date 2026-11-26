@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import {
   mkdir,
   mkdtemp,
+  readFile,
   realpath,
   rename,
   rm,
@@ -102,6 +103,7 @@ process.stdin.on("end", () => {
       assert.equal(await refuseRewrittenShellText(bash('teamhub message send --content "Total $TOTAL"'), hook), undefined);
       assert.equal(await refuseRewrittenShellText(bash('teamhub message send --content "Done."'), hook), undefined);
       assert.equal(await refuseRewrittenShellText({ toolName: "read", input: { path: "$1" } }, hook), undefined);
+      assert.equal(await refuseRewrittenShellText({ toolName: "powershell", input: { command: 'teamhub message send --content "Quote: $180"' } }, hook), undefined);
       assert.equal(await refuseRewrittenShellText(bash('teamhub message send --content "$180"'), ${JSON.stringify(path.join(root, "missing"))}), undefined);
       assert.equal(await refuseRewrittenShellText(bash('teamhub message send --content "$180"'), undefined), undefined);
       console.log("shell text check passed");
@@ -119,8 +121,11 @@ process.stdin.on("end", () => {
 
 it("asks the Daemon about Pi commands and MCP calls and blocks unless allowed", async () => {
   const entry = new URL("../tools/pi-mcp.mjs", import.meta.url).href;
-  const { PERMISSION_REVIEW, reviewToolCall } = (await import(entry)) as {
+  const { PERMISSION_REVIEW, reviewToolCall, reviewedTool } = (await import(
+    entry
+  )) as {
     PERMISSION_REVIEW: string;
+    reviewedTool: (toolName: string) => boolean;
     reviewToolCall: (
       event: { toolName: string; input: Record<string, unknown> },
       ui: { input: (title: string, placeholder: string) => Promise<unknown> },
@@ -134,6 +139,15 @@ it("asks the Daemon about Pi commands and MCP calls and blocks unless allowed", 
     },
   });
   const bash = { toolName: "bash", input: { command: "git push" } };
+  const powershell = {
+    toolName: "powershell",
+    input: { command: "Invoke-WebRequest https://example.com" },
+  };
+
+  expect(reviewedTool("bash")).toBe(true);
+  expect(reviewedTool("powershell")).toBe(true);
+  expect(reviewedTool("mcp__computer__click")).toBe(true);
+  expect(reviewedTool("read")).toBe(false);
 
   expect(
     await reviewToolCall({ toolName: "read", input: {} }, ui("")),
@@ -142,7 +156,19 @@ it("asks the Daemon about Pi commands and MCP calls and blocks unless allowed", 
   expect(
     await reviewToolCall(bash, ui(JSON.stringify({ allow: true }))),
   ).toBeUndefined();
-  expect(asked).toEqual([{ title: PERMISSION_REVIEW, call: bash }]);
+  expect(
+    await reviewToolCall(powershell, ui(JSON.stringify({ allow: true }))),
+  ).toBeUndefined();
+  expect(asked).toEqual([
+    { title: PERMISSION_REVIEW, call: bash },
+    { title: PERMISSION_REVIEW, call: powershell },
+  ]);
+  expect(
+    await reviewToolCall(
+      powershell,
+      ui(JSON.stringify({ allow: false, message: "denied" })),
+    ),
+  ).toEqual({ block: true, reason: "denied" });
   expect(
     await reviewToolCall(
       { toolName: "mcp__computer__click", input: {} },
@@ -153,6 +179,80 @@ it("asks the Daemon about Pi commands and MCP calls and blocks unless allowed", 
     block: true,
     reason: "bash was not approved",
   });
+  expect(await reviewToolCall(powershell, ui(undefined))).toEqual({
+    block: true,
+    reason: "powershell was not approved",
+  });
+});
+
+it("registers the UTF-8 PowerShell override only on Windows", async () => {
+  const entry = new URL("../tools/pi-mcp.mjs", import.meta.url).href;
+  const { POWERSHELL_UTF8_PREFIX, registerWindowsPowerShellTool } =
+    (await import(entry)) as {
+      POWERSHELL_UTF8_PREFIX: string;
+      registerWindowsPowerShellTool: (
+        pi: { registerTool?: (tool: Record<string, unknown>) => void },
+        options?: {
+          platform?: string;
+          cwd?: string;
+          operations?: {
+            exec: (
+              command: string,
+              cwd: string,
+              options: { onData: (data: Buffer) => void },
+            ) => Promise<{ exitCode: number }>;
+          };
+        },
+      ) => boolean;
+    };
+
+  const registered: Array<Record<string, unknown>> = [];
+  const fakePi = {
+    registerTool: (tool: Record<string, unknown>) => {
+      registered.push(tool);
+    },
+  };
+
+  expect(registerWindowsPowerShellTool(fakePi, { platform: "darwin" })).toBe(
+    false,
+  );
+  expect(registerWindowsPowerShellTool(fakePi, { platform: "linux" })).toBe(
+    false,
+  );
+  expect(registerWindowsPowerShellTool({}, { platform: "win32" })).toBe(false);
+  expect(registered).toEqual([]);
+
+  const executed: Array<{ command: string; cwd: string }> = [];
+  const ok = registerWindowsPowerShellTool(fakePi, {
+    platform: "win32",
+    cwd: "C:\\workspace",
+    operations: {
+      exec: async (command, cwd, { onData }) => {
+        executed.push({ command, cwd });
+        onData(Buffer.from("ok\n", "utf8"));
+        return { exitCode: 0 };
+      },
+    },
+  });
+  expect(ok).toBe(true);
+  expect(registered).toHaveLength(1);
+  const tool = registered[0];
+  expect(tool).toBeDefined();
+  if (!tool) throw new Error("expected powershell tool");
+  expect(tool.name).toBe("powershell");
+
+  const execute = tool.execute as (
+    toolCallId: string,
+    params: { command: string },
+  ) => Promise<unknown>;
+  const sample = "@'\nHello \u4f60\u597d\n'@ | teamhub message send --file -";
+  await execute("call_1", { command: sample });
+  expect(executed).toEqual([
+    {
+      command: `${POWERSHELL_UTF8_PREFIX}\n${sample}`,
+      cwd: "C:\\workspace",
+    },
+  ]);
 });
 
 it("synchronizes managed MCP servers dynamically and reports structured verdicts", async () => {
@@ -804,3 +904,219 @@ it("stages a compact self-contained computer-tools bundle with bundled Pi MCP, j
     await rm(root, { recursive: true, force: true });
   }
 }, 60_000);
+
+it("enables pipefail for each managed Pi bash call only after review allows it", async () => {
+  const entry = new URL("../tools/pi-mcp.mjs", import.meta.url).href;
+  interface ToolCallEvent {
+    toolName: string;
+    input?: { command?: unknown };
+  }
+  interface ToolCallContext {
+    ui: { input: (title: string, placeholder: string) => Promise<unknown> };
+  }
+  type ToolCallHandler = (
+    event: ToolCallEvent,
+    ctx: ToolCallContext,
+  ) => Promise<unknown>;
+  const mod = (await import(entry)) as {
+    PIPEFAIL_PREFIX: string;
+    enablePipefail: (event: ToolCallEvent) => void;
+    default: (pi: {
+      on: (event: string, handler: ToolCallHandler) => void;
+    }) => Promise<void>;
+  };
+
+  const bash = { toolName: "bash", input: { command: "false | head -1" } };
+  mod.enablePipefail(bash);
+  expect(bash.input.command).toBe(`${mod.PIPEFAIL_PREFIX}false | head -1`);
+  mod.enablePipefail(bash);
+  expect(bash.input.command).toBe(`${mod.PIPEFAIL_PREFIX}false | head -1`);
+
+  const read = { toolName: "read", input: { command: "false | head -1" } };
+  mod.enablePipefail(read);
+  expect(read.input.command).toBe("false | head -1");
+
+  const powershell = {
+    toolName: "powershell",
+    input: { command: "Get-Date | Out-String" },
+  };
+  mod.enablePipefail(powershell);
+  expect(powershell.input.command).toBe("Get-Date | Out-String");
+
+  const malformed = { toolName: "bash", input: { command: 42 } };
+  mod.enablePipefail(malformed);
+  expect(malformed.input.command).toBe(42);
+
+  let toolCall: ToolCallHandler | undefined;
+  await mod.default({
+    on: (event, handler) => {
+      if (event === "tool_call") toolCall = handler;
+    },
+  });
+
+  const allowedReviewed: Array<unknown> = [];
+  const hooked = { toolName: "bash", input: { command: "false | head -1" } };
+  const allowedResult = await toolCall!(hooked, {
+    ui: {
+      input: async (_title, placeholder) => {
+        allowedReviewed.push(JSON.parse(placeholder));
+        return JSON.stringify({ allow: true });
+      },
+    },
+  });
+  expect(allowedReviewed).toEqual([
+    { toolName: "bash", input: { command: "false | head -1" } },
+  ]);
+  expect(allowedResult).toBeUndefined();
+  expect(hooked.input.command).toBe(`${mod.PIPEFAIL_PREFIX}false | head -1`);
+
+  const deniedReviewed: Array<unknown> = [];
+  const denied = { toolName: "bash", input: { command: "git push" } };
+  const deniedResult = await toolCall!(denied, {
+    ui: {
+      input: async (_title, placeholder) => {
+        deniedReviewed.push(JSON.parse(placeholder));
+        return JSON.stringify({ allow: false, message: "denied" });
+      },
+    },
+  });
+  expect(deniedReviewed).toEqual([
+    { toolName: "bash", input: { command: "git push" } },
+  ]);
+  expect(deniedResult).toEqual({ block: true, reason: "denied" });
+  expect(denied.input.command).toBe("git push");
+});
+
+it.skipIf(process.platform === "win32")(
+  "runs the shell text check before enabling pipefail and leaves refused commands unchanged",
+  async () => {
+    const root = await mkdtemp(
+      path.join(tmpdir(), "linger-pi-pipefail-shell-text-"),
+    );
+    try {
+      const hook = path.join(root, "daemon.mjs");
+      const recorded = path.join(root, "command");
+      const original = 'teamhub message send --content "Quote: $180"';
+      await writeFile(
+        hook,
+        `#!${process.execPath}
+import { writeFileSync } from "node:fs";
+let input = "";
+process.stdin.on("data", (chunk) => (input += chunk));
+process.stdin.on("end", () => {
+  const { tool_input } = JSON.parse(input);
+  writeFileSync(${JSON.stringify(recorded)}, String(tool_input.command ?? ""));
+  if (process.argv[2] !== "shell-text-hook" || tool_input.command !== ${JSON.stringify(original)}) process.exit(0);
+  process.stderr.write("Not run: use a quoted heredoc\\n");
+  process.exit(2);
+});
+`,
+        { mode: 0o700 },
+      );
+      const result = await run(
+        process.execPath,
+        [
+          "--input-type=module",
+          "--eval",
+          `
+      import assert from "node:assert/strict";
+      import managedExtension from ${JSON.stringify(new URL("../tools/pi-mcp.mjs", import.meta.url).href)};
+      let toolCall;
+      await managedExtension({
+        on: (event, handler) => {
+          if (event === "tool_call") toolCall = handler;
+        },
+      });
+      let uiCalls = 0;
+      const event = { toolName: "bash", input: { command: ${JSON.stringify(original)} } };
+      const blocked = await toolCall(event, {
+        ui: {
+          input: async () => {
+            uiCalls += 1;
+            return JSON.stringify({ allow: true });
+          },
+        },
+      });
+      assert.deepEqual(blocked, { block: true, reason: "Not run: use a quoted heredoc" });
+      assert.equal(uiCalls, 0);
+      assert.equal(event.input.command, ${JSON.stringify(original)});
+      console.log("refused shell text stayed unprefixed");
+    `,
+        ],
+        {
+          timeout: 20_000,
+          env: {
+            ...process.env,
+            LINGER_PI_SHELL_TEXT_HOOK: hook,
+          },
+        },
+      );
+      expect(result.stdout).toContain("refused shell text stayed unprefixed");
+      expect(await readFile(recorded, "utf8")).toBe(original);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+  30_000,
+);
+
+it.skipIf(process.platform === "win32")(
+  "enforces pipefail in bash while staying compatible with sh and opt-out",
+  async () => {
+    const entry = new URL("../tools/pi-mcp.mjs", import.meta.url).href;
+    const { PIPEFAIL_PREFIX } = (await import(entry)) as {
+      PIPEFAIL_PREFIX: string;
+    };
+    const shellOptions = {
+      timeout: 20_000,
+      env: { PATH: process.env.PATH ?? "/usr/bin:/bin" },
+    };
+
+    let bashFailureCode: unknown;
+    try {
+      await run(
+        "/bin/bash",
+        ["--norc", "--noprofile", "-c", `${PIPEFAIL_PREFIX}false | head -1`],
+        shellOptions,
+      );
+    } catch (error) {
+      bashFailureCode = (error as { code?: unknown }).code;
+    }
+    expect(typeof bashFailureCode).toBe("number");
+    expect(bashFailureCode).not.toBe(0);
+
+    await expect(
+      run(
+        "/bin/bash",
+        [
+          "--norc",
+          "--noprofile",
+          "-c",
+          `${PIPEFAIL_PREFIX}set +o pipefail\nfalse | head -1`,
+        ],
+        shellOptions,
+      ),
+    ).resolves.toMatchObject({ stdout: "", stderr: "" });
+
+    await expect(
+      run(
+        "/bin/bash",
+        ["--norc", "--noprofile", "-c", `${PIPEFAIL_PREFIX}true`],
+        shellOptions,
+      ),
+    ).resolves.toMatchObject({ stdout: "", stderr: "" });
+
+    await expect(
+      run("/bin/sh", ["-c", `${PIPEFAIL_PREFIX}true`], shellOptions),
+    ).resolves.toMatchObject({ stdout: "", stderr: "" });
+
+    await expect(
+      run(
+        "/bin/sh",
+        ["-n", "-c", `${PIPEFAIL_PREFIX}false | head -1`],
+        shellOptions,
+      ),
+    ).resolves.toMatchObject({ stdout: "", stderr: "" });
+  },
+  30_000,
+);

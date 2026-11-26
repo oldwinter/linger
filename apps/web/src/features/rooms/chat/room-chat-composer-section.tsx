@@ -51,6 +51,7 @@ export function RoomChatComposerSection({
     members,
     navigation,
     onDocumentQueryChange,
+    onLoadMoreDocuments,
     room,
     roomDocuments,
     roomId,
@@ -148,6 +149,7 @@ export function RoomChatComposerSection({
         initialValue={initialDraft.body}
         mentionOptions={mentionOptions}
         onDocumentQueryChange={onDocumentQueryChange}
+        onLoadMoreDocuments={onLoadMoreDocuments}
         roomMemberIds={roomMemberIds}
         onDraftStateChange={(draft) =>
           writeRoomComposerDraft(draftScope, {

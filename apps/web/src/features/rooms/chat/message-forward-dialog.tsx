@@ -269,7 +269,7 @@ export function MessageForwardDialog({
             })}
           </div>
         ) : null}
-        <div className="mt-3 divide-y divide-app-border border-y border-app-border">
+        <div className="mt-3">
           {activeQuery.isPending ? (
             <div
               className="flex items-center justify-center gap-2 px-3 py-5 text-sm text-app-muted"

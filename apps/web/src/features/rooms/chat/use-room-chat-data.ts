@@ -118,6 +118,7 @@ export function useRoomChatData() {
     documents: composerDocuments,
     documentsPending,
     onDocumentQueryChange,
+    onLoadMoreDocuments,
     shareableDocuments,
   } = useComposerDocumentOptions({
     client,
@@ -160,6 +161,7 @@ export function useRoomChatData() {
     navigate,
     navigation,
     onDocumentQueryChange,
+    onLoadMoreDocuments,
     openPanelTab,
     prefetchPanel,
     queryClient,

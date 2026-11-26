@@ -219,7 +219,14 @@ export const runnerGatewayEnvelopeSchema = {
         "local_models_external_holders",
         "runtime_failure_detail",
         "operation_background_wait",
+        "dynamic_reasoning_efforts",
       ],
+    },
+    ReasoningEffort: {
+      type: "string",
+      minLength: 1,
+      maxLength: 20,
+      pattern: "^[A-Za-z0-9][A-Za-z0-9_-]*$",
     },
     Timestamp: {
       type: "string",
@@ -324,13 +331,14 @@ export const runnerGatewayEnvelopeSchema = {
         },
         allowed_reasoning_effort: {
           type: "array",
+          maxItems: 32,
           uniqueItems: true,
           items: {
-            enum: ["none", "low", "medium", "high", "xhigh", "max", "ultra"],
+            $ref: "#/$defs/ReasoningEffort",
           },
         },
         default_reasoning_effort: {
-          enum: ["none", "low", "medium", "high", "xhigh", "max", "ultra"],
+          $ref: "#/$defs/ReasoningEffort",
         },
         context_window: {
           description:
@@ -1821,7 +1829,7 @@ export const runnerGatewayEnvelopeSchema = {
         reasoning_effort: {
           description:
             "After apply, the reasoning effort runtime_model needs; absent when it offers none.",
-          enum: ["none", "low", "medium", "high", "xhigh", "max", "ultra"],
+          $ref: "#/$defs/ReasoningEffort",
         },
         gateway_url: {
           type: "string",
@@ -3576,7 +3584,7 @@ export const runnerGatewayEnvelopeSchema = {
           maxLength: 160,
         },
         reasoning_effort: {
-          enum: ["none", "low", "medium", "high", "xhigh", "max", "ultra"],
+          $ref: "#/$defs/ReasoningEffort",
         },
       },
     },
@@ -4788,7 +4796,7 @@ export const runnerGatewayEnvelopeSchema = {
     },
     SessionCompact: {
       description:
-        "Compacts the native session of the process parked for this Context with the Runtime's own compaction. It never starts a process; without a parked process the answer is no_process.",
+        "Compacts the native session of the process parked for this Context with the Runtime's own compaction. It never starts a process; without a parked process the answer is no_process. Pi and Antigravity compaction are sent only to Computer releases that decode them.",
       type: "object",
       additionalProperties: false,
       required: [
@@ -4826,7 +4834,7 @@ export const runnerGatewayEnvelopeSchema = {
           $ref: "#/$defs/Id",
         },
         runtime_type: {
-          enum: ["codex", "claude"],
+          enum: ["codex", "claude", "pi", "antigravity"],
         },
         execution_context_key: {
           $ref: "#/$defs/ExecutionContextKey",
