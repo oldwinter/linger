@@ -637,4 +637,98 @@ describe("mobile-companion.html UX, accessibility, security, and dark mode", () 
     expect(rawPage).toContain(".switch input:focus-visible + .track");
     expect(rawPage).toContain("@media (prefers-reduced-motion: reduce)");
   });
+
+  it("falls back to execCommand copy when navigator.clipboard.writeText rejects", async () => {
+    const mounted = await mountPage({
+      clipboardImpl: async () => {
+        throw new Error("not focused");
+      },
+    });
+    const prevExecCommand = Object.getOwnPropertyDescriptor(
+      document,
+      "execCommand",
+    );
+    const execCommand = vi.fn(() => true);
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: execCommand,
+    });
+    try {
+      const copyPinBtn = document.getElementById(
+        "copy-pin-btn",
+      ) as HTMLButtonElement;
+      const liveStatus = document.getElementById("live-status")!;
+
+      copyPinBtn.click();
+      await flushMicrotasks();
+
+      expect(mounted.clipboardWrite).toHaveBeenCalledWith("482910");
+      expect(execCommand).toHaveBeenCalledWith("copy");
+      expect(copyPinBtn.textContent).toBe("Copied");
+      expect(liveStatus.textContent).toBe("Pairing PIN copied to clipboard.");
+      expect(
+        document.getElementById("error-banner")?.classList.contains("hidden"),
+      ).toBe(true);
+    } finally {
+      if (prevExecCommand) {
+        Object.defineProperty(document, "execCommand", prevExecCommand);
+      } else {
+        delete (document as unknown as { execCommand?: unknown }).execCommand;
+      }
+    }
+  });
+
+  it("preserves open inline Revoke confirmation and dirty Gateway Settings during background state pushes, and announces restart error instead of saved", async () => {
+    const mounted = await mountPage({
+      runImpl: async (command) => {
+        if (command.op === "config.update") {
+          return makeState({
+            running: false,
+            config: {
+              enabled: true,
+              port: command.patch.port ?? 48210,
+              tls: command.patch.tls ?? true,
+              advertiseMdns: command.patch.advertiseMdns ?? true,
+              customHost: command.patch.customHost ?? undefined,
+            },
+            error: "Address already in use on port 48444",
+          });
+        }
+        return makeState();
+      },
+    });
+
+    // Open inline Revoke confirmation and edit Gateway port.
+    document
+      .querySelector<HTMLButtonElement>(
+        'button[data-revoke-device-id="dev_1"]',
+      )!
+      .click();
+    const portInput = document.getElementById("input-port") as HTMLInputElement;
+    portInput.value = "48444";
+    portInput.dispatchEvent(new Event("input"));
+
+    // Push a background state refresh from main process.
+    mounted.pushState(makeState({ listenPort: 48210 }));
+
+    // Open confirmation AND dirty form value must survive background refresh!
+    expect(document.querySelector(".device-confirm")?.textContent).toContain(
+      "Revoke Alex's iPhone 16 Pro?",
+    );
+    expect(portInput.value).toBe("48444");
+    expect(
+      document.getElementById("unsaved-badge")?.classList.contains("hidden"),
+    ).toBe(false);
+
+    // Save Settings when main process reports a gateway restart error in state.error.
+    document.getElementById("save-settings-btn")!.click();
+    await flushMicrotasks();
+
+    expect(document.getElementById("error-banner")?.textContent).toBe(
+      "Address already in use on port 48444",
+    );
+    expect(document.getElementById("live-status")?.textContent).toBe(
+      "Address already in use on port 48444",
+    );
+  });
 });

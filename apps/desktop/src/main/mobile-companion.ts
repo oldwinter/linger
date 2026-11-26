@@ -259,6 +259,8 @@ export class MobileCompanionModule implements Module {
       this.#window.focus();
       return;
     }
+    this.#cleanupWindowTheme?.();
+    this.#cleanupWindowTheme = undefined;
 
     const title =
       this.#ctx

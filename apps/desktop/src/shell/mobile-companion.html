@@ -1091,8 +1091,12 @@
           navigator.clipboard &&
           typeof navigator.clipboard.writeText === "function"
         ) {
-          await navigator.clipboard.writeText(text);
-          return;
+          try {
+            await navigator.clipboard.writeText(text);
+            return;
+          } catch {
+            // Fall back to execCommand when Clipboard API rejects (e.g. unfocused or sandboxed context).
+          }
         }
         if (typeof document.execCommand === "function") {
           const area = document.createElement("textarea");
@@ -1889,9 +1893,13 @@
             },
           },
           {
-            onSuccess: () => {
+            onSuccess: (next) => {
               settingsDirty = false;
-              announce(t("settingsSaved"));
+              if (next && next.error) {
+                announce(next.error);
+              } else {
+                announce(t("settingsSaved"));
+              }
             },
           },
         );
