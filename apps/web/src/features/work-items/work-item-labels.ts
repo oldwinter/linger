@@ -2,6 +2,39 @@ import type {
   TeamHubWorkItem,
   TeamHubWorkItemPriority,
 } from "@/features/teamhub/teamhub-types";
+import { translate, type Translate } from "@/i18n/language";
+import type { Message } from "@/i18n/messages";
+
+import { workItemsMessages as m } from "./work-items.messages";
+
+const workItemStateMessages: Record<
+  TeamHubWorkItem["state"],
+  Message<string>
+> = {
+  in_progress: m.stateInProgress,
+  open: m.stateOpen,
+  resolved: m.stateResolved,
+};
+
+const workItemPriorityMessages: Record<
+  TeamHubWorkItemPriority,
+  Message<string>
+> = {
+  high: m.priorityHigh,
+  low: m.priorityLow,
+  medium: m.priorityMedium,
+  urgent: m.priorityUrgent,
+};
+
+const workItemResolutionMessages: Record<
+  NonNullable<TeamHubWorkItem["resolution"]>,
+  Message<string>
+> = {
+  completed: m.resolutionCompleted,
+  duplicate: m.resolutionDuplicate,
+  failed: m.resolutionFailed,
+  not_planned: m.resolutionNotPlanned,
+};
 
 export const workItemStateLabels: Record<TeamHubWorkItem["state"], string> = {
   in_progress: "In progress",
@@ -12,9 +45,11 @@ export const workItemStateLabels: Record<TeamHubWorkItem["state"], string> = {
 /** The state chip's label, with the resolution that closed a resolved Item. */
 export function workItemStateLabel(
   item: Pick<TeamHubWorkItem, "resolution" | "state">,
+  t: Translate = translate,
 ) {
-  if (!item.resolution) return workItemStateLabels[item.state];
-  return `${workItemStateLabels[item.state]} · ${resolutionLabel(item.resolution)}`;
+  const state = t(workItemStateMessages[item.state]);
+  if (!item.resolution) return state;
+  return `${state} · ${t(workItemResolutionMessages[item.resolution])}`;
 }
 
 /** Every priority TeamHub accepts, in the order the app offers them. */
@@ -26,8 +61,11 @@ export const workItemPriorities: readonly TeamHubWorkItemPriority[] = [
 ];
 
 /** The priority as the board's chip renders it. */
-export function workItemPriorityLabel(priority: TeamHubWorkItemPriority) {
-  return priority.charAt(0).toUpperCase() + priority.slice(1);
+export function workItemPriorityLabel(
+  priority: TeamHubWorkItemPriority,
+  t: Translate = translate,
+) {
+  return t(workItemPriorityMessages[priority]);
 }
 
 /** Semantic priority badge classes shared between board cards and peek. */
@@ -43,12 +81,4 @@ export function workItemPriorityBadgeClassName(
     case "low":
       return "border-app-border-strong bg-transparent text-app-muted";
   }
-}
-
-function resolutionLabel(
-  resolution: NonNullable<TeamHubWorkItem["resolution"]>,
-) {
-  return resolution === "not_planned"
-    ? "Not planned"
-    : resolution.charAt(0).toUpperCase() + resolution.slice(1);
 }

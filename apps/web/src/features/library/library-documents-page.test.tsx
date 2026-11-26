@@ -2332,7 +2332,7 @@ describe("Library Documents", () => {
     fireEvent.click(
       within(files).getByRole("checkbox", { name: "Select Bravo plan.md" }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Trash" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
     const dialog = await screen.findByRole("dialog", {
       name: "Delete Document?",
     });
@@ -2340,7 +2340,7 @@ describe("Library Documents", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Moved to trash 1 of 2 documents. Failed: Alpha plan.",
+      "Deleted 1 of 2 documents. Failed: Alpha plan.",
     );
     expect(trashed).toEqual([bravo.id]);
     const remaining = await screen.findByLabelText("My pages documents");

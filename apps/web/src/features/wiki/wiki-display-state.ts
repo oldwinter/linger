@@ -4,11 +4,14 @@ import { teamHubIdentityQueryOptions } from "@/features/rooms/room-queries";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubDocument } from "@/features/teamhub/teamhub-types";
 import type { WikiGraphData } from "@/features/memory/wiki-graph-model";
-import { removePreferenceKeys } from "@/lib/local-preference-keys";
 
-const WIKI_DISPLAY_PREFIX = "linger:wiki-display:v1:";
-
+import {
+  clearAllWikiDisplayState,
+  WIKI_DISPLAY_PREFIX,
+} from "./wiki-display-storage";
 import { wikiMessages as m } from "./wiki.messages";
+
+export { clearAllWikiDisplayState };
 
 /** The wording of each collection, by its route and data key. */
 export const wikiCollections = {
@@ -68,10 +71,6 @@ export function wikiCollection(
   return first && isWikiCollection(first) ? first : null;
 }
 export type WikiDisplayDecisions = Record<string, "keep" | "delete">;
-
-export function clearAllWikiDisplayState(): void {
-  removePreferenceKeys([WIKI_DISPLAY_PREFIX]);
-}
 
 export function useWikiDisplayState(tenantId: string) {
   const { client } = useTeamHubRuntime();

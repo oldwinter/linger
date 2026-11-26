@@ -6,6 +6,7 @@ import { Icon } from "@/components/ui/icon";
 import { Select, SelectItem } from "@/components/ui/select";
 import type { RoomDocumentMenuActions } from "@/features/rooms/documents/room-document-actions-menu";
 import type { TeamHubDocumentTreeSummary } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
 import { useT } from "@/i18n/use-translation";
 import { writeClipboardText } from "@/lib/clipboard";
 
@@ -21,7 +22,10 @@ import {
   type LibraryFolderRowActions,
   LibraryFolderBreadcrumb,
 } from "./library-folder-browser";
-import type { PendingDocumentUpload } from "./library-upload-queue";
+import type {
+  PendingDocumentUpload,
+  UploadFailure,
+} from "./library-upload-queue";
 import {
   visibleLibraryDocuments,
   visibleLibraryFolders,
@@ -42,6 +46,7 @@ export function LibraryFolderListing({
   documents,
   emptyActions,
   error,
+  failedUploads = [],
   fileType,
   folderActions,
   folderId,
@@ -49,8 +54,11 @@ export function LibraryFolderListing({
   onClearFilters,
   onCopy,
   onDismissError,
+  onDismissFailedUpload,
   onFileTypeChange,
   onOpenFolder,
+  onRetryAllFailedUploads,
+  onRetryFailedUpload,
   onSearchQueryChange,
   onSortByChange,
   onToggleSelected,
@@ -61,6 +69,7 @@ export function LibraryFolderListing({
   tab,
   tenantId,
   trail,
+  uploadsActive = false,
 }: {
   activeView: { empty: string; label: string };
   browsedError: Error | null;
@@ -72,6 +81,7 @@ export function LibraryFolderListing({
   documents: LibraryRowDocument[];
   emptyActions?: LibraryEmptyActions;
   error: string | null;
+  failedUploads?: readonly UploadFailure[];
   fileType: string;
   folderActions?: LibraryFolderRowActions;
   folderId: string | undefined;
@@ -79,8 +89,11 @@ export function LibraryFolderListing({
   onClearFilters: () => void;
   onCopy: (document: LibraryRowDocument) => void;
   onDismissError: () => void;
+  onDismissFailedUpload?: (failureId: string) => void;
   onFileTypeChange: (fileType: string) => void;
   onOpenFolder: (folderId?: string) => void;
+  onRetryAllFailedUploads?: () => void;
+  onRetryFailedUpload?: (failureId: string) => void;
   onSearchQueryChange: (query: string) => void;
   onSortByChange: (sortBy: string) => void;
   onToggleSelected: (documentId: string) => void;
@@ -91,6 +104,7 @@ export function LibraryFolderListing({
   tab: Exclude<WorkspaceTab, "meetings">;
   tenantId: string;
   trail: readonly LibraryFolder[];
+  uploadsActive?: boolean;
 }) {
   const t = useT();
   const visibleDocuments = visibleLibraryDocuments(documents, {
@@ -112,7 +126,7 @@ export function LibraryFolderListing({
         <label className="flex h-8 w-full items-center gap-2 rounded-lg border border-border bg-card px-2.5 text-muted-foreground transition-colors hover:border-border-hover focus-within:border-foreground focus-within:ring-2 focus-within:ring-ring/40 sm:w-64">
           <Icon icon={Search01Icon} size={14} />
           <input
-            aria-label="Search documents and folders"
+            aria-label={t(m.searchDocumentsAndFolders)}
             className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-app-placeholder"
             onChange={(event) => onSearchQueryChange(event.target.value)}
             onKeyDown={(event) => {
@@ -122,14 +136,14 @@ export function LibraryFolderListing({
               event.preventDefault();
               onSearchQueryChange("");
             }}
-            placeholder="Search documents and folders..."
+            placeholder={t(m.searchDocumentsAndFoldersPlaceholder)}
             role="searchbox"
             type="text"
             value={searchQuery}
           />
           {searchQuery ? (
             <button
-              aria-label="Clear search"
+              aria-label={t(m.clearSearch)}
               className="flex size-5 shrink-0 items-center justify-center rounded-sm text-app-muted hover:bg-app-hover hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
               onClick={() => onSearchQueryChange("")}
               type="button"
@@ -174,18 +188,88 @@ export function LibraryFolderListing({
         />
       ) : null}
       {error ? (
-        <div className="flex items-start gap-2 py-2 text-sm text-app-danger">
-          <p className="min-w-0 flex-1" role="alert">
-            {error}
-          </p>
-          <button
-            data-voice-close
-            className="shrink-0 rounded-md px-1.5 text-app-muted hover:bg-app-hover hover:text-app-body"
-            onClick={onDismissError}
-            type="button"
-          >
-            {t(m.dismiss)}
-          </button>
+        <div className="my-2 flex flex-col gap-2 rounded-lg border border-[var(--app-danger-border)] bg-[var(--app-danger-hover)] px-3 py-2 text-sm text-app-danger">
+          <div className="flex items-start gap-2">
+            <p className="min-w-0 flex-1" role="alert">
+              {error}
+            </p>
+            {failedUploads.filter((failure) => failure.source).length > 1 &&
+            onRetryAllFailedUploads ? (
+              <Button
+                disabled={uploadsActive}
+                onClick={onRetryAllFailedUploads}
+                size="compact"
+                tone="secondary"
+              >
+                {t(m.retryAllUploads)}
+              </Button>
+            ) : failedUploads.length === 1 &&
+              failedUploads[0]?.id &&
+              failedUploads[0]?.source &&
+              onRetryFailedUpload ? (
+              <Button
+                disabled={uploadsActive}
+                onClick={() => onRetryFailedUpload(failedUploads[0]!.id!)}
+                size="compact"
+                tone="secondary"
+              >
+                {t(m.retryUpload)}
+              </Button>
+            ) : null}
+            <button
+              data-voice-close=""
+              className="min-h-8 shrink-0 rounded-md px-2 text-xs text-app-muted hover:bg-app-hover hover:text-app-body"
+              onClick={onDismissError}
+              type="button"
+            >
+              {t(m.dismiss)}
+            </button>
+          </div>
+          {failedUploads.length > 1 ? (
+            <ul className="space-y-1.5 border-t border-[var(--app-danger-border)]/50 pt-2 text-xs">
+              {failedUploads.map((failure, index) => {
+                const text =
+                  typeof failure.message === "string"
+                    ? failure.message
+                    : t(failure.message);
+                return (
+                  <li
+                    className="flex flex-wrap items-center justify-between gap-2"
+                    key={failure.id ?? `${failure.filename}-${index}`}
+                  >
+                    <span className="min-w-0 flex-1 truncate">
+                      {t(m.uploadFailure, {
+                        filename: failure.filename,
+                        message: text,
+                      })}
+                    </span>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      {failure.id && failure.source && onRetryFailedUpload ? (
+                        <Button
+                          disabled={uploadsActive}
+                          onClick={() => onRetryFailedUpload(failure.id!)}
+                          size="compact"
+                          tone="secondary"
+                        >
+                          {t(m.retryUpload)}
+                        </Button>
+                      ) : null}
+                      {failure.id && onDismissFailedUpload ? (
+                        <button
+                          className="min-h-7 rounded-md px-1.5 text-app-muted hover:bg-app-hover hover:text-app-body"
+                          data-voice-close=""
+                          onClick={() => onDismissFailedUpload(failure.id!)}
+                          type="button"
+                        >
+                          {t(m.dismiss)}
+                        </button>
+                      ) : null}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
         </div>
       ) : null}
       <LibraryDocumentResults
@@ -240,6 +324,7 @@ function FolderContentsCopyAction({
   folderName: string;
   tenantId: string;
 }) {
+  const t = useT();
   const [state, setState] = useState<"copied" | "failed">();
   const resetTimer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(resetTimer.current), []);
@@ -271,12 +356,12 @@ function FolderContentsCopyAction({
     <div className="ml-auto flex items-center gap-2">
       {state === "copied" ? (
         <span className="text-xs leading-4 text-app-muted" role="status">
-          Copied
+          {t(commonMessages.copied)}
         </span>
       ) : null}
       {state === "failed" ? (
         <span className="text-xs leading-4 text-app-danger" role="alert">
-          Copy failed
+          {t(m.copyFailed)}
         </span>
       ) : null}
       <Button
@@ -285,7 +370,7 @@ function FolderContentsCopyAction({
         size="compact"
         tone="secondary"
       >
-        Copy contents
+        {t(m.copyContents)}
       </Button>
     </div>
   );

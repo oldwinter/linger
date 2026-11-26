@@ -32,9 +32,11 @@ const noteWriteIcon: IconSvgElement = [
  */
 export function PocketNoteLauncher({
   anotherMeRoomId,
+  onOpen,
   tenantId,
 }: {
   anotherMeRoomId?: string;
+  onOpen?: () => void;
   tenantId: string;
 }) {
   const t = useT();
@@ -51,11 +53,14 @@ export function PocketNoteLauncher({
       aria-haspopup="dialog"
       aria-label={t(roomListMessages.pocketNotes)}
       className="xs-nav-btn"
-      onClick={() =>
-        open
-          ? requestPocketNoteClose()
-          : openPocketNote({ anotherMeRoomId, tenantId })
-      }
+      onClick={() => {
+        if (open) {
+          requestPocketNoteClose();
+          return;
+        }
+        onOpen?.();
+        openPocketNote({ anotherMeRoomId, tenantId });
+      }}
       ref={setButton}
       title={t(roomListMessages.pocketNotes)}
       type="button"

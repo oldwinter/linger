@@ -30,6 +30,12 @@ export const runtimeStatusMessages = defineMessages("runtimeStatus", {
   labeled: "{label}: {value}",
   openAgentStatusActivity: "Open Agent status activity",
   openAgentsWorkingActivity: "Open Agents working activity",
+  activity: "Activity",
+  openAgentActivity: "Open {name} activity",
+  agentsWorking: {
+    one: "{count} agent working",
+    other: "{count} agents working",
+  },
   // Stop and Resend beside the status line.
   stopAgentTask: "Stop {name}'s task",
   stop: "Stop",

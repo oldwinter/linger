@@ -16,6 +16,7 @@ import type {
   TeamHubWorkItemCreateInput,
   TeamHubWorkItemPriority,
 } from "@/features/teamhub/teamhub-types";
+import { useT } from "@/i18n/use-translation";
 
 import {
   WORK_ITEM_TITLE_LIMIT,
@@ -27,6 +28,7 @@ import {
   tenantWorkItemTargetQueryKey,
 } from "./work-item-queries";
 import { dashboardWorkItemPath } from "./work-item-routes";
+import { workItemsMessages as m } from "./work-items.messages";
 
 /** The Rooms the dialog offers as an origin; a Thread is a reply surface. */
 export type WorkItemCreateRoom = Pick<
@@ -46,12 +48,13 @@ export function WorkItemCreateAction({
   rooms: readonly WorkItemCreateRoom[];
   tenantId: string;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
 
   return (
     <>
       <Button onClick={() => setOpen(true)} size="compact" tone="primary">
-        New issue
+        {t(m.newIssue)}
       </Button>
       {open ? (
         <WorkItemCreateDialog
@@ -76,6 +79,7 @@ export function WorkItemCreateDialog({
   rooms: readonly WorkItemCreateRoom[];
   tenantId: string;
 }) {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -132,7 +136,7 @@ export function WorkItemCreateDialog({
   const failureMessage = createIssue.error
     ? createIssue.error instanceof TeamHubError
       ? createIssue.error.message
-      : "TeamHub did not confirm whether the issue was created. Retrying sends the same request."
+      : t(m.createUnconfirmed)
     : null;
   const originRooms = rooms
     // A Thread is a reply surface, except when it is the origin already given.
@@ -200,7 +204,7 @@ export function WorkItemCreateDialog({
     <ModalDialog
       onClose={requestClose}
       size="sm"
-      title="New issue"
+      title={t(m.newIssue)}
       footer={
         <Button
           disabled={!canSubmit}
@@ -209,14 +213,14 @@ export function WorkItemCreateDialog({
           tone="primary"
           type="submit"
         >
-          Create issue
+          {t(m.createIssue)}
         </Button>
       }
     >
       <form className="px-5 py-4" id={formId} onSubmit={handleSubmit}>
         <label className="block">
           <span className="mb-1.5 block text-sm font-medium text-app-ink">
-            Title
+            {t(m.titleLabel)}
           </span>
           <input
             aria-invalid={titleTooLong || undefined}
@@ -225,34 +229,34 @@ export function WorkItemCreateDialog({
             }`}
             disabled={createIssue.isPending}
             onChange={(event) => setTitle(event.target.value)}
-            placeholder="What needs to be done?"
+            placeholder={t(m.titlePlaceholder)}
             ref={titleInputRef}
             value={title}
           />
         </label>
         {titleTooLong ? (
           <span className="mt-1 block text-sm text-app-danger" role="alert">
-            A title can be at most {WORK_ITEM_TITLE_LIMIT} characters long.
+            {t(m.titleTooLong, { limit: WORK_ITEM_TITLE_LIMIT })}
           </span>
         ) : null}
 
         <label className="mt-3 block">
           <span className="mb-1.5 block text-sm font-medium text-app-ink">
-            Description
+            {t(m.descriptionLabel)}
           </span>
           <textarea
             className="ui-field-control min-h-20 w-full"
             disabled={createIssue.isPending}
             onChange={(event) => setDescription(event.target.value)}
-            placeholder="Add details"
+            placeholder={t(m.descriptionPlaceholder)}
             value={description}
           />
         </label>
 
         <label className="mt-3 block text-sm font-medium text-app-body">
-          Priority
+          {t(m.priority)}
           <Select
-            aria-label="Issue priority"
+            aria-label={t(m.issuePriorityLabel)}
             className="mt-1 w-full"
             disabled={createIssue.isPending}
             onValueChange={(value) =>
@@ -262,22 +266,22 @@ export function WorkItemCreateDialog({
           >
             {workItemPriorities.map((option) => (
               <SelectItem key={option} value={option}>
-                {workItemPriorityLabel(option)}
+                {workItemPriorityLabel(option, t)}
               </SelectItem>
             ))}
           </Select>
         </label>
 
         <label className="mt-3 block text-sm font-medium text-app-body">
-          Origin Room
+          {t(m.originRoom)}
           <Select
-            aria-label="Origin Room"
+            aria-label={t(m.originRoom)}
             className="mt-1 w-full"
             disabled={createIssue.isPending}
             onValueChange={setOriginRoomId}
             value={originRoomId}
           >
-            <SelectItem value="">No Room</SelectItem>
+            <SelectItem value="">{t(m.noRoom)}</SelectItem>
             {originRooms.map((room) => (
               <SelectItem key={room.id} value={room.id}>
                 {`#${room.name}`}
@@ -293,7 +297,7 @@ export function WorkItemCreateDialog({
         ) : null}
         {closeBlocked && createIssue.isPending ? (
           <p className="mt-3 text-sm text-app-muted" role="status">
-            Wait for issue creation to finish before closing.
+            {t(m.waitForCreateFinish)}
           </p>
         ) : null}
       </form>
@@ -306,7 +310,7 @@ export function WorkItemCreateDialog({
       {confirmDiscard ? (
         <ModalDialog
           closeOnBackdrop
-          description="Closing will discard the title, description, and other details entered here."
+          description={t(m.discardIssueDescription)}
           footer={
             <>
               <Button
@@ -315,16 +319,17 @@ export function WorkItemCreateDialog({
                 onClick={continueEditing}
                 tone="primary"
               >
-                Continue editing
+                {t(m.continueEditing)}
               </Button>
-              <Button onClick={onClose} tone="danger">
-                Discard and close
+              <Button data-voice-risk="never" onClick={onClose} tone="danger">
+                {t(m.discardAndClose)}
               </Button>
             </>
           }
           onClose={continueEditing}
+          returnFocusTo={dismissalFocus}
           size="sm"
-          title="Discard new issue details?"
+          title={t(m.discardIssueTitle)}
         >
           {null}
         </ModalDialog>

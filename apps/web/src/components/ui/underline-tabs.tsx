@@ -1,4 +1,4 @@
-import { useRef, type KeyboardEvent } from "react";
+import { useEffect, useRef, type KeyboardEvent } from "react";
 
 import { useTabIndicator } from "@/components/ui/tab-indicator";
 import { cn } from "@/lib/cn";
@@ -19,7 +19,16 @@ export function UnderlineTabs<K extends string>({
 }) {
   const { tabRef, indicator } = useTabIndicator(value);
   const buttonRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const hasSelected = items.some((item) => item.id === value);
+  const selectedIndex = items.findIndex((item) => item.id === value);
+  const hasSelected = selectedIndex >= 0;
+
+  useEffect(() => {
+    if (selectedIndex < 0) return;
+    buttonRefs.current[selectedIndex]?.scrollIntoView?.({
+      block: "nearest",
+      inline: "nearest",
+    });
+  }, [selectedIndex, items.length]);
 
   function handleKeyDown(
     event: KeyboardEvent<HTMLButtonElement>,
@@ -48,7 +57,7 @@ export function UnderlineTabs<K extends string>({
     <div
       aria-label={label}
       className={cn(
-        "workspace-file-tabs relative flex max-w-full gap-1 overflow-x-auto",
+        "workspace-file-tabs relative flex max-w-full gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
         className,
       )}
       role="tablist"
@@ -59,7 +68,7 @@ export function UnderlineTabs<K extends string>({
         return (
           <button
             aria-selected={selected}
-            className="workspace-view-tab inline-flex h-9 shrink-0 items-center gap-1.5 px-3 text-sm font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="workspace-view-tab inline-flex min-h-10 shrink-0 items-center gap-1.5 whitespace-nowrap px-3 text-sm font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-0 sm:h-9"
             key={item.id}
             onClick={() => onChange(item.id)}
             onKeyDown={(event) => handleKeyDown(event, index)}

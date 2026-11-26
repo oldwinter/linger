@@ -664,6 +664,59 @@ describe("TeamHubLoginPage in the desktop app", () => {
     expect(localButton).not.toHaveAttribute("aria-busy");
     expect(screen.getByLabelText("Email")).toBeEnabled();
   });
+
+  it("clears a prior session-expired notice when credentials fail so alerts never stack", async () => {
+    renderAuthenticationPage(
+      {
+        login: () =>
+          teamHubErrorResponse(
+            401,
+            "INVALID_CREDENTIALS",
+            "invalid credentials",
+          ),
+      },
+      {
+        initialEntry:
+          "/login?reason=session-expired&return_to=%2Ft%2Ftenant-a%2Frooms",
+        showLocation: true,
+      },
+    );
+
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Your session has expired. Sign in again to continue.",
+    );
+
+    fillSignIn();
+    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+
+    await waitFor(() => {
+      const alerts = screen.getAllByRole("alert");
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0]).toHaveTextContent("Email or password is incorrect.");
+    });
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/login?return_to=%2Ft%2Ftenant-a%2Frooms",
+    );
+  });
+
+  it("lets visitors switch interface language on the login screen before signing in", async () => {
+    renderAuthenticationPage({});
+    const switcher = screen.getByRole("group", { name: "Interface language" });
+    const chineseButton = switcher.querySelectorAll("button")[1]!;
+    fireEvent.click(chineseButton);
+
+    await waitFor(() =>
+      expect(chineseButton).toHaveAttribute("aria-pressed", "true"),
+    );
+    expect(screen.getByPlaceholderText("name@company.com")).toBeVisible();
+
+    const englishButton = switcher.querySelectorAll("button")[0]!;
+    fireEvent.click(englishButton);
+    await waitFor(() =>
+      expect(englishButton).toHaveAttribute("aria-pressed", "true"),
+    );
+  });
 });
 
 /**

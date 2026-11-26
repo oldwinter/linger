@@ -32,7 +32,7 @@ export function TeamHubLoginPage({
 }: {
   onAuthenticated?: (result: AuthenticationResult) => Promise<void> | void;
 }) {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const returnTo = safeAuthenticationReturnTo(searchParams.get("return_to"));
   const authentication = useTeamHubAuthentication({
     onAuthenticated,
@@ -40,10 +40,22 @@ export function TeamHubLoginPage({
   });
   const localAccount = useDesktopLocalAccount();
   const t = useT();
+  const hasAttemptFeedback = Boolean(
+    authentication.state.error ||
+    authentication.state.fieldErrors.email ||
+    authentication.state.fieldErrors.password,
+  );
   const authenticationNotice =
-    searchParams.get("reason") === "session-expired"
+    !hasAttemptFeedback && searchParams.get("reason") === "session-expired"
       ? t(m.sessionExpired)
       : null;
+
+  function clearExpiredNotice() {
+    if (!searchParams.has("reason")) return;
+    const next = new URLSearchParams(searchParams);
+    next.delete("reason");
+    setSearchParams(next, { replace: true });
+  }
 
   return (
     <AuthShell subtitle={t(m.loginSubtitle)} title={t(m.loginTitle)}>
@@ -56,9 +68,13 @@ export function TeamHubLoginPage({
         <LocalAccountSignIn
           account={localAccount}
           authentication={authentication}
+          onAttemptStart={clearExpiredNotice}
         />
       ) : null}
-      <AuthenticationForm authentication={authentication} />
+      <AuthenticationForm
+        authentication={authentication}
+        onAttemptStart={clearExpiredNotice}
+      />
     </AuthShell>
   );
 }
@@ -66,9 +82,11 @@ export function TeamHubLoginPage({
 function LocalAccountSignIn({
   account,
   authentication,
+  onAttemptStart,
 }: {
   account: DesktopLocalAccount;
   authentication: AuthenticationController;
+  onAttemptStart: () => void;
 }) {
   const { isSubmitting, submittingMethod } = authentication.state;
   const desktopSubmitting = submittingMethod === "desktop";
@@ -81,6 +99,7 @@ function LocalAccountSignIn({
         disabled={isSubmitting}
         loading={desktopSubmitting}
         onClick={() => {
+          onAttemptStart();
           void authentication.signInWithDesktopAccount(account);
         }}
         size="large"
@@ -101,8 +120,10 @@ function LocalAccountSignIn({
 
 function AuthenticationForm({
   authentication,
+  onAttemptStart,
 }: {
   authentication: AuthenticationController;
+  onAttemptStart: () => void;
 }) {
   const {
     email,
@@ -122,6 +143,7 @@ function AuthenticationForm({
       className="auth-form"
       noValidate
       onSubmit={(event) => {
+        onAttemptStart();
         void handleSubmit(event);
       }}
     >
@@ -131,7 +153,7 @@ function AuthenticationForm({
         error={fieldErrors.email}
         label={t(m.email)}
         onChange={(event) => changeField("email", event.target.value)}
-        placeholder="you@company.com"
+        placeholder={t(m.emailPlaceholder)}
         type="email"
         value={email}
       />

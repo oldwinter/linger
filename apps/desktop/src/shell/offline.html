@@ -6,11 +6,13 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src app:; form-action app:"
     />
-    <title>Linger</title>
+    <title>LingerX</title>
     <style>
       :root {
         --canvas: #f6f6f6;
         --surface: #ffffff;
+        --input-bg: #ffffff;
+        --code-bg: #f3f3f3;
         --ink: #202020;
         --body: #404040;
         --muted: #737373;
@@ -18,8 +20,32 @@
         --border-strong: #d4d4d4;
         --action: #202020;
         --action-hover: #303030;
+        --action-ink: #ffffff;
+        --secondary-hover: #f4f4f2;
+        --focus-ring: rgba(32, 32, 32, 0.12);
+        --shadow: 0 8px 24px rgba(0, 0, 0, 0.04);
         --danger: #d92d20;
-        color-scheme: light;
+        color-scheme: light dark;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --canvas: #161614;
+          --surface: #1f1f1c;
+          --input-bg: #161614;
+          --code-bg: #262622;
+          --ink: #f2f1ed;
+          --body: #d4d3cd;
+          --muted: #9c9a90;
+          --border: #2e2e29;
+          --border-strong: #3f3f38;
+          --action: #f2f1ed;
+          --action-hover: #ffffff;
+          --action-ink: #161614;
+          --secondary-hover: #2a2a25;
+          --focus-ring: rgba(242, 241, 237, 0.22);
+          --shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+          --danger: #ff855f;
+        }
       }
       * {
         box-sizing: border-box;
@@ -41,6 +67,7 @@
           "Noto Sans CJK SC",
           system-ui,
           sans-serif;
+        -webkit-font-smoothing: antialiased;
       }
       main {
         width: min(420px, 100%);
@@ -48,7 +75,7 @@
         background: var(--surface);
         border: 1px solid var(--border);
         border-radius: 12px;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.04);
+        box-shadow: var(--shadow);
       }
       .mark {
         position: relative;
@@ -83,6 +110,14 @@
       body:not([data-mode="failed"]) .failed-only {
         display: none;
       }
+      /* Progress feedback belongs to starting and updating modes only. */
+      body:not([data-mode="starting"]):not([data-mode="updating"])
+        .progress-panel {
+        display: none;
+      }
+      [hidden] {
+        display: none !important;
+      }
       [data-mode="failed"] #reason {
         max-height: 40vh;
         overflow: auto;
@@ -112,7 +147,7 @@
         margin-top: 14px;
         padding: 2px 8px;
         border-radius: 6px;
-        background: #f3f3f3;
+        background: var(--code-bg);
         color: var(--muted);
         font:
           12px/1.6 ui-monospace,
@@ -122,6 +157,93 @@
       }
       .code:empty {
         display: none;
+      }
+      .progress-panel {
+        margin-top: 22px;
+      }
+      .progress-status {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--ink);
+        font-size: 13px;
+        font-weight: 500;
+      }
+      .progress-spinner {
+        flex: none;
+        width: 15px;
+        height: 15px;
+        border: 2px solid var(--border-strong);
+        border-top-color: var(--ink);
+        border-radius: 50%;
+        animation: spin 0.85s linear infinite;
+      }
+      .progress-track {
+        position: relative;
+        height: 3px;
+        margin-top: 12px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: var(--border);
+      }
+      .progress-bar {
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 38%;
+        border-radius: inherit;
+        background: var(--ink);
+        animation: glide 1.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+      }
+      .slow-escape {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-top: 20px;
+        padding-top: 16px;
+        border-top: 1px solid var(--border);
+        color: var(--muted);
+        font-size: 12.5px;
+      }
+      button.secondary {
+        height: 32px;
+        padding: 0 12px;
+        border: 1px solid var(--border-strong);
+        border-radius: 8px;
+        background: transparent;
+        color: var(--ink);
+        font-size: 12.5px;
+        font-weight: 500;
+      }
+      button.secondary:hover {
+        background: var(--secondary-hover);
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @keyframes glide {
+        0% {
+          transform: translateX(-100%);
+        }
+        100% {
+          transform: translateX(365%);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .progress-spinner {
+          animation: none;
+          width: 8px;
+          height: 8px;
+          border: 0;
+          background: var(--ink);
+        }
+        .progress-bar {
+          animation: none;
+          left: 0;
+          width: 45%;
+        }
       }
       .actions {
         display: flex;
@@ -143,7 +265,7 @@
       button.primary {
         border: 0;
         background: var(--action);
-        color: #fff;
+        color: var(--action-ink);
       }
       button.primary:hover {
         background: var(--action-hover);
@@ -189,13 +311,17 @@
         padding: 0 12px;
         border: 1px solid var(--border-strong);
         border-radius: 8px;
+        background: var(--input-bg);
         color: var(--ink);
         font: inherit;
         outline: none;
       }
+      input::placeholder {
+        color: var(--muted);
+      }
       input:focus {
         border-color: var(--ink);
-        box-shadow: 0 0 0 3px rgba(32, 32, 32, 0.08);
+        box-shadow: 0 0 0 3px var(--focus-ring);
       }
       form .row {
         display: flex;
@@ -227,6 +353,24 @@
       <h1 id="title" data-t="unreachableTitle"></h1>
       <p id="reason"></p>
       <span class="code" id="code"></span>
+      <div class="progress-panel" id="progress-panel">
+        <div class="progress-status" role="status" aria-live="polite">
+          <span class="progress-spinner" aria-hidden="true"></span>
+          <span id="phase"></span>
+        </div>
+        <div class="progress-track" aria-hidden="true">
+          <span class="progress-bar"></span>
+        </div>
+        <div class="slow-escape" id="slow-escape" hidden>
+          <span id="slow-hint" data-t="takingLonger"></span>
+          <button
+            class="secondary"
+            id="starting-logs"
+            type="button"
+            data-t="showLogs"
+          ></button>
+        </div>
+      </div>
       <div class="actions">
         <button
           class="primary"
@@ -272,7 +416,7 @@
         <input
           id="server"
           name="server"
-          placeholder="https://linger.example.com"
+          placeholder="https://lingerx.example.com"
           autocomplete="url"
           spellcheck="false"
           required
@@ -294,6 +438,7 @@
       const params = new URLSearchParams(location.search);
       const server = params.get("server") ?? "";
       const error = params.get("error") ?? "";
+      const SLOW_LOGS_DELAY_MS = 15000;
       const connect = (value) => {
         location.href =
           "app://offline/connect?server=" + encodeURIComponent(value);
@@ -306,10 +451,12 @@
         document.body.dataset.mode = "updating";
         $("title").textContent = t("updatingTitle");
         $("reason").textContent = t("updating");
+        $("phase").textContent = t("updatingPhase");
       } else if (local === "starting") {
         document.body.dataset.mode = "starting";
         $("title").textContent = t("startingTitle");
         $("reason").textContent = t("starting");
+        $("phase").textContent = t("startingPhase");
       } else if (local === "failed") {
         document.body.dataset.mode = "failed";
         $("title").textContent = t("failedTitle");
@@ -318,7 +465,7 @@
         document.body.dataset.mode = "setup";
         $("title").textContent = t("setupTitle");
         $("reason").textContent = t("setup");
-        // Setup, where Linger can also be installed on this computer.
+        // Setup, where LingerX can also be installed on this computer.
         $("cancel").textContent = t("backToSetup");
         $("server").focus();
       } else {
@@ -326,6 +473,11 @@
           ...tSpans("unreachable", { host: new URL(server).host }),
         );
         $("code").textContent = error;
+      }
+      if (local === "starting" || local === "updating") {
+        setTimeout(() => {
+          $("slow-escape").hidden = false;
+        }, SLOW_LOGS_DELAY_MS);
       }
       // An address that is not one comes as a code, worded here; any other
       // text that is not a network error code shows as it is.
@@ -340,9 +492,11 @@
         else connect(server);
       });
       // Opens the log folder or saves the diagnostics zip and shows it.
-      $("logs").addEventListener("click", () => {
+      const openLogs = () => {
         location.href = "app://offline/logs";
-      });
+      };
+      $("logs").addEventListener("click", openLogs);
+      $("starting-logs").addEventListener("click", openLogs);
       $("diagnostics").addEventListener("click", () => {
         location.href = "app://offline/diagnostics";
       });

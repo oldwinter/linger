@@ -16,6 +16,15 @@ export const connectorMessages = defineMessages("connectors", {
   connectedOnly: "Connected only",
   applicationConnections: "Application connections",
   noConnectedApps: "No connected apps yet.",
+  searchConnectors: "Search connectors",
+  searchConnectorsPlaceholder: "Search connectors...",
+  clearSearch: "Clear search",
+  showAllConnectors: "Show all connectors",
+  noConnectorsMatchInView: "No connectors match “{query}” in this view.",
+  noConnectorsMatch: "No connectors match “{query}”.",
+  noConnectedAppsInGroup: "No connected apps in {group} yet.",
+  noConnectorsInGroup: "No connectors in {group} yet.",
+  noConnectorsAvailable: "No connectors available yet.",
 
   // Groups of the catalog
   groupMailCalendar: "Mail & Calendar",

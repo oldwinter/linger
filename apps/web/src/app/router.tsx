@@ -26,6 +26,7 @@ import {
   roomQueryKey,
   roomQueryOptions,
   teamHubIdentityQueryOptions,
+  teamHubSessionQueryKey,
   teamHubSessionQueryOptions,
   teamHubTenantQueryOptions,
   teamHubTenantsQueryOptions,
@@ -78,9 +79,13 @@ export function createAppRoutes(
       HydrateFallback: InitialAppLoading,
       loader: withAuthenticationDeadline(async ({ request }) => {
         try {
+          const silentAuth =
+            queryClient.getQueryData(teamHubSessionQueryKey) === undefined;
           const [sessionResult, tenantsResult] = await Promise.allSettled([
             queryClient.fetchQuery(teamHubSessionQueryOptions(client)),
-            queryClient.fetchQuery(teamHubTenantsQueryOptions(client)),
+            queryClient.fetchQuery(
+              teamHubTenantsQueryOptions(client, { silentAuth }),
+            ),
           ]);
 
           // Inspect session before tenants so a 401 always redirects to /login
@@ -181,9 +186,13 @@ export function createAppRoutes(
         ),
       loader: withAuthenticationDeadline(async ({ request }) => {
         try {
+          const silentAuth =
+            queryClient.getQueryData(teamHubSessionQueryKey) === undefined;
           await Promise.all([
             queryClient.ensureQueryData(teamHubSessionQueryOptions(client)),
-            queryClient.ensureQueryData(teamHubTenantsQueryOptions(client)),
+            queryClient.ensureQueryData(
+              teamHubTenantsQueryOptions(client, { silentAuth }),
+            ),
           ]);
           return null;
         } catch (error) {
@@ -465,18 +474,22 @@ export function createAppRoutes(
       HydrateFallback: InitialAppLoading,
       loader: withAuthenticationDeadline(async ({ params, request }) => {
         const tenantId = requireRoomRouteParam(params.tenantId, "Tenant");
+        const silentAuth =
+          queryClient.getQueryData(teamHubSessionQueryKey) === undefined;
 
         // Sidebar data starts alongside authorization but cannot gate the Room.
         void queryClient.prefetchQuery(
-          tenantRoomsQueryOptions(client, tenantId),
+          tenantRoomsQueryOptions(client, tenantId, { silentAuth }),
         );
 
         try {
           await Promise.all([
             queryClient.ensureQueryData(teamHubSessionQueryOptions(client)),
-            queryClient.ensureQueryData(teamHubIdentityQueryOptions(client)),
             queryClient.ensureQueryData(
-              teamHubTenantQueryOptions(client, tenantId),
+              teamHubIdentityQueryOptions(client, { silentAuth }),
+            ),
+            queryClient.ensureQueryData(
+              teamHubTenantQueryOptions(client, tenantId, { silentAuth }),
             ),
           ]);
         } catch (error) {

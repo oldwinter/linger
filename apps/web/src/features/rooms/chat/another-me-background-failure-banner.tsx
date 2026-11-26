@@ -1,6 +1,8 @@
-import { AlertCircleIcon } from "@hugeicons/core-free-icons";
+import { AlertCircleIcon, Cancel01Icon } from "@hugeicons/core-free-icons";
 import type { components } from "@linger/wire-contracts/teamhub-public/types";
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { Link, useInRouterContext } from "react-router";
 
 import { Icon } from "@/components/ui/icon";
 import type { Message, PluralForms } from "@/i18n/messages";
@@ -21,8 +23,8 @@ const reasonMessages: Record<BackgroundFailureReason, Message<PluralForms>> = {
 };
 
 /** Tops the Another Me Chat while its background model calls keep failing.
- * TeamHub sends the failure only from the third in a row and drops it after
- * the next completed call, so the banner has no dismiss of its own. */
+ * TeamHub sends the failure from the third in a row and drops it after the
+ * next completed call; dismissing acknowledges only the current failure batch. */
 export function AnotherMeBackgroundFailureBanner({
   client,
   roomId,
@@ -33,21 +35,61 @@ export function AnotherMeBackgroundFailureBanner({
   tenantId: string;
 }) {
   const t = useT();
+  const inRouter = useInRouterContext();
+  const [dismissedKey, setDismissedKey] = useState<string | null>(null);
   const { data } = useQuery(anotherMeQueryOptions(client, tenantId));
   const failure =
     data?.room_id === roomId ? data.background_failure : undefined;
-  if (!failure) return null;
+  const failureKey = failure
+    ? `${failure.reason}:${failure.consecutive_failures}`
+    : null;
+  if (!failure || dismissedKey === failureKey) return null;
   const message = Object.hasOwn(reasonMessages, failure.reason)
     ? reasonMessages[failure.reason]
     : m.backgroundFailedUnknown;
+  const checkModels = failure.reason === "runtime_incompatible";
+  const recoveryPath = `/t/${encodeURIComponent(tenantId)}/settings/${
+    checkModels ? "models" : "computers"
+  }`;
+  const recoveryLabel = t(
+    checkModels
+      ? m.backgroundFailedCheckModels
+      : m.backgroundFailedCheckComputers,
+  );
+  const actionClassName =
+    "inline-flex min-h-8 shrink-0 items-center rounded-md border border-[var(--app-status-danger-border)] bg-background/80 px-2.5 py-1 text-xs font-medium text-[var(--app-status-danger-text)] transition-colors hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
   return (
     <div className="room-readable shrink-0 px-4 pt-3">
       <div
-        className="flex min-h-9 items-center gap-2 rounded-lg border border-[var(--app-status-danger-border)] bg-[var(--app-status-danger-surface)] px-4 py-2 text-xs font-medium text-[var(--app-status-danger-text)]"
+        className="flex min-h-9 flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--app-status-danger-border)] bg-[var(--app-status-danger-surface)] px-3.5 py-2 text-xs font-medium text-[var(--app-status-danger-text)]"
         role="alert"
       >
-        <Icon className="shrink-0" icon={AlertCircleIcon} size={14} />
-        {t(message, { count: failure.consecutive_failures })}
+        <div className="flex min-w-0 flex-1 items-start gap-2">
+          <Icon className="mt-0.5 shrink-0" icon={AlertCircleIcon} size={14} />
+          <span className="min-w-0 leading-5">
+            {t(message, { count: failure.consecutive_failures })}
+          </span>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {inRouter ? (
+            <Link className={actionClassName} to={recoveryPath}>
+              {recoveryLabel}
+            </Link>
+          ) : (
+            <a className={actionClassName} href={recoveryPath}>
+              {recoveryLabel}
+            </a>
+          )}
+          <button
+            aria-label={t(m.backgroundFailedDismiss)}
+            className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-[var(--app-status-danger-text)]/80 transition-colors hover:bg-background/60 hover:text-[var(--app-status-danger-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            data-voice-close=""
+            onClick={() => setDismissedKey(failureKey)}
+            type="button"
+          >
+            <Icon icon={Cancel01Icon} size={14} />
+          </button>
+        </div>
       </div>
     </div>
   );

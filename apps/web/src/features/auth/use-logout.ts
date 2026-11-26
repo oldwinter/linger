@@ -9,7 +9,10 @@ import {
 } from "@/features/rooms/documents/room-document-local-copies";
 import { teamHubIdentityQueryOptions } from "@/features/rooms/room-queries";
 import { teamHubDone } from "@/features/teamhub/teamhub-api";
-import { announceTeamHubAuthenticationRequired } from "@/features/teamhub/teamhub-authentication";
+import {
+  announceTeamHubAuthenticationRequired,
+  beginTeamHubSignOut,
+} from "@/features/teamhub/teamhub-authentication";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 
 import { authMessages } from "./auth.messages";
@@ -64,25 +67,30 @@ export function useLogout({ returnTo }: { returnTo?: string } = {}) {
         teamHubIdentityQueryOptions(client),
       );
       await browserRoomMessageOutbox.clearAccount(identity.account.id);
-      await teamHubDone(client.api.POST("/v0/auth/logout"));
-      clearInterruptedPage();
-      const safeReturnTo = safeAuthenticationReturnTo(returnTo ?? null);
-      await navigate(
-        safeReturnTo
-          ? `/login?return_to=${encodeURIComponent(safeReturnTo)}`
-          : "/login",
-        { replace: true },
-      );
-      // Let the router unmount protected query consumers before clearing them.
-      await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
-      clearLocalAuthenticatedState(queryClient);
-      // The editors here have unmounted; editors in other tabs close when the
-      // deletion reaches them and cannot reopen without the Session. A copy
-      // that fails to delete goes at the account's next logout.
-      await deleteRoomDocumentLocalCopies({
-        actorIds: identity.actors.map((actor) => actor.id),
-      }).catch(() => undefined);
-      announceTeamHubAuthenticationRequired();
+      const endSignOut = beginTeamHubSignOut();
+      try {
+        await teamHubDone(client.api.POST("/v0/auth/logout"));
+        clearInterruptedPage();
+        const safeReturnTo = safeAuthenticationReturnTo(returnTo ?? null);
+        await navigate(
+          safeReturnTo
+            ? `/login?return_to=${encodeURIComponent(safeReturnTo)}`
+            : "/login",
+          { replace: true },
+        );
+        // Let the router unmount protected query consumers before clearing them.
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+        clearLocalAuthenticatedState(queryClient);
+        // The editors here have unmounted; editors in other tabs close when the
+        // deletion reaches them and cannot reopen without the Session. A copy
+        // that fails to delete goes at the account's next logout.
+        await deleteRoomDocumentLocalCopies({
+          actorIds: identity.actors.map((actor) => actor.id),
+        }).catch(() => undefined);
+        announceTeamHubAuthenticationRequired();
+      } finally {
+        endSignOut();
+      }
     },
     onSettled: () => {
       pending.current = false;

@@ -9,6 +9,7 @@ import { BlockNoteView } from "@blocknote/mantine";
 import {
   FilePanel,
   FilePanelController,
+  FormattingToolbarController,
   SuggestionMenuController,
   type FilePanelProps,
   useBlockNoteEditor,
@@ -559,6 +560,7 @@ export function RoomDocumentBlockNoteEditor({
         editable={editable}
         editor={editor}
         filePanel={false}
+        formattingToolbar={false}
         onChange={(changedEditor) => {
           imagePreviewStore.reconcile(changedEditor);
           setIsEmptyDocument(
@@ -580,6 +582,11 @@ export function RoomDocumentBlockNoteEditor({
         slashMenu={false}
         theme="light"
       >
+        <FormattingToolbarController
+          floatingUIOptions={{
+            elementProps: { className: "room-document-formatting-popover" },
+          }}
+        />
         <SuggestionMenuController
           floatingUIOptions={{
             elementProps: { className: "room-document-slash-popover" },

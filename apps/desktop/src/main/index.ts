@@ -51,6 +51,7 @@ import { parseServerUrl } from "./navigation.js";
 import { openWithXdg } from "./open-url.js";
 import { PowerGuardModule, type PowerApi } from "./power-guard.js";
 import { QuickNoteModule } from "./quick-note.js";
+import { createQuitGuard } from "./quit-guard.js";
 import { SetupWindowModule } from "./setup-window.js";
 import { loginShellEnvironment, withLoginShell } from "./shell-env.js";
 import { markStartMenuShortcut } from "./start-menu-shortcut.js";
@@ -304,7 +305,8 @@ async function main(): Promise<void> {
   });
   const power = new PowerGuardModule(electronPower());
   // The tray tooltip names the badge count the SPA sends over IPC.
-  const tray = new TrayModule({ quit: () => void quit() });
+  let requestQuit = (): Promise<void> => Promise.resolve();
+  const tray = new TrayModule({ quit: () => void requestQuit() });
   const modules: Module[] = [
     {
       name: "Config",
@@ -390,41 +392,43 @@ async function main(): Promise<void> {
   app.on("activate", showApp);
   // Closing the window only hides it; the tray keeps the app running.
   app.on("window-all-closed", () => {});
-  let quitting = false;
-  app.on("before-quit", (event) => {
-    windows.prepareQuit();
-    if (quitting) return;
-    quitting = true;
-    event.preventDefault();
-    // Setup and the uninstaller stop the services and the local models
-    // themselves right after --quit; a stop from here would race theirs.
-    void host
-      .stop(relaunch || updating || replacing ? "update" : "quit")
-      .finally(() => {
-        if (relaunch) app.relaunch();
-        app.exit(0);
-      });
-  });
-
-  // Tasks run in the app, so quitting takes the computer offline; ask first
-  // only when that cancels running tasks.
-  const quit = async (): Promise<void> => {
-    if (status.current().tone === "busy") {
-      const { response } = await dialog.showMessageBox({
-        type: "warning",
+  // Tasks run in the app, so quitting takes this computer offline; every
+  // user-initiated quit path (Tray, Cmd+Q, Dock, App menu) confirms when
+  // tasks are actively running, while automatic updater/uninstaller quits
+  // proceed without blocking.
+  const quitGuard = createQuitGuard({
+    isBusy: () => status.current().tone === "busy",
+    isAutomaticQuit: () => relaunch || updating || replacing,
+    confirmBusyQuit: async () => {
+      const options = {
+        type: "warning" as const,
         buttons: [
           language.t(dialogMessages.quitAndStop),
-          language.t(dialogMessages.cancel),
+          language.t(dialogMessages.keepRunning),
         ],
         defaultId: 1,
         cancelId: 1,
         message: language.t(dialogMessages.quitConfirm),
         detail: language.t(dialogMessages.quitConfirmDetail),
-      });
-      if (response !== 0) return;
-    }
-    app.quit();
-  };
+      };
+      const win = windows.window();
+      const { response } = await (win && !win.isDestroyed() && win.isVisible()
+        ? dialog.showMessageBox(win, options)
+        : dialog.showMessageBox(options));
+      return response === 0;
+    },
+    prepareQuit: () => windows.prepareQuit(),
+    // Setup and the uninstaller stop the services and the local models
+    // themselves right after --quit; a stop from here would race theirs.
+    stopHost: (reason) => host.stop(reason),
+    requestAppQuit: () => app.quit(),
+    relaunchIfNeeded: () => {
+      if (relaunch) app.relaunch();
+    },
+    exitApp: () => app.exit(0),
+  });
+  requestQuit = () => quitGuard.requestQuit();
+  app.on("before-quit", (event) => quitGuard.handleBeforeQuit(event));
 
   try {
     await host.start();

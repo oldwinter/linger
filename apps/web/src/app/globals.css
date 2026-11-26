@@ -473,9 +473,12 @@ a[href][aria-disabled="true"],
   position: absolute;
   top: 2rem;
   left: 5.5rem;
+  right: 5.5rem;
   z-index: 3;
-  display: inline-flex;
-  width: fit-content;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
 }
 
 .auth-brand-wordmark {
@@ -838,6 +841,7 @@ a[href][aria-disabled="true"],
 
   .auth-brand {
     position: static;
+    width: 100%;
   }
 
   .auth-stage {
@@ -2056,6 +2060,18 @@ a[href][aria-disabled="true"],
     right: 0;
     left: auto;
     margin: 0;
+  }
+}
+
+@media (max-width: 479px) {
+  .room-message-card.has-wide-card[data-current-actor] {
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .room-message-card.has-wide-card[data-current-actor] > .room-message-content {
+    width: 100%;
+    max-width: 100%;
   }
 }
 
@@ -4384,9 +4400,18 @@ button.question-choice:focus-visible {
   }
 }
 
-@media (pointer: coarse) {
+@media (pointer: coarse), (max-width: 48rem) {
   .room-message-card {
     --message-actions-room: 0px;
+  }
+
+  .room-message-card[data-current-actor="true"] > .room-message-content {
+    max-width: min(88%, calc(100% - 44px));
+  }
+
+  .message-row-actions button {
+    min-width: 36px;
+    min-height: 36px;
   }
 
   .room-message-body-line {
@@ -4787,6 +4812,9 @@ button.question-choice:focus-visible {
   display: none;
 }
 /* The quick-access row names each entry; the header toolbar stays icons. */
+.xs-nav-quick {
+  flex-wrap: wrap;
+}
 .xs-nav-quick .xs-nav-btn {
   flex: 1 1 auto;
   gap: 6px;
@@ -4798,6 +4826,9 @@ button.question-choice:focus-visible {
   border-radius: 8px;
   background: var(--app-surface);
   color: var(--app-ink);
+}
+.xs-nav-quick .xs-nav-btn:has(.xs-nav-btn-label) {
+  min-width: max-content;
 }
 .xs-nav-quick .xs-nav-btn:hover {
   background: var(--app-hover);
@@ -4813,8 +4844,6 @@ button.question-choice:focus-visible {
   font-weight: 470;
   line-height: 16px;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .xs-nav-btn:disabled {
   cursor: default;

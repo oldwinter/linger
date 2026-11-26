@@ -1270,11 +1270,13 @@ export function AgentStreamingStatusDock({
             <ActionMenu
               buttonClassName="inline-flex h-6 shrink-0 items-center gap-1 rounded-full bg-muted px-2 text-2xs font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-app-focus"
               items={agentSelectorItems}
-              label={`${workingEntries.length} agents working`}
+              label={t(m.agentsWorking, { count: workingEntries.length })}
               placement="top-start"
               trigger={
                 <>
-                  <span>{`${workingEntries.length} agents working`}</span>
+                  <span>
+                    {t(m.agentsWorking, { count: workingEntries.length })}
+                  </span>
                   <Icon icon={ArrowDown01Icon} size={14} />
                 </>
               }
@@ -1285,10 +1287,12 @@ export function AgentStreamingStatusDock({
           <button
             className="shrink-0 rounded-md px-1.5 py-0.5 text-xs font-medium text-app-muted transition-colors hover:bg-app-hover hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-app-focus"
             onClick={openShownActivity}
-            title={`Open ${shownEntry.agent.display_name} activity`}
+            title={t(m.openAgentActivity, {
+              name: shownEntry.agent.display_name,
+            })}
             type="button"
           >
-            Activity
+            {t(m.activity)}
           </button>
         ) : null}
         {shownEntry ? (

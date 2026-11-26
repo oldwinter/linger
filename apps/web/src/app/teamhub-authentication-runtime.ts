@@ -5,6 +5,7 @@ import { safeAuthenticationReturnTo } from "@/features/auth/authentication-retur
 import { rememberInterruptedPage } from "@/features/auth/interrupted-page";
 import { clearLocalAuthenticatedState } from "@/features/auth/local-authenticated-state";
 import {
+  subscribeTeamHubSignOut,
   teamHubAuthenticationSignals,
   type TeamHubAuthenticationReason,
   type TeamHubAuthenticationSignals,
@@ -44,6 +45,10 @@ export function startTeamHubAuthenticationRuntime({
     void navigate(`/login?${params.toString()}`, { replace: true });
   };
 
+  const unsubscribeSignOut = subscribeTeamHubSignOut(() => {
+    generation += 1;
+  });
+
   const unsubscribe = signals.subscribe((kind) => {
     if (kind === "authenticated") {
       generation += 1;
@@ -80,6 +85,7 @@ export function startTeamHubAuthenticationRuntime({
 
   return () => {
     generation += 1;
+    unsubscribeSignOut();
     unsubscribe();
   };
 }

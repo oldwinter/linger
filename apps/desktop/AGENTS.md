@@ -415,8 +415,16 @@ Gateway and runs Agents. The daemon exits with the app.
   start failure page use native dialogs (`diagnostics-dialogs.ts`).
 - `src/main/window-manager.ts`: one `BaseWindow` with two views, the title bar
   (`app://shell/titlebar`) and the SPA. macOS keeps native traffic lights,
-  Windows uses `titleBarOverlay`, Linux draws its own controls. Closing hides
-  the window to the tray. Closing the setup window does not quit either: an
+  Windows uses `titleBarOverlay`, Linux draws its own controls. All shell
+  windows (`window-manager.ts`, `setup-window.ts`, `quick-note.ts`) follow OS
+  dark mode via `nativeTheme` (`shell-theme.ts`) and `@media (prefers-color-scheme: dark)`
+  so dark mode opens without a white flash, and the main SPA `WebContentsView`
+  sets `backgroundThrottling: false` so hidden or occluded windows keep live
+  Room updates flowing. Closing hides
+  the window to the tray. All user-initiated quit paths (`before-quit`,
+  including macOS `Cmd+Q` and Dock Quit, as well as Tray Quit) pass through
+  `quit-guard.ts` so active tasks prompt before quitting while automatic
+  updater/uninstaller exits proceed without blocking. Closing the setup window does not quit either: an
   installation keeps running, and opening Linger again (a second launch, the
   Dock, the tray) shows setup until the computer is enrolled
   (`app-window.ts`), the main window after. The main window's server form
@@ -466,7 +474,9 @@ Gateway and runs Agents. The daemon exits with the app.
   page. The window is always on top (on every macOS Space), has no
   parent so it stays up when the main window is minimized or closed to the
   tray, and closes with the page (reload, crash, main window closed). While it
-  is open the page is not background-throttled. Only a window the main page
+  is open the page is not background-throttled, and closing it restores the
+  opener's prior background-throttling state rather than re-enabling throttling
+  on a main view that disables it. Only a window the main page
   itself opened is kept; one from a frame in it is destroyed. It opens at the
   bottom right of the main window's screen and resizes down to 240x96. Its
   native close button ends the call or the recording;
@@ -476,7 +486,8 @@ Gateway and runs Agents. The daemon exits with the app.
   floating window and keeps the session in the page. An app without
   `voiceWindow` keeps the in-page windows.
 - `src/main/quick-note.ts`: QuickNote, the tray's "New Note" capture window.
-  It serves `app://quick-note` from its own session, appends the typed text
+  It serves localized `app://quick-note` (`quick-note.html` +
+  `quick-note.messages.ts`) from its own session, appends the typed text
   under today's Pocket Note through TeamHub with the web session cookie, then
   confirms and closes. A missing enrollment or session shows a plain message
   in the window. Its IPC channels are checked against that window instead of

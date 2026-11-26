@@ -253,74 +253,83 @@ export default function PocketNotePanel({
   }
 
   return createPortal(
-    <div
-      aria-label={t(m.panel)}
-      className="app-floating-enter fixed z-[100] flex h-[440px] max-h-[calc(100dvh-24px)] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-2xl bg-popover shadow-xl"
-      ref={panelRef}
-      role="dialog"
-      style={position}
-    >
-      {!firstPage || !today ? (
-        notes.isError ? (
-          <div
-            className="m-auto flex flex-col items-center gap-2.5 px-4 text-center"
-            role="alert"
-          >
-            <p className="text-sm text-app-muted">{t(m.couldNotLoad)}</p>
-            <Button
-              onClick={() => void notes.refetch()}
-              size="compact"
-              tone="secondary"
+    <>
+      <div
+        aria-hidden="true"
+        className="fixed inset-0 z-[99] bg-black/25 backdrop-blur-[1px] sm:hidden"
+        onClick={() => void close()}
+      />
+      <div
+        aria-label={t(m.panel)}
+        className="app-floating-enter fixed z-[100] flex h-[440px] max-h-[calc(100dvh-24px)] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-2xl bg-popover shadow-xl"
+        ref={panelRef}
+        role="dialog"
+        style={position}
+      >
+        {!firstPage || !today ? (
+          notes.isError ? (
+            <div
+              className="m-auto flex flex-col items-center gap-2.5 px-4 text-center"
+              role="alert"
             >
-              {t(commonMessages.retry)}
-            </Button>
-          </div>
+              <p className="text-sm text-app-muted">{t(m.couldNotLoad)}</p>
+              <Button
+                onClick={() => void notes.refetch()}
+                size="compact"
+                tone="secondary"
+              >
+                {t(commonMessages.retry)}
+              </Button>
+            </div>
+          ) : (
+            <p className="m-auto text-sm text-app-muted">
+              {t(commonMessages.loading)}
+            </p>
+          )
+        ) : view.kind === "all" ? (
+          <AllPocketNotes
+            closeGuard={closeGuard}
+            downloadFailed={downloadFailed}
+            downloading={downloading}
+            hasMore={notes.hasNextPage}
+            items={items}
+            loadingMore={notes.isFetchingNextPage}
+            onClose={onClose}
+            onDownloadAll={() => void downloadAll()}
+            onDownloadNote={downloadNote}
+            onLoadMore={() => void notes.fetchNextPage()}
+            onOpen={(note) =>
+              setView(
+                note.date === today
+                  ? { kind: "today" }
+                  : { kind: "past", note },
+              )
+            }
+            tenantId={tenantId}
+            today={today}
+          />
+        ) : view.kind === "today" ? (
+          <TodayPocketNote
+            anotherMeRoomId={anotherMeRoomId}
+            closeGuard={closeGuard}
+            earlier={pocketNoteBefore(items, today)}
+            key={`${tenantId}:${today}`}
+            onClose={() => void close()}
+            onOpenChat={onOpenChat}
+            onShowAll={() => setView({ kind: "all" })}
+            storedText={todayNote?.text ?? ""}
+            tenantId={tenantId}
+            today={today}
+          />
         ) : (
-          <p className="m-auto text-sm text-app-muted">
-            {t(commonMessages.loading)}
-          </p>
-        )
-      ) : view.kind === "all" ? (
-        <AllPocketNotes
-          closeGuard={closeGuard}
-          downloadFailed={downloadFailed}
-          downloading={downloading}
-          hasMore={notes.hasNextPage}
-          items={items}
-          loadingMore={notes.isFetchingNextPage}
-          onClose={onClose}
-          onDownloadAll={() => void downloadAll()}
-          onDownloadNote={downloadNote}
-          onLoadMore={() => void notes.fetchNextPage()}
-          onOpen={(note) =>
-            setView(
-              note.date === today ? { kind: "today" } : { kind: "past", note },
-            )
-          }
-          tenantId={tenantId}
-          today={today}
-        />
-      ) : view.kind === "today" ? (
-        <TodayPocketNote
-          anotherMeRoomId={anotherMeRoomId}
-          closeGuard={closeGuard}
-          earlier={pocketNoteBefore(items, today)}
-          key={`${tenantId}:${today}`}
-          onClose={() => void close()}
-          onOpenChat={onOpenChat}
-          onShowAll={() => setView({ kind: "all" })}
-          storedText={todayNote?.text ?? ""}
-          tenantId={tenantId}
-          today={today}
-        />
-      ) : (
-        <PastPocketNote
-          note={view.note}
-          onBack={() => setView({ kind: "all" })}
-          onClose={onClose}
-        />
-      )}
-    </div>,
+          <PastPocketNote
+            note={view.note}
+            onBack={() => setView({ kind: "all" })}
+            onClose={onClose}
+          />
+        )}
+      </div>
+    </>,
     document.body,
   );
 }
@@ -577,7 +586,7 @@ function TodayPocketNote({
           <>
             {saveFailed ? (
               <Button
-                aria-label="Retry saving note"
+                aria-label={t(m.retrySavingNote)}
                 onClick={() => void ensureSaved().catch(() => {})}
                 size="compact"
                 tone="secondary"
@@ -889,14 +898,14 @@ function AllPocketNotes({
         action={
           <>
             {jumpOffered ? (
-              <HeaderButton label="Jump to today" onClick={jumpToToday}>
+              <HeaderButton label={t(m.jumpToToday)} onClick={jumpToToday}>
                 <Icon icon={ArrowUp01Icon} size={16} />
               </HeaderButton>
             ) : null}
             {items.length > 0 ? (
               <HeaderButton
                 disabled={downloading || loadingMore}
-                label="Download all"
+                label={t(m.downloadAll)}
                 onClick={onDownloadAll}
               >
                 <Icon icon={Download01Icon} size={16} />
@@ -912,24 +921,24 @@ function AllPocketNotes({
       />
       {downloadFailed ? (
         <p className="shrink-0 px-4 pb-2 text-xs text-app-danger" role="alert">
-          Couldn’t download notes. Try again.
+          {t(m.couldNotDownload)}
         </p>
       ) : null}
-      <label className="mx-4 mb-2 flex h-8 shrink-0 items-center gap-2 rounded-lg border border-border bg-card px-2.5 text-muted-foreground transition-colors hover:border-border-hover focus-within:border-foreground focus-within:ring-2 focus-within:ring-ring/40">
+      <label className="mx-4 mb-2 flex h-9 shrink-0 items-center gap-2 rounded-lg border border-border bg-card px-2.5 text-muted-foreground transition-colors hover:border-border-hover focus-within:border-foreground focus-within:ring-2 focus-within:ring-ring/40 sm:h-8">
         <Icon icon={Search01Icon} size={14} />
         <input
-          aria-label="Search notes"
+          aria-label={t(m.searchNotes)}
           className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-app-placeholder"
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search by date or text"
+          placeholder={t(m.searchPlaceholder)}
           role="searchbox"
           type="text"
           value={query}
         />
         {query ? (
           <button
-            aria-label="Clear note search"
-            className="flex size-5 shrink-0 items-center justify-center rounded-full hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
+            aria-label={t(m.clearNoteSearch)}
+            className="flex size-6 shrink-0 items-center justify-center rounded-full hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus sm:size-5"
             onClick={() => setQuery("")}
             type="button"
           >
@@ -1028,14 +1037,14 @@ function AllPocketNotes({
                         ) : (
                           <div className="absolute right-1.5 top-1.5 flex items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100">
                             <button
-                              aria-label={`Download ${label}`}
+                              aria-label={t(m.downloadPage, { page: label })}
                               className={cn(
                                 noteActionClass,
                                 "hover:bg-accent hover:text-app-ink",
                               )}
                               disabled={downloading}
                               onClick={() => onDownloadNote(note)}
-                              title="Download note"
+                              title={t(m.downloadNote)}
                               type="button"
                             >
                               <Icon icon={Download01Icon} size={14} />
@@ -1068,14 +1077,14 @@ function AllPocketNotes({
         ) : (
           <div className="flex flex-col items-center gap-2 px-2 py-8 text-center">
             <p className="text-xs text-app-muted">
-              No notes match “{query.trim()}”.
+              {t(m.noNotesMatch, { query: query.trim() })}
             </p>
             <Button
               onClick={() => setQuery("")}
               size="compact"
               tone="secondary"
             >
-              Clear search
+              {t(m.clearSearch)}
             </Button>
           </div>
         )}
@@ -1147,7 +1156,7 @@ function HeaderButton({
   return (
     <button
       aria-label={label}
-      className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-[background-color,color] hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus disabled:pointer-events-none disabled:opacity-40"
+      className="flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-[background-color,color] hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus disabled:pointer-events-none disabled:opacity-40 sm:size-8"
       data-voice-close={closes || undefined}
       disabled={disabled}
       onClick={onClick}
@@ -1196,10 +1205,10 @@ function PocketNoteCopyAction({ text }: { text: string }) {
       ) : null}
       {failed ? (
         <span className="text-xs leading-4 text-app-danger" role="alert">
-          Copy failed
+          {t(m.copyFailed)}
         </span>
       ) : null}
-      <HeaderButton disabled={!value} label="Copy note" onClick={copy}>
+      <HeaderButton disabled={!value} label={t(m.copyNote)} onClick={copy}>
         <Icon icon={Copy01Icon} size={16} />
       </HeaderButton>
     </>

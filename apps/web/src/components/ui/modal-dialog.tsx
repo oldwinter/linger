@@ -1,11 +1,13 @@
 import { Cancel01Icon } from "@hugeicons/core-free-icons";
 import {
   type ReactNode,
+  type RefObject,
   useEffect,
   useEffectEvent,
   useId,
   useLayoutEffect,
   useRef,
+  useState,
 } from "react";
 import { createPortal } from "react-dom";
 
@@ -23,6 +25,18 @@ const focusableSelector = [
   "textarea:not([disabled])",
   '[tabindex]:not([tabindex="-1"])',
 ].join(", ");
+
+function isFocusableTarget(
+  element: HTMLElement | null,
+): element is HTMLElement {
+  return Boolean(
+    element &&
+    element.isConnected &&
+    !element.closest("[inert]") &&
+    !element.hasAttribute("disabled") &&
+    element.getAttribute("aria-disabled") !== "true",
+  );
+}
 
 function firstFocusable(root: Element | null): HTMLElement | null {
   if (!root) {
@@ -47,6 +61,7 @@ export function ModalDialog({
   footer,
   headerActions,
   onClose,
+  returnFocusTo,
   size,
   title,
 }: {
@@ -62,6 +77,8 @@ export function ModalDialog({
   /** Optional controls shown in the header before the close button. */
   headerActions?: ReactNode;
   onClose: () => void;
+  /** Fallback focus target when the element that opened this dialog unmounted. */
+  returnFocusTo?: RefObject<HTMLElement | null> | (() => HTMLElement | null);
   /** One of four standard widths; omit for a full-screen or custom frame. */
   size?: DialogSize;
   /** Rendering a title opts the dialog into the shared header/body/footer chrome. */
@@ -70,9 +87,22 @@ export function ModalDialog({
   const t = useT();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const closeFromBackdrop = useEffectEvent(() => onClose());
+  const resolveReturnFocus = useEffectEvent(() =>
+    typeof returnFocusTo === "function"
+      ? returnFocusTo()
+      : (returnFocusTo?.current ?? null),
+  );
   const headingId = useId();
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const standard = title !== undefined;
+  // Capture the opener before commit so a child `autoFocus` cannot overwrite it.
+  const [initialOpener] = useState<HTMLElement | null>(() =>
+    typeof document !== "undefined" &&
+    document.activeElement instanceof HTMLElement &&
+    document.activeElement !== document.body
+      ? document.activeElement
+      : null,
+  );
 
   useLayoutEffect(() => {
     const dialog = dialogRef.current;
@@ -80,6 +110,15 @@ export function ModalDialog({
     if (!dialog) {
       return;
     }
+
+    const opener =
+      initialOpener && !dialog.contains(initialOpener)
+        ? initialOpener
+        : document.activeElement instanceof HTMLElement &&
+            document.activeElement !== document.body &&
+            !dialog.contains(document.activeElement)
+          ? document.activeElement
+          : null;
 
     if (typeof dialog.showModal === "function") {
       if (!dialog.open) {
@@ -97,13 +136,46 @@ export function ModalDialog({
     }
 
     return () => {
+      const focusWasInside =
+        document.activeElement === null ||
+        document.activeElement === document.body ||
+        dialog.contains(document.activeElement);
       if (dialog.open && typeof dialog.close === "function") {
         dialog.close();
       } else {
         dialog.removeAttribute("open");
       }
+      if (focusWasInside) {
+        const fallback = resolveReturnFocus();
+        // Defer past StrictMode's synchronous effect replay so only a real
+        // unmount restores focus, without stomping explicit caller focus.
+        queueMicrotask(() => {
+          if (dialog.isConnected) return;
+          const active = document.activeElement;
+          if (
+            active !== null &&
+            active !== document.body &&
+            active !== document.documentElement
+          ) {
+            return;
+          }
+          const target = isFocusableTarget(opener)
+            ? opener
+            : isFocusableTarget(fallback)
+              ? fallback
+              : (() => {
+                  const openDialogs =
+                    document.querySelectorAll<HTMLDialogElement>(
+                      "dialog[open]",
+                    );
+                  const outerDialog = openDialogs[openDialogs.length - 1];
+                  return outerDialog ? firstFocusable(outerDialog) : null;
+                })();
+          if (target) target.focus();
+        });
+      }
     };
-  }, []);
+  }, [initialOpener]);
 
   useEffect(() => {
     const dialog = dialogRef.current;

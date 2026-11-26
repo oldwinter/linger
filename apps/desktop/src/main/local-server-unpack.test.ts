@@ -123,7 +123,7 @@ describe("unpackArchive", () => {
         },
       }),
     ).rejects.toThrow(
-      /Failed to unpack bundle\.bin: tar was not found \(ENOENT\).*Install tar or reinstall Linger\./,
+      /Failed to unpack bundle\.bin: tar was not found \(ENOENT\).*Install tar or reinstall LingerX\./,
     );
   });
 

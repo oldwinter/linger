@@ -16,10 +16,15 @@ export const statusMessages = defineMessages("status", {
 // The tray menu, its tooltip and the update notifications.
 export const trayMessages = defineMessages("tray", {
   tooltip: "LingerX · {status}",
+  unreadMentions: {
+    one: "{count} unread mention",
+    other: "{count} unread mentions",
+  },
   open: "Open LingerX",
+  newNote: "New Note",
   reconnect: "Reconnect This Computer",
   connect: "Connect This Computer…",
-  preventSleep: "Prevent Sleep",
+  preventSleep: "Keep Awake While Idle",
   mobileCompanion: "Mobile Companion…",
   showLogs: "Show Logs",
   saveDiagnostics: "Save Diagnostics…",

@@ -77,6 +77,9 @@ export const agentInfoMessages = defineMessages("agentInfo", {
   skillsLoadIncomplete: "Could not load all Skills. Please retry.",
   reloadSkillsFirst: "Reload Skill configuration first.",
   skillOperationFailed: "The Skill operation failed. Please retry.",
+  skillTooLarge: "This Skill package exceeds the {limit} limit.",
+  builtInSkill: "Built-in",
+  turnSkillsOnOrOff: "Turn skills on or off",
 
   // The avatar editor and the profile dialog.
   chooseAvatar: "Choose avatar",

@@ -10,9 +10,13 @@ const state = vi.hoisted(() => {
   const windows: MockBaseWindow[] = [];
   const views: MockWebContentsView[] = [];
   const netFetch = vi.fn();
+  const theme = Object.assign(new EventEmitter(), {
+    shouldUseDarkColors: false,
+  });
 
   class MockWebContents extends EventEmitter {
     readonly id = 1;
+    readonly mainFrame = {};
     readonly navigationHistory = {
       canGoBack: () => false,
       canGoForward: () => false,
@@ -22,6 +26,7 @@ const state = vi.hoisted(() => {
     url = "";
     loading = false;
     destroyed = false;
+    backgroundThrottling = true;
     readonly loadURL = vi.fn(async (nextUrl: string) => {
       this.url = nextUrl;
       this.loading = true;
@@ -33,6 +38,12 @@ const state = vi.hoisted(() => {
       this.destroyed = true;
     });
     readonly setWindowOpenHandler = vi.fn();
+    readonly setBackgroundThrottling = vi.fn((allowed: boolean) => {
+      this.backgroundThrottling = allowed;
+    });
+    getBackgroundThrottling(): boolean {
+      return this.backgroundThrottling;
+    }
     getURL(): string {
       return this.url;
     }
@@ -45,10 +56,18 @@ const state = vi.hoisted(() => {
   }
 
   class MockWebContentsView {
+    readonly options: Record<string, unknown>;
     readonly webContents = new MockWebContents();
     readonly setBackgroundColor = vi.fn();
     readonly setBounds = vi.fn();
-    constructor() {
+    constructor(options: Record<string, unknown> = {}) {
+      this.options = options;
+      const prefs = options.webPreferences as
+        | { backgroundThrottling?: boolean }
+        | undefined;
+      if (prefs && typeof prefs.backgroundThrottling === "boolean") {
+        this.webContents.backgroundThrottling = prefs.backgroundThrottling;
+      }
       views.push(this);
     }
   }
@@ -70,7 +89,10 @@ const state = vi.hoisted(() => {
     readonly destroy = vi.fn(() => {
       this.destroyed = true;
     });
+    readonly setBackgroundColor = vi.fn();
+    readonly setTitleBarOverlay = vi.fn();
     readonly getContentBounds = () => ({ width: 1280, height: 820 });
+    readonly getBounds = () => ({ x: 0, y: 0, width: 1280, height: 820 });
     readonly getNormalBounds = () => ({ x: 0, y: 0, width: 1280, height: 820 });
     readonly isMinimized = () => false;
     readonly isMaximized = () => false;
@@ -88,7 +110,14 @@ const state = vi.hoisted(() => {
     }
   }
 
-  return { windows, views, netFetch, MockBaseWindow, MockWebContentsView };
+  return {
+    windows,
+    views,
+    netFetch,
+    theme,
+    MockBaseWindow,
+    MockWebContentsView,
+  };
 });
 
 vi.mock("electron", () => ({
@@ -103,6 +132,7 @@ vi.mock("electron", () => ({
   nativeImage: {
     createFromBuffer: vi.fn(() => ({})),
   },
+  nativeTheme: state.theme,
   net: {
     fetch: (...args: unknown[]) => state.netFetch(...args),
   },
@@ -110,6 +140,11 @@ vi.mock("electron", () => ({
     registerSchemesAsPrivileged: vi.fn(),
     handle: vi.fn(),
     unhandle: vi.fn(),
+  },
+  screen: {
+    getDisplayMatching: vi.fn(() => ({
+      workArea: { x: 0, y: 0, width: 1440, height: 900 },
+    })),
   },
   session: {
     defaultSession: {
@@ -221,6 +256,8 @@ describe("WindowManagerModule", () => {
     state.windows.length = 0;
     state.views.length = 0;
     state.netFetch.mockReset();
+    state.theme.shouldUseDarkColors = false;
+    state.theme.removeAllListeners("updated");
   });
 
   it("skips duplicate loadURL on hot start when local_ready matches boot origin", async () => {
@@ -709,6 +746,81 @@ describe("WindowManagerModule", () => {
       expect(titlebarPage).toContain(zhCN.titlebar.close);
       expect(await page("app://offline/")).toContain(
         zhCN.offline.unreachableTitle,
+      );
+      await host.stop("quit");
+    } finally {
+      Object.defineProperty(process, "platform", platform);
+    }
+  });
+
+  it("disables background throttling on the main SPA view and keeps it disabled after a voice window closes", async () => {
+    const { EventEmitter } = await import("node:events");
+    const { host } = setup({ serverUrl: "http://localhost:3000" });
+    await host.start();
+
+    const view = contentView();
+    expect(view.options.webPreferences).toMatchObject({
+      backgroundThrottling: false,
+    });
+    expect(view.webContents.getBackgroundThrottling()).toBe(false);
+
+    const childContents = Object.assign(new EventEmitter(), {
+      setWindowOpenHandler: vi.fn(),
+      opener: view.webContents.mainFrame,
+    });
+    const child = Object.assign(new EventEmitter(), {
+      webContents: childContents,
+      setAlwaysOnTop: vi.fn(),
+      setVisibleOnAllWorkspaces: vi.fn(),
+      setMenuBarVisibility: vi.fn(),
+      getBounds: vi.fn(() => ({ width: 300, height: 120 })),
+      setPosition: vi.fn(),
+      isDestroyed: vi.fn(() => false),
+      close: vi.fn(() => child.emit("closed")),
+      destroy: vi.fn(),
+    });
+    view.webContents.emit("did-create-window", child);
+    expect(view.webContents.getBackgroundThrottling()).toBe(false);
+
+    child.emit("closed");
+    expect(view.webContents.getBackgroundThrottling()).toBe(false);
+    expect(view.webContents.setBackgroundThrottling).not.toHaveBeenCalledWith(
+      true,
+    );
+    await host.stop("quit");
+  });
+
+  it("initializes dark window chrome from nativeTheme and updates colors when OS theme changes", async () => {
+    const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
+    Object.defineProperty(process, "platform", { value: "win32" });
+    try {
+      state.theme.shouldUseDarkColors = true;
+      const { host } = setup({ serverUrl: "http://localhost:3000" });
+      await host.start();
+
+      const win = state.windows[0]!;
+      const titlebar = titlebarView()!;
+      const content = contentView();
+
+      expect(win.options.backgroundColor).toBe("#161614");
+      expect(win.options.titleBarOverlay).toMatchObject({
+        color: "#161614",
+        symbolColor: "#e8e7e2",
+      });
+      expect(titlebar.setBackgroundColor).toHaveBeenCalledWith("#161614");
+      expect(content.setBackgroundColor).toHaveBeenCalledWith("#161614");
+
+      state.theme.shouldUseDarkColors = false;
+      state.theme.emit("updated");
+
+      expect(win.setBackgroundColor).toHaveBeenLastCalledWith("#f6f6f6");
+      expect(titlebar.setBackgroundColor).toHaveBeenLastCalledWith("#f6f6f6");
+      expect(content.setBackgroundColor).toHaveBeenLastCalledWith("#ffffff");
+      expect(win.setTitleBarOverlay).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          color: "#f6f6f6",
+          symbolColor: "#404040",
+        }),
       );
       await host.stop("quit");
     } finally {

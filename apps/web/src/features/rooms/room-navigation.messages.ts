@@ -19,4 +19,6 @@ export const navigationMessages = defineMessages("navigation", {
   loadingRooms: "Loading Rooms…",
   roomsUnavailable: "Rooms could not be loaded.",
   retryRooms: "Retry Rooms",
+  search: "Search",
+  searchShortcut: "Search ({shortcut})",
 });

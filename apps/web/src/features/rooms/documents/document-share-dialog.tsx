@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert02Icon,
   ArrowLeft01Icon,
@@ -14,12 +14,21 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectItem } from "@/components/ui/select";
 import { ModalDialog } from "@/components/ui/modal-dialog";
+import {
+  documentQueryKey,
+  roomDocumentsQueryKey,
+  tenantRoomsQueryKey,
+  tenantRoomsQueryOptions,
+} from "@/features/rooms/room-queries";
 import { ActorAvatar } from "@/features/rooms/members/actor-avatar";
 import { writeClipboardText } from "@/lib/clipboard";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { type TeamHubClient } from "@/features/teamhub/teamhub-client";
 import { DocumentLinkSharing } from "./document-link-sharing";
-import type { TeamHubDocumentShareViewV2 } from "@/features/teamhub/teamhub-types";
+import type {
+  TeamHubDocumentShareViewV2,
+  TeamHubRoomPage,
+} from "@/features/teamhub/teamhub-types";
 import { libraryMessages } from "@/features/library/library.messages";
 import { commonMessages } from "@/i18n/common.messages";
 import { translate, type Translate } from "@/i18n/language";
@@ -51,6 +60,7 @@ export function DocumentShareDialog({
   tenantId: string;
 }) {
   const t = useT();
+  const queryClient = useQueryClient();
   const [pendingSourceId, setPendingSourceId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
@@ -97,6 +107,54 @@ export function DocumentShareDialog({
         actor.id !== ownerActorId &&
         !existingActorIds.has(actor.id),
     ) ?? [];
+  const cachedRooms = queryClient.getQueryData<TeamHubRoomPage>(
+    tenantRoomsQueryKey(tenantId),
+  )?.items;
+  const needsRoomNameLookup = Boolean(
+    share.data?.sources.some(
+      (item) =>
+        item.source.source_kind === "context" &&
+        item.source.provenance.binding_kind === "room" &&
+        Boolean(item.source.provenance.context_id) &&
+        (!item.label.trim() || item.label.trim().toLowerCase() === "chat"),
+    ),
+  );
+  const roomsQuery = useQuery({
+    ...tenantRoomsQueryOptions(client, tenantId),
+    enabled: needsRoomNameLookup && !cachedRooms?.length,
+  });
+  const knownRooms = roomsQuery.data?.items ?? cachedRooms;
+  const resolvedShare = useMemo(() => {
+    if (!share.data || !knownRooms?.length) return share.data;
+    const roomNameById = new Map<string, string>();
+    for (const room of knownRooms) {
+      const displayName =
+        room.direct_peer?.display_name?.trim() || room.name.trim();
+      if (displayName) roomNameById.set(room.id, displayName);
+    }
+    return {
+      ...share.data,
+      sources: share.data.sources.map((item) => {
+        if (
+          item.source.source_kind !== "context" ||
+          item.source.provenance.binding_kind !== "room" ||
+          !item.source.provenance.context_id
+        ) {
+          return item;
+        }
+        const resolvedName = roomNameById.get(
+          item.source.provenance.context_id,
+        );
+        if (
+          !resolvedName ||
+          (item.label.trim() && item.label.trim().toLowerCase() !== "chat")
+        ) {
+          return item;
+        }
+        return { ...item, label: resolvedName };
+      }),
+    };
+  }, [knownRooms, share.data]);
 
   async function copyCanonicalLink() {
     if (!share.data?.general_access?.canonical_url) return;
@@ -138,7 +196,12 @@ export function DocumentShareDialog({
           ),
         ),
       );
-      await share.refetch();
+      await Promise.all([
+        share.refetch(),
+        queryClient.invalidateQueries({
+          queryKey: documentQueryKey(tenantId, documentId),
+        }),
+      ]);
     } catch {
       setActionError(translate(m.inviteFailed));
     } finally {
@@ -160,7 +223,21 @@ export function DocumentShareDialog({
           },
         ),
       );
-      await share.refetch();
+      await Promise.all([
+        share.refetch(),
+        queryClient.invalidateQueries({
+          queryKey: roomDocumentsQueryKey(tenantId, roomId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: documentQueryKey(tenantId, documentId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["teamhub", "library-documents"],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["teamhub", tenantId, "library-documents"],
+        }),
+      ]);
     } catch {
       const message = translate(m.removeFromRoomFailed);
       setActionError(message);
@@ -188,7 +265,12 @@ export function DocumentShareDialog({
           },
         ),
       );
-      await share.refetch();
+      await Promise.all([
+        share.refetch(),
+        queryClient.invalidateQueries({
+          queryKey: documentQueryKey(tenantId, documentId),
+        }),
+      ]);
     } catch {
       setActionError(translate(m.permissionUpdateFailed));
     } finally {
@@ -210,7 +292,12 @@ export function DocumentShareDialog({
           },
         ),
       );
-      await share.refetch();
+      await Promise.all([
+        share.refetch(),
+        queryClient.invalidateQueries({
+          queryKey: documentQueryKey(tenantId, documentId),
+        }),
+      ]);
     } catch {
       setActionError(translate(m.removeCollaboratorFailed));
     } finally {
@@ -280,7 +367,7 @@ export function DocumentShareDialog({
                 <Icon icon={RefreshIcon} size={14} /> {t(commonMessages.retry)}
               </Button>
             </div>
-          ) : share.data ? (
+          ) : resolvedShare ? (
             view === "manage" ? (
               <ManageCollaborators
                 actionError={actionError}
@@ -289,7 +376,7 @@ export function DocumentShareDialog({
                 onRemoveFromRoom={removeFromRoom}
                 onUpdate={updateCollaborator}
                 pendingSourceId={pendingSourceId}
-                share={share.data}
+                share={resolvedShare}
               />
             ) : (
               <ShareContent
@@ -308,7 +395,7 @@ export function DocumentShareDialog({
                 onRemoveFromRoom={removeFromRoom}
                 onRetryActors={() => void actors.refetch()}
                 pendingSourceId={pendingSourceId}
-                share={share.data}
+                share={resolvedShare}
               />
             )
           ) : null}
@@ -664,9 +751,7 @@ function RoomBindingSection({
       setSelected(null);
     } catch (cause) {
       setRemoveError(
-        cause instanceof Error
-          ? cause.message
-          : "The Document could not be removed from this Room.",
+        cause instanceof Error ? cause.message : t(m.removeFromRoomFailed),
       );
     } finally {
       setRemoving(false);

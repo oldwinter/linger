@@ -110,6 +110,16 @@ function SharedDocumentSurface({
   const refreshTitle = dirty
     ? "Save your changes before refreshing"
     : t(sharedDocumentMessages.refresh);
+  const sharedFilename = file.data?.filename;
+
+  useEffect(() => {
+    if (!sharedFilename) return;
+    const previousTitle = document.title;
+    document.title = `${sharedFilename} — Linger`;
+    return () => {
+      document.title = previousTitle;
+    };
+  }, [sharedFilename]);
 
   return (
     <main className="min-h-dvh bg-app-surface text-app-body">
@@ -301,6 +311,7 @@ function SharedFileEditor({
                 event.currentTarget.value = "";
               }}
               ref={fileInputRef}
+              aria-hidden="true"
               tabIndex={-1}
               type="file"
             />

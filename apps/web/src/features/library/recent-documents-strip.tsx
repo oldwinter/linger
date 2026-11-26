@@ -5,6 +5,9 @@ import { Link } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { documentDetailPath } from "@/features/rooms/files/document-detail-routes";
+import { useT } from "@/i18n/use-translation";
+
+import { libraryMessages as m } from "./library.messages";
 
 import {
   clearRecentDocuments,
@@ -24,6 +27,7 @@ type RemovalFocus = { entryId: string } | "empty";
  * stays out of the page when nothing has been opened.
  */
 export function RecentDocumentsStrip({ tenantId }: { tenantId: string }) {
+  const t = useT();
   const accountId = useRecentDocumentsAccountId();
   const [entries, setEntries] = useState<RecentDocument[]>(() =>
     readRecentDocuments(accountId, tenantId),
@@ -76,10 +80,12 @@ export function RecentDocumentsStrip({ tenantId }: { tenantId: string }) {
   }
   return (
     <section
-      aria-label="Recently opened"
+      aria-label={t(m.recentlyOpened)}
       className="mb-5 flex flex-wrap items-center gap-x-3 gap-y-2"
     >
-      <h3 className="text-xs font-medium text-app-muted">Recently opened</h3>
+      <h3 className="text-xs font-medium text-app-muted">
+        {t(m.recentlyOpened)}
+      </h3>
       {entries.length === 0 ? (
         <p
           className="text-xs text-app-muted"
@@ -130,7 +136,7 @@ export function RecentDocumentsStrip({ tenantId }: { tenantId: string }) {
             size="compact"
             tone="ghost"
           >
-            Clear
+            {t(m.clearRecent)}
           </Button>
         </>
       )}

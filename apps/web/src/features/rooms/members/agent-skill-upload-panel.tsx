@@ -21,7 +21,11 @@ import {
 } from "@/components/ui/settings-group";
 import { teamHubData, teamHubDone } from "@/features/teamhub/teamhub-api";
 import { agentCanDoPath } from "./agent-can-do";
-import { createTeamHubIdempotencyKey } from "@/features/teamhub/teamhub-client";
+import {
+  createTeamHubIdempotencyKey,
+  TeamHubError,
+} from "@/features/teamhub/teamhub-client";
+import { formatBytes } from "@/lib/format-bytes";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type {
   TeamHubSkillManifest,
@@ -230,9 +234,11 @@ export function AgentSkillUploadPanel({
       <input
         ref={input}
         accept={acceptedSkillUpload}
+        aria-hidden="true"
         aria-label={t(agentInfoMessages.uploadSkillPackage)}
         className="sr-only"
         disabled={!canManage}
+        tabIndex={-1}
         type="file"
         onChange={(event) => {
           const file = event.target.files?.[0];
@@ -280,6 +286,11 @@ export function AgentSkillUploadPanel({
                     }
                     title={skill.name}
                   />
+                  {skill.is_default ? (
+                    <span className="shrink-0 rounded-full border border-border bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                      {t(agentInfoMessages.builtInSkill)}
+                    </span>
+                  ) : null}
                   <span className="shrink-0 font-mono text-[12px] tabular-nums tracking-normal text-muted-foreground">
                     {skill.manifest_version}
                   </span>
@@ -322,7 +333,7 @@ export function AgentSkillUploadPanel({
           className="block px-4 py-2 text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           to={agentCanDoPath(tenantId, agentId)}
         >
-          Turn skills on or off
+          {t(agentInfoMessages.turnSkillsOnOrOff)}
         </Link>
       ) : null}
       {onToggleExpanded ? (
@@ -564,6 +575,17 @@ function HintPopover({
 }
 
 function skillUploadErrorMessage(error: unknown, t: Translate = translate) {
+  if (error instanceof TeamHubError && error.code === "PAYLOAD_TOO_LARGE") {
+    const limit = Array.isArray(error.details)
+      ? (error.details.find((detail) => detail.code === "too_large")
+          ?.limit_bytes ??
+        error.details.find((detail) => typeof detail.limit_bytes === "number")
+          ?.limit_bytes)
+      : undefined;
+    if (limit !== undefined) {
+      return t(agentInfoMessages.skillTooLarge, { limit: formatBytes(limit) });
+    }
+  }
   return error instanceof Error
     ? error.message
     : t(agentInfoMessages.skillOperationFailed);

@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link, useParams, useSearchParams } from "react-router";
+import { Link, useLocation, useParams, useSearchParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import { collectTeamHubCursorPages } from "@/features/teamhub/teamhub-cursor-pages";
@@ -8,18 +8,37 @@ import { TeamHubError } from "@/features/teamhub/teamhub-error";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubWorkItem } from "@/features/teamhub/teamhub-types";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
+import { commonMessages } from "@/i18n/common.messages";
+import { useT } from "@/i18n/use-translation";
 
 import { tenantWorkItemTargetQueryOptions } from "./work-item-queries";
-import { workItemPairContrast } from "./work-item-pair";
+import {
+  sanitizeWorkItemBoardSearch,
+  workItemPairContrast,
+  type WorkItemPairNavigationState,
+} from "./work-item-pair";
 import { workItemActivityText } from "./work-item-story";
+import { workItemsMessages as m } from "./work-items.messages";
 
 /** Two Work Items from the board, read next to each other. The board stays put. */
 export function WorkItemPairPage() {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const tenantId = requireRoomRouteParam(useParams().tenantId, "Tenant");
+  const location = useLocation();
   const search = useSearchParams()[0];
   const leftId = search.get("left") ?? "";
   const rightId = search.get("right") ?? "";
+  const navState = (location.state ??
+    null) as WorkItemPairNavigationState | null;
+  const boardSearch = sanitizeWorkItemBoardSearch(
+    search.get("from") ?? navState?.boardSearch,
+  );
+  const restoreSelectedIds = navState?.selectedIds?.length
+    ? navState.selectedIds
+    : leftId && rightId && leftId !== rightId
+      ? [leftId, rightId]
+      : undefined;
   const left = useQuery({
     ...tenantWorkItemTargetQueryOptions(client, tenantId, leftId),
     enabled: leftId.length > 0,
@@ -50,10 +69,9 @@ export function WorkItemPairPage() {
     <main className="min-h-0 flex-1 overflow-y-auto bg-app-surface px-5 py-7 md:px-10">
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
         <header>
-          <h1 className="text-xl text-foreground">Side by side</h1>
+          <h1 className="text-xl text-foreground">{t(m.sideBySideTitle)}</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Two Work Items from the board, read together. Nothing here changes
-            them.
+            {t(m.sideBySideDescription)}
           </p>
           {contrast ? (
             <p className="mt-3 text-sm text-foreground">{contrast}</p>
@@ -61,7 +79,7 @@ export function WorkItemPairPage() {
         </header>
         {leftId.length === 0 || rightId.length === 0 || leftId === rightId ? (
           <p className="text-sm text-muted-foreground" role="status">
-            Choose two different Work Items on the board.
+            {t(m.chooseTwoItems)}
           </p>
         ) : (
           <div className="grid gap-6 md:grid-cols-2">
@@ -87,9 +105,19 @@ export function WorkItemPairPage() {
         )}
         <Link
           className="text-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          to={`/t/${encodeURIComponent(tenantId)}/dashboard`}
+          state={
+            restoreSelectedIds
+              ? ({
+                  selectedIds: restoreSelectedIds,
+                } satisfies WorkItemPairNavigationState)
+              : undefined
+          }
+          to={{
+            pathname: `/t/${encodeURIComponent(tenantId)}/dashboard`,
+            search: boardSearch,
+          }}
         >
-          Back to the board
+          {t(m.backToBoard)}
         </Link>
       </div>
     </main>
@@ -113,6 +141,7 @@ function WorkItemColumn({
   tenantId: string;
   workItemId: string;
 }) {
+  const t = useT();
   const { client } = useTeamHubRuntime();
   const timeline = useQuery({
     enabled: Boolean(item),
@@ -129,7 +158,7 @@ function WorkItemColumn({
   if (pending) {
     return (
       <p className="text-sm text-muted-foreground" role="status">
-        Loading this Work Item.
+        {t(m.loadingWorkItem)}
       </p>
     );
   }
@@ -137,7 +166,7 @@ function WorkItemColumn({
     return (
       <div className="space-y-3" role="alert">
         <p className="text-sm text-app-danger">
-          {error.message || "This Work Item could not be loaded."}
+          {error.message || t(m.workItemLoadFailed)}
         </p>
         <Button
           disabled={fetching}
@@ -145,7 +174,7 @@ function WorkItemColumn({
           size="compact"
           tone="secondary"
         >
-          {fetching ? "Retrying…" : "Retry"}
+          {fetching ? t(m.retrying) : t(commonMessages.retry)}
         </Button>
       </div>
     );
@@ -153,7 +182,7 @@ function WorkItemColumn({
   if (!item) {
     return (
       <p className="text-sm text-muted-foreground" role="status">
-        This Work Item is not on the Dashboard.
+        {t(m.workItemNotOnDashboard)}
       </p>
     );
   }
@@ -167,7 +196,7 @@ function WorkItemColumn({
     >
       <h2 className="text-lg text-foreground">{item.title}</h2>
       <p className="whitespace-pre-wrap text-sm text-foreground">
-        {item.description.trim() ? item.description : "No description yet."}
+        {item.description.trim() ? item.description : t(m.noDescriptionYet)}
       </p>
       {story.length > 0 ? (
         <ol aria-label={`${item.title} story`} className="flex flex-col gap-2">

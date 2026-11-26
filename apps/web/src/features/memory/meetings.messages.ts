@@ -12,6 +12,9 @@ export const meetingsMessages = defineMessages("meetings", {
   rangeToday: "Today",
   rangeWeek: "Past 7 days",
   rangeAll: "All meetings",
+  shapeOfToday: "Shape of today",
+  weekInMemory: "The week in memory",
+  upNext: "Up next",
   loading: "Loading meetings…",
   couldNotLoad: "Meetings could not be loaded.",
   calendar: "Meeting calendar",
@@ -85,4 +88,11 @@ export const meetingsMessages = defineMessages("meetings", {
   cannotPlay: "This browser cannot play it; download instead.",
   seekRecording: "Seek recording",
   playbackPosition: "{current} of {total}",
+
+  // Meeting reader actions.
+  askRecording: "Ask the recording",
+  keepAsPage: "Keep as a page",
+  turnTodosIntoReminders: "Turn to-dos into reminders",
+  tellThisStory: "Tell this story",
+  carryDecision: "Carry a decision",
 });

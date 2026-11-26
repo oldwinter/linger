@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"mime/multipart"
 	"net/http"
 	"strings"
@@ -14,6 +15,42 @@ import (
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/document"
 	httpapi "github.com/simplexai-labs/linger/contracts-go/teamhubpublic"
 )
+
+func formatUploadLimitBytes(limit int64) string {
+	const (
+		kb = 1024
+		mb = 1024 * kb
+		gb = 1024 * mb
+	)
+	switch {
+	case limit >= gb:
+		return formatUploadLimitUnit(limit, gb, "GB")
+	case limit >= mb:
+		return formatUploadLimitUnit(limit, mb, "MB")
+	case limit >= kb:
+		return formatUploadLimitUnit(limit, kb, "KB")
+	default:
+		return fmt.Sprintf("%d B", limit)
+	}
+}
+
+func formatUploadLimitUnit(bytes, unit int64, suffix string) string {
+	if bytes%unit == 0 {
+		return fmt.Sprintf("%d %s", bytes/unit, suffix)
+	}
+	return fmt.Sprintf("%.1f %s", float64(bytes)/float64(unit), suffix)
+}
+
+func (a *App) writeDocumentTooLargeError(c *gin.Context) {
+	code, limit := "too_large", a.cfg.ArtifactMaxBytes
+	a.writeErrorWithDetails(
+		c,
+		http.StatusRequestEntityTooLarge,
+		"PAYLOAD_TOO_LARGE",
+		fmt.Sprintf("Document content exceeds the %s limit", formatUploadLimitBytes(limit)),
+		[]httpapi.ErrorDetail{{Field: "content", Code: &code, Reason: "exceeds the document size limit", LimitBytes: &limit}},
+	)
+}
 
 type documentUpload struct {
 	ParentID                                  *string
@@ -79,7 +116,7 @@ func (a *App) uploadDocumentToTarget(
 	}
 	if err != nil {
 		if errors.Is(err, artifactstore.ErrTooLarge) || isMaxBytesError(err) {
-			a.writeError(c, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", "Document content exceeds the configured limit")
+			a.writeDocumentTooLargeError(c)
 			return
 		}
 		a.writeError(c, http.StatusBadRequest, "INVALID_REQUEST", "Document upload is invalid")
@@ -169,7 +206,7 @@ func (a *App) uploadDocumentVersion(c *gin.Context, idempotencyKey string) {
 	}
 	if err != nil {
 		if errors.Is(err, artifactstore.ErrTooLarge) || isMaxBytesError(err) {
-			a.writeError(c, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", "Document content exceeds the configured limit")
+			a.writeDocumentTooLargeError(c)
 			return
 		}
 		a.writeError(c, http.StatusBadRequest, "INVALID_REQUEST", "Document Version upload is invalid")
@@ -1079,7 +1116,7 @@ func (a *App) writeUnifiedDocumentError(c *gin.Context, action string, err error
 	case errors.Is(err, document.ErrRecoveryBudgetExceeded):
 		a.writeError(c, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", "Document content exceeds the recovery limit")
 	case errors.Is(err, artifactstore.ErrTooLarge):
-		a.writeError(c, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", "Document content exceeds the configured limit")
+		a.writeDocumentTooLargeError(c)
 	case errors.Is(err, document.ErrObjectStoreUnavailable):
 		a.writeError(c, http.StatusServiceUnavailable, "DOCUMENT_OBJECT_STORE_UNAVAILABLE", "Document storage is unavailable")
 	case errors.Is(err, document.ErrRevisionUnavailable):

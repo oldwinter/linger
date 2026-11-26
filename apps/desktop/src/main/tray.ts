@@ -39,11 +39,6 @@ export interface DesktopTrayHost {
   setUnreadCount(count: number): void;
 }
 
-const toolTip = (base: string, unread: number): string =>
-  unread > 0
-    ? `${base} · ${unread} unread ${unread === 1 ? "mention" : "mentions"}`
-    : base;
-
 const BUSY_FRAME_MS = 400;
 
 const ARTWORK: Record<number, TrayArtwork> = {
@@ -142,7 +137,11 @@ export class TrayModule implements Module, DesktopTrayHost {
     const base = this.#t(trayMessages.tooltip, {
       status: this.#status().label,
     });
-    this.#tray.setToolTip(toolTip(base, this.#unreadCount));
+    const text =
+      this.#unreadCount > 0
+        ? `${base} · ${this.#t(trayMessages.unreadMentions, { count: this.#unreadCount })}`
+        : base;
+    this.#tray.setToolTip(text);
   }
 
   #refresh(): void {

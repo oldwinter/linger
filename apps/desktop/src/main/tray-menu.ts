@@ -48,7 +48,7 @@ export const trayMenu = (
   { kind: "separator" },
   { kind: "action", action: "open", label: t(m.open) },
   // Capture without opening the app.
-  { kind: "action", action: "quick-note", label: "New Note" },
+  { kind: "action", action: "quick-note", label: t(m.newNote) },
   // Reconnecting re-enrolls the same computer, e.g. after its credential
   // was rejected or the server moved.
   {

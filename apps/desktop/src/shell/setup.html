@@ -28,7 +28,7 @@
         --filled: #9b9a90;
         --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
         --ease: cubic-bezier(0.22, 1, 0.36, 1);
-        color-scheme: light;
+        color-scheme: light dark;
       }
       * {
         box-sizing: border-box;
@@ -1995,6 +1995,274 @@
       section[data-step="ready"] .start {
         padding-top: 22px;
       }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --ink: #f2f1ed;
+          --body: #d4d3cd;
+          --muted: #9c9a90;
+          --faint: #7c7a71;
+          --line: #2e2e29;
+          --field: #242420;
+          --ok: #6ee787;
+          --error: #ff855f;
+          --filled: #8b897f;
+        }
+        body {
+          background: #161614;
+        }
+        .scene {
+          background-color: #1c1c19;
+          filter: invert(0.91) hue-rotate(180deg) contrast(1.04);
+        }
+        .topbar {
+          color: #b4b3aa;
+        }
+        .topbar .brand {
+          filter: invert(1) hue-rotate(180deg);
+        }
+        input[type="text"],
+        .row select,
+        .keys input,
+        .signin-modal details input {
+          border-color: #35352f;
+          background: #1f1f1c;
+          color: var(--ink);
+        }
+        .folders span {
+          color: #c9c8bf;
+        }
+        .switch {
+          background: #3a3a33;
+        }
+        .switch::after {
+          background: #f2f1ed;
+        }
+        .switch:hover:not(:disabled) {
+          background: #4b4b43;
+        }
+        .switch[aria-checked="true"] {
+          background: var(--ink);
+        }
+        .switch[aria-checked="true"]::after {
+          background: #161614;
+        }
+        .switch[aria-checked="true"]:hover:not(:disabled) {
+          background: #ffffff;
+        }
+        .ghost,
+        .secondary,
+        .change {
+          border-color: #35352f;
+          background: #1f1f1c;
+          color: var(--ink);
+        }
+        .ghost:hover:not(:disabled),
+        .secondary:hover:not(:disabled),
+        .change:hover:not(:disabled) {
+          border-color: #4a4a42;
+          background: #2a2a25;
+        }
+        .change:active:not(:disabled) {
+          background: #32322c;
+        }
+        .primary {
+          border-color: #f2f1ed;
+          background: #f2f1ed;
+          color: #161614;
+        }
+        .primary:hover:not(:disabled) {
+          background: #ffffff;
+        }
+        .primary.large {
+          background: linear-gradient(180deg, #f5f4f0 0%, #e4e3dc 100%);
+          color: #161614;
+          box-shadow:
+            0 0 0 1px rgba(242, 241, 237, 0.85),
+            0 1px 2px rgba(0, 0, 0, 0.35),
+            0 10px 24px -12px rgba(0, 0, 0, 0.7),
+            inset 0 1px 0 rgba(255, 255, 255, 0.7);
+        }
+        .primary.large:hover:not(:disabled) {
+          background: linear-gradient(180deg, #ffffff 0%, #ecebe4 100%);
+        }
+        .link {
+          color: #c9c8bf;
+        }
+        .link:hover:not(:disabled) {
+          background: rgba(255, 255, 255, 0.08);
+          color: var(--ink);
+        }
+        .link.quiet {
+          color: #b4b3aa;
+          text-decoration-color: #4a4a42;
+        }
+        .eyebrow {
+          background: rgba(31, 31, 28, 0.9);
+          color: #c9c8bf;
+        }
+        .featured-pill {
+          border-color: #5c3d1e;
+          background: #2b2116;
+          color: #f5b971;
+        }
+        .spotlight-card {
+          border-color: #32312a;
+          background: linear-gradient(180deg, #1f1f1c 0%, #1b1b18 100%);
+        }
+        .spotlight-card[data-recommended="true"],
+        .local-spotlight[data-recommended="true"] {
+          border-color: #5c4324;
+          background: linear-gradient(180deg, #252019 0%, #1e1a15 100%);
+        }
+        .local-spotlight {
+          border-color: #32312a;
+          background: #1b1b18;
+          color: #c9c8bf;
+        }
+        .spotlight-specs,
+        .spotlight-link {
+          color: #c9c8bf;
+        }
+        .spotlight-link {
+          text-decoration-color: #4a4a42;
+        }
+        .spotlight-link:hover:not(:disabled) {
+          background: rgba(255, 255, 255, 0.08);
+          color: var(--ink);
+          text-decoration-color: var(--ink);
+        }
+        .plan-line .sep {
+          background: #4a4a42;
+        }
+        .choices,
+        .panel {
+          border-color: #2e2e29;
+          background: #1f1f1c;
+          box-shadow:
+            0 1px 2px rgba(0, 0, 0, 0.35),
+            0 12px 32px -18px rgba(0, 0, 0, 0.65);
+        }
+        .choice + .choice {
+          border-top-color: #2a2a25;
+        }
+        .seg {
+          background: #161614;
+          box-shadow: inset 0 0 0 1px #2e2e29;
+        }
+        .seg button {
+          color: #9c9a90;
+        }
+        .seg .knob {
+          background: #2b2b26;
+          box-shadow:
+            0 1px 2px rgba(0, 0, 0, 0.45),
+            0 0 0 0.5px #3f3f38;
+        }
+        .pick {
+          border-color: #32322c;
+          background: #1a1a17;
+        }
+        .pick:hover:not(:disabled):not([aria-disabled="true"]) {
+          border-color: #4f4f47;
+        }
+        .pick[aria-checked="true"] {
+          border-color: var(--ink);
+          background: #242420;
+        }
+        .byok-fields .ep-base-wrap,
+        .byok-fields .ep > .cb,
+        .byok-fields .cb.standalone,
+        .byok-fields .byok-key {
+          border-color: #35352f;
+          background: #181815;
+        }
+        .byok-fields .ep-base-wrap:focus-within,
+        .byok-fields .ep > .cb:focus-within,
+        .byok-fields .cb.standalone:focus-within,
+        .byok-fields .byok-key:focus {
+          border-color: var(--ink);
+          background: #1f1f1c;
+        }
+        .cb[data-default="true"] .cb-input:focus {
+          color: #b4b3aa;
+        }
+        .cb-caret:hover:not(:disabled),
+        .cb[data-open="true"] .cb-caret {
+          background: rgba(255, 255, 255, 0.08);
+        }
+        .cb-menu {
+          border-color: #35352f;
+          background: #1f1f1c;
+          box-shadow: 0 16px 36px -14px rgba(0, 0, 0, 0.7);
+        }
+        .cb-menu [role="option"]:hover,
+        .cb-menu [role="option"]:focus-visible {
+          background: #2a2a25;
+        }
+        .keys label,
+        .account dt,
+        .diagnostics output {
+          color: #b4b3aa;
+        }
+        .team .link {
+          text-decoration-color: #4a4a42;
+        }
+        .track {
+          background: #2c2c27;
+        }
+        .fill {
+          background: linear-gradient(90deg, #a8a69d, #f2f1ed);
+        }
+        section[data-failed="true"] .fill {
+          background: #5a5952;
+        }
+        .checks {
+          border-top-color: #2a2a25;
+        }
+        .checks li + li::before {
+          background: #2e2e29;
+        }
+        .checks li[data-state="done"] {
+          color: #b4b3aa;
+        }
+        .dot {
+          border-color: #3f3f38;
+          background: #1f1f1c;
+        }
+        .dot svg {
+          stroke: #161614;
+        }
+        .problem {
+          border-color: #542a21;
+          background: #2a1915;
+        }
+        .signin-modal {
+          background: rgb(0 0 0 / 56%);
+        }
+        .signin-modal .sheet {
+          border: 1px solid #32322c;
+          background: #1f1f1c;
+        }
+        .signin-modal .no-browser {
+          border-color: #5a4620;
+          background: #292214;
+          color: #f3d285;
+        }
+        .mark {
+          background: linear-gradient(180deg, #f2f1ed, #d8d7cf);
+          box-shadow:
+            0 0 0 6px #242420,
+            0 14px 28px -14px rgba(0, 0, 0, 0.75);
+        }
+        .mark svg {
+          stroke: #161614;
+        }
+        .connected,
+        .account {
+          border-color: #2e2e29;
+          background: #1f1f1c;
+        }
+      }
       @media (prefers-reduced-motion: reduce) {
         *,
         *::before,
@@ -2008,7 +2276,7 @@
   <body data-platform="darwin">
     <div class="scene" aria-hidden="true"></div>
     <header class="topbar">
-      <img class="brand" src="logo.png" alt="Linger" />
+      <img class="brand" src="logo.png" alt="LingerX" />
       <span id="step-label"></span>
     </header>
 

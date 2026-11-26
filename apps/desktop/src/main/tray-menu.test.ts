@@ -20,7 +20,7 @@ describe("trayMenu", () => {
     expect(items).toContainEqual({
       kind: "action",
       action: "toggle-prevent-sleep",
-      label: "Prevent Sleep",
+      label: "Keep Awake While Idle",
       checked: true,
     });
     const actions = items.flatMap((i) => (i.kind === "action" ? i.action : []));
@@ -185,6 +185,17 @@ describe("the tray in Chinese", () => {
       },
       zh,
     );
+    expect(items).toContainEqual({
+      kind: "action",
+      action: "quick-note",
+      label: zhCN.tray.newNote,
+    });
+    expect(items).toContainEqual({
+      kind: "action",
+      action: "toggle-prevent-sleep",
+      label: zhCN.tray.preventSleep,
+      checked: false,
+    });
     expect(items).toContainEqual({
       kind: "action",
       action: "quit",

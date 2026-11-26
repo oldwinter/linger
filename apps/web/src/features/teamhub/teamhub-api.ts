@@ -14,16 +14,34 @@ import { readTeamHubError, TeamHubTransportError } from "./teamhub-error";
 export type TeamHubApi = Client<paths>;
 export type TeamHubApiPath = keyof paths;
 
-// Signing in, reading the Session, and opening a shared link decide
-// authentication themselves, so a 401 there is an answer, not a lost Session.
+// Signing in, logging out, reading the Session, and opening a shared link
+// decide authentication themselves, so a 401 there is an answer, not a lost Session.
 const unauthenticatedPaths = new Set<TeamHubApiPath>([
   "/v0/auth/login",
+  "/v0/auth/logout",
   "/v0/session",
   "/v0/shared-documents/content",
   "/v0/shared-documents/resolve",
   "/v0/shared-room-history/asset",
   "/v0/shared-room-history/read",
 ]);
+
+let silentAuthenticationDepth = 0;
+const silentAuthenticationRequests = new WeakSet<Request>();
+
+/**
+ * Starts a request whose 401 is handled by the caller (such as an initial
+ * cold-start route loader probing session and workspace concurrently) without
+ * broadcasting a mid-session expiration alert.
+ */
+export function startSilentAuthenticationRequest<T>(run: () => T): T {
+  silentAuthenticationDepth += 1;
+  try {
+    return run();
+  } finally {
+    silentAuthenticationDepth -= 1;
+  }
+}
 
 /**
  * Creates the one typed TeamHub client: it sends the Session cookie, maps a
@@ -39,7 +57,12 @@ export function createTeamHubApi(options: {
   const api = createClient<paths>({
     baseUrl: options.baseUrl.href,
     credentials: "include",
-    fetch: (request) => fetchRequest(request),
+    fetch: (request) => {
+      if (silentAuthenticationDepth > 0) {
+        silentAuthenticationRequests.add(request);
+      }
+      return fetchRequest(request);
+    },
   });
   const errors: Middleware = {
     async onResponse({ request, response, schemaPath }) {
@@ -48,7 +71,8 @@ export function createTeamHubApi(options: {
       request.signal.throwIfAborted();
       if (
         response.status === 401 &&
-        !unauthenticatedPaths.has(schemaPath as TeamHubApiPath)
+        !unauthenticatedPaths.has(schemaPath as TeamHubApiPath) &&
+        !silentAuthenticationRequests.has(request)
       ) {
         onAuthenticationRequired("session-expired");
       }

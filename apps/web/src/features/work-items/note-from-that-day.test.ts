@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { noteFromThatDay } from "./note-from-that-day";
+import { createTestTeamHubRuntime } from "@/test/teamhub-test-runtime";
+
+import { loadNoteFromThatDay, noteFromThatDay } from "./note-from-that-day";
 
 describe("note from that day", () => {
   const notes = [
@@ -17,5 +19,18 @@ describe("note from that day", () => {
   it("stays quiet when that day has no words", () => {
     expect(noteFromThatDay(notes, "2026-11-13")).toBeUndefined();
     expect(noteFromThatDay(notes, "2026-11-12")).toBeUndefined();
+  });
+
+  it("resolves to null instead of undefined when no note exists for that day", async () => {
+    const runtime = createTestTeamHubRuntime();
+    runtime.server.on("GET", "/v0/tenants/{tenantId}/me/pocket-notes", () => ({
+      items: [],
+      page: { has_more: false },
+      today: "2026-11-14",
+    }));
+
+    await expect(
+      loadNoteFromThatDay(runtime.client, "tenant-northstar", "2026-11-12"),
+    ).resolves.toBeNull();
   });
 });

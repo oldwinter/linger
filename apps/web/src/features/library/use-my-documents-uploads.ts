@@ -4,12 +4,15 @@ import { useNavigate } from "react-router";
 import { rememberUploadedImage } from "@/features/rooms/files/uploaded-image-preview";
 import {
   createTeamHubIdempotencyKey,
+  TeamHubError,
   type TeamHubClient,
 } from "@/features/teamhub/teamhub-client";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubDocumentPlacementNode } from "@/features/teamhub/teamhub-types";
+import { translate } from "@/i18n/language";
 import { useT } from "@/i18n/use-translation";
+import { formatBytes } from "@/lib/format-bytes";
 
 import { documentUploadRepresentationFormat } from "./document-upload-representation";
 import { libraryMessages as m } from "./library.messages";
@@ -100,27 +103,30 @@ export function useMyDocumentsUploads({
     batch: UploadBatch,
     parentId: string | undefined,
     openUploadedDocument: boolean,
-  ) {
+    preservedFailures: readonly UploadFailure[] = [],
+  ): Promise<UploadFailure[] | undefined> {
     setExternalDrop(null);
-    if (creating) return;
+    if (creating) return undefined;
     if (uploadsActive) {
       tenantUploads.setError(tenantId, m.uploadBusy);
-      return;
+      return undefined;
     }
     setError(null);
-    tenantUploads.setError(tenantId, null);
+    tenantUploads.setError(
+      tenantId,
+      preservedFailures.length > 0 ? { failures: preservedFailures } : null,
+    );
     const folderPaths = [
       ...batch.folderPaths,
       ...batch.sources.map((source) => source.folderPath),
     ];
     if (batch.sources.length === 0 && batch.folderPaths.length === 0) {
+      const combined = [...preservedFailures, ...batch.readFailures];
       tenantUploads.setError(
         tenantId,
-        batch.readFailures.length > 0
-          ? { failures: batch.readFailures }
-          : m.noSupportedFiles,
+        combined.length > 0 ? { failures: combined } : m.noSupportedFiles,
       );
-      return;
+      return combined;
     }
     setCreating("import");
     tenantUploads.setActive(tenantId, true);
@@ -129,7 +135,10 @@ export function useMyDocumentsUploads({
     tenantUploads.add(tenantId, uploads);
     await nextPaint();
     let uploadedDocumentId: string | undefined;
-    const failures: UploadFailure[] = [...batch.readFailures];
+    const failures: UploadFailure[] = [
+      ...preservedFailures,
+      ...batch.readFailures,
+    ];
     try {
       const folderIds = await createUploadFolders(
         { client, items, onChanged, tenantId },
@@ -147,7 +156,10 @@ export function useMyDocumentsUploads({
             if (!folderIds.has(key)) {
               failures.push({
                 filename: upload.filename,
+                id: upload.id,
                 message: m.uploadFolderMissing,
+                parentId,
+                source: { file, folderPath },
               });
               return;
             }
@@ -170,12 +182,17 @@ export function useMyDocumentsUploads({
             setRevealDocumentId(document.id);
             await onChanged();
           } catch (uploadError) {
+            const key = folderKey(folderPath);
+            const targetId = folderIds.get(key);
             failures.push({
               filename: upload.filename,
-              message:
-                uploadError instanceof Error
-                  ? uploadError.message
-                  : m.documentNotImported,
+              id: upload.id,
+              message: uploadFailureReason(uploadError, file),
+              parentId: folderIds.has(key) ? targetId : parentId,
+              source: {
+                file,
+                folderPath: folderIds.has(key) ? [] : folderPath,
+              },
             });
           } finally {
             tenantUploads.remove(tenantId, new Set([upload.id]));
@@ -193,6 +210,7 @@ export function useMyDocumentsUploads({
           `/t/${encodeURIComponent(tenantId)}/documents/${encodeURIComponent(uploadedDocumentId)}`,
         );
       }
+      return failures;
     } catch (importError) {
       tenantUploads.setError(
         tenantId,
@@ -200,6 +218,7 @@ export function useMyDocumentsUploads({
           ? importError.message
           : m.documentNotImported,
       );
+      return undefined;
     } finally {
       tenantUploads.remove(
         tenantId,
@@ -209,6 +228,68 @@ export function useMyDocumentsUploads({
       setCreating(null);
       setExternalDrop(null);
     }
+  }
+
+  const failedUploads: readonly UploadFailure[] =
+    keptUploadError &&
+    typeof keptUploadError === "object" &&
+    "failures" in keptUploadError
+      ? keptUploadError.failures
+      : [];
+
+  async function retryFailedUpload(failureId: string) {
+    if (creating || uploadsActive) return;
+    const target = failedUploads.find(
+      (failure) => failure.id === failureId && failure.source,
+    );
+    if (!target?.source) return;
+    const remaining = failedUploads.filter(
+      (failure) => failure.id !== failureId,
+    );
+    await importDocuments(
+      { folderPaths: [], readFailures: [], sources: [target.source] },
+      target.parentId,
+      false,
+      remaining,
+    );
+  }
+
+  async function retryAllFailedUploads() {
+    if (creating || uploadsActive) return;
+    const retryable = failedUploads.filter((failure) => failure.source);
+    if (retryable.length === 0) return;
+    const nonRetryable = failedUploads.filter((failure) => !failure.source);
+    // Group retries by destination parentId while keeping all other failed
+    // entries (non-retryable, unretried, or newly failed) visible across batches.
+    const groups = new Map<string | undefined, UploadFailure[]>();
+    for (const failure of retryable) {
+      const list = groups.get(failure.parentId) ?? [];
+      list.push(failure);
+      groups.set(failure.parentId, list);
+    }
+    let remaining: UploadFailure[] = [...nonRetryable, ...retryable];
+    for (const [targetParentId, group] of groups) {
+      const groupIds = new Set(group.map((failure) => failure.id));
+      const preserved = remaining.filter(
+        (failure) => !groupIds.has(failure.id),
+      );
+      const nextFailures = await importDocuments(
+        {
+          folderPaths: [],
+          readFailures: [],
+          sources: group.map((failure) => failure.source!),
+        },
+        targetParentId,
+        false,
+        preserved,
+      );
+      if (!nextFailures) break;
+      remaining = nextFailures;
+    }
+  }
+
+  function dismissFailedUpload(failureId: string) {
+    tenantUploads.removeFailure(tenantId, failureId);
   }
 
   useLayoutEffect(() => {
@@ -222,17 +303,43 @@ export function useMyDocumentsUploads({
   }, []);
 
   return {
+    dismissFailedUpload,
     externalDrop,
+    failedUploads,
     importDocument,
     importDocuments,
     importDroppedDocuments,
     pendingUploads,
+    retryAllFailedUploads,
+    retryFailedUpload,
     revealDocumentId,
     setExternalDrop,
     // Worded here, so a kept error follows the language on screen.
     uploadError: keptUploadError ? uploadErrorText(keptUploadError, t) : null,
     uploadsActive,
   };
+}
+
+function uploadFailureReason(error: unknown, file: File) {
+  if (
+    error instanceof TeamHubError &&
+    (error.code === "PAYLOAD_TOO_LARGE" ||
+      error.code === "DOCUMENT_ASSET_TOO_LARGE")
+  ) {
+    const limit = Array.isArray(error.details)
+      ? (error.details.find((detail) => detail.code === "too_large")
+          ?.limit_bytes ??
+        error.details.find((detail) => typeof detail.limit_bytes === "number")
+          ?.limit_bytes)
+      : undefined;
+    if (limit !== undefined) {
+      return translate(m.uploadTooLarge, {
+        limit: formatBytes(limit),
+        size: formatBytes(file.size),
+      });
+    }
+  }
+  return error instanceof Error ? error.message : m.documentNotImported;
 }
 
 /**

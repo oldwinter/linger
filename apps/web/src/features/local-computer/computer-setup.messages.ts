@@ -105,9 +105,9 @@ export const computerSetupMessages = defineMessages("computerSetup", {
   connectThisComputer: "Connect this computer",
   lookingForApps: "Looking for Codex and Claude Code on this computer…",
   desktopAuthFailed:
-    "This computer's sign-in expired. Choose Reconnect This Computer in the Linger menu bar menu.",
+    "This computer's sign-in expired. Choose Reconnect This Computer in the Linger app menu (menu bar on macOS, or system tray on Windows and Linux).",
   desktopIdentityConflict:
-    "This computer is already registered under another Computer entry. Choose Reconnect This Computer in the Linger menu bar menu.",
+    "This computer is already registered under another Computer entry. Choose Reconnect This Computer in the Linger app menu (menu bar on macOS, or system tray on Windows and Linux).",
   desktopUpgradeRequired: "Update the Linger app to connect this computer.",
   desktopDisconnected:
     "The Linger background service is not running. Quit and reopen the app.",

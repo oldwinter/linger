@@ -3,7 +3,7 @@ import { defineMessages } from "@linger/service-kit/messages";
 // The Mobile Companion pairing and gateway status window (mobile-companion.html).
 export const mobileCompanionMessages = defineMessages("mobileCompanion", {
   title: "Mobile Companion",
-  subtitle: "Expose this Linger desktop securely over LAN or Tailscale.",
+  subtitle: "Expose this LingerX desktop securely over LAN or Tailscale.",
   toggleGatewayTitle: "Enable Mobile Companion Gateway",
   statusLabel: "Status",
   statusStopped: "Stopped",

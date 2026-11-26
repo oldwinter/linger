@@ -15,15 +15,16 @@ import {
   type DesktopNotificationPermission,
   requestDesktopNotificationPermission,
 } from "./desktop-notification-permission";
+import type { Message } from "@/i18n/messages";
+import { useT } from "@/i18n/use-translation";
 
-const statusCopy: Record<DesktopNotificationPermission, string> = {
-  denied:
-    "Notifications are blocked. Allow notifications for this site in your browser or system settings, then reload this page.",
-  default:
-    "Notifications are off. Enable them to be told about unread mentions while this window is in the background.",
-  granted: "Notifications are on.",
-  unsupported:
-    "This browser cannot show desktop notifications, so mentions stay in the Room list.",
+import { accountSettingsMessages as m } from "./account-settings.messages";
+
+const statusCopy: Record<DesktopNotificationPermission, Message<string>> = {
+  denied: m.notificationsDenied,
+  default: m.notificationsDefault,
+  granted: m.notificationsGranted,
+  unsupported: m.notificationsUnsupported,
 };
 
 const pauseEndFormat = new Intl.DateTimeFormat("en-US", {
@@ -43,6 +44,7 @@ export function DesktopNotificationsSettings({
 }: {
   accountId?: string;
 }) {
+  const t = useT();
   const [permission, setPermission] = useState<DesktopNotificationPermission>(
     desktopNotificationPermission,
   );
@@ -73,7 +75,7 @@ export function DesktopNotificationsSettings({
     <section className="rounded-2xl border border-border bg-background p-6">
       <div className="flex min-h-7 items-center justify-between gap-3">
         <h2 className="text-sm font-medium text-foreground">
-          Desktop notifications
+          {t(m.desktopNotifications)}
         </h2>
         {permission === "default" ? (
           <Button
@@ -82,18 +84,18 @@ export function DesktopNotificationsSettings({
             size="compact"
             tone="secondary"
           >
-            Enable
+            {t(m.enable)}
           </Button>
         ) : null}
       </div>
       <p className="mt-3 text-sm text-muted-foreground">
-        {statusCopy[permission]}
+        {t(statusCopy[permission])}
       </p>
       {permission === "granted" ? (
         pausedUntil ? (
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <p className="text-sm text-foreground" role="status">
-              Paused until{" "}
+              {t(m.pausedUntil)}{" "}
               <time dateTime={pausedUntil}>
                 {pauseEndFormat.format(new Date(pausedUntil))}
               </time>
@@ -104,36 +106,33 @@ export function DesktopNotificationsSettings({
               size="compact"
               tone="secondary"
             >
-              Resume now
+              {t(m.resumeNow)}
             </Button>
           </div>
         ) : (
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <span className="text-sm text-muted-foreground">
-              Pause notifications:
+              {t(m.pauseNotifications)}
             </span>
             <Button
               onClick={() => pause("hour")}
               size="compact"
               tone="secondary"
             >
-              Pause for 1 hour
+              {t(m.pauseForHour)}
             </Button>
             <Button
               onClick={() => pause("morning")}
               size="compact"
               tone="secondary"
             >
-              Pause until tomorrow morning
+              {t(m.pauseUntilMorning)}
             </Button>
           </div>
         )
       ) : null}
       <p className="mt-2 text-xs text-muted-foreground">
-        Unread mentions in Rooms you are not looking at appear while this window
-        is in the background, unless that Room’s mentions are snoozed. A pause
-        silences every desktop notification, whatever raises it. The desktop app
-        also shows the unread mention count on its icon.
+        {t(m.desktopNotificationsFooter)}
       </p>
     </section>
   );

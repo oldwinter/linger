@@ -147,7 +147,7 @@ export function RoomNavigation({
         // The Library sidebar continues this rail as its secondary column,
         // so the rail draws no boundary of its own there, as beside Message.
         data-workspace-adjoined={workspaceVisible || wikiVisible || undefined}
-        className={`app-navigation fixed inset-y-0 left-0 z-40 flex shrink-0 max-w-[86vw] bg-card transition-[transform,visibility] md:relative md:visible md:max-w-none md:translate-x-0 ${
+        className={`app-navigation fixed inset-y-0 left-0 z-40 flex shrink-0 max-w-[calc(100vw-60px)] bg-card transition-[transform,visibility] md:relative md:visible md:max-w-none md:translate-x-0 ${
           railExpanded
             ? secondaryNavigationVisible
               ? "w-[calc(220px+20px+var(--sidebar-width))]"
@@ -354,14 +354,15 @@ function RailSearchButton({
   expanded: boolean;
   onClick: () => void;
 }) {
+  const t = useT();
   const shortcut = searchShortcutLabel();
   return (
     <button
       aria-keyshortcuts="Control+k Meta+k"
-      aria-label="Search"
+      aria-label={t(navigationMessages.search)}
       className="room-rail-link flex cursor-pointer select-none items-center text-app-muted"
       onClick={onClick}
-      title={`Search (${shortcut})`}
+      title={t(navigationMessages.searchShortcut, { shortcut })}
       type="button"
     >
       <Icon
@@ -369,9 +370,11 @@ function RailSearchButton({
         icon={Search01Icon}
         size={16}
       />
-      <span className="primary-navigation-label truncate">Search</span>
+      <span className="primary-navigation-label truncate">
+        {t(navigationMessages.search)}
+      </span>
       {expanded ? (
-        <kbd className="ml-auto mr-2 shrink-0 font-sans text-2xs text-app-subtle">
+        <kbd className="ml-auto mr-2 hidden shrink-0 font-sans text-2xs text-app-subtle md:inline">
           {shortcut}
         </kbd>
       ) : null}

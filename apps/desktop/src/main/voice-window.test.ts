@@ -62,6 +62,16 @@ describe("adoptVoiceWindow", () => {
     expect(f.opener.listenerCount("did-start-navigation")).toBe(0);
   });
 
+  it("does not re-enable throttling on close when the opener already disables it", () => {
+    const f = fakes();
+    Object.assign(f.opener, { getBackgroundThrottling: () => false });
+    adopt(f);
+    expect(f.opener.setBackgroundThrottling).toHaveBeenLastCalledWith(false);
+    f.child.emit("closed");
+    expect(f.opener.setBackgroundThrottling).toHaveBeenLastCalledWith(false);
+    expect(f.opener.setBackgroundThrottling).not.toHaveBeenCalledWith(true);
+  });
+
   it("keeps the page running when one window replaces another", () => {
     const first = fakes();
     adopt(first);

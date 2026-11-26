@@ -90,15 +90,15 @@ export function AccountProfileHero({
   }
   return (
     <section aria-label={t(accountSettingsMessages.profileAppearance)}>
-      <div className="relative flex min-h-64 items-center justify-center overflow-hidden rounded-2xl border border-border bg-muted px-4 pt-16 pb-8 sm:py-8">
+      <div className="relative flex min-h-64 flex-col items-center justify-center overflow-hidden rounded-2xl border border-border bg-muted px-4 py-4 sm:py-8">
         <img
           alt=""
           src={account.background_image || background}
           className="absolute inset-0 size-full object-cover"
         />
-        <div className="absolute right-3 top-3 z-10">
+        <div className="relative z-10 mb-3 flex w-full justify-end sm:absolute sm:right-3 sm:top-3 sm:mb-0 sm:w-auto">
           <Button
-            className="bg-card shadow-md"
+            className="!border-border/80 !bg-card/95 !text-foreground shadow-md backdrop-blur-md hover:!bg-card"
             size="compact"
             disabled={busy}
             onClick={() => backgroundInput.current?.click()}
@@ -191,6 +191,7 @@ export function AccountProfileHero({
         ref={avatarInput}
         type="file"
         accept="image/jpeg,image/png,image/webp"
+        aria-hidden="true"
         aria-label={t(accountSettingsMessages.profilePhotoFile)}
         className="sr-only"
         tabIndex={-1}
@@ -203,6 +204,7 @@ export function AccountProfileHero({
         ref={backgroundInput}
         type="file"
         accept="image/jpeg,image/png,image/webp"
+        aria-hidden="true"
         aria-label={t(accountSettingsMessages.profileCoverFile)}
         className="sr-only"
         tabIndex={-1}

@@ -23,7 +23,13 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type RefCallback,
 } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router";
+import {
+  Link,
+  useLocation,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router";
 
 import { Button, buttonClassName } from "@/components/ui/button";
 import { Select, SelectItem } from "@/components/ui/select";
@@ -61,7 +67,10 @@ import {
 } from "./work-item-dashboard-filters";
 import { workItemBoardCsv } from "./work-item-board-csv";
 import { WorkItemBoardExportMenu } from "./work-item-board-export-menu";
-import { workItemPairPath } from "./work-item-pair";
+import {
+  workItemPairPath,
+  type WorkItemPairNavigationState,
+} from "./work-item-pair";
 import {
   nextWorkItemCardId,
   workItemBoardMoveForKey,
@@ -118,6 +127,32 @@ interface BoardSection {
   items: TeamHubWorkItem[];
 }
 
+const executionMessages: Record<
+  WorkItemDashboardExecutionStatus,
+  Message<string>
+> = {
+  canceled: m.executionAgentCanceled,
+  failed: m.executionAgentFailed,
+  idle: m.executionAgentIdle,
+  running: m.executionAgentRunning,
+  waiting_for_approval: m.executionWaitingForApproval,
+};
+
+const assignmentMessages: Record<
+  WorkItemDashboardAssignment,
+  Message<string>
+> = {
+  all: m.assignmentAll,
+  mine: m.assignmentMine,
+  unassigned: m.assignmentUnassigned,
+};
+
+const sortMessages: Record<WorkItemDashboardSort, Message<string>> = {
+  newest: m.sortNewest,
+  priority: m.sortPriority,
+  updated: m.sortUpdated,
+};
+
 const executionLabels: Record<WorkItemDashboardExecutionStatus, string> = {
   canceled: "Agent canceled",
   failed: "Agent failed",
@@ -140,9 +175,13 @@ const sortLabels: Record<WorkItemDashboardSort, string> = {
 
 export function WorkItemsPage() {
   const { client } = useTeamHubRuntime();
+  const location = useLocation();
   const navigate = useNavigate();
   const params = useParams();
   const tenantId = requireRoomRouteParam(params.tenantId, "Tenant");
+  const initialSelectedIds = (
+    (location.state ?? null) as WorkItemPairNavigationState | null
+  )?.selectedIds;
   const focusedWorkItemId = params.workItemId;
   const focusedCardRef = useCallback<RefCallback<HTMLAnchorElement>>(
     (card) => {
@@ -279,6 +318,7 @@ export function WorkItemsPage() {
       focusedCardRef={focusedCardRef}
       focusedWorkItem={focusedWorkItem}
       focusedWorkItemId={focusedWorkItemId}
+      initialSelectedIds={initialSelectedIds}
       items={items}
       onCloseDetail={closeDetail}
       onCloseDuplicate={() => setDuplicateItem(undefined)}
@@ -303,6 +343,7 @@ function WorkItemsLoadedView({
   focusedCardRef,
   focusedWorkItem,
   focusedWorkItemId,
+  initialSelectedIds,
   items,
   onCloseDetail,
   onCloseDuplicate,
@@ -323,6 +364,7 @@ function WorkItemsLoadedView({
   focusedCardRef: RefCallback<HTMLAnchorElement>;
   focusedWorkItem?: TeamHubWorkItem;
   focusedWorkItemId?: string;
+  initialSelectedIds?: readonly string[];
   items: TeamHubWorkItem[];
   onCloseDetail: () => void;
   onCloseDuplicate: () => void;
@@ -338,6 +380,14 @@ function WorkItemsLoadedView({
 }) {
   const t = useT();
   const [closedExpanded, setClosedExpanded] = useState(true);
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+  const activeSecondaryFilterCount =
+    Number(Boolean(filters.room)) +
+    Number(Boolean(filters.priority)) +
+    Number(filters.assignment !== "all") +
+    Number(Boolean(filters.execution)) +
+    Number(filters.archived) +
+    Number(sort !== DEFAULT_WORK_ITEM_DASHBOARD_SORT);
   const roomFilter = createWorkItemRoomFilterModel(rooms, items, t);
   const filteredItems = items.filter(
     (item) =>
@@ -375,7 +425,11 @@ function WorkItemsLoadedView({
     : boardSections.flatMap(({ column, items: columnItems }) =>
         column.id === "closed" && !closedExpanded ? [] : columnItems,
       );
-  const selection = useWorkItemSelection({ items: shownItems, tenantId });
+  const selection = useWorkItemSelection({
+    initialSelectedIds,
+    items: shownItems,
+    tenantId,
+  });
   const hasSelection = selection.count > 0;
   const exportSections = boardSections.map(
     ({ column, items: columnItems }) => ({
@@ -430,22 +484,22 @@ function WorkItemsLoadedView({
             className="mt-3 flex flex-wrap items-center gap-2"
             role="group"
           >
-            <label className="select-pill w-52 cursor-text pr-1.5 focus-within:ring-2 focus-within:ring-app-focus">
+            <label className="select-pill min-h-9 min-w-0 flex-1 cursor-text pr-1.5 focus-within:ring-2 focus-within:ring-app-focus sm:min-h-0 sm:w-52 sm:flex-none">
               <Icon icon={Search01Icon} size={14} />
               <input
-                aria-label="Filter by title"
+                aria-label={t(m.filterByTitle)}
                 className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-app-placeholder"
                 onChange={(event) =>
                   onUpdateFilters({ ...filters, text: event.target.value })
                 }
-                placeholder="Filter by title"
+                placeholder={t(m.filterByTitle)}
                 role="searchbox"
                 type="text"
                 value={filters.text}
               />
               {filters.text ? (
                 <button
-                  aria-label="Clear title filter"
+                  aria-label={t(m.clearTitleFilter)}
                   className="flex size-5 shrink-0 items-center justify-center rounded-sm text-app-muted hover:bg-app-hover hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus"
                   onClick={() => onUpdateFilters({ ...filters, text: "" })}
                   type="button"
@@ -454,118 +508,138 @@ function WorkItemsLoadedView({
                 </button>
               ) : null}
             </label>
-            <Select
-              aria-label={t(m.room)}
-              onValueChange={(room) => onUpdateFilters({ ...filters, room })}
-              value={filters.room}
-              variant="pill"
-            >
-              <SelectItem value="">{t(m.allRooms)}</SelectItem>
-              {roomFilter.options.map((option) => (
-                <SelectItem key={option.id} value={option.id}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </Select>
-            <Select
-              aria-label="Priority"
-              onValueChange={(priority) =>
-                onUpdateFilters({
-                  ...filters,
-                  priority: priority as WorkItemDashboardPriority | "",
-                })
-              }
-              value={filters.priority}
-              variant="pill"
-            >
-              <SelectItem value="">All priorities</SelectItem>
-              {WORK_ITEM_DASHBOARD_PRIORITIES.map((priority) => (
-                <SelectItem key={priority} value={priority}>
-                  {WORK_ITEM_DASHBOARD_PRIORITY_LABELS[priority]}
-                </SelectItem>
-              ))}
-            </Select>
-            <Select
-              aria-label="Assignment"
-              onValueChange={(assignment) =>
-                onUpdateFilters({
-                  ...filters,
-                  assignment: assignment as WorkItemDashboardAssignment,
-                })
-              }
-              value={filters.assignment}
-              variant="pill"
-            >
-              {WORK_ITEM_DASHBOARD_ASSIGNMENTS.map((assignment) => (
-                <SelectItem key={assignment} value={assignment}>
-                  {assignmentLabels[assignment]}
-                </SelectItem>
-              ))}
-            </Select>
-            <Select
-              aria-label="Execution"
-              onValueChange={(execution) =>
-                onUpdateFilters({
-                  ...filters,
-                  execution: execution as WorkItemDashboardExecutionStatus | "",
-                })
-              }
-              value={filters.execution}
-              variant="pill"
-            >
-              <SelectItem value="">All execution states</SelectItem>
-              {WORK_ITEM_DASHBOARD_EXECUTION_STATUSES.map((execution) => (
-                <SelectItem key={execution} value={execution}>
-                  {executionLabels[execution]}
-                </SelectItem>
-              ))}
-            </Select>
             <button
-              aria-pressed={filters.archived}
-              className="select-pill"
-              onClick={() =>
-                onUpdateFilters({ ...filters, archived: !filters.archived })
-              }
+              aria-expanded={mobileFiltersOpen}
+              className="select-pill min-h-9 shrink-0 sm:hidden"
+              onClick={() => setMobileFiltersOpen((open) => !open)}
               type="button"
             >
-              Archived
+              {activeSecondaryFilterCount > 0
+                ? t(m.filtersCount, { count: activeSecondaryFilterCount })
+                : t(m.filtersButton)}
             </button>
-            {showClearFilters ? (
+            <div
+              className={cn(
+                "w-full flex-wrap items-center gap-2 sm:contents",
+                mobileFiltersOpen ? "flex" : "hidden",
+              )}
+            >
+              <Select
+                aria-label={t(m.room)}
+                onValueChange={(room) => onUpdateFilters({ ...filters, room })}
+                value={filters.room}
+                variant="pill"
+              >
+                <SelectItem value="">{t(m.allRooms)}</SelectItem>
+                {roomFilter.options.map((option) => (
+                  <SelectItem key={option.id} value={option.id}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </Select>
+              <Select
+                aria-label={t(m.priority)}
+                onValueChange={(priority) =>
+                  onUpdateFilters({
+                    ...filters,
+                    priority: priority as WorkItemDashboardPriority | "",
+                  })
+                }
+                value={filters.priority}
+                variant="pill"
+              >
+                <SelectItem value="">{t(m.allPriorities)}</SelectItem>
+                {WORK_ITEM_DASHBOARD_PRIORITIES.map((priority) => (
+                  <SelectItem key={priority} value={priority}>
+                    {workItemPriorityLabel(priority, t)}
+                  </SelectItem>
+                ))}
+              </Select>
+              <Select
+                aria-label={t(m.assignment)}
+                onValueChange={(assignment) =>
+                  onUpdateFilters({
+                    ...filters,
+                    assignment: assignment as WorkItemDashboardAssignment,
+                  })
+                }
+                value={filters.assignment}
+                variant="pill"
+              >
+                {WORK_ITEM_DASHBOARD_ASSIGNMENTS.map((assignment) => (
+                  <SelectItem key={assignment} value={assignment}>
+                    {t(assignmentMessages[assignment])}
+                  </SelectItem>
+                ))}
+              </Select>
+              <Select
+                aria-label={t(m.execution)}
+                onValueChange={(execution) =>
+                  onUpdateFilters({
+                    ...filters,
+                    execution: execution as
+                      | WorkItemDashboardExecutionStatus
+                      | "",
+                  })
+                }
+                value={filters.execution}
+                variant="pill"
+              >
+                <SelectItem value="">{t(m.allExecutionStates)}</SelectItem>
+                {WORK_ITEM_DASHBOARD_EXECUTION_STATUSES.map((execution) => (
+                  <SelectItem key={execution} value={execution}>
+                    {t(executionMessages[execution])}
+                  </SelectItem>
+                ))}
+              </Select>
               <button
+                aria-pressed={filters.archived}
                 className="select-pill"
+                data-voice-risk="never"
                 onClick={() =>
-                  onUpdateFilters(clearWorkItemDashboardFilters(filters))
+                  onUpdateFilters({ ...filters, archived: !filters.archived })
                 }
                 type="button"
               >
-                Clear filters
+                {t(m.archived)}
               </button>
-            ) : null}
-            <Select
-              aria-label="Sort"
-              onValueChange={(value) =>
-                onUpdateSort(createWorkItemDashboardSort(value))
-              }
-              value={sort}
-              variant="pill"
-            >
-              {WORK_ITEM_DASHBOARD_SORTS.map((option) => (
-                <SelectItem key={option} value={option}>
-                  {sortLabels[option]}
-                </SelectItem>
-              ))}
-            </Select>
-            {!hasSelection && shownItems.length > 0 ? (
-              <button
-                className="select-pill"
-                disabled={selection.pending}
-                onClick={selection.selectAll}
-                title="Select every card the board shows"
-                type="button"
+              {showClearFilters ? (
+                <button
+                  className="select-pill"
+                  onClick={() =>
+                    onUpdateFilters(clearWorkItemDashboardFilters(filters))
+                  }
+                  type="button"
+                >
+                  {t(m.clearFilters)}
+                </button>
+              ) : null}
+              <Select
+                aria-label={t(m.sort)}
+                onValueChange={(value) =>
+                  onUpdateSort(createWorkItemDashboardSort(value))
+                }
+                value={sort}
+                variant="pill"
               >
-                Select all
-              </button>
-            ) : null}
+                {WORK_ITEM_DASHBOARD_SORTS.map((option) => (
+                  <SelectItem key={option} value={option}>
+                    {t(sortMessages[option])}
+                  </SelectItem>
+                ))}
+              </Select>
+              {!hasSelection && shownItems.length > 0 ? (
+                <button
+                  className="select-pill"
+                  disabled={selection.pending}
+                  onClick={selection.selectAll}
+                  title={t(m.selectAllTitle)}
+                  type="button"
+                >
+                  {t(m.selectAll)}
+                </button>
+              ) : null}
+            </div>
           </div>
         ) : null}
       </header>
@@ -574,17 +648,19 @@ function WorkItemsLoadedView({
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           {filtersHideBoard ? (
             <section
-              aria-label="No matching items"
+              aria-label={t(m.noMatchingItems)}
               className="flex min-h-0 flex-1 items-center justify-center px-6 py-12 text-center"
             >
               <div>
                 <h2 className="text-sm font-semibold text-app-ink">
-                  No matching items
+                  {t(m.noMatchingItems)}
                 </h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  {filters.text.trim()
-                    ? "Only Work Item titles are searched. Try adjusting or clearing your filters."
-                    : "No Work Items match the active filters."}
+                  {t(
+                    filters.text.trim()
+                      ? m.noMatchingTitleHint
+                      : m.noMatchingFiltersHint,
+                  )}
                 </p>
                 <Button
                   className="mt-4"
@@ -594,7 +670,7 @@ function WorkItemsLoadedView({
                   size="compact"
                   tone="secondary"
                 >
-                  Clear filters
+                  {t(m.clearFilters)}
                 </Button>
               </div>
             </section>
@@ -623,8 +699,7 @@ function WorkItemsLoadedView({
                   {t(m.noWorkItems)}
                 </h2>
                 <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-                  Track issues and Agent tasks across your Rooms. Create your
-                  first issue to get started.
+                  {t(m.emptyBoardHint)}
                 </p>
                 <div className="mt-4 flex justify-center">
                   <WorkItemCreateAction rooms={rooms} tenantId={tenantId} />
@@ -822,16 +897,29 @@ function WorkItemBoard({
     selectMobileColumn(target.column.id);
   }
 
+  useEffect(() => {
+    const activeIndex = dashboardColumns.findIndex(
+      (column) => column.id === activeMobileColumn,
+    );
+    if (activeIndex < 0) return;
+    columnTabRefs.current[activeIndex]?.scrollIntoView?.({
+      block: "nearest",
+      inline: "nearest",
+    });
+  }, [activeMobileColumn]);
+
   return (
     <>
       {hasSelection || selection.outcome ? (
         <div
-          aria-label="Work Item selection"
+          aria-label={t(m.selectionLabel)}
           className="flex shrink-0 flex-wrap items-center gap-2 border-b border-app-border px-4 py-2 text-sm sm:px-5"
           role="group"
         >
           {hasSelection ? (
-            <span className="text-app-body">{selection.count} selected</span>
+            <span className="text-app-body">
+              {t(m.selectedCount, { count: selection.count })}
+            </span>
           ) : null}
           {hasSelection && shownItems.length > 0 ? (
             <Button
@@ -842,14 +930,14 @@ function WorkItemBoard({
                   : selection.selectAll
               }
               size="compact"
-              title={
+              title={t(
                 selection.allSelected
-                  ? "Clear the selection"
-                  : "Select every card the board shows"
-              }
+                  ? m.clearSelectionTitle
+                  : m.selectAllTitle,
+              )}
               tone="secondary"
             >
-              {selection.allSelected ? "Deselect all" : "Select all"}
+              {t(selection.allSelected ? m.deselectAll : m.selectAll)}
             </Button>
           ) : null}
           {hasSelection && shownItems.length > 0 ? (
@@ -862,23 +950,31 @@ function WorkItemBoard({
           {selectedItems.length === 2 ? (
             <Link
               className={buttonClassName({ size: "compact" })}
+              state={
+                {
+                  boardSearch: search,
+                  selectedIds: [selectedItems[0]!.id, selectedItems[1]!.id],
+                } satisfies WorkItemPairNavigationState
+              }
               to={workItemPairPath(
                 tenantId,
                 selectedItems[0]!.id,
                 selectedItems[1]!.id,
+                search,
               )}
             >
-              Read side by side
+              {t(m.readSideBySide)}
             </Link>
           ) : null}
           {hasSelection ? (
             <Button
+              data-voice-risk="never"
               loading={selection.pending}
               onClick={() => void selection.archive()}
               size="compact"
               tone="secondary"
             >
-              Archive
+              {t(m.archive)}
             </Button>
           ) : null}
           {hasSelection ? (
@@ -888,7 +984,7 @@ function WorkItemBoard({
               size="compact"
               tone="ghost"
             >
-              Clear
+              {t(m.clear)}
             </Button>
           ) : null}
           {selection.outcome ? (
@@ -904,8 +1000,8 @@ function WorkItemBoard({
         </div>
       ) : null}
       <div
-        aria-label="Board columns"
-        className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-app-border px-4 py-2 md:hidden"
+        aria-label={t(m.boardColumns)}
+        className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-app-border px-4 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:hidden"
         role="tablist"
       >
         {sections.map(({ column, items }, index) => {
@@ -914,7 +1010,7 @@ function WorkItemBoard({
             <button
               aria-selected={selected}
               className={cn(
-                "inline-flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                "inline-flex min-h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 selected
                   ? "bg-app-selected text-app-ink"
                   : "text-muted-foreground hover:bg-app-hover hover:text-foreground",
@@ -1257,7 +1353,7 @@ function WorkItemColumn({
                 className="mt-1 block px-3 text-xs text-muted-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 to={workItemStoryPath(tenantId, item.id)}
               >
-                What happened
+                {t(m.whatHappened)}
               </Link>
             </li>
           ))}

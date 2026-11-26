@@ -49,6 +49,7 @@ import type { Module, ModuleContext } from "./modules.js";
 import type { PowerGuardModule } from "./power-guard.js";
 import { SetupAccount } from "./setup-account.js";
 import { parseSetupCommand } from "./setup-command.js";
+import { currentShellColors, onShellThemeChange } from "./shell-theme.js";
 import type { WindowManagerModule } from "./window-manager.js";
 import type { WorkspaceGrantsModule } from "./workspace-grants.js";
 
@@ -155,6 +156,10 @@ export class SetupWindowModule implements Module {
       () => ipcMain.removeHandler(SETUP_IPC.run),
       () => session.defaultSession.cookies.off("changed", onCookie),
       () => pages.protocol.unhandle("app"),
+      onShellThemeChange((colors) => {
+        if (this.#window && !this.#window.isDestroyed())
+          this.#window.setBackgroundColor(colors.content);
+      }),
       ctx.bus.on("computer.changed", push),
       ctx.bus.on("diagnostics.changed", push),
       ctx.bus.on("driver-update.changed", () => {
@@ -206,7 +211,7 @@ export class SetupWindowModule implements Module {
       fullscreenable: false,
       show: false,
       title: this.#t(dialogMessages.setupTitle),
-      backgroundColor: "#ffffff",
+      backgroundColor: currentShellColors().content,
       icon: nativeImage.createFromBuffer(Buffer.from(iconPng)),
       ...(process.platform === "darwin"
         ? {

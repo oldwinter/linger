@@ -825,7 +825,7 @@ describe("RoomSurface command availability", () => {
       name: "Panel sidebar",
     });
     fireEvent.click(
-      await within(sidebar).findByRole("button", { name: /Documents/ }),
+      await within(sidebar).findByRole("button", { name: /Files/ }),
     );
     await within(sidebar).findByRole("tab", { name: "Files" });
 
@@ -859,7 +859,7 @@ describe("RoomSurface command availability", () => {
     expect(
       await screen.findByRole("menuitem", { name: "Agent info" }),
     ).toBeVisible();
-    fireEvent.click(screen.getByRole("menuitem", { name: "Documents" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Files" }));
     fireEvent.click(
       within(sidebar).getByRole("button", { name: "Hide sidebar" }),
     );
@@ -1100,7 +1100,7 @@ describe("RoomSurface command availability", () => {
       within(sidebar).queryByRole("button", { name: "Agent info" }),
     ).toBeNull();
     expect(
-      within(sidebar).getByRole("button", { name: "Documents" }),
+      within(sidebar).getByRole("button", { name: "Files" }),
     ).toBeVisible();
     expect(
       within(sidebar).queryByRole("button", { name: "Room info" }),
@@ -1175,7 +1175,7 @@ describe("RoomSurface command availability", () => {
     await renderRoomSurface("room-all", "");
 
     const sidebar = await openPanelLauncher();
-    fireEvent.click(within(sidebar).getByRole("button", { name: "Documents" }));
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Files" }));
     expect(
       await within(sidebar).findByTestId("panel-tab-file-library"),
     ).toBeVisible();
@@ -1262,7 +1262,7 @@ describe("RoomSurface command availability", () => {
     await waitFor(() =>
       expect(
         screen.getByRole("complementary", { name: "Panel sidebar" }),
-      ).toHaveTextContent("Documents"),
+      ).toHaveTextContent("Files"),
     );
     expect(router.state.location.search).toBe("");
   });
@@ -1463,7 +1463,7 @@ describe("RoomSurface command availability", () => {
       within(sidebar).queryByRole("button", { name: "Thread" }),
     ).not.toBeInTheDocument();
     expect(
-      within(sidebar).getByRole("button", { name: "Documents" }),
+      within(sidebar).getByRole("button", { name: "Files" }),
     ).toBeVisible();
     expect(
       within(sidebar).queryByRole("button", { name: "Room info" }),
@@ -1474,7 +1474,7 @@ describe("RoomSurface command availability", () => {
     await renderRoomSurface("room-all", "");
 
     const sidebar = await openPanelLauncher();
-    fireEvent.click(within(sidebar).getByRole("button", { name: "Documents" }));
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Files" }));
 
     expect(
       await within(sidebar).findByTestId("panel-tab-file-library"),

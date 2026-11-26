@@ -34,6 +34,11 @@ import type { LanguageModule } from "./language.js";
 import type { Module, ModuleContext } from "./modules.js";
 import { PreviewViews } from "./preview-views.js";
 import {
+  currentShellColors,
+  onShellThemeChange,
+  type ShellColors,
+} from "./shell-theme.js";
+import {
   OFFLINE_ORIGIN,
   PREVIEW_FRAME_PREFIX,
   SHELL_ORIGIN,
@@ -71,7 +76,6 @@ export interface WindowManagerOptions {
 
 const TITLEBAR_HEIGHT = 40;
 const REVEAL_FALLBACK_MS = 1_500;
-const CANVAS = "#f6f6f6";
 const COMMANDS = new Set<ShellCommand>([
   "back",
   "forward",
@@ -81,7 +85,16 @@ const COMMANDS = new Set<ShellCommand>([
   "close",
 ]);
 
-const chrome = (platform: NodeJS.Platform): BaseWindowConstructorOptions => {
+const titleBarOverlayOptions = (colors: ShellColors) => ({
+  color: colors.canvas,
+  symbolColor: colors.titleBarSymbol,
+  height: TITLEBAR_HEIGHT - 1,
+});
+
+const chrome = (
+  platform: NodeJS.Platform,
+  colors: ShellColors,
+): BaseWindowConstructorOptions => {
   if (platform === "darwin")
     return {
       titleBarStyle: "hiddenInset",
@@ -90,11 +103,7 @@ const chrome = (platform: NodeJS.Platform): BaseWindowConstructorOptions => {
   if (platform === "win32")
     return {
       titleBarStyle: "hidden",
-      titleBarOverlay: {
-        color: CANVAS,
-        symbolColor: "#404040",
-        height: TITLEBAR_HEIGHT - 1,
-      },
+      titleBarOverlay: titleBarOverlayOptions(colors),
     };
   return { frame: false };
 };
@@ -195,6 +204,7 @@ export class WindowManagerModule implements Module {
       this.#previews.register(),
       () => ipcMain.removeHandler(SHELL_IPC.state),
       () => ipcMain.removeAllListeners(SHELL_IPC.command),
+      onShellThemeChange((colors) => this.#applyThemeColors(colors)),
       // The title bar's button labels are filled in when it loads.
       ctx.bus.on("language.changed", () =>
         this.#titlebar?.webContents.reload(),
@@ -308,15 +318,16 @@ export class WindowManagerModule implements Module {
   #ensureWindow(): void {
     if (this.#window) return;
     const bounds = this.#ctx!.config.get().window;
+    const colors = currentShellColors();
     const window = new BaseWindow({
       ...(bounds ?? { width: 1280, height: 820 }),
       minWidth: 800,
       minHeight: 560,
       show: false,
       title: "LingerX",
-      backgroundColor: CANVAS,
+      backgroundColor: colors.canvas,
       icon: nativeImage.createFromBuffer(Buffer.from(iconPng)),
-      ...chrome(process.platform),
+      ...chrome(process.platform, colors),
     });
     const titlebar = drawsTitlebar(process.platform)
       ? new WebContentsView({
@@ -329,7 +340,7 @@ export class WindowManagerModule implements Module {
           },
         })
       : undefined;
-    titlebar?.setBackgroundColor(CANVAS);
+    titlebar?.setBackgroundColor(colors.canvas);
     const content = new WebContentsView({
       webPreferences: {
         preload: this.#options.preload,
@@ -338,9 +349,12 @@ export class WindowManagerModule implements Module {
         nodeIntegration: false,
         webSecurity: true,
         spellcheck: false,
+        // Keep Room SSE updates, unread badges, and local model progress
+        // flowing while the window is hidden in the tray or occluded.
+        backgroundThrottling: false,
       },
     });
-    content.setBackgroundColor("#ffffff");
+    content.setBackgroundColor(colors.content);
     if (titlebar) window.contentView.addChildView(titlebar);
     window.contentView.addChildView(content);
     this.#window = window;
@@ -396,6 +410,17 @@ export class WindowManagerModule implements Module {
     void titlebar?.webContents
       .loadURL(`${SHELL_ORIGIN}/titlebar`)
       .catch(() => undefined);
+  }
+
+  #applyThemeColors(colors: ShellColors): void {
+    const window = this.#window;
+    if (!window || window.isDestroyed()) return;
+    window.setBackgroundColor(colors.canvas);
+    this.#titlebar?.setBackgroundColor(colors.canvas);
+    this.#content?.setBackgroundColor(colors.content);
+    if (process.platform === "win32") {
+      window.setTitleBarOverlay?.(titleBarOverlayOptions(colors));
+    }
   }
 
   #scheduleRevealFallback(): void {
@@ -664,7 +689,7 @@ export class WindowManagerModule implements Module {
             maximizable: false,
             fullscreenable: false,
             autoHideMenuBar: true,
-            backgroundColor: CANVAS,
+            backgroundColor: currentShellColors().canvas,
           },
         };
       if (navigationDecision(details.url, this.#serverUrl()) !== "deny")

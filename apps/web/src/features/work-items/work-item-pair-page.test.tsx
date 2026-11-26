@@ -183,4 +183,61 @@ describe("WorkItemPairPage", () => {
       await screen.findByRole("heading", { name: "Recovered work item" }),
     ).toBeVisible();
   });
+
+  it("preserves board filters and sort on Back to the board", async () => {
+    const runtime = createTestTeamHubRuntime();
+    runtime.server
+      .on("GET", "/v0/work-items/{workItemId}", ({ params }) => ({
+        assignees: [],
+        created_at: "2026-11-14T00:00:00Z",
+        created_by: runtime.seed.identity.actors[0]!,
+        description: "Body",
+        id: params.workItemId!,
+        kind: "issue",
+        number: 1,
+        priority: "urgent",
+        referenced_actors: [],
+        state: "open",
+        tenant_id: "tenant-northstar",
+        title: `Item ${params.workItemId}`,
+        updated_at: "2026-11-14T01:00:00Z",
+        updated_by: runtime.seed.identity.actors[0]!,
+        version: 1,
+      }))
+      .on("GET", "/v0/work-items/{workItemId}/timeline", () => ({
+        items: [],
+        page: { has_more: false },
+      }));
+    const from = encodeURIComponent("?priority=urgent&sort=priority");
+    const router = createMemoryRouter(
+      [
+        {
+          element: <WorkItemPairPage />,
+          path: "/t/:tenantId/dashboard/side-by-side",
+        },
+      ],
+      {
+        initialEntries: [
+          `/t/tenant-northstar/dashboard/side-by-side?left=wi-1&right=wi-2&from=${from}`,
+        ],
+      },
+    );
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <TeamHubRuntimeProvider runtime={runtime}>
+          <RouterProvider router={router} />
+        </TeamHubRuntimeProvider>
+      </QueryClientProvider>,
+    );
+
+    const back = await screen.findByRole("link", { name: "Back to the board" });
+    expect(back).toHaveAttribute(
+      "href",
+      "/t/tenant-northstar/dashboard?priority=urgent&sort=priority",
+    );
+  });
 });

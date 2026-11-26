@@ -48,9 +48,7 @@ export function PanelEmptyState({
             {t(m.launcherTitle)}
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            {agent
-              ? t(m.launcherBodyWithAgent)
-              : "Shared documents, routines, and message threads — alongside your chat."}
+            {agent ? t(m.launcherBodyWithAgent) : t(m.launcherBody)}
           </p>
         </div>
         <div className="space-y-2">
@@ -83,7 +81,7 @@ export function PanelEmptyState({
             </button>
           ) : null}
           <button
-            aria-label={t(m.documents)}
+            aria-label={t(m.filesTab)}
             className={rowClassName}
             onClick={() => onCreate("file")}
             type="button"
@@ -96,7 +94,7 @@ export function PanelEmptyState({
             </span>
             <span className="min-w-0 flex-1">
               <span className="block text-sm font-semibold text-foreground">
-                {t(m.documents)}
+                {t(m.filesTab)}
               </span>
               <span className="mt-0.5 block text-xs text-muted-foreground">
                 {documentCount > 0

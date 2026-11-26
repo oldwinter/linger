@@ -320,7 +320,7 @@ function MarkdownLink({
     if (onOpenActor) {
       return (
         <button
-          className="actor-profile-inline-trigger whitespace-nowrap bg-[var(--app-mention-surface)] px-1 font-semibold text-[var(--app-mention-text)] transition-colors hover:bg-[var(--app-mention-hover)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-app-focus [border-radius:var(--app-control-radius)]"
+          className="actor-profile-inline-trigger inline-block max-w-full overflow-hidden text-ellipsis align-bottom whitespace-nowrap bg-[var(--app-mention-surface)] px-1 font-semibold text-[var(--app-mention-text)] transition-colors hover:bg-[var(--app-mention-hover)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-app-focus [border-radius:var(--app-control-radius)]"
           onClick={() => onOpenActor(mentionedActor.actorId)}
           type="button"
         >
@@ -329,7 +329,7 @@ function MarkdownLink({
       );
     }
     return (
-      <mark className="whitespace-nowrap bg-[var(--app-mention-surface)] px-1 text-[var(--app-mention-text)] [border-radius:var(--app-control-radius)]">
+      <mark className="inline-block max-w-full overflow-hidden text-ellipsis align-bottom whitespace-nowrap bg-[var(--app-mention-surface)] px-1 text-[var(--app-mention-text)] [border-radius:var(--app-control-radius)]">
         {children}
       </mark>
     );
@@ -716,7 +716,7 @@ function AgentMention({
   const style = useAgentMentionStyle(actorId, name);
   const content = (
     <>
-      <span aria-hidden="true">
+      <span aria-hidden="true" className="shrink-0">
         <ActorAvatar
           actorId={actorId}
           kind="agent"
@@ -725,13 +725,13 @@ function AgentMention({
           size="micro"
         />
       </span>
-      {name}
+      <span className="min-w-0 truncate">{name}</span>
     </>
   );
   return onOpen ? (
     <button
       aria-label={label}
-      className="agent-mention"
+      className="agent-mention max-w-full overflow-hidden"
       data-actor-id={actorId}
       onClick={onOpen}
       style={style}
@@ -742,7 +742,7 @@ function AgentMention({
   ) : (
     <mark
       aria-label={label}
-      className="agent-mention"
+      className="agent-mention max-w-full overflow-hidden"
       data-actor-id={actorId}
       style={style}
     >

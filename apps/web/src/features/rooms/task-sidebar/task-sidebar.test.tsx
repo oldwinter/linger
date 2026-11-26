@@ -883,7 +883,7 @@ describe("TaskSidebar", () => {
       within(launcher)
         .getAllByRole("button")
         .map((button) => button.getAttribute("aria-label")),
-    ).toEqual(["Documents", "Routines", "Collaboration"]);
+    ).toEqual(["Files", "Routines", "Collaboration"]);
     expect(screen.queryByRole("button", { name: "Thread" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Room info" })).toBeNull();
     expect(screen.queryByText("Suggestion")).toBeNull();
@@ -893,7 +893,7 @@ describe("TaskSidebar", () => {
     expect(
       within(launcher).getByRole("heading", { name: "Conversation details" }),
     ).toBeVisible();
-    const documents = screen.getByRole("button", { name: "Documents" });
+    const documents = screen.getByRole("button", { name: "Files" });
     expect(
       within(documents).getByText("Browse files shared in this conversation"),
     ).toBeVisible();
@@ -907,7 +907,7 @@ describe("TaskSidebar", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Add panel view" }));
     expect(screen.getByRole("menu", { name: "Add panel view" })).toBeVisible();
-    expect(screen.getByRole("menuitem", { name: "Documents" })).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: "Files" })).toBeVisible();
     expect(screen.getByRole("menuitem", { name: "Routines" })).toBeVisible();
     expect(
       screen.getByRole("menuitem", { name: "Collaboration" }),
@@ -1209,7 +1209,7 @@ describe("TaskSidebar", () => {
     const add = screen.getByRole("button", { name: "Add panel view" });
     add.focus();
     fireEvent.click(add);
-    const documents = screen.getByRole("menuitem", { name: "Documents" });
+    const documents = screen.getByRole("menuitem", { name: "Files" });
     await waitFor(() => expect(documents).toHaveFocus());
     fireEvent.click(documents);
     expect(onCreate).toHaveBeenCalledWith("file");
@@ -1247,7 +1247,7 @@ describe("TaskSidebar", () => {
     renderSidebar({ activeTabId: documentsTab.id, tabs: [documentsTab] });
 
     fireEvent.click(screen.getByRole("button", { name: "Add panel view" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Documents" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Files" }));
 
     await waitFor(() =>
       expect(screen.getByRole("tab", { name: "Files" })).toHaveFocus(),

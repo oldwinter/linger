@@ -43,6 +43,9 @@ export const chatMessages = defineMessages("chat", {
   loadingEarlierMessages: "Loading earlier Messages",
   jumpToLatest: "Jump to latest messages",
   roomTimeline: "Room timeline",
+  earlierConversation: "Earlier conversation",
+  backToNow: "Back to now",
+  roomAtTime: "The room at {time}",
   // Room notices.
   noticeAgentCreated:
     "<author>{author}</author> created <agent>{agent}</agent> and added it to this Room",
@@ -91,6 +94,9 @@ export const chatMessages = defineMessages("chat", {
     other:
       "Background tasks failed {count} times in a row. Wiki, Memory and daily reports may be out of date until a task succeeds.",
   },
+  backgroundFailedCheckModels: "Check Models",
+  backgroundFailedCheckComputers: "Check Computers",
+  backgroundFailedDismiss: "Dismiss background failure alert",
   openThread: "Open thread, {replies}",
   messageThread: "Message Thread",
   thread: "Thread",
