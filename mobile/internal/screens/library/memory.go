@@ -381,8 +381,10 @@ func (s *Screen) viewVoiceCaptureSheet(c *ui.Context) {
 				components.SectionCard(c, i18n.T("library.memory.ask_qa_title"), "", nil, func() {
 					ta := ui.TextArea(c, &s.voiceQuestionDraft).FillWidth().MinHeight(64).
 						Placeholder(i18n.T("library.memory.qa_placeholder")).Label(i18n.T("library.memory.meeting_a11y"))
+					// Snapshot IME composing state during build; ui.Element handles expire before OnTextKey runs.
+					composing := ta.Composing()
 					ta.OnTextKey(func(k ui.TextKey) bool {
-						if k.Key != ui.KeyEnter || k.Mods != 0 {
+						if k.Key != ui.KeyEnter || composing || k.Mods != 0 {
 							return false
 						}
 						q := strings.TrimSpace(k.Text())
@@ -436,7 +438,7 @@ func (s *Screen) stopCaptureAsync(captureID string) {
 		s.enqueueUI(func() {
 			s.voiceBusy = false
 			if err != nil {
-				s.voiceErr = err.Error()
+				s.voiceErr = api.PresentError(err)
 				return
 			}
 			cp := updated
@@ -457,7 +459,7 @@ func (s *Screen) retryTranscriptRecoveryAsync(captureID string) {
 		s.enqueueUI(func() {
 			s.voiceBusy = false
 			if err != nil {
-				s.voiceErr = err.Error()
+				s.voiceErr = api.PresentError(err)
 				return
 			}
 			cp := updated
@@ -479,7 +481,7 @@ func (s *Screen) askVoiceQuestionAsync(captureID, question string) {
 		s.enqueueUI(func() {
 			s.voiceBusy = false
 			if err != nil {
-				s.voiceErr = err.Error()
+				s.voiceErr = api.PresentError(err)
 				return
 			}
 			s.voiceQuestionDraft = ""
@@ -497,7 +499,7 @@ func (s *Screen) sendVoiceQuestionTaskAsync(captureID, questionID string) {
 		updated, err := client.SendVoiceCaptureQuestionTask(context.Background(), captureID, questionID)
 		s.enqueueUI(func() {
 			if err != nil {
-				s.voiceErr = err.Error()
+				s.voiceErr = api.PresentError(err)
 				return
 			}
 			for i := range s.voiceQuestions {

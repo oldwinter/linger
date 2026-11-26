@@ -122,6 +122,107 @@ func TestRoomsFiltersChatComposerDraftsRunWatchAndOfflineRecovery(t *testing.T) 
 	}
 }
 
+func TestChatSendFailurePreservesDraftAttachmentsAndReply(t *testing.T) {
+	srv, store, ctl := setupRoomsHarness(t)
+	if err := store.LoadRoomMessages(context.Background(), "room_general", false); err != nil {
+		t.Fatalf("LoadRoomMessages: %v", err)
+	}
+
+	router := ui.NewRouter("/rooms/room_general")
+	view := func(c *ui.Context) {
+		c.SetTheme(theme.TownLight())
+		ui.Column(c).Fill().Background(c.Theme().Background).Children(func() {
+			router.View(c, func(r *ui.Route) {
+				ctl.Route(c, r, store.Snapshot())
+			})
+		})
+	}
+	tt := testutil.NewPhoneTester(view, testutil.StandardMobileViewports[1])
+	tt.Frame()
+
+	// 1. Open overflow ActionSheet on a message and select Reply so replyTarget is active.
+	if err := tt.Click("Message actions"); err != nil {
+		t.Fatalf("click Message actions: %v", err)
+	}
+	for range 4 {
+		tt.Frame()
+		tt.Advance(400 * time.Millisecond)
+		tt.Frame()
+	}
+	if err := tt.Click("Reply"); err != nil {
+		t.Fatalf("click Reply: %v", err)
+	}
+	for range 6 {
+		tt.Frame()
+		tt.Advance(400 * time.Millisecond)
+		tt.Frame()
+		if !tt.HasText("Message Actions") {
+			break
+		}
+	}
+
+	// 2. Seed unsent draft + pending attachment upload.
+	const unsent = "Critical deployment notes that must survive failure"
+	store.SetDraft("room_general", unsent)
+	ctl.SetPendingUploadsForTest("room_general", []api.MessageAttachmentUpload{
+		{ID: "up_1", Filename: "release-checklist.pdf"},
+	})
+	tt.Frame()
+	tt.Advance(300 * time.Millisecond)
+	tt.Frame()
+	if !tt.HasText("release-checklist.pdf") {
+		t.Fatalf("expected pending upload chip before send, texts=%v", tt.Texts())
+	}
+
+	// 3. Force SendMessage failure (503) and tap Send.
+	srv.SetFailMessageSend(true)
+	if err := tt.Click("Send"); err != nil {
+		t.Fatalf("click Send: %v (texts=%v)", err, tt.Texts())
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		tt.Frame()
+		if tt.HasText("Retry") {
+			break
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	if !tt.HasText("Retry") {
+		t.Fatalf("expected inline send error banner with Retry action, texts=%v", tt.Texts())
+	}
+
+	// Draft text, attachment upload chip, AND reply target must ALL be preserved!
+	if got := store.GetDraft("room_general"); got != unsent {
+		t.Fatalf("unsent draft lost on send failure: got %q, want %q", got, unsent)
+	}
+	if !tt.HasText("release-checklist.pdf") {
+		t.Fatalf("pending attachment upload lost on send failure: texts=%v", tt.Texts())
+	}
+	if !tt.HasText("Cancel") {
+		t.Fatalf("reply target banner lost on send failure: texts=%v", tt.Texts())
+	}
+
+	// 4. Recover server and tap Retry -> message sends cleanly, clearing draft/uploads/reply!
+	srv.SetFailMessageSend(false)
+	if err := tt.Click("Retry"); err != nil {
+		t.Fatalf("click Retry: %v", err)
+	}
+	deadline = time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		tt.Frame()
+		if store.GetDraft("room_general") == "" && !tt.HasText("Retry") && !tt.HasText("release-checklist.pdf") {
+			break
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	if got := store.GetDraft("room_general"); got != "" {
+		t.Fatalf("expected draft cleared after Retry succeeded, got %q", got)
+	}
+	if tt.HasText("release-checklist.pdf") {
+		t.Fatalf("expected pending upload cleared after Retry succeeded")
+	}
+}
+
 func TestRoomsGoldenSnapshots(t *testing.T) {
 	// Deterministic offline/static store fixture for exact golden matching (zero clock/RTT drift).
 	cfgStore := config.NewStore(config.NewMemoryPreferencesBackend(), config.NewMemorySecretsBackend())

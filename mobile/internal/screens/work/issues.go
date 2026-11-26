@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/mobile"
 	"github.com/oldwinter/linger/mobile/internal/api"
@@ -277,7 +276,7 @@ func (s *Screen) submitCreateWorkItem() {
 		if err != nil {
 			s.enqueueUI(func() {
 				s.createBusy = false
-				s.createError = err.Error()
+				s.createError = api.PresentError(err)
 			})
 			return
 		}
@@ -361,7 +360,7 @@ func (s *Screen) loadWorkItemDetailsAsync(wi api.WorkItem) {
 			if cErr == nil {
 				s.detailComments = comments.Items
 			} else if s.detailError == "" {
-				s.detailError = cErr.Error()
+				s.detailError = api.PresentError(cErr)
 			}
 			if tErr == nil {
 				s.detailTimeline = timeline.Items
@@ -510,23 +509,26 @@ func (s *Screen) viewWorkItemDetailSheet(c *ui.Context) {
 									ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(6).Children(func() {
 										ui.Text(c, cm.Author.DisplayName).FontSize(12).FontWeight(600).TextColor(t.Text)
 										ui.Row(c).Gap(6).Children(func() {
-											eb := ui.Row(c).MinHeight(28).PaddingX(8).Radius(6).Background(t.Surface).
+											eb := ui.Row(c).MinHeight(36).PaddingX(10).Radius(8).Background(t.Surface).
 												AlignItems(ui.Center).Role(ui.RoleButton).Label(i18n.T("work.issues.edit_comment_a11y"))
 											eb.Children(func() {
-												ui.Text(c, i18n.T("common.edit")).FontSize(11).TextColor(t.Accent)
+												ui.Text(c, i18n.T("common.edit")).FontSize(11.5).FontWeight(600).TextColor(t.Accent)
 											})
 											if eb.Clicked() {
 												s.editingCommentID = cm.ID
 												s.editingCommentVer = cm.Version
 												s.editingCommentBody = cm.Body
 											}
-											db := ui.Row(c).MinHeight(28).PaddingX(8).Radius(6).Background(t.Surface).
+											db := ui.Row(c).MinHeight(36).PaddingX(10).Radius(8).Background(t.Surface).
 												AlignItems(ui.Center).Role(ui.RoleButton).Label(i18n.T("work.issues.delete_comment_a11y"))
 											db.Children(func() {
-												ui.Text(c, i18n.T("common.delete")).FontSize(11).TextColor(t.Danger)
+												ui.Text(c, i18n.T("common.delete")).FontSize(11.5).FontWeight(600).TextColor(t.Danger)
 											})
 											if db.Clicked() {
-												s.deleteCommentAsync(wi.ID, cm.ID, cm.Version)
+												cp := cm
+												s.commentDelWorkItemID = wi.ID
+												s.commentDelItem = &cp
+												s.commentDelOpen = true
 											}
 										})
 									})
@@ -552,12 +554,14 @@ func (s *Screen) viewWorkItemDetailSheet(c *ui.Context) {
 						})
 					}
 
-					// IME-safe comment composer: plain Enter sends; Shift+Enter adds newline; IME composition ignores Enter.
+					// IME-safe comment composer: plain Enter sends when not composing; Shift+Enter adds newline; IME composition ignores Enter.
 					ui.Column(c).FillWidth().Gap(6).Children(func() {
 						ta := ui.TextArea(c, &s.commentDraft).FillWidth().MinHeight(68).
 							Placeholder(i18n.T("work.issues.comment_placeholder")).Label(i18n.T("work.issues.comment_a11y"))
+						// Snapshot IME composing state during build; ui.Element handles expire before OnTextKey runs.
+						composing := ta.Composing()
 						ta.OnTextKey(func(k ui.TextKey) bool {
-							if k.Key != ui.KeyEnter || k.Mods != 0 {
+							if k.Key != ui.KeyEnter || composing || k.Mods != 0 {
 								return false
 							}
 							txt := strings.TrimSpace(k.Text())
@@ -707,7 +711,7 @@ func (s *Screen) transitionWorkItem(wi api.WorkItem, state string, resolution *s
 		s.enqueueUI(func() {
 			s.detailBusy = false
 			if err != nil {
-				s.detailError = err.Error()
+				s.detailError = api.PresentError(err)
 				return
 			}
 			s.replaceWorkItem(updated)
@@ -798,7 +802,7 @@ func (s *Screen) submitEditWorkItem(wi api.WorkItem) {
 		s.enqueueUI(func() {
 			s.editBusy = false
 			if err != nil {
-				s.editError = err.Error()
+				s.editError = api.PresentError(err)
 				return
 			}
 			s.replaceWorkItem(updated)
@@ -826,11 +830,11 @@ func (s *Screen) toggleArchiveWorkItem(wi api.WorkItem) {
 		s.enqueueUI(func() {
 			s.detailBusy = false
 			if err != nil {
-				s.detailError = err.Error()
+				s.detailError = api.PresentError(err)
 				return
 			}
 			s.replaceWorkItem(updated)
-			mygo.Haptics.Light()
+			components.HapticLight()
 		})
 	}()
 }
@@ -899,7 +903,7 @@ func (s *Screen) addWorkItemAssignee(wiID, actorID string) {
 	go func() {
 		_, err := client.PutWorkItemAssignment(context.Background(), wiID, actorID, "")
 		if err != nil {
-			s.enqueueUI(func() { s.detailError = err.Error() })
+			s.enqueueUI(func() { s.detailError = api.PresentError(err) })
 			return
 		}
 		if latest, gErr := client.GetWorkItem(context.Background(), wiID); gErr == nil {
@@ -915,7 +919,7 @@ func (s *Screen) removeWorkItemAssignee(wiID, actorID string) {
 	}
 	go func() {
 		if err := client.DeleteWorkItemAssignment(context.Background(), wiID, actorID, ""); err != nil {
-			s.enqueueUI(func() { s.detailError = err.Error() })
+			s.enqueueUI(func() { s.detailError = api.PresentError(err) })
 			return
 		}
 		if latest, gErr := client.GetWorkItem(context.Background(), wiID); gErr == nil {
@@ -937,7 +941,10 @@ func (s *Screen) addCommentAsync(wiID, body string) {
 		s.enqueueUI(func() {
 			s.detailBusy = false
 			if err != nil {
-				s.detailError = err.Error()
+				s.detailError = api.PresentError(err)
+				if strings.TrimSpace(s.commentDraft) == "" {
+					s.commentDraft = body
+				}
 				return
 			}
 			s.commentDraft = ""
@@ -958,7 +965,7 @@ func (s *Screen) updateCommentAsync(wiID, commentID, body string, ver int64) {
 		s.enqueueUI(func() {
 			s.detailBusy = false
 			if err != nil {
-				s.detailError = err.Error()
+				s.detailError = api.PresentError(err)
 				return
 			}
 			s.editingCommentID = ""
@@ -983,7 +990,7 @@ func (s *Screen) deleteCommentAsync(wiID, commentID string, ver int64) {
 		s.enqueueUI(func() {
 			s.detailBusy = false
 			if err != nil {
-				s.detailError = err.Error()
+				s.detailError = api.PresentError(err)
 				return
 			}
 			for i := range s.detailComments {
@@ -994,4 +1001,31 @@ func (s *Screen) deleteCommentAsync(wiID, commentID string, ver int64) {
 			}
 		})
 	}()
+}
+
+func (s *Screen) viewDeleteCommentConfirm(c *ui.Context) {
+	cm := s.commentDelItem
+	if cm == nil || s.commentDelWorkItemID == "" {
+		s.commentDelOpen = false
+		return
+	}
+	preview := strings.TrimSpace(cm.Body)
+	if len(preview) > 80 {
+		preview = preview[:77] + "..."
+	}
+	wiID := s.commentDelWorkItemID
+	cmID := cm.ID
+	cmVer := cm.Version
+	mobile.ActionSheet(c, &s.commentDelOpen, mobile.ActionSheetOptions{
+		Title:   i18n.T("work.issues.delete_comment_title"),
+		Message: i18n.Tf("work.issues.delete_comment_body", map[string]any{"author": cm.Author.DisplayName, "body": preview}),
+		Cancel:  i18n.T("common.cancel"),
+	}, mobile.Action{
+		Label:       i18n.T("work.issues.delete_comment_confirm"),
+		Destructive: true,
+		OnTap: func() {
+			components.HapticWarning()
+			s.deleteCommentAsync(wiID, cmID, cmVer)
+		},
+	})
 }

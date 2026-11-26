@@ -51,6 +51,7 @@ type Deps struct {
 	OnHapticsChanged        func(bool)
 	OnComposerReturnChanged func(sendOnEnter bool)
 	ShowToast               func(msg string)
+	ShowErrorToast          func(msg string)
 	OnNotify                func()
 	CheckBiometrics         func(ctx context.Context) (biometrics.Kind, error)
 	Share                   func(mygo.ShareOptions) error
@@ -97,6 +98,8 @@ type Screen struct {
 	ruleMandateItem  *api.ProactiveRule
 	ruleDeleteSheet  bool
 	ruleDeleteItem   *api.ProactiveRule
+	ruleDismissSheet bool
+	ruleDismissItem  *api.ProactiveRule
 
 	// Profile & Insights UI state.
 	acctName        string
@@ -134,6 +137,7 @@ type Screen struct {
 	composerReturnSend bool
 	clearCacheConfirm  bool
 	prefsNotice        string
+	prefsError         string
 }
 
 // New constructs a Settings screen controller and checks biometric availability.
@@ -245,7 +249,7 @@ func (s *Screen) Refresh(ctx context.Context) {
 		s.voicePolicy = &cp
 	}
 	if firstErr != nil {
-		s.syncError = firstErr.Error()
+		s.syncError = api.PresentError(firstErr)
 	}
 	s.mu.Unlock()
 
@@ -281,22 +285,46 @@ func (s *Screen) View(c *ui.Context) {
 	s.mu.Unlock()
 
 	ui.Column(c).Fill().Background(t.Background).Children(func() {
-		layout.ReadableWrap(c, layout.Of(c).ReadableMaxWidth, func() {
-			ui.Column(c).FillWidth().Padding(8, 14, 6, 14).Gap(8).Shrink(0).Children(func() {
-				components.SegmentedControl(c, &s.section,
-					i18n.T("settings.tab.overview"),
-					i18n.T("settings.tab.rules"),
-					i18n.T("settings.tab.profile"),
-					i18n.T("settings.tab.connectors"),
-					i18n.T("settings.tab.prefs"),
-				)
-				if syncErr != "" {
-					components.ErrorInline(c, syncErr, func() {
-						go s.Refresh(context.Background())
-					})
-				}
+		// On Overview, the grouped directory rows serve as single primary navigation;
+		// sub-sections display a clean Town Atelier "< More · Section" back header.
+		if s.section != SectionOverview || syncErr != "" {
+			layout.ReadableWrap(c, layout.Of(c).ReadableMaxWidth, func() {
+				ui.Column(c).FillWidth().Padding(8, 14, 6, 14).Gap(8).Shrink(0).Children(func() {
+					if s.section != SectionOverview {
+						secTitles := []string{
+							i18n.T("tab.more"),
+							i18n.T("settings.tab.rules"),
+							i18n.T("settings.tab.profile"),
+							i18n.T("settings.tab.connectors"),
+							i18n.T("settings.tab.prefs"),
+						}
+						secTitle := secTitles[s.section%len(secTitles)]
+						ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(10).Children(func() {
+							backBtn := ui.Row(c).MinHeight(44).Padding(6, 12).Radius(999).Background(t.Surface).
+								AlignItems(ui.Center).Gap(5).Shrink(0).
+								Role(ui.RoleButton).Label(i18n.T("tab.more"))
+							components.ApplyCardElevation(backBtn, t)
+							if backBtn.Pressed() {
+								backBtn.Background(t.SurfacePressed)
+							}
+							backBtn.Children(func() {
+								theme.IconBox(c, 16, t.Text, theme.IconBack)
+								ui.Text(c, i18n.T("tab.more")).FontSize(13).FontWeight(600).TextColor(t.Text).NoWrap()
+							})
+							if backBtn.Clicked() {
+								s.section = SectionOverview
+							}
+							ui.Text(c, secTitle).FontSize(16).FontWeight(600).LetterSpacing(-0.2).TextColor(t.Text).Grow(1).Basis(0).MaxLines(1)
+						})
+					}
+					if syncErr != "" {
+						components.ErrorInline(c, syncErr, func() {
+							go s.Refresh(context.Background())
+						})
+					}
+				})
 			})
-		})
+		}
 
 		switch s.section {
 		case SectionOverview:
@@ -317,6 +345,7 @@ func (s *Screen) View(c *ui.Context) {
 	s.viewRuleEditSheet(c)
 	s.viewRuleMandateSheet(c)
 	s.viewRuleDeleteSheet(c)
+	s.viewRuleDismissSheet(c)
 	s.viewInsightDeleteSheet(c)
 	s.viewAgentGrantsSheet(c)
 	s.viewDisconnectConfirmSheet(c)
@@ -407,22 +436,25 @@ func (s *Screen) viewOverviewSection(c *ui.Context, loading bool) {
 							})
 						})
 
-						ui.Row(c).FillWidth().Wrap().Gap(6).Children(func() {
-							components.StatusDotPill(c, transportLabel, transportTone)
-							if snap.RTTMs > 0 {
-								components.StatusPill(c, i18n.Tf("settings.host.rtt", map[string]any{"ms": fmt.Sprintf("%d", snap.RTTMs)}), components.ToneNeutral)
-							}
-							if snap.SSEState != "" {
-								sseTone := components.ToneNeutral
-								if snap.SSEState == "connected" {
-									sseTone = components.ToneSuccess
+						// Suppress duplicate disconnected/SSE pills when unpaired (TopBar already shows Disconnected).
+						if snap.ActiveHost != nil || s.client() != nil {
+							ui.Row(c).FillWidth().Wrap().Gap(6).Children(func() {
+								components.StatusDotPill(c, transportLabel, transportTone)
+								if snap.RTTMs > 0 {
+									components.StatusPill(c, i18n.Tf("settings.host.rtt", map[string]any{"ms": fmt.Sprintf("%d", snap.RTTMs)}), components.ToneNeutral)
 								}
-								components.StatusDotPill(c, i18n.Tf("conn.badge.sse_status", map[string]any{"status": i18n.SSEStatusLabel(string(snap.SSEState))}), sseTone)
-							}
-						})
+								if snap.SSEState != "" {
+									sseTone := components.ToneNeutral
+									if snap.SSEState == "connected" {
+										sseTone = components.ToneSuccess
+									}
+									components.StatusDotPill(c, i18n.Tf("conn.badge.sse_status", map[string]any{"status": i18n.SSEStatusLabel(string(snap.SSEState))}), sseTone)
+								}
+							})
+						}
 
 						manageBtn := components.PrimaryTouchButton(c, i18n.T("settings.host.manage_hosts"), false)
-						manageBtn.FillWidth().MinHeight(42)
+						manageBtn.FillWidth()
 						if manageBtn.Clicked() && s.deps.OnOpenConnect != nil {
 							s.deps.OnOpenConnect()
 						}
@@ -579,7 +611,7 @@ func (s *Screen) rotateTokenAsync() {
 		s.enqueueUI(func() {
 			s.hostBusy = false
 			if err != nil {
-				s.hostError = err.Error()
+				s.hostError = api.PresentError(err)
 				return
 			}
 			s.hostNotice = i18n.T("state.toast.token_rotated")
@@ -601,7 +633,7 @@ func (s *Screen) exportDiagnostics() {
 			if errors.Is(err, errors.ErrUnsupported) {
 				s.hostNotice = i18n.T("settings.diag.preview_ready")
 			} else if err != nil && !errors.Is(err, mygo.ErrCanceled) {
-				s.hostError = err.Error()
+				s.hostError = api.PresentError(err)
 			} else if err == nil {
 				s.hostNotice = i18n.T("settings.toast.diag_exported")
 			}
@@ -702,6 +734,17 @@ func (s *Screen) toast(msg string) {
 	if s.deps.ShowToast != nil && strings.TrimSpace(msg) != "" {
 		s.deps.ShowToast(msg)
 	}
+}
+
+func (s *Screen) errorToast(msg string) {
+	if strings.TrimSpace(msg) == "" {
+		return
+	}
+	if s.deps.ShowErrorToast != nil {
+		s.deps.ShowErrorToast(msg)
+		return
+	}
+	s.toast(msg)
 }
 
 func (s *Screen) share(opts mygo.ShareOptions) error {

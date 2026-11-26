@@ -1,7 +1,6 @@
 package components
 
 import (
-	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"github.com/oldwinter/linger/mobile/internal/config"
 	"github.com/oldwinter/linger/mobile/internal/i18n"
@@ -31,7 +30,7 @@ func ThemeSegmentedSelector(c *ui.Context, current config.ThemePreference, onCha
 			} else if idx == 2 {
 				next = config.ThemeDark
 			}
-			mygo.Haptics.Light()
+			HapticLight()
 			if onChange != nil {
 				onChange(next)
 			}
@@ -62,7 +61,7 @@ func LanguageSegmentedSelector(c *ui.Context, current config.LanguagePreference,
 			} else if idx == 2 {
 				next = config.LanguageZhHans
 			}
-			mygo.Haptics.Light()
+			HapticLight()
 			if onChange != nil {
 				onChange(next)
 			}
@@ -84,7 +83,7 @@ func AppearanceQuickCard(
 	curTheme := config.NormalizeThemePreference(string(prefs.Theme))
 	curLang := config.NormalizeLanguagePreference(string(prefs.Language))
 
-	card := ui.Column(c).FillWidth().Background(t.Surface).Radius(16).Padding(12, 14).Gap(10).
+	card := ui.Column(c).FillWidth().Background(t.Surface).Radius(16).Padding(10, 14).Gap(6).
 		Role(ui.RoleGroup).Label(i18n.T("appearance.title"))
 	ApplyCardElevation(card, t)
 	card.Children(func() {
@@ -94,7 +93,7 @@ func AppearanceQuickCard(
 				ui.Text(c, i18n.T("appearance.title")).FontSize(12.5).FontWeight(600).TextColor(t.TextMuted).NoWrap()
 			})
 			if onOpenPrefs != nil {
-				btn := ui.Row(c).MinHeight(28).Padding(3, 9).Radius(999).Background(ex.MutedBg).
+				btn := ui.Row(c).MinHeight(34).Padding(4, 10).Radius(999).Background(ex.MutedBg).
 					AlignItems(ui.Center).Gap(3).Role(ui.RoleButton).Label(i18n.T("appearance.all_prefs"))
 				if btn.Pressed() {
 					btn.Background(t.SurfacePressed)
@@ -117,7 +116,7 @@ func AppearanceQuickCard(
 					label := i18n.ThemePillLabel(opt)
 					selected := curTheme == opt
 					if quickPill(c, "th_"+string(opt), label, i18n.ThemeOptionLabel(opt), selected) {
-						mygo.Haptics.Light()
+						HapticLight()
 						if onTheme != nil {
 							onTheme(opt)
 						}
@@ -136,7 +135,7 @@ func AppearanceQuickCard(
 					label := i18n.LanguagePillLabel(opt)
 					selected := curLang == opt
 					if quickPill(c, "lg_"+string(opt), label, i18n.LanguageOptionLabel(opt), selected) {
-						mygo.Haptics.Light()
+						HapticLight()
 						if onLang != nil {
 							onLang(opt)
 						}
@@ -156,7 +155,7 @@ func quickPill(c *ui.Context, key, label, a11yLabel string, active bool) bool {
 		bg = t.Accent
 		fg = t.AccentText
 	}
-	pill := ui.Row(c.Key(key)).MinHeight(28).Padding(3, 10).Radius(8).
+	pill := ui.Row(c.Key(key)).MinHeight(34).Padding(4, 10).Radius(8).
 		Background(bg).AlignItems(ui.Center).Justify(ui.Center).
 		Role(ui.RoleTab).Label(a11yLabel).Selected(active)
 	if active && !t.Dark {

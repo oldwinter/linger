@@ -49,6 +49,14 @@ var (
 	ErrUnauthorized = errors.New("api: unauthorized")
 )
 
+// ErrorDetail represents a structured validation or limit detail inside APIError.Details.
+type ErrorDetail struct {
+	Field      string `json:"field,omitempty"`
+	Code       string `json:"code,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+	LimitBytes *int64 `json:"limit_bytes,omitempty"`
+}
+
 // APIError represents the structured error envelope returned by TeamHub and Companion Gateway.
 type APIError struct {
 	StatusCode int
@@ -66,6 +74,55 @@ func (e *APIError) Error() string {
 		return fmt.Sprintf("api %d: %s", e.StatusCode, e.Message)
 	}
 	return fmt.Sprintf("api error: HTTP %d", e.StatusCode)
+}
+
+// ParsedDetails decodes APIError.Details whether TeamHub returns an array or a single object.
+func (e *APIError) ParsedDetails() []ErrorDetail {
+	if e == nil || len(e.Details) == 0 {
+		return nil
+	}
+	trimmed := bytes.TrimSpace(e.Details)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return nil
+	}
+	if trimmed[0] == '[' {
+		var list []ErrorDetail
+		if json.Unmarshal(trimmed, &list) == nil {
+			return list
+		}
+		return nil
+	}
+	var single ErrorDetail
+	if json.Unmarshal(trimmed, &single) == nil {
+		return []ErrorDetail{single}
+	}
+	return nil
+}
+
+// LimitBytes returns the first positive limit_bytes value from structured error details.
+func (e *APIError) LimitBytes() (int64, bool) {
+	for _, d := range e.ParsedDetails() {
+		if d.LimitBytes != nil && *d.LimitBytes > 0 {
+			return *d.LimitBytes, true
+		}
+	}
+	return 0, false
+}
+
+// IsPayloadTooLarge reports whether the server rejected a request or upload for exceeding size limits.
+func (e *APIError) IsPayloadTooLarge() bool {
+	if e == nil {
+		return false
+	}
+	if e.StatusCode == http.StatusRequestEntityTooLarge {
+		return true
+	}
+	switch strings.ToUpper(e.Code) {
+	case "PAYLOAD_TOO_LARGE", "DOCUMENT_ASSET_TOO_LARGE", "REQUEST_TOO_LARGE", "FILE_TOO_LARGE":
+		return true
+	default:
+		return false
+	}
 }
 
 // Unwrap lets callers match ErrUnauthorized via errors.Is.

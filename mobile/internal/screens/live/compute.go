@@ -5,7 +5,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/mobile"
 	"github.com/oldwinter/linger/mobile/internal/api"
@@ -76,9 +75,8 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 					}
 				})
 			}
-			if cs.ComputerID != "" {
+			if cs.PairedDevicesCount > 0 {
 				ui.Text(c, i18n.Tf("live.compute.computer_devices", map[string]any{
-					"id":    cs.ComputerID,
 					"count": cs.PairedDevicesCount,
 				})).FontSize(11.5).TextColor(ex.TextSubtle)
 			}
@@ -157,20 +155,20 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 	msModel := i18n.T("live.compute.not_configured")
 	if snap.ModelSource != nil && snap.ModelSource.Status != nil {
 		msMode = snap.ModelSource.Status.Mode
-		msModel = nonEmptyOr(snap.ModelSource.Status.RuntimeModel, msModel)
+		msModel = resolveFriendlyModelName(snap, snap.ModelSource.Status.RuntimeModel, msModel)
 	}
 	components.SectionCard(c, i18n.T("live.compute.source_title"), i18n.Tf("live.compute.source_active", map[string]any{
 		"source":  i18n.ModelSourceLabel(msMode),
 		"runtime": msModel,
 	}), func() {
-		components.StatusDotPill(c, strings.ToUpper(i18n.ModelSourceLabel(msMode)), components.ToneBrand)
+		components.StatusDotPill(c, i18n.ModelSourceLabel(msMode), components.ToneBrand)
 	}, func() {
-		// Full-width 3-column tactile switcher tray (no ragged wrapping).
+		// Full-width 3-column tactile switcher tray (no ragged wrapping, high-contrast active state).
 		ui.Row(c).FillWidth().Background(ex.MutedBg).Radius(12).Padding(3, 3).Gap(3).Children(func() {
 			for _, m := range []string{"local", "subscription", "byok"} {
 				m := m
 				isCurrent := strings.EqualFold(msMode, m)
-				label := strings.ToUpper(i18n.ModelSourceLabel(m))
+				label := i18n.ModelSourceLabel(m)
 				disabled := activeCompID == ""
 				bg := ui.Transparent
 				fg := t.TextMuted
@@ -182,18 +180,18 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 				if isCurrent {
 					segLabel = label + " \u2713"
 				}
-				btn := ui.Row(c.Key("ms_" + m)).Grow(1).Basis(0).MinHeight(38).PaddingX(6).Radius(9).
+				btn := ui.Row(c.Key("ms_" + m)).Grow(1).Basis(0).MinHeight(40).PaddingX(6).Radius(9).
 					Background(bg).AlignItems(ui.Center).Justify(ui.Center).
-					Role(ui.RoleButton).Label(segLabel).Disabled(disabled)
+					Role(ui.RoleTab).Label(label).Checked(isCurrent).Disabled(disabled)
 				if !disabled && !isCurrent && btn.Pressed() {
 					btn.Background(t.SurfacePressed)
 				}
 				btn.Children(func() {
-					txt := ui.Text(c, segLabel).FontSize(11.5).TextColor(fg).NoWrap().MaxLines(1)
+					txt := ui.Text(c, segLabel).FontSize(12.5).TextColor(fg).NoWrap().MaxLines(1)
 					if isCurrent {
 						txt.FontWeight(700)
 					} else {
-						txt.FontWeight(600)
+						txt.FontWeight(500)
 					}
 				})
 				if btn.Clicked() && !isCurrent && !disabled {
@@ -201,7 +199,7 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 					case "byok":
 						ctl.openBYOKSheet(snap)
 					case "subscription":
-						mygo.Haptics.Light()
+						components.HapticLight()
 						rt := ctl.effectiveSubscriptionRuntime(snap, activeCompID)
 						ctl.mu.Lock()
 						ctl.subRuntime = rt
@@ -213,7 +211,7 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 							})
 						}()
 					default:
-						mygo.Haptics.Light()
+						components.HapticLight()
 						go func() {
 							rt := "pi"
 							_, _ = ctl.store.SwitchModelSource(context.Background(), activeCompID, api.ModelSourceSwitchRequest{
@@ -226,7 +224,7 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 			}
 		})
 		cfgBtn := components.SecondaryTouchButton(c, i18n.T("live.compute.configure_byok"), activeCompID == "")
-		cfgBtn.FillWidth().MinHeight(40)
+		cfgBtn.FillWidth()
 		if cfgBtn.Clicked() {
 			ctl.openBYOKSheet(snap)
 		}
@@ -244,7 +242,7 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 				ctl.mu.Lock()
 				ctl.subRuntime = nextRt
 				ctl.mu.Unlock()
-				mygo.Haptics.Light()
+				components.HapticLight()
 				go func() {
 					_, _ = ctl.store.SwitchModelSource(context.Background(), activeCompID, api.ModelSourceSwitchRequest{
 						Mode:    "subscription",
@@ -293,11 +291,20 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 				})
 			}
 
-			// Collect currently loaded model IDs for "Make Room & Load".
+			// Collect currently loaded model IDs & display names for "Make Room & Load",
+			// and compute max free pool memory for memory-fit guidance.
 			var loadedIDs []string
+			var loadedNames []string
 			for _, mv := range lm.Models {
 				if mv.Model.State == "loaded" {
 					loadedIDs = append(loadedIDs, mv.Model.ID)
+					loadedNames = append(loadedNames, nonEmptyOr(mv.Model.Name, mv.Model.ID))
+				}
+			}
+			var maxFreeBytes int64
+			for _, pool := range lm.Pools {
+				if free := pool.TotalBytes - pool.UsedBytes; free > maxFreeBytes {
+					maxFreeBytes = free
 				}
 			}
 
@@ -351,6 +358,17 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 						components.ErrorInline(c, errMsg, nil)
 					}
 
+					if mod.State == "idle" && mod.MemoryBytes > 0 && maxFreeBytes > 0 && mod.MemoryBytes > maxFreeBytes {
+						hintKey := "live.compute.mem_tight_hint"
+						if len(loadedNames) > 0 {
+							hintKey = "live.compute.mem_make_room_hint"
+						}
+						ui.Text(c, i18n.Tf(hintKey, map[string]any{
+							"need": i18n.FormatMemorySize(mod.MemoryBytes),
+							"free": i18n.FormatMemorySize(maxFreeBytes),
+						})).FontSize(11.5).TextColor(t.Warning)
+					}
+
 					// Action buttons tailored to state, with explicit busy labels disabling duplicate taps!
 					ui.Row(c).FillWidth().Wrap().Gap(6).Children(func() {
 						switch mod.State {
@@ -361,7 +379,7 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 							}
 							b := components.CompactPrimaryButton(c, lbl, nil, busy)
 							if b.Clicked() {
-								ctl.actOnLocalModelAsync(lm.Computer.ComputerID, mod.ID, "pull", nil)
+								ctl.actOnLocalModelAsync(lm.Computer.ComputerID, mod.ID, mod.Name, "pull", nil)
 							}
 						case "downloading":
 							lbl := i18n.T("live.compute.cancel_download")
@@ -369,9 +387,9 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 								lbl = i18n.T("live.compute.canceling")
 							}
 							b := components.DangerTouchButton(c, lbl, busy)
-							b.MinHeight(36)
+							b.MinHeight(40)
 							if b.Clicked() {
-								ctl.actOnLocalModelAsync(lm.Computer.ComputerID, mod.ID, "cancel_pull", nil)
+								ctl.actOnLocalModelAsync(lm.Computer.ComputerID, mod.ID, mod.Name, "cancel_pull", nil)
 							}
 						case "idle":
 							loadLbl := i18n.T("live.compute.load")
@@ -380,7 +398,7 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 							}
 							b := components.CompactPrimaryButton(c, loadLbl, nil, busy)
 							if b.Clicked() {
-								ctl.actOnLocalModelAsync(lm.Computer.ComputerID, mod.ID, "load", nil)
+								ctl.actOnLocalModelAsync(lm.Computer.ComputerID, mod.ID, mod.Name, "load", nil)
 							}
 							if len(loadedIDs) > 0 {
 								mrLbl := i18n.T("live.compute.make_room_load")
@@ -389,11 +407,18 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 								}
 								mr := components.CompactSecondaryButton(c, mrLbl, nil, busy)
 								if mr.Clicked() {
-									ctl.actOnLocalModelAsync(lm.Computer.ComputerID, mod.ID, "load", loadedIDs)
+									ctl.mu.Lock()
+									ctl.makeRoomComputerID = lm.Computer.ComputerID
+									ctl.makeRoomModelID = mod.ID
+									ctl.makeRoomModelName = nonEmptyOr(mod.Name, mod.ID)
+									ctl.makeRoomUnloadIDs = append([]string(nil), loadedIDs...)
+									ctl.makeRoomUnloadNames = append([]string(nil), loadedNames...)
+									ctl.makeRoomConfirmOpen = true
+									ctl.mu.Unlock()
 								}
 							}
 							rm := components.DangerTouchButton(c, i18n.T("common.remove"), busy)
-							rm.MinHeight(36)
+							rm.MinHeight(40)
 							if rm.Clicked() {
 								ctl.mu.Lock()
 								ctl.removeModelID = mod.ID
@@ -408,10 +433,10 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 							}
 							b := components.CompactSecondaryButton(c, unLbl, nil, busy)
 							if b.Clicked() {
-								ctl.actOnLocalModelAsync(lm.Computer.ComputerID, mod.ID, "unload", nil)
+								ctl.actOnLocalModelAsync(lm.Computer.ComputerID, mod.ID, mod.Name, "unload", nil)
 							}
 							rm := components.DangerTouchButton(c, i18n.T("common.remove"), busy)
-							rm.MinHeight(36)
+							rm.MinHeight(40)
 							if rm.Clicked() {
 								ctl.mu.Lock()
 								ctl.removeModelID = mod.ID
@@ -427,7 +452,51 @@ func (ctl *Controller) viewCompute(c *ui.Context, snap state.Snapshot) {
 	}
 }
 
-func (ctl *Controller) actOnLocalModelAsync(computerID, modelID, action string, unloadFirst []string) {
+func resolveFriendlyModelName(snap state.Snapshot, raw, fallback string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return fallback
+	}
+	trimmedID := strings.TrimPrefix(trimmed, "localmodels/")
+	if snap.LocalModels != nil {
+		for _, mv := range snap.LocalModels.Models {
+			if mv.Model.ID == trimmed || mv.Model.ID == trimmedID {
+				return nonEmptyOr(mv.Model.Name, mv.Model.ID)
+			}
+		}
+	}
+	return trimmedID
+}
+
+func (ctl *Controller) viewMakeRoomConfirm(c *ui.Context) {
+	ctl.mu.Lock()
+	compID := ctl.makeRoomComputerID
+	mID := ctl.makeRoomModelID
+	mName := ctl.makeRoomModelName
+	unloadIDs := append([]string(nil), ctl.makeRoomUnloadIDs...)
+	unloadNames := append([]string(nil), ctl.makeRoomUnloadNames...)
+	ctl.mu.Unlock()
+	if mID == "" || len(unloadIDs) == 0 {
+		ctl.makeRoomConfirmOpen = false
+		return
+	}
+	mobile.ActionSheet(c, &ctl.makeRoomConfirmOpen, mobile.ActionSheetOptions{
+		Title: i18n.Tf("live.compute.make_room_title", map[string]any{"name": mName}),
+		Message: i18n.Tf("live.compute.make_room_body", map[string]any{
+			"unload": strings.Join(unloadNames, ", "),
+			"target": mName,
+		}),
+		Cancel: i18n.T("common.cancel"),
+	}, mobile.Action{
+		Label:       i18n.T("live.compute.make_room_confirm"),
+		Destructive: true,
+		OnTap: func() {
+			ctl.actOnLocalModelAsync(compID, mID, mName, "load", unloadIDs)
+		},
+	})
+}
+
+func (ctl *Controller) actOnLocalModelAsync(computerID, modelID, modelName, action string, unloadFirst []string) {
 	key := action
 	if action == "load" && len(unloadFirst) > 0 {
 		key = "make_room_load"
@@ -441,20 +510,21 @@ func (ctl *Controller) actOnLocalModelAsync(computerID, modelID, action string, 
 	ctl.mu.Unlock()
 
 	if action == "remove" || action == "cancel_pull" {
-		mygo.Haptics.Warning()
+		components.HapticWarning()
 	} else {
-		mygo.Haptics.Light()
+		components.HapticLight()
 	}
 
+	displayName := nonEmptyOr(modelName, modelID)
 	go func() {
 		err := ctl.store.ActOnLocalModel(context.Background(), computerID, modelID, action, unloadFirst)
 		ctl.mu.Lock()
 		delete(ctl.modelBusy, modelID)
 		ctl.mu.Unlock()
 		if err == nil {
-			mygo.Haptics.Success()
+			components.HapticSuccess()
 			ctl.setNotice(i18n.Tf("live.compute.toast.model_accepted", map[string]any{
-				"id":     modelID,
+				"id":     displayName,
 				"action": i18n.LocalModelActionLabel(key),
 			}))
 		}
@@ -489,7 +559,7 @@ func (ctl *Controller) viewRemoveModelConfirm(c *ui.Context, snap state.Snapshot
 		Destructive: true,
 		OnTap: func() {
 			if snap.LocalModels != nil {
-				ctl.actOnLocalModelAsync(snap.LocalModels.Computer.ComputerID, mID, "remove", nil)
+				ctl.actOnLocalModelAsync(snap.LocalModels.Computer.ComputerID, mID, mName, "remove", nil)
 			}
 		},
 	})
@@ -841,7 +911,7 @@ func (ctl *Controller) viewBYOKSheet(c *ui.Context, snap state.Snapshot) {
 								ctl.byokAPIKey = ""
 								ctl.byokSheetOpen = false
 							} else {
-								ctl.byokTestMsg = i18n.Tf("live.compute.toast.switch_failed", map[string]any{"err": err.Error()})
+								ctl.byokTestMsg = i18n.Tf("live.compute.toast.switch_failed", map[string]any{"err": api.PresentError(err)})
 							}
 							ctl.mu.Unlock()
 						})
@@ -891,7 +961,7 @@ func (ctl *Controller) testBYOKAsync(tenantID, compID string) {
 		if cl != nil {
 			res, err := cl.TestLocalComputerModelSourceTyped(context.Background(), tenantID, compID, in)
 			if err != nil {
-				msg = i18n.Tf("live.compute.toast.test_failed", map[string]any{"err": err.Error()})
+				msg = i18n.Tf("live.compute.toast.test_failed", map[string]any{"err": api.PresentError(err)})
 			} else if res.Ok {
 				msg = i18n.Tf("live.compute.toast.connected_ok", map[string]any{
 					"model": res.ModelID,
@@ -921,7 +991,7 @@ func (ctl *Controller) listBYOKModelsAsync(tenantID, compID string) {
 		if cl != nil {
 			res, err := cl.ListLocalComputerByokModelsTyped(context.Background(), tenantID, compID, in)
 			if err != nil {
-				msg = i18n.Tf("live.compute.toast.list_failed", map[string]any{"err": err.Error()})
+				msg = i18n.Tf("live.compute.toast.list_failed", map[string]any{"err": api.PresentError(err)})
 			} else {
 				list = res.Models
 				msg = i18n.Tf("live.compute.toast.loaded_models", map[string]any{"count": len(res.Models)})
@@ -942,7 +1012,7 @@ func (ctl *Controller) scanSkillsAsync(tenantID, compID string) {
 			_, err := cl.ScanLocalComputerSkills(context.Background(), tenantID, compID)
 			ctl.mu.Lock()
 			if err != nil {
-				ctl.scanResult = i18n.Tf("live.compute.toast.skill_scan_failed", map[string]any{"err": err.Error()})
+				ctl.scanResult = i18n.Tf("live.compute.toast.skill_scan_failed", map[string]any{"err": api.PresentError(err)})
 			} else {
 				ctl.scanResult = i18n.T("live.compute.toast.skill_scan_ok")
 			}

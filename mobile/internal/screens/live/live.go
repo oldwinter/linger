@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/mobile"
 	"github.com/egoist/mygo/ui/netimage"
@@ -73,6 +72,17 @@ type Controller struct {
 	newAgentInstr    string
 	newAgentModel    string
 	newAgentTemplate string
+
+	// Confirmation ActionSheets for destructive/disruptive Live Ops actions
+	stopRunConfirmOpen  bool
+	stopRunTarget       api.RoomRunStatus
+	stopRunRoomName     string
+	makeRoomConfirmOpen bool
+	makeRoomComputerID  string
+	makeRoomModelID     string
+	makeRoomModelName   string
+	makeRoomUnloadIDs   []string
+	makeRoomUnloadNames []string
 
 	// Compute / Local Models / Permissions / Browser / BYOK state
 	selectedComputerID string
@@ -241,6 +251,8 @@ func (ctl *Controller) View(c *ui.Context, snap state.Snapshot) {
 
 	// Modal sheets across Live segments.
 	ctl.viewZoomLightbox(c)
+	ctl.viewStopRunConfirm(c)
+	ctl.viewMakeRoomConfirm(c)
 	ctl.viewAgentDetailSheet(c, snap)
 	ctl.viewCreateAgentSheet(c, snap)
 	ctl.viewDeleteAgentConfirm(c)
@@ -298,21 +310,50 @@ func (ctl *Controller) viewActiveRuns(c *ui.Context, snap state.Snapshot) {
 			})
 			ui.Text(c, i18n.Tf("live.run_ordinal", map[string]any{"ordinal": run.EventOrdinal, "id": run.RunID})).FontSize(12).TextColor(theme.Extra(t).TextSubtle)
 			ui.Row(c).FillWidth().Gap(8).Children(func() {
-				watchBtn := components.PrimaryTouchButton(c, i18n.T("chat.watch_live"), false)
-				watchBtn.Grow(1).Basis(0).MinHeight(40)
+				watchLabel := i18n.T("chat.view_run")
+				if run.Status == "active" {
+					watchLabel = i18n.T("chat.watch_live")
+				}
+				watchBtn := components.PrimaryTouchButton(c, watchLabel, false)
+				watchBtn.Grow(1).Basis(0)
 				if watchBtn.Clicked() && ctl.nav.OnWatchRun != nil {
 					ctl.nav.OnWatchRun(run.RoomID, run.RunID)
 				}
 				if run.Status == "active" {
 					stopBtn := components.DangerTouchButton(c, i18n.T("live.stop_btn"), false)
-					stopBtn.MinHeight(40)
 					if stopBtn.Clicked() {
-						mygo.Haptics.Warning()
-						go func() { _ = ctl.store.CancelRun(context.Background(), run.RoomID, run.RunID) }()
+						ctl.mu.Lock()
+						ctl.stopRunTarget = run
+						ctl.stopRunRoomName = rName
+						ctl.stopRunConfirmOpen = true
+						ctl.mu.Unlock()
 					}
 				}
 			})
 		})
+	})
+}
+
+func (ctl *Controller) viewStopRunConfirm(c *ui.Context) {
+	ctl.mu.Lock()
+	run := ctl.stopRunTarget
+	roomName := ctl.stopRunRoomName
+	ctl.mu.Unlock()
+	if run.RunID == "" {
+		ctl.stopRunConfirmOpen = false
+		return
+	}
+	mobile.ActionSheet(c, &ctl.stopRunConfirmOpen, mobile.ActionSheetOptions{
+		Title:   i18n.T("run.stop_dialog_title"),
+		Message: i18n.Tf("live.stop_confirm_body", map[string]any{"agent": run.Agent.DisplayName, "room": roomName}),
+		Cancel:  i18n.T("run.keep_running"),
+	}, mobile.Action{
+		Label:       i18n.T("run.stop_now"),
+		Destructive: true,
+		OnTap: func() {
+			components.HapticWarning()
+			go func() { _ = ctl.store.CancelRun(context.Background(), run.RoomID, run.RunID) }()
+		},
 	})
 }
 

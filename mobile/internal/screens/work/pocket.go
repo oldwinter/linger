@@ -110,9 +110,11 @@ func (s *Screen) viewPocketSegment(c *ui.Context) {
 								s.queuePocketSave(s.pocketDraft)
 							}
 
-							retryBtn := components.SecondaryTouchButton(c, i18n.T("work.pocket.retry_sync"), state == PocketStateSaving)
-							if retryBtn.Clicked() {
-								go func() { _ = s.SyncPocketOutbox(context.Background()) }()
+							if state != PocketStateSaved || outboxCount > 0 {
+								retryBtn := components.SecondaryTouchButton(c, i18n.T("work.pocket.retry_sync"), state == PocketStateSaving)
+								if retryBtn.Clicked() {
+									go func() { _ = s.SyncPocketOutbox(context.Background()) }()
+								}
 							}
 
 							sendLabel := i18n.T("work.pocket.send_another_me")
@@ -161,7 +163,7 @@ func (s *Screen) viewPocketSegment(c *ui.Context) {
 												s.pocketExpandedDate = n.Date
 											}
 										}
-										delBtn := ui.Row(c).MinHeight(32).PaddingX(10).Radius(8).Background(t.Surface).
+										delBtn := ui.Row(c).MinHeight(36).PaddingX(10).Radius(8).Background(t.Surface).
 											AlignItems(ui.Center).Role(ui.RoleButton).Label(i18n.Tf("work.pocket.delete_a11y", map[string]any{"date": n.Date}))
 										delBtn.Children(func() {
 											ui.Text(c, i18n.T("common.delete")).FontSize(11).FontWeight(600).TextColor(t.Danger)
@@ -296,7 +298,7 @@ func (s *Screen) persistPocketSave(ctx context.Context, req pocketSaveReq) {
 				s.pocketLastErr = ""
 			} else {
 				s.pocketState = PocketStateError
-				s.pocketLastErr = err.Error()
+				s.pocketLastErr = api.PresentError(err)
 			}
 		}
 		s.mu.Unlock()
@@ -365,7 +367,7 @@ func (s *Screen) SyncPocketOutbox(ctx context.Context) error {
 		if err != nil {
 			s.mu.Lock()
 			s.pocketState = PocketStateError
-			s.pocketLastErr = err.Error()
+			s.pocketLastErr = api.PresentError(err)
 			s.mu.Unlock()
 			s.notify()
 			return err
@@ -385,7 +387,7 @@ func (s *Screen) SyncPocketOutbox(ctx context.Context) error {
 		if err != nil {
 			s.mu.Lock()
 			s.pocketState = PocketStateError
-			s.pocketLastErr = err.Error()
+			s.pocketLastErr = api.PresentError(err)
 			s.mu.Unlock()
 			s.notify()
 			return err
@@ -505,7 +507,7 @@ func (s *Screen) sendPocketToAnotherMe(text string) {
 		if err != nil {
 			s.enqueueUI(func() {
 				s.pocketSendBusy = false
-				s.pocketActionErr = err.Error()
+				s.pocketActionErr = api.PresentError(err)
 			})
 			return
 		}
@@ -524,7 +526,7 @@ func (s *Screen) sendPocketToAnotherMe(text string) {
 		s.enqueueUI(func() {
 			s.pocketSendBusy = false
 			if msgErr != nil {
-				s.pocketActionErr = msgErr.Error()
+				s.pocketActionErr = api.PresentError(msgErr)
 				return
 			}
 			s.toast(i18n.T("work.pocket.toast.sent_another_me"))
@@ -562,7 +564,7 @@ func (s *Screen) deletePocketNote(noteDate string) {
 	}
 	go func() {
 		if err := client.DeletePocketNote(context.Background(), tenantID, noteDate); err != nil {
-			s.enqueueUI(func() { s.pocketActionErr = err.Error() })
+			s.enqueueUI(func() { s.pocketActionErr = api.PresentError(err) })
 			return
 		}
 		s.enqueueUI(func() {

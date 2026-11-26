@@ -90,8 +90,8 @@ func TestConnectionHubViewportsInsetsAndAccessibility(t *testing.T) {
 				hub.SelectSegment(1)
 				testutil.ApplyKeyboardInset(tt, vp.Top)
 				tt.Frame()
-				if !tt.HasText("Nearby on LAN (mDNS)") {
-					t.Fatal("expected LAN radar section after switching to Pair Desktop")
+				if !tt.HasText("Nearby Computers") {
+					t.Fatal("expected Nearby Computers section after switching to Pair Desktop")
 				}
 				if !tt.HasText("Studio Mac") {
 					t.Fatal("expected mDNS discovered Studio Mac to render")

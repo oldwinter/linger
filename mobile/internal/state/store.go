@@ -20,6 +20,7 @@ import (
 	"github.com/egoist/mygo/ui/netimage"
 	"github.com/oldwinter/linger/mobile/internal/api"
 	"github.com/oldwinter/linger/mobile/internal/cache"
+	"github.com/oldwinter/linger/mobile/internal/components"
 	"github.com/oldwinter/linger/mobile/internal/config"
 	"github.com/oldwinter/linger/mobile/internal/discovery"
 	"github.com/oldwinter/linger/mobile/internal/i18n"
@@ -153,7 +154,6 @@ type AppStore struct {
 	computers           []api.LocalComputer
 	localModels         *api.LocalModelsView
 	cacheStats          cache.CacheStats
-	composerReturnSends bool
 	offlineViewingCache bool
 	actors              []api.Actor
 	agents              []api.TenantAgent
@@ -192,6 +192,7 @@ func NewAppStore(opts Options) *AppStore {
 	if opts.LanguageOverride != nil || prefs.Language != config.LanguageSystem {
 		i18n.SetPreference(prefs.Language)
 	}
+	components.SetHapticsEnabled(prefs.HapticsEnabled())
 	s := &AppStore{
 		cfg:               cfgStore,
 		dataDir:           opts.DataDir,
@@ -362,7 +363,7 @@ func (s *AppStore) Snapshot() Snapshot {
 		CacheStats:          s.cacheStats,
 		StreamCursors:       cursors,
 		PendingPairURI:      s.pendingPairURI,
-		ComposerReturnSends: s.composerReturnSends,
+		ComposerReturnSends: prefs.ComposerReturnSends,
 		OfflineViewingCache: s.offlineViewingCache,
 		Actors:              append([]api.Actor(nil), s.actors...),
 		Agents:              append([]api.TenantAgent(nil), s.agents...),
@@ -556,8 +557,16 @@ func (s *AppStore) UpdatePreferences(prefs config.AppPreferences) error {
 	if langChanged || i18n.ActivePreference() != prefs.Language {
 		i18n.SetPreference(prefs.Language)
 	}
+	components.SetHapticsEnabled(prefs.HapticsEnabled())
 	s.notify()
 	return nil
+}
+
+// SetHapticsPreference enables or disables tactile haptic feedback and persists it.
+func (s *AppStore) SetHapticsPreference(enabled bool) error {
+	p := s.effectivePreferences()
+	p.HapticsDisabled = !enabled
+	return s.UpdatePreferences(p)
 }
 
 // SetThemePreference updates the Town Light/Dark/System theme preference.
@@ -659,12 +668,12 @@ func (s *AppStore) InjectDiscoveredHosts(hosts []discovery.DiscoveredHost) {
 func (s *AppStore) PairWithURI(ctx context.Context, rawURI string, allowPlainHTTP bool) (config.HostProfile, error) {
 	payload, err := discovery.ParsePairingURI(rawURI)
 	if err != nil {
-		s.SetTransientError(err.Error())
+		s.SetTransientError(api.PresentError(err))
 		return config.HostProfile{}, err
 	}
 	if !payload.TLS && !allowPlainHTTP {
 		err := errors.New(i18n.T("state.err.plain_http_required"))
-		s.SetTransientError(err.Error())
+		s.SetTransientError(api.PresentError(err))
 		return config.HostProfile{}, err
 	}
 
@@ -676,7 +685,7 @@ func (s *AppStore) PairWithURI(ctx context.Context, rawURI string, allowPlainHTT
 		AllowPlainHTTP: !payload.TLS && allowPlainHTTP,
 	})
 	if err != nil {
-		s.SetTransientError(err.Error())
+		s.SetTransientError(api.PresentError(err))
 		return config.HostProfile{}, err
 	}
 	defer client.CloseIdleConnections()
@@ -688,7 +697,7 @@ func (s *AppStore) PairWithURI(ctx context.Context, rawURI string, allowPlainHTT
 		AppVersion: "0.1.0",
 	})
 	if err != nil {
-		s.SetTransientError(err.Error())
+		s.SetTransientError(api.PresentError(err))
 		return config.HostProfile{}, err
 	}
 
@@ -717,7 +726,7 @@ func (s *AppStore) PairWithURI(ctx context.Context, rawURI string, allowPlainHTT
 func (s *AppStore) ProbePINHost(ctx context.Context, baseURL string, allowPlainHTTP bool) (api.TOFUProbeResult, error) {
 	res, err := api.ProbeCompanionTOFU(ctx, baseURL, allowPlainHTTP)
 	if err != nil {
-		s.SetTransientError(err.Error())
+		s.SetTransientError(api.PresentError(err))
 		return api.TOFUProbeResult{}, err
 	}
 	s.ClearTransientError()
@@ -729,7 +738,7 @@ func (s *AppStore) PairWithPIN(ctx context.Context, baseURL, pin, confirmedFP st
 	pin = strings.TrimSpace(pin)
 	if len(pin) != 6 {
 		err := errors.New(i18n.T("state.err.pin_six_digits"))
-		s.SetTransientError(err.Error())
+		s.SetTransientError(api.PresentError(err))
 		return config.HostProfile{}, err
 	}
 	isTLS := strings.HasPrefix(strings.ToLower(strings.TrimSpace(baseURL)), "https://")
@@ -740,7 +749,7 @@ func (s *AppStore) PairWithPIN(ctx context.Context, baseURL, pin, confirmedFP st
 		AllowPlainHTTP: !isTLS && allowPlainHTTP,
 	})
 	if err != nil {
-		s.SetTransientError(err.Error())
+		s.SetTransientError(api.PresentError(err))
 		return config.HostProfile{}, err
 	}
 	defer client.CloseIdleConnections()
@@ -752,7 +761,7 @@ func (s *AppStore) PairWithPIN(ctx context.Context, baseURL, pin, confirmedFP st
 		AppVersion: "0.1.0",
 	})
 	if err != nil {
-		s.SetTransientError(err.Error())
+		s.SetTransientError(api.PresentError(err))
 		return config.HostProfile{}, err
 	}
 
@@ -799,19 +808,19 @@ func (s *AppStore) LoginDirect(ctx context.Context, rawURL, email, password stri
 		OnTokenChanged: func(tok string) { capturedCookie = tok },
 	})
 	if err != nil {
-		s.SetTransientError(err.Error())
+		s.SetTransientError(api.PresentError(err))
 		return config.HostProfile{}, err
 	}
 	defer client.CloseIdleConnections()
 
 	sess, err := client.Login(ctx, strings.TrimSpace(email), password)
 	if err != nil {
-		s.SetTransientError(err.Error())
+		s.SetTransientError(api.PresentError(err))
 		return config.HostProfile{}, err
 	}
 	if capturedCookie == "" {
 		err := errors.New(i18n.T("state.err.no_session_cookie"))
-		s.SetTransientError(err.Error())
+		s.SetTransientError(api.PresentError(err))
 		return config.HostProfile{}, err
 	}
 
@@ -864,15 +873,15 @@ func (s *AppStore) ConfigurePreviewHost(ctx context.Context, hostURL, token, tls
 
 func (s *AppStore) saveAndActivateHost(ctx context.Context, profile config.HostProfile, secret string) error {
 	if err := s.cfg.UpsertHost(profile); err != nil {
-		s.SetTransientError(err.Error())
+		s.SetTransientError(api.PresentError(err))
 		return err
 	}
 	if err := s.cfg.SaveSecret(profile.ID, secret); err != nil {
-		s.SetTransientError(err.Error())
+		s.SetTransientError(api.PresentError(err))
 		return err
 	}
 	if err := s.cfg.SetActiveHost(profile.ID); err != nil {
-		s.SetTransientError(err.Error())
+		s.SetTransientError(api.PresentError(err))
 		return err
 	}
 	s.ClearTransientError()
@@ -972,7 +981,7 @@ func (s *AppStore) ConnectHost(ctx context.Context, hostID string) error {
 			s.mu.Lock()
 			if s.connGen == myGen {
 				s.phase = PhaseDisconnected
-				s.transientError = err.Error()
+				s.transientError = api.PresentError(err)
 			}
 			s.mu.Unlock()
 			s.notify()
@@ -1025,7 +1034,7 @@ func (s *AppStore) ConnectHost(ctx context.Context, hostID string) error {
 		if s.connGen == myGen {
 			s.phase = PhaseReconnecting
 			s.offlineViewingCache = len(s.rooms) > 0
-			s.transientError = err.Error()
+			s.transientError = api.PresentError(err)
 		}
 		s.mu.Unlock()
 		// Start SSE realtime engine even after transient initial refresh failure
@@ -1292,11 +1301,11 @@ func (s *AppStore) RotateActiveToken(ctx context.Context) error {
 	}
 	resp, err := client.RotateCompanionToken(ctx)
 	if err != nil {
-		s.SetTransientError(err.Error())
+		s.SetTransientError(api.PresentError(err))
 		return err
 	}
 	if err := s.cfg.SaveSecret(ah.ID, resp.Token); err != nil {
-		s.SetTransientError(err.Error())
+		s.SetTransientError(api.PresentError(err))
 		return err
 	}
 	s.ClearTransientError()
@@ -1321,7 +1330,7 @@ func (s *AppStore) UnpairHost(ctx context.Context, hostID string) error {
 		s.Disconnect()
 	}
 	if err := s.cfg.RemoveHost(hostID); err != nil {
-		s.SetTransientError(err.Error())
+		s.SetTransientError(api.PresentError(err))
 		return err
 	}
 	s.ClearTransientError()
@@ -1441,7 +1450,7 @@ func (s *AppStore) startRealtime(client *api.Client, gen uint64) {
 			case realtime.StateReconnecting:
 				s.phase = PhaseReconnecting
 				if err != nil {
-					s.transientError = i18n.Tf("state.toast.reconnecting_stream", map[string]any{"err": err.Error()})
+					s.transientError = i18n.Tf("state.toast.reconnecting_stream", map[string]any{"err": api.PresentError(err)})
 				}
 			case realtime.StateExpired:
 				s.phase = PhaseExpired

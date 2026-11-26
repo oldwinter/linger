@@ -70,12 +70,14 @@ func (ctl *Controller) viewChatPane(c *ui.Context, snap state.Snapshot, roomID, 
 			run := run
 			tone := components.ToneInfo
 			msg := i18n.Tf("chat.working_banner", map[string]any{"actor": run.Agent.DisplayName, "elapsed": formatElapsed(run.CreatedAt)})
+			actionLbl := i18n.T("chat.watch_live")
 			if run.Status == "aborted" {
 				tone = components.ToneWarning
-				msg = i18n.Tf("chat.stopped_banner", map[string]any{"actor": run.Agent.DisplayName, "status": i18n.StatusLabel(run.Status)})
+				msg = i18n.Tf("chat.stopped_banner", map[string]any{"actor": run.Agent.DisplayName})
+				actionLbl = i18n.T("chat.view_run")
 			}
 			ui.Box(c.Key("run_banner_"+run.RunID)).FillWidth().Padding(6, 12, 0, 12).Children(func() {
-				components.StatusBanner(c, tone, msg, i18n.T("chat.watch_live"), func() {
+				components.StatusBanner(c, tone, msg, actionLbl, func() {
 					ctl.OpenRunWatch(roomID, run.RunID)
 				})
 			})
@@ -127,6 +129,7 @@ func (ctl *Controller) viewChatPane(c *ui.Context, snap state.Snapshot, roomID, 
 	})
 
 	// Overlay sheets for Chat actions, Inspector, Zoom, HTML Fragment, and Mail Canvas.
+	ctl.viewMessageActionSheet(c)
 	ctl.viewMentionSheet(c, snap, roomID)
 	ctl.viewSkillSheet(c, snap, roomID)
 	ctl.viewReactionSheet(c, roomID)
@@ -159,16 +162,36 @@ func (ctl *Controller) viewMessageRow(c *ui.Context, snap state.Snapshot, roomID
 		len(m.Attachments) > 0
 
 	ui.Column(c.Key(m.ID)).FillWidth().AlignItems(align).Gap(5).Children(func() {
-		// Author + timestamp line
-		ui.Row(c).AlignItems(ui.Center).Gap(6).Children(func() {
-			if !isOwn {
-				components.AvatarBadge(c, m.Author.DisplayName, 24)
+		// Author + timestamp line + compact overflow actions trigger (opens ActionSheet).
+		ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(6).Children(func() {
+			ui.Row(c).AlignItems(ui.Center).Gap(6).Grow(1).Basis(0).Children(func() {
+				if !isOwn {
+					components.AvatarBadge(c, m.Author.DisplayName, 24)
+				}
+				ui.Text(c, m.Author.DisplayName).FontSize(12.5).FontWeight(600).TextColor(t.TextMuted).MaxLines(1)
+				if m.RoutineName != nil && *m.RoutineName != "" {
+					components.StatusPill(c, i18n.Tf("chat.routine_label", map[string]any{"id": *m.RoutineName}), components.ToneInfo)
+				}
+				ui.Text(c, i18n.FormatRoomTime(m.CreatedAt)).FontSize(11).TextColor(ex.TextSubtle).NoWrap()
+			})
+			moreBtn := ui.Row(c).MinHeight(36).MinWidth(36).Padding(4, 8).Radius(8).
+				AlignItems(ui.Center).Justify(ui.Center).Shrink(0).
+				Role(ui.RoleButton).Label(i18n.T("chat.msg_actions_a11y"))
+			if moreBtn.Pressed() {
+				moreBtn.Background(t.SurfacePressed)
 			}
-			ui.Text(c, m.Author.DisplayName).FontSize(12.5).FontWeight(600).TextColor(t.TextMuted)
-			if m.RoutineName != nil && *m.RoutineName != "" {
-				components.StatusPill(c, i18n.Tf("chat.routine_label", map[string]any{"id": *m.RoutineName}), components.ToneInfo)
+			moreBtn.Children(func() {
+				ui.Text(c, "\u2022\u2022\u2022").FontSize(12).FontWeight(700).TextColor(ex.TextSubtle).NoWrap()
+			})
+			if moreBtn.Clicked() {
+				ctl.mu.Lock()
+				mCopy := m
+				ctl.msgActionTarget = &mCopy
+				ctl.msgActionRoomID = roomID
+				ctl.msgActionIsThread = isThread
+				ctl.msgActionSheetOpen = true
+				ctl.mu.Unlock()
 			}
-			ui.Text(c, i18n.FormatRoomTime(m.CreatedAt)).FontSize(11).TextColor(ex.TextSubtle)
 		})
 
 		// Editorial asymmetrical chat bubble (obsidian/ivory for own, elevated surface for peers).
@@ -245,88 +268,145 @@ func (ctl *Controller) viewMessageRow(c *ui.Context, snap state.Snapshot, roomID
 			components.DecisionCardView(c, roomID, roomTitle(snap, roomID), card, ctl.decisionStateFor(card.DecisionID), ctl.decisionCallbacks())
 		}
 
-		// Reactions bar + whisper-quiet ghost micro-actions outside the bubble.
-		currentActorID := ""
-		if snap.Identity != nil {
-			for _, act := range snap.Identity.Actors {
-				if snap.TenantID == "" || act.TenantID == snap.TenantID {
-					currentActorID = act.ID
-					break
+		// Active reactions & thread replies only (secondary actions live cleanly in the overflow ActionSheet).
+		hasThreadReplies := !isThread && m.Thread != nil && m.Thread.ReplyCount > 0
+		if len(m.Reactions) > 0 || hasThreadReplies {
+			currentActorID := ""
+			if snap.Identity != nil {
+				for _, act := range snap.Identity.Actors {
+					if snap.TenantID == "" || act.TenantID == snap.TenantID {
+						currentActorID = act.ID
+						break
+					}
 				}
 			}
+			actionJustify := ui.Start
+			if isOwn {
+				actionJustify = ui.End
+			}
+			ui.Row(c).FillWidth().Wrap().AlignItems(ui.Center).Justify(actionJustify).Gap(6).Padding(0, 2).Children(func() {
+				for _, rx := range m.Reactions {
+					rx := rx
+					reacted := rx.ReactedBy(currentActorID)
+					rxBg := t.Surface
+					rxBorder := ex.SubtleBorder
+					if reacted {
+						rxBg = ex.BrandTint
+						rxBorder = ex.Brand.Alpha(0.32)
+					}
+					pill := ui.Row(c.Key("rx_"+rx.ReactionID)).MinHeight(36).Padding(4, 10).Radius(999).
+						Background(rxBg).Border(0.75, rxBorder).AlignItems(ui.Center).
+						Role(ui.RoleButton).Label(i18n.Tf("chat.react_a11y", map[string]any{"emoji": rx.ReactionID}))
+					pill.Children(func() {
+						ui.Text(c, fmt.Sprintf("%s %d", rx.DisplayEmoji(), rx.Count())).FontSize(11.5).FontWeight(500).TextColor(t.Text).NoWrap()
+					})
+					if pill.Clicked() {
+						ctl.toggleReactionAsync(roomID, m.ID, rx.ReactionID, reacted)
+					}
+				}
+				if hasThreadReplies {
+					thBtn := ui.Row(c).MinHeight(36).Padding(4, 10).Radius(999).Background(ex.BrandTint).
+						Border(0.75, ex.Brand.Alpha(0.28)).AlignItems(ui.Center).Role(ui.RoleButton).Label(i18n.T("chat.thread_btn"))
+					thBtn.Children(func() {
+						ui.Text(c, i18n.Tf("chat.thread_replies", map[string]any{"count": m.Thread.ReplyCount})+" ›").FontSize(11.5).FontWeight(600).TextColor(ex.BrandText).NoWrap()
+					})
+					if thBtn.Clicked() {
+						ctl.store.Routers[state.TabRooms].Push("/rooms/" + roomID + "/thread/" + m.Thread.ThreadRoomID)
+					}
+				}
+			})
 		}
-		actionJustify := ui.Start
-		if isOwn {
-			actionJustify = ui.End
-		}
-		ui.Row(c).FillWidth().Wrap().AlignItems(ui.Center).Justify(actionJustify).Gap(4).Padding(0, 2).Children(func() {
-			for _, rx := range m.Reactions {
-				rx := rx
-				reacted := rx.ReactedBy(currentActorID)
-				rxBg := t.Surface
-				rxBorder := ex.SubtleBorder
-				if reacted {
-					rxBg = ex.BrandTint
-					rxBorder = ex.Brand.Alpha(0.32)
-				}
-				pill := ui.Row(c.Key("rx_"+rx.ReactionID)).MinHeight(28).Padding(3, 8).Radius(999).
-					Background(rxBg).Border(0.75, rxBorder).AlignItems(ui.Center).
-					Role(ui.RoleButton).Label(i18n.Tf("chat.react_a11y", map[string]any{"emoji": rx.ReactionID}))
-				pill.Children(func() {
-					ui.Text(c, fmt.Sprintf("%s %d", rx.DisplayEmoji(), rx.Count())).FontSize(11.5).FontWeight(500).TextColor(t.Text).NoWrap()
-				})
-				if pill.Clicked() {
-					ctl.toggleReactionAsync(roomID, m.ID, rx.ReactionID, reacted)
-				}
-			}
-			if !isThread && m.Thread != nil && m.Thread.ReplyCount > 0 {
-				thBtn := ui.Row(c).MinHeight(28).Padding(3, 9).Radius(999).Background(ex.BrandTint).
-					Border(0.75, ex.Brand.Alpha(0.28)).AlignItems(ui.Center).Role(ui.RoleButton).Label(i18n.T("chat.thread_btn"))
-				thBtn.Children(func() {
-					ui.Text(c, i18n.Tf("chat.thread_replies", map[string]any{"count": m.Thread.ReplyCount})+" ›").FontSize(11.5).FontWeight(600).TextColor(ex.BrandText).NoWrap()
-				})
-				if thBtn.Clicked() {
-					ctl.store.Routers[state.TabRooms].Push("/rooms/" + roomID + "/thread/" + m.Thread.ThreadRoomID)
-				}
-			}
-			ghostActionButton(c, i18n.T("chat.add_react"), func() {
+	})
+}
+
+func (ctl *Controller) viewMessageActionSheet(c *ui.Context) {
+	ctl.mu.Lock()
+	target := ctl.msgActionTarget
+	roomID := ctl.msgActionRoomID
+	isThread := ctl.msgActionIsThread
+	ctl.mu.Unlock()
+	if target == nil {
+		ctl.msgActionSheetOpen = false
+		return
+	}
+	m := *target
+	actions := []mobile.Action{
+		{
+			Label: i18n.T("chat.add_react"),
+			OnTap: func() {
 				ctl.mu.Lock()
 				mCopy := m
 				ctl.reactTargetMsg = &mCopy
 				ctl.reactSheetOpen = true
 				ctl.mu.Unlock()
-			})
-			ghostActionButton(c, i18n.T("chat.pin"), func() {
+			},
+		},
+		{
+			Label: i18n.T("chat.reply"),
+			OnTap: func() {
+				ctl.mu.Lock()
+				mCopy := m
+				ctl.replyTarget[roomID] = &mCopy
+				ctl.mu.Unlock()
+			},
+		},
+		{
+			Label: i18n.T("chat.pin"),
+			OnTap: func() {
 				go func() {
 					if cl := ctl.store.Client(); cl != nil {
-						_ = cl.PutMessagePin(context.Background(), roomID, m.ID)
+						if err := cl.PutMessagePin(context.Background(), roomID, m.ID); err != nil {
+							ctl.store.SetTransientError(api.PresentError(err))
+							return
+						}
 						ctl.store.SetStatusMessage(i18n.T("chat.toast.pinned"))
 					}
 				}()
-			})
-			ghostActionButton(c, i18n.T("chat.forward"), func() {
+			},
+		},
+		{
+			Label: i18n.T("chat.forward"),
+			OnTap: func() {
 				ctl.mu.Lock()
 				mCopy := m
 				ctl.forwardTargetMsg = &mCopy
 				ctl.forwardSheetOpen = true
 				ctl.mu.Unlock()
-			})
-			if !isThread {
-				ghostActionButton(c, i18n.T("chat.thread_btn"), func() {
-					go func() {
-						if cl := ctl.store.Client(); cl != nil {
-							if th, err := cl.CreateOrGetMessageThread(context.Background(), roomID, m.ID); err == nil {
-								ctl.ensureRoomLoaded(th.ID)
-								ctl.store.EnqueueUI(func() {
-									ctl.store.Routers[state.TabRooms].Push("/rooms/" + roomID + "/thread/" + th.ID)
-								})
-							}
+			},
+		},
+	}
+	if !isThread {
+		actions = append(actions, mobile.Action{
+			Label: i18n.T("chat.thread_btn"),
+			OnTap: func() {
+				go func() {
+					if cl := ctl.store.Client(); cl != nil {
+						if th, err := cl.CreateOrGetMessageThread(context.Background(), roomID, m.ID); err == nil {
+							ctl.ensureRoomLoaded(th.ID)
+							ctl.store.EnqueueUI(func() {
+								ctl.store.Routers[state.TabRooms].Push("/rooms/" + roomID + "/thread/" + th.ID)
+							})
+						} else {
+							ctl.store.SetTransientError(api.PresentError(err))
 						}
-					}()
-				})
-			}
+					}
+				}()
+			},
 		})
-	})
+	}
+	if strings.TrimSpace(m.RawMessage) != "" {
+		actions = append(actions, mobile.Action{
+			Label: i18n.T("chat.copy_text"),
+			OnTap: func() {
+				mygo.Clipboard.WriteText(m.RawMessage)
+				ctl.store.SetStatusMessage(i18n.T("chat.toast.copied"))
+			},
+		})
+	}
+	mobile.ActionSheet(c, &ctl.msgActionSheetOpen, mobile.ActionSheetOptions{
+		Title:  i18n.T("chat.msg_actions_title"),
+		Cancel: i18n.T("common.cancel"),
+	}, actions...)
 }
 
 func (ctl *Controller) viewAttachment(c *ui.Context, idx int, att api.MessageAttachment) {
@@ -382,15 +462,20 @@ func (ctl *Controller) viewComposer(c *ui.Context, snap state.Snapshot, roomID s
 	replyMsg := ctl.replyTarget[roomID]
 	uploading := ctl.uploadingRoom == roomID
 	sending := ctl.sendingRoom == roomID
+	sendErr := ctl.sendErrors[roomID]
 	ctl.mu.Unlock()
 
 	sendNow := func(text string) {
 		text = strings.TrimSpace(text)
 		ctl.mu.Lock()
+		if ctl.sendingRoom == roomID {
+			ctl.mu.Unlock()
+			return
+		}
 		curUploads := append([]api.MessageAttachmentUpload(nil), ctl.pendingUploads[roomID]...)
 		curReply := ctl.replyTarget[roomID]
-		ctl.mu.Unlock()
 		if text == "" && len(curUploads) == 0 {
+			ctl.mu.Unlock()
 			return
 		}
 		uploadIDs := make([]string, 0, len(curUploads))
@@ -402,11 +487,14 @@ func (ctl *Controller) viewComposer(c *ui.Context, snap state.Snapshot, roomID s
 			id := curReply.ID
 			replyID = &id
 		}
-		ctl.mu.Lock()
 		ctl.sendingRoom = roomID
+		delete(ctl.sendErrors, roomID)
 		ctl.mu.Unlock()
-		ctl.store.SetDraft(roomID, "")
-		mygo.Haptics.Light()
+
+		// Preserve draft text, uploads, and reply target until SendMessage succeeds
+		// so a failed send never destroys unsent user input.
+		ctl.store.SetDraft(roomID, text)
+		components.HapticLight()
 		go func() {
 			_, err := ctl.store.SendMessage(context.Background(), roomID, text, replyID, uploadIDs)
 			ctl.mu.Lock()
@@ -414,12 +502,18 @@ func (ctl *Controller) viewComposer(c *ui.Context, snap state.Snapshot, roomID s
 			if err == nil {
 				delete(ctl.pendingUploads, roomID)
 				delete(ctl.replyTarget, roomID)
+				delete(ctl.sendErrors, roomID)
 				ctl.scrollToBottom[roomID] = true
+			} else {
+				ctl.sendErrors[roomID] = api.PresentError(err)
 			}
 			ctl.mu.Unlock()
 			if err == nil {
-				ctl.store.Notify()
+				ctl.store.SetDraft(roomID, "")
+			} else if strings.TrimSpace(ctl.store.GetDraft(roomID)) == "" && text != "" {
+				ctl.store.SetDraft(roomID, text)
 			}
+			ctl.store.Notify()
 		}()
 	}
 
@@ -440,6 +534,11 @@ func (ctl *Controller) viewComposer(c *ui.Context, snap state.Snapshot, roomID s
 		composer := ui.Column(c).FillWidth().Background(t.Surface).Radius(20).Padding(cardPadTop, cardPadH, cardPadBottom, cardPadH).Gap(cardGap)
 		components.ApplyCardElevation(composer, t)
 		composer.Children(func() {
+			if sendErr != "" {
+				components.StatusBanner(c, components.ToneDanger, sendErr, i18n.T("common.retry"), func() {
+					sendNow(ctl.store.GetDraft(roomID))
+				})
+			}
 			if replyMsg != nil {
 				ui.Row(c).FillWidth().Padding(5, 10).Radius(10).Background(ex.MutedBg).AlignItems(ui.Center).Justify(ui.SpaceBetween).Children(func() {
 					ui.Text(c, i18n.Tf("chat.replying_to", map[string]any{"text": replyMsg.Author.DisplayName})).FontSize(12).TextColor(t.TextMuted).MaxLines(1)
@@ -474,23 +573,23 @@ func (ctl *Controller) viewComposer(c *ui.Context, snap state.Snapshot, roomID s
 
 			// Multiline IME-safe TextArea + sleek pill Send button
 			ui.Row(c).FillWidth().AlignItems(ui.End).Gap(8).Children(func() {
-				var area ui.Element
-				area = ui.TextArea(c.Key("draft_"+roomID), &draft).Grow(1).Basis(0).MinHeight(areaMinH).MaxHeight(areaMaxH).
+				area := ui.TextArea(c.Key("draft_"+roomID), &draft).Grow(1).Basis(0).MinHeight(areaMinH).MaxHeight(areaMaxH).
 					Placeholder(i18n.T("chat.composer_placeholder")).Label(i18n.T("chat.composer_a11y")).Multiline(true)
+				// Snapshot IME composing state during build; ui.Element handles expire before OnTextKey runs.
+				composing := area.Composing()
 				area.OnTextKey(func(k ui.TextKey) bool {
 					if k.Key != ui.KeyEnter {
 						return false
 					}
 					// Never submit during IME composition; Cmd/Ctrl+Enter always sends;
 					// bare Enter sends only when ComposerReturnSends is enabled.
-					if area.Composing() {
+					if composing {
 						return false
 					}
 					isCmdOrCtrl := k.Mods&(ui.Super|ui.Ctrl) != 0
 					if isCmdOrCtrl || (k.Mods == 0 && snap.ComposerReturnSends) {
 						txt := k.Text()
 						if strings.TrimSpace(txt) != "" {
-							k.SetText("")
 							sendNow(txt)
 						}
 						return true
@@ -690,7 +789,7 @@ func (ctl *Controller) openMailCanvas(docID string) {
 		ctl.mu.Lock()
 		ctl.mailBusy = false
 		if err != nil {
-			ctl.mailError = err.Error()
+			ctl.mailError = api.PresentError(err)
 		} else {
 			ctl.mailState = &st
 		}
@@ -739,7 +838,7 @@ func (ctl *Controller) viewMailCanvasSheet(c *ui.Context) {
 							ctl.mu.Lock()
 							ctl.mailBusy = false
 							if err != nil {
-								ctl.mailError = err.Error()
+								ctl.mailError = api.PresentError(err)
 							} else {
 								ctl.mailState = &updated
 							}
@@ -759,7 +858,7 @@ func (ctl *Controller) viewMailCanvasSheet(c *ui.Context) {
 							ctl.mu.Lock()
 							ctl.mailBusy = false
 							if err != nil {
-								ctl.mailError = err.Error()
+								ctl.mailError = api.PresentError(err)
 							} else {
 								ctl.mailState = &updated
 							}
@@ -953,7 +1052,7 @@ func (ctl *Controller) uploadFilePath(roomID, path, mediaType string) {
 	}
 	ctl.mu.Unlock()
 	if err != nil {
-		ctl.store.SetTransientError(i18n.Tf("chat.err_upload_attach", map[string]any{"err": err.Error()}))
+		ctl.store.SetTransientError(i18n.Tf("chat.err_upload_attach", map[string]any{"err": api.PresentError(err)}))
 	}
 }
 
@@ -983,7 +1082,7 @@ func (ctl *Controller) downloadAndShareAttachment(att api.MessageAttachment) {
 		}
 		data, _, err := cl.DownloadDocumentVersion(context.Background(), att.DocumentVersionID)
 		if err != nil {
-			ctl.store.SetTransientError(i18n.Tf("chat.err_download", map[string]any{"err": err.Error()}))
+			ctl.store.SetTransientError(i18n.Tf("chat.err_download", map[string]any{"err": api.PresentError(err)}))
 			return
 		}
 		tmpPath := filepath.Join(os.TempDir(), filepath.Base(att.Filename))

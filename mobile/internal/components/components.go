@@ -107,7 +107,7 @@ func StatusBanner(c *ui.Context, tone Tone, message, actionLabel string, onActio
 		})
 		ui.Text(c, message).Grow(1).Basis(0).FontSize(13).LineHeight(1.35).TextColor(t.Text)
 		if actionLabel != "" && onAction != nil {
-			btn := ui.Row(c).MinHeight(32).Padding(4, 10).Radius(999).Background(t.Surface).
+			btn := ui.Row(c).MinHeight(40).Padding(6, 12).Radius(999).Background(t.Surface).
 				Border(0.75, fg.Alpha(0.28)).AlignItems(ui.Center).Justify(ui.Center).Shrink(0).
 				Role(ui.RoleButton).Label(actionLabel)
 			if btn.Pressed() {
@@ -144,10 +144,17 @@ func StatusDotPill(c *ui.Context, label string, tone Tone) ui.Element {
 	})
 }
 
-// SectionCard wraps related content in an elevated Town Atelier surface card.
+// SectionCard wraps related content in an elevated Town Atelier surface card,
+// adapting padding and gap when Compact layout density is active.
 func SectionCard(c *ui.Context, title, subtitle string, trailing func(), body func()) ui.Element {
 	t := c.Theme()
-	card := ui.Column(c).FillWidth().Background(t.Surface).Radius(16).Padding(16, 16).Gap(12)
+	pad := float32(16)
+	gap := float32(12)
+	if theme.IsCompact(t) {
+		pad = 11
+		gap = 8
+	}
+	card := ui.Column(c).FillWidth().Background(t.Surface).Radius(16).Padding(pad, pad).Gap(gap)
 	ApplyCardElevation(card, t)
 	card.Children(func() {
 		if title != "" || trailing != nil {
@@ -170,6 +177,22 @@ func SectionCard(c *ui.Context, title, subtitle string, trailing func(), body fu
 		}
 	})
 	return card
+}
+
+// ListGap returns vertical list spacing adjusted for Comfortable vs Compact density.
+func ListGap(t *ui.Theme) float32 {
+	if theme.IsCompact(t) {
+		return 7
+	}
+	return 11
+}
+
+// ListRowPad returns vertical and horizontal row padding adjusted for Comfortable vs Compact density.
+func ListRowPad(t *ui.Theme) (float32, float32) {
+	if theme.IsCompact(t) {
+		return 8, 12
+	}
+	return 12, 14
 }
 
 // EmptyState renders a composed editorial placeholder with vector emblem, title, subtitle, and optional CTA.
@@ -231,7 +254,7 @@ func SegmentedControl(c *ui.Context, selected *int, labels ...string) bool {
 				bg = ex.ElevatedBg
 				fg = t.Text
 			}
-			seg := ui.Row(c.Key(i)).Grow(1).Basis(0).MinHeight(36).PaddingX(padX).Radius(9).
+			seg := ui.Row(c.Key(i)).Grow(1).Basis(0).MinHeight(40).PaddingX(padX).Radius(9).
 				Background(bg).AlignItems(ui.Center).Justify(ui.Center).
 				Role(ui.RoleTab).Label(label).Checked(on)
 			if on {
@@ -275,7 +298,7 @@ func FilterPillBar(c *ui.Context, selected *int, labels ...string) bool {
 					fg = t.AccentText
 					borderCol = t.Accent
 				}
-				pill := ui.Row(c.Key(i)).MinHeight(34).PaddingX(11).Radius(999).
+				pill := ui.Row(c.Key(i)).MinHeight(40).PaddingX(10).Radius(999).
 					Background(bg).Border(0.75, borderCol).
 					AlignItems(ui.Center).Justify(ui.Center).Shrink(0).
 					Role(ui.RoleTab).Label(label).Checked(on)
@@ -369,7 +392,7 @@ func ConnectionHealthChip(c *ui.Context, hostName string, connected, tlsPinned, 
 		label = i18n.T("conn.badge.reconnecting")
 	}
 	_, dotCol := toneColors(t, tone)
-	chip := ui.Row(c).MinHeight(30).Padding(4, 10).Radius(999).Background(t.Surface).
+	chip := ui.Row(c).MinHeight(36).Padding(5, 10).Radius(999).Background(t.Surface).
 		AlignItems(ui.Center).Gap(6).Shrink(0).
 		Role(ui.RoleButton).Label(i18n.Tf("conn.badge.a11y", map[string]any{"label": label}))
 	ApplyCardElevation(chip, t)
@@ -463,7 +486,7 @@ func CompactPrimaryButton(c *ui.Context, label string, icon theme.IconFunc, disa
 	if disabled {
 		bg = ex.MutedBg
 	}
-	btn := ui.Row(c).MinHeight(36).Padding(7, 13).Radius(999).Background(bg).
+	btn := ui.Row(c).MinHeight(40).Padding(8, 13).Radius(999).Background(bg).
 		AlignItems(ui.Center).Justify(ui.Center).Gap(5).Shrink(0).
 		Role(ui.RoleButton).Label(label).Disabled(disabled)
 	if !disabled {
@@ -524,7 +547,7 @@ func CompactSecondaryButton(c *ui.Context, label string, icon theme.IconFunc, di
 	if disabled {
 		bg = ex.MutedBg
 	}
-	btn := ui.Row(c).MinHeight(36).Padding(6, 12).Radius(999).Background(bg).
+	btn := ui.Row(c).MinHeight(40).Padding(7, 12).Radius(999).Background(bg).
 		AlignItems(ui.Center).Justify(ui.Center).Gap(5).Shrink(0).
 		Role(ui.RoleButton).Label(label).Disabled(disabled)
 	if !disabled {
@@ -548,18 +571,19 @@ func CompactSecondaryButton(c *ui.Context, label string, icon theme.IconFunc, di
 	return btn
 }
 
+// DangerButtonColors returns the background, foreground, and border colors for DangerTouchButton.
+func DangerButtonColors(t *ui.Theme, disabled bool) (bg, fg, border ui.Color) {
+	ex := theme.Extra(t)
+	if disabled {
+		return ex.MutedBg, t.TextMuted, ex.SubtleBorder
+	}
+	return ex.DangerTint, t.Danger, t.Danger.Alpha(0.32)
+}
+
 // DangerTouchButton renders a full-touch-height (>=44pt) destructive action button with crisp contrast.
 func DangerTouchButton(c *ui.Context, label string, disabled bool) ui.Element {
 	t := c.Theme()
-	ex := theme.Extra(t)
-	bg := ex.DangerTint
-	fg := t.Danger
-	borderCol := t.Danger.Alpha(0.32)
-	if disabled {
-		bg = ex.MutedBg
-		fg = t.TextMuted
-		borderCol = ex.SubtleBorder
-	}
+	bg, fg, borderCol := DangerButtonColors(t, disabled)
 	btn := ui.Row(c).MinHeight(44).Padding(10, 14).Radius(12).Background(bg).
 		Border(0.75, borderCol).AlignItems(ui.Center).Justify(ui.Center).
 		Role(ui.RoleButton).Label(label).Disabled(disabled)
@@ -593,7 +617,7 @@ func FormField(c *ui.Context, label, placeholder string, value *string, secret b
 
 // TopBarIconButton renders a >=44x44 accessible icon button for navigation headers.
 func TopBarIconButton(c *ui.Context, label string, icon theme.IconFunc, color ui.Color) ui.Element {
-	btn := ui.Row(c).Size(40, 40).Radius(20).AlignItems(ui.Center).Justify(ui.Center).Shrink(0).
+	btn := ui.Row(c).Size(44, 44).Radius(22).AlignItems(ui.Center).Justify(ui.Center).Shrink(0).
 		Role(ui.RoleButton).Label(label)
 	if btn.Pressed() {
 		btn.Background(c.Theme().SurfacePressed)

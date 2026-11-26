@@ -51,18 +51,23 @@ type Controller struct {
 	inlineNotice  string
 
 	// Chat & Thread state
-	loadedRooms      map[string]bool
-	decisionStates   map[string]*components.DecisionCardState
-	pendingUploads   map[string][]api.MessageAttachmentUpload
-	replyTarget      map[string]*api.Message
-	uploadingRoom    string
-	sendingRoom      string
-	mentionSheetOpen bool
-	skillSheetOpen   bool
-	reactSheetOpen   bool
-	reactTargetMsg   *api.Message
-	forwardSheetOpen bool
-	forwardTargetMsg *api.Message
+	loadedRooms        map[string]bool
+	decisionStates     map[string]*components.DecisionCardState
+	pendingUploads     map[string][]api.MessageAttachmentUpload
+	replyTarget        map[string]*api.Message
+	sendErrors         map[string]string
+	uploadingRoom      string
+	sendingRoom        string
+	mentionSheetOpen   bool
+	skillSheetOpen     bool
+	msgActionSheetOpen bool
+	msgActionTarget    *api.Message
+	msgActionRoomID    string
+	msgActionIsThread  bool
+	reactSheetOpen     bool
+	reactTargetMsg     *api.Message
+	forwardSheetOpen   bool
+	forwardTargetMsg   *api.Message
 
 	// Zoomable image lightbox & opt-in HTML fragment WebView preview
 	zoomOpen    bool
@@ -95,12 +100,15 @@ type Controller struct {
 	inspBusy        bool
 
 	// Live Run Watch & Background Tasks state
-	watchRoomID        string
-	watchRunID         string
-	cancelConfirmOpen  bool
-	bgTasksOpen        bool
-	bgTasks            []api.RoomBackgroundTask
-	expandedActivities map[string]bool
+	watchRoomID         string
+	watchRunID          string
+	cancelConfirmOpen   bool
+	bgTasksOpen         bool
+	bgTasks             []api.RoomBackgroundTask
+	bgCancelConfirmOpen bool
+	bgCancelTask        api.RoomBackgroundTask
+	bgCancelRoomID      string
+	expandedActivities  map[string]bool
 
 	// Per-room message timeline scroll state (UI-thread-only map entries).
 	chatScrolls    map[string]*ui.ScrollState
@@ -108,6 +116,13 @@ type Controller struct {
 
 	// Last viewed room ID for seamless fold <-> unfold split-pane continuity.
 	lastRoomID string
+}
+
+// SetPendingUploadsForTest seeds pending upload chips for a room in automated tests.
+func (ctl *Controller) SetPendingUploadsForTest(roomID string, uploads []api.MessageAttachmentUpload) {
+	ctl.mu.Lock()
+	ctl.pendingUploads[roomID] = append([]api.MessageAttachmentUpload(nil), uploads...)
+	ctl.mu.Unlock()
 }
 
 // NewController constructs a Tab 1 Rooms controller.
@@ -121,6 +136,7 @@ func NewController(store *state.AppStore, nav NavigationHooks) *Controller {
 		decisionStates:     map[string]*components.DecisionCardState{},
 		pendingUploads:     map[string][]api.MessageAttachmentUpload{},
 		replyTarget:        map[string]*api.Message{},
+		sendErrors:         map[string]string{},
 		expandedActivities: map[string]bool{},
 		chatScrolls:        map[string]*ui.ScrollState{},
 		scrollToBottom:     map[string]bool{},
@@ -517,7 +533,7 @@ func (ctl *Controller) viewRoomListPane(c *ui.Context, snap state.Snapshot, sele
 							{
 								Label: pinLabel,
 								OnTap: func() {
-									mygo.Haptics.Light()
+									components.HapticLight()
 									go func() { _ = ctl.store.ToggleRoomPin(context.Background(), rm.ID, !pinned) }()
 								},
 							},
@@ -526,7 +542,7 @@ func (ctl *Controller) viewRoomListPane(c *ui.Context, snap state.Snapshot, sele
 							{
 								Label: i18n.T("rooms.action.read"),
 								OnTap: func() {
-									mygo.Haptics.Light()
+									components.HapticLight()
 									go func() { _ = ctl.store.MarkRoomRead(context.Background(), rm.ID) }()
 								},
 							},
@@ -688,7 +704,7 @@ func (ctl *Controller) viewCatchUpSheet(c *ui.Context, snap state.Snapshot) {
 						if len(unread) > 0 {
 							markBtn := components.CompactSecondaryButton(c, i18n.T("rooms.catchup_mark_all"), theme.IconCheck, false)
 							if markBtn.Clicked() {
-								mygo.Haptics.Success()
+								components.HapticSuccess()
 								go func() { _ = ctl.store.MarkAllRoomsRead(context.Background()) }()
 								ctl.catchUpOpen = false
 							}

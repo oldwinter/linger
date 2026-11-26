@@ -91,10 +91,15 @@ func TestFileBackendsPersistence(t *testing.T) {
 	secrets := NewFileSecretsBackend(filepath.Join(dir, "secrets.json"))
 
 	store := NewStore(prefs, secrets)
+	if !store.Preferences().HapticsEnabled() {
+		t.Fatal("expected haptics enabled by default for fresh/legacy preferences")
+	}
 	if err := store.SetPreferences(AppPreferences{
-		Theme:         ThemeDark,
-		BiometricLock: true,
-		CompactMode:   true,
+		Theme:               ThemeDark,
+		BiometricLock:       true,
+		CompactMode:         true,
+		HapticsDisabled:     true,
+		ComposerReturnSends: true,
 	}); err != nil {
 		t.Fatalf("SetPreferences: %v", err)
 	}
@@ -117,7 +122,7 @@ func TestFileBackendsPersistence(t *testing.T) {
 		NewFileSecretsBackend(filepath.Join(dir, "secrets.json")),
 	)
 	p := store2.Preferences()
-	if p.Theme != ThemeDark || !p.BiometricLock || !p.CompactMode {
+	if p.Theme != ThemeDark || !p.BiometricLock || !p.CompactMode || !p.HapticsDisabled || p.HapticsEnabled() || !p.ComposerReturnSends {
 		t.Fatalf("unexpected reloaded preferences: %+v", p)
 	}
 	if _, ok := store2.Host("host_file_1"); !ok {

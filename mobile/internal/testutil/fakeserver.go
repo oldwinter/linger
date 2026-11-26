@@ -54,6 +54,7 @@ type FakeServer struct {
 	TenantID        string
 	FailedPairCount int
 	RejectCSRF      bool
+	FailMessageSend bool
 
 	Rooms              []api.RoomListItem
 	MessagesByRoom     map[string][]api.Message
@@ -84,6 +85,13 @@ type FakeServer struct {
 	sseSubs      map[chan SSEFrame]struct{}
 	voiceSSESubs map[chan SSEFrame]struct{}
 	c2           *C2FakeServer
+}
+
+// SetFailMessageSend toggles simulated 503 failures on POST /v0/rooms/:id/messages.
+func (f *FakeServer) SetFailMessageSend(fail bool) {
+	f.mu.Lock()
+	f.FailMessageSend = fail
+	f.mu.Unlock()
 }
 
 // SeedAllFixtures populates rich fixtures for all 5 tabs (Wave C-1 Rooms & Live Ops
@@ -561,6 +569,13 @@ func (f *FakeServer) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, api.MessagePage{Items: msgs, SnapshotRoomSeq: int64(len(msgs))})
 	case strings.HasPrefix(path, "/v0/rooms/") && strings.HasSuffix(path, "/messages") && r.Method == http.MethodPost:
 		roomID := extractMiddleSegment(path, "/v0/rooms/", "/messages")
+		f.mu.Lock()
+		failSend := f.FailMessageSend
+		f.mu.Unlock()
+		if failSend {
+			writeJSONError(w, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "simulated temporary send outage")
+			return
+		}
 		var req api.CreateMessageRequest
 		dec := json.NewDecoder(r.Body)
 		dec.DisallowUnknownFields()

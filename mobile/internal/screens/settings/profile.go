@@ -164,7 +164,7 @@ func (s *Screen) saveAccountProfileAsync() {
 		s.enqueueUI(func() {
 			s.acctSaving = false
 			if err != nil {
-				s.acctErr = err.Error()
+				s.acctErr = api.PresentError(err)
 				return
 			}
 			s.mu.Lock()
@@ -189,7 +189,7 @@ func (s *Screen) savePersonalProfileAsync(baseRevID, md string) {
 		s.enqueueUI(func() {
 			s.ppSaving = false
 			if err != nil {
-				s.ppErr = err.Error()
+				s.ppErr = api.PresentError(err)
 				return
 			}
 			s.mu.Lock()
@@ -229,7 +229,7 @@ func (s *Screen) deleteInsightAsync(insightID string) {
 	}
 	go func() {
 		if err := client.DeletePersonalInsight(context.Background(), tenantID, insightID); err != nil {
-			s.enqueueUI(func() { s.acctErr = err.Error() })
+			s.enqueueUI(func() { s.acctErr = api.PresentError(err) })
 			return
 		}
 		s.enqueueUI(func() {

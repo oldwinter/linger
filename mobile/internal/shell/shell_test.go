@@ -3,8 +3,10 @@ package shell_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/oldwinter/linger/mobile/internal/components"
 	"github.com/oldwinter/linger/mobile/internal/config"
 	"github.com/oldwinter/linger/mobile/internal/screens/live"
 	"github.com/oldwinter/linger/mobile/internal/screens/settings"
@@ -137,14 +139,14 @@ func TestFiveTabShellNavigationBiometricsHooksAndThemes(t *testing.T) {
 			// Biometric Lock Gate blocks tabs until unlocked.
 			store.SetBiometricLocked(true)
 			tt.Frame()
-			if !tt.HasText("Linger Mobile is Locked") {
+			if !tt.HasText("LingerX Mobile is Locked") {
 				t.Fatal("expected Biometric Lock Gate overlay")
 			}
 			store.SetBiometricLocked(false)
 			store.SetActiveTab(state.TabRooms)
 			store.Routers[state.TabRooms].Replace("/rooms")
 			tt.Frame()
-			if tt.HasText("Linger Mobile is Locked") {
+			if tt.HasText("LingerX Mobile is Locked") {
 				t.Fatal("expected lock gate cleared after unlock")
 			}
 		})
@@ -204,4 +206,42 @@ func TestShellFirstFrameConnectTitleAndKeyboardHidesDock(t *testing.T) {
 	if tt.HasText("Library") {
 		t.Fatal("expected bottom dock bar to hide while software keyboard is open")
 	}
+}
+
+func TestShellToastAutoDismissAndRapidReplacement(t *testing.T) {
+	cfgStore := config.NewStore(config.NewMemoryPreferencesBackend(), config.NewMemorySecretsBackend())
+	store := state.NewAppStore(state.Options{
+		ConfigStore: cfgStore,
+		DataDir:     t.TempDir(),
+	})
+	defer store.Disconnect()
+
+	appShell := shell.New(store, func() bool { return false })
+	defer appShell.Close()
+	appShell.SetToastTTL(50 * time.Millisecond)
+
+	tt := testutil.NewPhoneTester(appShell.View, testutil.StandardMobileViewports[1])
+	appShell.ShowToastWithTone(components.ToneSuccess, "First toast")
+	tt.Frame()
+	if !tt.HasText("First toast") {
+		t.Fatalf("expected First toast to render, texts=%v", tt.Texts())
+	}
+
+	// Rapid replacement resets the timer and replaces the message cleanly.
+	appShell.ShowToastWithTone(components.ToneDanger, "Error toast")
+	tt.Frame()
+	if !tt.HasText("Error toast") || tt.HasText("First toast") {
+		t.Fatalf("expected replacement toast, texts=%v", tt.Texts())
+	}
+
+	// Wait for auto-dismissal after TTL.
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		tt.Frame()
+		if !tt.HasText("Error toast") {
+			return
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	t.Fatal("timed out waiting for toast to auto-dismiss")
 }

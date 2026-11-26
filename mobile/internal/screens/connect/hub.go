@@ -32,10 +32,11 @@ type Hub struct {
 	mu             sync.Mutex
 	pending        []func()
 	segment        int // 0: Hosts, 1: Pair, 2: Direct
+	segmentChosen  bool
+	advancedOpen   bool
 	pairURI        string
 	pairPlainHTTP  bool
 	manualHostURL  string
-	manualPlain    bool
 	directURL      string
 	directEmail    string
 	directPassword string
@@ -44,9 +45,11 @@ type Hub struct {
 	inlineError    string
 	inlineNotice   string
 
-	// Host ActionSheet state
-	actionSheetOpen bool
-	actionHost      config.HostProfile
+	// Host ActionSheet & destructive removal confirmation state
+	actionSheetOpen   bool
+	actionHost        config.HostProfile
+	removeHostConfirm bool
+	removeHostTarget  config.HostProfile
 
 	// PIN + TOFU verification Sheet state
 	pinSheetOpen bool
@@ -111,15 +114,18 @@ func (h *Hub) SelectSegment(idx int) {
 	if idx >= 0 && idx <= 2 {
 		h.mu.Lock()
 		h.segment = idx
+		h.segmentChosen = true
 		h.mu.Unlock()
 	}
 }
 
-// PrefillPairURI fills the linger://pair?... input and focuses the Pair segment.
+// PrefillPairURI fills the lingerx://pair?... input and focuses the Pair segment.
 func (h *Hub) PrefillPairURI(raw string) {
 	h.mu.Lock()
 	h.pairURI = strings.TrimSpace(raw)
 	h.segment = 1
+	h.segmentChosen = true
+	h.advancedOpen = true
 	h.inlineError = ""
 	h.mu.Unlock()
 }
@@ -154,6 +160,9 @@ func (h *Hub) View(c *ui.Context) {
 	}
 
 	h.mu.Lock()
+	if !h.segmentChosen && len(snap.Hosts) == 0 {
+		h.segment = 1
+	}
 	seg := h.segment
 	inlineErr := h.inlineError
 	inlineNotice := h.inlineNotice
@@ -166,7 +175,7 @@ func (h *Hub) View(c *ui.Context) {
 
 	ui.Scroll(c).FillWidth().Grow(1).Basis(0).Children(func() {
 		layout.ReadableWrap(c, m.ReadableMaxWidth, func() {
-			ui.Column(c).FillWidth().Padding(12, 16, 24, 16).Gap(12).Children(func() {
+			ui.Column(c).FillWidth().Padding(8, 16, 20, 16).Gap(10).Children(func() {
 				// Active transient error or status banners (cleared automatically on recovery).
 				if snap.TransientError != "" {
 					components.StatusBanner(c, components.ToneDanger, snap.TransientError, i18n.T("common.dismiss"), func() {
@@ -183,10 +192,7 @@ func (h *Hub) View(c *ui.Context) {
 					})
 				}
 
-				// Active connection hero card + Offline-ready Theme & Language card (side-by-side when unfolded).
-				layout.TwoPaneRow(c, m.GridColumns >= 2, 12, func() {
-					h.viewConnectionOverviewCard(c, snap)
-				}, func() {
+				renderAppearance := func() {
 					components.AppearanceQuickCard(c, snap.Prefs,
 						func(pref config.ThemePreference) {
 							_ = h.store.SetThemePreference(pref)
@@ -196,12 +202,23 @@ func (h *Hub) View(c *ui.Context) {
 						},
 						openPrefs,
 					)
-				})
+				}
+
+				// On unfolded foldables, show hero + offline Appearance side-by-side;
+				// on compact phones, keep primary QR/Nearby CTA above the fold.
+				if m.GridColumns >= 2 {
+					layout.TwoPaneRow(c, true, 12, func() {
+						h.viewConnectionOverviewCard(c, snap)
+					}, renderAppearance)
+				} else {
+					h.viewConnectionOverviewCard(c, snap)
+				}
 
 				// Narrow-screen-safe segmented switcher.
 				if components.SegmentedControl(c, &seg, i18n.T("connect.tab.saved"), i18n.T("connect.tab.pair"), i18n.T("connect.tab.direct")) {
 					h.mu.Lock()
 					h.segment = seg
+					h.segmentChosen = true
 					h.inlineError = ""
 					h.mu.Unlock()
 				}
@@ -215,10 +232,14 @@ func (h *Hub) View(c *ui.Context) {
 					h.viewDirectLogin(c, busy)
 				}
 
+				if m.GridColumns < 2 {
+					renderAppearance()
+				}
+
 				// Footer link to diagnostics.
 				ui.Row(c).FillWidth().Justify(ui.Center).Padding(2, 0).Children(func() {
 					btn := components.SecondaryTouchButton(c, i18n.T("connect.diagnostics_title"), false)
-					btn.FillWidth().MinHeight(40)
+					btn.FillWidth()
 					if btn.Clicked() {
 						h.OpenDiagnostics()
 					}
@@ -230,6 +251,7 @@ func (h *Hub) View(c *ui.Context) {
 
 	// Modal sheets and action sheets rendered in overlay layer.
 	h.viewHostActionSheet(c)
+	h.viewRemoveHostConfirm(c)
 	h.viewPINSheet(c)
 	h.viewDiagnosticsSheet(c, snap)
 }
@@ -239,7 +261,7 @@ func (h *Hub) viewConnectionOverviewCard(c *ui.Context, snap state.Snapshot) {
 	ex := theme.Extra(t)
 	title := i18n.T("connect.no_active_host")
 	hostName := ""
-	subtitle := i18n.T("connect.no_active_subtitle")
+	subtitle := i18n.T("connect.zero_config_hint")
 	if snap.ActiveHost != nil {
 		title = snap.ActiveHost.Name
 		hostName = snap.ActiveHost.Name
@@ -253,18 +275,20 @@ func (h *Hub) viewConnectionOverviewCard(c *ui.Context, snap state.Snapshot) {
 	plainHTTP := snap.ActiveHost != nil && !snap.ActiveHost.TLS
 	connected := snap.Phase == state.PhaseConnected
 
-	hero := ui.Column(c).FillWidth().Gradient(ex.HeroGradFrom, ex.HeroGradTo, 180).Radius(18).Padding(16, 16).Gap(12)
+	hero := ui.Column(c).FillWidth().Gradient(ex.HeroGradFrom, ex.HeroGradTo, 180).Radius(16).Padding(12, 14).Gap(8)
 	components.ApplyCardElevation(hero, t)
 	hero.Children(func() {
-		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(12).Children(func() {
+		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(10).Children(func() {
 			if snap.ActiveHost == nil {
-				theme.IconBox(c, 44, t.Accent, theme.IconBrandMark)
+				theme.IconBox(c, 36, t.Accent, theme.IconBrandMark)
 			} else {
 				components.AvatarBadge(c, hostName, 44)
 			}
 			ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
-				ui.Text(c, title).FontSize(17).FontWeight(700).LetterSpacing(-0.25).TextColor(t.Text).MaxLines(1)
-				ui.Text(c, subtitle).FontSize(12.5).LineHeight(1.35).TextColor(t.TextMuted).MaxLines(2)
+				ui.Text(c, title).FontSize(16).FontWeight(700).LetterSpacing(-0.25).TextColor(t.Text).MaxLines(1)
+				if snap.ActiveHost != nil {
+					ui.Text(c, subtitle).FontSize(12.5).LineHeight(1.35).TextColor(t.TextMuted).MaxLines(2)
+				}
 			})
 			if snap.ActiveHost != nil && layout.Of(c).GridColumns < 2 {
 				components.ConnectionHealthChip(c, hostName, connected, tlsPinned, plainHTTP, snap.RTTMs, func() {
@@ -274,9 +298,8 @@ func (h *Hub) viewConnectionOverviewCard(c *ui.Context, snap state.Snapshot) {
 		})
 
 		if snap.ActiveHost == nil {
-			components.InsetDivider(c, 0)
-			ui.Text(c, i18n.T("connect.zero_config_hint")).
-				FontSize(12.5).LineHeight(1.4).TextColor(t.TextMuted)
+			ui.Text(c, subtitle).
+				FontSize(12).LineHeight(1.35).TextColor(t.TextMuted)
 			return
 		}
 
@@ -344,7 +367,10 @@ func (h *Hub) viewSavedHosts(c *ui.Context, snap state.Snapshot, busy bool) {
 							Label:       i18n.T("common.remove"),
 							Destructive: true,
 							OnTap: func() {
-								h.unpairAsync(host.ID)
+								h.mu.Lock()
+								h.removeHostTarget = host
+								h.removeHostConfirm = true
+								h.mu.Unlock()
 							},
 						},
 					},
@@ -399,21 +425,43 @@ func (h *Hub) viewSavedHosts(c *ui.Context, snap state.Snapshot, busy bool) {
 
 func (h *Hub) viewPairDesktop(c *ui.Context, snap state.Snapshot, busy bool) {
 	t := c.Theme()
-
-	// 1. LAN Discovery Radar (mDNS _linger._tcp.local.)
 	ex := theme.Extra(t)
+
+	// 1. Primary above-the-fold CTA: Scan Desktop QR Code.
+	qrCard := ui.Column(c).FillWidth().Background(t.Surface).Radius(16).Padding(12, 14).Gap(8)
+	components.ApplyCardElevation(qrCard, t)
+	qrCard.Children(func() {
+		ui.Column(c).FillWidth().Gap(2).Children(func() {
+			ui.Text(c, i18n.T("connect.qr_title")).FontSize(15).FontWeight(600).LetterSpacing(-0.2).TextColor(t.Text)
+			ui.Text(c, i18n.T("connect.qr_subtitle")).FontSize(12).TextColor(t.TextMuted)
+		})
+		scanBtn := components.PrimaryTouchButton(c, i18n.T("connect.scan_qr"), busy)
+		scanBtn.FillWidth()
+		if scanBtn.Clicked() {
+			h.triggerCameraScan()
+		}
+	})
+
+	// 2. Nearby Computers (automatic LAN discovery, above the fold).
 	foundTone := components.ToneNeutral
 	if len(snap.Discovered) > 0 {
 		foundTone = components.ToneBrand
 	}
-	components.SectionCard(c, i18n.T("connect.mdns_title"), i18n.T("connect.mdns_subtitle"), func() {
-		components.StatusDotPill(c, i18n.Tf("connect.mdns_found", map[string]any{"count": len(snap.Discovered)}), foundTone)
-	}, func() {
+	nearbyCard := ui.Column(c).FillWidth().Background(t.Surface).Radius(16).Padding(12, 14).Gap(8)
+	components.ApplyCardElevation(nearbyCard, t)
+	nearbyCard.Children(func() {
+		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
+			ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
+				ui.Text(c, i18n.T("connect.mdns_title")).FontSize(15).FontWeight(600).LetterSpacing(-0.2).TextColor(t.Text)
+				ui.Text(c, i18n.T("connect.mdns_subtitle")).FontSize(12).TextColor(t.TextMuted)
+			})
+			components.StatusDotPill(c, i18n.Tf("connect.mdns_found", map[string]any{"count": len(snap.Discovered)}), foundTone)
+		})
 		if len(snap.Discovered) == 0 {
-			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(10).Padding(4, 0).Children(func() {
-				theme.IconBox(c, 22, t.TextMuted, theme.IconRadar)
+			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(10).Padding(2, 0).Children(func() {
+				theme.IconBox(c, 20, t.TextMuted, theme.IconRadar)
 				ui.Text(c, i18n.T("connect.mdns_empty")).
-					Grow(1).Basis(0).FontSize(13).LineHeight(1.35).TextColor(t.TextMuted)
+					Grow(1).Basis(0).FontSize(12.5).LineHeight(1.35).TextColor(t.TextMuted)
 			})
 		} else {
 			ui.Column(c).FillWidth().Gap(8).Children(func() {
@@ -449,62 +497,79 @@ func (h *Hub) viewPairDesktop(c *ui.Context, snap state.Snapshot, busy bool) {
 				}
 			})
 		}
-
-		// Manual LAN/Tailscale IP + PIN entry
-		components.InsetDivider(c, 0)
-		components.FormField(c, i18n.T("connect.manual_url_label"), i18n.T("connect.manual_url_placeholder"), &h.manualHostURL, false)
-		ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
-			ui.Text(c, i18n.T("connect.allow_plain_http_probe")).FontSize(12).TextColor(t.TextMuted).Grow(1).Basis(0)
-			mobile.Switch(c, &h.manualPlain)
-		})
-		probeBtn := components.SecondaryTouchButton(c, i18n.T("connect.probe_pin_button"), busy || strings.TrimSpace(h.manualHostURL) == "")
-		probeBtn.FillWidth()
-		if probeBtn.Clicked() {
-			h.openPINProbe(strings.TrimSpace(h.manualHostURL), strings.TrimSpace(h.manualHostURL), h.manualPlain)
-		}
 	})
 
-	// 2. Scan or Paste linger://pair?... Link
-	components.SectionCard(c, i18n.T("connect.qr_title"), i18n.T("connect.qr_subtitle"), nil, func() {
-		components.FormField(c, i18n.T("connect.pairing_uri_label"), i18n.T("connect.pairing_uri_placeholder"), &h.pairURI, false)
-
-		// Live parsed preview + ShortFingerprint display.
-		if trimmed := strings.TrimSpace(h.pairURI); trimmed != "" {
-			if parsed, err := discovery.ParsePairingURI(trimmed); err == nil {
-				shortFP := i18n.T("connect.plain_http_no_pin")
-				tone := components.ToneWarning
-				if parsed.TLS {
-					if sf, sfErr := discovery.ShortFingerprint(parsed.TLSFingerprint); sfErr == nil {
-						shortFP = i18n.Tf("connect.tls_pin_value", map[string]any{"pin": sf})
-						tone = components.ToneSuccess
-					}
-				}
-				ui.Column(c).FillWidth().Padding(8, 10).Radius(8).Background(theme.Extra(t).MutedBg).Gap(4).Children(func() {
-					ui.Text(c, i18n.Tf("connect.parsed_host", map[string]any{"name": parsed.Name, "url": parsed.PrimaryURL()})).FontSize(12).FontWeight(600).TextColor(t.Text)
-					components.StatusPill(c, shortFP, tone)
-				})
-			} else {
-				ui.Text(c, err.Error()).FontSize(12).TextColor(t.Danger)
+	// 3. Collapsible Advanced / Tailscale disclosure (paste link, manual URL probe, single plain-HTTP opt-in).
+	h.mu.Lock()
+	advOpen := h.advancedOpen
+	h.mu.Unlock()
+	advCard := ui.Column(c).FillWidth().Background(t.Surface).Radius(16).Padding(10, 14).Gap(10)
+	components.ApplyCardElevation(advCard, t)
+	advCard.Children(func() {
+		toggle := ui.Row(c).FillWidth().MinHeight(44).AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).
+			Role(ui.RoleButton).Label(i18n.T("connect.advanced_toggle"))
+		toggle.Children(func() {
+			ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
+				ui.Text(c, i18n.T("connect.advanced_toggle")).FontSize(14.5).FontWeight(600).LetterSpacing(-0.15).TextColor(t.Text)
+				ui.Text(c, i18n.T("connect.advanced_subtitle")).FontSize(12).TextColor(t.TextMuted)
+			})
+			chev := "\u25b8"
+			if advOpen {
+				chev = "\u25be"
 			}
+			ui.Text(c, chev).FontSize(14).TextColor(t.TextMuted).NoWrap()
+		})
+		if toggle.Clicked() {
+			h.mu.Lock()
+			h.advancedOpen = !h.advancedOpen
+			h.mu.Unlock()
+			advOpen = !advOpen
 		}
 
-		ui.Row(c).FillWidth().AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
-			ui.Text(c, i18n.T("connect.allow_plain_http_uri")).FontSize(12).TextColor(t.TextMuted).Grow(1).Basis(0)
-			mobile.Switch(c, &h.pairPlainHTTP)
-		})
+		if advOpen {
+			components.InsetDivider(c, 0)
+			components.FormField(c, i18n.T("connect.pairing_uri_label"), i18n.T("connect.pairing_uri_placeholder"), &h.pairURI, false)
 
-		ui.Row(c).FillWidth().Gap(8).Children(func() {
-			scanBtn := components.SecondaryTouchButton(c, i18n.T("connect.scan_qr"), busy)
-			scanBtn.Grow(1).Basis(0)
-			if scanBtn.Clicked() {
-				h.triggerCameraScan()
+			// Live parsed preview + ShortFingerprint display.
+			if trimmed := strings.TrimSpace(h.pairURI); trimmed != "" {
+				if parsed, err := discovery.ParsePairingURI(trimmed); err == nil {
+					shortFP := i18n.T("connect.plain_http_no_pin")
+					tone := components.ToneWarning
+					if parsed.TLS {
+						if sf, sfErr := discovery.ShortFingerprint(parsed.TLSFingerprint); sfErr == nil {
+							shortFP = i18n.Tf("connect.tls_pin_value", map[string]any{"pin": sf})
+							tone = components.ToneSuccess
+						}
+					}
+					ui.Column(c).FillWidth().Padding(8, 10).Radius(10).Background(ex.MutedBg).Gap(4).Children(func() {
+						ui.Text(c, i18n.Tf("connect.parsed_host", map[string]any{"name": parsed.Name, "url": parsed.PrimaryURL()})).FontSize(12).FontWeight(600).TextColor(t.Text)
+						components.StatusPill(c, shortFP, tone)
+					})
+				} else {
+					ui.Text(c, api.PresentError(err)).FontSize(12).TextColor(t.Danger)
+				}
 			}
+
 			pairBtn := components.PrimaryTouchButton(c, i18n.T("connect.pair_link"), busy || strings.TrimSpace(h.pairURI) == "")
-			pairBtn.Grow(1).Basis(0)
+			pairBtn.FillWidth()
 			if pairBtn.Clicked() {
 				h.pairURIAsync(h.pairURI, h.pairPlainHTTP)
 			}
-		})
+
+			components.InsetDivider(c, 0)
+			components.FormField(c, i18n.T("connect.manual_url_label"), i18n.T("connect.manual_url_placeholder"), &h.manualHostURL, false)
+			probeBtn := components.SecondaryTouchButton(c, i18n.T("connect.probe_pin_button"), busy || strings.TrimSpace(h.manualHostURL) == "")
+			probeBtn.FillWidth()
+			if probeBtn.Clicked() {
+				h.openPINProbe(strings.TrimSpace(h.manualHostURL), strings.TrimSpace(h.manualHostURL), h.pairPlainHTTP)
+			}
+
+			components.InsetDivider(c, 0)
+			ui.Row(c).FillWidth().MinHeight(44).AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
+				ui.Text(c, i18n.T("connect.allow_plain_http_advanced")).FontSize(12).TextColor(t.TextMuted).Grow(1).Basis(0)
+				mobile.Switch(c, &h.pairPlainHTTP).Label(i18n.T("connect.allow_plain_http_advanced"))
+			})
+		}
 	})
 }
 
@@ -558,7 +623,10 @@ func (h *Hub) viewHostActionSheet(c *ui.Context) {
 		Label:       i18n.T("connect.action.unpair_remove"),
 		Destructive: true,
 		OnTap: func() {
-			h.unpairAsync(host.ID)
+			h.mu.Lock()
+			h.removeHostTarget = host
+			h.removeHostConfirm = true
+			h.mu.Unlock()
 		},
 	})
 
@@ -567,6 +635,28 @@ func (h *Hub) viewHostActionSheet(c *ui.Context) {
 		Message: host.PrimaryURL,
 		Cancel:  i18n.T("common.cancel"),
 	}, actions...)
+}
+
+func (h *Hub) viewRemoveHostConfirm(c *ui.Context) {
+	h.mu.Lock()
+	host := h.removeHostTarget
+	h.mu.Unlock()
+	if host.ID == "" {
+		h.removeHostConfirm = false
+		return
+	}
+	mobile.ActionSheet(c, &h.removeHostConfirm, mobile.ActionSheetOptions{
+		Title:   i18n.Tf("connect.remove_confirm_title", map[string]any{"name": host.Name}),
+		Message: i18n.Tf("connect.remove_confirm_body", map[string]any{"name": host.Name, "url": host.PrimaryURL}),
+		Cancel:  i18n.T("common.cancel"),
+	}, mobile.Action{
+		Label:       i18n.T("connect.action.unpair_remove"),
+		Destructive: true,
+		OnTap: func() {
+			components.HapticWarning()
+			h.unpairAsync(host.ID)
+		},
+	})
 }
 
 func (h *Hub) viewPINSheet(c *ui.Context) {
@@ -783,7 +873,7 @@ func (h *Hub) openPINProbe(targetURL, hostName string, allowPlain bool) {
 			h.mu.Lock()
 			h.pinProbing = false
 			if err != nil {
-				h.pinError = err.Error()
+				h.pinError = api.PresentError(err)
 			} else {
 				cp := res
 				h.pinTOFU = &cp
@@ -810,7 +900,7 @@ func (h *Hub) pairPINAsync(targetURL, pin, confirmedFP string, allowPlain bool) 
 			h.mu.Lock()
 			h.busy = false
 			if err != nil {
-				h.pinError = err.Error()
+				h.pinError = api.PresentError(err)
 			} else {
 				h.pinSheetOpen = false
 				h.pinCode = ""
@@ -842,7 +932,7 @@ func (h *Hub) pairURIAsync(rawURI string, allowPlain bool) {
 			h.mu.Lock()
 			h.busy = false
 			if err != nil {
-				h.inlineError = err.Error()
+				h.inlineError = api.PresentError(err)
 			} else {
 				h.pairURI = ""
 				h.segment = 0
@@ -873,7 +963,7 @@ func (h *Hub) directLoginAsync(rawURL, email, password string, allowPlain bool) 
 			h.mu.Lock()
 			h.busy = false
 			if err != nil {
-				h.inlineError = err.Error()
+				h.inlineError = api.PresentError(err)
 			} else {
 				h.directPassword = ""
 				h.segment = 0
@@ -902,7 +992,7 @@ func (h *Hub) connectAsync(hostID string) {
 			h.mu.Lock()
 			h.busy = false
 			if err != nil {
-				h.inlineError = err.Error()
+				h.inlineError = api.PresentError(err)
 			} else {
 				h.inlineError = ""
 				h.inlineNotice = i18n.T("connect.toast.connected")
@@ -924,7 +1014,7 @@ func (h *Hub) rotateTokenAsync() {
 			h.mu.Lock()
 			h.busy = false
 			if err != nil {
-				h.inlineError = err.Error()
+				h.inlineError = api.PresentError(err)
 			} else {
 				h.inlineNotice = i18n.T("connect.toast.token_rotated")
 			}
@@ -945,7 +1035,7 @@ func (h *Hub) unpairAsync(hostID string) {
 			h.mu.Lock()
 			h.busy = false
 			if err != nil {
-				h.inlineError = err.Error()
+				h.inlineError = api.PresentError(err)
 			} else {
 				h.inlineNotice = i18n.T("connect.toast.host_removed")
 			}

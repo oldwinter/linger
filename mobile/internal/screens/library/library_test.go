@@ -250,7 +250,7 @@ func TestLibraryGlobalSearchFTS5LiveMergeAndEmptyState(t *testing.T) {
 	})
 
 	// Tapping a message hit navigates to its Room via OnOpenRoom.
-	clickOrScroll(t, tt, "message Product Launch · Scout")
+	clickOrScroll(t, tt, "Message Product Launch · Scout")
 	if len(*openedRooms) == 0 || (*openedRooms)[0] != "room_general" {
 		t.Fatalf("expected room_general navigation, got %v", *openedRooms)
 	}
@@ -450,9 +450,18 @@ func TestLibraryMemoryAndVoiceCaptureLiveSSEAndQA(t *testing.T) {
 		return tt.HasText("Unsupported recording audio format")
 	})
 
-	// Ask Meeting Q&A
+	// Ask Meeting Q&A — verify IME composition Enter does not prematurely submit partial input.
 	clickOrScroll(t, tt, "Meeting Question Input")
-	tt.Type("Any blockers?")
+	tt.Type("Any ")
+	tt.Compose("\u4f60\u597d", 2)
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	time.Sleep(30 * time.Millisecond)
+	if tt.HasText("Confirmed in transcript at 00:01: Any") {
+		t.Fatal("IME composition Enter prematurely submitted Meeting Q&A question")
+	}
+	tt.Compose("", 0)
+	tt.Type("blockers?")
 	tt.Frame()
 	clickOrScroll(t, tt, "Ask Question")
 	waitUntil(t, 2*time.Second, func() bool {
@@ -471,7 +480,7 @@ func TestLibraryMemoryAndVoiceCaptureLiveSSEAndQA(t *testing.T) {
 	clickOrScroll(t, tt, "Stop Capture")
 	waitUntil(t, 2*time.Second, func() bool {
 		tt.Frame()
-		return tt.HasText("completed")
+		return tt.HasText("Completed")
 	})
 }
 

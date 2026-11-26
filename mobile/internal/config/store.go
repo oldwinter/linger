@@ -68,11 +68,18 @@ type HostProfile struct {
 
 // AppPreferences stores user-level mobile client settings.
 type AppPreferences struct {
-	Theme         ThemePreference    `json:"theme"`
-	Language      LanguagePreference `json:"language"`
-	BiometricLock bool               `json:"biometric_lock"`
-	CompactMode   bool               `json:"compact_mode"`
-	ActiveHostID  string             `json:"active_host_id,omitempty"`
+	Theme               ThemePreference    `json:"theme"`
+	Language            LanguagePreference `json:"language"`
+	BiometricLock       bool               `json:"biometric_lock"`
+	CompactMode         bool               `json:"compact_mode"`
+	HapticsDisabled     bool               `json:"haptics_disabled,omitempty"`
+	ComposerReturnSends bool               `json:"composer_return_sends,omitempty"`
+	ActiveHostID        string             `json:"active_host_id,omitempty"`
+}
+
+// HapticsEnabled reports whether tactile haptic feedback is enabled (on by default).
+func (p AppPreferences) HapticsEnabled() bool {
+	return !p.HapticsDisabled
 }
 
 // PreferencesBackend persists non-secret JSON values by key.

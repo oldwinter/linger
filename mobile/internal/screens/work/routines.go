@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/mobile"
 	"github.com/oldwinter/linger/mobile/internal/api"
@@ -162,7 +161,7 @@ func (s *Screen) viewRoutinesSegment(c *ui.Context) {
 							runBtn := components.PrimaryTouchButton(c, runLabel, runBusy || rowBusy)
 							runBtn.Grow(1).Basis(0).MinHeight(38)
 							if runBtn.Clicked() {
-								mygo.Haptics.Light()
+								components.HapticLight()
 								s.runRoutineNow(rt)
 							}
 							editBtn := components.SecondaryTouchButton(c, i18n.T("common.edit"), rowBusy)
@@ -482,7 +481,7 @@ func (s *Screen) submitRoutineForm() {
 		if err != nil {
 			s.enqueueUI(func() {
 				s.routineSaving = false
-				s.routineSaveErr = err.Error()
+				s.routineSaveErr = api.PresentError(err)
 			})
 			return
 		}
@@ -511,7 +510,7 @@ func (s *Screen) toggleRoutineEnabled(rt api.Routine, enabled bool) {
 		s.enqueueUI(func() {
 			s.routineBusyID = ""
 			if err != nil {
-				s.routineError = err.Error()
+				s.routineError = api.PresentError(err)
 				return
 			}
 			s.replaceRoutine(updated)
@@ -531,7 +530,7 @@ func (s *Screen) runRoutineNow(rt api.Routine) {
 		s.enqueueUI(func() {
 			s.routineRunBusyID = ""
 			if err != nil {
-				s.routineError = err.Error()
+				s.routineError = api.PresentError(err)
 				return
 			}
 			s.replaceRoutine(updated)
@@ -571,7 +570,7 @@ func (s *Screen) deleteRoutine(rt api.Routine) {
 		s.enqueueUI(func() {
 			s.routineBusyID = ""
 			if err != nil {
-				s.routineError = err.Error()
+				s.routineError = api.PresentError(err)
 				return
 			}
 			s.mu.Lock()

@@ -4,7 +4,6 @@ import (
 	"context"
 	"strings"
 
-	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
 	"github.com/egoist/mygo/ui/mobile"
@@ -116,7 +115,7 @@ func (ctl *Controller) viewInspectorSheet(c *ui.Context, snap state.Snapshot) {
 					delBtn := components.DangerTouchButton(c, i18n.T("inspector.delete_btn"), busy)
 					delBtn.FillWidth()
 					if delBtn.Clicked() {
-						mygo.Haptics.Warning()
+						components.HapticWarning()
 						go func() {
 							if cl := ctl.store.Client(); cl != nil {
 								_ = cl.DeleteRoom(context.Background(), roomID)

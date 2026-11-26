@@ -765,7 +765,9 @@ func (s *Store) Stats(ctx context.Context) (CacheStats, error) {
 	return st, nil
 }
 
-// Clear removes all cached entities, FTS5 search index rows, and pending outbox entries.
+// Clear removes cached entities and FTS5 search index rows while preserving
+// pending outbox_queue mutations (such as unsynced offline Pocket Notes or
+// queued messages) so clearing local cache never silently loses user work.
 func (s *Store) Clear(ctx context.Context) error {
 	if s == nil || s.db == nil {
 		return nil
@@ -779,7 +781,6 @@ func (s *Store) Clear(ctx context.Context) error {
 		{SQL: `DELETE FROM pocket_notes`},
 		{SQL: `DELETE FROM documents`},
 		{SQL: `DELETE FROM local_models_snapshot`},
-		{SQL: `DELETE FROM outbox_queue`},
 		{SQL: `DELETE FROM search_fts`},
 	}
 	_, err := s.db.Transaction(ctx, stmts)

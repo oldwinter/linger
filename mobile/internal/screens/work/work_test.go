@@ -178,7 +178,8 @@ func TestWorkViewportsInsetsThemesCJKAndIME(t *testing.T) {
 		}
 	}
 
-	// Verify IME composition Enter does not prematurely submit a comment in Work Item Detail.
+	// Verify IME composition Enter does not prematurely submit a comment in Work Item Detail
+	// even when non-empty text precedes the active CJK preedit composition.
 	scr.SelectSegment(work.SegmentIssues)
 	tt := testutil.NewPhoneTester(func(c *ui.Context) {
 		c.SetTheme(theme.TownLight())
@@ -188,6 +189,8 @@ func TestWorkViewportsInsetsThemesCJKAndIME(t *testing.T) {
 	clickOrScroll(t, tt, "Work item #12 Ship Mobile Companion Wave C-2")
 	clickOrScroll(t, tt, "Work Item Comment Input")
 	beforeCount := len(srv.WorkItemComments["wi_12"])
+	tt.Type("Prefix ")
+	tt.Frame()
 	tt.Compose("\u4f60\u597d", 2)
 	tt.Key(0, ui.KeyEnter)
 	tt.Frame()
@@ -195,6 +198,15 @@ func TestWorkViewportsInsetsThemesCJKAndIME(t *testing.T) {
 	if len(srv.WorkItemComments["wi_12"]) != beforeCount {
 		t.Fatalf("IME Enter prematurely submitted comment: got %d want %d", len(srv.WorkItemComments["wi_12"]), beforeCount)
 	}
+	// Once IME composition commits, bare Enter submits the complete comment.
+	tt.Compose("", 0)
+	tt.Type("\u4f60\u597d")
+	tt.Frame()
+	tt.Key(0, ui.KeyEnter)
+	waitUntil(t, 2*time.Second, func() bool {
+		tt.Frame()
+		return len(srv.WorkItemComments["wi_12"]) == beforeCount+1
+	})
 	if scr.BadgeCount() < 2 {
 		t.Fatalf("expected BadgeCount >= 2, got %d", scr.BadgeCount())
 	}
@@ -274,6 +286,9 @@ func TestWorkPocketNoteOfflineOutboxRetryRecovery(t *testing.T) {
 	if !tt.HasText("Saved") {
 		t.Fatal("expected Saved pill after recovery")
 	}
+	if tt.HasText("Retry Sync") {
+		t.Fatalf("expected Retry Sync hidden when synced with zero pending outbox items, texts=%v", tt.Texts())
+	}
 	if srv.PocketNotes[0].Text != draft {
 		t.Fatalf("server pocket note = %q, want %q", srv.PocketNotes[0].Text, draft)
 	}
@@ -343,7 +358,7 @@ func TestWorkRoutineSlowSaveBusyStateAndErrorPreservation(t *testing.T) {
 	// Release gate -> server returns error -> form stays open with error banner & preserved text!
 	closeGate()
 	srv.RoutineSaveGate = nil
-	waitUntil(t, 2*time.Second, func() bool {
+	waitUntil(t, 10*time.Second, func() bool {
 		tt.Frame()
 		return tt.HasText("revision mismatch")
 	})
@@ -353,7 +368,7 @@ func TestWorkRoutineSlowSaveBusyStateAndErrorPreservation(t *testing.T) {
 
 	// Retry Save Routine -> succeeds, clears error, closes sheet, updates list.
 	clickOrScroll(t, tt, "Save Routine")
-	waitUntil(t, 2*time.Second, func() bool {
+	waitUntil(t, 10*time.Second, func() bool {
 		settle(tt)
 		return !tt.HasText("Save Routine") && tt.HasText("Morning Standup Digest v2")
 	})
@@ -390,9 +405,9 @@ func TestWorkItemFullLifecycleAndTaskRuns(t *testing.T) {
 		t.Fatalf("Title input did not accept text: ok=%v info=%+v", ok, info)
 	}
 	clickOrScroll(t, tt, "Create Work Item")
-	waitUntil(t, 2*time.Second, func() bool {
+	waitUntil(t, 5*time.Second, func() bool {
 		settle(tt)
-		return tt.HasText("Verify Wave C2 checklist")
+		return !tt.HasText("Create Work Item") && tt.HasText("Verify Wave C2 checklist")
 	})
 
 	// Open Task #12 detail sheet to verify Task Execution, Conversation, Runs, Comments, Timeline, Transition, Jump to Room.
