@@ -291,75 +291,62 @@ type shutdownBackend struct {
 	cleanupUnconfirmed bool
 }
 
-func TestDaemonEnforcesCapacityAndOneOperationPerContext(t *testing.T) {
-	tests := []struct {
-		name        string
-		capacity    *int
-		secondAgent string
-		message     string
-	}{
-		{name: "computer capacity", capacity: intPointer(1), secondAgent: "agent-2", message: "capacity is exhausted"},
-		{name: "context serial execution", secondAgent: "agent-1", message: "already has an active Operation"},
+func TestDaemonEnforcesOneOperationPerContext(t *testing.T) {
+	release := make(chan struct{})
+	started := make(chan struct{}, 2)
+	d, err := newTestDaemon(t, Options{
+		ComputerID:   "computer-1",
+		ControlPlane: fakeControlPlane{stream: &fakeStream{}}, IdentityStore: fakeStore{},
+		OperationResolver: fakeOperationResolver{},
+		Executor: provider.Executor{NewBackend: func(string, native.Profile) (native.Runtime, error) {
+			started <- struct{}{}
+			return heldBackend{release: release}, nil
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			release := make(chan struct{})
-			started := make(chan struct{}, 2)
-			d, err := newTestDaemon(t, Options{
-				ComputerID: "computer-1", Capacity: test.capacity,
-				ControlPlane: fakeControlPlane{stream: &fakeStream{}}, IdentityStore: fakeStore{},
-				OperationResolver: fakeOperationResolver{},
-				Executor: provider.Executor{NewBackend: func(string, native.Profile) (native.Runtime, error) {
-					started <- struct{}{}
-					return heldBackend{release: release}, nil
-				}},
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			stream := &fakeStream{}
-			first := daemonOperationStart("operation-1", "agent-1")
-			if err := d.handleOperationStart(context.Background(), stream, first); err != nil {
-				t.Fatal(err)
-			}
-			second := daemonOperationStart("operation-2", test.secondAgent)
-			if err := d.handleOperationStart(context.Background(), stream, second); err != nil {
-				t.Fatal(err)
-			}
-			// Start is asynchronous: the first Operation starts after acceptance, and
-			// the second was rejected synchronously, so no second start may follow.
-			awaitProviderStarts(t, started, 1)
-			if len(started) != 0 {
-				t.Fatalf("backend starts=%d, want 1", 1+len(started))
-			}
-			failed := false
-			for _, event := range stream.snapshotEvents() {
-				if event.OperationID == second.OperationID && event.Type == protocol.EventOperationFailed && strings.Contains(string(event.Payload), test.message) {
-					failed = true
-					// The Remote Provider retries only on this exact wire contract.
-					var payload struct {
-						Code      string `json:"code"`
-						Retryable bool   `json:"retryable"`
-					}
-					if err := json.Unmarshal(event.Payload, &payload); err != nil || payload.Code != "OPERATION_CAPACITY_BUSY" || !payload.Retryable || event.Stage != "operation_admission" {
-						t.Fatalf("admission busy contract = %s stage=%q err=%v", event.Payload, event.Stage, err)
-					}
-				}
-			}
-			if !failed {
-				t.Fatalf("second Operation was not rejected: %+v", stream.snapshotEvents())
-			}
-			close(release)
-			d.WaitForOperations()
-		})
+	stream := &fakeStream{}
+	first := daemonOperationStart("operation-1", "agent-1")
+	if err := d.handleOperationStart(context.Background(), stream, first); err != nil {
+		t.Fatal(err)
 	}
+	second := daemonOperationStart("operation-2", "agent-1")
+	if err := d.handleOperationStart(context.Background(), stream, second); err != nil {
+		t.Fatal(err)
+	}
+	// Start is asynchronous: the first Operation starts after acceptance, and
+	// the second was rejected synchronously, so no second start may follow.
+	awaitProviderStarts(t, started, 1)
+	if len(started) != 0 {
+		t.Fatalf("backend starts=%d, want 1", 1+len(started))
+	}
+	failed := false
+	for _, event := range stream.snapshotEvents() {
+		if event.OperationID == second.OperationID && event.Type == protocol.EventOperationFailed && strings.Contains(string(event.Payload), "already has an active Operation") {
+			failed = true
+			// The Remote Provider retries only on this exact wire contract.
+			var payload struct {
+				Code      string `json:"code"`
+				Retryable bool   `json:"retryable"`
+			}
+			if err := json.Unmarshal(event.Payload, &payload); err != nil || payload.Code != "OPERATION_CAPACITY_BUSY" || !payload.Retryable || event.Stage != "operation_admission" {
+				t.Fatalf("admission busy contract = %s stage=%q err=%v", event.Payload, event.Stage, err)
+			}
+		}
+	}
+	if !failed {
+		t.Fatalf("second Operation was not rejected: %+v", stream.snapshotEvents())
+	}
+	close(release)
+	d.WaitForOperations()
 }
 
 func TestDaemonAllowsSameAgentAcrossContexts(t *testing.T) {
 	release := make(chan struct{})
 	started := make(chan struct{}, 2)
 	d, err := newTestDaemon(t, Options{
-		ComputerID: "computer-1", Capacity: intPointer(2),
+		ComputerID:   "computer-1",
 		ControlPlane: fakeControlPlane{stream: &fakeStream{}}, IdentityStore: fakeStore{},
 		OperationResolver: fakeOperationResolver{},
 		Executor: provider.Executor{NewBackend: func(string, native.Profile) (native.Runtime, error) {
@@ -386,7 +373,7 @@ func TestDaemonDoesNotFenceNextAdmissionAfterPriorTerminalCommit(t *testing.T) {
 	release := make(chan struct{})
 	started := make(chan struct{}, 1)
 	d, err := newTestDaemon(t, Options{
-		ComputerID: "computer-1", Capacity: intPointer(1),
+		ComputerID:   "computer-1",
 		ControlPlane: fakeControlPlane{stream: &fakeStream{}}, IdentityStore: fakeStore{},
 		OperationResolver: fakeOperationResolver{},
 		Executor: provider.Executor{NewBackend: func(string, native.Profile) (native.Runtime, error) {
@@ -432,7 +419,7 @@ func TestSchedulerYieldRequiresConfirmedCleanup(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			stream := &fakeStream{}
-			d, err := newTestDaemon(t, Options{ComputerID: "computer-1", Capacity: intPointer(1), ControlPlane: fakeControlPlane{stream: stream}, IdentityStore: fakeStore{}, OperationResolver: fakeOperationResolver{}})
+			d, err := newTestDaemon(t, Options{ComputerID: "computer-1", ControlPlane: fakeControlPlane{stream: stream}, IdentityStore: fakeStore{}, OperationResolver: fakeOperationResolver{}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -776,8 +763,6 @@ func daemonAgentRunnerCommand(commandType string, revision uint64) protocol.Comm
 	}
 }
 
-func intPointer(value int) *int { return &value }
-
 func (b shutdownBackend) Start(ctx context.Context, _ string, _ native.RunSpec) (*native.Run, error) {
 	messages := make(chan native.Event)
 	results := make(chan native.Outcome, 1)
@@ -1062,7 +1047,7 @@ func TestTerminalPayloadUsesProviderCompatibleSessionShapes(t *testing.T) {
 	decode := func(spec provider.OperationSpec, result provider.Result) map[string]any {
 		t.Helper()
 		var value map[string]any
-		if err := json.Unmarshal(terminalPayload(spec, result), &value); err != nil {
+		if err := json.Unmarshal(terminalPayloadFor(spec, result, false), &value); err != nil {
 			t.Fatal(err)
 		}
 		return value["session"].(map[string]any)
@@ -2344,7 +2329,7 @@ func TestTerminalPayloadFailureDiagnostics(t *testing.T) {
 		t.Fatal(err)
 	}
 	var payload map[string]any
-	if err := json.Unmarshal(terminalPayload(spec, result), &payload); err != nil {
+	if err := json.Unmarshal(terminalPayloadFor(spec, result, false), &payload); err != nil {
 		t.Fatal(err)
 	}
 	diagnostics, ok := payload["diagnostics"].(map[string]any)
@@ -2365,7 +2350,7 @@ func TestTerminalPayloadFailureDiagnostics(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var value map[string]any
-			if err := json.Unmarshal(terminalPayload(spec, tc.result), &value); err != nil {
+			if err := json.Unmarshal(terminalPayloadFor(spec, tc.result, false), &value); err != nil {
 				t.Fatal(err)
 			}
 			if _, exists := value["diagnostics"]; exists {
@@ -2377,7 +2362,7 @@ func TestTerminalPayloadFailureDiagnostics(t *testing.T) {
 		t.Fatal(err)
 	}
 	var invalid map[string]any
-	if err := json.Unmarshal(terminalPayload(spec, result), &invalid); err != nil {
+	if err := json.Unmarshal(terminalPayloadFor(spec, result, false), &invalid); err != nil {
 		t.Fatal(err)
 	}
 	if _, exists := invalid["diagnostics"]; exists {
@@ -2392,7 +2377,7 @@ func TestTerminalPayloadExternalCodexSignal(t *testing.T) {
 	for _, unconfirmed := range []bool{false, true} {
 		result.CleanupUnconfirmed = unconfirmed
 		var payload map[string]any
-		if err := json.Unmarshal(terminalPayload(spec, result), &payload); err != nil {
+		if err := json.Unmarshal(terminalPayloadFor(spec, result, false), &payload); err != nil {
 			t.Fatal(err)
 		}
 		if unconfirmed {
@@ -2412,5 +2397,43 @@ func TestTerminalPayloadExternalCodexSignal(t *testing.T) {
 		if len(failure) != 2 || failure["code"] != "execution_failed" {
 			t.Fatalf("public classification: %+v", failure)
 		}
+	}
+}
+
+func TestTerminalPayloadFailureDetailOptIn(t *testing.T) {
+	spec := provider.OperationSpec{Provider: "antigravity", CodexVersion: "1.5.16", OperationKind: "run.start"}
+	result := provider.Result{
+		Status:       "failed",
+		Error:        "raw stderr with /srv/app/secret.txt",
+		PublicDetail: "\n\u26a0 FAILED_PRECONDITION (code 400): User location is not supported for the API use. Authorization: Bearer sk-secret1234567890abcdefghij\n",
+	}
+	var without map[string]any
+	if err := json.Unmarshal(terminalPayloadFor(spec, result, false), &without); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := without["failure"].(map[string]any)["detail"]; exists {
+		t.Fatalf("detail must stay omitted without feature gate: %+v", without)
+	}
+	var with map[string]any
+	if err := json.Unmarshal(terminalPayloadFor(spec, result, true), &with); err != nil {
+		t.Fatal(err)
+	}
+	detail, _ := with["failure"].(map[string]any)["detail"].(string)
+	if !strings.Contains(detail, "FAILED_PRECONDITION (code 400): User location is not supported for the API use.") ||
+		strings.Contains(detail, "sk-secret1234567890") || strings.Contains(detail, "/srv/app/secret.txt") || strings.Contains(detail, "\n") {
+		t.Fatalf("detail=%q", detail)
+	}
+	// Raw Error without PublicDetail (e.g. CLI stderr) must never leak into failure.detail.
+	stderrOnly := provider.Result{
+		Status: "failed",
+		Error:  "codex exited; codex stderr: stack trace under /srv/app/private.go",
+	}
+	stderrOnly.Diagnostics.Signal = "SIGTERM"
+	var stderrPayload map[string]any
+	if err := json.Unmarshal(terminalPayloadFor(provider.OperationSpec{Provider: "codex", OperationKind: "run.start"}, stderrOnly, true), &stderrPayload); err != nil {
+		t.Fatal(err)
+	}
+	if got := stderrPayload["failure"].(map[string]any)["detail"]; got != "signal SIGTERM" {
+		t.Fatalf("stderr leaked into detail: %v", got)
 	}
 }

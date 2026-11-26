@@ -223,7 +223,6 @@ export function ModelFacts({
   disabled = false,
   entry,
   hasPrimaryAssignAction = false,
-  hasReadyAlternatives = false,
   onAssignAgent,
   onRecheck,
   onUpdateDriver,
@@ -236,7 +235,6 @@ export function ModelFacts({
   disabled?: boolean;
   entry: ModelEntry;
   hasPrimaryAssignAction?: boolean;
-  hasReadyAlternatives?: boolean;
   onAssignAgent?: (agent: AssignableLocalModelAgent) => void;
   onRecheck?: () => void;
   onUpdateDriver?: () => void;
@@ -360,11 +358,6 @@ export function ModelFacts({
                       <Icon icon={LinkSquare02Icon} size={14} />
                     </a>
                   </span>
-                  {hasReadyAlternatives ? (
-                    <span className="text-xs text-muted-foreground">
-                      {t(m.driverOtherModelsReady)}
-                    </span>
-                  ) : null}
                 </span>
               ) : null}
             </span>
@@ -642,11 +635,6 @@ export function AdvancedDialog({
   return (
     <ModalDialog
       closeOnBackdrop
-      description={
-        host
-          ? [host.os_label, host.engine_label].filter(Boolean).join(" · ")
-          : undefined
-      }
       onClose={onClose}
       size="md"
       title={t(m.detailsOf, { name: view.computer.display_name })}
@@ -709,7 +697,18 @@ export function AdvancedDialog({
               {t(m.hardware)}
             </h3>
             <div className="rounded-xl border border-border bg-app-canvas/40 px-3.5">
-              <Fact bordered={false} label={t(m.factMemory)}>
+              {host.os_label ? (
+                <Fact bordered={false} label={t(m.factSystem)}>
+                  {host.os_label}
+                </Fact>
+              ) : null}
+              {host.engine_label ? (
+                <Fact label={t(m.factEngine)}>{host.engine_label}</Fact>
+              ) : null}
+              <Fact
+                bordered={Boolean(host.os_label || host.engine_label)}
+                label={t(m.factMemory)}
+              >
                 {formatGigabytes(host.ram_total_bytes, t)}
               </Fact>
               {host.gpus.map((gpu) => (

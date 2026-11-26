@@ -290,9 +290,9 @@ describe("LocalModelsPage", () => {
     expect(statuses()).toEqual([
       "Qwen3 Coder 30B: Loaded · GPU 0 · 21.4 GB",
       "Gemma 3 27B: Downloaded",
-      "GPT-OSS 20B: Not downloaded · 12.1 GB · 14.3 GB VRAM",
-      "Gemma 3 4B: Not downloaded · 3.3 GB · 4.1 GB VRAM",
-      "Llama 3.3 70B: Not downloaded · 42.5 GB · 46 GB memory · runs slower",
+      "GPT-OSS 20B: 12.1 GB",
+      "Gemma 3 4B: 3.3 GB",
+      "Llama 3.3 70B: 42.5 GB · runs slower",
     ]);
     expect(within(card("GPT-OSS 20B")).getByText("Recommended")).toBeVisible();
     expect(
@@ -348,8 +348,8 @@ describe("LocalModelsPage", () => {
     await renderPage(fixture, "?computer=computer-mac");
     await findModels();
     expect(statuses()).toEqual([
-      "Spark-X2.6 4B: Not downloaded · 2.6 GB · 4.9 GB memory",
-      "Qwen3.8 27B: Not downloaded · 2.6 GB · 4.9 GB memory",
+      "Spark-X2.6 4B: 2.6 GB",
+      "Qwen3.8 27B: 2.6 GB",
     ]);
     expect(
       within(card("Spark-X2.6 4B")).getByText("Recommended"),
@@ -358,11 +358,7 @@ describe("LocalModelsPage", () => {
 
     cleanup();
     await renderPage(fixture, "?computer=computer-win");
-    await waitFor(() =>
-      expect(statuses()).toEqual([
-        "Qwen3.5 9B: Not downloaded · 2.6 GB · 4.9 GB memory",
-      ]),
-    );
+    await waitFor(() => expect(statuses()).toEqual(["Qwen3.5 9B: 2.6 GB"]));
     expect(within(card("Qwen3.5 9B")).getByText("Recommended")).toBeVisible();
   });
 
@@ -407,7 +403,6 @@ describe("LocalModelsPage", () => {
     ).toBeVisible();
     // A foundation component holds memory but is not a model row.
     expect(dialog).toHaveTextContent("Qwen3 Embedding");
-    expect(dialog).toHaveTextContent("Ubuntu 24.04 · llama.cpp b11370 · CUDA");
     expect(dialog).toHaveTextContent("412 GB");
   });
 
@@ -611,9 +606,7 @@ describe("LocalModelsPage", () => {
 
     publishSnapshot(fixture, labView());
     answer();
-    await waitFor(() =>
-      expect(statusOf("GPT-OSS 20B")).toMatch(/^Not downloaded/),
-    );
+    await waitFor(() => expect(statusOf("GPT-OSS 20B")).toBe("12.1 GB"));
   });
 
   it("discards a stopped download instead of removing it", async () => {
@@ -1488,7 +1481,7 @@ describe("LocalModelsPage", () => {
     ).toBe("computer-mac");
   });
 
-  it("shows rich model card icons, capability badges, and expanded metadata", async () => {
+  it("shows rich model card icons and keeps metadata in expanded details", async () => {
     const richLab = withModel(labView(), "qwen3-coder-30b:Q4_K_M", {
       active_parameters: "3B",
       architecture: "moe",
@@ -1513,13 +1506,7 @@ describe("LocalModelsPage", () => {
     expect(qwenTile).toBeInTheDocument();
     expect(qwenTile).toHaveClass("bg-lavender-500/15", "text-lavender-700");
     expect(within(coderCard).getByText("2 Agents")).toBeVisible();
-    expect(within(coderCard).getByText("3B active")).toBeVisible();
-    expect(within(coderCard).getByText("Tool use")).toBeVisible();
-    expect(within(coderCard).getByText("Reasoning")).toBeVisible();
-    expect(within(coderCard).getByText("+2")).toHaveAttribute(
-      "title",
-      "Coding, 128K",
-    );
+    expect(within(coderCard).queryByText("3B active")).not.toBeInTheDocument();
     expect(coderCard.querySelector('button[aria-hidden="true"]')).toBeNull();
     expect(coderCard.querySelector("button[aria-hidden]")).toBeNull();
 
@@ -1528,8 +1515,7 @@ describe("LocalModelsPage", () => {
     const gemmaTile = gemmaCard.querySelector('[data-family="gemma"]');
     expect(gemmaTile).toBeInTheDocument();
     expect(gemmaTile).toHaveClass("bg-bluebell-500/15", "text-bluebell-700");
-    expect(within(gemmaCard).getByText("Vision")).toBeVisible();
-    expect(within(gemmaCard).getByText("128K")).toBeVisible();
+    expect(within(gemmaCard).queryByText("128K")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Qwen3 Coder 30B" }));
     const details = screen.getByRole("region", {
@@ -1578,11 +1564,9 @@ describe("LocalModelsPage", () => {
         name: "Download GPT-OSS 20B",
       }),
     ).toHaveClass("bg-primary");
-    const badgeGroup = within(recommendedCard)
-      .getByText("Tool use")
-      .closest("div")!;
-    expect(badgeGroup).toHaveClass("flex");
-    expect(badgeGroup).not.toHaveClass("hidden");
+    expect(
+      within(recommendedCard).queryByText("Tool use"),
+    ).not.toBeInTheDocument();
     expect(recommendedCard.firstElementChild).toHaveClass("grid");
     expect(recommendedCard.firstElementChild).not.toHaveClass("flex", "hidden");
 
@@ -2128,10 +2112,9 @@ describe("Model source", () => {
     expect(
       within(tabs).getByRole("img", { name: "In use" }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("tooltip")).toHaveTextContent("Bring your own key");
-    expect(
-      screen.getByText("Agents on lab-118 use BYOK · vendor/model"),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("tooltip")).toHaveTextContent(
+      "Use your own OpenAI- or Anthropic-compatible endpoint.",
+    );
     expect(screen.queryByText(/Stored privately/u)).not.toBeInTheDocument();
     expect(screen.queryByLabelText("API format")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Base URL")).toHaveValue(
@@ -2141,9 +2124,6 @@ describe("Model source", () => {
     expect(screen.getByRole("combobox", { name: "Endpoint" })).toHaveValue(
       "/chat/completions",
     );
-    expect(
-      screen.getByText(/^Sends OpenAI Chat Completions requests to/u),
-    ).toHaveTextContent("https://api.example.com/v1/chat/completions");
     expect(
       screen.queryByRole("button", { name: "Test connection" }),
     ).not.toBeInTheDocument();
@@ -2244,9 +2224,14 @@ describe("Model source", () => {
       await screen.findByRole("button", { name: "Switch to Local model" }),
     );
 
-    expect(
-      await screen.findByText("Agents on lab-118 use Local model"),
-    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole("tab", { name: /Local model/u })).getByRole(
+          "img",
+          { name: "In use" },
+        ),
+      ).toBeInTheDocument(),
+    );
     expect(reads).toBe(2);
   });
 
@@ -2339,9 +2324,6 @@ describe("Model source", () => {
     });
     fireEvent.blur(baseUrl);
     expect(baseUrl).toHaveValue("https://open.bigmodel.cn");
-    expect(
-      screen.getByText(/^Sends Anthropic Messages requests to/u),
-    ).toHaveTextContent("https://open.bigmodel.cn/v1/messages");
 
     fireEvent.click(
       screen.getByRole("button", { name: "Show Path suggestions" }),
@@ -2356,11 +2338,6 @@ describe("Model source", () => {
     fireEvent.click(screen.getByRole("combobox", { name: "AI runtime" }));
     fireEvent.click(await screen.findByRole("option", { name: "Pi" }));
     expect(endpoint).toHaveValue("/chat/completions");
-    expect(
-      screen.getByText(/^Sends OpenAI Chat Completions requests to/u),
-    ).toHaveTextContent(
-      "https://open.bigmodel.cn/api/paas/v4/chat/completions",
-    );
 
     // Without an endpoint the address names no format, so Pi's own applies.
     fireEvent.click(
@@ -2372,11 +2349,6 @@ describe("Model source", () => {
       }),
     );
     expect(endpoint).toHaveValue("");
-    expect(
-      screen.getByText(
-        /^Sends OpenAI Chat Completions \(the Pi format\) requests to/u,
-      ),
-    ).toHaveTextContent("https://open.bigmodel.cn/api/paas/v4");
 
     fireEvent.click(screen.getByRole("button", { name: "List models" }));
     await waitFor(() => expect(listings).toHaveLength(1));
@@ -2416,18 +2388,13 @@ describe("Model source", () => {
     const { listings } = withSource(fixture, byokStatus);
     await renderPage(fixture);
 
-    expect(
-      await screen.findByText("List the endpoint's models, or type an ID."),
-    ).toBeInTheDocument();
+    const listButton = await screen.findByRole("button", {
+      name: "List models",
+    });
     expect(listings).toEqual([]);
-    fireEvent.click(screen.getByRole("button", { name: "List models" }));
+    fireEvent.click(listButton);
     expect(
-      await screen.findByText(
-        "2 models listed from https://api.example.com/v1/models.",
-      ),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("option", {
+      await screen.findByRole("option", {
         name: "vendor/model Vendor · 128K context",
       }),
     ).toBeInTheDocument();
@@ -2444,7 +2411,9 @@ describe("Model source", () => {
     fireEvent.change(screen.getByLabelText("API key"), {
       target: { value: "sk-typed" },
     });
-    expect(screen.queryByText(/models listed from/u)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("option", { name: /^vendor\/model/u }),
+    ).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "List models" }));
     await waitFor(() => expect(listings).toHaveLength(2));
     expect(listings[1]).toMatchObject({ api_key: "sk-typed" });
@@ -2636,8 +2605,8 @@ describe("Model source", () => {
       within(tabs).queryByRole("tab", { name: "Subscription" }),
     ).not.toBeInTheDocument();
     expect(
-      screen.getByText("Agents on lab-118 use Subscription · Claude Code"),
-    ).toBeInTheDocument();
+      within(tabs).queryByRole("img", { name: "In use" }),
+    ).not.toBeInTheDocument();
 
     const guidance = await screen.findByRole("complementary", {
       name: "Memory guidance",
@@ -3026,9 +2995,14 @@ describe("Model source", () => {
       }),
     );
     fireEvent.click(retry);
-    expect(
-      await screen.findByText("Agents on lab-118 use Local model"),
-    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole("tab", { name: /Local model/u })).getByRole(
+          "img",
+          { name: "In use" },
+        ),
+      ).toBeInTheDocument(),
+    );
   });
 
   it("refetches model source when a Computer comes back online and disables BYOK when offline", async () => {
@@ -3132,11 +3106,13 @@ describe("Model source", () => {
 
     const tabs = await screen.findByRole("tablist", { name: "Model source" });
     expect(tabs).toHaveClass("self-start");
+    expect(screen.getByLabelText("API key")).toHaveAttribute(
+      "placeholder",
+      "Saved. Leave blank to keep it.",
+    );
     fireEvent.click(await screen.findByRole("button", { name: "List models" }));
     expect(
-      await screen.findByText(
-        "2 models listed from https://api.example.com/v1/models.",
-      ),
+      await screen.findByRole("option", { name: /^vendor\/model/u }),
     ).toBeInTheDocument();
 
     // Any model ID can be typed even when the endpoint listed models.
@@ -3152,16 +3128,14 @@ describe("Model source", () => {
     });
     expect(screen.queryByText("Connected")).not.toBeInTheDocument();
     expect(
-      screen.getByText("List the endpoint's models, or type an ID."),
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByText(/A key is saved on this computer/u),
+      screen.queryByRole("option", { name: /^vendor\/model/u }),
     ).not.toBeInTheDocument();
     expect(
       screen.getByText(
         "For security, saved keys are only reused for the original endpoint host. Enter a key for the new host.",
       ),
     ).toBeVisible();
+    expect(screen.getByLabelText("API key")).not.toHaveAttribute("placeholder");
 
     fireEvent.click(screen.getByRole("button", { name: "Test" }));
     await waitFor(() => expect(tests).toHaveLength(2));
@@ -4412,19 +4386,11 @@ describe("Model source", () => {
     // First models probe is aborted and cleared as soon as the address changes.
     fireEvent.click(listButton);
     await waitFor(() => expect(heldModels).toHaveLength(1));
-    expect(
-      screen.getByText(
-        "Listing models from https://api.example.com/v1/models…",
-      ),
-    ).toBeVisible();
 
     fireEvent.change(baseUrl, {
       target: { value: "https://other.example.net" },
     });
     expect(heldModels[0]!.signal.aborted).toBe(true);
-    expect(
-      screen.getByText("List the endpoint's models, or type an ID."),
-    ).toBeVisible();
 
     // A newer models probe succeeds; settling the stale first probe does not overwrite it or flash an error.
     fireEvent.click(listButton);
@@ -4438,9 +4404,7 @@ describe("Model source", () => {
       );
     });
     expect(
-      await screen.findByText(
-        "1 model listed from https://other.example.net/v1/models.",
-      ),
+      await screen.findByRole("option", { name: /^other\/model/u }),
     ).toBeVisible();
 
     await reactAct(async () => {
@@ -4449,9 +4413,7 @@ describe("Model source", () => {
       );
     });
     expect(
-      screen.getByText(
-        "1 model listed from https://other.example.net/v1/models.",
-      ),
+      screen.getByRole("option", { name: /^other\/model/u }),
     ).toBeVisible();
     expect(screen.queryByText("stale models error")).not.toBeInTheDocument();
     expect(
@@ -4563,12 +4525,8 @@ describe("Featured Inkling 2 Mini spotlight", () => {
 
     const spotlight = spotlightRegion();
     expect(spotlight).toHaveAttribute("data-in-catalog", "true");
-    expect(spotlight).toHaveTextContent("New");
     expect(spotlight).toHaveTextContent("Featured · Thinking Machines");
     expect(spotlight).toHaveTextContent("Inkling 2 Mini");
-    expect(spotlight).toHaveTextContent(
-      "26.4B looped MoE (3.4B active) built for local agentic coding and vision — Apache 2.0.",
-    );
 
     const announcement = within(spotlight).getByRole("link", {
       name: "Read announcement",
@@ -4593,12 +4551,12 @@ describe("Featured Inkling 2 Mini spotlight", () => {
     // Inkling 2 Mini renders once inside the spotlight at the top of Models,
     // without duplicating controls or a second row below.
     expect(statuses()).toEqual([
-      "Inkling 2 Mini: Not downloaded · 16.5 GB · 19.2 GB VRAM",
+      "Inkling 2 Mini: 16.5 GB",
       "Qwen3 Coder 30B: Loaded · GPU 0 · 21.4 GB",
       "Gemma 3 27B: Downloaded",
-      "GPT-OSS 20B: Not downloaded · 12.1 GB · 14.3 GB VRAM",
-      "Gemma 3 4B: Not downloaded · 3.3 GB · 4.1 GB VRAM",
-      "Llama 3.3 70B: Not downloaded · 42.5 GB · 46 GB memory · runs slower",
+      "GPT-OSS 20B: 12.1 GB",
+      "Gemma 3 4B: 3.3 GB",
+      "Llama 3.3 70B: 42.5 GB · runs slower",
     ]);
     expect(
       screen.getAllByRole("button", { name: "Download Inkling 2 Mini" }),
@@ -4681,11 +4639,7 @@ describe("Featured Inkling 2 Mini spotlight", () => {
         observed_at: "2026-11-13T10:02:00.000Z",
       }),
     );
-    await waitFor(() =>
-      expect(statusOf("Inkling 2 Mini")).toBe(
-        "Not downloaded · 16.5 GB · 19.2 GB VRAM",
-      ),
-    );
+    await waitFor(() => expect(statusOf("Inkling 2 Mini")).toBe("16.5 GB"));
     const recommendedRow = within(spotlight).getByRole("article");
     expect(recommendedRow).toHaveAttribute("data-featured", "true");
     expect(recommendedRow).toHaveAttribute("data-recommended", "true");
@@ -4883,7 +4837,7 @@ describe("Featured Inkling 2 Mini spotlight", () => {
     const absentSpotlight = spotlightRegion();
     expect(absentSpotlight).toHaveAttribute("data-in-catalog", "false");
     expect(absentSpotlight).toHaveTextContent(
-      "Not in this computer's local model catalog yet. Update Linger's local models runtime if you're on an older version.",
+      "Not in this computer's catalog yet. Update Linger to get it.",
     );
     expect(within(absentSpotlight).queryByRole("article")).toBeNull();
     expect(
@@ -5007,9 +4961,7 @@ describe("Featured Inkling 2 Mini spotlight", () => {
     await renderPage(multiFixture);
     await findModels();
 
-    expect(statuses()).toEqual([
-      "Inkling 2 Mini: Not downloaded · 16.5 GB · 19.2 GB VRAM",
-    ]);
+    expect(statuses()).toEqual(["Inkling 2 Mini: 16.5 GB"]);
     expect(screen.queryByText("Featured")).not.toBeInTheDocument();
     const versionPicker = within(spotlightRegion()).getByRole("combobox", {
       name: "Choose version for Inkling 2 Mini",
@@ -5034,9 +4986,7 @@ describe("Featured Inkling 2 Mini spotlight", () => {
       name: /UD-IQ3_XXS/u,
     });
     fireEvent.click(iq3Option);
-    expect(statuses()).toEqual([
-      "Inkling 2 Mini: Not downloaded · 11.4 GB · 13.5 GB VRAM",
-    ]);
+    expect(statuses()).toEqual(["Inkling 2 Mini: 11.4 GB"]);
 
     // 6. On a 16 GB GPU where Q4 is unavailable, spotlight defaults to sibling IQ3_XXS.
     cleanup();
@@ -5085,7 +5035,7 @@ describe("Featured Inkling 2 Mini spotlight", () => {
         name: "Choose version for Inkling 2 Mini",
       }),
     ).toHaveTextContent("UD-IQ3_XXS");
-    expect(gpu16Spotlight).toHaveTextContent("11.4 GB · 13.5 GB VRAM");
+    expect(gpu16Spotlight).toHaveTextContent("11.4 GB");
     fireEvent.click(
       within(gpu16Spotlight).getByRole("button", {
         name: "Download Inkling 2 Mini (IQ3_XXS)",
@@ -5213,7 +5163,7 @@ describe("Featured Inkling 2 Mini spotlight", () => {
     ).toBeVisible();
     fireEvent.click(
       await screen.findByRole("option", {
-        name: /UD-Q4_K_M · llama\.cpp · 10 GB · 21\.4 GB VRAM · Recommended/u,
+        name: /UD-Q4_K_M · llama\.cpp · 10 GB · Recommended/u,
       }),
     );
     const llamaBadge = within(inklingCard).getByText("llama.cpp");
@@ -5228,13 +5178,6 @@ describe("Featured Inkling 2 Mini spotlight", () => {
     expect(inklingCard).toHaveTextContent("All-in-VRAM native engine");
     expect(inklingCard).toHaveTextContent("2 concurrent requests");
     expect(within(inklingCard).queryByText("System memory")).toBeNull();
-
-    // Details dialog surfaces both host engines from host.engine_label.
-    fireEvent.click(screen.getByRole("button", { name: "Details" }));
-    const dialog = screen.getByRole("dialog");
-    expect(dialog).toHaveTextContent(
-      "Ubuntu 24.04 · llama.cpp b11370 · CUDA + PolyStrata 0.2.19-poly.1 · CUDA",
-    );
 
     // Chinese locale keeps product engine names and translates labels and hints.
     await reactAct(async () => {
@@ -5358,14 +5301,13 @@ describe("Featured Inkling 2 Mini spotlight", () => {
 
     // Recommended Ornith appears first above the unavailable Inkling spotlight; no redundant llama.cpp badges.
     expect(statuses()).toEqual([
-      "Ornith 1.5 9B: Not downloaded · 6.2 GB · 10.4 GB memory",
-      "Spark-X2.6 4B: Not downloaded · 3.3 GB · 4.9 GB memory",
+      "Ornith 1.5 9B: 6.2 GB",
+      "Spark-X2.6 4B: 3.3 GB",
       "Inkling 2 Mini: Can't download · needs 16.2 GB",
     ]);
     const ornithCard = card("Ornith 1.5 9B");
     expect(within(ornithCard).getByText("Recommended")).toBeVisible();
-    expect(within(ornithCard).getByText("128K")).toBeVisible();
-    expect(within(ornithCard).getByText("Q4_K_M")).toBeVisible();
+    expect(within(ornithCard).queryByText("128K")).not.toBeInTheDocument();
     expect(within(ornithCard).queryByRole("combobox")).not.toBeInTheDocument();
     expect(screen.queryByText("llama.cpp")).not.toBeInTheDocument();
 
@@ -5466,7 +5408,7 @@ describe("Featured Inkling 2 Mini spotlight", () => {
     // Only 2 grouped cards (Spotlight Inkling + Qwen3.8 27B), zero duplicate Featured rows, zero llama.cpp noise.
     expect(statuses()).toEqual([
       "Inkling 2 Mini: Loaded · Memory · 27 GB",
-      "Qwen3.8 27B: Not downloaded · 16.2 GB · 21.8 GB memory",
+      "Qwen3.8 27B: 16.2 GB",
     ]);
     expect(screen.queryByText("llama.cpp")).not.toBeInTheDocument();
 
@@ -5487,9 +5429,7 @@ describe("Featured Inkling 2 Mini spotlight", () => {
     expect(
       screen.getByRole("region", { name: "Qwen3.8 27B (UD-IQ3_S) details" }),
     ).toHaveTextContent("17.5 GB");
-    expect(statusOf("Qwen3.8 27B")).toBe(
-      "Not downloaded · 12.1 GB · 17.5 GB memory",
-    );
+    expect(statusOf("Qwen3.8 27B")).toBe("12.1 GB");
     fireEvent.click(
       within(qwenCard).getByRole("button", {
         name: "Download Qwen3.8 27B (UD-IQ3_S)",
@@ -5612,9 +5552,9 @@ describe("Featured Inkling 2 Mini spotlight", () => {
     await findModels();
 
     expect(statuses()).toEqual([
-      "Inkling 2 Mini: Not downloaded · 17 GB · 21.1 GB VRAM + 5.7 GB RAM",
-      "Qwen3.8 27B: Not downloaded · 16.2 GB · 21.7 GB VRAM",
-      "Spark-X2.6 4B: Not downloaded · 4.2 GB · 8.9 GB VRAM",
+      "Inkling 2 Mini: 17 GB",
+      "Qwen3.8 27B: 16.2 GB",
+      "Spark-X2.6 4B: 4.2 GB",
     ]);
     const inklingCard = card("Inkling 2 Mini");
     expect(within(inklingCard).getByText("Recommended")).toBeVisible();
@@ -5626,12 +5566,12 @@ describe("Featured Inkling 2 Mini spotlight", () => {
     fireEvent.click(picker);
     expect(
       await screen.findByRole("option", {
-        name: /UD-Q4_K_XL · PolyStrata · 17 GB · 21\.1 GB VRAM \+ 5\.7 GB RAM · Recommended/u,
+        name: /UD-Q4_K_XL · PolyStrata · 17 GB · Recommended/u,
       }),
     ).toBeVisible();
     expect(
       await screen.findByRole("option", {
-        name: /UD-Q4_K_M · llama\.cpp · 16\.5 GB · 22 GB VRAM/u,
+        name: /UD-Q4_K_M · llama\.cpp · 16\.5 GB/u,
       }),
     ).toBeVisible();
 
@@ -5747,7 +5687,7 @@ describe("Featured Inkling 2 Mini spotlight", () => {
     await findModels();
 
     expect(statuses()).toEqual([
-      "Spark-X2.6 4B: Not downloaded · 4.2 GB · 8.9 GB VRAM",
+      "Spark-X2.6 4B: 4.2 GB",
       "Inkling 2 Mini: Can't download · driver update needed",
     ]);
     expect(
@@ -5955,9 +5895,6 @@ describe("Featured Inkling 2 Mini spotlight", () => {
     );
     expect(spotlight).toHaveTextContent(
       "PolyStrata requires NVIDIA driver 580+ (CUDA 13.0). Your driver supports CUDA 12.8 — only the graphics driver needs an update, not CUDA Toolkit.",
-    );
-    expect(spotlight).toHaveTextContent(
-      "Other models on this computer already work without updating your driver.",
     );
 
     // Expanded details keep the actionable Update driver button alongside the row action.

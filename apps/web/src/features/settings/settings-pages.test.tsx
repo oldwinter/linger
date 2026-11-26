@@ -207,9 +207,6 @@ describe("Settings surfaces", () => {
     expect(
       screen.getByRole("heading", { level: 1, name: "Security" }),
     ).toBeVisible();
-    expect(
-      screen.getByText("Manage your sign-in password and server API keys."),
-    ).toBeVisible();
     expect(screen.getByTestId("location")).toHaveTextContent(
       "/t/tenant-northstar/settings/security",
     );
@@ -264,11 +261,6 @@ describe("Settings surfaces", () => {
     ).toBeVisible();
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     expect(screen.getByText("Settings")).toBeVisible();
-    expect(
-      screen.getByText(
-        "Photo, name, bio, notifications, and browser preferences for this space.",
-      ),
-    ).toBeVisible();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     const settingsNav = screen.getByRole("complementary", {
       name: "Settings navigation",

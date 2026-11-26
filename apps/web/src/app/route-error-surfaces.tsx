@@ -41,6 +41,7 @@ function PanelRouteErrorContent() {
       role="alert"
     >
       <ErrorMessage
+        detail={content.detail}
         message={content.message}
         onRetry={() => {
           void (content.restricted ? navigate("/") : navigate(0));
@@ -111,11 +112,6 @@ function ApplicationRouteErrorSurface({ tenantId }: { tenantId?: string }) {
               <p className="text-sm text-muted-foreground">
                 {t(routePagesMessages.rooms)}
               </p>
-              <p className="mt-3 text-sm text-muted-foreground">
-                {content.restricted
-                  ? t(routePagesMessages.backToRoomsHint)
-                  : "Use “Try again” to reload this view."}
-              </p>
             </div>
           </nav>
         ) : null}
@@ -131,6 +127,7 @@ function ApplicationRouteErrorSurface({ tenantId }: { tenantId?: string }) {
           role="alert"
         >
           <ErrorMessage
+            detail={content.detail}
             message={content.message}
             onRetry={() => {
               void (content.restricted ? navigate("/") : navigate(0));
@@ -188,12 +185,14 @@ function ErrorRailLink({
 }
 
 function ErrorMessage({
+  detail,
   message,
   onRetry,
   title,
   actionLabel,
 }: {
   actionLabel: string;
+  detail?: string;
   message: string;
   onRetry: () => void;
   title: string;
@@ -201,7 +200,9 @@ function ErrorMessage({
   return (
     <div className="max-w-md">
       <h1 className="text-lg">{title}</h1>
-      <p className="mt-2 text-sm leading-6 text-app-muted">{message}</p>
+      <p className="mt-2 text-sm leading-6 text-app-muted" title={detail}>
+        {message}
+      </p>
       <Button className="mt-5" onClick={onRetry}>
         {actionLabel}
       </Button>
@@ -228,17 +229,21 @@ function useRouteErrorContent(fullPage: boolean) {
       ),
       message: t(routePagesMessages.restrictedBody),
     };
-  const message = isRouteErrorResponse(error)
+  // The reader gets a generic body; the raw error stays on hover for support.
+  const detail = isRouteErrorResponse(error)
     ? `${error.status} ${error.statusText}`.trim()
     : error instanceof Error
       ? error.message
-      : "The requested Linger data could not be loaded.";
+      : undefined;
 
   return {
     restricted: false,
-    message,
-    title: fullPage
-      ? "Linger unavailable"
-      : t(routePagesMessages.viewLoadFailedTitle),
+    detail,
+    message: t(routePagesMessages.loadFailedBody),
+    title: t(
+      fullPage
+        ? routePagesMessages.teamHubUnavailableTitle
+        : routePagesMessages.viewLoadFailedTitle,
+    ),
   };
 }

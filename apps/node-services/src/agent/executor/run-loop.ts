@@ -1,5 +1,6 @@
 import type { AgentLogger } from "../observability/agent-log.js";
 import {
+  formatRuntimeFailureDetail,
   type PreviousRuntimeSession,
   type RunEvent,
   RuntimeExecutionError,
@@ -47,11 +48,7 @@ import {
   renderInterruptedRunReminder,
   renderRuntimeContinuationReminder,
 } from "../prompt/inbox-notification.js";
-import {
-  runPriorities,
-  COMPACTION_PRIORITY,
-  RunPriority,
-} from "../../model-tasks.js";
+import { runPriorities, RunPriority } from "../../model-tasks.js";
 import { runKind } from "./run-kind.js";
 
 /** The Run's own agent in `agent.model_request`; a sub-agent logs its id. */
@@ -376,7 +373,6 @@ export class RunLoop {
    * happen; their next attempt is not a resumption. */
   readonly #unstartedRequeues = new Set<string>();
   #terminalRecoveryStop = new AbortController();
-  #priorityWait?: AbortController;
   #capacityWait = new AbortController();
   #retiredPreparationFailure: { readonly error: unknown } | undefined;
   // Native session compaction; no Run is claimed until it settles.
@@ -477,7 +473,7 @@ export class RunLoop {
    * and new work aborts it: interrupted native compaction leaves history
    * unchanged, so the user's input never waits for maintenance. It is not an
    * active operation, so the executor keeps reporting idle and Inbox reception
-   * admits input immediately. Like a Run it holds Computer capacity.
+   * admits input immediately. Like a Run it reserves its Context.
    */
   async compactSession(
     options: CompactSessionOptions,
@@ -501,10 +497,7 @@ export class RunLoop {
       // returns before claiming anything.
       await this.#executionPromise?.catch(() => undefined);
       if (controller.signal.aborted) return { status: "input_arrived" };
-      releaseCapacity = await this.#provider.acquireRunCapacity?.(
-        signal,
-        COMPACTION_PRIORITY,
-      );
+      releaseCapacity = await this.#provider.acquireRunCapacity?.(signal);
       const result = await this.#provider.compactSession(this.#runtimeSession, {
         ...(options.instructions ? { instructions: options.instructions } : {}),
         signal,
@@ -598,7 +591,6 @@ export class RunLoop {
   notifyWorkAvailable(
     options: { readonly workStateAlreadyFresh?: boolean } = {},
   ): void {
-    this.#priorityWait?.abort();
     if (!options.workStateAlreadyFresh) this.#workStateRefreshRequested = true;
     this.#maintenance?.abort();
     this.#cancelLoopRetry();
@@ -622,10 +614,8 @@ export class RunLoop {
         active.controller.abort(new LocalRunCancellationRequestedError());
       }
     }
-    if (status === "canceled") {
-      if (this.#state.hasQueuedRuns()) this.#priorityWait?.abort();
-      else this.#capacityWait.abort();
-    }
+    if (status === "canceled" && !this.#state.hasQueuedRuns())
+      this.#capacityWait.abort();
     this.#notifyActivityChanged();
     return status;
   }
@@ -819,7 +809,6 @@ export class RunLoop {
   }
 
   async #runLoop(): Promise<void> {
-    let queuedAt: number | undefined;
     while (!this.#drainRequested) {
       if (this.#workStateRefreshRequested) {
         this.#workStateRefreshRequested = false;
@@ -847,32 +836,9 @@ export class RunLoop {
           !this.#retiredPreparationFailure &&
           this.#provider.acquireRunCapacity
         ) {
-          const refresh = new AbortController();
-          this.#priorityWait = refresh;
-          const signal = AbortSignal.any([
+          releaseCapacity = await this.#provider.acquireRunCapacity(
             this.#capacityWait.signal,
-            refresh.signal,
-          ]);
-          try {
-            queuedAt ??= performance.now();
-            releaseCapacity = await this.#provider.acquireRunCapacity(signal, {
-              queuedAt,
-              resolve: async () => {
-                const kind = this.#executionContextRef?.kind;
-                if (kind === "document") return runPriorities.document;
-                if (kind === "alter_ego") return runPriorities.task;
-                const metaKind = await this.#state.queuedMetaKind?.(signal);
-                return runPriorities[metaKind ?? "follow_up"];
-              },
-            });
-            queuedAt = undefined;
-          } catch (error) {
-            if (refresh.signal.aborted && !this.#capacityWait.signal.aborted)
-              continue;
-            throw error;
-          } finally {
-            this.#priorityWait = undefined;
-          }
+          );
         }
       } catch (error) {
         if (
@@ -2302,7 +2268,13 @@ const failedRunTerminal = (
     ? ({
         type: "failed",
         error: "Provider cancellation cleanup is unconfirmed",
-        failure: runFailure("cleanup_unconfirmed", runtimeType),
+        failure: runFailure(
+          "cleanup_unconfirmed",
+          runtimeType,
+          error.cause instanceof Error
+            ? formatRuntimeFailureDetail(error.cause.message)
+            : undefined,
+        ),
       } as const)
     : signal.reason instanceof LocalRunCancellationRequestedError ||
         signal.reason instanceof LocalRunStoppedError
@@ -2324,30 +2296,44 @@ const failedRunTerminal = (
 const classifiedRunFailure = (
   error: unknown,
   runtimeType: RuntimeExecutionFailure["runtime_type"],
-): RuntimeExecutionFailure =>
-  error instanceof RuntimeExecutionError
-    ? error.failure
-    : runFailure(
-        error instanceof ProviderRunInterruptedError
-          ? "interrupted"
-          : error instanceof ProviderRunAdmissionUnavailableError
-            ? "computer_unavailable"
-            : error instanceof StreamingAgentRunLimitError
-              ? "response_too_large"
-              : "unclassified",
-        // A Run that definitely never started did not reach the Runtime, so
-        // naming it would point the user at the wrong component.
-        error instanceof ProviderRunStartError &&
-          !(error instanceof ProviderRunAdmissionUnavailableError)
-          ? undefined
-          : runtimeType,
-      );
+): RuntimeExecutionFailure => {
+  if (error instanceof RuntimeExecutionError) {
+    return error.failure;
+  }
+  if (error instanceof ProviderRunInterruptedError) {
+    return runFailure("interrupted", runtimeType);
+  }
+  if (error instanceof ProviderRunAdmissionUnavailableError) {
+    return runFailure(
+      "computer_unavailable",
+      runtimeType,
+      formatRuntimeFailureDetail(error.message),
+    );
+  }
+  if (error instanceof StreamingAgentRunLimitError) {
+    return runFailure(
+      "response_too_large",
+      runtimeType,
+      formatRuntimeFailureDetail(error.message),
+    );
+  }
+  return runFailure(
+    "unclassified",
+    // A Run that definitely never started did not reach the Runtime, so
+    // naming it would point the user at the wrong component.
+    error instanceof ProviderRunStartError ? undefined : runtimeType,
+  );
+};
 
 const runFailure = (
   code: RuntimeExecutionFailure["code"],
   runtimeType: RuntimeExecutionFailure["runtime_type"],
-): RuntimeExecutionFailure =>
-  runtimeType ? { code, runtime_type: runtimeType } : { code };
+  detail?: string,
+): RuntimeExecutionFailure => ({
+  code,
+  ...(runtimeType ? { runtime_type: runtimeType } : {}),
+  ...(detail ? { detail } : {}),
+});
 
 const provenanceOf = (
   messages: NonEmptyReadonlyArray<Message>,

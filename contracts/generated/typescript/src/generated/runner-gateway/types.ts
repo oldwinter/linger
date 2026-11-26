@@ -41,7 +41,9 @@ export type ServiceFeature =
   | "local_models_concurrency_probe"
   | "local_model_unavailable"
   | "model_gateway_unavailable"
-  | "local_models_external_holders";
+  | "local_models_external_holders"
+  | "runtime_failure_detail"
+  | "operation_background_wait";
 export type JsonValue =
   | null
   | boolean
@@ -729,6 +731,20 @@ export type RunEvent =
       path: string;
     }
   | {
+      type: "run.background_waiting";
+      observed_at_unix_ms: NonNegativeInteger;
+      tools: {
+        call_id: Id;
+        tool_name: string;
+        started_at_unix_ms: NonNegativeInteger;
+      }[];
+    }
+  | {
+      type: "run.background_resumed";
+      observed_at_unix_ms: NonNegativeInteger;
+      trigger: "background_continuation" | "user_input";
+    }
+  | {
       type: "run.completed";
     }
   | {
@@ -1193,7 +1209,7 @@ export interface RunnerHello {
   runtime_registrations: RuntimeRegistrationObservation[];
   sent_at: Timestamp;
   /**
-   * Optional Computer-wide active Operation limit. Omission means unlimited.
+   * Deprecated. Older Computers can report a locally enforced Operation limit. The gateway schedules by model endpoint.
    */
   capacity?: number;
   /**
@@ -2317,6 +2333,7 @@ export interface RuntimeExecutionFailure {
     | "network_error"
     | "rate_limited"
     | "model_unavailable"
+    | "model_not_offered"
     | "local_model_unavailable"
     | "model_gateway_unavailable"
     | "context_too_long"
@@ -2325,6 +2342,7 @@ export interface RuntimeExecutionFailure {
     | "execution_failed";
   runtime_type: "codex" | "claude" | "pi" | "antigravity";
   runtime_version?: string;
+  detail?: string;
 }
 export interface RuntimeFailureDiagnostics {
   exitCode?: number;

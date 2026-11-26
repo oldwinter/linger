@@ -32,7 +32,7 @@ import { TeamHubError } from "@/features/teamhub/teamhub-error";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import { commonMessages } from "@/i18n/common.messages";
 import type { Translate } from "@/i18n/language";
-import { RichMessage, useT } from "@/i18n/use-translation";
+import { useT } from "@/i18n/use-translation";
 import { cn } from "@/lib/cn";
 
 import { ByokCombobox } from "./byok-combobox";
@@ -139,7 +139,6 @@ export function ByokPanel({
   const runtimeEndpoint = defaultByokEndpoint(runtime);
   const endpointValue = normalizeByokPath(endpoint ?? runtimeEndpoint);
   const requestUrl = `${base}${pathValue}${endpointValue}`;
-  const modelsUrl = `${base}${pathValue}/models`;
   const format = byokProtocolFor(requestUrl, runtime);
   const addressValid = validByokPath(pathValue) && validByokPath(endpointValue);
   // Never reuse a saved key when the owner points BYOK at a different host.
@@ -247,16 +246,6 @@ export function ByokPanel({
         .join(" · ") || undefined,
     value: model.id,
   }));
-  const modelHint = models.isPending
-    ? t(m.byokListingFrom, { url: modelsUrl })
-    : models.isError
-      ? failureCopy(models.error, t)
-      : models.data
-        ? t(m.byokModelsListedFrom, {
-            count: listed.length,
-            url: models.data.url,
-          })
-        : t(m.byokModelHint);
 
   // Changing the address or key makes listed models and a test result stale;
   // changing only the endpoint, model or Runtime keeps the listed models.
@@ -429,23 +418,8 @@ export function ByokPanel({
             className="mt-2 grid gap-1 text-xs text-muted-foreground"
             id={addressHintId}
           >
-            <p>{t(m.byokAddressHint)}</p>
             {!addressValid ? (
               <p className="text-destructive">{t(m.byokAddressInvalid)}</p>
-            ) : base ? (
-              <p>
-                <RichMessage
-                  message={
-                    format.fromUrl ? m.byokSendsTo : m.byokSendsToRuntimeFormat
-                  }
-                  tags={{ url: (text) => <Url chip>{text}</Url> }}
-                  values={{
-                    protocol: byokProtocolLabels[format.protocol],
-                    runtime: modelSourceRuntimeLabels[runtime],
-                    url: requestUrl,
-                  }}
-                />
-              </p>
             ) : null}
           </div>
         </fieldset>
@@ -457,7 +431,6 @@ export function ByokPanel({
             {t(m.apiKey)}
           </label>
           <input
-            aria-describedby={`${ids}-key-hint`}
             autoComplete="new-password"
             className={fieldControlClassName}
             disabled={disabled}
@@ -466,17 +439,19 @@ export function ByokPanel({
               setApiKey(event.target.value);
               resetAll();
             }}
+            placeholder={canReuseSavedKey ? t(m.keySavedHint) : undefined}
             type="password"
             value={apiKey}
           />
-          <p
-            className="mt-1.5 text-xs text-muted-foreground"
-            id={`${ids}-key-hint`}
-          >
-            {originChangedWithSavedKey
-              ? "For security, saved keys are only reused for the original endpoint host. Enter a key for the new host."
-              : t(canReuseSavedKey ? m.keySavedHint : m.keyOptionalHint)}
-          </p>
+          {originChangedWithSavedKey ? (
+            <p
+              className="mt-1.5 text-xs text-muted-foreground"
+              id={`${ids}-key-hint`}
+            >
+              For security, saved keys are only reused for the original endpoint
+              host. Enter a key for the new host.
+            </p>
+          ) : null}
         </div>
         <div>
           <label
@@ -487,12 +462,11 @@ export function ByokPanel({
           </label>
           <div className="relative flex gap-2">
             <ByokCombobox
-              aria-describedby={modelHintId}
+              aria-describedby={models.isError ? modelHintId : undefined}
               className="min-w-0 flex-1"
               disabled={disabled}
               id={`${ids}-model`}
               label={t(m.model)}
-              note={modelOptions.length ? undefined : modelHint}
               onCommit={() => setModelId((current) => current.trim())}
               onOpenChange={(open) => setMenu(open ? "model" : null)}
               onValueChange={(value) => {
@@ -553,15 +527,14 @@ export function ByokPanel({
               </TestToast>
             ) : null}
           </div>
-          <p
-            className={cn(
-              "mt-1.5 text-xs [overflow-wrap:anywhere]",
-              models.isError ? "text-destructive" : "text-muted-foreground",
-            )}
-            id={modelHintId}
-          >
-            {modelHint}
-          </p>
+          {models.isError ? (
+            <p
+              className="mt-1.5 text-xs text-destructive [overflow-wrap:anywhere]"
+              id={modelHintId}
+            >
+              {failureCopy(models.error, t)}
+            </p>
+          ) : null}
         </div>
       </div>
       <footer className="flex flex-wrap items-center justify-end gap-2 rounded-b-xl border-t border-border bg-muted/35 px-5 py-3">

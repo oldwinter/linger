@@ -103,7 +103,6 @@ export function RoomHistoryShareDialog({
   });
   return (
     <ModalDialog
-      description={t(m.shareDescription)}
       onClose={() => {
         if (!create.isPending && !revoke.isPending) onClose();
       }}

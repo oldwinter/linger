@@ -7,7 +7,6 @@ import { Link } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
-import { Spinner } from "@/components/ui/spinner";
 import { ActorAvatar } from "@/features/rooms/members/actor-avatar";
 import {
   DocumentActionsMenu,
@@ -34,6 +33,10 @@ import {
 } from "./library-folder-browser";
 import type { LibrarySection } from "./library-sidebar";
 import type { PendingDocumentUpload } from "./library-upload-queue";
+import {
+  DocumentRowsSkeleton,
+  RecentCardsSkeleton,
+} from "./library-loading-skeletons";
 import { libraryMessages as m } from "./library.messages";
 import { WorkspaceFileIcon } from "./workspace-file-icon";
 
@@ -65,10 +68,7 @@ export function RecentDocumentCards({
     <section aria-label={t(m.recent)} className="workspace-recent">
       <h3 className="workspace-recent-title">{t(m.recent)}</h3>
       {pending ? (
-        <p className="flex items-center gap-2 py-6 text-sm text-app-muted">
-          <Spinner size={15} />
-          {t(m.loadingDocuments)}
-        </p>
+        <RecentCardsSkeleton label={t(m.loadingDocuments)} />
       ) : error ? (
         <p className="py-6 text-sm text-app-danger" role="alert">
           {error.message || t(m.recentUnavailable)}
@@ -198,12 +198,7 @@ export function LibraryDocumentResults({
 }) {
   const t = useT();
   if (pending) {
-    return (
-      <p className="flex items-center justify-center gap-2 py-16 text-center text-sm text-app-muted">
-        <Spinner size={16} />
-        {t(m.loadingDocuments)}
-      </p>
-    );
+    return <DocumentRowsSkeleton label={t(m.loadingDocuments)} />;
   }
   if (error) {
     return (

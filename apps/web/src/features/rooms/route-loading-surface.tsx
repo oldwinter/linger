@@ -1,5 +1,11 @@
 import { Skeleton } from "@/components/ui/skeleton";
+import { LibraryOverviewSkeleton } from "@/features/library/library-loading-skeletons";
+import {
+  sectionHasSidebar,
+  workspaceSection,
+} from "@/features/library/library-section";
 import type { TeamHubRoomListItem } from "@/features/teamhub/teamhub-types";
+import { commonMessages } from "@/i18n/common.messages";
 import type { Translate } from "@/i18n/language";
 import { useT } from "@/i18n/use-translation";
 
@@ -85,7 +91,7 @@ export function AuthenticatedRouteLoading({
       ) : route.kind === "dashboard" ? (
         <DashboardLoading />
       ) : route.kind === "library" ? (
-        <LibraryLoading />
+        <LibraryLoading pathname={pathname} />
       ) : route.kind === "document" ? (
         <DocumentLoading />
       ) : (
@@ -280,9 +286,59 @@ function DashboardLoading() {
   );
 }
 
-function LibraryLoading() {
+/**
+ * The Library sidebar is chrome, so it stays in place while the route module
+ * loads and only the content column reads as pending.
+ */
+function WorkspaceSidebarLoading() {
+  const t = useT();
+  return (
+    <>
+      <aside
+        aria-hidden="true"
+        className="hidden w-[220px] shrink-0 bg-app-sidebar px-2 py-3 sm:block"
+      >
+        <div className="space-y-0.5 text-sm text-app-body">
+          {[
+            roomSurfaceMessages.libraryOverview,
+            commonMessages.search,
+            navigationMessages.wiki,
+          ].map((item) => (
+            <div className="flex h-9 items-center px-2" key={item.id}>
+              {t(item)}
+            </div>
+          ))}
+        </div>
+        <div className="mt-4 space-y-0.5 text-sm font-medium text-app-body">
+          <div className="flex h-9 items-center px-2">
+            {t(roomSurfaceMessages.libraryMyPages)}
+          </div>
+          <div className="flex h-9 items-center px-2">
+            {t(roomSurfaceMessages.librarySharedWithMe)}
+          </div>
+        </div>
+      </aside>
+      <div className="hidden w-px shrink-0 bg-border/60 sm:block" />
+    </>
+  );
+}
+
+/**
+ * The Library overview and Wiki have no sidebar; an open meeting keeps it.
+ * The overview mirrors its page so the content lands where its shapes were.
+ */
+function LibraryLoading({ pathname }: { pathname: string }) {
+  const section = workspaceSection(pathname);
+  if (section === "overview") {
+    return (
+      <div className="flex min-h-0 flex-1 overflow-hidden" aria-hidden="true">
+        <LibraryOverviewSkeleton />
+      </div>
+    );
+  }
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden" aria-hidden="true">
+      {sectionHasSidebar(section) ? <WorkspaceSidebarLoading /> : null}
       <section className="workspace-content-viewport min-w-0 flex-1 px-6 py-7">
         <Skeleton className="h-5 w-32" />
         <div className="mt-5 flex gap-3">

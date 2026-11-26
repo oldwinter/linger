@@ -2986,6 +2986,7 @@ type RuntimeExecutionFailure struct {
 	Code           string `json:"code"`
 	RuntimeType    string `json:"runtime_type"`
 	RuntimeVersion string `json:"runtime_version,omitempty"`
+	Detail         string `json:"detail,omitempty"`
 }
 
 // FixedFields lists the keys whose value the schema fixes for a RuntimeExecutionFailure.

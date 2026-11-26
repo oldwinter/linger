@@ -296,7 +296,7 @@ describe("ComputersPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Connect a computer" }));
 
     expect(
-      await screen.findByRole("dialog", { name: "Connect Local Computer" }),
+      await screen.findByRole("dialog", { name: "Connect a computer" }),
     ).toBeVisible();
     expect(screen.getByText("linger-computer-local-3000 login")).toBeVisible();
     expect(
@@ -348,11 +348,7 @@ describe("ComputersPage", () => {
     });
 
     expect(await screen.findByText("Computer connected")).toBeVisible();
-    expect(
-      screen.getByText(
-        "Computer is online. Check its Runtime status before running tasks.",
-      ),
-    ).toBeVisible();
+    expect(screen.getByText("Your computer is online.")).toBeVisible();
     expect(screen.getByRole("button", { name: "Done" })).toBeEnabled();
   });
 
@@ -361,7 +357,6 @@ describe("ComputersPage", () => {
     const inventory = replacementComputerInventory();
     inventory.items[0] = {
       ...inventory.items[0]!,
-      available_capacity: 0,
       last_seen_at: "2026-07-31T10:00:00Z",
       status: "offline",
     };
@@ -470,7 +465,6 @@ describe("ComputersPage", () => {
     const inventory = replacementComputerInventory();
     inventory.items[0] = {
       ...inventory.items[0]!,
-      available_capacity: 0,
       status: "offline",
     };
     const runtime: TeamHubRuntime = {
@@ -791,7 +785,7 @@ describe("ComputersPage", () => {
       });
       fireEvent.click(connect);
       expect(
-        await screen.findByRole("dialog", { name: "Connect Local Computer" }),
+        await screen.findByRole("dialog", { name: "Connect a computer" }),
       ).toBeVisible();
     });
   });
@@ -852,8 +846,6 @@ function replacementComputerInventory(): TeamHubLocalComputerPage {
     items: [
       {
         active_operations: 0,
-        available_capacity: 1,
-        capacity: 1,
         display_name: "New Build Mac",
         computer_id: "computer-new-build-mac",
         runtimes: [

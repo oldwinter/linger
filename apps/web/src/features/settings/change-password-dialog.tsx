@@ -67,7 +67,6 @@ export function ChangePasswordDialog({
 
   return (
     <ModalDialog
-      description={t(accountSettingsMessages.changePasswordDescription)}
       onClose={requestClose}
       size="md"
       title={t(accountSettingsMessages.changePassword)}

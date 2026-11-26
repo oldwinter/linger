@@ -163,9 +163,6 @@ export function RoomSettingsDialog({
     return (
       <section aria-label={t(roomSurfaceMessages.roomSettings)}>
         <form className="p-5" id={formId} onSubmit={handleSubmit}>
-          <p className="mb-5 text-sm text-app-muted">
-            {t(m.detailsDescription)}
-          </p>
           {fields}
           <div className="mt-6 flex items-center justify-end gap-2">
             {actions}
@@ -177,7 +174,6 @@ export function RoomSettingsDialog({
 
   return (
     <ModalDialog
-      description={t(m.detailsDescription)}
       onClose={handleClose}
       size="md"
       title={t(roomSurfaceMessages.roomSettings)}
