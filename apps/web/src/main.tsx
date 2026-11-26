@@ -1,5 +1,5 @@
 import { QueryClientProvider } from "@tanstack/react-query";
-import { lazy, StrictMode, Suspense, useSyncExternalStore } from "react";
+import { lazy, StrictMode, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { createBrowserRouter } from "react-router";
 import { RouterProvider } from "react-router/dom";
@@ -15,12 +15,7 @@ import "@fontsource-variable/geist";
 import "@fontsource-variable/roboto-slab";
 import "@/app/globals.css";
 import { loadHanFont } from "@/app/han-font";
-import { initTheme } from "@/app/theme";
 import { installVitePreloadRecovery } from "@/app/vite-preload-recovery";
-import {
-  getToastsSnapshot,
-  subscribeToToasts,
-} from "@/components/ui/toast-store";
 import { DesktopConnectorReturn } from "@/features/apps/desktop-connector-return";
 import { createBrowserTeamHubRuntime } from "@/features/teamhub/browser-teamhub-runtime";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
@@ -31,7 +26,11 @@ import { restoreLanguage } from "@/i18n/language";
 import { useT } from "@/i18n/use-translation";
 
 installVitePreloadRecovery({ buildId: import.meta.url });
-initTheme();
+// index.html applies the stored theme synchronously before first paint; attach
+// media/storage/hotkey listeners asynchronously to keep the initial JS graph lean.
+void import("@/app/theme").then((module) => {
+  module.initTheme();
+});
 markDesktopShell();
 loadHanFont(navigator.languages);
 
@@ -89,12 +88,6 @@ const LazyToastViewport = lazy(async () => ({
 }));
 
 function AppToastHost() {
-  const hasToasts = useSyncExternalStore(
-    subscribeToToasts,
-    () => getToastsSnapshot().length > 0,
-    () => false,
-  );
-  if (!hasToasts) return null;
   return (
     <Suspense fallback={null}>
       <LazyToastViewport />
