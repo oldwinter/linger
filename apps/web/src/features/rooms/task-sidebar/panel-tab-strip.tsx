@@ -5,6 +5,7 @@ import {
   ArrowShrink01Icon,
   Cancel01Icon,
   Clock01Icon,
+  ComputerTerminal01Icon,
   File01Icon,
   Globe02Icon,
   HierarchyIcon,
@@ -38,6 +39,7 @@ const kindIcons = {
   roomInfo: InformationCircleIcon,
   routines: Clock01Icon,
   collaboration: HierarchyIcon,
+  terminals: ComputerTerminal01Icon,
   url: Globe02Icon,
 } as const;
 

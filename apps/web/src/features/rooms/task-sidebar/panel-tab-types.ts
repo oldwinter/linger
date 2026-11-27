@@ -17,6 +17,7 @@ export type PanelTabKind =
   | "roomInfo"
   | "routines"
   | "collaboration"
+  | "terminals"
   | "url";
 
 export interface PanelTab {
@@ -52,6 +53,7 @@ export const PANEL_COLLECTION_TAB_IDS = {
   roomInfo: "roomInfo:current",
   routines: "routines:current",
   collaboration: "collaboration:current",
+  terminals: "terminals:current",
   url: "url:preview",
 } as const;
 
@@ -67,6 +69,7 @@ export const PANEL_COLLECTION_TAB_TITLES = {
   roomInfo: "Room info",
   routines: "Routines",
   collaboration: "Collaboration",
+  terminals: "Terminals",
   url: "Lovable vs Enter Pro | AI Website Builder",
 } as const;
 
@@ -99,6 +102,7 @@ export function panelTabKey(
     if (kind === "roomInfo") return PANEL_COLLECTION_TAB_IDS.roomInfo;
     if (kind === "routines") return PANEL_COLLECTION_TAB_IDS.routines;
     if (kind === "collaboration") return PANEL_COLLECTION_TAB_IDS.collaboration;
+    if (kind === "terminals") return PANEL_COLLECTION_TAB_IDS.terminals;
     if (kind === "url") return PANEL_COLLECTION_TAB_IDS.url;
     throw new Error(`panelTabKey: ${String(kind)} requires anchorMessageId`);
   }
@@ -113,6 +117,7 @@ export function isPanelCollectionTab(tab: PanelTab): boolean {
     tab.kind === "roomInfo" ||
     tab.kind === "routines" ||
     tab.kind === "collaboration" ||
+    tab.kind === "terminals" ||
     tab.kind === "url"
   ) {
     return !tab.anchorMessageId;

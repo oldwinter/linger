@@ -9,6 +9,7 @@ import os from "node:os";
 import type { Duplex } from "node:stream";
 
 import type { Logger } from "../log.js";
+import type { HerdrCoreLocalBridge } from "../herdr-core/local-bridge.js";
 import {
   discoverAddresses,
   isAllowedHostHeader,
@@ -43,6 +44,7 @@ export interface CompanionGatewayOptions {
   readonly getTeamHubBaseUrl: () => string | undefined;
   readonly getDocumentRuntimeUrl: () => string | undefined;
   readonly getStatusSnapshot: () => CompanionRuntimeStatusSnapshot;
+  readonly getHerdrCoreBridge?: () => HerdrCoreLocalBridge | undefined;
   readonly onConnectionsChanged?: () => void;
   readonly log?: Logger;
   readonly pairRateLimitMax?: number;
@@ -733,6 +735,40 @@ export class CompanionGateway {
       return;
     }
 
+    // Local direct herdr-core bridge for authenticated LAN Companion clients.
+    if (
+      pathname === "/companion/v1/herdr-core" ||
+      pathname.startsWith("/companion/v1/herdr-core/")
+    ) {
+      const token = parseBearerToken(req);
+      const device = token
+        ? this.#options.pairing.authenticateToken(token)
+        : undefined;
+      if (!device) {
+        writeError(
+          res,
+          401,
+          "UNAUTHORIZED",
+          "Valid companion bearer token required.",
+        );
+        return;
+      }
+      this.#options.pairing.touchDevice(device.device_id);
+      const bridge = this.#options.getHerdrCoreBridge?.();
+      if (!bridge || !bridge.running()) {
+        writeError(
+          res,
+          503,
+          "HERDR_CORE_UNAVAILABLE",
+          "Local herdr-core bridge is not available.",
+        );
+        return;
+      }
+      const subPath = pathname.slice("/companion/v1/herdr-core".length) || "/";
+      await bridge.handleDelegatedHttpRequest(req, res, subPath, search);
+      return;
+    }
+
     // TeamHub reverse proxy: only /v0/* paths are exposed.
     if (pathname === "/v0" || pathname.startsWith("/v0/")) {
       if (isForbiddenV0Path(pathname)) {
@@ -972,6 +1008,35 @@ export class CompanionGateway {
       return;
     }
     const { pathname, encodedPath, search } = parsedPath;
+    if (pathname === "/companion/v1/herdr-core/attach") {
+      const token = parseBearerToken(req);
+      const device = token
+        ? this.#options.pairing.authenticateToken(token)
+        : undefined;
+      if (!device) {
+        rejectUpgrade(socket, 401, "Unauthorized");
+        return;
+      }
+      this.#options.pairing.touchDevice(device.device_id);
+      const bridge = this.#options.getHerdrCoreBridge?.();
+      if (!bridge || !bridge.running()) {
+        rejectUpgrade(socket, 503, "Service Unavailable");
+        return;
+      }
+      const connId = this.#trackConnection({
+        deviceId: device.device_id,
+        kind: "ws",
+        destroy: () => {
+          if (!socket.destroyed) socket.destroy();
+        },
+      });
+      const untrack = (): void => this.#untrackConnection(connId);
+      socket.once("close", untrack);
+      socket.once("error", untrack);
+      bridge.handleDelegatedUpgrade(req, socket, head, "/attach", search);
+      return;
+    }
+
     if (
       pathname !== "/document-collaboration" &&
       !pathname.startsWith("/document-collaboration/")

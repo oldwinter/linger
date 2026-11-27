@@ -15,6 +15,7 @@ const collectionTitles: Partial<Record<PanelTabKind, Message>> = {
   roomSettings: roomSurfaceMessages.roomSettings,
   roomInfo: m.roomInfo,
   collaboration: m.collaboration,
+  terminals: m.terminals,
 };
 
 // Tabs saved by earlier versions carry the English wording in their title.

@@ -1,6 +1,7 @@
 import { expect, it, vi } from "vitest";
 
 const filePanel = vi.hoisted(() => ({ evaluated: vi.fn() }));
+const herdrPanel = vi.hoisted(() => ({ evaluated: vi.fn() }));
 const sidebar = vi.hoisted(() => ({ evaluated: vi.fn() }));
 vi.mock("./task-sidebar/room-task-sidebar", () => {
   sidebar.evaluated();
@@ -10,6 +11,10 @@ vi.mock("./task-sidebar/adapters/file-panel-tab", () => {
   filePanel.evaluated();
   return { ConnectedFilePanelTab: () => null };
 });
+vi.mock("@/features/herdr-core/herdr-core-room-panel", () => {
+  herdrPanel.evaluated();
+  return { HerdrCoreRoomPanel: () => null };
+});
 
 it("does not evaluate the sidebar when the Room route module loads", async () => {
   await import("./room-surface");
@@ -17,7 +22,8 @@ it("does not evaluate the sidebar when the Room route module loads", async () =>
   expect(sidebar.evaluated).not.toHaveBeenCalled();
 });
 
-it("does not evaluate the document editor when warming the sidebar", async () => {
+it("does not evaluate the document editor or herdr-core panel when warming the sidebar", async () => {
   await import("./task-sidebar/task-sidebar");
   expect(filePanel.evaluated).not.toHaveBeenCalled();
+  expect(herdrPanel.evaluated).not.toHaveBeenCalled();
 });

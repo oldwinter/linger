@@ -36,6 +36,7 @@ import {
 } from "./windows-driver-platform.js";
 import { EnrollmentModule } from "./enrollment.js";
 import { GlobalShortcutModule } from "./global-shortcut.js";
+import { HerdrCoreBridgeModule } from "./herdr-core/module.js";
 import { LanguageModule } from "./language.js";
 import {
   LocalServerModule,
@@ -311,6 +312,7 @@ async function main(): Promise<void> {
     ...desktopPermissions,
   });
   const power = new PowerGuardModule(electronPower());
+  const herdrCoreBridge = new HerdrCoreBridgeModule();
   // The tray tooltip names the badge count the SPA sends over IPC.
   let requestQuit = (): Promise<void> => Promise.resolve();
   const tray = new TrayModule({ quit: () => void requestQuit() });
@@ -322,6 +324,7 @@ async function main(): Promise<void> {
       stop: async () => {},
     },
     language,
+    herdrCoreBridge,
     new EnrollmentModule({
       defaultDisplayName,
       credentials,
@@ -355,6 +358,7 @@ async function main(): Promise<void> {
       status,
       daemon,
       power,
+      herdrCoreBridge,
       sessionCookie: webSessionCookie,
     }),
     new DiagnosticsModule({
@@ -382,6 +386,7 @@ async function main(): Promise<void> {
       ...(desktopPermissions ? { permissions: desktopPermissions } : {}),
       tray,
       driverUpdater,
+      herdrCoreBridge,
     }),
   ];
   const host = new ModuleHost(modules, { config, log, bus });

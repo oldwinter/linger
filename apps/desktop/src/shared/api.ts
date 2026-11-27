@@ -215,6 +215,41 @@ export interface LingerDesktopApi {
     ): Promise<DesktopDriverActionResult>;
     clearInstallState?(): Promise<void>;
   };
+  // Local direct herdr-core bridge (sub-ms loopback HTTP + WS attach).
+  // Older desktop builds lack it, so Web falls back to the TeamHub API path.
+  readonly herdrCore?: DesktopHerdrCoreApi;
+}
+
+export interface DesktopHerdrCoreDetection {
+  readonly installed: boolean;
+  readonly running: boolean;
+  readonly binaryPath: string | null;
+  readonly socketPath: string | null;
+  readonly session: string;
+  readonly platform: string;
+  readonly sharedCore: boolean;
+  readonly version: string | null;
+  readonly installHint: string;
+}
+
+export interface DesktopHerdrCoreBridgeInfo {
+  readonly running: boolean;
+  readonly baseUrl: string | null;
+  readonly wsBaseUrl: string | null;
+  readonly token: string | null;
+  readonly detection: DesktopHerdrCoreDetection;
+}
+
+export interface DesktopHerdrCoreStartResult {
+  readonly ok: boolean;
+  readonly detection: DesktopHerdrCoreDetection;
+  readonly error?: string;
+}
+
+export interface DesktopHerdrCoreApi {
+  getBridge(): Promise<DesktopHerdrCoreBridgeInfo>;
+  detect(): Promise<DesktopHerdrCoreDetection>;
+  startServer(): Promise<DesktopHerdrCoreStartResult>;
 }
 
 export const IPC = {
@@ -238,6 +273,9 @@ export const IPC = {
   driverUpdateInstallStateEvent: "driver-update.install-state.event",
   driverUpdateStartInstall: "driver-update.start-install",
   driverUpdateClearState: "driver-update.clear-state",
+  herdrCoreGetBridge: "herdr-core.get-bridge",
+  herdrCoreDetect: "herdr-core.detect",
+  herdrCoreStartServer: "herdr-core.start-server",
   localAccountAvailable: "local-account.available",
   localAccountSignIn: "local-account.sign-in",
   localServerOwned: "local-server.owned",

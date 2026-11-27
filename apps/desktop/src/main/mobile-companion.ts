@@ -48,6 +48,7 @@ import {
 } from "./companion/standalone.js";
 import { ensureTlsMaterial, type TlsMaterial } from "./companion/tls.js";
 import type { MobileCompanionConfig } from "./config.js";
+import type { HerdrCoreBridgeModule } from "./herdr-core/module.js";
 import {
   LOCAL_INSTANCE,
   proveLocalServer,
@@ -78,6 +79,7 @@ export interface MobileCompanionOptions {
   readonly status?: StatusModule;
   readonly daemon?: ComputerDaemonModule;
   readonly power?: PowerGuardModule;
+  readonly herdrCoreBridge?: HerdrCoreBridgeModule;
   readonly sessionCookie: (serverUrl: string) => Promise<string | undefined>;
   readonly fetcher?: typeof fetch;
   readonly gatewayFactory?: (
@@ -451,6 +453,17 @@ export class MobileCompanionModule implements Module {
       getTeamHubBaseUrl: () => this.#teamHubBaseUrl(),
       getDocumentRuntimeUrl: () => this.#documentRuntimeUrl(),
       getStatusSnapshot: () => this.#runtimeStatusSnapshot(),
+      ...(this.#options.herdrCoreBridge
+        ? {
+            getHerdrCoreBridge: () => {
+              try {
+                return this.#options.herdrCoreBridge?.bridge();
+              } catch {
+                return undefined;
+              }
+            },
+          }
+        : {}),
       onConnectionsChanged: () => this.#pushState(),
       log: this.#ctx?.log,
     };
