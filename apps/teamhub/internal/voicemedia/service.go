@@ -9,11 +9,11 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/document"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/ids"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/pgutil"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/store"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/voicetranscription"
 )
@@ -110,8 +110,7 @@ func (s *Service) CreateVoiceSession(ctx context.Context, input CreateVoiceSessi
 		}
 		return enqueue(ctx, tx, VoiceSessionReconcileArgs{VoiceSessionID: record.ID})
 	})
-	var liveError *pgconn.PgError
-	if input.Purpose == PurposeChatLive && errors.As(err, &liveError) && liveError.Code == "23514" && liveError.ConstraintName == "voice_live_agent_required" {
+	if input.Purpose == PurposeChatLive && pgutil.IsCheckViolation(err, "voice_live_agent_required") {
 		return VoiceSession{}, ErrLiveUnavailable
 	}
 	if isActiveVoiceSessionConflict(err) {
@@ -329,8 +328,7 @@ func (s *Service) BeginCapture(ctx context.Context, input BeginCaptureRequest) (
 		ID: captureID, AccountID: input.AccountID, VoiceSessionID: input.VoiceSessionID, RoomID: input.RoomID,
 		StartOffsetMs: startOffsetMS,
 	})
-	var activeCapture *pgconn.PgError
-	if errors.As(err, &activeCapture) && activeCapture.Code == "23505" && activeCapture.ConstraintName == "capture_sessions_active_voice_idx" {
+	if pgutil.IsUniqueViolation(err, "capture_sessions_active_voice_idx") {
 		return Capture{}, ErrCaptureConflict
 	}
 	if err != nil {
@@ -638,9 +636,7 @@ func absoluteVoiceMediaEnd(firstArchivedMS, epochDurationMS int64) int64 {
 }
 
 func isActiveVoiceSessionConflict(err error) bool {
-	var postgresError *pgconn.PgError
-	return errors.As(err, &postgresError) && postgresError.Code == "23505" &&
-		(postgresError.ConstraintName == "voice_sessions_active_auth_session_idx" || postgresError.ConstraintName == "voice_sessions_live_foreground_idx")
+	return pgutil.IsUniqueViolation(err, "voice_sessions_active_auth_session_idx", "voice_sessions_live_foreground_idx")
 }
 
 func (s *Service) Materialize(ctx context.Context, input MaterializeRequest) (MaterializedAudio, error) {

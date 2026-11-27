@@ -5,16 +5,15 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
-	"errors"
 	"regexp"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/account"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/pgutil"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/store"
 )
 
@@ -530,9 +529,7 @@ func consumedLocalComputerEnrollmentResult(
 // isDaemonIdentityInUse reports that another Computer that was not removed
 // already holds the Daemon Identity, which the unique Daemon ID index rejects.
 func isDaemonIdentityInUse(err error) bool {
-	var postgresError *pgconn.PgError
-	return errors.As(err, &postgresError) && postgresError.Code == "23505" &&
-		postgresError.ConstraintName == "local_computers_daemon_id_idx"
+	return pgutil.IsUniqueViolation(err, "local_computers_daemon_id_idx")
 }
 
 // executeLocalComputerTx commits a Computer write and tells its owner's Tenant

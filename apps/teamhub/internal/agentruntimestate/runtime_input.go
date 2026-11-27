@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/ids"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/store"
 )
 
@@ -52,10 +53,7 @@ func (s *Service) AcceptTrustedNotification(ctx context.Context, input AcceptTru
 		if run.Status != "running" || run.Epoch.String != input.Epoch {
 			return AcceptTrustedNotificationResult{}, ErrConflict
 		}
-		groupID, err := newID("steer-")
-		if err != nil {
-			return AcceptTrustedNotificationResult{}, err
-		}
+		groupID := ids.Prefixed("steer-")
 		selection, _ := canonicalJSON(map[string]any{"selected": "trusted_notification"})
 		sequence, err := insertRuntimeInput(
 			ctx, queries, input.ContextKey, input.Input,
@@ -111,10 +109,7 @@ func (s *Service) SubmitTrustedTurn(ctx context.Context, input SubmitTrustedTurn
 			}
 			return SubmitTrustedTurnResult{RunID: replayRunID}, nil
 		}
-		runID, err := newID("local-run-")
-		if err != nil {
-			return SubmitTrustedTurnResult{}, err
-		}
+		runID := ids.Prefixed("local-run-")
 		if _, err := queries.CreateAgentLocalRun(ctx, store.CreateAgentLocalRunParams{
 			RunID: runID, ContextKey: input.ContextKey,
 		}); err != nil {

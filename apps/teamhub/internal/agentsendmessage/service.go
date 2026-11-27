@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/agentauth"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/agentruntimestate"
@@ -20,6 +19,7 @@ import (
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/document"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/idempotency"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/messagecreation"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/pgutil"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/proactive"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/store"
 )
@@ -276,9 +276,7 @@ func (s *Service) Send(
 		}); err != nil {
 		// One Agent invocation has one receipt. A receipt already holding this
 		// invocation under another key makes this different input, not a new message.
-		var postgresError *pgconn.PgError
-		if errors.As(err, &postgresError) && postgresError.Code == "23505" &&
-			postgresError.ConstraintName == "command_replays_invocation_idx" {
+		if pgutil.IsUniqueViolation(err, "command_replays_invocation_idx") {
 			return Result{}, ErrIdempotencyConflict
 		}
 		return Result{}, err

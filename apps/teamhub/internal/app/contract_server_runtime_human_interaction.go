@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -46,7 +45,7 @@ func (a *App) createRuntimeHumanInteraction(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		slog.ErrorContext(c.Request.Context(), "read Runtime interaction authority", "error", err)
+		a.log().ErrorContext(c.Request.Context(), "read Runtime interaction authority", "error", err)
 		a.writeError(c, 503, "DEPENDENCY_UNAVAILABLE", "Runtime interaction authority is unavailable")
 		return
 	}
@@ -75,7 +74,7 @@ func (a *App) createRuntimeHumanInteraction(c *gin.Context) {
 		a.writeError(c, http.StatusConflict, "CONFLICT", "Runtime interaction could not be created")
 		return
 	case err != nil:
-		slog.ErrorContext(c.Request.Context(), "create Runtime interaction", "error", err)
+		a.log().ErrorContext(c.Request.Context(), "create Runtime interaction", "error", err)
 		a.writeError(c, 503, "DEPENDENCY_UNAVAILABLE", "Runtime interaction is temporarily unavailable")
 		return
 	}

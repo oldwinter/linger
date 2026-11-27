@@ -10,9 +10,9 @@ import (
 	"regexp"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/agentcredential"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/idempotency"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/pgutil"
 )
 
 type SemanticMutationStatus string
@@ -383,6 +383,5 @@ func semanticChangeAsset(change json.RawMessage) (string, bool) {
 }
 
 func isDocumentSerializationFailure(err error) bool {
-	var postgresError *pgconn.PgError
-	return errors.As(err, &postgresError) && postgresError.Code == "40001"
+	return pgutil.IsSerializationFailure(err)
 }

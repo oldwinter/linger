@@ -10,9 +10,9 @@ import (
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/ids"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/pgutil"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/store"
 )
 
@@ -427,8 +427,7 @@ func (s *Service) appendGuideline(ctx context.Context, owner Owner, ruleID, note
 }
 
 func isGuidelineVersionTaken(err error) bool {
-	var postgresError *pgconn.PgError
-	return errors.As(err, &postgresError) && postgresError.Code == "23505" && postgresError.ConstraintName == "proactive_guidelines_pkey"
+	return pgutil.IsUniqueViolation(err, "proactive_guidelines_pkey")
 }
 
 // ShadowDivergenceInput is what a Run reports when one of the Human's shadow

@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/ids"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/store"
 )
 
@@ -86,7 +87,7 @@ func AppendParticipantMetaWakes(
 			return nil, err
 		}
 		message := TurnMessageInput{
-			MessageID: newID("task_meta_message_"), RawMessage: publicMessage.RawMessage,
+			MessageID: ids.New("task_meta_message"), RawMessage: publicMessage.RawMessage,
 			Segments: append(json.RawMessage(nil), publicMessage.Segments...), Author: publicMessage.Author,
 		}
 		nextSeq := inbox.ThroughSeq + 1

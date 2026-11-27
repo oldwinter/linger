@@ -1228,6 +1228,13 @@ func (a *App) AddPersonalInsightWorkers(workers *river.Workers) {
 	personalinsight.AddJobWorkers(workers, a.personalInsights)
 }
 
+func (a *App) log() *slog.Logger {
+	if a.logger != nil {
+		return a.logger
+	}
+	return slog.New(slog.DiscardHandler)
+}
+
 func (a *App) writeError(c *gin.Context, status int, code, message string) {
 	a.writeErrorWithDetails(c, status, code, message, nil)
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/agentruntimestate"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/ids"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/roomattention"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/roomevent"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/store"
@@ -134,8 +135,8 @@ func CreateManagedGeneration(
 	if err != nil {
 		return CreateManagedGenerationResult{}, err
 	}
-	attemptID := newID("task_attempt_")
-	effectID := newID("task_effect_")
+	attemptID := ids.New("task_attempt")
+	effectID := ids.New("task_effect")
 	generation := int64(1)
 	// Meta Inbox/callback inserts take Account and projection locks before
 	// appendExecutionEvent. Include known card/link Rooms before those writes.
@@ -193,7 +194,7 @@ func CreateManagedGeneration(
 	deadline := pgtype.Timestamptz{Time: now.Time.Add(time.Duration(normalizedSpec.AttemptPolicy.TimeoutSeconds) * time.Second), Valid: true}
 	if _, err := queries.InsertTaskAttempt(ctx, store.InsertTaskAttemptParams{
 		ID: attemptID, TaskID: input.TaskID, TenantID: locked.TenantID, Generation: generation,
-		AttemptNumber: 1, RuntimeGenerationKey: newID("runtime_generation_"), Status: "running",
+		AttemptNumber: 1, RuntimeGenerationKey: ids.New("runtime_generation"), Status: "running",
 		CurrentInputRevision: 1, DeadlineAt: deadline,
 	}); err != nil {
 		return CreateManagedGenerationResult{}, err
@@ -381,7 +382,7 @@ func insertFact(ctx context.Context, queries *store.Queries, input factInput) er
 		return err
 	}
 	_, err = queries.InsertTaskExecutionFact(ctx, store.InsertTaskExecutionFactParams{
-		ID: newID("task_fact_"), TaskID: input.TaskID, TenantID: input.TenantID,
+		ID: ids.New("task_fact"), TaskID: input.TaskID, TenantID: input.TenantID,
 		Generation: input.Generation, ExecutionRevision: input.Revision,
 		FactKind: input.Kind, ExecutionStatus: input.Status,
 		ControlSettledRevision: input.ControlSettledRevision,
@@ -460,14 +461,6 @@ func canonicalHash(value any) ([]byte, []byte, error) {
 	}
 	digest := sha256.Sum256(encoded)
 	return encoded, digest[:], nil
-}
-
-func newID(prefix string) string {
-	value := make([]byte, 16)
-	if _, err := rand.Read(value); err != nil {
-		panic(err)
-	}
-	return prefix + hex.EncodeToString(value)
 }
 
 func randomToken(size int) (string, error) {

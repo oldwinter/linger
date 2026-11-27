@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/ids"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/store"
 )
 
@@ -279,10 +280,7 @@ func enqueueSteerRows(
 	rows []store.AgentRuntimeInput,
 	memberRooms map[string]bool,
 ) (string, error) {
-	runID, err := newID("local-run-")
-	if err != nil {
-		return "", err
-	}
+	runID := ids.Prefixed("local-run-")
 	if _, err := queries.CreateAgentLocalRun(ctx, store.CreateAgentLocalRunParams{
 		RunID: runID, ContextKey: contextKey,
 	}); err != nil {

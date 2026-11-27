@@ -68,6 +68,16 @@ func TestInternalPackagesReadNoRawEnv(t *testing.T) {
 	}
 }
 
+func TestAppLayerUsesInjectedLogger(t *testing.T) {
+	violations, err := checkAppPackageLoggerCalls(os.DirFS("../../../internal/app"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(violations) > 0 {
+		t.Fatalf("internal/app package-level slog violations:\n%s", strings.Join(violations, "\n"))
+	}
+}
+
 func TestAppLayerRuleReportsDataAccess(t *testing.T) {
 	source := func(body string) *fstest.MapFile {
 		return &fstest.MapFile{Data: []byte("package app\n\n" + body)}
@@ -307,6 +317,79 @@ func checkInternalEnvReads(root fs.FS) ([]string, error) {
 			}
 			if isPackageSelector(sel, "os", "Getenv") || isPackageSelector(sel, "os", "LookupEnv") {
 				violations = append(violations, fmt.Sprintf("%s: reads environment directly via os.%s; read configuration in internal/config instead", fset.Position(call.Pos()), sel.Sel.Name))
+			}
+			return true
+		})
+		return nil
+	})
+	sort.Strings(violations)
+	return violations, err
+}
+
+func TestAppPackageLoggerRuleReportsGlobalSlog(t *testing.T) {
+	file := func(body string) *fstest.MapFile {
+		return &fstest.MapFile{Data: []byte("package app\n\nimport \"log/slog\"\n\n" + body)}
+	}
+	bad := fstest.MapFS{
+		"handlers_x.go": file("func f() { slog.Error(\"boom\"); slog.InfoContext(ctx, \"hi\") }\n"),
+	}
+	if violations, err := checkAppPackageLoggerCalls(bad); err != nil || len(violations) != 2 {
+		t.Fatalf("global slog calls: violations=%v err=%v, want two", violations, err)
+	}
+	allowed := fstest.MapFS{
+		"handlers_x.go":      file("func f(l *slog.Logger) { l.Error(\"boom\") }\n"),
+		"handlers_x_test.go": file("func f() { slog.Error(\"boom\") }\n"),
+	}
+	if violations, err := checkAppPackageLoggerCalls(allowed); err != nil || len(violations) > 0 {
+		t.Fatalf("allowed logger fixture: violations=%v err=%v", violations, err)
+	}
+}
+
+var globalSlogFuncs = map[string]bool{
+	"Debug": true, "DebugContext": true,
+	"Info": true, "InfoContext": true,
+	"Warn": true, "WarnContext": true,
+	"Error": true, "ErrorContext": true,
+	"Log": true, "LogAttrs": true,
+}
+
+func checkAppPackageLoggerCalls(root fs.FS) ([]string, error) {
+	var violations []string
+	fset := token.NewFileSet()
+	err := fs.WalkDir(root, ".", func(name string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			if name != "." {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		base := path.Base(name)
+		if !strings.HasSuffix(base, ".go") || strings.HasSuffix(base, "_test.go") {
+			return nil
+		}
+		data, err := fs.ReadFile(root, name)
+		if err != nil {
+			return err
+		}
+		file, err := parser.ParseFile(fset, name, data, 0)
+		if err != nil {
+			return err
+		}
+		ast.Inspect(file, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			ident, ok := sel.X.(*ast.Ident)
+			if ok && ident.Name == "slog" && globalSlogFuncs[sel.Sel.Name] {
+				violations = append(violations, fmt.Sprintf("%s: calls package-level slog.%s; use injected a.log() instead", fset.Position(call.Pos()), sel.Sel.Name))
 			}
 			return true
 		})

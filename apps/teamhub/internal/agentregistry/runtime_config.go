@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/agentruntimestate"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/pgutil"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/store"
 	"github.com/simplexai-labs/linger/contracts-go/teamhubinternal"
 )
@@ -26,9 +26,7 @@ func (s *Service) RuntimeConfigSnapshot(ctx context.Context, agentID string, req
 	}
 	for attempt := 0; ; attempt++ {
 		response, err := s.runtimeConfigSnapshotOnce(ctx, agentID, requestedRevision, permissionReview)
-		var postgresError *pgconn.PgError
-		if err == nil || attempt == 2 || ctx.Err() != nil ||
-			!errors.As(err, &postgresError) || postgresError.Code != "40001" {
+		if err == nil || attempt == 2 || ctx.Err() != nil || !pgutil.IsSerializationFailure(err) {
 			return response, err
 		}
 		// Retry the entire snapshot, including Context reconciliation and COMMIT,
