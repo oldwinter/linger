@@ -36,8 +36,8 @@ func TestBuiltinCatalogLoadsVersionedPackages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog.Skills) != 16+importedBuiltinSkillCount {
-		t.Fatalf("catalog Skills=%d, want %d", len(catalog.Skills), 16+importedBuiltinSkillCount)
+	if len(catalog.Skills) != 17+importedBuiltinSkillCount {
+		t.Fatalf("catalog Skills=%d, want %d", len(catalog.Skills), 17+importedBuiltinSkillCount)
 	}
 	assertImportedBuiltinSkillDefaults(t, catalog)
 	for _, skill := range catalog.Skills {
@@ -187,6 +187,14 @@ func TestBuiltinCatalogLoadsVersionedPackages(t *testing.T) {
 	if herdr.Name != "herdr" || herdr.BootstrapManifestID != "skill_manifest_simplexai_herdr_1_0_0" ||
 		!slices.Equal(herdr.DefaultAgentTypes, []string{"general"}) {
 		t.Fatalf("simplexai_herdr catalog entry=%+v", herdr)
+	}
+
+	// General Agents drive persistent terminals, templates, and multi-machine
+	// runs through herdr-core (hc).
+	herdrCore := findBuiltinSkill(t, catalog, "simplexai_herdr_core")
+	if herdrCore.Name != "herdr-core" || herdrCore.BootstrapManifestID != "skill_manifest_simplexai_herdr_core_1_0_0" ||
+		!slices.Equal(herdrCore.DefaultAgentTypes, []string{"general"}) {
+		t.Fatalf("simplexai_herdr_core catalog entry=%+v", herdrCore)
 	}
 
 	// Images and videos are generated through the connected fal or Higgsfield account.
