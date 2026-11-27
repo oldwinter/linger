@@ -271,7 +271,7 @@ desktop acceptance result.
 <details>
 <summary>Update from a local ad-hoc build or 0.1.7 and earlier</summary>
 
-After switching the same Mac between a local ad-hoc build and an official release, or upgrading from 0.1.7 or earlier, Screen Recording can report **Not allowed** while System Settings shows the switches on, because macOS ties each grant to the app's signature. Reset both identities, `CuaDriver` (`com.trycua.driver`) and `Linger` (`com.simplexai.linger.desktop.preview`), with `tccutil reset ScreenCapture <bundle-id>` and `tccutil reset Accessibility <bundle-id>`, then relaunch Linger and grant again.
+After switching the same Mac between a local ad-hoc build and an official release, or upgrading from 0.1.7 or earlier, Screen Recording can report **Not allowed** while System Settings shows the switches on, because macOS ties each grant to the app's signature. Reset only the specific bundle IDs — `CuaDriver` (`com.trycua.driver`) and the app (`dev.oldwinter.lingerx.desktop` for LingerX, or `com.simplexai.linger.desktop.preview` for upstream Linger) — with `tccutil reset ScreenCapture <bundle-id>` and `tccutil reset Accessibility <bundle-id>`, then relaunch and grant again. Never run an unscoped `tccutil reset` without a bundle ID on a remotely driven Mac, because it also revokes the UI-scripting and screen-capture rights of the remote tester's own session.
 
 </details>
 

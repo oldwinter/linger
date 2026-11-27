@@ -9,6 +9,7 @@ Local model hardware planning, downloads, library actions, and BYOK model-source
 Authoritative references:
 
 - [Desktop Release](../../../../docs/desktop-release.md)
+- [Desktop Release Test Plan](../../../../docs/desktop-release-test-plan.md)
 - [Local PostgreSQL](../../../../docs/local-postgresql.md)
 - [Diagnostics upload](../../../../docs/diagnostics-upload.md)
 - [Desktop guide](../../../../apps/desktop/AGENTS.md)
@@ -152,7 +153,7 @@ This journey proves the updater mechanics. The [upgrade from the previous releas
 
 - The previous published stable release (`gh release list --repo simplexai-labs/linger`; Releases → Latest) and the candidate, both digest-checked against their `SHA256SUMS.txt`.
 - A host or VM per target that never ran the candidate, as the user the product supports (non-root; Windows standard user). Upgrade needs the default data locations, so use a disposable machine or account instead of isolated `LINGER_DESKTOP_USER_DATA`/`LINGER_HOME` overrides, and never a developer's real install.
-- On a machine a person also uses, never change per-user shared state for an install or upgrade test: the `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\Linger` key, `%USERPROFILE%\.local\share\localmodels` and `~/.local/share/localmodels`, or `~/.pi`. Run those tests under a separate OS user or in a VM instead. The Windows NSIS `-setup.exe`, including one the person runs by hand, installs into the folder the Uninstall key names, so pointing that key at a test install sends the person's own upgrade there and stops their services. Releases up to 0.1.6 write the shared `localmodels` directories whatever `LINGER_HOME` says, and place models on GPUs regardless of `CUDA_VISIBLE_DEVICES`.
+- On a machine a person also uses, never change per-user shared state for an install or upgrade test: the `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\Linger` key, `%USERPROFILE%\.local\share\localmodels` and `~/.local/share/localmodels`, or `~/.pi`. Run those tests under a separate OS user or in a VM instead. The Windows NSIS `-setup.exe`, including one the person runs by hand, installs into the folder the Uninstall key names, so pointing that key at a test install sends the person's own upgrade there and stops their services. Current builds isolate `localmodels` state under `<home>/runtime/localmodels/`, whereas releases prior to per-home isolation wrote the shared `~/.local/share/localmodels` directories whatever `LINGER_HOME` said, and placed models on GPUs regardless of `CUDA_VISIBLE_DEVICES`. See [Section 0.4: Full Cleanup](../../../../docs/desktop-release-test-plan.md#section-04-full-cleanup) for cleanup rules (including APFS case-insensitivity and scoped `tccutil reset`).
 - For the in-app update to a candidate, which is a prerelease and so never reaches the default feed: an owned HTTPS host with a trusted certificate serving the candidate's own signed `manifest.json` and `manifest.json.sig` at `<feed>/latest/download/` and its package at `<feed>/download/desktop-v<version>/`, named by `updateFeedUrl` in the old app's `config.json`.
 
 **Journey:**
@@ -169,7 +170,7 @@ This journey proves the updater mechanics. The [upgrade from the previous releas
 
 **Pass after each upgrade, Quit → Reopen and cold restart:**
 
-- The app starts without the setup wizard or the start failure page; the account menu and `local-server.json` show the candidate version and its source folder; no process runs from the old app or source folder.
+- The app starts without the setup wizard or the start failure page; the account menu and `local-server.json` show the candidate version and its source folder; no process (including service supervisors and idle `installer.js`) runs from the old app or source folder (`UPG-01`, `UPG-02`, `WIN-10` in [Desktop Release Test Plan](../../../../docs/desktop-release-test-plan.md#upg-01-upg-02-and-win-10-automatic-service-upgrade-and-stale-supervisor-handoff)).
 - Account, Rooms, messages, the Document, Agents, Computer enrollment and the changed settings are kept; the Computer is **Online** without pairing again.
 - The local model is `loaded` and answering through its gateway. A fresh Windows install serves it only through Bifrost (`bifrost-http.exe`), with no `magpie.exe` and no `magpie/...` Pi default. A Windows install that 0.1.7 set up on Magpie may stay on Magpie after the upgrade (a known issue until such installs move to Bifrost), but it must start and its Agents must reply. A BYOK source is remounted without entering the key again.
 - Another Me and the other Agent each deliver a reply to a new marker, with no `ECONNREFUSED` and no Runtime `Update needed`.
@@ -195,7 +196,7 @@ This journey proves the updater mechanics. The [upgrade from the previous releas
 **Journey:**
 
 1. Trigger **Save Diagnostics** from the tray or offline screen and unpack `linger-diagnostics-<stamp>.zip`.
-2. Inspect every file inside the archive: confirm absence of `*.env`, `*.input.json`, `local-account.json`, `credential.json`, `gateway.json`, `caller.key`, `control.key`, `launch.html`, `postgres-password`, `auth.json`, and database/key files; confirm home paths are redacted to `~` and secret tokens do not appear.
+2. Inspect every file inside the archive: confirm absence of `*.env`, `*.input.json`, `api-key`, `byok.json`, `local-account.json`, `credential.json`, `gateway.json`, `caller.key`, `control.key`, `launch.html`, `postgres-password`, `auth.json`, and database/key files; confirm home paths are redacted to `~` and secret tokens do not appear (use a bounded token regex such as `(^|[^A-Za-z0-9_])sk-[A-Za-z0-9_-]{20,}` rather than bare `sk-`, which false-positives on `task-` paths — see [`DIAG-01`](../../../../docs/desktop-release-test-plan.md#diag-01-redacted-diagnostics-secret-audit)).
 3. With `diagnosticsUploadUrl` unset, confirm **Send Diagnostics** is hidden. With `diagnosticsUploadUrl` set in `config.json` to an owned HTTPS stub implementing `linger.diagnostics-upload/v1`, confirm **Send Diagnostics** displays the explicit file-list consent prompt before uploading and succeeds only after confirmation.
 
 ### Physical Windows installation, Room proof and graphical uninstall
