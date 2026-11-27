@@ -5,8 +5,8 @@ import { readExportBlocks } from "./export.js";
 import {
   preservesRoomDocumentSemanticFields,
   validateRoomDocumentSemanticBlocks,
+  type RoomDocumentSemanticBlock,
 } from "./semantic-blocks.js";
-import type { RoomDocumentSemanticBlock } from "./semantic.js";
 import { RoomDocumentModelError } from "./state-invariants.js";
 
 // Reconcile by stable identity, retaining untouched Yjs nodes and relative anchors.

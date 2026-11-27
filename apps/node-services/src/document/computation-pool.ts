@@ -2,13 +2,13 @@ import { Worker } from "node:worker_threads";
 
 import { serviceModule } from "../paths.js";
 
-import type { DocumentComputations } from "./computation-worker.js";
+import type {
+  DocumentComputations,
+  DocumentModelErrorCode,
+} from "./computation-worker.js";
 import { documentLogger } from "./log.js";
 
-export type DocumentModelErrorCode =
-  | "payload_too_large"
-  | "unsupported_document"
-  | "validation_failed";
+export type { DocumentModelErrorCode };
 
 export class DocumentComputationError extends Error {
   constructor(

@@ -18,9 +18,12 @@ import type {
 } from "./connection-disconnects.js";
 import { documentLogger } from "./log.js";
 import {
+  RuntimeConnectionError,
   verifyConnectionToken,
   type ConnectionTokenClaims,
 } from "./connection-token.js";
+
+export { RuntimeConnectionError };
 
 type DocumentDurableHead = components["schemas"]["DocumentDurableHead"];
 const defaultSessionLoadDeadlineMs = 14_000;
@@ -316,16 +319,5 @@ function requireDocumentId(documentId: string): void {
     !/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(documentId)
   ) {
     throw new RuntimeConnectionError("Document identifier is invalid");
-  }
-}
-
-export class RuntimeConnectionError extends Error {
-  readonly code = 4403;
-  readonly reason: string;
-
-  constructor(reason: string) {
-    super(reason);
-    this.name = "RuntimeConnectionError";
-    this.reason = reason;
   }
 }

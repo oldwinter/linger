@@ -1,6 +1,11 @@
 import type { StoredWikiGraph } from "./build.js";
-import type { TimelineEvent } from "../graph-visualization.js";
 import { pairTies, type TieKind } from "./pair-strength.js";
+
+export interface TimelineEvent {
+  id: string;
+  day: string;
+  title: string;
+}
 
 const TYPE_COLORS: Record<string, string> = {
   session: "#3b82f6",

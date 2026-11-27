@@ -6,6 +6,9 @@ import type { Logger } from "./log.js";
 
 export type StopReason = "quit" | "update" | "logout";
 
+/** The local instance name the desktop shell installs and manages. */
+export const LOCAL_INSTANCE = "desktop";
+
 export interface Module {
   readonly name: string;
   readonly dependsOn: readonly string[];

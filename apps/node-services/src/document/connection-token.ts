@@ -1,6 +1,15 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-import { RuntimeConnectionError } from "./realtime-session.js";
+export class RuntimeConnectionError extends Error {
+  readonly code = 4403;
+  readonly reason: string;
+
+  constructor(reason: string) {
+    super(reason);
+    this.name = "RuntimeConnectionError";
+    this.reason = reason;
+  }
+}
 
 /** What a Document connection token asserts, as TeamHub signed it. */
 export interface ConnectionTokenClaims {

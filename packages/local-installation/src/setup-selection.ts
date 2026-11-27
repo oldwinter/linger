@@ -5,7 +5,8 @@ import {
   loadInstance,
   type Instance,
 } from "./instance.js";
-import type { SetupChoice } from "./setup-plan.js";
+import { DEFAULT_GPU_SHARING, type SetupChoice } from "./setup-plan.js";
+export { DEFAULT_GPU_SHARING };
 export function validateSetupChoice(
   value: unknown,
 ): asserts value is SetupChoice {
@@ -37,9 +38,6 @@ export async function writeSetupChoice(
   );
 }
 
-/** Without a saved choice, local models are planned on the current free
- * memory of GPUs that other programs also use; nothing is stopped. */
-export const DEFAULT_GPU_SHARING = true;
 export async function readGpuSharing(
   instance: Pick<Instance, "root"> | { name: string; home?: string },
 ): Promise<boolean | undefined> {

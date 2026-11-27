@@ -99,7 +99,12 @@ import {
 } from "../../../../scripts/local-computer-node-distributions.mjs";
 import type { DesktopConfig } from "./config.js";
 import type { Logger } from "./log.js";
-import type { Module, ModuleContext, StopReason } from "./modules.js";
+import {
+  LOCAL_INSTANCE,
+  type Module,
+  type ModuleContext,
+  type StopReason,
+} from "./modules.js";
 import {
   type WindowLoadReason,
   parseServerUrl,
@@ -511,7 +516,7 @@ export function pollDelayMs(
 }
 
 // The instance the desktop installs.
-export const LOCAL_INSTANCE = "desktop";
+export { LOCAL_INSTANCE };
 
 export interface LegacyMigrationRun {
   code: number | null;

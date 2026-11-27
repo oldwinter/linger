@@ -30,6 +30,20 @@ export type SourceIdentity = Pick<
   "agent_id" | "tenant_id" | "user_artifact_owner_actor_id"
 >;
 
+export interface ChunkSearchInput extends SourceIdentity {
+  limit?: number;
+  query: string;
+  /** Synonyms and translations the caller expects in the evidence. */
+  alternates?: readonly string[];
+  // Omitted searches the complete authorized scope; [] means no sources.
+  sourceIds?: readonly string[];
+  /** Only sources of these origins: the originals or the summaries list. */
+  originKinds?: readonly RawOriginKind[];
+  /** When the asked records were made: a window that votes, never a filter. */
+  date_from?: string;
+  date_to?: string;
+}
+
 export interface RawSource {
   schemaVersion: 1;
   id: string;

@@ -14,8 +14,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { components } from "@linger/wire-contracts/node-services-internal/types";
-import type { DocumentDurabilityFailureCode } from "./realtime-durability.js";
 import { documentLogger } from "./log.js";
+
+export type DocumentDurabilityFailureCode =
+  components["schemas"]["DurabilityFailureEnvelope"]["code"];
 
 interface FailureEvidence {
   document_id: string;

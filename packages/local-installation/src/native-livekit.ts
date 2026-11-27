@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { parseEnv } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
-import { atomicPrivate, readPrivate } from "./instance.js";
+import { atomicPrivate, readPrivate } from "./private-files.js";
 import { freePort, portFree } from "./ports.js";
 import {
   inspectNativeListeners,

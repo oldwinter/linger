@@ -43,9 +43,12 @@ import {
   MAX_SOURCE_FILES,
   PENDING_INDEX_PROFILE,
   RAW_EVIDENCE_PREFIX_LENGTH,
+  type ChunkSearchInput,
   type SourceIdentity,
 } from "./search/source-store.js";
 import type { RawSourceReference } from "./search/source-store.js";
+
+export type { ChunkSearchInput };
 
 const DEFAULT_RESULT_LIMIT = 10;
 /** The Memory scheduler runs a full sync this often, first at startup. */
@@ -59,20 +62,6 @@ export interface IndexedChunkMatch {
   mergedChunkIds: string[];
   score: number;
   sourceId: string;
-}
-
-export interface ChunkSearchInput extends SourceIdentity {
-  limit?: number;
-  query: string;
-  /** Synonyms and translations the caller expects in the evidence. */
-  alternates?: readonly string[];
-  // Omitted searches the complete authorized scope; [] means no sources.
-  sourceIds?: readonly string[];
-  /** Only sources of these origins: the originals or the summaries list. */
-  originKinds?: readonly RawOriginKind[];
-  /** When the asked records were made: a window that votes, never a filter. */
-  date_from?: string;
-  date_to?: string;
 }
 
 export interface ChunkSearchProvider {
