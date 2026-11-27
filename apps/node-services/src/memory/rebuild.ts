@@ -1,6 +1,7 @@
 import { teamHubFetch } from "./teamhub-transport.js";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { isNodeError } from "@linger/service-kit";
 import { postTeamHubMemoryWikiRefresh } from "@linger/wire-contracts/teamhub-internal/client";
 import type { components } from "@linger/wire-contracts/teamhub-internal/types";
 
@@ -176,7 +177,7 @@ async function entries(directory: string) {
   try {
     return await fs.readdir(directory, { withFileTypes: true });
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    if (isNodeError(error, "ENOENT")) return [];
     throw error;
   }
 }
@@ -186,6 +187,6 @@ async function move(source: string, target: string): Promise<void> {
   try {
     await fs.rename(source, target);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    if (!isNodeError(error, "ENOENT")) throw error;
   }
 }

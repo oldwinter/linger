@@ -3,6 +3,7 @@ import { serviceCredential } from "@linger/service-kit/node";
 import { providerProxy, type ProviderProxy } from "./provider-proxy.js";
 
 export interface VoiceRuntimeConfig {
+  healthPort: number;
   livekitUrl: string;
   livekitApiKey: string;
   livekitApiSecret: string;
@@ -25,9 +26,7 @@ const livekitDefaults = {
 };
 // Built-in constants; not configurable per deployment. TeamHub's archive
 // recovery uses the same Soniox language hints.
-export const healthPort = Number(process.env.VOICE_WORKER_PORT ?? 4324);
-if (!Number.isInteger(healthPort) || healthPort < 1024 || healthPort > 65535)
-  throw new Error("VOICE_WORKER_PORT is invalid");
+const defaultHealthPort = 4324;
 export const maxSessions = 16;
 const initializeProcessTimeoutMs = 60_000;
 export const sonioxRealtimeModel = "stt-rt-v6";
@@ -55,7 +54,11 @@ export const loadConfig = (
     throw new Error(
       "VOICE_RUNTIME_XAI_LIVE_AUDIO_TRANSPORT must be binary or json",
     );
+  const healthPort = Number(env.VOICE_WORKER_PORT ?? defaultHealthPort);
+  if (!Number.isInteger(healthPort) || healthPort < 1024 || healthPort > 65535)
+    throw new Error("VOICE_WORKER_PORT is invalid");
   const config: VoiceRuntimeConfig = {
+    healthPort,
     livekitUrl: withDefault("LIVEKIT_URL"),
     livekitApiKey: withDefault("LIVEKIT_API_KEY"),
     livekitApiSecret: withDefault("LIVEKIT_API_SECRET"),

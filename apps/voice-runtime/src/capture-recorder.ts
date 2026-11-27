@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import { log } from "@livekit/agents";
 import { AudioStream, type RemoteAudioTrack } from "@livekit/rtc-node";
+import { sleep } from "@linger/service-kit";
 import {
   type TeamHubVoiceRuntimeClient,
   TeamHubVoiceRuntimeError,
@@ -112,8 +113,7 @@ interface RecorderDependencies {
   wait?: (ms: number) => Promise<void>;
 }
 
-const delay = (ms: number) =>
-  new Promise<void>((resolve) => setTimeout(resolve, ms));
+const delay = (ms: number) => sleep(ms);
 
 class RecordingClosedError extends Error {
   constructor(readonly code: string) {

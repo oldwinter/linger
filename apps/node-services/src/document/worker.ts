@@ -1,4 +1,3 @@
-import { join } from "node:path";
 import { parentPort } from "node:worker_threads";
 
 import { getRequestListener } from "@hono/node-server";
@@ -6,14 +5,9 @@ import { getRequestListener } from "@hono/node-server";
 import { createDocumentRuntimeApp } from "./app.js";
 import { createDocumentBodyStore } from "./bodies.js";
 import { createDocumentComputationPool } from "./computation-pool.js";
+import { readDocumentWorkerConfig } from "./config.js";
 import { createDocumentRealtimeServer } from "./realtime.js";
 import { drainDocumentRuntime } from "./shutdown.js";
-import {
-  DOCUMENT_RUNTIME_DEFAULT_ADDRESS,
-  readListenAddress,
-} from "../listen-address.js";
-import { mirrorHome } from "../paths.js";
-import { serviceCredential } from "@linger/service-kit/node";
 import { documentLogger } from "./log.js";
 
 // Half of the host's 20 s default, so the roles that stop after the Document
@@ -27,37 +21,16 @@ if (host === null) {
   throw new Error("Document Runtime must run in a worker thread");
 }
 
-const { host: hostname, port } = readListenAddress(
-  process.env,
-  "DOCUMENT_RUNTIME_HTTP_ADDRESS",
-  DOCUMENT_RUNTIME_DEFAULT_ADDRESS,
-);
-const teamHubToken = serviceCredential("node-services-internal", process.env);
-const connectionTokenKey = serviceCredential(
-  "document-connection-token",
-  process.env,
-);
-if (!teamHubToken || !connectionTokenKey) {
-  throw new TypeError("LINGER_SECRET_SEED is required");
-}
-// The Runtime saves Document bodies in TeamHub's database.
-const databaseUrl = process.env.TEAMHUB_DATABASE_URL?.trim();
-if (!databaseUrl) {
-  throw new TypeError("TEAMHUB_DATABASE_URL is required");
-}
-const bodies = createDocumentBodyStore(databaseUrl);
+const config = readDocumentWorkerConfig(process.env);
+const bodies = createDocumentBodyStore(config.databaseUrl);
 const runtimeInstanceId = "document_runtime_primary";
 const computationWorkers = 1;
 const server = createDocumentRealtimeServer({
-  failureEvidenceDirectory: join(
-    mirrorHome(),
-    "document-runtime",
-    "failure-evidence",
-  ),
+  failureEvidenceDirectory: config.failureEvidenceDirectory,
   bodies,
-  connectionTokenKey,
-  hostname,
-  port,
+  connectionTokenKey: config.connectionTokenKey,
+  hostname: config.hostname,
+  port: config.port,
   runtimeInstanceId,
 });
 const computation = createDocumentComputationPool({
@@ -71,7 +44,7 @@ const app = createDocumentRuntimeApp({
   changes: server.changes,
   computation,
   disconnect: (documentId, actorId) => server.disconnect(documentId, actorId),
-  teamHubToken,
+  teamHubToken: config.teamHubToken,
 });
 server.httpServer.removeAllListeners("request");
 const listener = getRequestListener(app.fetch);
@@ -80,7 +53,7 @@ server.httpServer.on("request", (request, response) => {
 });
 await server.listen();
 documentLogger().log("info", "document.listening", {
-  url: `http://${hostname}:${server.address.port}`,
+  url: `http://${config.hostname}:${server.address.port}`,
 });
 void bodies.recordUnrecordedPoints().then(
   (documents) =>

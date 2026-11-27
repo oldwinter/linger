@@ -13,7 +13,8 @@ import {
   modelPackagesInstalled,
   modelPackagesRoot,
 } from "../model-packages.js";
-import { hasBearerToken } from "../service-bearer-auth.js";
+import { isNodeError } from "@linger/service-kit";
+import { hasBearerToken } from "@linger/service-kit/node";
 import { readVoiceConfig, type VoiceConfig } from "./config.js";
 
 export type VoiceWorker = "asr" | "recorder" | "live";
@@ -196,7 +197,7 @@ export async function startVoiceService(options: {
       if (process.platform === "win32") child.kill("SIGKILL");
       else process.kill(-child.pid, "SIGKILL");
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ESRCH")
+      if (!isNodeError(error, "ESRCH"))
         options.logger.log("error", "voice.worker_cleanup_failed", { error });
     }
   };

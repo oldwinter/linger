@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { isNodeError } from "@linger/service-kit";
 import { writeAtomicJsonFile } from "./fs-utils.js";
 import { SESSION_ID_PATTERN } from "./session-source.js";
 
@@ -37,7 +38,7 @@ export const filesystemMemoryTaskState: MemoryTaskState = {
       await fs.access(wikiPendingPath(memoryRoot, date, subjectKey));
       return true;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT")
+      if (isNodeError(error, "ENOENT"))
         return (
           !subjectKey &&
           (await subjectPendingFiles(memoryRoot, date)).length > 0
@@ -91,7 +92,7 @@ async function subjectPendingFiles(
       )
       .map((entry) => path.join(directory, entry.name));
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    if (isNodeError(error, "ENOENT")) return [];
     throw error;
   }
 }

@@ -1,6 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { parseOkfFrontmatter } from "@linger/knowledge-format";
+import { isNodeError } from "@linger/service-kit";
 import {
   PERSONAL_WIKI_ENTITY_TYPES,
   type PersonalWikiNodeTypeId,
@@ -96,7 +97,7 @@ async function markdownPages(directory: string): Promise<string[]> {
       recursive: true,
     });
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    if (isNodeError(error, "ENOENT")) return [];
     throw error;
   }
   return entries

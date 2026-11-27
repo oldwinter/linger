@@ -1,7 +1,7 @@
 import type { ExecutionContextRef } from "./context-ref.js";
 import type { CliRunContext, AgentInput } from "./provider.js";
 import type { ToolRunContext } from "./types.js";
-import { displayText } from "@linger/service-kit";
+import { asError, displayText } from "@linger/service-kit";
 import type {
   OpaqueObject,
   ContextViewRef,
@@ -703,10 +703,6 @@ function combineFailure(
     : new AggregateError([failure, ...cleanupErrors], message, {
         cause: failure,
       });
-}
-
-function asError(error: unknown): Error {
-  return error instanceof Error ? error : new Error(String(error));
 }
 
 function requireNonEmpty(value: string | undefined, field: string): string {

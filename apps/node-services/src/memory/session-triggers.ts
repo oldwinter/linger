@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import { createHash } from "node:crypto";
+import { isNodeError } from "@linger/service-kit";
 import type postgres from "postgres";
 import { loadAnotherMeSubjects } from "./collector.js";
 import { memoryDatabase } from "./database.js";
@@ -330,7 +331,7 @@ export async function isSessionTargetProcessed(
       )
     ).isFile();
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    if (isNodeError(error, "ENOENT")) return false;
     throw error;
   }
 }

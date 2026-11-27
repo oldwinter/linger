@@ -121,6 +121,16 @@ describe("loadConfig", () => {
     ).toThrow("TEAMHUB_BASE_URL is invalid");
   });
 
+  it("validates VOICE_WORKER_PORT inside loadConfig", () => {
+    expect(loadConfig(base).healthPort).toBe(4324);
+    expect(loadConfig({ ...base, VOICE_WORKER_PORT: "5500" }).healthPort).toBe(
+      5500,
+    );
+    expect(() => loadConfig({ ...base, VOICE_WORKER_PORT: "80" })).toThrow(
+      "VOICE_WORKER_PORT is invalid",
+    );
+  });
+
   it("reports proportional worker load", () => {
     expect(calculateWorkerLoad(8, 16)).toBe(0.5);
     expect(calculateWorkerLoad(16, 16)).toBe(1);

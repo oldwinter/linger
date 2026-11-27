@@ -1,5 +1,5 @@
 import { streamWikiCandidateResponse } from "./wiki-refresh-preview.js";
-import { timingSafeEqual } from "node:crypto";
+import { hasBearerToken } from "@linger/service-kit/node";
 
 import { Hono, type Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
@@ -80,7 +80,9 @@ export class WikiServer {
       context: Context,
       next: () => Promise<void>,
     ): Promise<Response | void> => {
-      if (!hasServiceAuthorization(context, this.#serviceToken)) {
+      if (
+        !hasBearerToken(context.req.header("authorization"), this.#serviceToken)
+      ) {
         return respondJson(context, 401, {
           error: {
             code: "SERVICE_TOKEN_INVALID",
@@ -399,20 +401,6 @@ async function readDocumentSource(context: Context): Promise<Uint8Array> {
   if (!source)
     throw new DocumentNormalizationError("DOCUMENT_SOURCE_TOO_LARGE");
   return source;
-}
-
-function hasServiceAuthorization(
-  context: Context,
-  serviceToken: string,
-): boolean {
-  const provided = Buffer.from(
-    context.req.header("authorization") ?? "",
-    "utf8",
-  );
-  const expected = Buffer.from(`Bearer ${serviceToken}`, "utf8");
-  return (
-    provided.length === expected.length && timingSafeEqual(provided, expected)
-  );
 }
 
 function respondJson(
