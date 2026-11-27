@@ -267,8 +267,10 @@ func TestHerdrErrorEnvelopeClassification(t *testing.T) {
 	}{
 		{"unavailable_404", http.StatusNotFound, "NOT_FOUND", herdr.ErrUnavailable},
 		{"unavailable_503", http.StatusServiceUnavailable, "HERDR_UNAVAILABLE", herdr.ErrUnavailable},
+		{"unavailable_core_503", http.StatusServiceUnavailable, "HERDR_CORE_UNAVAILABLE", herdr.ErrUnavailable},
 		{"computer_offline", http.StatusServiceUnavailable, "COMPUTER_OFFLINE", herdr.ErrComputerOffline},
 		{"unauthorized_401", http.StatusUnauthorized, "SESSION_EXPIRED", herdr.ErrUnauthorized},
+		{"conflict_turn_409", http.StatusConflict, "CONFLICT", herdr.ErrPreconditionFailed},
 	}
 
 	for _, tc := range cases {
@@ -571,6 +573,125 @@ func TestAttachClientFallsBackToReadPollingWhenWSUnavailable(t *testing.T) {
 	defer mu.Unlock()
 	if sentViaAPI != "status check" {
 		t.Fatalf("sentViaAPI = %q, want 'status check'", sentViaAPI)
+	}
+}
+
+func TestCompanionBridgeFallbackSchemaAndSanitizer(t *testing.T) {
+	var (
+		mu       sync.Mutex
+		hitPaths []string
+		gotTurn  *int
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		hitPaths = append(hitPaths, r.URL.Path)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		// Simulate real Desktop Companion Gateway: /api/v1/* returns 404, /companion/v1/herdr-core/* succeeds.
+		if strings.HasPrefix(r.URL.Path, "/api/v1/") {
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"error": map[string]any{"code": "NOT_FOUND", "message": "Not found."},
+			})
+			return
+		}
+		switch r.URL.Path {
+		case "/companion/v1/herdr-core/status":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"available": true,
+				"version":   "0.1.21",
+				"machines": []map[string]any{
+					{"name": "vps", "status": "connected", "online": true},
+					{"name": "gpu-box", "online": false},
+				},
+			})
+		case "/companion/v1/herdr-core/terminals":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"terminals": []map[string]any{
+					{
+						"address":        "t1",
+						"name":           "codex",
+						"state":          "live",
+						"turn":           7,
+						"cwd":            "/Users/dev/base",
+						"foreground_cwd": "/Users/dev/linger/mobile",
+						"status": map[string]any{
+							"state":    "working",
+							"msg":      "Running tests",
+							"progress": 67.6,
+							"title":    "go test",
+						},
+					},
+				},
+				"machines": []map[string]any{},
+			})
+		case "/companion/v1/herdr-core/terminal/send":
+			var req herdr.SendRequest
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			mu.Lock()
+			gotTurn = req.Turn
+			mu.Unlock()
+			_ = json.NewEncoder(w).Encode(herdr.SendResult{OK: true, Started: true, Status: "working", Turn: 8})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	cl, err := herdr.NewClient(herdr.ClientConfig{
+		BaseURL:        srv.URL,
+		Mode:           api.AuthModeCompanion,
+		Token:          "lmc_companion",
+		AllowPlainHTTP: true,
+		ComputerID:     "comp_mac_1",
+	})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+
+	ctx := context.Background()
+	st, err := cl.Status(ctx)
+	if err != nil || !st.Available || len(st.Machines) != 2 {
+		t.Fatalf("Status fallback failed: %+v (%v)", st, err)
+	}
+	if !st.Machines[0].IsOnline() || st.Machines[1].IsOnline() {
+		t.Fatalf("unexpected machine online states: %+v", st.Machines)
+	}
+
+	// Second call should go directly to latched /companion/v1/herdr-core without probing /api/v1 again.
+	list, err := cl.ListTerminals(ctx, herdr.ListTerminalsOptions{All: true})
+	if err != nil || len(list.Terminals) != 1 {
+		t.Fatalf("ListTerminals after latch: %+v (%v)", list, err)
+	}
+	term := list.Terminals[0]
+	if term.EffectiveCwd() != "/Users/dev/linger/mobile" {
+		t.Fatalf("EffectiveCwd = %q, want foreground_cwd /Users/dev/linger/mobile", term.EffectiveCwd())
+	}
+	pct, ok := term.EffectiveStatus().ProgressPercent()
+	if !ok || pct != 68 {
+		t.Fatalf("ProgressPercent = (%d, %v), want (68, true)", pct, ok)
+	}
+
+	turn := 7
+	if _, err := cl.Send(ctx, herdr.SendRequest{Address: "t1", Text: "y", If: "blocked", Turn: &turn, Force: true}); err != nil {
+		t.Fatalf("Send with turn CAS: %v", err)
+	}
+	mu.Lock()
+	if gotTurn == nil || *gotTurn != 7 {
+		t.Fatalf("expected turn=7 in send request, got %v", gotTurn)
+	}
+	attachURL, err := cl.AttachURL("vps/t7", herdr.AttachOptions{Cols: 80, Rows: 24})
+	if err != nil || !strings.Contains(attachURL, "/companion/v1/herdr-core/attach?") {
+		t.Fatalf("AttachURL after bridge latch = %q (%v)", attachURL, err)
+	}
+	mu.Unlock()
+
+	// Verify ANSI CSI/OSC stripping, CR overwrite normalization, and UTF-8 preservation.
+	raw := "\x1b]7501;state=working\x07\x1b[32mPASS\x1b[0m line1\r\nloading...\rready \u2713\n\tindented"
+	got := herdr.SanitizeTerminalText(raw)
+	want := "PASS line1\nready \u2713\n\tindented"
+	if got != want {
+		t.Fatalf("SanitizeTerminalText = %q, want %q", got, want)
 	}
 }
 

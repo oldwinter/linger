@@ -18,7 +18,8 @@ import (
 
 const (
 	// DefaultReadLines is the default scrollback line count requested from terminal/read.
-	DefaultReadLines = 120
+	DefaultReadLines       = 120
+	companionHerdrBasePath = "/companion/v1/herdr-core"
 )
 
 var (
@@ -84,8 +85,9 @@ type ClientConfig struct {
 type Client struct {
 	apiClient *api.Client
 
-	mu         sync.RWMutex
-	computerID string
+	mu                 sync.RWMutex
+	computerID         string
+	useCompanionBridge bool
 }
 
 // NewClient constructs a herdr-core Client backed by a newly created *api.Client.
@@ -127,8 +129,12 @@ func (c *Client) SetComputerID(id string) {
 	if c == nil {
 		return
 	}
+	trimmed := strings.TrimSpace(id)
 	c.mu.Lock()
-	c.computerID = strings.TrimSpace(id)
+	if c.computerID != trimmed {
+		c.computerID = trimmed
+		c.useCompanionBridge = false
+	}
 	c.mu.Unlock()
 }
 
@@ -155,32 +161,70 @@ func (c *Client) basePrefix() (string, error) {
 	if c == nil || c.apiClient == nil {
 		return "", ErrNotConnected
 	}
-	cid := c.ComputerID()
+	c.mu.RLock()
+	cid := c.computerID
+	useBridge := c.useCompanionBridge
+	c.mu.RUnlock()
+
+	if useBridge && c.apiClient.Mode() == api.AuthModeCompanion {
+		return companionHerdrBasePath, nil
+	}
 	if cid == "" {
+		if c.apiClient.Mode() == api.AuthModeCompanion {
+			return companionHerdrBasePath, nil
+		}
 		return "", ErrNotConnected
 	}
 	return "/api/v1/computers/" + url.PathEscape(cid) + "/herdr-core", nil
 }
 
-// Status calls GET /api/v1/computers/{computerId}/herdr-core/status.
-func (c *Client) Status(ctx context.Context) (CoreStatus, error) {
+// doJSON sends a request to prefix+subPath and, in Companion Gateway mode, transparently
+// falls back from /api/v1/computers/{id}/herdr-core to /companion/v1/herdr-core when the
+// gateway does not expose /api/v1/* (HTTP 404).
+func (c *Client) doJSON(ctx context.Context, method, subPath string, body, out any, terminalScoped bool) error {
 	prefix, err := c.basePrefix()
 	if err != nil {
-		return CoreStatus{}, err
+		return err
 	}
+	err = c.apiClient.DoJSON(ctx, method, prefix+subPath, body, out)
+	if err == nil {
+		return nil
+	}
+	var apiErr *api.APIError
+	if prefix != companionHerdrBasePath &&
+		c.apiClient.Mode() == api.AuthModeCompanion &&
+		errors.As(err, &apiErr) &&
+		apiErr.StatusCode == http.StatusNotFound &&
+		!strings.EqualFold(strings.TrimSpace(apiErr.Code), "TERMINAL_NOT_FOUND") {
+		fallbackErr := c.apiClient.DoJSON(ctx, method, companionHerdrBasePath+subPath, body, out)
+		if fallbackErr == nil {
+			c.mu.Lock()
+			c.useCompanionBridge = true
+			c.mu.Unlock()
+			return nil
+		}
+		var fbAPIErr *api.APIError
+		if errors.As(fallbackErr, &fbAPIErr) && fbAPIErr.StatusCode != http.StatusNotFound {
+			c.mu.Lock()
+			c.useCompanionBridge = true
+			c.mu.Unlock()
+			return classifyError(fallbackErr, terminalScoped)
+		}
+	}
+	return classifyError(err, terminalScoped)
+}
+
+// Status calls GET /api/v1/computers/{computerId}/herdr-core/status.
+func (c *Client) Status(ctx context.Context) (CoreStatus, error) {
 	var out CoreStatus
-	if err := c.apiClient.DoJSON(ctx, http.MethodGet, prefix+"/status", nil, &out); err != nil {
-		return CoreStatus{}, classifyError(err, false)
+	if err := c.doJSON(ctx, http.MethodGet, "/status", nil, &out, false); err != nil {
+		return CoreStatus{}, err
 	}
 	return out, nil
 }
 
 // ListTerminals calls GET /api/v1/computers/{computerId}/herdr-core/terminals.
 func (c *Client) ListTerminals(ctx context.Context, opts ListTerminalsOptions) (ListTerminalsResult, error) {
-	prefix, err := c.basePrefix()
-	if err != nil {
-		return ListTerminalsResult{}, err
-	}
 	q := url.Values{}
 	q.Set("all", strconv.FormatBool(opts.All))
 	if m := strings.TrimSpace(opts.Machine); m != "" {
@@ -196,18 +240,14 @@ func (c *Client) ListTerminals(ctx context.Context, opts ListTerminalsOptions) (
 		q.Set("status", st)
 	}
 	var out ListTerminalsResult
-	if err := c.apiClient.DoJSON(ctx, http.MethodGet, prefix+"/terminals?"+q.Encode(), nil, &out); err != nil {
-		return ListTerminalsResult{}, classifyError(err, false)
+	if err := c.doJSON(ctx, http.MethodGet, "/terminals?"+q.Encode(), nil, &out, false); err != nil {
+		return ListTerminalsResult{}, err
 	}
 	return out, nil
 }
 
 // GetTerminal calls GET /api/v1/computers/{computerId}/herdr-core/terminal?address=<addr>.
 func (c *Client) GetTerminal(ctx context.Context, address string) (Terminal, error) {
-	prefix, err := c.basePrefix()
-	if err != nil {
-		return Terminal{}, err
-	}
 	address = strings.TrimSpace(address)
 	if address == "" {
 		return Terminal{}, errors.New("herdr: terminal address is required")
@@ -215,18 +255,14 @@ func (c *Client) GetTerminal(ctx context.Context, address string) (Terminal, err
 	q := url.Values{}
 	q.Set("address", address)
 	var raw json.RawMessage
-	if err := c.apiClient.DoJSON(ctx, http.MethodGet, prefix+"/terminal?"+q.Encode(), nil, &raw); err != nil {
-		return Terminal{}, classifyError(err, true)
+	if err := c.doJSON(ctx, http.MethodGet, "/terminal?"+q.Encode(), nil, &raw, true); err != nil {
+		return Terminal{}, err
 	}
 	return decodeTerminalEnvelope(raw)
 }
 
 // Read calls GET /api/v1/computers/{computerId}/herdr-core/terminal/read?address=<addr>&lines=<n>.
 func (c *Client) Read(ctx context.Context, address string, lines int) (ReadResult, error) {
-	prefix, err := c.basePrefix()
-	if err != nil {
-		return ReadResult{}, err
-	}
 	address = strings.TrimSpace(address)
 	if address == "" {
 		return ReadResult{}, errors.New("herdr: terminal address is required")
@@ -238,99 +274,75 @@ func (c *Client) Read(ctx context.Context, address string, lines int) (ReadResul
 	q.Set("address", address)
 	q.Set("lines", strconv.Itoa(lines))
 	var out ReadResult
-	if err := c.apiClient.DoJSON(ctx, http.MethodGet, prefix+"/terminal/read?"+q.Encode(), nil, &out); err != nil {
-		return ReadResult{}, classifyError(err, true)
+	if err := c.doJSON(ctx, http.MethodGet, "/terminal/read?"+q.Encode(), nil, &out, true); err != nil {
+		return ReadResult{}, err
 	}
 	return out, nil
 }
 
 // Launch calls POST /api/v1/computers/{computerId}/herdr-core/terminals.
 func (c *Client) Launch(ctx context.Context, req LaunchRequest) (Terminal, error) {
-	prefix, err := c.basePrefix()
-	if err != nil {
-		return Terminal{}, err
-	}
 	var raw json.RawMessage
-	if err := c.apiClient.DoJSON(ctx, http.MethodPost, prefix+"/terminals", req, &raw); err != nil {
-		return Terminal{}, classifyError(err, false)
+	if err := c.doJSON(ctx, http.MethodPost, "/terminals", req, &raw, false); err != nil {
+		return Terminal{}, err
 	}
 	return decodeTerminalEnvelope(raw)
 }
 
 // Send calls POST /api/v1/computers/{computerId}/herdr-core/terminal/send.
 func (c *Client) Send(ctx context.Context, req SendRequest) (SendResult, error) {
-	prefix, err := c.basePrefix()
-	if err != nil {
-		return SendResult{}, err
-	}
 	req.Address = strings.TrimSpace(req.Address)
 	if req.Address == "" {
 		return SendResult{}, errors.New("herdr: terminal address is required")
 	}
 	var out SendResult
-	if err := c.apiClient.DoJSON(ctx, http.MethodPost, prefix+"/terminal/send", req, &out); err != nil {
-		return SendResult{}, classifyError(err, true)
+	if err := c.doJSON(ctx, http.MethodPost, "/terminal/send", req, &out, true); err != nil {
+		return SendResult{}, err
 	}
 	return out, nil
 }
 
 // Keys calls POST /api/v1/computers/{computerId}/herdr-core/terminal/keys.
 func (c *Client) Keys(ctx context.Context, req KeysRequest) (KeysResult, error) {
-	prefix, err := c.basePrefix()
-	if err != nil {
-		return KeysResult{}, err
-	}
 	req.Address = strings.TrimSpace(req.Address)
 	if req.Address == "" || len(req.Keys) == 0 {
 		return KeysResult{}, errors.New("herdr: terminal address and keys are required")
 	}
 	var out KeysResult
-	if err := c.apiClient.DoJSON(ctx, http.MethodPost, prefix+"/terminal/keys", req, &out); err != nil {
-		return KeysResult{}, classifyError(err, true)
+	if err := c.doJSON(ctx, http.MethodPost, "/terminal/keys", req, &out, true); err != nil {
+		return KeysResult{}, err
 	}
 	return out, nil
 }
 
 // Interrupt calls POST /api/v1/computers/{computerId}/herdr-core/terminal/interrupt.
 func (c *Client) Interrupt(ctx context.Context, req InterruptRequest) (InterruptResult, error) {
-	prefix, err := c.basePrefix()
-	if err != nil {
-		return InterruptResult{}, err
-	}
 	req.Address = strings.TrimSpace(req.Address)
 	if req.Address == "" {
 		return InterruptResult{}, errors.New("herdr: terminal address is required")
 	}
 	var out InterruptResult
-	if err := c.apiClient.DoJSON(ctx, http.MethodPost, prefix+"/terminal/interrupt", req, &out); err != nil {
-		return InterruptResult{}, classifyError(err, true)
+	if err := c.doJSON(ctx, http.MethodPost, "/terminal/interrupt", req, &out, true); err != nil {
+		return InterruptResult{}, err
 	}
 	return out, nil
 }
 
 // Kill calls POST /api/v1/computers/{computerId}/herdr-core/terminal/kill.
 func (c *Client) Kill(ctx context.Context, address string) (KillResult, error) {
-	prefix, err := c.basePrefix()
-	if err != nil {
-		return KillResult{}, err
-	}
 	address = strings.TrimSpace(address)
 	if address == "" {
 		return KillResult{}, errors.New("herdr: terminal address is required")
 	}
 	var out KillResult
-	if err := c.apiClient.DoJSON(ctx, http.MethodPost, prefix+"/terminal/kill", KillRequest{Address: address}, &out); err != nil {
-		return KillResult{}, classifyError(err, true)
+	if err := c.doJSON(ctx, http.MethodPost, "/terminal/kill", KillRequest{Address: address}, &out, true); err != nil {
+		return KillResult{}, err
 	}
 	return out, nil
 }
 
 // Remove calls DELETE /api/v1/computers/{computerId}/herdr-core/terminal?address=<addr>.
 func (c *Client) Remove(ctx context.Context, address string) (RemoveResult, error) {
-	prefix, err := c.basePrefix()
-	if err != nil {
-		return RemoveResult{}, err
-	}
 	address = strings.TrimSpace(address)
 	if address == "" {
 		return RemoveResult{}, errors.New("herdr: terminal address is required")
@@ -338,8 +350,8 @@ func (c *Client) Remove(ctx context.Context, address string) (RemoveResult, erro
 	q := url.Values{}
 	q.Set("address", address)
 	var out RemoveResult
-	if err := c.apiClient.DoJSON(ctx, http.MethodDelete, prefix+"/terminal?"+q.Encode(), nil, &out); err != nil {
-		return RemoveResult{}, classifyError(err, true)
+	if err := c.doJSON(ctx, http.MethodDelete, "/terminal?"+q.Encode(), nil, &out, true); err != nil {
+		return RemoveResult{}, err
 	}
 	if !out.OK && !out.Removed {
 		out.OK = true
@@ -351,30 +363,22 @@ func (c *Client) Remove(ctx context.Context, address string) (RemoveResult, erro
 
 // Templates calls GET /api/v1/computers/{computerId}/herdr-core/templates.
 func (c *Client) Templates(ctx context.Context) ([]TemplateInfo, error) {
-	prefix, err := c.basePrefix()
-	if err != nil {
-		return nil, err
-	}
 	var out struct {
 		Templates []TemplateInfo `json:"templates"`
 	}
-	if err := c.apiClient.DoJSON(ctx, http.MethodGet, prefix+"/templates", nil, &out); err != nil {
-		return nil, classifyError(err, false)
+	if err := c.doJSON(ctx, http.MethodGet, "/templates", nil, &out, false); err != nil {
+		return nil, err
 	}
 	return out.Templates, nil
 }
 
 // Machines calls GET /api/v1/computers/{computerId}/herdr-core/machines.
 func (c *Client) Machines(ctx context.Context) ([]MachineView, error) {
-	prefix, err := c.basePrefix()
-	if err != nil {
-		return nil, err
-	}
 	var out struct {
 		Machines []MachineView `json:"machines"`
 	}
-	if err := c.apiClient.DoJSON(ctx, http.MethodGet, prefix+"/machines", nil, &out); err != nil {
-		return nil, classifyError(err, false)
+	if err := c.doJSON(ctx, http.MethodGet, "/machines", nil, &out, false); err != nil {
+		return nil, err
 	}
 	return out.Machines, nil
 }
@@ -463,11 +467,14 @@ func classifyError(err error, terminalScoped bool) error {
 			ce.Sentinel = ErrComputerOffline
 		case codeUpper == "STATUS_MISMATCH" || codeUpper == "PRECONDITION_FAILED" ||
 			codeUpper == "TERMINAL_NOT_BLOCKED" || codeUpper == "PANE_NOT_BLOCKED" ||
+			codeUpper == "TURN_MISMATCH" || codeUpper == "STALE_TURN" || codeUpper == "CONFLICT" ||
 			apiErr.StatusCode == http.StatusConflict || apiErr.StatusCode == http.StatusPreconditionFailed:
 			ce.Sentinel = ErrPreconditionFailed
-		case terminalScoped && (codeUpper == "TERMINAL_NOT_FOUND" || codeUpper == "PANE_CLOSED"):
+		case terminalScoped && (codeUpper == "TERMINAL_NOT_FOUND" || codeUpper == "PANE_CLOSED" ||
+			codeUpper == "FINISHED" || apiErr.StatusCode == http.StatusGone):
 			ce.Sentinel = ErrTerminalNotFound
-		case codeUpper == "HERDR_UNAVAILABLE" || codeUpper == "HERDR_NOT_RUNNING" ||
+		case codeUpper == "HERDR_UNAVAILABLE" || codeUpper == "HERDR_CORE_UNAVAILABLE" ||
+			codeUpper == "HERDR_NOT_RUNNING" ||
 			codeUpper == "DEPENDENCY_UNAVAILABLE" || codeUpper == "FEATURE_DISABLED" ||
 			apiErr.StatusCode == http.StatusNotFound || apiErr.StatusCode == http.StatusNotImplemented ||
 			apiErr.StatusCode == http.StatusBadGateway || apiErr.StatusCode == http.StatusServiceUnavailable ||

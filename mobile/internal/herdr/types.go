@@ -6,6 +6,7 @@ package herdr
 import (
 	"bytes"
 	"encoding/json"
+	"math"
 	"strings"
 )
 
@@ -13,11 +14,27 @@ import (
 // It unmarshals cleanly from either a JSON object ({state, msg, app, ...}) or a
 // plain JSON status string ("blocked", "working", "idle", etc.).
 type OSCStatus struct {
-	State    string `json:"state,omitempty"`
-	Msg      string `json:"msg,omitempty"`
-	App      string `json:"app,omitempty"`
-	Detail   string `json:"detail,omitempty"`
-	Progress *int   `json:"progress,omitempty"`
+	State    string   `json:"state,omitempty"`
+	Msg      string   `json:"msg,omitempty"`
+	App      string   `json:"app,omitempty"`
+	Detail   string   `json:"detail,omitempty"`
+	Title    string   `json:"title,omitempty"`
+	Progress *float64 `json:"progress,omitempty"`
+}
+
+// ProgressPercent returns the clamped integer percentage (0..100) when OSC progress is present.
+func (s OSCStatus) ProgressPercent() (int, bool) {
+	if s.Progress == nil || math.IsNaN(*s.Progress) || math.IsInf(*s.Progress, 0) {
+		return 0, false
+	}
+	v := int(math.Round(*s.Progress))
+	if v < 0 {
+		v = 0
+	}
+	if v > 100 {
+		v = 100
+	}
+	return v, true
 }
 
 // UnmarshalJSON accepts either an OSCStatus object or a bare status string.
@@ -62,6 +79,7 @@ type Terminal struct {
 	Title         string             `json:"title,omitempty"`
 	Where         string             `json:"where,omitempty"`
 	Cwd           string             `json:"cwd,omitempty"`
+	ForegroundCwd string             `json:"foreground_cwd,omitempty"`
 	State         string             `json:"state"`
 	Status        *OSCStatus         `json:"status,omitempty"`
 	OSCStatus     *OSCStatus         `json:"osc_status,omitempty"`
@@ -104,6 +122,9 @@ func (t Terminal) EffectiveStatus() OSCStatus {
 		}
 		if out.Detail == "" {
 			out.Detail = t.OSCStatus.Detail
+		}
+		if out.Title == "" {
+			out.Title = t.OSCStatus.Title
 		}
 		if out.Progress == nil {
 			out.Progress = t.OSCStatus.Progress
@@ -190,6 +211,9 @@ func (t Terminal) EffectiveApp() string {
 
 // EffectiveCwd returns the active foreground working directory or initial cwd.
 func (t Terminal) EffectiveCwd() string {
+	if strings.TrimSpace(t.ForegroundCwd) != "" {
+		return strings.TrimSpace(t.ForegroundCwd)
+	}
 	if t.Foreground != nil && strings.TrimSpace(t.Foreground.Cwd) != "" {
 		return strings.TrimSpace(t.Foreground.Cwd)
 	}
@@ -224,7 +248,9 @@ type MachineView struct {
 	ID                      string `json:"id,omitempty"`
 	Host                    string `json:"host,omitempty"`
 	Target                  string `json:"target,omitempty"`
-	State                   string `json:"state"`
+	State                   string `json:"state,omitempty"`
+	Status                  string `json:"status,omitempty"`
+	Online                  *bool  `json:"online,omitempty"`
 	Version                 string `json:"version,omitempty"`
 	Via                     bool   `json:"via,omitempty"`
 	Temporary               bool   `json:"temporary,omitempty"`
@@ -232,6 +258,32 @@ type MachineView struct {
 	Error                   string `json:"error,omitempty"`
 	LiveCount               int    `json:"live_count,omitempty"`
 	BlockedCount            int    `json:"blocked_count,omitempty"`
+}
+
+// EffectiveState returns the best-known connection state string for the machine.
+func (m MachineView) EffectiveState() string {
+	if s := strings.TrimSpace(m.State); s != "" {
+		return s
+	}
+	if s := strings.TrimSpace(m.Status); s != "" {
+		return s
+	}
+	if m.Online != nil {
+		if *m.Online {
+			return "connected"
+		}
+		return "offline"
+	}
+	return ""
+}
+
+// IsOnline reports whether the SSH machine is currently reachable/connected.
+func (m MachineView) IsOnline() bool {
+	if m.Online != nil {
+		return *m.Online
+	}
+	st := strings.ToLower(strings.TrimSpace(m.EffectiveState()))
+	return st == "" || st == "connected" || st == "online" || st == "ready"
 }
 
 // TemplateInfo describes a reusable herdr-core launch template (~/.config/herdr-core/templates).
@@ -307,6 +359,7 @@ type SendRequest struct {
 	Address string `json:"address"`
 	Text    string `json:"text"`
 	If      string `json:"if,omitempty"`
+	Turn    *int   `json:"turn,omitempty"`
 	Force   bool   `json:"force,omitempty"`
 	Wait    bool   `json:"wait,omitempty"`
 	Timeout int    `json:"timeout,omitempty"`
@@ -316,6 +369,7 @@ type SendRequest struct {
 type SendResult struct {
 	OK       bool   `json:"ok"`
 	Sent     bool   `json:"sent,omitempty"`
+	Started  bool   `json:"started,omitempty"`
 	Address  string `json:"address,omitempty"`
 	Status   string `json:"status,omitempty"`
 	Turn     int    `json:"turn,omitempty"`
@@ -347,6 +401,8 @@ type InterruptRequest struct {
 type InterruptResult struct {
 	OK      bool   `json:"ok"`
 	Address string `json:"address,omitempty"`
+	Key     string `json:"key,omitempty"`
+	Outcome string `json:"outcome,omitempty"`
 	Effect  string `json:"effect,omitempty"`
 	Status  string `json:"status,omitempty"`
 	State   string `json:"state,omitempty"`

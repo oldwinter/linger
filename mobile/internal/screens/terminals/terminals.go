@@ -5,6 +5,7 @@ package terminals
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
 	"strings"
 	"sync"
@@ -14,6 +15,7 @@ import (
 	"github.com/oldwinter/linger/mobile/internal/components"
 	"github.com/oldwinter/linger/mobile/internal/herdr"
 	"github.com/oldwinter/linger/mobile/internal/i18n"
+	"github.com/oldwinter/linger/mobile/internal/layout"
 	"github.com/oldwinter/linger/mobile/internal/state"
 	"github.com/oldwinter/linger/mobile/internal/theme"
 )
@@ -41,6 +43,45 @@ type Deps struct {
 	OnNotify      func()
 }
 
+// PlateColors exposes the terminal monospace plate palette for rendering and WCAG contrast tests.
+type PlateColors struct {
+	Bg       ui.Color
+	HeaderBg ui.Color
+	Border   ui.Color
+	Ink      ui.Color
+	Muted    ui.Color
+	PillBg   ui.Color
+}
+
+// TerminalPlateColors returns Town-harmonized dark terminal plate colors for light or dark theme.
+func TerminalPlateColors(t *ui.Theme) PlateColors {
+	if t != nil && t.Dark {
+		return PlateColors{
+			Bg:       ui.Hex("#0C0C0A"),
+			HeaderBg: ui.Hex("#161613"),
+			Border:   ui.RGBA(243, 242, 235, 0.12),
+			Ink:      ui.Hex("#F3F2EB"),
+			Muted:    ui.Hex("#AAA89C"),
+			PillBg:   ui.Hex("#242420"),
+		}
+	}
+	return PlateColors{
+		Bg:       ui.Hex("#161613"),
+		HeaderBg: ui.Hex("#1F1F1B"),
+		Border:   ui.RGBA(23, 23, 20, 0.16),
+		Ink:      ui.Hex("#F3F2EB"),
+		Muted:    ui.Hex("#B5B3A7"),
+		PillBg:   ui.Hex("#2B2B25"),
+	}
+}
+
+// DisabledButtonColors returns WCAG AA compliant background, foreground, and border colors
+// for disabled terminal controls (send button, quick keys) across Town Light and Town Dark.
+func DisabledButtonColors(t *ui.Theme) (bg, fg, border ui.Color) {
+	ex := theme.Extra(t)
+	return ex.MutedBg, t.TextMuted, ex.SubtleBorder
+}
+
 // Screen owns state, background sync, attach lifecycle, and rendering for Terminals.
 type Screen struct {
 	deps Deps
@@ -62,13 +103,16 @@ type Screen struct {
 	busyAction      map[string]bool
 
 	// Active attach stream state (protected by mu).
-	attach       *herdr.AttachClient
-	attachAddr   string
-	attachMode   herdr.AttachMode
-	detailOutput string
-	detailRead   *herdr.ReadResult
-	detailBusy   bool
-	detailError  string
+	attach             *herdr.AttachClient
+	attachAddr         string
+	attachMode         herdr.AttachMode
+	detailOutput       string
+	detailRead         *herdr.ReadResult
+	detailBusy         bool
+	detailError        string
+	detailNotice       string
+	detailNoticeTone   components.Tone
+	detailScrollBottom bool
 
 	// UI-thread-only state.
 	machineFilter string
@@ -79,12 +123,14 @@ type Screen struct {
 	blockedDrafts map[string]*string
 
 	// Detail view state (UI thread).
-	detailAddress    string
-	detailPrompt     string
-	killConfirmOpen  bool
-	rmConfirmOpen    bool
-	confirmTargetAdr string
-	confirmTargetNm  string
+	detailAddress        string
+	detailPrompt         string
+	detailWrap           bool
+	interruptConfirmOpen bool
+	killConfirmOpen      bool
+	rmConfirmOpen        bool
+	confirmTargetAdr     string
+	confirmTargetNm      string
 
 	// Quick Launch sheet state (UI thread).
 	launchOpen     bool
@@ -186,7 +232,7 @@ func (s *Screen) BlockedCount() int {
 // Refresh syncs herdr-core status, live+finished terminals, SSH machines, and templates.
 func (s *Screen) Refresh(ctx context.Context) {
 	cl, compID, offline := s.activeClient()
-	if cl == nil || compID == "" {
+	if cl == nil || (compID == "" && (cl.API() == nil || cl.API().Mode() != api.AuthModeCompanion)) {
 		s.mu.Lock()
 		s.loading = false
 		s.mu.Unlock()
@@ -287,9 +333,9 @@ func (s *Screen) Refresh(ctx context.Context) {
 		}
 		switch {
 		case listErr != nil:
-			s.syncError = listErr.Error()
+			s.syncError = presentHerdrError(listErr)
 		case statusErr != nil:
-			s.syncError = statusErr.Error()
+			s.syncError = presentHerdrError(statusErr)
 		default:
 			s.syncError = ""
 		}
@@ -302,6 +348,7 @@ func (s *Screen) Refresh(ctx context.Context) {
 func (s *Screen) View(c *ui.Context) {
 	s.drainPending()
 	t := c.Theme()
+	m := layout.Of(c)
 
 	s.mu.Lock()
 	machines := append([]herdr.MachineView(nil), s.machines...)
@@ -309,6 +356,7 @@ func (s *Screen) View(c *ui.Context) {
 
 	if s.detailAddress != "" {
 		s.viewDetail(c)
+		s.viewInterruptConfirmSheet(c)
 		s.viewKillConfirmSheet(c)
 		s.viewRemoveConfirmSheet(c)
 		s.viewLaunchSheet(c, machines)
@@ -342,7 +390,7 @@ func (s *Screen) View(c *ui.Context) {
 				})
 			return
 		}
-		if activeCompID == "" && len(computers) == 0 {
+		if activeCompID == "" && len(computers) == 0 && (cl == nil || cl.API() == nil || cl.API().Mode() != api.AuthModeCompanion) {
 			components.EmptyState(c, theme.IconHost,
 				i18n.T("terminals.empty.no_computers_title"),
 				i18n.T("terminals.empty.no_computers_body"),
@@ -352,35 +400,35 @@ func (s *Screen) View(c *ui.Context) {
 			return
 		}
 
-		// Top control strip: computer picker + Launch & Sync actions + core health summary.
-		ui.Column(c).FillWidth().Padding(8, 14, 6, 14).Gap(8).Shrink(0).Children(func() {
-			s.viewTopActionRow(c, computers, activeCompID, loading, unavailable)
+		// Compact sticky control header (computer picker + actions + machine & status filters).
+		layout.ReadableWrap(c, m.ReadableMaxWidth, func() {
+			ui.Column(c).FillWidth().Padding(8, 14, 6, 14).Gap(7).Shrink(0).Children(func() {
+				s.viewTopActionRow(c, computers, activeCompID, loading, unavailable)
 
-			if coreStatus != nil && coreStatus.Available && !unavailable {
-				s.viewCoreSummaryStrip(c, *coreStatus, allTerms)
-			}
+				if notice != "" {
+					components.StatusBanner(c, components.ToneSuccess, notice, i18n.T("common.ok"), func() {
+						s.mu.Lock()
+						s.inlineNotice = ""
+						s.mu.Unlock()
+					})
+				}
+				if syncErr != "" {
+					components.ErrorInline(c, syncErr, func() {
+						go s.Refresh(context.Background())
+					})
+				}
 
-			if notice != "" {
-				components.StatusBanner(c, components.ToneSuccess, notice, i18n.T("common.ok"), func() {
-					s.mu.Lock()
-					s.inlineNotice = ""
-					s.mu.Unlock()
-				})
-			}
-			if syncErr != "" {
-				components.ErrorInline(c, syncErr, func() {
-					go s.Refresh(context.Background())
-				})
-			}
-
-			if !unavailable {
-				s.viewMachineChips(c, machines, allTerms)
-				components.SegmentedControl(c, &s.statusFilter,
-					i18n.T("terminals.filter.all"),
-					i18n.T("terminals.filter.blocked"),
-					i18n.T("terminals.filter.working"),
-					i18n.T("terminals.filter.done"))
-			}
+				if !unavailable {
+					s.viewMachineChips(c, machines, allTerms)
+					if components.SegmentedControl(c, &s.statusFilter,
+						i18n.T("terminals.filter.all"),
+						i18n.T("terminals.filter.blocked"),
+						i18n.T("terminals.filter.working"),
+						i18n.T("terminals.filter.done")) {
+						components.HapticLight()
+					}
+				}
+			})
 		})
 
 		scroll := ui.Scroll(c.Key("terminals_overview")).FillWidth().Grow(1).Basis(0).TrackScroll(&s.listScroll)
@@ -393,57 +441,92 @@ func (s *Screen) View(c *ui.Context) {
 			}()
 		}
 		scroll.Children(func() {
-			ui.Column(c).FillWidth().Padding(6, 14, 24, 14).Gap(12).Children(func() {
-				if loading && !loadedOnce {
-					components.LoadingSkeleton(c, 3)
-					return
-				}
-				if unavailable {
-					body := i18n.T("terminals.empty.unavailable_body")
-					if compOffline {
-						body = i18n.T("terminals.empty.offline_body")
+			layout.ReadableWrap(c, m.ReadableMaxWidth, func() {
+				ui.Column(c).FillWidth().Padding(6, 14, 24, 14).Gap(11).Children(func() {
+					if loading && !loadedOnce {
+						components.LoadingSkeleton(c, 3)
+						return
 					}
-					components.EmptyState(c, theme.IconTerminal,
-						i18n.T("terminals.empty.unavailable_title"),
-						body,
-						i18n.T("common.retry"), func() {
-							go s.Refresh(context.Background())
-						})
-					return
-				}
+					if unavailable {
+						body := i18n.T("terminals.empty.unavailable_body")
+						if compOffline {
+							body = i18n.T("terminals.empty.offline_body")
+						} else if coreStatus != nil && strings.TrimSpace(coreStatus.Reason) != "" {
+							body = strings.TrimSpace(coreStatus.Reason)
+						}
+						components.EmptyState(c, theme.IconTerminal,
+							i18n.T("terminals.empty.unavailable_title"),
+							body,
+							i18n.T("common.retry"), func() {
+								components.HapticLight()
+								go s.Refresh(context.Background())
+							})
+						return
+					}
 
-				// Priority Blocked Banner & Inbox at top (filtered by selected machine).
-				blockedTerms := filterBlockedByMachine(allTerms, s.machineFilter)
-				if len(blockedTerms) > 0 && (s.statusFilter == FilterAll || s.statusFilter == FilterBlocked) {
-					s.viewBlockedInbox(c, blockedTerms)
-				}
+					if coreStatus != nil && coreStatus.Available {
+						s.viewCoreSummaryStrip(c, *coreStatus, allTerms)
+					}
 
-				filtered := filterTerminals(allTerms, s.machineFilter, s.statusFilter)
-				if len(allTerms) == 0 {
-					components.EmptyState(c, theme.IconTerminal,
-						i18n.T("terminals.empty.none_title"),
-						i18n.T("terminals.empty.none_body"),
-						i18n.T("terminals.launch_btn"), func() {
-							s.openLaunchSheet()
-						})
-					return
-				}
-				if len(filtered) == 0 {
-					components.EmptyState(c, theme.IconTerminal,
-						i18n.T("terminals.empty.filtered_title"),
-						i18n.T("terminals.empty.filtered_body"),
-						i18n.T("terminals.empty.show_all"), func() {
-							s.machineFilter = machineFilterAll
-							s.statusFilter = FilterAll
-						})
-					return
-				}
+					blockedTerms := filterBlockedByMachine(allTerms, s.machineFilter)
+					if len(allTerms) == 0 {
+						components.EmptyState(c, theme.IconTerminal,
+							i18n.T("terminals.empty.none_title"),
+							i18n.T("terminals.empty.none_body"),
+							i18n.T("terminals.launch_btn"), func() {
+								components.HapticLight()
+								s.openLaunchSheet()
+							})
+						return
+					}
 
-				ordered := orderTerminalsHierarchically(filtered)
-				components.SectionEyebrow(c, i18n.Tf("terminals.list.section_title", map[string]any{"count": len(ordered)}), nil)
-				for _, entry := range ordered {
-					s.viewTerminalCard(c, entry.term, entry.isChild)
-				}
+					// When viewing Working or Done while an agent is blocked, show a single
+					// tappable jump banner so approval requests are never missed.
+					if len(blockedTerms) > 0 && s.statusFilter != FilterAll && s.statusFilter != FilterBlocked {
+						bannerText := i18n.Tf("terminals.blocked.banner", map[string]any{"count": len(blockedTerms)})
+						components.StatusBanner(c, components.ToneBrand, bannerText, i18n.T("terminals.filter.blocked"), func() {
+							components.HapticLight()
+							s.statusFilter = FilterBlocked
+						})
+					}
+
+					// Priority Blocked Inbox at top (no duplicate cards underneath).
+					showBlockedInbox := len(blockedTerms) > 0 && (s.statusFilter == FilterAll || s.statusFilter == FilterBlocked)
+					if showBlockedInbox {
+						s.viewBlockedInbox(c, blockedTerms, m)
+					}
+
+					if s.statusFilter == FilterBlocked {
+						if len(blockedTerms) == 0 {
+							s.viewFilteredEmpty(c)
+						}
+						return
+					}
+
+					filtered := filterTerminals(allTerms, s.machineFilter, s.statusFilter)
+					if showBlockedInbox {
+						filtered = excludeBlockedTerminals(filtered)
+					}
+					if len(filtered) == 0 {
+						if !showBlockedInbox {
+							s.viewFilteredEmpty(c)
+						}
+						return
+					}
+
+					groups := groupTerminalsHierarchically(filtered)
+					components.SectionEyebrow(c, i18n.Tf("terminals.list.section_title", map[string]any{"count": len(filtered)}), nil)
+					ui.Column(c.Key("terms_grid")).FillWidth().Gap(10).Children(func() {
+						layout.TwoColumnCards(c, m.GridColumns, 10, len(groups), func(i int) {
+							grp := groups[i]
+							ui.Column(c.Key("grp_"+grp[0].term.Address)).FillWidth().Gap(8).Children(func() {
+								for _, entry := range grp {
+									s.viewTerminalCard(c, entry.term, entry.isChild)
+								}
+							})
+						})
+					})
+				})
 			})
 		})
 	})
@@ -451,14 +534,25 @@ func (s *Screen) View(c *ui.Context) {
 	s.viewLaunchSheet(c, machines)
 }
 
+func (s *Screen) viewFilteredEmpty(c *ui.Context) {
+	components.EmptyState(c, theme.IconTerminal,
+		i18n.T("terminals.empty.filtered_title"),
+		i18n.T("terminals.empty.filtered_body"),
+		i18n.T("terminals.empty.show_all"), func() {
+			components.HapticLight()
+			s.machineFilter = machineFilterAll
+			s.statusFilter = FilterAll
+		})
+}
+
 func (s *Screen) viewTopActionRow(c *ui.Context, computers []api.LocalComputer, activeCompID string, loading, unavailable bool) {
 	t := c.Theme()
 	ex := theme.Extra(t)
 
-	ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
-		// Computer selector chips (scrollable so narrow 320px viewports never clip).
+	ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(6).Children(func() {
+		// Computer selector chips (scrollable for 3+ computers or 320px viewports).
 		ui.ScrollHorizontal(c).Grow(1).Basis(0).Children(func() {
-			ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+			ui.Row(c).Gap(6).Padding(1, 1).AlignItems(ui.Center).Children(func() {
 				if len(computers) == 0 && activeCompID != "" {
 					components.StatusDotPill(c, activeCompID, components.ToneInfo)
 					return
@@ -479,9 +573,12 @@ func (s *Screen) viewTopActionRow(c *ui.Context, computers []api.LocalComputer, 
 					if !online {
 						dotCol = t.Warning
 					}
-					chip := ui.Row(c.Key("comp_"+comp.ComputerID)).MinHeight(34).Padding(5, 10).Radius(999).
-						Background(bg).Border(0.75, borderCol).AlignItems(ui.Center).Gap(6).Shrink(0).
+					chip := ui.Row(c.Key("comp_"+comp.ComputerID)).MinHeight(36).Padding(5, 10).Radius(999).
+						Background(bg).Border(0.75, borderCol).AlignItems(ui.Center).Gap(5).Shrink(0).
 						Role(ui.RoleButton).Label(i18n.Tf("terminals.list.computer_a11y", map[string]any{"name": comp.DisplayName})).Checked(active)
+					if !active && chip.Pressed() {
+						chip.Background(t.SurfacePressed)
+					}
 					chip.Children(func() {
 						ui.Box(c).Size(6, 6).Radius(3).Background(dotCol).Shrink(0)
 						ui.Text(c, comp.DisplayName).FontSize(12).FontWeight(600).TextColor(fg).NoWrap()
@@ -494,20 +591,41 @@ func (s *Screen) viewTopActionRow(c *ui.Context, computers []api.LocalComputer, 
 			})
 		})
 
-		launchBtn := components.CompactPrimaryButton(c, i18n.T("terminals.launch_short"), nil, unavailable)
-		launchBtn.MinHeight(34)
-		if launchBtn.Clicked() {
-			components.HapticLight()
-			s.openLaunchSheet()
+		if !unavailable {
+			launchBtn := components.CompactPrimaryButton(c, i18n.T("terminals.launch_short"), nil, false)
+			launchBtn.MinHeight(38).Padding(7, 12)
+			if launchBtn.Clicked() {
+				components.HapticLight()
+				s.openLaunchSheet()
+			}
 		}
 
+		// Compact circular sync button keeps computer chips unclipped on 390px viewports.
 		syncLbl := i18n.T("common.sync")
 		if loading {
 			syncLbl = i18n.T("common.syncing")
 		}
-		refBtn := components.CompactSecondaryButton(c, syncLbl, theme.IconRefresh, loading)
-		refBtn.MinHeight(34)
+		refBg := ex.ElevatedBg
+		refFg := t.Text
+		if loading {
+			refBg, refFg, _ = DisabledButtonColors(t)
+		}
+		refBtn := ui.Row(c.Key("terminals_sync_btn")).Size(38, 38).Radius(19).Background(refBg).
+			AlignItems(ui.Center).Justify(ui.Center).Shrink(0).
+			Role(ui.RoleButton).Label(syncLbl).Disabled(loading)
+		if !loading {
+			components.ApplyCardElevation(refBtn, t)
+			if refBtn.Pressed() {
+				refBtn.Background(t.SurfacePressed).Scale(0.96, 0.96)
+			}
+		} else {
+			refBtn.Border(0.75, ex.SubtleBorder)
+		}
+		refBtn.Children(func() {
+			theme.IconBox(c, 16, refFg, theme.IconRefresh)
+		})
 		if refBtn.Clicked() {
+			components.HapticLight()
 			go s.Refresh(context.Background())
 		}
 	})
@@ -564,13 +682,14 @@ func (s *Screen) viewMachineChips(c *ui.Context, machines []herdr.MachineView, t
 	ex := theme.Extra(t)
 
 	type machineOption struct {
-		id    string
-		label string
-		state string
+		id     string
+		label  string
+		online bool
+		remote bool
 	}
 	opts := []machineOption{
-		{id: machineFilterAll, label: i18n.T("terminals.machine.all"), state: "connected"},
-		{id: machineFilterLocal, label: i18n.T("terminals.machine.local"), state: "connected"},
+		{id: machineFilterAll, label: i18n.T("terminals.machine.all"), online: true},
+		{id: machineFilterLocal, label: i18n.T("terminals.machine.local"), online: true},
 	}
 	seen := map[string]bool{}
 	for _, m := range machines {
@@ -579,13 +698,13 @@ func (s *Screen) viewMachineChips(c *ui.Context, machines []herdr.MachineView, t
 			continue
 		}
 		seen[name] = true
-		opts = append(opts, machineOption{id: name, label: name, state: m.State})
+		opts = append(opts, machineOption{id: name, label: name, online: m.IsOnline(), remote: true})
 	}
 	for _, term := range terms {
 		m := term.EffectiveMachine()
 		if m != "" && !seen[m] {
 			seen[m] = true
-			opts = append(opts, machineOption{id: m, label: m, state: "connected"})
+			opts = append(opts, machineOption{id: m, label: m, online: true, remote: true})
 		}
 	}
 
@@ -602,13 +721,16 @@ func (s *Screen) viewMachineChips(c *ui.Context, machines []herdr.MachineView, t
 					fg = t.AccentText
 					borderCol = t.Accent
 				}
-				chip := ui.Row(c.Key("mach_"+opt.id)).MinHeight(32).Padding(4, 10).Radius(999).
+				chip := ui.Row(c.Key("mach_"+opt.id)).MinHeight(34).Padding(5, 11).Radius(999).
 					Background(bg).Border(0.75, borderCol).AlignItems(ui.Center).Gap(5).Shrink(0).
 					Role(ui.RoleButton).Label(i18n.Tf("terminals.list.machine_a11y", map[string]any{"name": opt.label})).Checked(active)
+				if !active && chip.Pressed() {
+					chip.Background(t.SurfacePressed)
+				}
 				chip.Children(func() {
-					if opt.id != machineFilterAll && opt.id != machineFilterLocal {
+					if opt.remote {
 						dot := t.Success
-						if opt.state != "" && !strings.EqualFold(opt.state, "connected") {
+						if !opt.online {
 							dot = t.Warning
 						}
 						ui.Box(c).Size(6, 6).Radius(3).Background(dot).Shrink(0)
@@ -616,6 +738,7 @@ func (s *Screen) viewMachineChips(c *ui.Context, machines []herdr.MachineView, t
 					ui.Text(c, opt.label).FontSize(12).FontWeight(600).TextColor(fg).NoWrap()
 				})
 				if chip.Clicked() && !active {
+					components.HapticLight()
 					s.machineFilter = opt.id
 				}
 			}
@@ -623,109 +746,148 @@ func (s *Screen) viewMachineChips(c *ui.Context, machines []herdr.MachineView, t
 	})
 }
 
-func (s *Screen) viewBlockedInbox(c *ui.Context, blocked []herdr.Terminal) {
+func (s *Screen) viewBlockedInbox(c *ui.Context, blocked []herdr.Terminal, m layout.Metrics) {
 	t := c.Theme()
 	ex := theme.Extra(t)
 
-	bannerText := i18n.Tf("terminals.blocked.banner", map[string]any{"count": len(blocked)})
-	components.StatusBanner(c, components.ToneBrand, bannerText, "", nil)
+	// Single tightly grouped editorial header (eliminates redundant stacked banner + eyebrow).
+	ui.Column(c).FillWidth().Gap(2).Children(func() {
+		components.SectionEyebrow(c, i18n.Tf("terminals.blocked.section_title", map[string]any{"count": len(blocked)}), nil)
+		ui.Text(c, i18n.T("terminals.blocked.section_sub")).FontSize(12).TextColor(t.TextMuted).Padding(0, 4)
+	})
 
-	components.SectionEyebrow(c, i18n.Tf("terminals.blocked.section_title", map[string]any{"count": len(blocked)}), nil)
-	ui.Text(c, i18n.T("terminals.blocked.section_sub")).FontSize(12).TextColor(t.TextMuted).Padding(0, 4)
-
-	for _, term := range blocked {
-		term := term
-		st := term.EffectiveStatus()
-		msg := strings.TrimSpace(st.Msg)
-		if msg == "" {
-			msg = i18n.T("terminals.blocked.prompt_fallback")
-		}
-		draft := s.blockedDraftFor(term.Address)
-		busy := s.isBusy(term.Address)
-
-		card := ui.Column(c.Key("blocked_"+term.Address)).FillWidth().Background(t.Surface).Radius(16).Clip().
-			Padding(14, 14, 14, 17).Gap(10)
-		components.ApplyCardElevation(card, t)
-		card.DrawOver(func(p *ui.Painter, r ui.Rect) {
-			p.Fill(ui.Rect{X: r.X, Y: r.Y + 10, W: 3.5, H: r.H - 20}, ex.Brand, 2)
-		})
-		card.Children(func() {
-			// Identity header: name/address + app + machine + Inspect button.
-			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
-				ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
-					ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(6).Children(func() {
-						ui.Text(c, term.DisplayName()).FontSize(15).FontWeight(700).TextColor(t.Text).MaxLines(1)
-						components.StatusDotPill(c, i18n.StatusLabel("blocked"), components.ToneBrand)
-					})
-					meta := term.EffectiveApp() + " · " + s.machineLabel(term.EffectiveMachine())
-					if term.Name != "" && term.Name != term.Address {
-						meta = term.Address + " · " + meta
-					}
-					ui.Text(c, meta).FontSize(11.5).TextColor(t.TextMuted).MaxLines(1)
-				})
-				inspBtn := components.CompactSecondaryButton(c, i18n.T("terminals.blocked.inspect_btn"), nil, false)
-				inspBtn.MinHeight(34)
-				if inspBtn.Clicked() {
-					s.enterDetail(term.Address)
-				}
-			})
-
-			// OSC 7501 approval message & cwd.
-			ui.Column(c).FillWidth().Padding(10, 12).Radius(11).Background(ex.BrandTint).Border(0.75, ex.Brand.Alpha(0.28)).Gap(4).Children(func() {
-				ui.Text(c, msg).FontSize(13.5).FontWeight(600).LineHeight(1.35).TextColor(t.Text)
-				if cwd := term.EffectiveCwd(); cwd != "" {
-					ui.Text(c, cwd).Font("monospace").FontSize(11).TextColor(t.TextMuted).MaxLines(1)
-				}
-			})
-
-			// Quick approval key buttons (Enter, Esc, Up, Down, y, n).
-			quickKeys := []struct {
-				label string
-				key   string
-			}{
-				{"Enter", "enter"},
-				{"Esc", "esc"},
-				{"\u2191", "up"},
-				{"\u2193", "down"},
-				{"y", "y"},
-				{"n", "n"},
-			}
-			ui.ScrollHorizontal(c).FillWidth().Children(func() {
-				ui.Row(c).Gap(6).Children(func() {
-					for _, qk := range quickKeys {
-						qk := qk
-						var btn ui.Element
-						if qk.key == "enter" || qk.key == "y" {
-							btn = components.CompactPrimaryButton(c.Key("qk_"+term.Address+"_"+qk.key), qk.label, nil, busy)
-						} else {
-							btn = components.CompactSecondaryButton(c.Key("qk_"+term.Address+"_"+qk.key), qk.label, nil, busy)
-						}
-						btn.MinHeight(34).MinWidth(42)
-						if btn.Clicked() {
-							s.sendKeysAsync(term.Address, term.DisplayName(), []string{qk.key}, qk.label)
-						}
-					}
-				})
-			})
-
-			// One-line custom reply bar using CAS guard if="blocked", force=true.
-			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(6).Children(func() {
-				inp := ui.TextInput(c.Key("reply_in_"+term.Address), draft).Grow(1).Basis(0).MinHeight(40).
-					Placeholder(i18n.T("terminals.blocked.reply_placeholder")).
-					Label(i18n.Tf("terminals.blocked.reply_a11y", map[string]any{"name": term.DisplayName()})).
-					Disabled(busy)
-				_ = inp
-				sendBtn := components.CompactPrimaryButton(c.Key("reply_send_"+term.Address), i18n.T("terminals.blocked.send_btn"), nil, busy || strings.TrimSpace(*draft) == "")
-				sendBtn.MinHeight(40)
-				if sendBtn.Clicked() {
-					reply := strings.TrimSpace(*draft)
-					if reply != "" {
-						s.sendBlockedReplyAsync(term.Address, term.DisplayName(), reply)
-					}
-				}
-			})
-		})
+	blockedCols := 1
+	if len(blocked) >= 2 && m.GridColumns >= 2 {
+		blockedCols = 2
 	}
+	ui.Column(c.Key("blocked_grid")).FillWidth().Gap(10).Children(func() {
+		layout.TwoColumnCards(c, blockedCols, 10, len(blocked), func(i int) {
+			term := blocked[i]
+			st := term.EffectiveStatus()
+			msg := strings.TrimSpace(st.Msg)
+			if msg == "" {
+				msg = i18n.T("terminals.blocked.prompt_fallback")
+			}
+			draft := s.blockedDraftFor(term.Address)
+			busy := s.isBusy(term.Address)
+
+			card := ui.Column(c.Key("blocked_"+term.Address)).FillWidth().Background(t.Surface).Radius(16).Clip().
+				Padding(14, 14, 14, 17).Gap(10)
+			components.ApplyCardElevation(card, t)
+			card.DrawOver(func(p *ui.Painter, r ui.Rect) {
+				p.Fill(ui.Rect{X: r.X, Y: r.Y + 10, W: 3.5, H: r.H - 20}, ex.Brand, 2)
+			})
+			card.Children(func() {
+				// Identity header: name/address + app + machine + Inspect button.
+				ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
+					ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
+						ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(6).Children(func() {
+							ui.Text(c, term.DisplayName()).FontSize(15.5).FontWeight(700).LetterSpacing(-0.15).TextColor(t.Text).MaxLines(1)
+							components.StatusDotPill(c, i18n.StatusLabel("blocked"), components.ToneBrand)
+						})
+						meta := term.EffectiveApp() + " · " + s.machineLabel(term.EffectiveMachine())
+						if term.Name != "" && term.Name != term.Address {
+							meta = term.Address + " · " + meta
+						}
+						ui.Text(c, meta).FontSize(11.5).TextColor(t.TextMuted).MaxLines(1)
+					})
+					inspBtn := components.CompactSecondaryButton(c, i18n.T("terminals.blocked.inspect_btn"), nil, false)
+					inspBtn.MinHeight(38).Padding(7, 12)
+					if inspBtn.Clicked() {
+						components.HapticLight()
+						s.enterDetail(term.Address)
+					}
+				})
+
+				// Linked Room / WorkItem / Parent / Keep badges directly on the approval card.
+				s.viewTerminalBadges(c, term)
+
+				// OSC 7501 approval message, optional detail, & cwd.
+				ui.Column(c).FillWidth().Padding(10, 12).Radius(11).Background(ex.BrandTint).Border(0.75, ex.Brand.Alpha(0.28)).Gap(4).Children(func() {
+					ui.Text(c, msg).FontSize(13.5).FontWeight(600).LineHeight(1.38).TextColor(t.Text)
+					if det := strings.TrimSpace(st.Detail); det != "" {
+						ui.Text(c, det).FontSize(12).LineHeight(1.35).TextColor(t.TextMuted).MaxLines(2)
+					}
+					if cwd := term.EffectiveCwd(); cwd != "" {
+						ui.Text(c, cwd).Font("monospace").FontSize(11).TextColor(t.TextMuted).MaxLines(1)
+					}
+				})
+
+				// Comfortable >=44pt quick approval keys (Enter, Esc, Up, Down, y, n).
+				quickKeys := []struct {
+					label   string
+					key     string
+					primary bool
+				}{
+					{"Enter", "enter", true},
+					{"Esc", "esc", false},
+					{"\u2191", "up", false},
+					{"\u2193", "down", false},
+					{"y", "y", true},
+					{"n", "n", false},
+				}
+				ui.ScrollHorizontal(c).FillWidth().Children(func() {
+					ui.Row(c).Gap(6).Padding(1, 1).Children(func() {
+						for _, qk := range quickKeys {
+							qk := qk
+							btn := quickKeyButton(c, "qk_"+term.Address+"_"+qk.key, qk.label, qk.primary, busy)
+							if btn.Clicked() {
+								s.sendKeysAsync(term.Address, term.DisplayName(), []string{qk.key}, qk.label)
+							}
+						}
+					})
+				})
+
+				// >=44pt custom reply composer with CAS guard (if="blocked", turn, force=true).
+				ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(6).Children(func() {
+					ui.TextInput(c.Key("reply_in_"+term.Address), draft).Grow(1).Basis(0).MinHeight(44).
+						Placeholder(i18n.T("terminals.blocked.reply_placeholder")).
+						Label(i18n.Tf("terminals.blocked.reply_a11y", map[string]any{"name": term.DisplayName()})).
+						Disabled(busy)
+					sendLbl := i18n.T("terminals.blocked.send_btn")
+					if busy {
+						sendLbl = i18n.T("terminals.sending")
+					}
+					sendBtn := sendTouchButton(c, "reply_send_"+term.Address, sendLbl, busy || strings.TrimSpace(*draft) == "")
+					if sendBtn.Clicked() {
+						reply := strings.TrimSpace(*draft)
+						if reply != "" {
+							s.sendBlockedReplyAsync(term, reply)
+						}
+					}
+				})
+			})
+		})
+	})
+}
+
+func (s *Screen) viewTerminalBadges(c *ui.Context, term herdr.Terminal) {
+	hasExit := term.IsFinished() && term.ExitCode != nil
+	hasBadges := strings.TrimSpace(term.Parent) != "" || term.RoomLabel() != "" || term.WorkItemLabel() != "" || term.Keep || hasExit
+	if !hasBadges {
+		return
+	}
+	ui.Row(c).FillWidth().Wrap().Gap(5).Children(func() {
+		if p := strings.TrimSpace(term.Parent); p != "" {
+			components.StatusPill(c, "\u21b3 "+i18n.Tf("terminals.list.subagent_of", map[string]any{"parent": p}), components.ToneNeutral)
+		}
+		if rm := term.RoomLabel(); rm != "" {
+			components.StatusPill(c, i18n.Tf("terminals.list.room_badge", map[string]any{"room": rm}), components.ToneInfo)
+		}
+		if wi := term.WorkItemLabel(); wi != "" {
+			components.StatusPill(c, i18n.Tf("terminals.list.work_item_badge", map[string]any{"item": wi}), components.ToneBrand)
+		}
+		if term.Keep {
+			components.StatusPill(c, i18n.T("terminals.list.keep_badge"), components.ToneSuccess)
+		}
+		if hasExit {
+			exitTone := components.ToneNeutral
+			if *term.ExitCode != 0 {
+				exitTone = components.ToneDanger
+			}
+			components.StatusPill(c, i18n.Tf("terminals.list.exit_code", map[string]any{"code": *term.ExitCode}), exitTone)
+		}
+	})
 }
 
 func (s *Screen) viewTerminalCard(c *ui.Context, term herdr.Terminal, isChild bool) {
@@ -762,29 +924,16 @@ func (s *Screen) viewTerminalCard(c *ui.Context, term herdr.Terminal, isChild bo
 					ui.Text(c, sub).FontSize(11.5).TextColor(t.TextMuted).MaxLines(1)
 				})
 				components.StatusDotPill(c, i18n.StatusLabel(st.State), tone)
+				theme.IconBox(c, 15, ex.TextSubtle, theme.IconChevronRight)
 			})
 
-			// Parent badge, Room/WorkItem labels, and Keep badge.
-			hasBadges := strings.TrimSpace(term.Parent) != "" || term.RoomLabel() != "" || term.WorkItemLabel() != "" || term.Keep
-			if hasBadges {
-				ui.Row(c).FillWidth().Wrap().Gap(5).Children(func() {
-					if p := strings.TrimSpace(term.Parent); p != "" {
-						components.StatusPill(c, "\u21b3 "+i18n.Tf("terminals.list.subagent_of", map[string]any{"parent": p}), components.ToneNeutral)
-					}
-					if rm := term.RoomLabel(); rm != "" {
-						components.StatusPill(c, i18n.Tf("terminals.list.room_badge", map[string]any{"room": rm}), components.ToneInfo)
-					}
-					if wi := term.WorkItemLabel(); wi != "" {
-						components.StatusPill(c, i18n.Tf("terminals.list.work_item_badge", map[string]any{"item": wi}), components.ToneBrand)
-					}
-					if term.Keep {
-						components.StatusPill(c, i18n.T("terminals.list.keep_badge"), components.ToneSuccess)
-					}
-				})
-			}
+			s.viewTerminalBadges(c, term)
 
-			// Preview line: OSC 7501 msg or title/where + cwd.
+			// Preview line: OSC 7501 msg or title/where.
 			preview := strings.TrimSpace(st.Msg)
+			if preview == "" {
+				preview = strings.TrimSpace(st.Title)
+			}
 			if preview == "" {
 				preview = strings.TrimSpace(term.Title)
 			}
@@ -792,43 +941,133 @@ func (s *Screen) viewTerminalCard(c *ui.Context, term herdr.Terminal, isChild bo
 				preview = strings.TrimSpace(term.Where)
 			}
 			if preview != "" {
-				ui.Text(c, preview).FontSize(12.5).LineHeight(1.3).TextColor(t.Text).MaxLines(2)
+				ui.Text(c, preview).FontSize(12.5).LineHeight(1.35).TextColor(t.Text).MaxLines(2)
 			}
+
+			// Live working progress bar when OSC 7501 progress is reported.
+			if pct, hasProg := st.ProgressPercent(); hasProg && !term.IsFinished() {
+				ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
+					ui.Progress(c, float64(pct)/100.0).Grow(1).Basis(0).Height(6)
+					ui.Text(c, fmt.Sprintf("%d%%", pct)).FontSize(11.5).FontWeight(600).TextColor(ex.Info).NoWrap()
+				})
+			}
+
 			if cwd := term.EffectiveCwd(); cwd != "" {
-				ui.Text(c, cwd).Font("monospace").FontSize(11).TextColor(ex.TextSubtle).MaxLines(1)
+				ui.Text(c, cwd).Font("monospace").FontSize(11).TextColor(t.TextMuted).MaxLines(1)
 			}
 		})
 		if card.Clicked() {
+			components.HapticLight()
 			s.enterDetail(term.Address)
 		}
 	})
 }
 
-func (s *Screen) sendBlockedReplyAsync(address, displayName, text string) {
+func quickKeyButton(c *ui.Context, keyID, label string, primary, disabled bool) ui.Element {
+	t := c.Theme()
+	ex := theme.Extra(t)
+	var bg, fg, borderCol ui.Color
+	switch {
+	case disabled:
+		bg, fg, borderCol = DisabledButtonColors(t)
+	case primary:
+		bg = t.Accent
+		fg = t.AccentText
+		borderCol = t.Accent
+	default:
+		bg = ex.ElevatedBg
+		fg = t.Text
+		borderCol = ex.SubtleBorder
+	}
+
+	btn := ui.Row(c.Key(keyID)).MinHeight(44).MinWidth(44).Padding(8, 10).Radius(11).Background(bg).
+		AlignItems(ui.Center).Justify(ui.Center).Shrink(0).
+		Role(ui.RoleButton).Label(label).Disabled(disabled)
+	switch {
+	case disabled:
+		btn.Border(0.75, borderCol)
+	case primary:
+		if !t.Dark {
+			btn.Shadow(0, 1, 4, 0, ui.RGBA(20, 20, 16, 0.12))
+		}
+		if btn.Pressed() {
+			btn.Background(t.AccentPressed).Scale(0.96, 0.96)
+		}
+	default:
+		components.ApplyCardElevation(btn, t)
+		if btn.Pressed() {
+			btn.Background(t.SurfacePressed).Scale(0.96, 0.96)
+		}
+	}
+	btn.Children(func() {
+		ui.Text(c, label).FontSize(13).FontWeight(600).TextColor(fg).NoWrap()
+	})
+	return btn
+}
+
+func sendTouchButton(c *ui.Context, keyID, label string, disabled bool) ui.Element {
+	t := c.Theme()
+	var bg, fg, borderCol ui.Color
+	if disabled {
+		bg, fg, borderCol = DisabledButtonColors(t)
+	} else {
+		bg = t.Accent
+		fg = t.AccentText
+		borderCol = t.Accent
+	}
+	btn := ui.Row(c.Key(keyID)).MinHeight(44).MinWidth(60).Padding(10, 14).Radius(12).Background(bg).
+		AlignItems(ui.Center).Justify(ui.Center).Shrink(0).
+		Role(ui.RoleButton).Label(label).Disabled(disabled)
+	if disabled {
+		btn.Border(0.75, borderCol)
+	} else {
+		if !t.Dark {
+			btn.Shadow(0, 2, 6, 0, ui.RGBA(20, 20, 16, 0.14))
+		}
+		if btn.Pressed() {
+			btn.Background(t.AccentPressed).Scale(0.98, 0.98)
+		}
+	}
+	btn.Children(func() {
+		ui.Text(c, label).FontSize(13.5).FontWeight(600).TextColor(fg).NoWrap()
+	})
+	return btn
+}
+
+func (s *Screen) sendBlockedReplyAsync(term herdr.Terminal, text string) {
 	cl, _, _ := s.activeClient()
 	if cl == nil {
 		return
 	}
+	address := term.Address
+	displayName := term.DisplayName()
 	if !s.trySetBusy(address) {
 		return
 	}
 	components.HapticLight()
 	go func() {
-		_, err := cl.Send(context.Background(), herdr.SendRequest{
+		req := herdr.SendRequest{
 			Address: address,
 			Text:    text,
 			If:      "blocked",
 			Force:   true,
-		})
+		}
+		if term.Turn > 0 {
+			turn := term.Turn
+			req.Turn = &turn
+		}
+		_, err := cl.Send(context.Background(), req)
 		s.clearBusy(address)
 		if err != nil {
 			if errors.Is(err, herdr.ErrPreconditionFailed) {
+				components.HapticWarning()
 				s.toast(i18n.Tf("terminals.toast.cas_stale", map[string]any{"name": displayName}))
 				s.Refresh(context.Background())
 				return
 			}
+			components.HapticWarning()
 			s.mu.Lock()
-			s.syncError = err.Error()
+			s.syncError = presentHerdrError(err)
 			s.mu.Unlock()
 			s.notify()
 			return
@@ -839,7 +1078,7 @@ func (s *Screen) sendBlockedReplyAsync(address, displayName, text string) {
 				*d = ""
 			}
 		})
-		s.toast(i18n.Tf("terminals.toast.sent", map[string]any{"name": displayName}))
+		s.toast(i18n.Tf("terminals.toast.delivered", map[string]any{"name": displayName}))
 		s.Refresh(context.Background())
 	}()
 }
@@ -860,9 +1099,11 @@ func (s *Screen) sendKeysAsync(address, displayName string, keys []string, keyLa
 		})
 		s.clearBusy(address)
 		if err != nil {
+			components.HapticWarning()
+			msg := presentHerdrError(err)
 			s.mu.Lock()
-			s.syncError = err.Error()
-			s.detailError = err.Error()
+			s.syncError = msg
+			s.detailError = msg
 			s.mu.Unlock()
 			s.notify()
 			return
@@ -870,10 +1111,38 @@ func (s *Screen) sendKeysAsync(address, displayName string, keys []string, keyLa
 		components.HapticSuccess()
 		s.toast(i18n.Tf("terminals.toast.keys_sent", map[string]any{"key": keyLabel, "name": displayName}))
 		if s.currentDetailAddress() == address {
+			s.mu.Lock()
+			s.detailScrollBottom = true
+			s.mu.Unlock()
 			s.refreshDetailSnapshot(context.Background(), address)
 		}
 		s.Refresh(context.Background())
 	}()
+}
+
+func presentHerdrError(err error) string {
+	if err == nil {
+		return ""
+	}
+	switch {
+	case errors.Is(err, herdr.ErrNotConnected):
+		return i18n.T("terminals.err.not_connected")
+	case errors.Is(err, herdr.ErrComputerOffline):
+		return i18n.T("terminals.err.offline")
+	case errors.Is(err, herdr.ErrUnavailable):
+		return i18n.T("terminals.err.unavailable")
+	case errors.Is(err, herdr.ErrTerminalNotFound):
+		return i18n.T("terminals.err.not_found")
+	case errors.Is(err, herdr.ErrUnauthorized):
+		return i18n.T("err.session_expired")
+	case errors.Is(err, herdr.ErrPreconditionFailed):
+		return i18n.T("err.conflict")
+	}
+	var ce *herdr.ClientError
+	if errors.As(err, &ce) && ce.Cause != nil {
+		return api.PresentError(ce.Cause)
+	}
+	return api.PresentError(err)
 }
 
 func (s *Screen) activeClient() (*herdr.Client, string, bool) {
@@ -1059,6 +1328,16 @@ func filterBlockedByMachine(terms []herdr.Terminal, machineFilter string) []herd
 	return out
 }
 
+func excludeBlockedTerminals(terms []herdr.Terminal) []herdr.Terminal {
+	var out []herdr.Terminal
+	for _, term := range terms {
+		if !term.IsBlocked() {
+			out = append(out, term)
+		}
+	}
+	return out
+}
+
 func filterTerminals(terms []herdr.Terminal, machineFilter string, statusFilter int) []herdr.Terminal {
 	var out []herdr.Terminal
 	for _, term := range terms {
@@ -1100,7 +1379,10 @@ type orderedTerminal struct {
 	isChild bool
 }
 
-func orderTerminalsHierarchically(terms []herdr.Terminal) []orderedTerminal {
+// groupTerminalsHierarchically keeps each parent terminal bonded with its child
+// sub-agents so both single-column phones and 2-column unfolded foldables preserve
+// visual parent-child hierarchy.
+func groupTerminalsHierarchically(terms []herdr.Terminal) [][]orderedTerminal {
 	sorted := append([]herdr.Terminal(nil), terms...)
 	sort.SliceStable(sorted, func(i, j int) bool {
 		pi := terminalSortRank(sorted[i])
@@ -1129,26 +1411,37 @@ func orderTerminalsHierarchically(terms []herdr.Terminal) []orderedTerminal {
 		roots = append(roots, term)
 	}
 
-	out := make([]orderedTerminal, 0, len(sorted))
+	var groups [][]orderedTerminal
 	emitted := make(map[string]bool, len(sorted))
-	var appendTree func(term herdr.Terminal, child bool)
-	appendTree = func(term herdr.Terminal, child bool) {
+	var collect func(term herdr.Terminal, child bool, dst *[]orderedTerminal)
+	collect = func(term herdr.Terminal, child bool, dst *[]orderedTerminal) {
 		if emitted[term.Address] {
 			return
 		}
 		emitted[term.Address] = true
-		out = append(out, orderedTerminal{term: term, isChild: child || strings.TrimSpace(term.Parent) != ""})
+		*dst = append(*dst, orderedTerminal{term: term, isChild: child || strings.TrimSpace(term.Parent) != ""})
 		for _, ch := range childrenOf[term.Address] {
-			appendTree(ch, true)
+			collect(ch, true, dst)
 		}
 	}
 	for _, r := range roots {
-		appendTree(r, false)
+		var grp []orderedTerminal
+		collect(r, false, &grp)
+		if len(grp) > 0 {
+			groups = append(groups, grp)
+		}
 	}
 	for _, term := range sorted {
-		appendTree(term, strings.TrimSpace(term.Parent) != "")
+		if emitted[term.Address] {
+			continue
+		}
+		var grp []orderedTerminal
+		collect(term, strings.TrimSpace(term.Parent) != "", &grp)
+		if len(grp) > 0 {
+			groups = append(groups, grp)
+		}
 	}
-	return out
+	return groups
 }
 
 func terminalSortRank(term herdr.Terminal) int {
@@ -1177,8 +1470,12 @@ func mergeMachines(groups ...[]herdr.MachineView) []herdr.MachineView {
 				if out[idx].Version == "" {
 					out[idx].Version = m.Version
 				}
-				if out[idx].State == "" {
-					out[idx].State = m.State
+				if out[idx].EffectiveState() == "" {
+					out[idx].State = m.EffectiveState()
+				}
+				if out[idx].Online == nil && m.Online != nil {
+					v := *m.Online
+					out[idx].Online = &v
 				}
 				continue
 			}

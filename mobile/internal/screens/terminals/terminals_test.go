@@ -3,6 +3,7 @@ package terminals_test
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -42,12 +43,14 @@ type fakeHerdrBackend struct {
 func newFakeHerdrBackend(t *testing.T) *fakeHerdrBackend {
 	t.Helper()
 	exitZero := 0
+	prog68 := 68.0
 	fb := &fakeHerdrBackend{
 		terminals: []herdr.Terminal{
 			{
 				Address: "vps/t7",
 				Name:    "deploy-claude",
 				State:   "live",
+				Turn:    4,
 				Status: &herdr.OSCStatus{
 					State: "blocked",
 					Msg:   "Approve running database migration?",
@@ -61,10 +64,12 @@ func newFakeHerdrBackend(t *testing.T) *fakeHerdrBackend {
 				Address: "t1",
 				Name:    "lead-codex",
 				State:   "live",
+				Turn:    9,
 				Status: &herdr.OSCStatus{
-					State: "working",
-					Msg:   "Running go test across mobile packages",
-					App:   "codex",
+					State:    "working",
+					Msg:      "Running go test across mobile packages",
+					App:      "codex",
+					Progress: &prog68,
 				},
 				Cwd:    "/Users/dev/linger",
 				Keep:   true,
@@ -509,6 +514,9 @@ func TestTerminalsBlockedQuickKeysCASReplyAndConflict(t *testing.T) {
 	if casReq.Address != "vps/t7" || casReq.Text != "approve migration" || casReq.If != "blocked" || !casReq.Force {
 		t.Fatalf("expected CAS blocked send with if=blocked & force=true, got %+v", casReq)
 	}
+	if casReq.Turn == nil || *casReq.Turn != 4 {
+		t.Fatalf("expected CAS blocked send with turn=4, got %+v", casReq.Turn)
+	}
 	waitUntil(t, 2*time.Second, func() bool {
 		return hasToast("no longer blocked")
 	})
@@ -589,17 +597,59 @@ func TestTerminalsDetailLiveReaderControlBarAndConfirmations(t *testing.T) {
 		return len(fb.sentReqs) == 1 && fb.sentReqs[0].Text == "status --short"
 	})
 
-	// Click Interrupt.
+	// Verify quick keys and prompt dock satisfy >=44pt touch target height.
+	for _, label := range []string{"Enter", "Esc", "Ctrl+C", "y", "n", "Interrupt", "Kill"} {
+		btn, ok := tt.AccessByRole(ui.RoleButton, label)
+		if !ok {
+			t.Fatalf("missing detail button %q, texts=%v", label, tt.Texts())
+		}
+		if btn.Bounds.H < 43.5 {
+			t.Fatalf("detail button %q height %.2f < 44pt", label, btn.Bounds.H)
+		}
+	}
+
+	// Verify Wrap/Scroll toggle and Jump-to-Bottom controls work cleanly.
+	if err := tt.Click("Scroll"); err != nil {
+		t.Fatalf("click Scroll/Wrap toggle: %v", err)
+	}
+	tt.Frame()
+	if !tt.HasText("Wrap") {
+		t.Fatalf("expected Wrap mode label after toggle, texts=%v", tt.Texts())
+	}
+	if err := tt.Click("Bottom"); err != nil {
+		t.Fatalf("click Bottom jump button: %v", err)
+	}
+	tt.Frame()
+
+	// Click Interrupt -> ActionSheet confirmation opens; Cancel keeps running, Confirm sends interrupt!
 	if err := tt.Click("Interrupt"); err != nil {
 		t.Fatalf("click Interrupt: %v", err)
 	}
+	settle(tt)
+	if !tt.HasText("Interrupt Terminal") {
+		t.Fatalf("expected Interrupt confirmation ActionSheet, texts=%v", tt.Texts())
+	}
+	fb.mu.Lock()
+	if len(fb.interruptReqs) != 0 {
+		t.Fatalf("interrupt fired before confirmation: %+v", fb.interruptReqs)
+	}
+	fb.mu.Unlock()
+	if err := tt.Click("Interrupt Terminal"); err != nil {
+		t.Fatalf("click Interrupt Terminal confirm: %v", err)
+	}
 	waitUntil(t, 2*time.Second, func() bool {
+		settle(tt)
 		fb.mu.Lock()
 		defer fb.mu.Unlock()
-		return len(fb.interruptReqs) == 1 && fb.interruptReqs[0].Address == "vps/t7"
+		return len(fb.interruptReqs) == 1 && fb.interruptReqs[0].Address == "vps/t7" && !tt.HasText("Interrupt Terminal")
 	})
 
 	// Click Kill -> confirmation sheet appears -> confirm Kill Terminal.
+	waitUntil(t, 2*time.Second, func() bool {
+		settle(tt)
+		btn, ok := tt.AccessByRole(ui.RoleButton, "Kill")
+		return ok && !btn.Disabled
+	})
 	if err := tt.Click("Kill"); err != nil {
 		t.Fatalf("click Kill: %v", err)
 	}
@@ -765,4 +815,108 @@ func TestTerminalsGracefulUnavailableAndOfflineStates(t *testing.T) {
 		ttUnavail.Frame()
 		return ttUnavail.HasText("This Local Computer is currently offline. Retry once it reconnects.")
 	})
+}
+
+func TestTerminalsContrastTouchTargetsAndFoldables(t *testing.T) {
+	t.Cleanup(func() {
+		i18n.SetPreference(config.LanguageEN)
+	})
+
+	compositeOver := func(fg, bg ui.Color) ui.Color {
+		a := float64(fg.A) / 255.0
+		if a >= 1 {
+			return fg
+		}
+		blend := func(c1, c2 uint8) uint8 {
+			return uint8(math.Round(float64(c1)*a + float64(c2)*(1-a)))
+		}
+		return ui.Color{R: blend(fg.R, bg.R), G: blend(fg.G, bg.G), B: blend(fg.B, bg.B), A: 255}
+	}
+	relLum := func(c ui.Color) float64 {
+		lin := func(v uint8) float64 {
+			s := float64(v) / 255.0
+			if s <= 0.03928 {
+				return s / 12.92
+			}
+			return math.Pow((s+0.055)/1.055, 2.4)
+		}
+		return 0.2126*lin(c.R) + 0.7152*lin(c.G) + 0.0722*lin(c.B)
+	}
+	contrast := func(fg, bg ui.Color) float64 {
+		l1, l2 := relLum(fg), relLum(bg)
+		if l1 < l2 {
+			l1, l2 = l2, l1
+		}
+		return (l1 + 0.05) / (l2 + 0.05)
+	}
+
+	// 1. Verify WCAG AA (>=4.5:1) contrast on terminal plate and disabled controls in Light & Dark.
+	for _, tc := range []struct {
+		name string
+		th   *ui.Theme
+	}{
+		{"TownLight", theme.TownLight()},
+		{"TownDark", theme.TownDark()},
+	} {
+		pc := terminals.TerminalPlateColors(tc.th)
+		pairs := []struct {
+			label  string
+			fg, bg ui.Color
+		}{
+			{"plate ink on bg", pc.Ink, pc.Bg},
+			{"plate ink on header", pc.Ink, pc.HeaderBg},
+			{"plate ink on pill", pc.Ink, pc.PillBg},
+			{"plate muted on bg", pc.Muted, pc.Bg},
+			{"plate muted on header", pc.Muted, pc.HeaderBg},
+		}
+		for _, p := range pairs {
+			r := contrast(compositeOver(p.fg, p.bg), p.bg)
+			if r < 4.5 {
+				t.Errorf("%s %s contrast %.2f:1 < 4.5:1", tc.name, p.label, r)
+			}
+		}
+		disBg, disFg, _ := terminals.DisabledButtonColors(tc.th)
+		effBg := compositeOver(disBg, tc.th.Surface)
+		effFg := compositeOver(disFg, effBg)
+		if r := contrast(effFg, effBg); r < 4.5 {
+			t.Errorf("%s disabled button contrast %.2f:1 < 4.5:1", tc.name, r)
+		}
+	}
+
+	// 2. Verify Blocked Inbox >=44pt quick keys, progress percentage, and zero clipping across foldables.
+	i18n.SetPreference(config.LanguageEN)
+	fb := newFakeHerdrBackend(t)
+	scr, _ := newTestTerminalsScreen(t, fb)
+
+	tt := testutil.NewPhoneTester(func(c *ui.Context) {
+		c.SetTheme(theme.TownLight())
+		scr.View(c)
+	}, testutil.StandardMobileViewports[1])
+	tt.Frame()
+
+	for _, label := range []string{"Enter", "Esc", "y", "n"} {
+		btn, ok := tt.AccessByRole(ui.RoleButton, label)
+		if !ok {
+			t.Fatalf("missing blocked quick key %q", label)
+		}
+		if btn.Bounds.H < 43.5 || btn.Bounds.W < 43.5 {
+			t.Fatalf("blocked quick key %q bounds %.2fx%.2f < 44x44pt", label, btn.Bounds.W, btn.Bounds.H)
+		}
+	}
+	if !tt.HasText("68%") {
+		t.Fatalf("expected working progress percentage 68%% visible, texts=%v", tt.Texts())
+	}
+
+	for _, vp := range testutil.FoldableViewports {
+		t.Run(vp.Name, func(t *testing.T) {
+			testutil.ResizeViewport(tt, vp)
+			tt.Frame()
+			if tt.Image() == nil {
+				t.Fatalf("nil image on foldable %s", vp.Name)
+			}
+			if !tt.HasText("deploy-claude") || !tt.HasText("lead-codex") {
+				t.Fatalf("expected blocked and working cards on foldable %s, texts=%v", vp.Name, tt.Texts())
+			}
+		})
+	}
 }
