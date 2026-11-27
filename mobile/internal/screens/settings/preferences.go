@@ -3,10 +3,10 @@ package settings
 import (
 	"context"
 
-	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/plugins/biometrics"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/mobile"
+	"github.com/oldwinter/linger/mobile/internal/api"
 	"github.com/oldwinter/linger/mobile/internal/components"
 	"github.com/oldwinter/linger/mobile/internal/config"
 	"github.com/oldwinter/linger/mobile/internal/i18n"
@@ -20,7 +20,12 @@ func (s *Screen) viewPreferencesSection(c *ui.Context) {
 	if s.deps.Store != nil {
 		prefs = s.deps.Store.Snapshot().Prefs
 	} else {
-		prefs = config.AppPreferences{Theme: config.ThemeSystem, Language: config.LanguageSystem}
+		prefs = config.AppPreferences{
+			Theme:               config.ThemeSystem,
+			Language:            config.LanguageSystem,
+			HapticsDisabled:     !s.hapticsEnabled,
+			ComposerReturnSends: s.composerReturnSend,
+		}
 	}
 
 	s.mu.Lock()
@@ -32,7 +37,12 @@ func (s *Screen) viewPreferencesSection(c *ui.Context) {
 
 	ui.Scroll(c).FillWidth().Grow(1).Basis(0).TrackScroll(&s.scroll[SectionPreferences]).Children(func() {
 		layout.ReadableWrap(c, layout.Of(c).ReadableMaxWidth, func() {
-			ui.Column(c).FillWidth().Padding(12, 16, 28, 16).Gap(12).Children(func() {
+			ui.Column(c).FillWidth().Padding(12, 16, 28, 16).Gap(components.ListGap(t)).Children(func() {
+				if s.prefsError != "" {
+					components.StatusBanner(c, components.ToneDanger, s.prefsError, i18n.T("common.dismiss"), func() {
+						s.prefsError = ""
+					})
+				}
 				if s.prefsNotice != "" {
 					components.StatusBanner(c, components.ToneSuccess, s.prefsNotice, i18n.T("common.ok"), func() {
 						s.prefsNotice = ""
@@ -41,13 +51,17 @@ func (s *Screen) viewPreferencesSection(c *ui.Context) {
 
 				// Biometric App Lock
 				components.SectionCard(c, i18n.T("settings.prefs.security_title"), i18n.T("settings.prefs.security_subtitle"), nil, func() {
+					bioOn := prefs.BiometricLock
 					bioSub := i18n.T("settings.prefs.biometric_hint")
 					if bioChecked && !bioSupported {
 						bioSub = i18n.T("settings.prefs.biometric_unavailable")
 					} else if bioSupported && bioKind != biometrics.None {
-						bioSub = i18n.Tf("settings.prefs.biometric_enabled_via", map[string]any{"name": i18n.BiometricKindLabel(string(bioKind))})
+						if bioOn {
+							bioSub = i18n.Tf("settings.prefs.biometric_enabled_via", map[string]any{"name": i18n.BiometricKindLabel(string(bioKind))})
+						} else {
+							bioSub = i18n.Tf("settings.prefs.biometric_off_via", map[string]any{"name": i18n.BiometricKindLabel(string(bioKind))})
+						}
 					}
-					bioOn := prefs.BiometricLock
 					ui.Row(c).FillWidth().MinHeight(44).AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
 						ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
 							ui.Text(c, i18n.T("settings.prefs.biometric_label")).FontSize(14).FontWeight(600).TextColor(t.Text)
@@ -100,31 +114,41 @@ func (s *Screen) viewPreferencesSection(c *ui.Context) {
 
 				// Interaction
 				components.SectionCard(c, i18n.T("settings.prefs.interaction_title"), i18n.T("settings.prefs.interaction_subtitle"), nil, func() {
+					hapticsOn := prefs.HapticsEnabled()
 					ui.Row(c).FillWidth().MinHeight(44).AlignItems(ui.Center).Justify(ui.SpaceBetween).Gap(8).Children(func() {
 						ui.Column(c).Grow(1).Basis(0).Gap(2).Children(func() {
 							ui.Text(c, i18n.T("settings.prefs.haptic_label")).FontSize(14).FontWeight(600).TextColor(t.Text)
 							ui.Text(c, i18n.T("settings.prefs.haptic_sub")).FontSize(12).TextColor(t.TextMuted)
 						})
-						sw := mobile.Switch(c, &s.hapticsEnabled).Label(i18n.T("settings.prefs.haptic_label"))
+						sw := mobile.Switch(c, &hapticsOn).Label(i18n.T("settings.prefs.haptic_a11y"))
 						if sw.Changed() {
-							if s.hapticsEnabled {
-								mygo.Haptics.Light()
+							s.hapticsEnabled = hapticsOn
+							components.SetHapticsEnabled(hapticsOn)
+							if hapticsOn {
+								components.HapticLight()
+							}
+							if s.deps.Store != nil {
+								_ = s.deps.Store.SetHapticsPreference(hapticsOn)
 							}
 							if s.deps.OnHapticsChanged != nil {
-								s.deps.OnHapticsChanged(s.hapticsEnabled)
+								s.deps.OnHapticsChanged(hapticsOn)
 							}
 						}
 					})
 
 					ui.Text(c, i18n.T("settings.prefs.return_key_label")).FontSize(12).FontWeight(600).TextColor(t.TextMuted)
 					retIdx := 0
-					if s.composerReturnSend {
+					if prefs.ComposerReturnSends {
 						retIdx = 1
 					}
 					if components.SegmentedControl(c, &retIdx, i18n.T("settings.prefs.return_newline"), i18n.T("settings.prefs.return_send")) {
-						s.composerReturnSend = retIdx == 1
+						sendOnEnter := retIdx == 1
+						s.composerReturnSend = sendOnEnter
+						if s.deps.Store != nil {
+							s.deps.Store.SetComposerReturnSends(sendOnEnter)
+						}
 						if s.deps.OnComposerReturnChanged != nil {
-							s.deps.OnComposerReturnChanged(s.composerReturnSend)
+							s.deps.OnComposerReturnChanged(sendOnEnter)
 						}
 					}
 				})
@@ -146,6 +170,7 @@ func (s *Screen) viewPreferencesSection(c *ui.Context) {
 					clearBtn := components.DangerTouchButton(c, i18n.T("settings.prefs.clear_cache"), false)
 					clearBtn.FillWidth()
 					if clearBtn.Clicked() {
+						s.refreshCacheStats(context.Background())
 						s.clearCacheConfirm = true
 					}
 				})
@@ -155,9 +180,17 @@ func (s *Screen) viewPreferencesSection(c *ui.Context) {
 }
 
 func (s *Screen) viewClearCacheConfirmSheet(c *ui.Context) {
-	mobile.ActionSheet(c, &s.clearCacheConfirm, mobile.ActionSheetOptions{
+	s.mu.Lock()
+	pendingOutbox := s.cacheStats.Outbox
+	s.mu.Unlock()
+
+	msg := i18n.T("settings.prefs.clear_body")
+	if pendingOutbox > 0 {
+		msg = i18n.Tf("settings.prefs.clear_body_preserve_outbox", map[string]any{"count": pendingOutbox})
+	}
+	components.ActionSheet(c, &s.clearCacheConfirm, mobile.ActionSheetOptions{
 		Title:   i18n.T("settings.prefs.clear_title"),
-		Message: i18n.T("settings.prefs.clear_body"),
+		Message: msg,
 		Cancel:  i18n.T("common.cancel"),
 	}, mobile.Action{
 		Label:       i18n.T("settings.prefs.clear_confirm"),
@@ -171,14 +204,27 @@ func (s *Screen) clearCacheAsync() {
 		ctx := context.Background()
 		if s.deps.OnClearCache != nil {
 			if err := s.deps.OnClearCache(ctx); err != nil {
-				s.enqueueUI(func() { s.hostError = err.Error() })
+				presented := api.PresentError(err)
+				s.enqueueUI(func() {
+					s.prefsNotice = ""
+					s.prefsError = presented
+					s.errorToast(presented)
+				})
 				return
 			}
 		}
 		s.refreshCacheStats(ctx)
+		s.mu.Lock()
+		preserved := s.cacheStats.Outbox
+		s.mu.Unlock()
+		notice := i18n.T("settings.prefs.toast.cleared")
+		if preserved > 0 {
+			notice = i18n.Tf("settings.prefs.toast.cleared_preserved", map[string]any{"count": preserved})
+		}
 		s.enqueueUI(func() {
-			s.prefsNotice = i18n.T("settings.prefs.toast.cleared")
-			s.toast(i18n.T("settings.prefs.toast.cleared"))
+			s.prefsError = ""
+			s.prefsNotice = notice
+			s.toast(notice)
 		})
 	}()
 }

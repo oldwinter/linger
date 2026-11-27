@@ -23,13 +23,12 @@ type PendingDecisionItem struct {
 	CreatedAt time.Time
 }
 
-// SetComposerReturnSends toggles whether pressing bare Return in the mobile chat
+// SetComposerReturnSends toggles and persists whether pressing bare Return in the mobile chat
 // composer submits the message (false by default on mobile; Cmd/Ctrl+Enter always sends).
 func (s *AppStore) SetComposerReturnSends(enabled bool) {
-	s.mu.Lock()
-	s.composerReturnSends = enabled
-	s.mu.Unlock()
-	s.notify()
+	p := s.effectivePreferences()
+	p.ComposerReturnSends = enabled
+	_ = s.UpdatePreferences(p)
 }
 
 // GetDraft returns the unsent draft text for roomID.
@@ -49,6 +48,28 @@ func (s *AppStore) SetDraft(roomID, text string) {
 		delete(s.roomDrafts, roomID)
 	} else {
 		s.roomDrafts[roomID] = text
+	}
+	s.roomDraftSeq[roomID]++
+	s.mu.Unlock()
+}
+
+// DraftSeq returns the monotonic revision number for roomID's stored draft.
+func (s *AppStore) DraftSeq(roomID string) uint64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.roomDraftSeq[roomID]
+}
+
+// ClearDraftIfSeq removes roomID's stored draft only if it has not been edited
+// since seq was captured, preventing an in-flight send from clobbering newer input.
+func (s *AppStore) ClearDraftIfSeq(roomID string, seq uint64) {
+	if roomID == "" {
+		return
+	}
+	s.mu.Lock()
+	if s.roomDraftSeq[roomID] == seq {
+		delete(s.roomDrafts, roomID)
+		s.roomDraftSeq[roomID]++
 	}
 	s.mu.Unlock()
 }
@@ -70,6 +91,7 @@ func (s *AppStore) RestoreDrafts(drafts map[string]string) {
 	for k, v := range drafts {
 		if _, exists := s.roomDrafts[k]; !exists && v != "" {
 			s.roomDrafts[k] = v
+			s.roomDraftSeq[k]++
 		}
 	}
 	s.mu.Unlock()
@@ -202,6 +224,13 @@ func (s *AppStore) LoadRoomMessages(ctx context.Context, roomID string, older bo
 // SendMessage posts a new message (with optional reply and attachment uploads) to roomID.
 // When offline, queues into the SQLite outbox so it never loses user input.
 func (s *AppStore) SendMessage(ctx context.Context, roomID, text string, replyToID *string, uploadIDs []string) (api.Message, error) {
+	return s.SendMessageForDraftSeq(ctx, roomID, text, replyToID, uploadIDs, s.DraftSeq(roomID))
+}
+
+// SendMessageForDraftSeq posts a new message and clears roomID's draft on success
+// only if its revision still matches expectedDraftSeq (never clobbering edits made
+// while the send request was in flight).
+func (s *AppStore) SendMessageForDraftSeq(ctx context.Context, roomID, text string, replyToID *string, uploadIDs []string, expectedDraftSeq uint64) (api.Message, error) {
 	text = strings.TrimSpace(text)
 	if text == "" && len(uploadIDs) == 0 {
 		return api.Message{}, errors.New(i18n.T("state.err.empty_message"))
@@ -237,13 +266,16 @@ func (s *AppStore) SendMessage(ctx context.Context, roomID, text string, replyTo
 
 	msg, err := client.CreateMessage(ctx, roomID, req, ikey)
 	if err != nil {
-		s.SetTransientError(err.Error())
+		s.SetTransientError(api.PresentError(err))
 		return api.Message{}, err
 	}
 
 	s.mu.Lock()
 	s.upsertRoomMessageLocked(roomID, msg)
-	delete(s.roomDrafts, roomID)
+	if s.roomDraftSeq[roomID] == expectedDraftSeq {
+		delete(s.roomDrafts, roomID)
+		s.roomDraftSeq[roomID]++
+	}
 	s.transientError = ""
 	cs := s.cacheStore
 	s.mu.Unlock()
@@ -296,7 +328,7 @@ func (s *AppStore) ToggleRoomPin(ctx context.Context, roomID string, pinned bool
 		return errors.New(i18n.T("state.err.not_connected"))
 	}
 	if err := client.UpdateRoomPin(ctx, roomID, pinned); err != nil {
-		s.SetTransientError(err.Error())
+		s.SetTransientError(api.PresentError(err))
 		return err
 	}
 	s.mu.Lock()
@@ -369,7 +401,7 @@ func (s *AppStore) SetRoomParticipation(ctx context.Context, roomID, status stri
 		return errors.New(i18n.T("state.err.not_connected"))
 	}
 	if _, err := client.SetRoomParticipation(ctx, roomID, status); err != nil {
-		s.SetTransientError(err.Error())
+		s.SetTransientError(api.PresentError(err))
 		return err
 	}
 	s.mu.Lock()
@@ -394,7 +426,7 @@ func (s *AppStore) CreateRoom(ctx context.Context, name, description string, mem
 	}
 	rm, err := client.CreateRoom(ctx, tenantID, strings.TrimSpace(name), strings.TrimSpace(description), memberIDs)
 	if err != nil {
-		s.SetTransientError(err.Error())
+		s.SetTransientError(api.PresentError(err))
 		return api.Room{}, err
 	}
 	_ = s.RefreshActiveHost(ctx)
@@ -410,7 +442,7 @@ func (s *AppStore) OpenDirectRoom(ctx context.Context, peerActorID string) (api.
 	}
 	rm, err := client.OpenDirectRoom(ctx, tenantID, peerActorID)
 	if err != nil {
-		s.SetTransientError(err.Error())
+		s.SetTransientError(api.PresentError(err))
 		return api.Room{}, err
 	}
 	_ = s.RefreshActiveHost(ctx)
@@ -426,7 +458,7 @@ func (s *AppStore) DecideCard(ctx context.Context, roomID, decisionID string, re
 	}
 	updated, err := client.DecideDecision(ctx, decisionID, req)
 	if err != nil {
-		s.SetTransientError(err.Error())
+		s.SetTransientError(api.PresentError(err))
 		return api.Message{}, err
 	}
 	s.mu.Lock()
@@ -493,7 +525,7 @@ func (s *AppStore) CancelRun(ctx context.Context, roomID, runID string) error {
 		return errors.New(i18n.T("state.err.not_connected"))
 	}
 	if err := client.CancelRoomRun(ctx, roomID, runID); err != nil {
-		s.SetTransientError(err.Error())
+		s.SetTransientError(api.PresentError(err))
 		return err
 	}
 	s.mu.Lock()
@@ -516,7 +548,7 @@ func (s *AppStore) RedeliverRunInputs(ctx context.Context, roomID, runID string)
 		return errors.New(i18n.T("state.err.not_connected"))
 	}
 	if err := client.RedeliverRoomRunUnconfirmedInputs(ctx, roomID, runID); err != nil {
-		s.SetTransientError(err.Error())
+		s.SetTransientError(api.PresentError(err))
 		return err
 	}
 	s.SetStatusMessage(i18n.T("state.toast.inputs_redelivered"))
@@ -531,7 +563,7 @@ func (s *AppStore) ActOnLocalModel(ctx context.Context, computerID, modelID, act
 		return errors.New(i18n.T("state.err.not_connected"))
 	}
 	if err := client.ActOnLocalComputerModelWithUnload(ctx, tenantID, computerID, modelID, action, unloadFirst); err != nil {
-		s.SetTransientError(err.Error())
+		s.SetTransientError(api.PresentError(err))
 		return err
 	}
 	if lm, err := client.GetLocalComputerModels(ctx, tenantID, computerID); err == nil {
@@ -552,7 +584,7 @@ func (s *AppStore) RecheckLocalModels(ctx context.Context, computerID string) er
 		return errors.New(i18n.T("state.err.not_connected"))
 	}
 	if err := client.RefreshLocalComputerModels(ctx, tenantID, computerID); err != nil {
-		s.SetTransientError(err.Error())
+		s.SetTransientError(api.PresentError(err))
 		return err
 	}
 	if lm, err := client.GetLocalComputerModels(ctx, tenantID, computerID); err == nil {
@@ -574,7 +606,7 @@ func (s *AppStore) SwitchModelSource(ctx context.Context, computerID string, req
 	}
 	view, err := client.SwitchLocalComputerModelSource(ctx, tenantID, computerID, req)
 	if err != nil {
-		s.SetTransientError(err.Error())
+		s.SetTransientError(api.PresentError(err))
 		return api.ModelSourceView{}, err
 	}
 	s.mu.Lock()

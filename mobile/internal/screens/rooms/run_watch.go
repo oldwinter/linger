@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
 	"github.com/egoist/mygo/ui/mobile"
@@ -291,7 +290,7 @@ func (ctl *Controller) ViewRunWatch(c *ui.Context, snap state.Snapshot, roomID, 
 	})
 
 	// Cancel Run Confirmation ActionSheet + Haptics.Warning
-	mobile.ActionSheet(c, &ctl.cancelConfirmOpen, mobile.ActionSheetOptions{
+	components.ActionSheet(c, &ctl.cancelConfirmOpen, mobile.ActionSheetOptions{
 		Title:   i18n.T("run.stop_dialog_title"),
 		Message: i18n.T("run.stop_dialog_body"),
 		Cancel:  i18n.T("run.keep_running"),
@@ -299,7 +298,7 @@ func (ctl *Controller) ViewRunWatch(c *ui.Context, snap state.Snapshot, roomID, 
 		Label:       i18n.T("run.stop_now"),
 		Destructive: true,
 		OnTap: func() {
-			mygo.Haptics.Warning()
+			components.HapticWarning()
 			ctl.mu.Lock()
 			rid, run := ctl.watchRoomID, ctl.watchRunID
 			ctl.mu.Unlock()
@@ -307,20 +306,24 @@ func (ctl *Controller) ViewRunWatch(c *ui.Context, snap state.Snapshot, roomID, 
 		},
 	})
 
-	// Background Tasks Sheet
+	// Background Tasks Sheet & confirmation ActionSheet
 	ctl.viewBackgroundTasksSheet(c, roomID)
+	ctl.viewCancelBackgroundTaskConfirm(c)
 }
 
 func (ctl *Controller) openBackgroundTasks(roomID string) {
-	ctl.mu.Lock()
 	ctl.bgTasksOpen = true
-	ctl.mu.Unlock()
+	ctl.reloadBackgroundTasks(roomID)
+}
+
+func (ctl *Controller) reloadBackgroundTasks(roomID string) {
 	go func() {
 		if cl := ctl.store.Client(); cl != nil {
 			if items, err := cl.ListRoomBackgroundTasks(context.Background(), roomID); err == nil {
 				ctl.mu.Lock()
 				ctl.bgTasks = items
 				ctl.mu.Unlock()
+				ctl.store.Notify()
 			}
 		}
 	}()
@@ -347,17 +350,46 @@ func (ctl *Controller) viewBackgroundTasksSheet(c *ui.Context, roomID string) {
 					components.SectionCard(c, task.Title, task.Requirement, func() {
 						cancelBtn := components.DangerTouchButton(c, i18n.T("common.cancel"), false)
 						if cancelBtn.Clicked() {
-							mygo.Haptics.Warning()
-							go func() {
-								if cl := ctl.store.Client(); cl != nil {
-									_ = cl.CancelRoomBackgroundTask(context.Background(), roomID, task.ID)
-									ctl.openBackgroundTasks(roomID)
-								}
-							}()
+							ctl.mu.Lock()
+							ctl.bgCancelTask = task
+							ctl.bgCancelRoomID = roomID
+							ctl.bgCancelConfirmOpen = true
+							ctl.mu.Unlock()
 						}
 					}, nil)
 				}
 			})
 		})
+	})
+}
+
+func (ctl *Controller) viewCancelBackgroundTaskConfirm(c *ui.Context) {
+	ctl.mu.Lock()
+	task := ctl.bgCancelTask
+	roomID := ctl.bgCancelRoomID
+	ctl.mu.Unlock()
+	if task.ID == "" {
+		ctl.bgCancelConfirmOpen = false
+		return
+	}
+	components.ActionSheet(c, &ctl.bgCancelConfirmOpen, mobile.ActionSheetOptions{
+		Title:   i18n.T("run.bg_cancel_title"),
+		Message: i18n.Tf("run.bg_cancel_body", map[string]any{"title": task.Title}),
+		Cancel:  i18n.T("run.bg_keep_running"),
+	}, mobile.Action{
+		Label:       i18n.T("run.bg_cancel_confirm"),
+		Destructive: true,
+		OnTap: func() {
+			components.HapticWarning()
+			go func() {
+				if cl := ctl.store.Client(); cl != nil {
+					if err := cl.CancelRoomBackgroundTask(context.Background(), roomID, task.ID); err != nil {
+						ctl.store.SetTransientError(api.PresentError(err))
+						return
+					}
+					ctl.reloadBackgroundTasks(roomID)
+				}
+			}()
+		},
 	})
 }

@@ -173,7 +173,17 @@ func TestCacheMigrationsFTS5AndOutboxDrain(t *testing.T) {
 		t.Fatalf("ten_2 pocket note corrupted: %+v (%v)", n2, err)
 	}
 
-	// P1-2: Clear() must succeed and wipe EVERY table including search_fts and local_models_snapshot.
+	// Enqueue an unsynced offline Pocket Note alongside the queued message before Clear().
+	if err := store.EnqueueOutbox(ctx, "pn_preserve_1", "pocket_note.put", "ten_1", map[string]string{
+		"tenant_id": "ten_1",
+		"date":      "2026-11-24",
+		"text":      "Unsynced offline Pocket Note must survive Clear",
+	}); err != nil {
+		t.Fatalf("EnqueueOutbox pocket_note.put preserve: %v", err)
+	}
+
+	// Clear() must wipe cached read tables, search_fts, and local_models_snapshot
+	// while preserving pending outbox_queue rows so offline user work is never lost.
 	if err := store.Clear(ctx); err != nil {
 		t.Fatalf("Clear() failed: %v", err)
 	}
@@ -181,8 +191,22 @@ func TestCacheMigrationsFTS5AndOutboxDrain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Stats after Clear: %v", err)
 	}
-	if clearedStats != (cache.CacheStats{}) {
-		t.Fatalf("expected all zero stats after Clear, got %+v", clearedStats)
+	wantCleared := cache.CacheStats{Outbox: 2}
+	if clearedStats != wantCleared {
+		t.Fatalf("expected cleared stats %+v (outbox preserved), got %+v", wantCleared, clearedStats)
+	}
+	preserved, err := store.ListOutbox(ctx)
+	if err != nil || len(preserved) != 2 {
+		t.Fatalf("expected 2 preserved outbox rows after Clear, got %+v (%v)", preserved, err)
+	}
+	foundPocket := false
+	for _, item := range preserved {
+		if item.Kind == "pocket_note.put" && item.IdempotencyKey == "pn_preserve_1" {
+			foundPocket = true
+		}
+	}
+	if !foundPocket {
+		t.Fatalf("expected unsynced pocket_note.put outbox entry preserved after Clear, got %+v", preserved)
 	}
 	if hitsAfterClear, err := store.Search(ctx, "SPKI", 10); err != nil || len(hitsAfterClear) != 0 {
 		t.Fatalf("expected empty FTS5 index after Clear, got %+v (%v)", hitsAfterClear, err)

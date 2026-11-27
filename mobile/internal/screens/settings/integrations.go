@@ -251,7 +251,7 @@ func (s *Screen) checkConnStatusAsync(conn api.ExternalConnectionC2) {
 		s.enqueueUI(func() {
 			s.integBusyID = ""
 			if err != nil {
-				s.integError = err.Error()
+				s.integError = api.PresentError(err)
 				return
 			}
 			s.replaceConnection(updated)
@@ -272,7 +272,7 @@ func (s *Screen) toggleConnAutoRemindersAsync(connID string, enabled bool) {
 		updated, err := client.SetExternalConnectionAutoRemindersC2(context.Background(), connID, enabled)
 		s.enqueueUI(func() {
 			if err != nil {
-				s.integError = err.Error()
+				s.integError = api.PresentError(err)
 				return
 			}
 			s.replaceConnection(updated)
@@ -297,7 +297,7 @@ func (s *Screen) openAgentGrantsSheet(conn api.ExternalConnectionC2) {
 		s.enqueueUI(func() {
 			s.grantsBusy = false
 			if err != nil {
-				s.integError = err.Error()
+				s.integError = api.PresentError(err)
 				return
 			}
 			s.grantsAgents = agents
@@ -352,7 +352,7 @@ func (s *Screen) setAgentGrantAsync(connID, agentActorID string, granted bool) {
 		updated, err := client.SetExternalConnectionAgentGrant(context.Background(), connID, agentActorID, granted)
 		s.enqueueUI(func() {
 			if err != nil {
-				s.integError = err.Error()
+				s.integError = api.PresentError(err)
 				return
 			}
 			for i := range s.grantsAgents {
@@ -370,7 +370,7 @@ func (s *Screen) viewDisconnectConfirmSheet(c *ui.Context) {
 		s.connDisconnSheet = false
 		return
 	}
-	mobile.ActionSheet(c, &s.connDisconnSheet, mobile.ActionSheetOptions{
+	components.ActionSheet(c, &s.connDisconnSheet, mobile.ActionSheetOptions{
 		Title:   i18n.Tf("settings.integrations.disconnect_title", map[string]any{"name": conn.Provider}),
 		Message: i18n.T("settings.integrations.disconnect_body"),
 		Cancel:  i18n.T("common.cancel"),
@@ -392,7 +392,7 @@ func (s *Screen) disconnectConnAsync(conn api.ExternalConnectionC2) {
 		s.enqueueUI(func() {
 			s.integBusyID = ""
 			if err != nil {
-				s.integError = err.Error()
+				s.integError = api.PresentError(err)
 				return
 			}
 			s.replaceConnection(updated)
@@ -421,7 +421,7 @@ func (s *Screen) setDefaultWebSearchAsync(backendID string) {
 	}
 	go func() {
 		if err := client.SetWebSearchDefault(context.Background(), backendID); err != nil {
-			s.enqueueUI(func() { s.integError = err.Error() })
+			s.enqueueUI(func() { s.integError = api.PresentError(err) })
 			return
 		}
 		if ws, err := client.ListWebSearchBackends(context.Background()); err == nil {
@@ -442,7 +442,7 @@ func (s *Screen) saveWebSearchKeyAsync(backendID, apiKey string) {
 	}
 	go func() {
 		if err := client.SaveWebSearchKey(context.Background(), backendID, apiKey); err != nil {
-			s.enqueueUI(func() { s.integError = err.Error() })
+			s.enqueueUI(func() { s.integError = api.PresentError(err) })
 			return
 		}
 		if ws, err := client.ListWebSearchBackends(context.Background()); err == nil {
@@ -463,7 +463,7 @@ func (s *Screen) deleteWebSearchKeyAsync(backendID string) {
 	}
 	go func() {
 		if err := client.DeleteWebSearchKey(context.Background(), backendID); err != nil {
-			s.enqueueUI(func() { s.integError = err.Error() })
+			s.enqueueUI(func() { s.integError = api.PresentError(err) })
 			return
 		}
 		if ws, err := client.ListWebSearchBackends(context.Background()); err == nil {
@@ -490,7 +490,7 @@ func (s *Screen) saveVoiceKeyAsync(provider, apiKey string) {
 		s.enqueueUI(func() {
 			s.voiceKeyBusy = ""
 			if err != nil {
-				s.integError = err.Error()
+				s.integError = api.PresentError(err)
 				return
 			}
 			s.mu.Lock()

@@ -15,6 +15,10 @@ import { MdnsResponder } from "./companion/mdns.js";
 import { parseStandaloneArgs } from "./companion/standalone.js";
 
 const fake = vi.hoisted(() => {
+  /* eslint-disable @typescript-eslint/no-require-imports */
+  const { EventEmitter } =
+    require("node:events") as typeof import("node:events");
+  /* eslint-enable @typescript-eslint/no-require-imports */
   interface MockEvent {
     readonly sender?: unknown;
     readonly senderFrame?: { readonly url: string } | null;
@@ -32,7 +36,9 @@ const fake = vi.hoisted(() => {
   };
   const windows: FakeWindow[] = [];
   const clipboardWrites: string[] = [];
-  const themeState = { darkMode: false };
+  const theme = Object.assign(new EventEmitter(), {
+    shouldUseDarkColors: false,
+  });
   const localInstanceRef: {
     current: {
       origin: string;
@@ -58,6 +64,7 @@ const fake = vi.hoisted(() => {
     readonly events = new Map<string, () => void>();
     loadURL = vi.fn(async () => {});
     setTitle = vi.fn();
+    setBackgroundColor = vi.fn();
     show = vi.fn();
     focus = vi.fn();
     close = vi.fn(() => this.events.get("closed")?.());
@@ -84,7 +91,7 @@ const fake = vi.hoisted(() => {
     pages,
     windows,
     clipboardWrites,
-    themeState,
+    theme,
     localInstanceRef,
     localIdentityRef,
     FakeWindow,
@@ -118,11 +125,7 @@ vi.mock("electron", () => ({
     ) => fake.handlers.set(channel, handler),
     removeHandler: (channel: string) => fake.handlers.delete(channel),
   },
-  nativeTheme: {
-    get shouldUseDarkColors() {
-      return fake.themeState.darkMode;
-    },
-  },
+  nativeTheme: fake.theme,
   session: { fromPartition: () => fake.pages },
 }));
 vi.mock("../shell/messages.html", () => ({
@@ -143,7 +146,8 @@ beforeEach(() => {
   fake.protocolHandlers.clear();
   fake.windows.length = 0;
   fake.clipboardWrites.length = 0;
-  fake.themeState.darkMode = false;
+  fake.theme.shouldUseDarkColors = false;
+  fake.theme.removeAllListeners("updated");
   fake.localInstanceRef.current = null;
   fake.localIdentityRef.current = null;
 });
@@ -415,11 +419,50 @@ describe("MobileCompanionModule", () => {
     }
   });
 
-  it("renders listen port without commas, maps sessionMode, localizes IPC errors, and matches dark background", async () => {
-    fake.themeState.darkMode = true;
+  it("wires shell-theme dark mode, live updates, and cleans up nativeTheme listeners on close and stop", async () => {
+    fake.theme.shouldUseDarkColors = true;
     const fDark = await createFixture();
     try {
-      expect(fDark.window.options.backgroundColor).toBe("#141413");
+      expect(fDark.window.options.backgroundColor).toBe("#161614");
+      expect(fake.theme.listenerCount("updated")).toBe(1);
+
+      // OS theme changes live-update the open window background color.
+      fake.theme.shouldUseDarkColors = false;
+      fake.theme.emit("updated");
+      expect(fDark.window.setBackgroundColor).toHaveBeenLastCalledWith(
+        "#f6f6f6",
+      );
+
+      fake.theme.shouldUseDarkColors = true;
+      fake.theme.emit("updated");
+      expect(fDark.window.setBackgroundColor).toHaveBeenLastCalledWith(
+        "#161614",
+      );
+
+      // Closing the window removes the nativeTheme listener cleanly.
+      fDark.window.setBackgroundColor.mockClear();
+      fDark.window.close();
+      expect(fake.theme.listenerCount("updated")).toBe(0);
+      fake.theme.shouldUseDarkColors = false;
+      fake.theme.emit("updated");
+      expect(fDark.window.setBackgroundColor).not.toHaveBeenCalled();
+
+      // Reopening attaches one fresh listener, and module stop detaches it even if window never fired closed.
+      fDark.module.show();
+      const reopened = fake.windows[fake.windows.length - 1]!;
+      expect(reopened.options.backgroundColor).toBe("#f6f6f6");
+      expect(fake.theme.listenerCount("updated")).toBe(1);
+    } finally {
+      await fDark.host.stop("quit");
+    }
+    expect(fake.theme.listenerCount("updated")).toBe(0);
+  });
+
+  it("renders listen port without commas, maps sessionMode, localizes IPC errors, and matches shell-theme colors", async () => {
+    fake.theme.shouldUseDarkColors = true;
+    const fDark = await createFixture();
+    try {
+      expect(fDark.window.options.backgroundColor).toBe("#161614");
 
       // IPC errors localize dynamically when Desktop language switches from en to zh-CN.
       await expect(fDark.invokeRun({ op: "pairing.open" })).rejects.toThrow(
@@ -451,10 +494,10 @@ describe("MobileCompanionModule", () => {
       await fDark.host.stop("quit");
     }
 
-    fake.themeState.darkMode = false;
+    fake.theme.shouldUseDarkColors = false;
     const fLight = await createFixture();
     try {
-      expect(fLight.window.options.backgroundColor).toBe("#fcfcfa");
+      expect(fLight.window.options.backgroundColor).toBe("#f6f6f6");
     } finally {
       await fLight.host.stop("quit");
     }

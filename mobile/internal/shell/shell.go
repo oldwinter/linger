@@ -51,7 +51,11 @@ type Shell struct {
 	hooks                TabHooks
 	syncedKey            string
 	toastMessage         string
+	toastTone            components.Tone
 	toastUntil           time.Time
+	toastTTL             time.Duration
+	toastGen             uint64
+	toastTimer           *time.Timer
 	unlockError          string
 	unlocking            bool
 	biometricUnsupported bool
@@ -121,6 +125,9 @@ func New(store *state.AppStore, systemDark func() bool) *Shell {
 		Store:         store,
 		OnOpenRoom:    s.OpenRoom,
 		OnOpenConnect: s.OpenConnect,
+		OnHapticsChanged: func(enabled bool) {
+			_ = store.SetHapticsPreference(enabled)
+		},
 		OnComposerReturnChanged: func(sendOnEnter bool) {
 			store.SetComposerReturnSends(sendOnEnter)
 		},
@@ -131,14 +138,22 @@ func New(store *state.AppStore, systemDark func() bool) *Shell {
 			store.Disconnect()
 			s.OpenConnect()
 		},
-		ShowToast: s.ShowToast,
-		OnNotify:  store.Notify,
+		ShowToast:      s.ShowToast,
+		ShowErrorToast: func(msg string) { s.ShowToastWithTone(components.ToneDanger, msg) },
+		OnNotify:       store.Notify,
 	})
 	return s
 }
 
-// Close releases background workers and native WebViews owned by child tab screens.
+// Close releases background workers, pending toast timers, and native WebViews owned by child tab screens.
 func (s *Shell) Close() {
+	s.mu.Lock()
+	if s.toastTimer != nil {
+		s.toastTimer.Stop()
+		s.toastTimer = nil
+	}
+	s.toastGen++
+	s.mu.Unlock()
 	if s.roomsCtl != nil {
 		s.roomsCtl.Close()
 	}
@@ -169,15 +184,50 @@ func (s *Shell) SetWindow(w *mygo.Window) {
 	}
 }
 
-// ShowToast displays a brief non-blocking toast message at the top of the shell.
+// SetToastTTL overrides the auto-dismiss duration for toasts (used by tests; <=0 restores 4s default).
+func (s *Shell) SetToastTTL(d time.Duration) {
+	s.mu.Lock()
+	s.toastTTL = d
+	s.mu.Unlock()
+}
+
+// ShowToast displays a brief non-blocking success toast message at the top of the shell.
 func (s *Shell) ShowToast(msg string) {
+	s.ShowToastWithTone(components.ToneSuccess, msg)
+}
+
+// ShowToastWithTone displays a brief semantic toast banner that auto-dismisses cleanly.
+func (s *Shell) ShowToastWithTone(tone components.Tone, msg string) {
 	msg = strings.TrimSpace(msg)
 	if msg == "" {
 		return
 	}
 	s.mu.Lock()
+	ttl := s.toastTTL
+	if ttl <= 0 {
+		ttl = 4 * time.Second
+	}
+	if s.toastTimer != nil {
+		s.toastTimer.Stop()
+	}
+	s.toastGen++
+	gen := s.toastGen
 	s.toastMessage = msg
-	s.toastUntil = time.Now().Add(4 * time.Second)
+	s.toastTone = tone
+	s.toastUntil = time.Now().Add(ttl)
+	s.toastTimer = time.AfterFunc(ttl, func() {
+		s.mu.Lock()
+		changed := false
+		if s.toastGen == gen && s.toastMessage != "" {
+			s.toastMessage = ""
+			s.toastTimer = nil
+			changed = true
+		}
+		s.mu.Unlock()
+		if changed {
+			s.store.Notify()
+		}
+	})
 	s.mu.Unlock()
 	s.store.Notify()
 }
@@ -317,7 +367,7 @@ func (s *Shell) View(c *ui.Context) {
 	s.store.DrainUI()
 	snap := s.store.Snapshot()
 	s.maybeSyncTabsForConnection(snap)
-	resolvedTheme := theme.Resolve(snap.Prefs.Theme, s.systemDark())
+	resolvedTheme := theme.ResolveWithDensity(snap.Prefs.Theme, s.systemDark(), snap.Prefs.CompactMode)
 	c.SetTheme(resolvedTheme)
 	t := c.Theme()
 	m := layout.Of(c)
@@ -326,9 +376,13 @@ func (s *Shell) View(c *ui.Context) {
 		// Editorial top navigation bar with live connection health beacon.
 		s.viewTopBar(c, snap, activeTab, router, m)
 
-		// Optional transient toast banner.
+		// Optional transient semantic toast banner (auto-dismissed via cancellable timer).
 		s.mu.Lock()
 		toastMsg := s.toastMessage
+		toastTone := s.toastTone
+		if toastTone == "" {
+			toastTone = components.ToneSuccess
+		}
 		if toastMsg != "" && !s.toastUntil.IsZero() && time.Now().After(s.toastUntil) {
 			s.toastMessage = ""
 			toastMsg = ""
@@ -336,8 +390,13 @@ func (s *Shell) View(c *ui.Context) {
 		s.mu.Unlock()
 		if toastMsg != "" {
 			ui.Box(c).FillWidth().Padding(4, 14, 4, 14).Shrink(0).Children(func() {
-				components.StatusBanner(c, components.ToneSuccess, toastMsg, i18n.T("common.ok"), func() {
+				components.StatusBanner(c, toastTone, toastMsg, i18n.T("common.ok"), func() {
 					s.mu.Lock()
+					if s.toastTimer != nil {
+						s.toastTimer.Stop()
+						s.toastTimer = nil
+					}
+					s.toastGen++
 					s.toastMessage = ""
 					s.mu.Unlock()
 				})
@@ -487,11 +546,11 @@ func (s *Shell) navTabSpecs(c *ui.Context, snap state.Snapshot) []navTabSpec {
 
 func (s *Shell) activateNavTab(snap state.Snapshot, idx int, active bool) {
 	if !active {
-		mygo.Haptics.Light()
+		components.HapticLight()
 		s.store.SetActiveTab(idx)
 	} else if idx == state.TabMore && snap.Phase == state.PhaseConnected &&
 		strings.HasPrefix(s.store.Routers[state.TabMore].Path(), "/more/connect") {
-		mygo.Haptics.Light()
+		components.HapticLight()
 		s.store.Routers[state.TabMore].Replace("/more")
 	}
 }
@@ -762,7 +821,7 @@ func (s *Shell) viewTopBar(c *ui.Context, snap state.Snapshot, tab int, router *
 				})
 			}
 			if termBtn.Clicked() {
-				mygo.Haptics.Light()
+				components.HapticLight()
 				s.OpenTerminals("")
 			}
 		}

@@ -90,8 +90,8 @@ func TestConnectionHubViewportsInsetsAndAccessibility(t *testing.T) {
 				hub.SelectSegment(1)
 				testutil.ApplyKeyboardInset(tt, vp.Top)
 				tt.Frame()
-				if !tt.HasText("Nearby on LAN (mDNS)") {
-					t.Fatal("expected LAN radar section after switching to Pair Desktop")
+				if !tt.HasText("Nearby Computers") {
+					t.Fatal("expected Nearby Computers section after switching to Pair Desktop")
 				}
 				if !tt.HasText("Studio Mac") {
 					t.Fatal("expected mDNS discovered Studio Mac to render")
@@ -149,6 +149,96 @@ func TestConnectionHubTransientErrorClearsOnRecovery(t *testing.T) {
 	if !tt.HasText("Studio Mac") {
 		t.Fatal("expected paired Studio Mac host after recovery")
 	}
+}
+
+func TestSavedHostRemoveRequiresConfirmation(t *testing.T) {
+	store, hub := newTestStoreAndHub(t)
+
+	srv, err := testutil.NewFakeServer(true)
+	if err != nil {
+		t.Fatalf("NewFakeServer: %v", err)
+	}
+	defer srv.Close()
+
+	if err := store.ConfigurePreviewHost(context.Background(), srv.URL, srv.ValidToken, srv.Fingerprint, false); err != nil {
+		t.Fatalf("ConfigurePreviewHost: %v", err)
+	}
+
+	view := func(c *ui.Context) {
+		c.SetTheme(theme.TownLight())
+		ui.Column(c).Fill().Background(c.Theme().Background).Children(func() {
+			hub.View(c)
+		})
+	}
+	tt := testutil.NewPhoneTester(view, testutil.StandardMobileViewports[1])
+	tt.Frame()
+
+	// Open host action sheet -> tap Unpair / Remove -> must show secondary confirmation before removing!
+	if err := tt.Click("Host Preview Desktop"); err != nil {
+		t.Fatalf("click Host Preview Desktop: %v", err)
+	}
+	for range 4 {
+		tt.Frame()
+		tt.Advance(300 * time.Millisecond)
+		tt.Frame()
+	}
+	if err := tt.Click("Unpair & Remove Host"); err != nil {
+		t.Fatalf("click Unpair & Remove Host: %v (texts=%v)", err, tt.Texts())
+	}
+	for range 4 {
+		tt.Frame()
+		tt.Advance(300 * time.Millisecond)
+		tt.Frame()
+	}
+	if !tt.HasText("Remove Preview Desktop?") {
+		t.Fatalf("expected secondary remove confirmation ActionSheet, texts=%v", tt.Texts())
+	}
+	if len(store.Snapshot().Hosts) != 1 {
+		t.Fatalf("host was removed before confirmation: %d hosts", len(store.Snapshot().Hosts))
+	}
+
+	// Cancel preserves the host.
+	if err := tt.Click("Cancel"); err != nil {
+		t.Fatalf("click Cancel: %v", err)
+	}
+	for range 4 {
+		tt.Frame()
+		tt.Advance(300 * time.Millisecond)
+		tt.Frame()
+	}
+	if len(store.Snapshot().Hosts) != 1 {
+		t.Fatalf("host was removed after Cancel: %d hosts", len(store.Snapshot().Hosts))
+	}
+
+	// Re-open and confirm removal.
+	if err := tt.Click("Host Preview Desktop"); err != nil {
+		t.Fatalf("re-click Host Preview Desktop: %v", err)
+	}
+	for range 4 {
+		tt.Frame()
+		tt.Advance(300 * time.Millisecond)
+		tt.Frame()
+	}
+	if err := tt.Click("Unpair & Remove Host"); err != nil {
+		t.Fatalf("re-click Unpair & Remove Host: %v", err)
+	}
+	for range 4 {
+		tt.Frame()
+		tt.Advance(300 * time.Millisecond)
+		tt.Frame()
+	}
+	if err := tt.Click("Unpair & Remove Host"); err != nil {
+		t.Fatalf("confirm Unpair & Remove Host: %v", err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		tt.Frame()
+		if len(store.Snapshot().Hosts) == 0 {
+			return
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	t.Fatal("timed out waiting for confirmed host removal")
 }
 
 func TestConnectionHubGoldenSnapshots(t *testing.T) {

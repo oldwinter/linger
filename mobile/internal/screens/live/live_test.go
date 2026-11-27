@@ -83,8 +83,8 @@ func TestLiveOpsSegmentsApprovalsAgentsAndLocalModelsActions(t *testing.T) {
 			if !tt.HasText("Desktop Companion Host") || !tt.HasText("Qwen3 4B") || !tt.HasText("Llama 3.3 8B") {
 				t.Fatal("expected Companion host status and Local Models in Compute segment")
 			}
-			if !tt.HasText("SUBSCRIPTION") || tt.HasText("MANAGED") {
-				t.Fatal("expected SUBSCRIPTION button and zero MANAGED button in Model Source switcher")
+			if !tt.HasText("Subscription") || tt.HasText("MANAGED") || tt.HasText("Managed") {
+				t.Fatal("expected Subscription option and zero Managed option in Model Source switcher")
 			}
 		})
 	}
@@ -208,4 +208,89 @@ func TestLiveGoldenSnapshots(t *testing.T) {
 		})
 	}, testutil.StandardMobileViewports[1])
 	testutil.MatchGolden(t, ttComp, "testdata/live_compute_dark_390x844.png")
+}
+
+func TestLiveDestructiveActionsRequireConfirmation(t *testing.T) {
+	_, store, ctl := setupLiveHarness(t)
+
+	view := func(c *ui.Context) {
+		c.SetTheme(theme.TownLight())
+		ui.Column(c).Fill().Background(c.Theme().Background).Children(func() {
+			ctl.View(c, store.Snapshot())
+		})
+	}
+	tt := testutil.NewPhoneTester(view, testutil.StandardMobileViewports[1])
+
+	// 1. Live > Runs Stop requires confirmation ActionSheet before stopping active run.
+	ctl.SelectSegment(live.SegmentRuns)
+	tt.Frame()
+	if err := tt.Click("Stop"); err != nil {
+		t.Fatalf("click Stop: %v", err)
+	}
+	tt.Frame()
+	tt.Advance(400 * time.Millisecond)
+	tt.Frame()
+	if !tt.HasText("Stop Scout in Product Launch? The active turn will be interrupted immediately.") {
+		t.Fatalf("expected Stop confirmation ActionSheet naming agent & room, texts=%v", tt.Texts())
+	}
+	// Run must still be active until explicitly confirmed.
+	if len(store.Snapshot().ActiveRuns) == 0 || store.Snapshot().ActiveRuns[0].Status == "aborted" {
+		t.Fatalf("run was stopped before user confirmed ActionSheet: %+v", store.Snapshot().ActiveRuns)
+	}
+	if err := tt.Click("Keep Running"); err != nil {
+		t.Fatalf("click Keep Running: %v", err)
+	}
+	for range 6 {
+		tt.Frame()
+		tt.Advance(400 * time.Millisecond)
+		tt.Frame()
+		if !tt.HasText("Keep Running") {
+			break
+		}
+	}
+
+	// 2. Live > Compute Make Room & Load requires confirmation ActionSheet naming models to unload.
+	ctl.SelectSegment(live.SegmentCompute)
+	tt.Frame()
+	for range 16 {
+		r, ok := tt.Find("Make Room & Load")
+		if ok && r.Y >= 60 && r.Y+r.H <= 780 {
+			break
+		}
+		tt.Scroll(200, 400, 0, 260)
+		tt.Frame()
+	}
+	if err := tt.Click("Make Room & Load"); err != nil {
+		t.Fatalf("click Make Room & Load: %v", err)
+	}
+	tt.Frame()
+	tt.Advance(400 * time.Millisecond)
+	tt.Frame()
+	if !tt.HasText("Unload & Load") {
+		t.Fatalf("expected Make Room & Load confirmation ActionSheet, texts=%v", tt.Texts())
+	}
+	// Qwen3 4B must still be loaded before confirming.
+	for _, mv := range store.Snapshot().LocalModels.Models {
+		if mv.Model.ID == "qwen3-4b:Q4_K_M" && mv.Model.State != "loaded" {
+			t.Fatalf("loaded model was unloaded before confirmation: %+v", mv.Model)
+		}
+	}
+	if err := tt.Click("Unload & Load"); err != nil {
+		t.Fatalf("confirm Unload & Load: %v", err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		tt.Frame()
+		found := false
+		for _, mv := range store.Snapshot().LocalModels.Models {
+			if mv.Model.ID == "llama3.3-8b:Q4_K_M" && mv.Model.State == "loaded" {
+				found = true
+			}
+		}
+		if found {
+			return
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	t.Fatal("timed out waiting for confirmed Make Room & Load to finish")
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"strings"
 
-	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/mobile"
 	"github.com/oldwinter/linger/mobile/internal/api"
@@ -290,7 +289,7 @@ func (ctl *Controller) viewDeleteAgentConfirm(c *ui.Context) {
 	if ag != nil {
 		name = ag.Actor.DisplayName
 	}
-	mobile.ActionSheet(c, &ctl.deleteAgentOpen, mobile.ActionSheetOptions{
+	components.ActionSheet(c, &ctl.deleteAgentOpen, mobile.ActionSheetOptions{
 		Title:   i18n.Tf("live.agents.delete_title", map[string]any{"name": name}),
 		Message: i18n.T("live.agents.delete_body"),
 		Cancel:  i18n.T("common.cancel"),
@@ -301,7 +300,7 @@ func (ctl *Controller) viewDeleteAgentConfirm(c *ui.Context) {
 			if ag == nil {
 				return
 			}
-			mygo.Haptics.Warning()
+			components.HapticWarning()
 			tenantID := ctl.store.Snapshot().TenantID
 			go func() {
 				if cl := ctl.store.Client(); cl != nil && tenantID != "" {
@@ -362,7 +361,7 @@ func (ctl *Controller) saveAgentChangesAsync(tenantID string, ag api.TenantAgent
 				ctl.mu.Unlock()
 				ctl.setNotice(i18n.Tf("live.agents.toast.saved", map[string]any{"name": name}))
 			} else {
-				ctl.store.SetTransientError(err.Error())
+				ctl.store.SetTransientError(api.PresentError(err))
 			}
 		}
 		ctl.mu.Lock()
@@ -403,7 +402,7 @@ func (ctl *Controller) createAgentAsync(tenantID string) {
 				})
 				return
 			}
-			ctl.store.SetTransientError(err.Error())
+			ctl.store.SetTransientError(api.PresentError(err))
 		}
 		ctl.store.EnqueueUI(func() {
 			ctl.mu.Lock()

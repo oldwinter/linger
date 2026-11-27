@@ -5,7 +5,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
 	"github.com/egoist/mygo/ui/netimage"
@@ -421,7 +420,7 @@ func renderQuestionCard(
 			}
 			answers[q.ID] = val
 		}
-		mygo.Haptics.Success()
+		HapticSuccess()
 		st.SetBusy("submit")
 		cb.OnDecide(roomID, card.DecisionID, api.DecisionRequest{
 			Decision:        "submit",
@@ -612,7 +611,7 @@ func renderProfileSetupAppsCard(
 		b1 := PrimaryTouchButton(c, connLbl, busy)
 		b1.Grow(1).Basis(0)
 		if b1.Clicked() && cb.OnDecide != nil {
-			mygo.Haptics.Success()
+			HapticSuccess()
 			st.SetBusy("connected")
 			cb.OnDecide(roomID, card.DecisionID, api.DecisionRequest{Decision: "connected", ExpectedVersion: card.Version})
 		}
@@ -647,7 +646,7 @@ func renderProfileSetupSourcesCard(
 					links = append(links, trimmed)
 				}
 			}
-			mygo.Haptics.Success()
+			HapticSuccess()
 			st.SetBusy("done")
 			cb.OnDecide(roomID, card.DecisionID, api.DecisionRequest{
 				Decision:        "done",
@@ -683,7 +682,7 @@ func renderSettingsOrDeclineBar(
 		}
 		denyBtn := DangerTouchButton(c, denyLbl, busy)
 		if denyBtn.Clicked() && cb.OnDecide != nil {
-			mygo.Haptics.Warning()
+			HapticWarning()
 			st.SetBusy("deny")
 			cb.OnDecide(roomID, card.DecisionID, api.DecisionRequest{Decision: "deny", ExpectedVersion: card.Version})
 		}
@@ -708,7 +707,7 @@ func renderApproveDenyBar(
 		appBtn := PrimaryTouchButton(c, appTxt, busy)
 		appBtn.Grow(1).Basis(0)
 		if appBtn.Clicked() && cb.OnDecide != nil {
-			mygo.Haptics.Success()
+			HapticSuccess()
 			st.SetBusy("approve")
 			cb.OnDecide(roomID, card.DecisionID, api.DecisionRequest{
 				Decision:        "approve",
@@ -728,7 +727,7 @@ func renderApproveDenyBar(
 				st.denyExpanded = true
 				return
 			}
-			mygo.Haptics.Warning()
+			HapticWarning()
 			st.SetBusy("deny")
 			var commentPtr *string
 			if reason != "" {

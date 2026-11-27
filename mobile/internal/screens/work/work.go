@@ -90,28 +90,31 @@ type Screen struct {
 	createDesc         string
 	createOriginRoomID string
 
-	detailOpen         bool
-	detailItemID       string
-	detailItem         *api.WorkItem
-	detailComments     []api.WorkItemComment
-	detailTimeline     []api.WorkItemTimelineEntry
-	detailTaskExec     *api.TaskExecutionProjection
-	detailTaskConv     *api.TaskConversation
-	detailTaskRuns     *api.TaskRuntimePresentationRunPage
-	detailBusy         bool
-	detailError        string
-	transitionSheet    bool
-	assigneeSheet      bool
-	editSheetOpen      bool
-	editBusy           bool
-	editError          string
-	editTitle          string
-	editDesc           string
-	editPriority       int
-	commentDraft       string
-	editingCommentID   string
-	editingCommentVer  int64
-	editingCommentBody string
+	detailOpen           bool
+	detailItemID         string
+	detailItem           *api.WorkItem
+	detailComments       []api.WorkItemComment
+	detailTimeline       []api.WorkItemTimelineEntry
+	detailTaskExec       *api.TaskExecutionProjection
+	detailTaskConv       *api.TaskConversation
+	detailTaskRuns       *api.TaskRuntimePresentationRunPage
+	detailBusy           bool
+	detailError          string
+	transitionSheet      bool
+	assigneeSheet        bool
+	editSheetOpen        bool
+	editBusy             bool
+	editError            string
+	editTitle            string
+	editDesc             string
+	editPriority         int
+	commentDraft         string
+	editingCommentID     string
+	editingCommentVer    int64
+	editingCommentBody   string
+	commentDelOpen       bool
+	commentDelWorkItemID string
+	commentDelItem       *api.WorkItemComment
 
 	// Routines state & sheets.
 	routineRoomFilter  string // "" = All Rooms
@@ -317,7 +320,7 @@ func (s *Screen) Refresh(ctx context.Context) {
 		}
 	}
 	if firstErr != nil {
-		s.syncError = firstErr.Error()
+		s.syncError = api.PresentError(firstErr)
 	} else {
 		s.syncError = ""
 	}
@@ -391,6 +394,7 @@ func (s *Screen) View(c *ui.Context) {
 	// Modal bottom sheets & action sheets.
 	s.viewCreateWorkItemSheet(c)
 	s.viewWorkItemDetailSheet(c)
+	s.viewDeleteCommentConfirm(c)
 	s.viewWorkItemEditSheet(c)
 	s.viewTransitionActionSheet(c)
 	s.viewAssigneeSheet(c)

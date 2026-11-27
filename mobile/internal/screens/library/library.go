@@ -326,7 +326,7 @@ func (s *Screen) Refresh(ctx context.Context) {
 		s.activeCapture = activeCapPtr
 	}
 	if firstErr != nil {
-		s.syncError = firstErr.Error()
+		s.syncError = api.PresentError(firstErr)
 	} else {
 		s.syncError = ""
 	}
@@ -507,7 +507,7 @@ func (s *Screen) submitLiveSearch() {
 				resMu.Lock()
 				defer resMu.Unlock()
 				if err != nil {
-					errMsgs = append(errMsgs, err.Error())
+					errMsgs = append(errMsgs, api.PresentError(err))
 					return
 				}
 				for _, hit := range mp.Items {
@@ -531,7 +531,7 @@ func (s *Screen) submitLiveSearch() {
 			resMu.Lock()
 			defer resMu.Unlock()
 			if err != nil {
-				errMsgs = append(errMsgs, err.Error())
+				errMsgs = append(errMsgs, api.PresentError(err))
 				return
 			}
 			for _, doc := range dp.Items {

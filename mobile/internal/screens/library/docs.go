@@ -365,7 +365,7 @@ func (s *Screen) openDocument(doc api.Document) {
 				s.readerDoc = &d
 			}
 			if dErr != nil {
-				s.readerErr = dErr.Error()
+				s.readerErr = api.PresentError(dErr)
 			} else {
 				s.readerErr = ""
 				s.readerBytes = data
@@ -589,7 +589,7 @@ func (s *Screen) openHTMLPreview(versionID string) {
 			preErr      string
 		)
 		if err != nil {
-			preErr = err.Error()
+			preErr = api.PresentError(err)
 		} else {
 			resolvedURL = client.ResolveEndpointURL(sess.PreviewURL)
 			if vErr := validateDocPreviewURL(resolvedURL, hostBase, allowPlain); vErr != nil {
@@ -602,7 +602,7 @@ func (s *Screen) openHTMLPreview(versionID string) {
 				if u, uErr := url.Parse(resolvedURL); uErr != nil {
 					preErr = uErr.Error()
 				} else if raw, _, fErr := client.DoBytes(context.Background(), http.MethodGet, u.RequestURI(), nil, nil); fErr != nil {
-					preErr = fErr.Error()
+					preErr = api.PresentError(fErr)
 				} else {
 					inlineHTML = string(raw)
 				}
@@ -760,7 +760,7 @@ func (s *Screen) loadVersionContent(verID, filename, mediaType string) {
 		data, ct, err := client.DownloadDocumentVersion(context.Background(), verID)
 		s.enqueueUI(func() {
 			if err != nil {
-				s.readerErr = err.Error()
+				s.readerErr = api.PresentError(err)
 				return
 			}
 			s.readerBytes = data
@@ -784,7 +784,7 @@ func (s *Screen) restoreHistoryAsync(docID, historyID string) {
 		err := client.RestoreDocumentHistoryEntry(context.Background(), docID, historyID)
 		s.enqueueUI(func() {
 			if err != nil {
-				s.readerErr = err.Error()
+				s.readerErr = api.PresentError(err)
 				return
 			}
 			s.versionsSheetOpen = false
@@ -860,8 +860,10 @@ func (s *Screen) viewDocCommentsSheet(c *ui.Context) {
 
 				ta := ui.TextArea(c, &s.commentInput).FillWidth().MinHeight(68).
 					Placeholder(i18n.T("library.docs.new_comment_placeholder")).Label(i18n.T("library.docs.new_comment_a11y"))
+				// Snapshot IME composing state during build; ui.Element handles expire before OnTextKey runs.
+				composing := ta.Composing()
 				ta.OnTextKey(func(k ui.TextKey) bool {
-					if k.Key != ui.KeyEnter || k.Mods != 0 {
+					if k.Key != ui.KeyEnter || composing || k.Mods != 0 {
 						return false
 					}
 					txt := strings.TrimSpace(k.Text())
@@ -893,10 +895,15 @@ func (s *Screen) createDocThreadAsync(docID, body string) {
 		th, err := client.CreateDocumentCommentThread(context.Background(), docID, body)
 		s.enqueueUI(func() {
 			if err != nil {
-				s.readerErr = err.Error()
+				s.readerErr = api.PresentError(err)
+				if strings.TrimSpace(s.commentInput) == "" {
+					s.commentInput = body
+				}
 				return
 			}
-			s.commentInput = ""
+			if strings.TrimSpace(s.commentInput) == body {
+				s.commentInput = ""
+			}
 			s.readerThreads = append(s.readerThreads, th)
 		})
 	}()
@@ -912,7 +919,7 @@ func (s *Screen) replyDocThreadAsync(threadID, body string) {
 		cm, err := client.ReplyDocumentCommentThread(context.Background(), threadID, body)
 		s.enqueueUI(func() {
 			if err != nil {
-				s.readerErr = err.Error()
+				s.readerErr = api.PresentError(err)
 				return
 			}
 			s.replyThreadID = ""
@@ -935,7 +942,7 @@ func (s *Screen) resolveDocThreadAsync(threadID string, resolved bool) {
 		updated, err := client.SetDocumentCommentThreadResolved(context.Background(), threadID, resolved)
 		s.enqueueUI(func() {
 			if err != nil {
-				s.readerErr = err.Error()
+				s.readerErr = api.PresentError(err)
 				return
 			}
 			for i := range s.readerThreads {
@@ -995,7 +1002,7 @@ func (s *Screen) viewLinkShareSheet(c *ui.Context) {
 							go func() {
 								err := s.share(mygo.ShareOptions{Text: doc.Title, URL: shareURL})
 								if err != nil && !errors.Is(err, errors.ErrUnsupported) {
-									s.enqueueUI(func() { s.readerErr = err.Error() })
+									s.enqueueUI(func() { s.readerErr = api.PresentError(err) })
 								}
 							}()
 						}
@@ -1021,7 +1028,7 @@ func (s *Screen) updateLinkShareAsync(docID, role string, ver int64, reset bool)
 		ls, err := client.SetDocumentLinkShare(context.Background(), docID, role, ver, reset)
 		s.enqueueUI(func() {
 			if err != nil {
-				s.readerErr = err.Error()
+				s.readerErr = api.PresentError(err)
 				return
 			}
 			cp := ls
@@ -1038,7 +1045,7 @@ func (s *Screen) revokeLinkShareAsync(docID string, ver int64) {
 	}
 	go func() {
 		if err := client.RevokeDocumentLinkShare(context.Background(), docID, ver); err != nil {
-			s.enqueueUI(func() { s.readerErr = err.Error() })
+			s.enqueueUI(func() { s.readerErr = api.PresentError(err) })
 			return
 		}
 		s.enqueueUI(func() {
@@ -1060,7 +1067,7 @@ func (s *Screen) saveReaderCopy(doc api.Document) {
 	go func() {
 		tmpDir, err := os.MkdirTemp("", "linger-doc-*")
 		if err != nil {
-			s.enqueueUI(func() { s.readerErr = err.Error() })
+			s.enqueueUI(func() { s.readerErr = api.PresentError(err) })
 			return
 		}
 		defer os.RemoveAll(tmpDir)
@@ -1070,7 +1077,7 @@ func (s *Screen) saveReaderCopy(doc api.Document) {
 		}
 		tmpFile := filepath.Join(tmpDir, name)
 		if err := os.WriteFile(tmpFile, data, 0o600); err != nil {
-			s.enqueueUI(func() { s.readerErr = err.Error() })
+			s.enqueueUI(func() { s.readerErr = api.PresentError(err) })
 			return
 		}
 		outPath, err := s.saveCopy(tmpFile, name)
@@ -1079,7 +1086,7 @@ func (s *Screen) saveReaderCopy(doc api.Document) {
 				if errors.Is(err, errors.ErrUnsupported) {
 					s.readerNotice = i18n.T("library.docs.save_copy_headless")
 				} else if !errors.Is(err, mygo.ErrCanceled) {
-					s.readerErr = err.Error()
+					s.readerErr = api.PresentError(err)
 				}
 				return
 			}
@@ -1120,7 +1127,7 @@ func (s *Screen) renameDocAsync(docID, title string) {
 		updated, err := client.UpdateDocumentMetadata(context.Background(), docID, title)
 		s.enqueueUI(func() {
 			if err != nil {
-				s.readerErr = err.Error()
+				s.readerErr = api.PresentError(err)
 				return
 			}
 			cp := updated
@@ -1138,7 +1145,7 @@ func (s *Screen) viewDeleteDocConfirm(c *ui.Context) {
 		s.deleteConfirmOpen = false
 		return
 	}
-	mobile.ActionSheet(c, &s.deleteConfirmOpen, mobile.ActionSheetOptions{
+	components.ActionSheet(c, &s.deleteConfirmOpen, mobile.ActionSheetOptions{
 		Title:   i18n.T("library.docs.delete_title"),
 		Message: doc.Title,
 		Cancel:  i18n.T("common.cancel"),
@@ -1158,7 +1165,7 @@ func (s *Screen) deleteDocAsync(docID string) {
 	}
 	go func() {
 		if err := client.DeleteDocument(context.Background(), docID); err != nil {
-			s.enqueueUI(func() { s.readerErr = err.Error() })
+			s.enqueueUI(func() { s.readerErr = api.PresentError(err) })
 			return
 		}
 		s.enqueueUI(func() {
@@ -1223,7 +1230,7 @@ func (s *Screen) submitNewNote() {
 		s.enqueueUI(func() {
 			s.newNoteBusy = false
 			if err != nil {
-				s.newNoteErr = err.Error()
+				s.newNoteErr = api.PresentError(err)
 				return
 			}
 			s.newNoteSheetOpen = false
@@ -1246,7 +1253,7 @@ func (s *Screen) triggerUploadFile() {
 			s.enqueueUI(func() {
 				s.uploadBusy = false
 				if !errors.Is(err, mygo.ErrCanceled) && !errors.Is(err, errors.ErrUnsupported) {
-					s.uploadErr = err.Error()
+					s.uploadErr = api.PresentError(err)
 				}
 			})
 			return
@@ -1269,7 +1276,7 @@ func (s *Screen) triggerUploadPhoto() {
 				if errors.Is(err, errors.ErrUnsupported) {
 					s.uploadErr = i18n.T("library.docs.photo_picker_hint")
 				} else if !errors.Is(err, mygo.ErrCanceled) {
-					s.uploadErr = err.Error()
+					s.uploadErr = api.PresentError(err)
 				}
 			})
 			return
@@ -1290,7 +1297,7 @@ func (s *Screen) uploadLocalPaths(paths []string) {
 	if err != nil {
 		s.enqueueUI(func() {
 			s.uploadBusy = false
-			s.uploadErr = err.Error()
+			s.uploadErr = api.PresentError(err)
 		})
 		return
 	}
@@ -1303,7 +1310,7 @@ func (s *Screen) uploadLocalPaths(paths []string) {
 	s.enqueueUI(func() {
 		s.uploadBusy = false
 		if err != nil {
-			s.uploadErr = err.Error()
+			s.uploadErr = api.PresentError(err)
 			return
 		}
 		s.replaceDocInList(doc)

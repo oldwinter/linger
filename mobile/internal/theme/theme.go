@@ -105,7 +105,7 @@ var (
 		BrandTint:     ui.RGBA(245, 164, 66, 0.16),
 		Info:          ui.Hex("#6CB2EA"),
 		InfoTint:      ui.RGBA(108, 178, 234, 0.15),
-		DangerTint:    ui.RGBA(242, 117, 87, 0.16),
+		DangerTint:    ui.RGBA(245, 131, 102, 0.15),
 		WarnTint:      ui.RGBA(240, 170, 62, 0.16),
 		OKTint:        ui.RGBA(100, 191, 122, 0.15),
 		OwnBubbleBg:   ui.Hex("#EAE8DF"),
@@ -165,7 +165,7 @@ func TownDark() *ui.Theme {
 		AccentPressed:   ui.Hex("#DCD9CC"),
 		AccentText:      ui.Hex("#141411"),
 		InactiveAccent:  ui.Hex("#9A988D"),
-		Danger:          ui.Hex("#F27557"),
+		Danger:          ui.Hex("#F58366"),
 		Warning:         ui.Hex("#F0AA3E"),
 		Success:         ui.Hex("#64BF7A"),
 		Selection:       ui.RGBA(245, 164, 66, 0.28),
@@ -191,17 +191,33 @@ func Extra(t *ui.Theme) ExtraTokens {
 
 // Resolve picks TownLight or TownDark according to user preference and system appearance.
 func Resolve(pref config.ThemePreference, systemDark bool) *ui.Theme {
+	return ResolveWithDensity(pref, systemDark, false)
+}
+
+// ResolveWithDensity picks TownLight or TownDark and applies comfortable (Spacing=4) or compact (Spacing=2) density.
+func ResolveWithDensity(pref config.ThemePreference, systemDark, compact bool) *ui.Theme {
+	var t *ui.Theme
 	switch pref {
 	case config.ThemeLight:
-		return TownLight()
+		t = TownLight()
 	case config.ThemeDark:
-		return TownDark()
+		t = TownDark()
 	default:
 		if systemDark {
-			return TownDark()
+			t = TownDark()
+		} else {
+			t = TownLight()
 		}
-		return TownLight()
 	}
+	if compact {
+		t.Spacing = 2
+	}
+	return t
+}
+
+// IsCompact reports whether t is configured for compact layout density.
+func IsCompact(t *ui.Theme) bool {
+	return t != nil && t.Spacing > 0 && t.Spacing <= 2
 }
 
 var avatarSwatches = []ui.Color{

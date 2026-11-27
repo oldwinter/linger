@@ -559,6 +559,10 @@ func (f *FakeServer) serveWaveC1Route(w http.ResponseWriter, r *http.Request) bo
 		return true
 
 	case strings.HasPrefix(path, "/v0/rooms/") && strings.Contains(path, "/background-tasks/") && strings.HasSuffix(path, "/cancel") && r.Method == http.MethodPost:
+		taskID := extractMiddleSegment(path, "/background-tasks/", "/cancel")
+		f.mu.Lock()
+		f.CancelledBackgroundTasks = append(f.CancelledBackgroundTasks, taskID)
+		f.mu.Unlock()
 		w.WriteHeader(http.StatusNoContent)
 		return true
 

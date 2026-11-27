@@ -178,10 +178,10 @@ func TestLocalePreferenceResolutionAndFormatting(t *testing.T) {
 	if got := FormatElapsed(3665); got != "1h 1m" {
 		t.Fatalf("EN FormatElapsed(3665) = %q", got)
 	}
-	if got := DocStatusLabel("active"); got != "active" {
+	if got := DocStatusLabel("active"); got != "Active" {
 		t.Fatalf("EN DocStatusLabel(active) = %q", got)
 	}
-	if got := StatusLabel("not_required"); got != "no key needed" {
+	if got := StatusLabel("not_required"); got != "No Key Needed" {
 		t.Fatalf("EN StatusLabel(not_required) = %q", got)
 	}
 }
@@ -362,5 +362,30 @@ func TestLabelHelpersAndWindowTitle(t *testing.T) {
 	}
 	if got := ServerURLModeLabel("custom_mode"); got != "custom_mode" {
 		t.Errorf("unknown fallback = %q, want custom_mode", got)
+	}
+}
+
+func TestCatalogLingerXBrandingInvariant(t *testing.T) {
+	forbidden := []string{
+		"Linger Mobile",
+		"Linger Desktop",
+		"Linger Host",
+		"Linger \u79fb\u52a8\u7aef",
+		"Linger \u684c\u9762\u7aef",
+		"Linger \u4e3b\u673a",
+		"linger://pair",
+	}
+	for _, loc := range []string{LocaleEN, LocaleZhHans} {
+		m := loadRawCatalog(t, loc)
+		for k, v := range m {
+			if k == "@@locale" {
+				continue
+			}
+			for _, bad := range forbidden {
+				if strings.Contains(v, bad) {
+					t.Errorf("%s.json key %q contains legacy pre-rebrand string %q: %q", loc, k, bad, v)
+				}
+			}
+		}
 	}
 }

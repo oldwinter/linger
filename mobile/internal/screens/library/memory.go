@@ -381,9 +381,14 @@ func (s *Screen) viewVoiceCaptureSheet(c *ui.Context) {
 				components.SectionCard(c, i18n.T("library.memory.ask_qa_title"), "", nil, func() {
 					ta := ui.TextArea(c, &s.voiceQuestionDraft).FillWidth().MinHeight(64).
 						Placeholder(i18n.T("library.memory.qa_placeholder")).Label(i18n.T("library.memory.meeting_a11y"))
+					// Snapshot IME composing state during build; ui.Element handles expire before OnTextKey runs.
+					composing := ta.Composing()
 					ta.OnTextKey(func(k ui.TextKey) bool {
-						if k.Key != ui.KeyEnter || k.Mods != 0 {
+						if k.Key != ui.KeyEnter || composing || k.Mods != 0 {
 							return false
+						}
+						if s.voiceBusy {
+							return true
 						}
 						q := strings.TrimSpace(k.Text())
 						if q == "" {
@@ -436,7 +441,7 @@ func (s *Screen) stopCaptureAsync(captureID string) {
 		s.enqueueUI(func() {
 			s.voiceBusy = false
 			if err != nil {
-				s.voiceErr = err.Error()
+				s.voiceErr = api.PresentError(err)
 				return
 			}
 			cp := updated
@@ -457,7 +462,7 @@ func (s *Screen) retryTranscriptRecoveryAsync(captureID string) {
 		s.enqueueUI(func() {
 			s.voiceBusy = false
 			if err != nil {
-				s.voiceErr = err.Error()
+				s.voiceErr = api.PresentError(err)
 				return
 			}
 			cp := updated
@@ -470,7 +475,7 @@ func (s *Screen) retryTranscriptRecoveryAsync(captureID string) {
 func (s *Screen) askVoiceQuestionAsync(captureID, question string) {
 	client := s.client()
 	question = strings.TrimSpace(question)
-	if client == nil || question == "" {
+	if client == nil || question == "" || s.voiceBusy {
 		return
 	}
 	s.voiceBusy = true
@@ -479,10 +484,15 @@ func (s *Screen) askVoiceQuestionAsync(captureID, question string) {
 		s.enqueueUI(func() {
 			s.voiceBusy = false
 			if err != nil {
-				s.voiceErr = err.Error()
+				s.voiceErr = api.PresentError(err)
+				if strings.TrimSpace(s.voiceQuestionDraft) == "" {
+					s.voiceQuestionDraft = question
+				}
 				return
 			}
-			s.voiceQuestionDraft = ""
+			if strings.TrimSpace(s.voiceQuestionDraft) == question {
+				s.voiceQuestionDraft = ""
+			}
 			s.voiceQuestions = append([]api.VoiceCaptureQuestion{ans}, s.voiceQuestions...)
 		})
 	}()
@@ -497,7 +507,7 @@ func (s *Screen) sendVoiceQuestionTaskAsync(captureID, questionID string) {
 		updated, err := client.SendVoiceCaptureQuestionTask(context.Background(), captureID, questionID)
 		s.enqueueUI(func() {
 			if err != nil {
-				s.voiceErr = err.Error()
+				s.voiceErr = api.PresentError(err)
 				return
 			}
 			for i := range s.voiceQuestions {
@@ -529,7 +539,7 @@ func (s *Screen) loadAudioVersion(verID string) {
 		data, ct, err := client.DownloadDocumentVersion(context.Background(), verID)
 		if err != nil {
 			s.enqueueUI(func() {
-				s.voiceAudioStatus = i18n.Tf("library.memory.err_load_audio", map[string]any{"err": err.Error()})
+				s.voiceAudioStatus = i18n.Tf("library.memory.err_load_audio", map[string]any{"err": api.PresentError(err)})
 			})
 			return
 		}

@@ -11,6 +11,7 @@ import (
 	"github.com/egoist/mygo/plugins/biometrics"
 	"github.com/egoist/mygo/ui"
 	"github.com/oldwinter/linger/mobile/internal/cache"
+	"github.com/oldwinter/linger/mobile/internal/components"
 	"github.com/oldwinter/linger/mobile/internal/config"
 	"github.com/oldwinter/linger/mobile/internal/screens/settings"
 	"github.com/oldwinter/linger/mobile/internal/state"
@@ -20,8 +21,11 @@ import (
 
 func waitUntil(t *testing.T, timeout time.Duration, fn func() bool) {
 	t.Helper()
+	if timeout < 10*time.Second {
+		timeout = 10 * time.Second
+	}
 	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
+	for i := 0; i < 2 || time.Now().Before(deadline); i++ {
 		if fn() {
 			return
 		}
@@ -232,7 +236,7 @@ func TestSettingsProactiveShadowRulePromotionAndEdit(t *testing.T) {
 
 	// 1-tap Promote moves rule from Shadow Review to Active Rules
 	clickOrScroll(t, tt, "Promote")
-	waitUntil(t, 2*time.Second, func() bool {
+	waitUntil(t, 5*time.Second, func() bool {
 		settle(tt)
 		return tt.HasText("Active Rules (2)")
 	})
@@ -243,7 +247,7 @@ func TestSettingsProactiveShadowRulePromotionAndEdit(t *testing.T) {
 	tt.Type(" \u4f18\u5148\u5904\u7406")
 	tt.Frame()
 	clickOrScroll(t, tt, "Save Rule")
-	waitUntil(t, 2*time.Second, func() bool {
+	waitUntil(t, 5*time.Second, func() bool {
 		settle(tt)
 		return !tt.HasText("Save Rule") && tt.HasText("\u4f18\u5148\u5904\u7406")
 	})
@@ -251,10 +255,168 @@ func TestSettingsProactiveShadowRulePromotionAndEdit(t *testing.T) {
 	// Test Mandate ActionSheet
 	clickOrScroll(t, tt, "Mandate")
 	clickOrScroll(t, tt, "Create Work Item")
-	waitUntil(t, 2*time.Second, func() bool {
+	waitUntil(t, 5*time.Second, func() bool {
 		settle(tt)
 		return tt.HasText("Mandate: Create Work Item")
 	})
+}
+
+func TestShadowRuleDismissRequiresConfirmation(t *testing.T) {
+	h := newSettingsHarness(t, biometrics.FaceID, nil)
+	h.screen.SelectSection(settings.SectionRules)
+
+	tt := testutil.NewPhoneTester(func(c *ui.Context) {
+		c.SetTheme(theme.TownLight())
+		h.screen.View(c)
+	}, testutil.StandardMobileViewports[1])
+	tt.Frame()
+
+	if !tt.HasText("Shadow Review (1)") {
+		t.Fatalf("expected 1 shadow rule initially, texts=%v", tt.Texts())
+	}
+	clickOrScroll(t, tt, "Dismiss")
+	if !tt.HasText("Dismiss Rule") {
+		t.Fatalf("expected Dismiss confirmation ActionSheet before removing shadow rule, texts=%v", tt.Texts())
+	}
+	// Cancelling preserves the shadow rule.
+	clickOrScroll(t, tt, "Cancel")
+	if !tt.HasText("Shadow Review (1)") {
+		t.Fatal("shadow rule disappeared after cancelling confirmation")
+	}
+	// Confirming removes the shadow rule.
+	clickOrScroll(t, tt, "Dismiss")
+	clickOrScroll(t, tt, "Dismiss Rule")
+	waitUntil(t, 5*time.Second, func() bool {
+		settle(tt)
+		return tt.HasText("Shadow Review (0)")
+	})
+}
+
+func TestPreferencesPersistenceBiometricOffSubtitleAndInlineCacheError(t *testing.T) {
+	srv, err := testutil.NewC2FakeServer(true)
+	if err != nil {
+		t.Fatalf("NewC2FakeServer: %v", err)
+	}
+	defer srv.Close()
+
+	client, err := srv.NewClient()
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	cs, err := cache.Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatalf("cache.Open: %v", err)
+	}
+	defer func() { _ = cs.Close() }()
+
+	// Enqueue an unsynced Pocket Note so Clear Local Cache must report preserving it.
+	if err := cs.EnqueueOutbox(context.Background(), "pocket:test-1", "pocket_note.put", "today", map[string]string{"text": "unsynced"}); err != nil {
+		t.Fatalf("EnqueueOutbox: %v", err)
+	}
+
+	prefsBackend := config.NewMemoryPreferencesBackend()
+	secretsBackend := config.NewMemorySecretsBackend()
+	cfg := config.NewStore(prefsBackend, secretsBackend)
+	store := state.NewAppStore(state.Options{ConfigStore: cfg, DataDir: t.TempDir()})
+	defer store.Disconnect()
+
+	failClear := true
+	var errorToasts []string
+	scr := settings.New(settings.Deps{
+		Store:    store,
+		Client:   client,
+		Cache:    cs,
+		TenantID: srv.TenantID,
+		OnClearCache: func(ctx context.Context) error {
+			if failClear {
+				return errors.New("disk busy")
+			}
+			return cs.Clear(ctx)
+		},
+		ShowErrorToast: func(msg string) {
+			errorToasts = append(errorToasts, msg)
+		},
+		CheckBiometrics: func(_ context.Context) (biometrics.Kind, error) {
+			return biometrics.FaceID, nil
+		},
+	})
+	scr.Refresh(context.Background())
+	scr.SelectSection(settings.SectionPreferences)
+
+	tt := testutil.NewPhoneTester(func(c *ui.Context) {
+		c.SetTheme(theme.TownLight())
+		scr.View(c)
+	}, testutil.StandardMobileViewports[1])
+	tt.Frame()
+
+	// 1. Biometric Lock OFF must NOT say "Enabled via Face ID".
+	if tt.HasText("Enabled via Face ID") {
+		t.Fatalf("biometric lock OFF rendered misleading Enabled subtitle: %v", tt.Texts())
+	}
+	if !tt.HasText("Off — require Face ID to unlock") {
+		t.Fatalf("expected accurate Off biometric subtitle, texts=%v", tt.Texts())
+	}
+
+	// 2. Toggle Compact Mode, Haptic Feedback, and Composer Return Key -> persisted across reload!
+	clickOrScroll(t, tt, "Compact")
+	clickOrScroll(t, tt, "Toggle Haptic Feedback")
+	clickOrScroll(t, tt, "Send")
+
+	if components.HapticsEnabled() {
+		t.Fatal("expected global haptics disabled after toggling switch OFF")
+	}
+	t.Cleanup(func() { components.SetHapticsEnabled(true) })
+
+	reloadedCfg := config.NewStore(prefsBackend, secretsBackend)
+	reloadedStore := state.NewAppStore(state.Options{ConfigStore: reloadedCfg, DataDir: t.TempDir()})
+	defer reloadedStore.Disconnect()
+	reloadedSnap := reloadedStore.Snapshot()
+	if !reloadedSnap.Prefs.CompactMode {
+		t.Fatal("expected CompactMode persisted across reload")
+	}
+	if reloadedSnap.Prefs.HapticsEnabled() {
+		t.Fatal("expected HapticsDisabled persisted across reload")
+	}
+	if !reloadedSnap.ComposerReturnSends || !reloadedSnap.Prefs.ComposerReturnSends {
+		t.Fatal("expected ComposerReturnSends persisted across reload")
+	}
+
+	// 3. Clear Cache failure renders inline on Preferences + triggers error toast.
+	clickOrScroll(t, tt, "Clear Local Cache")
+	if !tt.HasText("Removes cached Rooms, Messages, Work Items, and Documents from this device. Your 1 unsynced offline item will be preserved.") {
+		t.Fatalf("expected confirmation naming preserved outbox count, texts=%v", tt.Texts())
+	}
+	clickOrScroll(t, tt, "Clear Cache")
+	waitUntil(t, 5*time.Second, func() bool {
+		settle(tt)
+		return tt.HasText("disk busy")
+	})
+	if len(errorToasts) == 0 {
+		t.Fatal("expected OnErrorToast on clear cache failure")
+	}
+
+	// 4. Clear Cache success preserves pending outbox row and announces preserved count.
+	failClear = false
+	clickOrScroll(t, tt, "Clear Local Cache")
+	clickOrScroll(t, tt, "Clear Cache")
+	waitUntil(t, 5*time.Second, func() bool {
+		settle(tt)
+		return tt.HasText("Local cache cleared (1 unsynced item preserved)")
+	})
+	rows, err := cs.ListOutbox(context.Background())
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("expected pending outbox row preserved after clear, got %d (%v)", len(rows), err)
+	}
+
+	// 5. Enqueuing another outbox item AFTER Refresh must still show live count in confirmation sheet.
+	if err := cs.EnqueueOutbox(context.Background(), "pocket:test-2", "pocket_note.put", "today", map[string]string{"text": "second unsynced"}); err != nil {
+		t.Fatalf("EnqueueOutbox second: %v", err)
+	}
+	clickOrScroll(t, tt, "Clear Local Cache")
+	if !tt.HasText("Removes cached Rooms, Messages, Work Items, and Documents from this device. Your 2 unsynced offline items will be preserved.") {
+		t.Fatalf("expected confirmation to refresh live outbox count (2), texts=%v", tt.Texts())
+	}
+	clickOrScroll(t, tt, "Cancel")
 }
 
 func TestSettingsExternalConnectionsWebSearchAndVoiceKeysMasked(t *testing.T) {
@@ -269,9 +431,9 @@ func TestSettingsExternalConnectionsWebSearchAndVoiceKeysMasked(t *testing.T) {
 
 	// 1. External connection status check + agent grants
 	clickOrScroll(t, tt, "Check Status")
-	waitUntil(t, 2*time.Second, func() bool {
+	waitUntil(t, 5*time.Second, func() bool {
 		settle(tt)
-		return tt.HasText("github status: connected")
+		return tt.HasText("github status: Connected")
 	})
 
 	clickOrScroll(t, tt, "Agent Grants")

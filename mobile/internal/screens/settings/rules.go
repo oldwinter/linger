@@ -68,7 +68,9 @@ func (s *Screen) viewRulesSection(c *ui.Context) {
 										}
 										disBtn := components.DangerTouchButton(c, i18n.T("common.dismiss"), busy)
 										if disBtn.Clicked() {
-											s.deleteRuleAsync(sr.ID)
+											cp := sr
+											s.ruleDismissItem = &cp
+											s.ruleDismissSheet = true
 										}
 									})
 								})
@@ -149,7 +151,7 @@ func (s *Screen) promoteRuleAsync(ruleID string) {
 		s.enqueueUI(func() {
 			s.ruleBusyID = ""
 			if err != nil {
-				s.ruleError = err.Error()
+				s.ruleError = api.PresentError(err)
 				return
 			}
 			s.mu.Lock()
@@ -173,7 +175,7 @@ func (s *Screen) pinRuleAsync(ruleID string, pinned bool) {
 		s.enqueueUI(func() {
 			s.ruleBusyID = ""
 			if err != nil {
-				s.ruleError = err.Error()
+				s.ruleError = api.PresentError(err)
 				return
 			}
 			s.mu.Lock()
@@ -196,7 +198,7 @@ func (s *Screen) setRuleMandateAsync(ruleID, mandate string) {
 		s.enqueueUI(func() {
 			s.ruleBusyID = ""
 			if err != nil {
-				s.ruleError = err.Error()
+				s.ruleError = api.PresentError(err)
 				return
 			}
 			s.mu.Lock()
@@ -220,7 +222,7 @@ func (s *Screen) deleteRuleAsync(ruleID string) {
 		s.enqueueUI(func() {
 			s.ruleBusyID = ""
 			if err != nil {
-				s.ruleError = err.Error()
+				s.ruleError = api.PresentError(err)
 				return
 			}
 			s.mu.Lock()
@@ -273,7 +275,7 @@ func (s *Screen) submitRuleEdit() {
 		s.enqueueUI(func() {
 			s.ruleEditBusy = false
 			if err != nil {
-				s.ruleEditErr = err.Error()
+				s.ruleEditErr = api.PresentError(err)
 				return
 			}
 			s.mu.Lock()
@@ -291,7 +293,7 @@ func (s *Screen) viewRuleMandateSheet(c *ui.Context) {
 		s.ruleMandateSheet = false
 		return
 	}
-	mobile.ActionSheet(c, &s.ruleMandateSheet, mobile.ActionSheetOptions{
+	components.ActionSheet(c, &s.ruleMandateSheet, mobile.ActionSheetOptions{
 		Title:   i18n.T("settings.rules.mandate_sheet_title"),
 		Message: r.Text,
 		Cancel:  i18n.T("common.cancel"),
@@ -317,12 +319,29 @@ func (s *Screen) viewRuleDeleteSheet(c *ui.Context) {
 		s.ruleDeleteSheet = false
 		return
 	}
-	mobile.ActionSheet(c, &s.ruleDeleteSheet, mobile.ActionSheetOptions{
+	components.ActionSheet(c, &s.ruleDeleteSheet, mobile.ActionSheetOptions{
 		Title:   i18n.T("settings.rules.delete_title"),
 		Message: r.Text,
 		Cancel:  i18n.T("common.cancel"),
 	}, mobile.Action{
 		Label:       i18n.T("settings.rules.delete_btn"),
+		Destructive: true,
+		OnTap:       func() { s.deleteRuleAsync(r.ID) },
+	})
+}
+
+func (s *Screen) viewRuleDismissSheet(c *ui.Context) {
+	r := s.ruleDismissItem
+	if r == nil {
+		s.ruleDismissSheet = false
+		return
+	}
+	components.ActionSheet(c, &s.ruleDismissSheet, mobile.ActionSheetOptions{
+		Title:   i18n.T("settings.rules.dismiss_title"),
+		Message: i18n.Tf("settings.rules.dismiss_body", map[string]any{"text": r.Text}),
+		Cancel:  i18n.T("common.cancel"),
+	}, mobile.Action{
+		Label:       i18n.T("settings.rules.dismiss_confirm"),
 		Destructive: true,
 		OnTap:       func() { s.deleteRuleAsync(r.ID) },
 	})

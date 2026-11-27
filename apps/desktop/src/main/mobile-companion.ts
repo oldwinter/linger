@@ -5,7 +5,6 @@ import {
   BrowserWindow,
   clipboard,
   ipcMain,
-  nativeTheme,
   session,
   type IpcMainInvokeEvent,
   type Session,
@@ -58,6 +57,7 @@ import type { Logger } from "./log.js";
 import type { Module, ModuleContext } from "./modules.js";
 import { sameOrigin } from "./navigation.js";
 import type { PowerGuardModule } from "./power-guard.js";
+import { currentShellColors, onShellThemeChange } from "./shell-theme.js";
 import type { StatusModule } from "./status.js";
 
 export const MOBILE_COMPANION_URL = "app://mobile-companion/";
@@ -149,6 +149,7 @@ export class MobileCompanionModule implements Module {
   #localEndpoints: ResolvedLocalEndpoints | undefined;
   #lastError: string | undefined;
   #pairingExpiryTimer: NodeJS.Timeout | undefined;
+  #cleanupWindowTheme: (() => void) | undefined;
   readonly #unsubscribe: (() => void)[] = [];
 
   constructor(options: MobileCompanionOptions) {
@@ -248,6 +249,8 @@ export class MobileCompanionModule implements Module {
     this.#pairing?.closePairingWindow();
     await this.#stopGateway();
     this.#pairing?.flush();
+    this.#cleanupWindowTheme?.();
+    this.#cleanupWindowTheme = undefined;
     this.#window?.destroy();
     this.#window = undefined;
   }
@@ -258,6 +261,8 @@ export class MobileCompanionModule implements Module {
       this.#window.focus();
       return;
     }
+    this.#cleanupWindowTheme?.();
+    this.#cleanupWindowTheme = undefined;
 
     const title =
       this.#ctx
@@ -270,7 +275,7 @@ export class MobileCompanionModule implements Module {
       minHeight: 540,
       show: false,
       title,
-      backgroundColor: nativeTheme.shouldUseDarkColors ? "#141413" : "#fcfcfa",
+      backgroundColor: currentShellColors().canvas,
       ...(process.platform === "darwin" ? {} : { autoHideMenuBar: true }),
       webPreferences: {
         preload: this.#options.preload,
@@ -281,6 +286,17 @@ export class MobileCompanionModule implements Module {
         spellcheck: false,
       },
     });
+    const offTheme = onShellThemeChange((colors) => {
+      if (!window.isDestroyed()) {
+        window.setBackgroundColor(colors.canvas);
+      }
+    });
+    let themeDetached = false;
+    const detachTheme = (): void => {
+      if (themeDetached) return;
+      themeDetached = true;
+      offTheme();
+    };
     const contents = window.webContents;
     contents.on("will-navigate", (event) => event.preventDefault());
     contents.setWindowOpenHandler(() => ({ action: "deny" }));
@@ -290,8 +306,13 @@ export class MobileCompanionModule implements Module {
       window.focus();
     });
     window.on("closed", () => {
-      if (this.#window === window) this.#window = undefined;
+      detachTheme();
+      if (this.#window === window) {
+        this.#window = undefined;
+        this.#cleanupWindowTheme = undefined;
+      }
     });
+    this.#cleanupWindowTheme = detachTheme;
     this.#window = window;
     void window.loadURL(MOBILE_COMPANION_URL).catch(() => undefined);
   }
