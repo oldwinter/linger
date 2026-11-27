@@ -36,6 +36,10 @@ func TestRedactHidesSecretsAndBoundsTail(t *testing.T) {
 	if len(long) > maxTailBytes || !strings.HasSuffix(long, "last") || !strings.HasPrefix(long, "line") {
 		t.Fatalf("tail len=%d prefix=%q", len(long), long[:10])
 	}
+	msg := RedactSecrets("Run curl -H 'Authorization: Bearer abcdefghijklmnop.qrstuv' now?")
+	if strings.Contains(msg, "abcdefghijklmnop.qrstuv") || !strings.HasPrefix(msg, "Run curl -H") || !strings.HasSuffix(msg, "now?") {
+		t.Fatalf("RedactSecrets=%q", msg)
+	}
 }
 
 func TestTransitionsBlockedFinishedAndError(t *testing.T) {
@@ -73,11 +77,26 @@ func TestTransitionsBlockedFinishedAndError(t *testing.T) {
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("transitions=%v, want %v", got, want)
 	}
-	if events[0].Labels["linger.room"] != "r1" || events[0].Turn != 1 || events[0].StatusMS == nil || *events[0].StatusMS != 200 {
+	if events[0].Labels["linger.room"] != "r1" || events[0].Turn != 1 || events[0].StatusMS == nil || *events[0].StatusMS != 200 ||
+		events[0].Status == nil || events[0].Status.Kind == nil || *events[0].Status.Kind != BlockedKindPermission || events[0].Status.Msg != "Run rm?" {
 		t.Fatalf("t1 event=%+v", events[0])
+	}
+	if events[1].Status == nil || events[1].Status.Kind == nil || *events[1].Status.Kind != BlockedKindAuth || events[1].Status.Msg != "" {
+		t.Fatalf("t6 event=%+v", events[1])
 	}
 	if events[2].Cwd != "/srv/app" || events[2].Agent != "claude" {
 		t.Fatalf("vps/t4 event=%+v", events[2])
+	}
+
+	// Secret values in OSC 7501 status.msg are redacted before leaving Watch.
+	secretEvents := Transitions(
+		map[string]Terminal{"t7": {Address: "t7", State: TerminalStateLive, Turn: 0, Status: &Status{State: StatusWorking}}},
+		map[string]Terminal{"t7": {Address: "t7", State: TerminalStateLive, Turn: 1, Status: &Status{State: StatusBlocked, Kind: strPtr(BlockedKindPermission), Msg: "Approve OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwxyz?"}}},
+	)
+	if len(secretEvents) != 1 || secretEvents[0].Status == nil ||
+		strings.Contains(secretEvents[0].Status.Msg, "sk-abcdef") ||
+		!strings.Contains(secretEvents[0].Status.Msg, "OPENAI_API_KEY=[redacted]") {
+		t.Fatalf("secret status.msg was not redacted: %+v", secretEvents)
 	}
 }
 

@@ -38,6 +38,7 @@ const (
 // HerdrCoreStatus mirrors the OSC 7501 status attached to a herdr-core terminal.
 type HerdrCoreStatus struct {
 	State    string   `json:"state"`
+	Kind     string   `json:"kind,omitempty"`
 	App      string   `json:"app,omitempty"`
 	Msg      string   `json:"msg,omitempty"`
 	Progress *float64 `json:"progress,omitempty"`
@@ -45,15 +46,18 @@ type HerdrCoreStatus struct {
 }
 
 // HerdrCoreTerminalRef identifies one herdr-core terminal state and its
-// matchable My Rules attributes (machine, cwd, app, labels).
+// matchable My Rules attributes (machine, cwd, app, labels), plus the optional
+// structured OSC 7501 block kind and reason when blocked.
 type HerdrCoreTerminalRef struct {
-	Address  string            `json:"address"`
-	Machine  string            `json:"machine,omitempty"`
-	Turn     int64             `json:"turn"`
-	StatusMs int64             `json:"status_ms"`
-	App      string            `json:"app,omitempty"`
-	Cwd      string            `json:"cwd,omitempty"`
-	Labels   map[string]string `json:"labels,omitempty"`
+	Address     string            `json:"address"`
+	Machine     string            `json:"machine,omitempty"`
+	Turn        int64             `json:"turn"`
+	StatusMs    int64             `json:"status_ms"`
+	App         string            `json:"app,omitempty"`
+	Cwd         string            `json:"cwd,omitempty"`
+	Labels      map[string]string `json:"labels,omitempty"`
+	BlockKind   string            `json:"block_kind,omitempty"`
+	BlockReason string            `json:"block_reason,omitempty"`
 }
 
 // HerdrCoreReport is what a Local Computer reported about one of its herdr-core
@@ -289,9 +293,15 @@ func HerdrCoreEvent(tenantID, ownerActorID string, report HerdrCoreReport) Event
 	}
 	app := report.App()
 	statusLine := ""
+	blockKind := ""
+	blockReason := ""
 	if report.Status != nil {
 		statusLine = strings.TrimSpace(report.Status.State)
-		if msg := strings.TrimSpace(report.Status.Msg); msg != "" {
+		msg := strings.TrimSpace(report.Status.Msg)
+		if report.Kind == HerdrCoreAgentBlocked {
+			blockKind = strings.TrimSpace(report.Status.Kind)
+			blockReason = msg
+		} else if msg != "" {
 			if statusLine != "" {
 				statusLine += ": " + msg
 			} else {
@@ -311,6 +321,8 @@ func HerdrCoreEvent(tenantID, ownerActorID string, report HerdrCoreReport) Event
 		[2]string{"Directory", report.Cwd},
 		[2]string{"Title", report.Title},
 		[2]string{"Status", statusLine},
+		[2]string{"Block kind", blockKind},
+		[2]string{"Block reason", blockReason},
 		[2]string{"Labels", labelSummary},
 		[2]string{"Last lines of the terminal", report.Tail},
 	)
@@ -332,13 +344,15 @@ func HerdrCoreEvent(tenantID, ownerActorID string, report HerdrCoreReport) Event
 		State:        state,
 		Summary:      summary,
 		HerdrCore: &HerdrCoreTerminalRef{
-			Address:  report.Address,
-			Machine:  strings.TrimSpace(report.Machine),
-			Turn:     report.Turn,
-			StatusMs: report.StatusMs,
-			App:      app,
-			Cwd:      strings.TrimSpace(report.Cwd),
-			Labels:   copiedLabels,
+			Address:     report.Address,
+			Machine:     strings.TrimSpace(report.Machine),
+			Turn:        report.Turn,
+			StatusMs:    report.StatusMs,
+			App:         app,
+			Cwd:         strings.TrimSpace(report.Cwd),
+			Labels:      copiedLabels,
+			BlockKind:   blockKind,
+			BlockReason: blockReason,
 		},
 	}
 }

@@ -20,6 +20,7 @@ import (
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/typedcard"
 	api "github.com/simplexai-labs/linger/contracts-go/nodeservicesinternal"
 	agentapi "github.com/simplexai-labs/linger/contracts-go/teamhubagentapi"
+	"github.com/simplexai-labs/linger/contracts-go/teamhubinternal"
 	httpapi "github.com/simplexai-labs/linger/contracts-go/teamhubpublic"
 )
 
@@ -332,5 +333,51 @@ func TestClassifyHerdrCoreResultPreservesOSCStatusAndFlagsErrors(t *testing.T) {
 	}
 	if err := roomagent.ClassifyHerdrCoreResult(map[string]any{"status": "outcome_unknown"}); !errors.Is(err, roomagent.ErrHerdrCoreTimeout) {
 		t.Fatalf("outcome_unknown => %v", err)
+	}
+}
+
+func TestHerdrCoreReportFromRequestPreservesStatusKindAndMsg(t *testing.T) {
+	raw := `{
+		"computer_id": "comp-1",
+		"kind": "agent_blocked",
+		"address": "vps/t7",
+		"machine": "vps",
+		"turn": 4,
+		"status_ms": 1732670400000,
+		"status": {
+			"state": "blocked",
+			"kind": "permission",
+			"app": "codex",
+			"msg": "Allow running deploy script?"
+		},
+		"tail": "Allow running deploy script? [y/N]"
+	}`
+	var req teamhubinternal.HerdrCoreEventReport
+	if err := decodeStrictJSON(strings.NewReader(raw), &req, "invalid"); err != nil {
+		t.Fatalf("decodeStrictJSON: %v", err)
+	}
+	report := herdrCoreReportFromRequest(req)
+	if report.Status == nil || report.Status.State != "blocked" || report.Status.Kind != "permission" ||
+		report.Status.App != "codex" || report.Status.Msg != "Allow running deploy script?" ||
+		report.Tail != "Allow running deploy script? [y/N]" {
+		t.Fatalf("report=%+v status=%+v", report, report.Status)
+	}
+
+	rawFallback := `{
+		"computer_id": "comp-1",
+		"kind": "agent_blocked",
+		"address": "t8",
+		"turn": 1,
+		"status_ms": 1732670400001,
+		"status": {"state": "blocked"},
+		"tail": "Proceed? [y/N]"
+	}`
+	var fallbackReq teamhubinternal.HerdrCoreEventReport
+	if err := decodeStrictJSON(strings.NewReader(rawFallback), &fallbackReq, "invalid"); err != nil {
+		t.Fatalf("decodeStrictJSON(fallback): %v", err)
+	}
+	fallbackReport := herdrCoreReportFromRequest(fallbackReq)
+	if fallbackReport.Status == nil || fallbackReport.Status.Kind != "" || fallbackReport.Status.Msg != "" || fallbackReport.Tail != "Proceed? [y/N]" {
+		t.Fatalf("fallbackReport=%+v status=%+v", fallbackReport, fallbackReport.Status)
 	}
 }

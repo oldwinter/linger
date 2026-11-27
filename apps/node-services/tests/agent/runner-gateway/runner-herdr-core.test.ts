@@ -8,6 +8,7 @@ import {
   LocalComputerNotFoundError,
   LocalComputerOfflineError,
 } from "../../../src/agent/runner-gateway/local-computer-management.js";
+import { TeamHubRuntimeStateError } from "../../../src/agent/executor/teamhub-runtime-state-client.js";
 import {
   HerdrCoreInvalidRequestError,
   HerdrCoreUnsupportedError,
@@ -238,6 +239,7 @@ describe("RunnerHerdrCore control plane", () => {
         status_ms: 1732670400000,
         status: {
           state: "blocked",
+          kind: "permission",
           app: "codex",
           msg: "Confirm deployment?",
         },
@@ -254,6 +256,12 @@ describe("RunnerHerdrCore control plane", () => {
         address: "vps/t7",
         machine: "vps",
         turn: 4,
+        status: {
+          state: "blocked",
+          kind: "permission",
+          app: "codex",
+          msg: "Confirm deployment?",
+        },
       },
     });
 
@@ -275,5 +283,60 @@ describe("RunnerHerdrCore control plane", () => {
       }),
     ).resolves.toBeUndefined();
     expect(gateway.supportsHerdrCore("computer-hc")).toBe(true);
+  });
+
+  it("drops status.kind and retries once when an older TeamHub rejects it with 400", async () => {
+    const { connection, gateway } = await connect("dev", false);
+    const registry = testRegistryOf(gateway);
+    const reportMock = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new TeamHubRuntimeStateError(
+          400,
+          "herdr-core event is invalid",
+          "INVALID_REQUEST",
+        ),
+      )
+      .mockResolvedValueOnce(undefined);
+    registry.reportHerdrCoreEvent = reportMock;
+
+    await connection.receive({
+      type: "runner.herdr_core_event",
+      protocol_version: "2",
+      runner_id: "computer-hc",
+      sent_at: "2026-11-27T01:02:00Z",
+      event: {
+        kind: "agent_blocked",
+        address: "vps/t7",
+        machine: "vps",
+        turn: 6,
+        status_ms: 1732670520000,
+        status: {
+          state: "blocked",
+          kind: "question",
+          app: "codex",
+          msg: "Use blue-green deploy?",
+        },
+        tail: "Use blue-green deploy? [y/N]",
+      },
+    });
+
+    expect(reportMock).toHaveBeenCalledTimes(2);
+    expect(reportMock.mock.calls[0]?.[1]).toMatchObject({
+      status: {
+        state: "blocked",
+        kind: "question",
+        msg: "Use blue-green deploy?",
+      },
+    });
+    expect(reportMock.mock.calls[1]?.[1]).toMatchObject({
+      status: {
+        state: "blocked",
+        app: "codex",
+        msg: "Use blue-green deploy?",
+      },
+      tail: "Use blue-green deploy? [y/N]",
+    });
+    expect(reportMock.mock.calls[1]?.[1]?.status).not.toHaveProperty("kind");
   });
 });

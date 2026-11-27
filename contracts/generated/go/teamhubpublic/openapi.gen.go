@@ -7581,7 +7581,9 @@ type HerdrCoreTerminalStatus struct {
 	App *string `json:"app,omitempty"`
 
 	// Kind Optional OSC 7501 blocked reason kind (for example permission, question, or auth).
-	Kind     *string  `json:"kind,omitempty"`
+	Kind *string `json:"kind,omitempty"`
+
+	// Msg Optional OSC 7501 status message or block reason (obvious secrets redacted on proactive events).
 	Msg      *string  `json:"msg,omitempty"`
 	Progress *float32 `json:"progress,omitempty"`
 

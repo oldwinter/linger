@@ -524,6 +524,7 @@ export class RunnerConnections {
               "herdr_core_stream",
               "antigravity_history",
               "antigravity_usage_provider",
+              "herdr_core_status_kind",
             ],
           }
         : {}),

@@ -2662,6 +2662,7 @@ export interface components {
       app?: string;
       /** @description Optional OSC 7501 blocked reason kind (for example permission, question, or auth). */
       kind?: string;
+      /** @description Optional OSC 7501 status message or block reason (obvious secrets redacted on proactive events). */
       msg?: string;
       progress?: number | null;
       title?: string;

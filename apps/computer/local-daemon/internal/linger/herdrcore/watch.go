@@ -775,6 +775,10 @@ func buildEvent(kind string, terminal Terminal) Event {
 		value := *terminal.StatusMS
 		statusMS = &value
 	}
+	status := cloneStatus(terminal.Status)
+	if status != nil && status.Msg != "" {
+		status.Msg = RedactSecrets(status.Msg)
+	}
 	return Event{
 		Kind:     kind,
 		Address:  terminal.Address,
@@ -784,7 +788,7 @@ func buildEvent(kind string, terminal Terminal) Event {
 		Agent:    clip(firstNonEmpty(statusApp, template, fgName), 120),
 		Cwd:      clip(firstNonEmpty(fgCwd, terminal.Cwd), 4096),
 		Title:    clip(firstNonEmpty(statusTitle, terminal.Title), 500),
-		Status:   cloneStatus(terminal.Status),
+		Status:   status,
 		Turn:     terminal.Turn,
 		StatusMS: statusMS,
 		Labels:   maps.Clone(terminal.Labels),

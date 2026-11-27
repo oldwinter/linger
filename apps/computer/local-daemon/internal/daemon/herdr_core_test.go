@@ -685,6 +685,7 @@ func TestHerdrCoreServiceFeaturesGatingAndDualStackCoexistence(t *testing.T) {
 
 	progress := uint8(50)
 	statusMS := uint64(1732670400000)
+	blockedKind := herdrcore.BlockedKindPermission
 	hcEvent := herdrcore.Event{
 		Kind:     herdrcore.EventBlocked,
 		Address:  "vps/t7",
@@ -693,7 +694,7 @@ func TestHerdrCoreServiceFeaturesGatingAndDualStackCoexistence(t *testing.T) {
 		Parent:   "vps/t1",
 		Cwd:      "/srv/app",
 		Title:    "Deploy",
-		Status:   &herdrcore.Status{State: herdrcore.StatusBlocked, App: "codex", Msg: "Approve?", Progress: &progress, Title: "Wait"},
+		Status:   &herdrcore.Status{State: herdrcore.StatusBlocked, Kind: &blockedKind, App: "codex", Msg: "Approve? API_KEY=sk-secretvalue1234567890", Progress: &progress, Title: "Wait"},
 		Turn:     4,
 		StatusMS: &statusMS,
 		Labels:   map[string]string{"linger.room": "room-1"},
@@ -761,6 +762,8 @@ func TestHerdrCoreServiceFeaturesGatingAndDualStackCoexistence(t *testing.T) {
 	if first.Event.Kind != "agent_blocked" || first.Event.Address != "vps/t7" || first.Event.Machine != "vps" ||
 		first.Event.Turn != 4 || first.Event.StatusMs != 1732670400000 || first.Event.Parent != "vps/t1" ||
 		first.Event.Status == nil || first.Event.Status.State != "blocked" || first.Event.Status.App != "codex" ||
+		first.Event.Status.Kind != "" ||
+		strings.Contains(first.Event.Status.Msg, "sk-secretvalue") || !strings.Contains(first.Event.Status.Msg, "Approve? API_KEY=[redacted]") ||
 		strings.Contains(first.Event.Tail, "sk-secretvalue") || !strings.HasSuffix(first.Event.Tail, "Approve? [y/N]") {
 		t.Fatalf("unexpected RunnerHerdrCoreEvent frame: %+v", first)
 	}
@@ -769,8 +772,101 @@ func TestHerdrCoreServiceFeaturesGatingAndDualStackCoexistence(t *testing.T) {
 	<-conn2Done
 
 	// After disconnect, features are reset to false.
-	if d.herdrCoreV1.Load() || d.herdrCoreStream.Load() {
+	if d.herdrCoreV1.Load() || d.herdrCoreStream.Load() || d.herdrCoreStatusKind.Load() {
 		t.Fatal("service_features flags were not cleared after disconnect")
+	}
+}
+
+func TestHerdrCoreStatusKindFeatureGatingAndSerialization(t *testing.T) {
+	device, err := transport.GenerateIdentity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := newFakeHerdrCoreServer(t)
+	release := make(chan struct{})
+	stream := &fakeStream{
+		commands: []protocol.Command{{
+			Type:            protocol.CommandRunnerWelcome,
+			ConnectionEpoch: 1,
+			ServiceFeatures: []string{serviceFeatureHerdrCoreV1, serviceFeatureHerdrCoreStatusKind},
+		}},
+		wait: release,
+	}
+	d, err := newTestDaemon(t, Options{
+		ComputerID:        "computer-hc-kind",
+		ControlPlane:      &sequenceControlPlane{streams: []*fakeStream{stream}},
+		IdentityStore:     fakeStore{value: device},
+		OperationResolver: fakeOperationResolver{},
+		Assignments:       assignment.NewMemoryStore(),
+		Owners:            []ComputerOwner{{TenantID: "tenant-1", OwnerActorID: "owner-1"}},
+		HerdrCore:         srv.client(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.now = func() time.Time { return time.Date(2026, 11, 27, 1, 0, 0, 0, time.UTC) }
+
+	connDone := make(chan error, 1)
+	go func() { connDone <- d.runConnection(context.Background(), device) }()
+	waitCondition(t, func() bool {
+		d.connectionMu.Lock()
+		defer d.connectionMu.Unlock()
+		return d.diagnosticsStream == stream && d.herdrCoreV1.Load() && d.herdrCoreStatusKind.Load()
+	})
+
+	statusMS := uint64(1732670400000)
+	kind := herdrcore.BlockedKindPermission
+	if err := d.PublishHerdrCoreEvent(t.Context(), herdrcore.Event{
+		Kind:     herdrcore.EventBlocked,
+		Address:  "vps/t7",
+		Turn:     4,
+		StatusMS: &statusMS,
+		Status:   &herdrcore.Status{State: herdrcore.StatusBlocked, Kind: &kind, App: "codex", Msg: "Approve migration?"},
+		Tail:     "Apply migration? [y/N]",
+	}); err != nil {
+		t.Fatalf("PublishHerdrCoreEvent(with kind): %v", err)
+	}
+	if err := d.PublishHerdrCoreEvent(t.Context(), herdrcore.Event{
+		Kind:     herdrcore.EventBlocked,
+		Address:  "t8",
+		Turn:     1,
+		StatusMS: &statusMS,
+		Status:   &herdrcore.Status{State: herdrcore.StatusBlocked},
+		Tail:     "Continue? [y/N]",
+	}); err != nil {
+		t.Fatalf("PublishHerdrCoreEvent(without kind/msg): %v", err)
+	}
+
+	var published []wire.RunnerHerdrCoreEvent
+	for _, ev := range stream.snapshotEvents() {
+		if ev.Type != protocol.EventHerdrCore {
+			continue
+		}
+		var frame wire.RunnerHerdrCoreEvent
+		if err := wire.Decode(ev.Payload, &frame); err != nil {
+			t.Fatalf("wire.Decode: %v", err)
+		}
+		published = append(published, frame)
+	}
+	if len(published) != 2 {
+		t.Fatalf("published=%d, want 2", len(published))
+	}
+	if published[0].Event.Status == nil || published[0].Event.Status.Kind != "permission" || published[0].Event.Status.Msg != "Approve migration?" {
+		t.Fatalf("first event status=%+v", published[0].Event.Status)
+	}
+	if published[1].Event.Status == nil || published[1].Event.Status.Kind != "" || published[1].Event.Status.Msg != "" || published[1].Event.Tail != "Continue? [y/N]" {
+		t.Fatalf("second event=%+v", published[1].Event)
+	}
+
+	serialized := serializeHerdrCoreStatus(&herdrcore.Status{State: herdrcore.StatusBlocked, Kind: &kind, App: "codex", Msg: "Approve migration?"}).(map[string]any)
+	if serialized["kind"] != "permission" || serialized["msg"] != "Approve migration?" {
+		t.Fatalf("serializeHerdrCoreStatus=%+v", serialized)
+	}
+
+	close(release)
+	<-connDone
+	if d.herdrCoreStatusKind.Load() {
+		t.Fatal("herdrCoreStatusKind was not cleared after disconnect")
 	}
 }
 
@@ -1098,6 +1194,7 @@ func TestHerdrCoreAttachStreamBridgeObserveTakeOverPutAndTeardown(t *testing.T) 
 	}
 	d.herdrCoreV1.Store(true)
 	d.herdrCoreStream.Store(true)
+	d.herdrCoreStatusKind.Store(true)
 
 	connCtx, cancelConn := context.WithCancel(t.Context())
 	defer cancelConn()
@@ -1389,6 +1486,7 @@ func TestHerdrCoreRealBinaryIsolatedE2E(t *testing.T) {
 	}
 	d.herdrCoreV1.Store(true)
 	d.herdrCoreStream.Store(true)
+	d.herdrCoreStatusKind.Store(true)
 
 	// Start real herdrcore.Watch -> Daemon.PublishHerdrCoreEvent on the isolated server.
 	watchCtx, cancelWatch := context.WithCancel(t.Context())
@@ -1556,10 +1654,18 @@ func TestHerdrCoreRealBinaryIsolatedE2E(t *testing.T) {
 		}
 		return false
 	})
-	// Verify Watch emitted agent_blocked onto liveStream!
+	// Verify Watch emitted agent_blocked onto liveStream with structured status.kind and status.msg!
 	waitCondition(t, func() bool {
 		for _, ev := range liveStream.snapshot() {
-			if ev.Type == protocol.EventHerdrCore && strings.Contains(string(ev.Payload), `"kind":"agent_blocked"`) {
+			if ev.Type != protocol.EventHerdrCore {
+				continue
+			}
+			var frame wire.RunnerHerdrCoreEvent
+			if wire.Decode(ev.Payload, &frame) == nil &&
+				frame.Event.Kind == herdrcore.EventBlocked &&
+				frame.Event.Status != nil &&
+				frame.Event.Status.Kind == herdrcore.BlockedKindQuestion &&
+				frame.Event.Status.Msg == "Confirm deploy?" {
 				return true
 			}
 		}
