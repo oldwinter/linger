@@ -223,7 +223,7 @@ func TestRedactHidesObviousSecretsAndBoundsTheTail(t *testing.T) {
 			t.Fatalf("%q survived: %s", secret, redacted)
 		}
 	}
-	if !strings.Contains(redacted, "OPENAI_API_KEY=[redacted]") || !strings.HasSuffix(redacted, "Use option A or B?") {
+	if !strings.Contains(redacted, "OPENAI_API_KEY=[REDACTED") || !strings.HasSuffix(redacted, "Use option A or B?") {
 		t.Fatalf("redacted=%s", redacted)
 	}
 	long := Redact(strings.Repeat("line ééé\n", 2000) + "last")

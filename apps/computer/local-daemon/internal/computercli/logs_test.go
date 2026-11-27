@@ -22,7 +22,7 @@ func TestLogsTailCompleteLinesAndRedactCredentials(t *testing.T) {
 	if err := streamComputerLogs(context.Background(), logRequest{configPath: configPath, lines: 3}, &output); err != nil {
 		t.Fatal(err)
 	}
-	want := "Authorization: [REDACTED]\n{\"token\":[REDACTED],\"ok\":1}\nproxy https://[REDACTED]@example.test/x\n"
+	want := "Authorization: [REDACTED]\n{\"token\":\"[REDACTED]\",\"ok\":1}\nproxy https://[REDACTED]@example.test/x\n"
 	if output.String() != want {
 		t.Fatalf("logs=%q", output.String())
 	}
