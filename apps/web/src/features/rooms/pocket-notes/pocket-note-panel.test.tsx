@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -7,7 +8,7 @@ import {
   within,
 } from "@testing-library/react";
 import type { RefObject } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
 import type {
@@ -43,6 +44,10 @@ beforeEach(() => {
   download.triggerArtifactDownload.mockReset();
   clipboard.writeClipboardText.mockReset();
   clipboard.writeClipboardText.mockResolvedValue(undefined);
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 function note(date: string, text: string): TeamHubPocketNote {
@@ -670,7 +675,7 @@ describe("PocketNotePanel persistence and recovery", () => {
     }
   });
 
-  it("surfaces a load error alert with Retry and recovers on retry", async () => {
+  it("surfaces a load error alert with Retry and Close, and recovers on retry", async () => {
     let fail = true;
     const listNotes = vi.fn(() => {
       if (fail) {
@@ -683,11 +688,318 @@ describe("PocketNotePanel persistence and recovery", () => {
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Couldn’t load notes");
+    expect(
+      screen.getByRole("button", { name: "Close notes" }),
+    ).toBeInTheDocument();
     fireEvent.click(within(alert).getByRole("button", { name: "Retry" }));
 
     expect(
       await screen.findByRole("textbox", { name: "Today’s note" }),
     ).toHaveTextContent("Recovered note");
     expect(listNotes).toHaveBeenCalledTimes(2);
+  });
+});
+
+interface ViewportCase {
+  expectedHeight: number;
+  expectedLeft: number;
+  expectedTop: number;
+  expectedWidth: number;
+  height: number;
+  name: string;
+  visualHeight?: number;
+  visualWidth?: number;
+  width: number;
+}
+
+function setViewportSize(
+  width: number,
+  height: number,
+  visualViewport?: { height: number; width: number },
+) {
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    value: width,
+  });
+  Object.defineProperty(window, "innerHeight", {
+    configurable: true,
+    value: height,
+  });
+  Object.defineProperty(window, "visualViewport", {
+    configurable: true,
+    value: visualViewport
+      ? {
+          addEventListener: vi.fn(),
+          height: visualViewport.height,
+          removeEventListener: vi.fn(),
+          width: visualViewport.width,
+        }
+      : undefined,
+  });
+}
+
+describe("PocketNotePanel responsive viewports", () => {
+  const viewportCases: ViewportCase[] = [
+    {
+      expectedHeight: 440,
+      expectedLeft: 12,
+      expectedTop: 12,
+      expectedWidth: 296,
+      height: 568,
+      name: "320x568 narrow mobile",
+      width: 320,
+    },
+    {
+      expectedHeight: 440,
+      expectedLeft: 12,
+      expectedTop: 12,
+      expectedWidth: 336,
+      height: 640,
+      name: "360x640 mobile width",
+      width: 360,
+    },
+    {
+      expectedHeight: 296,
+      expectedLeft: 104,
+      expectedTop: 12,
+      expectedWidth: 360,
+      height: 320,
+      name: "568x320 narrow landscape",
+      width: 568,
+    },
+    {
+      expectedHeight: 351,
+      expectedLeft: 12,
+      expectedTop: 12,
+      expectedWidth: 360,
+      height: 375,
+      name: "667x375 landscape",
+      width: 667,
+    },
+    {
+      expectedHeight: 376,
+      expectedLeft: 12,
+      expectedTop: 12,
+      expectedWidth: 360,
+      height: 400,
+      name: "200% zoom CSS viewport (640x400)",
+      width: 640,
+    },
+    {
+      expectedHeight: 376,
+      expectedLeft: 12,
+      expectedTop: 12,
+      expectedWidth: 360,
+      height: 800,
+      name: "200% visualViewport zoom (1280x800 -> 640x400)",
+      visualHeight: 400,
+      visualWidth: 640,
+      width: 1280,
+    },
+    {
+      expectedHeight: 296,
+      expectedLeft: 12,
+      expectedTop: 12,
+      expectedWidth: 216,
+      height: 320,
+      name: "sub-264px zoomed viewport (240x320)",
+      width: 240,
+    },
+  ];
+
+  it.each(viewportCases)(
+    "clamps panel bounds inside the viewport at $name",
+    async ({
+      expectedHeight,
+      expectedLeft,
+      expectedTop,
+      expectedWidth,
+      height,
+      visualHeight,
+      visualWidth,
+      width,
+    }) => {
+      const originalWidth = window.innerWidth;
+      const originalHeight = window.innerHeight;
+      const originalVisualViewport = window.visualViewport;
+      setViewportSize(
+        width,
+        height,
+        visualWidth !== undefined && visualHeight !== undefined
+          ? { height: visualHeight, width: visualWidth }
+          : undefined,
+      );
+      try {
+        renderPanel(async () =>
+          page([
+            note("2026-10-01", "Narrow viewport content"),
+            note("2026-09-30", "Yesterday's note"),
+          ]),
+        );
+
+        const dialog = await screen.findByRole("dialog", {
+          name: "Pocket notes",
+        });
+        await screen.findByRole("textbox", { name: "Today’s note" });
+
+        const effectiveWidth = visualWidth ?? width;
+        const effectiveHeight = visualHeight ?? height;
+        const left = Number.parseFloat(dialog.style.left);
+        const top = Number.parseFloat(dialog.style.top);
+        const panelW = Number.parseFloat(dialog.style.width);
+        const panelH = Number.parseFloat(dialog.style.height);
+
+        expect(left).toBe(expectedLeft);
+        expect(top).toBe(expectedTop);
+        expect(panelW).toBe(expectedWidth);
+        expect(panelH).toBe(expectedHeight);
+        expect(left).toBeGreaterThanOrEqual(0);
+        expect(top).toBeGreaterThanOrEqual(0);
+        expect(left + panelW).toBeLessThanOrEqual(effectiveWidth);
+        expect(top + panelH).toBeLessThanOrEqual(effectiveHeight);
+        expect(
+          screen.getByRole("button", { name: "Close notes" }),
+        ).toBeVisible();
+      } finally {
+        Object.defineProperty(window, "innerWidth", {
+          configurable: true,
+          value: originalWidth,
+        });
+        Object.defineProperty(window, "innerHeight", {
+          configurable: true,
+          value: originalHeight,
+        });
+        Object.defineProperty(window, "visualViewport", {
+          configurable: true,
+          value: originalVisualViewport,
+        });
+      }
+    },
+  );
+
+  it("uses a single-column card grid below full panel width and clips delete confirmation inside the card", async () => {
+    renderPanel(async () =>
+      page([
+        note("2026-10-01", "Today's line"),
+        note("2026-09-30", "Yesterday's idea"),
+      ]),
+    );
+    await openAllNotes();
+
+    const list = screen.getByRole("region", { name: "September 2026" });
+    expect(within(list).getByRole("list")).toHaveClass(
+      "grid-cols-1",
+      "min-[384px]:grid-cols-2",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete Sep 30" }));
+    const confirm = screen.getByRole("alertdialog", { name: "Delete Sep 30?" });
+    expect(confirm).toHaveClass("overflow-hidden");
+    expect(
+      within(confirm).getByRole("button", { name: "Cancel" }),
+    ).toBeVisible();
+    expect(
+      within(confirm).getByRole("button", { name: "Delete" }),
+    ).toBeVisible();
+  });
+
+  it("preserves unsaved draft and Retry without remounting or duplicate PUTs across live resizes", async () => {
+    const originalWidth = window.innerWidth;
+    const originalHeight = window.innerHeight;
+    const originalVisualViewport = window.visualViewport;
+    setViewportSize(1280, 800);
+    let failing = true;
+    const putTodayPocketNote = vi.fn((text: string) => {
+      if (failing) {
+        return teamHubErrorResponse(503, "POCKET_NOTE_UNAVAILABLE");
+      }
+      return note("2026-10-01", text);
+    });
+    try {
+      renderPanel(async () => page([]), putTodayPocketNote);
+      const editor = await screen.findByRole("textbox", {
+        name: "Today’s note",
+      });
+      const dialog = screen.getByRole("dialog", { name: "Pocket notes" });
+
+      vi.useFakeTimers();
+      pasteText(editor, "Draft kept across narrow resizes");
+
+      // Resize across mobile, landscape, and 200% zoom before autosave fires.
+      for (const [width, height] of [
+        [320, 568],
+        [360, 640],
+        [568, 320],
+        [640, 400],
+      ] as const) {
+        setViewportSize(width, height);
+        act(() => {
+          window.dispatchEvent(new Event("resize"));
+        });
+      }
+
+      expect(screen.getByRole("textbox", { name: "Today’s note" })).toBe(
+        editor,
+      );
+      expect(editor).toHaveTextContent("Draft kept across narrow resizes");
+      expect(putTodayPocketNote).not.toHaveBeenCalled();
+
+      // Advance past the autosave delay once: only one PUT fires, then fails.
+      await act(() => vi.advanceTimersByTimeAsync(801));
+      vi.useRealTimers();
+
+      await screen.findByRole("button", { name: "Retry saving note" });
+      expect(putTodayPocketNote).toHaveBeenCalledTimes(1);
+
+      // Resize while failed save and Retry are active: zero extra PUTs.
+      setViewportSize(320, 568);
+      act(() => {
+        window.dispatchEvent(new Event("resize"));
+      });
+      expect(dialog.style.width).toBe("296px");
+      expect(dialog.style.height).toBe("440px");
+
+      setViewportSize(568, 320);
+      act(() => {
+        window.dispatchEvent(new Event("resize"));
+      });
+      expect(dialog.style.width).toBe("360px");
+      expect(dialog.style.height).toBe("296px");
+
+      setViewportSize(1280, 800);
+      act(() => {
+        window.dispatchEvent(new Event("resize"));
+      });
+
+      expect(screen.getByRole("textbox", { name: "Today’s note" })).toBe(
+        editor,
+      );
+      expect(editor).toHaveTextContent("Draft kept across narrow resizes");
+      expect(putTodayPocketNote).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole("button", { name: "Close notes" })).toBeVisible();
+
+      failing = false;
+      fireEvent.click(
+        screen.getByRole("button", { name: "Retry saving note" }),
+      );
+      await waitFor(() => expect(putTodayPocketNote).toHaveBeenCalledTimes(2));
+      expect(putTodayPocketNote).toHaveBeenLastCalledWith(
+        "Draft kept across narrow resizes",
+      );
+      expect(await screen.findByText("Saved")).toBeInTheDocument();
+    } finally {
+      Object.defineProperty(window, "innerWidth", {
+        configurable: true,
+        value: originalWidth,
+      });
+      Object.defineProperty(window, "innerHeight", {
+        configurable: true,
+        value: originalHeight,
+      });
+      Object.defineProperty(window, "visualViewport", {
+        configurable: true,
+        value: originalVisualViewport,
+      });
+    }
   });
 });

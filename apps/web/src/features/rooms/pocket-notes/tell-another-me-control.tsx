@@ -63,8 +63,8 @@ export function TellAnotherMe({
 
   if (step === "note") {
     return (
-      // Wrapper owns `absolute` because Button hardcodes `relative`.
-      <div className="pointer-events-auto absolute bottom-3 left-3">
+      // Wrapper owns `absolute` and the opaque pill surface because Button hardcodes `relative` and `bg-transparent`.
+      <div className="pointer-events-auto absolute bottom-3 left-3 rounded-full bg-popover shadow-sm">
         <Button
           onClick={() => setStep("confirm")}
           size="compact"

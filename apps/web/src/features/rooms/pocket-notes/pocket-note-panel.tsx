@@ -79,7 +79,10 @@ const copiedFeedbackMs = 1200;
 const todayMarkMs = 1200;
 const maximumNoteLength = 20000;
 const panelWidth = 360;
+const panelHeight = 440;
 const panelGap = 12;
+/** Matches Tailwind's `sm` breakpoint, below which the modal backdrop is shown. */
+const narrowBackdropMaxWidth = 640;
 const noteActionClass =
   "flex size-6 items-center justify-center rounded-md text-app-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-focus disabled:pointer-events-none disabled:opacity-40";
 
@@ -270,25 +273,28 @@ export default function PocketNotePanel({
         style={position}
       >
         {!firstPage || !today ? (
-          notes.isError ? (
-            <div
-              className="m-auto flex flex-col items-center gap-2.5 px-4 text-center"
-              role="alert"
-            >
-              <p className="text-sm text-app-muted">{t(m.couldNotLoad)}</p>
-              <Button
-                onClick={() => void notes.refetch()}
-                size="compact"
-                tone="secondary"
+          <>
+            <PocketNoteHeader onClose={() => void close()} title={t(m.panel)} />
+            {notes.isError ? (
+              <div
+                className="m-auto flex flex-col items-center gap-2.5 px-4 pb-8 text-center"
+                role="alert"
               >
-                {t(commonMessages.retry)}
-              </Button>
-            </div>
-          ) : (
-            <p className="m-auto text-sm text-app-muted">
-              {t(commonMessages.loading)}
-            </p>
-          )
+                <p className="text-sm text-app-muted">{t(m.couldNotLoad)}</p>
+                <Button
+                  onClick={() => void notes.refetch()}
+                  size="compact"
+                  tone="secondary"
+                >
+                  {t(commonMessages.retry)}
+                </Button>
+              </div>
+            ) : (
+              <p className="m-auto pb-8 text-sm text-app-muted">
+                {t(commonMessages.loading)}
+              </p>
+            )}
+          </>
         ) : view.kind === "all" ? (
           <AllPocketNotes
             closeGuard={closeGuard}
@@ -962,7 +968,7 @@ function AllPocketNotes({
                 <h2 className="sticky top-0 z-10 bg-popover py-1.5 text-xs font-medium text-app-muted">
                   {group.label}
                 </h2>
-                <ul className="grid grid-cols-2 gap-2.5">
+                <ul className="grid grid-cols-1 gap-2.5 min-[384px]:grid-cols-2">
                   {group.notes.map((note) => {
                     const label =
                       note.date === today
@@ -1005,7 +1011,7 @@ function AllPocketNotes({
                             aria-label={t(m.deletePageQuestion, {
                               page: label,
                             })}
-                            className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-xl border border-border bg-card/95 p-3"
+                            className="absolute inset-0 flex flex-col items-center justify-center gap-2 overflow-hidden rounded-xl border border-border bg-card/95 p-2"
                             role="alertdialog"
                           >
                             <p
@@ -1015,7 +1021,7 @@ function AllPocketNotes({
                                 ? t(m.couldNotDelete)
                                 : t(m.deleteThisNote)}
                             </p>
-                            <div className="flex gap-1.5">
+                            <div className="flex max-w-full items-center justify-center gap-1.5">
                               <Button
                                 onClick={() => {
                                   remove.reset();
@@ -1116,7 +1122,7 @@ function PocketNoteHeader({
   action?: ReactNode;
   leading?: ReactNode;
   onClose: () => void;
-  subtitle: string;
+  subtitle?: string;
   title: string;
 }) {
   const t = useT();
@@ -1127,12 +1133,14 @@ function PocketNoteHeader({
         <p className="truncate text-sm font-medium leading-5 text-app-ink">
           {title}
         </p>
-        <p
-          aria-live="polite"
-          className="truncate text-xs leading-4 text-app-muted"
-        >
-          {subtitle}
-        </p>
+        {subtitle ? (
+          <p
+            aria-live="polite"
+            className="truncate text-xs leading-4 text-app-muted"
+          >
+            {subtitle}
+          </p>
+        ) : null}
       </div>
       {action}
       <HeaderButton data-voice-close label={t(m.closeNotes)} onClick={onClose}>
@@ -1202,12 +1210,18 @@ function PocketNoteCopyAction({ text }: { text: string }) {
   return (
     <>
       {copied ? (
-        <span className="text-xs leading-4 text-app-muted" role="status">
+        <span
+          className="min-w-0 max-w-20 truncate text-xs leading-4 text-app-muted"
+          role="status"
+        >
           {t(commonMessages.copied)}
         </span>
       ) : null}
       {failed ? (
-        <span className="text-xs leading-4 text-app-danger" role="alert">
+        <span
+          className="min-w-0 max-w-20 truncate text-xs leading-4 text-app-danger"
+          role="alert"
+        >
           {t(m.copyFailed)}
         </span>
       ) : null}
@@ -1218,47 +1232,129 @@ function PocketNoteCopyAction({ text }: { text: string }) {
   );
 }
 
+function viewportDimensions() {
+  const clientWidth = document.documentElement.clientWidth;
+  const layoutWidth =
+    clientWidth > 0
+      ? Math.min(window.innerWidth, clientWidth)
+      : window.innerWidth;
+  const visualViewport = window.visualViewport;
+  const width = visualViewport
+    ? Math.min(layoutWidth, Math.floor(visualViewport.width))
+    : layoutWidth;
+  const height = visualViewport
+    ? Math.min(window.innerHeight, Math.floor(visualViewport.height))
+    : window.innerHeight;
+  return { height, width };
+}
+
+function isRectVisible(rect: DOMRect | undefined): rect is DOMRect {
+  return Boolean(rect && (rect.width > 0 || rect.height > 0));
+}
+
 /** Opens beneath its trigger over the sidebar column so the chat stays readable. */
 function usePanelPosition(anchor: HTMLButtonElement | null): CSSProperties {
   const [position, setPosition] = useState<CSSProperties>({
+    height: panelHeight,
     left: panelGap,
     top: panelGap,
     width: panelWidth,
   });
   useLayoutEffect(() => {
     function place() {
-      const height = 440;
+      const { height: viewportHeight, width: viewportWidth } =
+        viewportDimensions();
       const width = Math.min(
         panelWidth,
-        Math.max(240, window.innerWidth - panelGap * 2),
+        Math.max(0, viewportWidth - panelGap * 2),
       );
+      const height =
+        viewportHeight > 0
+          ? Math.min(panelHeight, Math.max(0, viewportHeight - panelGap * 2))
+          : panelHeight;
+      const centeredLeft = Math.max(
+        panelGap,
+        Math.min(
+          Math.round((viewportWidth - width) / 2),
+          viewportWidth - width - panelGap,
+        ),
+      );
+      const narrow = viewportWidth < narrowBackdropMaxWidth;
       const sidebar = anchor
         ?.closest(".app-secondary-navigation")
         ?.getBoundingClientRect();
       const trigger = anchor?.getBoundingClientRect();
-      // The room that opened the note has gone; keep the page on screen.
-      if (!trigger) {
-        setPosition({
-          left: panelGap,
-          top: Math.max(panelGap, window.innerHeight - height - panelGap),
+      let next: CSSProperties;
+      if (!anchor) {
+        // The room that opened the note has gone; keep the page on screen.
+        next = {
+          height,
+          left: narrow ? centeredLeft : panelGap,
+          top: narrow
+            ? panelGap
+            : Math.max(panelGap, viewportHeight - height - panelGap),
           width,
-        });
-        return;
+        };
+      } else if (!isRectVisible(trigger)) {
+        // The trigger is hidden inside a closed mobile drawer or collapsed rail.
+        next = {
+          height,
+          left: narrow ? centeredLeft : panelGap,
+          top: panelGap,
+          width,
+        };
+      } else {
+        const preferredLeft = isRectVisible(sidebar)
+          ? sidebar.left
+          : trigger.left;
+        const left = Math.max(
+          panelGap,
+          Math.min(preferredLeft, viewportWidth - width - panelGap),
+        );
+        const top = Math.max(
+          panelGap,
+          Math.min(trigger.bottom + 8, viewportHeight - height - panelGap),
+        );
+        next = { height, left, top, width };
       }
-      const preferredLeft = sidebar ? sidebar.left : trigger.left;
-      const left = Math.max(
-        panelGap,
-        Math.min(preferredLeft, window.innerWidth - width - panelGap),
+      setPosition((current) =>
+        current.left === next.left &&
+        current.top === next.top &&
+        current.width === next.width &&
+        current.height === next.height
+          ? current
+          : next,
       );
-      const top = Math.max(
-        panelGap,
-        Math.min(trigger.bottom + 8, window.innerHeight - height - panelGap),
-      );
-      setPosition({ left, top, width });
     }
+
+    let frame: number | undefined;
+    const schedulePlace = () => {
+      place();
+      if (frame !== undefined) window.cancelAnimationFrame(frame);
+      // Re-measure after breakpoint-driven drawer visibility commits.
+      frame = window.requestAnimationFrame(() => {
+        frame = undefined;
+        place();
+      });
+    };
+
     place();
-    window.addEventListener("resize", place);
-    return () => window.removeEventListener("resize", place);
+    window.addEventListener("resize", schedulePlace);
+    const visualViewport = window.visualViewport;
+    visualViewport?.addEventListener("resize", schedulePlace);
+    let observer: ResizeObserver | undefined;
+    if (typeof ResizeObserver !== "undefined" && anchor) {
+      observer = new ResizeObserver(place);
+      observer.observe(anchor);
+      const sidebar = anchor.closest(".app-secondary-navigation");
+      if (sidebar && sidebar !== anchor) observer.observe(sidebar);
+    }
+    return () => {
+      if (frame !== undefined) window.cancelAnimationFrame(frame);
+      window.removeEventListener("resize", schedulePlace);
+      visualViewport?.removeEventListener("resize", schedulePlace);
+      observer?.disconnect();
+    };
   }, [anchor]);
   return position;
 }
