@@ -17,6 +17,7 @@ import { useT } from "@/i18n/use-translation";
 
 import { documentFileName } from "./document-display-name";
 import { documentAfterRemoval } from "./document-tree-order";
+import { libraryDocumentsTenantQueryKey } from "./library-queries";
 import { libraryMessages as m } from "./library.messages";
 import {
   myDocumentTreeQueryKey,
@@ -77,7 +78,7 @@ export function useMyDocumentsDocumentActions({
       await Promise.all([
         onChanged(),
         queryClient.invalidateQueries({
-          queryKey: ["teamhub", "library-documents"],
+          queryKey: libraryDocumentsTenantQueryKey(tenantId),
         }),
       ]);
       void navigate(
@@ -153,7 +154,7 @@ export function useMyDocumentsDocumentActions({
       await Promise.all([
         onChanged(),
         queryClient.invalidateQueries({
-          queryKey: ["teamhub", "library-documents"],
+          queryKey: libraryDocumentsTenantQueryKey(tenantId),
         }),
       ]);
     } catch (trashError) {

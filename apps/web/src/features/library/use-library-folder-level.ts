@@ -15,6 +15,7 @@ import type {
 } from "@/features/teamhub/teamhub-types";
 
 import type { LibraryRowDocument } from "./library-document-results";
+import { libraryDocumentsQueryKey } from "./library-queries";
 import {
   folderChildren,
   folderDescendantDocuments,
@@ -127,6 +128,6 @@ export function useLibraryDocuments(
           },
         }),
       ),
-    queryKey: ["teamhub", "library-documents", tenantId, view],
+    queryKey: libraryDocumentsQueryKey(tenantId, view),
   });
 }

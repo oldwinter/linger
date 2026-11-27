@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 
+import { myDocumentTreeQueryKey } from "@/features/library/library-queries";
 import { useWorkspaceTree } from "@/features/library/workspace-tree";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import type { TeamHubClient } from "@/features/teamhub/teamhub-client";
@@ -236,7 +237,7 @@ function useUnifiedDocumentData({
           params: { path: { tenantId } },
         }),
       ),
-    queryKey: ["teamhub", tenantId, "document-tree"],
+    queryKey: myDocumentTreeQueryKey(tenantId),
     staleTime: 60_000,
   });
   const {

@@ -12,6 +12,11 @@ import { documentQueryKey } from "@/features/rooms/room-queries";
 import { commonMessages } from "@/i18n/common.messages";
 import { useT } from "@/i18n/use-translation";
 
+import {
+  libraryDocumentsTenantQueryKey,
+  myDocumentTreeQueryKey,
+  sharedDocumentTreeQueryKey,
+} from "./library-queries";
 import { libraryMessages as m } from "./library.messages";
 
 export function canRenameDocument(document: TeamHubDocumentTreeSummary) {
@@ -68,13 +73,13 @@ export function useDocumentRename(tenantId: string) {
       );
       await Promise.all([
         queryClient.invalidateQueries({
-          queryKey: ["teamhub", tenantId, "document-tree"],
+          queryKey: myDocumentTreeQueryKey(tenantId),
         }),
         queryClient.invalidateQueries({
-          queryKey: ["teamhub", tenantId, "shared-document-tree"],
+          queryKey: sharedDocumentTreeQueryKey(tenantId),
         }),
         queryClient.invalidateQueries({
-          queryKey: ["teamhub", "library-documents"],
+          queryKey: libraryDocumentsTenantQueryKey(tenantId),
         }),
       ]);
       setDocument(null);

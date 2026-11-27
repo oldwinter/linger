@@ -12,6 +12,10 @@ import type { TeamHubDocumentPlacementNode } from "@/features/teamhub/teamhub-ty
 import { useT } from "@/i18n/use-translation";
 
 import type { LibraryRowDocument } from "./library-document-results";
+import {
+  libraryDocumentsTenantQueryKey,
+  myDocumentTreeQueryKey,
+} from "./library-queries";
 import { libraryMessages as m } from "./library.messages";
 import type { DocumentTreeFolder } from "./my-documents-tree-helpers";
 
@@ -38,10 +42,10 @@ export function useCopyToMyDocuments(client: TeamHubClient, tenantId: string) {
       );
       await Promise.all([
         queryClient.invalidateQueries({
-          queryKey: ["teamhub", tenantId, "document-tree"],
+          queryKey: myDocumentTreeQueryKey(tenantId),
         }),
         queryClient.invalidateQueries({
-          queryKey: ["teamhub", "library-documents"],
+          queryKey: libraryDocumentsTenantQueryKey(tenantId),
         }),
       ]);
       setCopyingDocument(null);

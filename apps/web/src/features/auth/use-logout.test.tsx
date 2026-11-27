@@ -161,6 +161,8 @@ describe("useLogout", () => {
     const identity = runtime.seed.identity;
     const queryClient = new QueryClient();
     queryClient.setQueryData(["teamhub", "private"], "cached");
+    queryClient.setQueryData(["herdr-core", "status", "comp-1"], "private");
+    queryClient.setQueryData(["mail-canvas", "doc-1"], { draft: "secret" });
     const scope = {
       accountId: identity.account.id,
       tenantId: "tenant-northstar",
@@ -199,6 +201,18 @@ describe("useLogout", () => {
     window.localStorage.setItem(
       "linger.models.lastComputer:tenant-northstar",
       "computer-mac",
+    );
+    window.localStorage.setItem(
+      "last-room.v1:account-jenny.tenant-northstar",
+      "room-all",
+    );
+    window.localStorage.setItem(
+      "room-snooze.v1:account-jenny.room-all",
+      String(Date.now() + 60_000),
+    );
+    window.localStorage.setItem(
+      "meeting-resume.v1:account-jenny",
+      JSON.stringify([]),
     );
     let finishOutbox!: () => void;
     const clearOutbox = vi
@@ -271,6 +285,21 @@ describe("useLogout", () => {
         "linger.models.lastComputer:tenant-northstar",
       ),
     ).toBeNull();
+    expect(
+      window.localStorage.getItem(
+        "last-room.v1:account-jenny.tenant-northstar",
+      ),
+    ).toBeNull();
+    expect(
+      window.localStorage.getItem("room-snooze.v1:account-jenny.room-all"),
+    ).toBeNull();
+    expect(
+      window.localStorage.getItem("meeting-resume.v1:account-jenny"),
+    ).toBeNull();
+    expect(
+      queryClient.getQueryData(["herdr-core", "status", "comp-1"]),
+    ).toBeUndefined();
+    expect(queryClient.getQueryData(["mail-canvas", "doc-1"])).toBeUndefined();
     expect(clearOutbox).toHaveBeenCalledWith(identity.account.id);
     expect(carriedMeetingSnapshot()).toBeUndefined();
     expect(disposeRecording).toHaveBeenCalledOnce();

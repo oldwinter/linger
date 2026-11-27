@@ -9,10 +9,13 @@ import { clearTeamHubQueries } from "@/features/rooms/room-queries";
 import { clearGlobalSearchHistory } from "@/features/search/global-search-recent-storage";
 import { clearAllRecentWikiPages } from "@/features/wiki/recent-wiki-pages-storage";
 import { clearAllWikiDisplayState } from "@/features/wiki/wiki-display-storage";
+import { clearAccountPreferenceKeys } from "@/lib/local-preference-keys";
 
 export function clearLocalAuthenticatedState(queryClient: QueryClient) {
   resetMeetingPlaybackSession();
   clearTeamHubQueries(queryClient);
+  queryClient.clear();
+  clearAccountPreferenceKeys();
   clearRoomDrafts();
   clearGlobalSearchHistory();
   clearLastModelsComputer();
