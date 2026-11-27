@@ -15,7 +15,7 @@ const PocketNotePanel = lazy(() => import("./pocket-note-panel"));
  * The open note, kept above the room routes. Moving between rooms changes
  * what is behind it.
  */
-export function PocketNoteHost() {
+export function PocketNoteHost({ accountId }: { accountId?: string } = {}) {
   const hold = useSyncExternalStore(
     subscribePocketNoteHold,
     readPocketNoteHold,
@@ -30,6 +30,7 @@ export function PocketNoteHost() {
   return (
     <Suspense fallback={null}>
       <PocketNotePanel
+        accountId={accountId}
         anchor={anchor}
         anotherMeRoomId={hold.anotherMeRoomId}
         closeRef={closeRef}

@@ -489,7 +489,7 @@ function RoomShellContent({
         {/* Inside the avatar provider so the window can show Another Me. */}
         <RecordingWindowHost />
         <Suspense fallback={null}>
-          <PocketNoteHost />
+          <PocketNoteHost accountId={identity.account.id} />
         </Suspense>
         <VoiceModeWindowHost
           anotherMeActorId={anotherMeActorId}

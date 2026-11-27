@@ -37,6 +37,8 @@ const excluded: Readonly<Record<string, string>> = {
     "The mini window's last screen position, a layout convenience.",
   "features/rooms/members/agent-avatar.ts":
     "Avatar choices cached for display, not a setting this section offers.",
+  "features/rooms/pocket-notes/pocket-note-draft.ts":
+    "Unsynced local Pocket Note drafts and cross-tab sync signals, owned and deliberately discarded inside the Pocket Notes panel.",
   "features/rooms/task-sidebar/panel-tab-store.ts":
     "The task sidebar's last open tab, per-Room layout state.",
   "features/rooms/task-sidebar/panel-width.ts":
