@@ -3,7 +3,7 @@ import { TeamHubError } from "@/features/teamhub/teamhub-error";
 
 import { safeAuthenticationReturnTo } from "@/features/auth/authentication-return-to";
 import { rememberInterruptedPage } from "@/features/auth/interrupted-page";
-import { clearLocalAuthenticatedState } from "@/features/auth/local-authenticated-state";
+import { clearTeamHubQueries } from "@/features/rooms/room-queries";
 import {
   subscribeTeamHubSignOut,
   teamHubAuthenticationSignals,
@@ -27,8 +27,17 @@ export function startTeamHubAuthenticationRuntime({
   let probe: Promise<void> | null = null;
   let generation = 0;
 
+  const clearAuthenticatedState = () => {
+    clearTeamHubQueries(queryClient);
+    // Feature-owned storage clearers live off the initial bundle until sign-out
+    // or session invalidation actually occurs.
+    void import("@/features/auth/local-authenticated-state").then((module) => {
+      module.clearLocalAuthenticatedStorage();
+    });
+  };
+
   const invalidate = (reason: TeamHubAuthenticationReason) => {
-    clearLocalAuthenticatedState(queryClient);
+    clearAuthenticatedState();
     const location = currentLocation?.();
     if (location && location.pathname !== "/login") {
       rememberInterruptedPage(`${location.pathname}${location.search}`);
@@ -52,7 +61,7 @@ export function startTeamHubAuthenticationRuntime({
   const unsubscribe = signals.subscribe((kind) => {
     if (kind === "authenticated") {
       generation += 1;
-      clearLocalAuthenticatedState(queryClient);
+      clearAuthenticatedState();
       void navigate("/", { replace: true });
       return;
     }

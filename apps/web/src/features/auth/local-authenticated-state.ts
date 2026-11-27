@@ -10,9 +10,8 @@ import { clearGlobalSearchHistory } from "@/features/search/global-search-recent
 import { clearAllRecentWikiPages } from "@/features/wiki/recent-wiki-pages-storage";
 import { clearAllWikiDisplayState } from "@/features/wiki/wiki-display-storage";
 
-export function clearLocalAuthenticatedState(queryClient: QueryClient) {
+export function clearLocalAuthenticatedStorage() {
   resetMeetingPlaybackSession();
-  clearTeamHubQueries(queryClient);
   clearRoomDrafts();
   clearGlobalSearchHistory();
   clearLastModelsComputer();
@@ -20,4 +19,9 @@ export function clearLocalAuthenticatedState(queryClient: QueryClient) {
   clearAllRecentWikiPages();
   clearAllWikiDisplayState();
   clearAllDismissedBackgroundFailures();
+}
+
+export function clearLocalAuthenticatedState(queryClient: QueryClient) {
+  clearTeamHubQueries(queryClient);
+  clearLocalAuthenticatedStorage();
 }

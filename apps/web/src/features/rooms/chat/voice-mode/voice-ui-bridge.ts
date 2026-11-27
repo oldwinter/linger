@@ -4,7 +4,14 @@
  * register what they offer while they are mounted; nothing else is reachable.
  */
 
+import {
+  getVoiceShell,
+  registerVoiceShell,
+  resetVoiceShellForTest,
+} from "./voice-shell-registry";
 import { voiceWindowSelector } from "./voice-window-selector";
+
+export { registerVoiceShell };
 
 export interface VoiceSearchResult {
   id: string;
@@ -18,32 +25,16 @@ interface VoiceSearchSurface {
   close: () => void;
 }
 
-interface VoiceShell {
-  navigate: (path: string) => void;
-  openSearch: (query: string) => void;
-  back: () => void;
-  /** Whether a route change is still loading (lazy routes commit late). */
-  navigating: () => boolean;
-}
-
 /** The Room on screen opens its own Documents beside its chat. */
 interface VoiceRoomFiles {
   open: (documentId: string) => Promise<boolean>;
 }
 
-let shell: VoiceShell | undefined;
 let roomFiles: VoiceRoomFiles | undefined;
 let searchSurface: VoiceSearchSurface | undefined;
 /** A page opened from search by voice, so "close" returns to that search. */
 let openedByVoice: { path: string; query: string } | undefined;
 let lastQuery = "";
-
-export function registerVoiceShell(next: VoiceShell) {
-  shell = next;
-  return () => {
-    if (shell === next) shell = undefined;
-  };
-}
 
 export function registerVoiceRoomFiles(next: VoiceRoomFiles) {
   roomFiles = next;
@@ -79,6 +70,7 @@ export function voiceCanClose() {
 }
 
 export function voiceSearch(query: string) {
+  const shell = getVoiceShell();
   if (!shell) return false;
   lastQuery = query;
   openedByVoice = undefined;
@@ -101,6 +93,7 @@ export async function voiceOpenResult(id: string) {
  * and searches again, else closes the front-most open panel.
  */
 export function voiceClose(overlayId?: string) {
+  const shell = getVoiceShell();
   const named = overlayId ? offeredOverlays.get(overlayId) : undefined;
   if (named?.isConnected) return closeOverlay(named);
   if (searchSurface) {
@@ -127,6 +120,7 @@ export function voiceClose(overlayId?: string) {
 }
 
 export function voiceBack() {
+  const shell = getVoiceShell();
   if (!shell) return false;
   // The first page of the tab has nowhere to go back to.
   const index = (window.history.state as { idx?: unknown } | null)?.idx;
@@ -577,10 +571,11 @@ export function voiceFill(
 
 /** Whether the app is still loading a route change voice may have started. */
 export function voiceNavigating() {
-  return shell?.navigating() ?? false;
+  return getVoiceShell()?.navigating() ?? false;
 }
 
 export function voiceNavigate(path: string) {
+  const shell = getVoiceShell();
   if (!shell) return false;
   searchSurface?.close();
   openedByVoice = undefined;
@@ -910,7 +905,7 @@ function moveNative(element: HTMLElement, direction: VoiceScrollDirection) {
 }
 
 export function resetVoiceUiForTest() {
-  shell = undefined;
+  resetVoiceShellForTest();
   searchSurface = undefined;
   openedByVoice = undefined;
   lastQuery = "";

@@ -2,7 +2,10 @@ import { markdownPlainText } from "@/features/teamhub/markdown-plain-text";
 import type { TeamHubMemoryEntry } from "@/features/teamhub/teamhub-types";
 import { type Translate, formatLocale, translate } from "@/i18n/language";
 
+import { meetingWhen } from "./meeting-time";
 import { meetingsMessages as m } from "./meetings.messages";
+
+export { meetingWhen };
 
 export interface CalendarMeeting {
   id: string;
@@ -31,23 +34,6 @@ export interface CalendarMonth {
 }
 
 const monthsShown = 12;
-// Meeting folders are named in the server's local time; the calendar uses the
-// same dates so a meeting sits on the same day in both places.
-const meetingPath =
-  /^Meetings\/(\d{4})\/(\d{2})\/(\d{2})\/Meeting (\d{2})-(\d{2})-(\d{2})/u;
-
-/** The date and start time a meeting's folder path names. */
-export function meetingWhen(
-  path: string,
-): { date: string; time: string } | undefined {
-  const match = meetingPath.exec(path);
-  if (!match) return undefined;
-  const [, year, month, day, hour, minute, second] = match;
-  return {
-    date: `${year}-${month}-${day}`,
-    time: `${hour}:${minute}:${second}`,
-  };
-}
 
 const generatedMeetingTitle = /^Meeting\s+\d{2}[-:]\d{2}[-:]\d{2}$/iu;
 
@@ -72,10 +58,9 @@ export function meetingsByDate(
 ): Map<string, CalendarMeeting[]> {
   const days = new Map<string, CalendarMeeting[]>();
   for (const entry of entries) {
-    const match = meetingPath.exec(entry.path);
-    if (!entry.meeting || !match) continue;
-    const [, year, month, day, hour, minute, second] = match;
-    const date = `${year}-${month}-${day}`;
+    const when = meetingWhen(entry.path);
+    if (!entry.meeting || !when) continue;
+    const { date, time } = when;
     const meetings = days.get(date) ?? [];
     const customTitle = meetingCustomTitle(entry);
     const summaryPreview = meetingSummaryPreview(entry.summary);
@@ -83,7 +68,7 @@ export function meetingsByDate(
       id: entry.id,
       captureId: entry.meeting.capture_id,
       date,
-      time: `${hour}:${minute}:${second}`,
+      time,
       recordingFilename: entry.meeting.recording_filename,
       summaryReady: entry.meeting.summary_ready,
       ...(customTitle ? { title: customTitle } : {}),
