@@ -31,6 +31,11 @@ public static class LingerWithoutAdministrators {
     public short wShowWindow; public short cbReserved2; public IntPtr lpReserved2;
     public IntPtr hStdInput; public IntPtr hStdOutput; public IntPtr hStdError;
   }
+  [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+  struct StartupInfoEx {
+    public StartupInfo StartupInfo;
+    public IntPtr lpAttributeList;
+  }
   [StructLayout(LayoutKind.Sequential)]
   struct ProcessInformation { public IntPtr hProcess; public IntPtr hThread; public int dwProcessId; public int dwThreadId; }
 
@@ -44,9 +49,17 @@ public static class LingerWithoutAdministrators {
   [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
   static extern bool CreateProcessAsUserW(IntPtr token, string application, StringBuilder commandLine,
     IntPtr processAttributes, IntPtr threadAttributes, bool inheritHandles, uint flags, IntPtr environment,
-    string directory, ref StartupInfo startup, out ProcessInformation process);
+    string directory, ref StartupInfoEx startup, out ProcessInformation process);
   [DllImport("kernel32.dll")] static extern IntPtr GetCurrentProcess();
   [DllImport("kernel32.dll")] static extern IntPtr GetStdHandle(int which);
+  [DllImport("kernel32.dll", SetLastError = true)] static extern bool GetHandleInformation(IntPtr handle, out uint flags);
+  [DllImport("kernel32.dll", SetLastError = true)] static extern bool SetHandleInformation(IntPtr handle, uint mask, uint flags);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  static extern bool InitializeProcThreadAttributeList(IntPtr list, int count, int flags, ref IntPtr size);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  static extern bool UpdateProcThreadAttribute(IntPtr list, uint flags, IntPtr attribute, IntPtr value,
+    IntPtr size, IntPtr previous, IntPtr returnSize);
+  [DllImport("kernel32.dll")] static extern void DeleteProcThreadAttributeList(IntPtr list);
   [DllImport("kernel32.dll")] static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
   [DllImport("kernel32.dll")] static extern bool GetExitCodeProcess(IntPtr process, out int code);
   [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
@@ -55,6 +68,26 @@ public static class LingerWithoutAdministrators {
     byte[] bytes = new byte[sid.BinaryLength];
     sid.GetBinaryForm(bytes, 0);
     return bytes;
+  }
+
+  static IntPtr[] CollectStdHandles(IntPtr stdin, IntPtr stdout, IntPtr stderr) {
+    IntPtr invalid = new IntPtr(-1);
+    IntPtr[] raw = { stdin, stdout, stderr };
+    IntPtr[] unique = new IntPtr[3];
+    int count = 0;
+    foreach (IntPtr handle in raw) {
+      if (handle == IntPtr.Zero || handle == invalid) continue;
+      bool duplicate = false;
+      for (int i = 0; i < count; i++) if (unique[i] == handle) { duplicate = true; break; }
+      if (duplicate) continue;
+      uint flags;
+      if (!GetHandleInformation(handle, out flags)) continue;
+      if ((flags & 1u) == 0 && !SetHandleInformation(handle, 1u, 1u)) continue;
+      unique[count++] = handle;
+    }
+    IntPtr[] result = new IntPtr[count];
+    Array.Copy(unique, result, count);
+    return result;
   }
 
   public static int Run(string commandLine) {
@@ -90,17 +123,49 @@ public static class LingerWithoutAdministrators {
       IntPtr defaultDacl = daclPin.AddrOfPinnedObject();
       if (!SetTokenInformation(restricted, 6, ref defaultDacl, IntPtr.Size)) throw new Win32Exception();
     } finally { daclPin.Free(); }
-    StartupInfo startup = new StartupInfo();
-    startup.cb = Marshal.SizeOf(typeof(StartupInfo));
-    startup.dwFlags = 0x100;
-    startup.hStdInput = GetStdHandle(-10);
-    startup.hStdOutput = GetStdHandle(-11);
-    startup.hStdError = GetStdHandle(-12);
-    ProcessInformation child;
-    bool started = CreateProcessAsUserW(restricted, null, new StringBuilder(commandLine), IntPtr.Zero, IntPtr.Zero,
-      true, 0, IntPtr.Zero, null, ref startup, out child);
-    int error = Marshal.GetLastWin32Error();
-    CloseHandle(restricted);
+    IntPtr stdIn = GetStdHandle(-10);
+    IntPtr stdOut = GetStdHandle(-11);
+    IntPtr stdErr = GetStdHandle(-12);
+    IntPtr[] inheritList = CollectStdHandles(stdIn, stdOut, stdErr);
+    StartupInfoEx startup = new StartupInfoEx();
+    startup.StartupInfo.cb = Marshal.SizeOf(typeof(StartupInfoEx));
+    IntPtr attrList = IntPtr.Zero;
+    bool attrListInitialized = false;
+    GCHandle listPin = default(GCHandle);
+    bool inheritHandles = inheritList.Length > 0;
+    uint creationFlags = 0;
+    ProcessInformation child = new ProcessInformation();
+    bool started = false;
+    int error = 0;
+    try {
+      if (inheritHandles) {
+        startup.StartupInfo.dwFlags = 0x100;
+        startup.StartupInfo.hStdInput = stdIn;
+        startup.StartupInfo.hStdOutput = stdOut;
+        startup.StartupInfo.hStdError = stdErr;
+        IntPtr attrSize = IntPtr.Zero;
+        InitializeProcThreadAttributeList(IntPtr.Zero, 1, 0, ref attrSize);
+        if (attrSize == IntPtr.Zero) throw new Win32Exception();
+        attrList = Marshal.AllocHGlobal(attrSize);
+        if (!InitializeProcThreadAttributeList(attrList, 1, 0, ref attrSize)) throw new Win32Exception();
+        attrListInitialized = true;
+        listPin = GCHandle.Alloc(inheritList, GCHandleType.Pinned);
+        // Restrict inheritance strictly to stdio handles via PROC_THREAD_ATTRIBUTE_HANDLE_LIST.
+        if (!UpdateProcThreadAttribute(attrList, 0, (IntPtr)0x00020002, listPin.AddrOfPinnedObject(),
+          (IntPtr)(inheritList.Length * IntPtr.Size), IntPtr.Zero, IntPtr.Zero))
+          throw new Win32Exception();
+        startup.lpAttributeList = attrList;
+        creationFlags = 0x00080000;
+      }
+      started = CreateProcessAsUserW(restricted, null, new StringBuilder(commandLine), IntPtr.Zero, IntPtr.Zero,
+        inheritHandles, creationFlags, IntPtr.Zero, null, ref startup, out child);
+      error = Marshal.GetLastWin32Error();
+    } finally {
+      if (listPin.IsAllocated) listPin.Free();
+      if (attrListInitialized) DeleteProcThreadAttributeList(attrList);
+      if (attrList != IntPtr.Zero) Marshal.FreeHGlobal(attrList);
+      CloseHandle(restricted);
+    }
     if (!started) throw new Win32Exception(error);
     CloseHandle(child.hThread);
     WaitForSingleObject(child.hProcess, 0xFFFFFFFF);

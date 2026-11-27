@@ -134,6 +134,18 @@ func stopManagedServices(ctx context.Context, stateDirectory string) (any, error
 	return map[string]any{"stopped": len(remaining) == 0}, err
 }
 
+func platformExecEntry(args []string) (int, bool, error) {
+	if len(args) == 0 || args[0] != "exec-isolated" {
+		return 0, false, nil
+	}
+	opts, err := localprocess.ParseIsolatedExecArgs(args[1:])
+	if err != nil {
+		return 1, true, err
+	}
+	code, err := localprocess.RunIsolatedExec(opts)
+	return code, true, err
+}
+
 func platformEntry(args []string) (bool, error) {
 	switch {
 	case len(args) == 1 && args[0] == "platform":

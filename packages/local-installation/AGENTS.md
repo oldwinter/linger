@@ -365,7 +365,13 @@ leased services without restarting them. On Linux, the supervisor and spawned in
 processes (`linuxNodeFdHygieneArgs` in `native-process-fds.ts`) close inherited
 non-`O_CLOEXEC` descriptors and listening TCP or Unix sockets >= 3 (keeping the
 active IPC channel) so detached services cannot hold parent Electron sockets
-open after quit. POSIX finds the service's processes by process group and
+open after quit. On macOS, libuv's `posix_spawn` sets
+`POSIX_SPAWN_CLOEXEC_DEFAULT`, keeping inherited non-stdio FDs out of spawned
+supervisors and services. On Windows, elevated `postgres` launches through
+`windows-restricted-token.ts` pass `STARTUPINFOEX` with
+`PROC_THREAD_ATTRIBUTE_HANDLE_LIST` (`EXTENDED_STARTUPINFO_PRESENT`) so
+`CreateProcessAsUserW` inherits only stdio handles, and Desktop isolates
+installer launches through `linger-computer-daemon.exe exec-isolated`. POSIX finds the service's processes by process group and
 the lease in their environment. Windows has neither: the lease is in the
 supervisor's command line (its job file name) and the tree follows parent
 links (`windowsLeaseTree`), which break when a parent dies first. So on

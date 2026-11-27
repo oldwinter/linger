@@ -650,6 +650,40 @@ describe("UpdaterModule with the Windows setup program", () => {
     expect(restarts()).toBe(0);
   });
 
+  it("isolates Windows setup launch through the bundled daemon helper when available", async () => {
+    const { calls, spawn } = recorder();
+    const daemon =
+      "C:\\Linger\\resources\\computer\\linger-computer-daemon.exe";
+    const feed = release("0.17.0", { target: "win32-x64", file: SETUP });
+    const { updater, downloads, quits } = await setup(feed, {
+      platform: "win32",
+      arch: "x64",
+      install: { kind: "windows-setup" },
+      daemonExecutable: daemon,
+      daemonExists: (file) => file === daemon,
+      spawn,
+    });
+    await updater.check();
+    await updater.install();
+    await waitFor(() => quits() === 1);
+    expect(calls).toEqual([
+      {
+        file: daemon,
+        args: [
+          "exec-isolated",
+          "--detached",
+          "--windowed",
+          "--no-stdio",
+          "--",
+          path.join(downloads, SETUP),
+          "/update",
+          "/relaunch",
+        ],
+        options: { detached: true, stdio: "ignore", windowsHide: true },
+      },
+    ]);
+  });
+
   it("does not run a setup program that changed after its download", async () => {
     const { calls, spawn } = recorder();
     const { updater, downloads, quits } = await windows(spawn);

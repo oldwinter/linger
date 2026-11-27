@@ -68,7 +68,10 @@ import {
   NATIVE_RUNTIME_DIRECTORY,
   readNativeRuntime,
 } from "@linger/local-installation/native-runtime";
-import { linuxNodeFdHygieneArgs } from "@linger/local-installation/native-process-fds";
+import {
+  resolveIsolatedNodeSpawn,
+  type IsolatedSpawnSpec,
+} from "./isolated-spawn.js";
 import {
   installTeamhubBinaries,
   readTeamhubBinaries,
@@ -794,23 +797,23 @@ export class LocalServerModule implements Module {
       return;
     }
     try {
-      const child = spawn(
+      const launch = this.#installerInvocation(
         process.execPath,
         [
-          ...linuxNodeFdHygieneArgs(this.#options.platform),
           this.#installerScript(),
           "--home",
           this.#options.home,
           "--stop-local-models",
         ],
-        {
-          detached: true,
-          // A detached Windows process otherwise opens its own console window.
-          windowsHide: true,
-          stdio: ["ignore", output, output],
-          env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
-        },
+        { detached: true },
       );
+      const child = spawn(launch.command, launch.args, {
+        detached: launch.detached,
+        // A detached Windows process otherwise opens its own console window.
+        windowsHide: true,
+        stdio: ["ignore", output, output],
+        env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+      });
       child.once("error", (error) =>
         this.#ctx?.log.warn("local_server.local_models_stop_failed", {
           error: String(error),
@@ -1340,6 +1343,23 @@ export class LocalServerModule implements Module {
           };
   }
 
+  #installerInvocation(
+    node: string,
+    args: readonly string[],
+    options: {
+      readonly detached?: boolean;
+      readonly allowBreakaway?: boolean;
+    } = {},
+  ): IsolatedSpawnSpec {
+    return resolveIsolatedNodeSpawn({
+      platform: this.#options.platform,
+      daemonExecutable: this.#options.daemonExecutable,
+      node,
+      args,
+      ...options,
+    });
+  }
+
   #daemonEnv(): NodeJS.ProcessEnv {
     return this.#options.daemonExecutable
       ? {
@@ -1371,26 +1391,22 @@ export class LocalServerModule implements Module {
     const home = this.#location ?? this.#home;
     try {
       const output = await new Promise<string>((resolve, reject) => {
-        const child = spawn(
-          process.execPath,
-          [
-            ...linuxNodeFdHygieneArgs(this.#options.platform),
-            this.#installerScript(),
-            "--home",
-            home,
-            flag,
-          ],
-          {
-            stdio: ["pipe", "pipe", "pipe"],
-            windowsHide: true,
-            env: {
-              ...this.#daemonEnv(),
-              ELECTRON_RUN_AS_NODE: "1",
-              LINGER_HOME: home,
-            },
-            signal: AbortSignal.timeout(timeoutMs),
+        const launch = this.#installerInvocation(process.execPath, [
+          this.#installerScript(),
+          "--home",
+          home,
+          flag,
+        ]);
+        const child = spawn(launch.command, launch.args, {
+          stdio: ["pipe", "pipe", "pipe"],
+          windowsHide: true,
+          env: {
+            ...this.#daemonEnv(),
+            ELECTRON_RUN_AS_NODE: "1",
+            LINGER_HOME: home,
           },
-        );
+          signal: AbortSignal.timeout(timeoutMs),
+        });
         let last = "";
         createInterface({ input: child.stdout }).on("line", (line) => {
           if (line.trim()) last = line;
@@ -1424,28 +1440,24 @@ export class LocalServerModule implements Module {
     // The app's own Node runs the check, so it needs no download of its own;
     // installing still uses the pinned Node runtime.
     const output = await new Promise<string>((resolve, reject) => {
-      const child = spawn(
-        process.execPath,
-        [
-          ...linuxNodeFdHygieneArgs(this.#options.platform),
-          this.#installerScript(),
-          "--home",
-          this.#options.home,
-          "--inspect",
-          "--inspect-target",
-          targetHome,
-        ],
-        {
-          stdio: ["ignore", "pipe", "pipe"],
-          windowsHide: true,
-          env: {
-            ...inspectEnv,
-            ELECTRON_RUN_AS_NODE: "1",
-            LINGER_HOME: this.#options.home,
-          },
-          signal,
+      const launch = this.#installerInvocation(process.execPath, [
+        this.#installerScript(),
+        "--home",
+        this.#options.home,
+        "--inspect",
+        "--inspect-target",
+        targetHome,
+      ]);
+      const child = spawn(launch.command, launch.args, {
+        stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
+        env: {
+          ...inspectEnv,
+          ELECTRON_RUN_AS_NODE: "1",
+          LINGER_HOME: this.#options.home,
         },
-      );
+        signal,
+      });
       // The check logs how long its parts took on stderr.
       let logged = 0;
       createInterface({ input: child.stderr }).on("line", (line) => {
@@ -1863,26 +1875,22 @@ export class LocalServerModule implements Module {
           reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
           return;
         }
-        const child = spawn(
-          process.execPath,
-          [
-            ...linuxNodeFdHygieneArgs(this.#options.platform),
-            this.#installerScript(),
-            "--home",
-            home,
-            "--prefetch-bifrost",
-            "--abort-on-stdin-close",
-          ],
-          {
-            stdio: ["pipe", "pipe", "pipe"],
-            windowsHide: true,
-            env: {
-              ...inspectEnv,
-              ELECTRON_RUN_AS_NODE: "1",
-              LINGER_HOME: home,
-            },
+        const launch = this.#installerInvocation(process.execPath, [
+          this.#installerScript(),
+          "--home",
+          home,
+          "--prefetch-bifrost",
+          "--abort-on-stdin-close",
+        ]);
+        const child = spawn(launch.command, launch.args, {
+          stdio: ["pipe", "pipe", "pipe"],
+          windowsHide: true,
+          env: {
+            ...inspectEnv,
+            ELECTRON_RUN_AS_NODE: "1",
+            LINGER_HOME: home,
           },
-        );
+        });
         child.stdin.on("error", () => undefined);
         let last = "";
         createInterface({ input: child.stdout }).on("line", (line) => {
@@ -2765,25 +2773,21 @@ export class LocalServerModule implements Module {
     )
       return undefined;
     const outcome = await new Promise<LegacyMigrationRun>((resolve) => {
-      const child = spawn(
-        process.execPath,
-        [
-          ...linuxNodeFdHygieneArgs(this.#options.platform),
-          this.#installerScript(),
-          "--home",
-          home,
-          "--migrate",
-        ],
-        {
-          stdio: ["ignore", "pipe", "pipe"],
-          windowsHide: true,
-          env: {
-            ...process.env,
-            ELECTRON_RUN_AS_NODE: "1",
-            LINGER_HOME: home,
-          },
+      const launch = this.#installerInvocation(process.execPath, [
+        this.#installerScript(),
+        "--home",
+        home,
+        "--migrate",
+      ]);
+      const child = spawn(launch.command, launch.args, {
+        stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
+        env: {
+          ...process.env,
+          ELECTRON_RUN_AS_NODE: "1",
+          LINGER_HOME: home,
         },
-      );
+      });
       let output = "";
       let error = "";
       child.stdout.on("data", (chunk: Buffer) => {
@@ -3772,24 +3776,20 @@ export class LocalServerModule implements Module {
     signal: AbortSignal,
   ): Promise<void> {
     const output = await new Promise<string>((resolve, reject) => {
-      const child = spawn(
-        node,
-        [
-          ...linuxNodeFdHygieneArgs(this.#options.platform),
-          this.#installerScript(),
-          "--home",
-          home,
-          "--instance",
-          LOCAL_INSTANCE,
-          "--user-keys",
-        ],
-        {
-          stdio: ["pipe", "pipe", "ignore"],
-          windowsHide: true,
-          env: { ...process.env, LINGER_HOME: home },
-          signal,
-        },
-      );
+      const launch = this.#installerInvocation(node, [
+        this.#installerScript(),
+        "--home",
+        home,
+        "--instance",
+        LOCAL_INSTANCE,
+        "--user-keys",
+      ]);
+      const child = spawn(launch.command, launch.args, {
+        stdio: ["pipe", "pipe", "ignore"],
+        windowsHide: true,
+        env: { ...process.env, LINGER_HOME: home },
+        signal,
+      });
       let text = "";
       child.stdout.on("data", (chunk: Buffer) => {
         text += chunk.toString("utf8");
@@ -3826,10 +3826,9 @@ export class LocalServerModule implements Module {
     signal: AbortSignal,
   ): Promise<InstallerApi> {
     const proxyEnv = await this.#systemProxyEnv();
-    const child = spawn(
+    const launch = this.#installerInvocation(
       node,
       [
-        ...linuxNodeFdHygieneArgs(this.#options.platform),
         this.#installerScript(),
         "--home",
         home,
@@ -3840,14 +3839,15 @@ export class LocalServerModule implements Module {
         LOCAL_INSTANCE,
         "--no-open",
       ],
-      {
-        detached: true,
-        // A detached Windows process otherwise opens its own console window.
-        windowsHide: true,
-        stdio: ["ignore", "pipe", "pipe"],
-        env: { ...this.#daemonEnv(), ...proxyEnv, LINGER_HOME: home },
-      },
+      { detached: true },
     );
+    const child = spawn(launch.command, launch.args, {
+      detached: launch.detached,
+      // A detached Windows process otherwise opens its own console window.
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...this.#daemonEnv(), ...proxyEnv, LINGER_HOME: home },
+    });
     const log = this.#ctx?.log;
     // The installer explains a failed start on stderr in one write, which
     // can span lines (one reason per instance); keep the last one whole.
@@ -4361,10 +4361,9 @@ export class LocalServerModule implements Module {
     onStage?.("installer_resume");
     const resumeStartedAt = Date.now();
     const outcome = await new Promise<ResumeOutcome>((resolve, reject) => {
-      const child = spawn(
+      const launch = this.#installerInvocation(
         node,
         [
-          ...linuxNodeFdHygieneArgs(this.#options.platform),
           this.#installerScript(),
           "--home",
           record.home,
@@ -4375,15 +4374,16 @@ export class LocalServerModule implements Module {
           LOCAL_INSTANCE,
           "--resume",
         ],
-        {
-          stdio: ["ignore", "pipe", "ignore"],
-          // The pinned Node is a console program; without this Windows
-          // opens a console window for it.
-          windowsHide: true,
-          env,
-          signal,
-        },
+        { allowBreakaway: true },
       );
+      const child = spawn(launch.command, launch.args, {
+        stdio: ["ignore", "pipe", "ignore"],
+        // The pinned Node is a console program; without this Windows
+        // opens a console window for it.
+        windowsHide: true,
+        env,
+        signal,
+      });
       let output = "";
       let settled = false;
       let exited = false;

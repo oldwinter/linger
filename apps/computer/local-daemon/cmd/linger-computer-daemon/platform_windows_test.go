@@ -83,3 +83,12 @@ func TestWindowsPlatformCleanupMissingStateAndRejectsCorruptOwner(t *testing.T) 
 		t.Fatal("corrupt owner record ignored")
 	}
 }
+
+func TestPlatformExecEntryHandlesExecIsolated(t *testing.T) {
+	if code, handled, err := platformExecEntry([]string{"--config", "config.json"}); handled || code != 0 || err != nil {
+		t.Fatalf("non-exec args = (%d, %v, %v), want (0, false, nil)", code, handled, err)
+	}
+	if code, handled, err := platformExecEntry([]string{"exec-isolated", "--bad-flag", "--", "node.exe"}); !handled || code != 1 || err == nil {
+		t.Fatalf("invalid exec-isolated = (%d, %v, %v), want (1, true, error)", code, handled, err)
+	}
+}
