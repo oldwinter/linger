@@ -1,7 +1,10 @@
 import type { TeamHubMemoryEntry } from "@/features/teamhub/teamhub-types";
 
 import { meetingPath } from "./meeting-routes";
-import { formatMeetingWhen, meetingWhen } from "./meetings-calendar";
+import { meetingStartMs, meetingWhen } from "./meeting-time";
+import { formatMeetingWhen } from "./meetings-calendar";
+
+export { meetingStartMs };
 
 /** A meeting still counts as underway for this long after it starts. */
 const underwayMs = 90 * 60 * 1000;
@@ -18,25 +21,6 @@ export interface UpNextMeeting {
 
 export function upNextPath(tenantId: string) {
   return `/t/${encodeURIComponent(tenantId)}/library/up-next`;
-}
-
-/** The folder time is a local clock time, same as the meetings calendar. */
-export function meetingStartMs(path: string): number | undefined {
-  const when = meetingWhen(path);
-  if (!when) return;
-  const [year, month, day] = when.date.split("-").map(Number) as [
-    number,
-    number,
-    number,
-  ];
-  const [hour, minute, second] = when.time.split(":").map(Number) as [
-    number,
-    number,
-    number,
-  ];
-  const start = new Date(year, month - 1, day, hour, minute, second);
-  const ms = start.getTime();
-  return Number.isFinite(ms) ? ms : undefined;
 }
 
 /** The meeting happening now, or the next one that has not started. */

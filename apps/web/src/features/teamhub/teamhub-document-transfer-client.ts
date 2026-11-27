@@ -1,7 +1,3 @@
-import {
-  downloadTeamHubArtifactContent,
-  downloadTeamHubArtifactRange,
-} from "./teamhub-artifact-download";
 import { uploadTeamHubFile } from "./teamhub-artifact-upload";
 import type { TeamHubAuthenticationReason } from "./teamhub-authentication";
 import { teamHubData, teamHubUrl, type TeamHubApi } from "./teamhub-api";
@@ -59,8 +55,10 @@ export function createTeamHubDocumentTransferClient({
   }
 
   return {
-    downloadLatestDocument: (documentId, downloadOptions) =>
-      downloadTeamHubArtifactContent({
+    downloadLatestDocument: async (documentId, downloadOptions) => {
+      const { downloadTeamHubArtifactContent } =
+        await import("./teamhub-artifact-download");
+      return downloadTeamHubArtifactContent({
         fetchRequest,
         onAuthenticationRequired,
         options: downloadOptions,
@@ -69,7 +67,8 @@ export function createTeamHubDocumentTransferClient({
           path: { documentId },
         }),
         verifyResponseSha256: true,
-      }),
+      });
+    },
     uploadPersonalWikiDocument: (
       tenantId,
       input,
@@ -108,20 +107,26 @@ export function createTeamHubDocumentTransferClient({
           ...uploadOptions,
         },
       ),
-    downloadDocumentVersion: (documentVersionId, downloadOptions) =>
-      downloadTeamHubArtifactContent({
+    downloadDocumentVersion: async (documentVersionId, downloadOptions) => {
+      const { downloadTeamHubArtifactContent } =
+        await import("./teamhub-artifact-download");
+      return downloadTeamHubArtifactContent({
         fetchRequest,
         onAuthenticationRequired,
         options: downloadOptions,
         url: documentVersionContentUrl(documentVersionId),
-      }),
-    downloadDocumentVersionRange: (documentVersionId, rangeOptions) =>
-      downloadTeamHubArtifactRange({
+      });
+    },
+    downloadDocumentVersionRange: async (documentVersionId, rangeOptions) => {
+      const { downloadTeamHubArtifactRange } =
+        await import("./teamhub-artifact-download");
+      return downloadTeamHubArtifactRange({
         fetchRequest,
         onAuthenticationRequired,
         options: rangeOptions,
         url: documentVersionContentUrl(documentVersionId),
-      }),
+      });
+    },
     getDocumentVersionContentLocation: async (documentVersionId) => ({
       dispose: () => undefined,
       url: documentVersionContentUrl(documentVersionId).toString(),

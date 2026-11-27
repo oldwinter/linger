@@ -2,12 +2,14 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
-import { browserRoomMessageOutbox } from "@/features/rooms/chat/room-message-outbox";
 import {
   deleteRoomDocumentLocalCopies,
   hasUnsavedRoomDocumentChanges,
 } from "@/features/rooms/documents/room-document-local-copies";
-import { teamHubIdentityQueryOptions } from "@/features/rooms/room-queries";
+import {
+  clearTeamHubQueries,
+  teamHubIdentityQueryOptions,
+} from "@/features/rooms/room-queries";
 import { teamHubDone } from "@/features/teamhub/teamhub-api";
 import {
   announceTeamHubAuthenticationRequired,
@@ -18,7 +20,6 @@ import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import { authMessages } from "./auth.messages";
 import { safeAuthenticationReturnTo } from "./authentication-return-to";
 import { clearInterruptedPage } from "./interrupted-page";
-import { clearLocalAuthenticatedState } from "./local-authenticated-state";
 
 /** The English source; the confirmation itself follows the language on screen. */
 export const LOGOUT_UNSAVED_DOCUMENT_MESSAGE =
@@ -66,6 +67,8 @@ export function useLogout({ returnTo }: { returnTo?: string } = {}) {
       const identity = await queryClient.ensureQueryData(
         teamHubIdentityQueryOptions(client),
       );
+      const { browserRoomMessageOutbox } =
+        await import("@/features/rooms/chat/room-message-outbox");
       await browserRoomMessageOutbox.clearAccount(identity.account.id);
       const endSignOut = beginTeamHubSignOut();
       try {
@@ -80,7 +83,10 @@ export function useLogout({ returnTo }: { returnTo?: string } = {}) {
         );
         // Let the router unmount protected query consumers before clearing them.
         await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
-        clearLocalAuthenticatedState(queryClient);
+        clearTeamHubQueries(queryClient);
+        const { clearLocalAuthenticatedStorage } =
+          await import("./local-authenticated-state");
+        clearLocalAuthenticatedStorage();
         // The editors here have unmounted; editors in other tabs close when the
         // deletion reaches them and cannot reopen without the Session. A copy
         // that fails to delete goes at the account's next logout.

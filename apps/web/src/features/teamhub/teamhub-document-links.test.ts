@@ -224,3 +224,51 @@ it.each([
     await expect(client.documentLinks.download(token)).rejects.toThrow();
   },
 );
+
+it("rejects immediately without sending requests when caller signal is already aborted", async () => {
+  const fetchRequest = vi.fn<typeof fetch>();
+  const client = createHttpTeamHubClient({
+    baseUrl: "https://web.test/",
+    fetchRequest,
+  });
+  const controller = new AbortController();
+  controller.abort(new DOMException("Cancelled", "AbortError"));
+
+  await expect(
+    client.documentLinks.download(
+      `doc_link_${"d".repeat(43)}`,
+      controller.signal,
+    ),
+  ).rejects.toMatchObject({ name: "AbortError" });
+  expect(fetchRequest).not.toHaveBeenCalled();
+});
+
+it("aborts in-flight shared document requests when caller signal aborts", async () => {
+  const signals: Array<AbortSignal | null | undefined> = [];
+  const fetchRequest = vi.fn<typeof fetch>().mockImplementation(
+    fetchDouble((_url, init) => {
+      signals.push(init.signal);
+      return new Promise((_resolve, reject) => {
+        init.signal?.addEventListener(
+          "abort",
+          () => reject(init.signal?.reason),
+          { once: true },
+        );
+      });
+    }),
+  );
+  const client = createHttpTeamHubClient({
+    baseUrl: "https://web.test/",
+    fetchRequest,
+  });
+  const controller = new AbortController();
+  const pending = client.documentLinks.download(
+    `doc_link_${"e".repeat(43)}`,
+    controller.signal,
+  );
+  await vi.waitFor(() => expect(signals).toHaveLength(2));
+
+  controller.abort(new DOMException("Stopped by user", "AbortError"));
+  await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+  expect(signals.every((signal) => signal?.aborted === true)).toBe(true);
+});

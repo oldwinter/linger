@@ -16,7 +16,6 @@ import {
 import { createTeamHubDocumentTransferClient } from "./teamhub-document-transfer-client";
 import type { TeamHubExternalSourceClient } from "./teamhub-external-source-client";
 import type { TeamHubPersonalProfileClient } from "./teamhub-personal-profile-client";
-import { createTeamHubPersonalWikiClient } from "./teamhub-personal-wiki-client";
 import {
   createTeamHubRoomHistory,
   type TeamHubRoomHistory,
@@ -136,6 +135,11 @@ export function createHttpTeamHubClient(
       return createHttpTeamHubPersonalProfileClient(api);
     },
   );
+  const personalWiki = createLazyClient(personalWikiClientMethods, async () => {
+    const { createTeamHubPersonalWikiClient } =
+      await import("./teamhub-personal-wiki-client");
+    return createTeamHubPersonalWikiClient(api);
+  });
 
   return {
     api,
@@ -143,7 +147,7 @@ export function createHttpTeamHubClient(
     documentLinks: createTeamHubDocumentLinks(api),
     ...externalSources,
     ...personalProfile,
-    ...createTeamHubPersonalWikiClient(api),
+    ...personalWiki,
     ...createTeamHubAgentClient(api),
     ...createTeamHubRunStatusClient(api),
     ...createTeamHubDocumentTransferClient({
@@ -182,6 +186,12 @@ const personalProfileClientMethods = [
   "listPersonalProfileGenerations",
   "createPersonalProfileGeneration",
 ] as const satisfies ReadonlyArray<keyof TeamHubPersonalProfileClient>;
+
+const personalWikiClientMethods = [
+  "getPersonalKnowledgeGraphVisualization",
+] as const satisfies ReadonlyArray<
+  keyof Pick<TeamHubClient, "getPersonalKnowledgeGraphVisualization">
+>;
 
 function createLazyClient<Client extends object>(
   methods: ReadonlyArray<keyof Client>,
