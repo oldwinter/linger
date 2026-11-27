@@ -194,7 +194,9 @@ func (s *AppStore) LoadRoomMessages(ctx context.Context, roomID string, older bo
 		merged = append(merged, existing...)
 		s.roomMessages[roomID] = merged
 	} else {
-		s.roomMessages[roomID] = page.Items
+		// Clone so post-unlock cs.UpsertMessages(ctx, page.Items) cannot race with
+		// concurrent mutations to s.roomMessages[roomID].
+		s.roomMessages[roomID] = append([]api.Message(nil), page.Items...)
 	}
 	s.roomHasMore[roomID] = page.Page.HasMore
 	if page.Page.NextCursor != nil {

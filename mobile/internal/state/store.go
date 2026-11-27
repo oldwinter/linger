@@ -1229,7 +1229,9 @@ func (s *AppStore) RefreshActiveHost(ctx context.Context) error {
 	s.tenants = tenants
 	s.tenantID = tenantID
 	s.companionStatus = compStatus
-	s.rooms = rooms
+	// Clone slices stored under s.mu so post-unlock cache upserts and stream cursor
+	// updates on the local slices cannot race with concurrent in-place store mutations.
+	s.rooms = append([]api.RoomListItem(nil), rooms...)
 	s.activeRuns = activeRuns
 	s.actors = actors
 	s.agents = agents
@@ -1239,12 +1241,17 @@ func (s *AppStore) RefreshActiveHost(ctx context.Context) error {
 	}
 	s.skillManifests = skills
 	s.agentTemplates = templates
-	s.workItems = workItems
-	s.routines = routines
-	s.pocketNotes = notes
-	s.documents = docs
+	s.workItems = append([]api.WorkItem(nil), workItems...)
+	s.routines = append([]api.Routine(nil), routines...)
+	s.pocketNotes = append([]api.PocketNote(nil), notes...)
+	s.documents = append([]api.Document(nil), docs...)
 	s.computers = computers
-	s.localModels = localModels
+	if localModels != nil {
+		lmCopy := *localModels
+		s.localModels = &lmCopy
+	} else {
+		s.localModels = nil
+	}
 	s.modelSource = modelSource
 	s.workingRoomIDs = make(map[string]bool)
 	for rid := range runningRoomSet {
