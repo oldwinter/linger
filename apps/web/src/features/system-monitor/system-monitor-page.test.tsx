@@ -9,8 +9,12 @@ import {
 } from "@testing-library/react";
 import { Suspense } from "react";
 import { MemoryRouter, Route, Routes } from "react-router";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type {
+  HerdrCoreStatusResponse,
+  HerdrCoreTerminal,
+} from "@/features/herdr-core/types";
 import type {
   EventSourceFactory,
   EventSourceLike,
@@ -18,6 +22,7 @@ import type {
 import { TeamHubRuntimeProvider } from "@/features/teamhub/teamhub-runtime";
 import { resetLanguageForTest, setLanguage } from "@/i18n/language";
 import zhCN from "@/i18n/locales/zh-CN.json";
+import { defineGlobalProperty } from "@/test/global-properties";
 import {
   createTestTeamHubRuntime,
   type TestTeamHubRuntime,
@@ -363,9 +368,93 @@ function renderSystemMonitor({
   );
 }
 
+function sampleHerdrStatus(
+  overrides?: Partial<HerdrCoreStatusResponse>,
+): HerdrCoreStatusResponse {
+  return {
+    available: true,
+    version: "0.1.21",
+    core_id: "core-mac-1",
+    core_name: "mac-mini",
+    pid: 4242,
+    uptime_ms: 90_000,
+    live_count: 3,
+    finished_count: 1,
+    blocked_count: 1,
+    working_count: 1,
+    machines: [
+      { name: "vps", host: "vps.dev", online: true },
+      { name: "gpu-box", host: "gpu.local", online: false },
+    ],
+    ...overrides,
+  };
+}
+
+function sampleHerdrTerminals(): HerdrCoreTerminal[] {
+  return [
+    {
+      address: "t1",
+      machine: "",
+      name: "deploy-agent",
+      state: "live",
+      cwd: "/workspace/linger",
+      foreground_cwd: "/workspace/linger",
+      argv: ["claude"],
+      labels: { "linger.room": "room-ops" },
+      title: "Deploy Agent",
+      cols: 120,
+      rows: 36,
+      created_ms: 1_000,
+      turn: 3,
+      status: { state: "blocked", msg: "Confirm production push" },
+      status_ms: 1_500,
+    },
+    {
+      address: "vps/t2",
+      machine: "vps",
+      name: "test-runner",
+      state: "live",
+      cwd: "/srv/linger",
+      foreground_cwd: "/srv/linger",
+      argv: ["pnpm", "test"],
+      labels: {},
+      title: "Test Runner",
+      cols: 120,
+      rows: 36,
+      created_ms: 900,
+      turn: 2,
+      status: { state: "error", msg: "Integration check failed" },
+      status_ms: 1_400,
+    },
+    {
+      address: "t3",
+      machine: "",
+      name: "builder",
+      state: "live",
+      cwd: "/workspace/linger",
+      foreground_cwd: "/workspace/linger",
+      argv: ["cargo", "build"],
+      labels: {},
+      title: "Builder",
+      cols: 120,
+      rows: 36,
+      created_ms: 800,
+      turn: 1,
+      status: { state: "working", msg: "Compiling workspace" },
+      status_ms: 1_300,
+    },
+  ];
+}
+
 function setupRuntime(
   views: Record<string, SystemTelemetryView>,
   computers?: { id: string; name: string; status: "online" | "offline" }[],
+  herdr?: {
+    readonly status?:
+      | HerdrCoreStatusResponse
+      | ((computerId: string) => unknown);
+    readonly terminals?: readonly HerdrCoreTerminal[];
+  },
 ) {
   const runtime = createTestTeamHubRuntime();
   const template = runtime.seed.localComputers[0]!;
@@ -386,6 +475,38 @@ function setupRuntime(
     const view = views[params.computerId!];
     return view ?? teamHubErrorResponse(404, "LOCAL_COMPUTER_NOT_FOUND");
   });
+  const defaultStatus =
+    herdr?.status ??
+    sampleHerdrStatus({
+      available: false,
+      version: "",
+      core_id: "",
+      core_name: "",
+      pid: 0,
+      uptime_ms: 0,
+      live_count: 0,
+      finished_count: 0,
+      blocked_count: 0,
+      working_count: 0,
+      machines: [],
+    });
+  runtime.server.on(
+    "GET",
+    "/api/v1/computers/{computerId}/herdr-core/status",
+    ({ params }) =>
+      typeof defaultStatus === "function"
+        ? defaultStatus(params.computerId!)
+        : defaultStatus,
+  );
+  runtime.server.on(
+    "GET",
+    "/api/v1/computers/{computerId}/herdr-core/terminals",
+    () => ({
+      terminals: herdr?.terminals ?? [],
+      machines:
+        typeof defaultStatus === "function" ? [] : defaultStatus.machines,
+    }),
+  );
   return runtime;
 }
 
@@ -606,6 +727,11 @@ describe("SystemMonitorPage (Magpie Cockpit)", () => {
       }
       return makeView(params.computerId!, "Recovered Mac");
     });
+    retryRuntime.server.on(
+      "GET",
+      "/api/v1/computers/{computerId}/herdr-core/status",
+      () => sampleHerdrStatus({ available: false }),
+    );
     renderSystemMonitor({
       eventSourceFactory: sse.factory,
       runtime: retryRuntime,
@@ -680,9 +806,16 @@ describe("SystemMonitorPage (Magpie Cockpit)", () => {
   it("renders translated Simplified Chinese labels from the zh-CN catalog", async () => {
     await setLanguage("zh-CN");
     const sse = createFakeEventSourceHarness();
-    const runtime = setupRuntime({
-      "comp-mac": makeView("comp-mac", "Mac mini M6"),
-    });
+    const runtime = setupRuntime(
+      {
+        "comp-mac": makeView("comp-mac", "Mac mini M6"),
+      },
+      undefined,
+      {
+        status: sampleHerdrStatus(),
+        terminals: sampleHerdrTerminals(),
+      },
+    );
 
     renderSystemMonitor({
       eventSourceFactory: sse.factory,
@@ -699,5 +832,203 @@ describe("SystemMonitorPage (Magpie Cockpit)", () => {
       }),
     ).toBeVisible();
     expect(screen.getByText(zhCN.systemMonitor.inspectorTitle)).toBeVisible();
+    expect(await screen.findByText(zhCN.herdrCore.cockpitTitle)).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: zhCN.herdrCore.cockpitOpenWorkbench }),
+    ).toBeVisible();
+  });
+
+  it("mounts HerdrCoreCockpitCard with live telemetry, Compact/Verbose density, and blocked-agent jump into the lazy workbench", async () => {
+    const sse = createFakeEventSourceHarness();
+    const terminals = sampleHerdrTerminals();
+    const runtime = setupRuntime(
+      {
+        "comp-mac": makeView("comp-mac", "Mac mini M6"),
+      },
+      undefined,
+      {
+        status: sampleHerdrStatus(),
+        terminals,
+      },
+    );
+    runtime.server.on(
+      "GET",
+      "/api/v1/computers/{computerId}/herdr-core/terminal/read",
+      ({ query }) => ({
+        text: `Transcript for ${query.get("address") ?? "unknown"}`,
+        complete: true,
+        how: "screen",
+        why: "",
+      }),
+    );
+    runtime.server.on(
+      "GET",
+      "/api/v1/computers/{computerId}/herdr-core/docs/{name}",
+      () => ({ value: null, version: 0 }),
+    );
+
+    const { container } = renderSystemMonitor({
+      eventSourceFactory: sse.factory,
+      runtime,
+    });
+
+    expect(await screen.findByText("herdr-core Terminals")).toBeVisible();
+    expect(await screen.findByTestId("herdr-core-identity")).toHaveTextContent(
+      "herdr-core 0.1.21 · mac-mini",
+    );
+    expect(screen.getByText("2/3 machines")).toBeVisible();
+    expect(screen.getByText("3 live")).toBeVisible();
+    expect(screen.getByText("1 working")).toBeVisible();
+    expect(screen.getAllByText("1 waiting").length).toBeGreaterThanOrEqual(1);
+    expect(await screen.findByText("1 error")).toBeVisible();
+
+    // Verbose mode starts enabled and renders machine list + error terminal jump.
+    expect(
+      container.querySelector("[data-cockpit-herdr-verbose]"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("vps")).toBeVisible();
+    expect(screen.getByText("gpu-box")).toBeVisible();
+    expect(screen.getByRole("button", { name: /test-runner/i })).toBeVisible();
+
+    // Toggling to Compact hides verbose herdr-core breakdown while preserving blocked alert jump.
+    fireEvent.click(screen.getByRole("button", { name: "Compact" }));
+    await waitFor(() => {
+      expect(
+        container.querySelector("[data-cockpit-herdr-verbose]"),
+      ).not.toBeInTheDocument();
+    });
+    expect(screen.getByTestId("herdr-core-cockpit-card")).toHaveAttribute(
+      "data-cockpit-density",
+      "compact",
+    );
+    const blockedButton = screen.getByRole("button", { name: /deploy-agent/i });
+    expect(blockedButton).toBeVisible();
+
+    // Clicking a blocked agent jumps straight into the lazy Terminal Workbench focused on t1.
+    fireEvent.click(blockedButton);
+    const dialog = await screen.findByRole("dialog", {
+      name: "Live Terminals",
+    });
+    expect(dialog).toBeVisible();
+    expect(await screen.findByText("Transcript for t1")).toBeVisible();
+  });
+
+  it("degrades HerdrCoreCockpitCard gracefully when herdr-core is unavailable or offline without disrupting System Monitor", async () => {
+    const sse = createFakeEventSourceHarness();
+    const runtime = setupRuntime(
+      {
+        "comp-mac": makeView("comp-mac", "Mac mini M6"),
+      },
+      undefined,
+      {
+        status: () => teamHubErrorResponse(503, "LOCAL_COMPUTER_OFFLINE"),
+      },
+    );
+
+    renderSystemMonitor({
+      eventSourceFactory: sse.factory,
+      runtime,
+    });
+
+    // Hardware & inference telemetry still renders cleanly.
+    expect(await screen.findByText("Unified Memory Pool")).toBeVisible();
+    expect(screen.getByText("45.2")).toBeVisible();
+    // herdr-core card degrades honestly without throwing or blocking.
+    expect(await screen.findByText("herdr-core offline")).toBeVisible();
+    expect(screen.getByTestId("herdr-core-degraded-note")).toBeVisible();
+  });
+
+  it("accelerates HerdrCoreCockpitCard via Desktop local bridge when viewing this Desktop Computer", async () => {
+    const sse = createFakeEventSourceHarness();
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input) => {
+        const url =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url;
+        if (url === "http://127.0.0.1:49888/herdr-core/status") {
+          return Response.json(
+            sampleHerdrStatus({
+              core_name: "local-desktop-core",
+              live_count: 2,
+              working_count: 1,
+              blocked_count: 0,
+              machines: [],
+            }),
+          );
+        }
+        if (url.startsWith("http://127.0.0.1:49888/herdr-core/terminals")) {
+          return Response.json({ terminals: [], machines: [] });
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      });
+
+    defineGlobalProperty(window, "lingerDesktop", {
+      configurable: true,
+      value: {
+        computer: {
+          connect: vi.fn(),
+          getStatus: vi.fn(async () => ({
+            computerId: "comp-local",
+            daemonConnection: "online",
+            enrollmentState: "enrolled",
+            runtimeState: "ready",
+          })),
+          onStatus: vi.fn(() => () => undefined),
+        },
+        herdrCore: {
+          detect: vi.fn(),
+          startServer: vi.fn(),
+          getBridge: vi.fn(async () => ({
+            running: true,
+            baseUrl: "http://127.0.0.1:49888/herdr-core",
+            wsBaseUrl: "ws://127.0.0.1:49888/herdr-core",
+            token: "bridge-secret",
+            detection: {
+              installed: true,
+              running: true,
+              binaryPath: "/usr/local/bin/hc",
+              socketPath: "/tmp/default.sock",
+              session: "default",
+              platform: "darwin",
+              sharedCore: true,
+              version: "0.1.21",
+              installHint: "",
+            },
+          })),
+        },
+      },
+    });
+
+    const runtime = setupRuntime({
+      "comp-local": makeView("comp-local", "This Studio Mac"),
+    });
+
+    renderSystemMonitor({
+      eventSourceFactory: sse.factory,
+      runtime,
+    });
+
+    expect(await screen.findByTestId("herdr-core-identity")).toHaveTextContent(
+      "herdr-core 0.1.21 · local-desktop-core",
+    );
+    expect(screen.getByTestId("herdr-core-cockpit-card")).toHaveAttribute(
+      "data-transport",
+      "desktop_direct",
+    );
+    expect(screen.getByTestId("herdr-core-transport-badge")).toHaveTextContent(
+      "Direct local bridge",
+    );
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://127.0.0.1:49888/herdr-core/status",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          authorization: "Bearer bridge-secret",
+        }),
+      }),
+    );
   });
 });

@@ -1,4 +1,9 @@
+import type { TeamHubApi } from "@/features/teamhub/teamhub-api";
 import { resolveTeamHubBaseUrl } from "@/features/teamhub/teamhub-base-url";
+import {
+  TeamHubError,
+  TeamHubTransportError,
+} from "@/features/teamhub/teamhub-error";
 
 import type {
   DesktopHerdrCoreApi,
@@ -55,6 +60,7 @@ export interface HerdrCoreClientOptions {
   readonly computerId: string;
   readonly baseOrigin?: string;
   readonly directBridge?: DesktopHerdrCoreBridgeInfo | null;
+  readonly teamHubApi?: TeamHubApi;
   readonly fetchImpl?: typeof fetch;
 }
 
@@ -139,19 +145,58 @@ function classifyHttpError(
     return "not_implemented";
   }
   if (status === 404) {
-    return upper === "NOT_FOUND" ? "not_found" : "not_implemented";
+    if (upper === "NOT_FOUND" || upper === "LOCAL_COMPUTER_NOT_FOUND") {
+      return "not_found";
+    }
+    return "not_implemented";
   }
   if (status === 409 && upper === "BLOCKED") return "blocked";
   if (status === 409) return "conflict";
   if (status === 413 || upper === "PAYLOAD_TOO_LARGE")
     return "payload_too_large";
   if (status === 502 || status === 503 || status === 504) {
-    if (upper === "LOCAL_COMPUTER_OFFLINE" || upper === "COMPUTER_OFFLINE") {
+    if (
+      upper === "LOCAL_COMPUTER_OFFLINE" ||
+      upper === "COMPUTER_OFFLINE" ||
+      upper === "HERDR_CORE_OFFLINE"
+    ) {
       return "offline";
     }
     return "unavailable";
   }
   return "error";
+}
+
+function mapTeamHubError(error: unknown): never {
+  if (error instanceof Error && error.name === "AbortError") {
+    throw error;
+  }
+  if (error instanceof HerdrCoreApiError) {
+    throw error;
+  }
+  if (error instanceof TeamHubError) {
+    throw new HerdrCoreApiError({
+      status: error.status,
+      kind: classifyHttpError(error.status, error.code),
+      code: error.code,
+      message: error.serverMessage ?? error.message,
+    });
+  }
+  if (error instanceof TeamHubTransportError) {
+    throw new HerdrCoreApiError({
+      status: 0,
+      kind: "offline",
+      message: error.message,
+    });
+  }
+  throw new HerdrCoreApiError({
+    status: 0,
+    kind: "offline",
+    message:
+      error instanceof Error
+        ? error.message
+        : "Network request to herdr-core failed.",
+  });
 }
 
 function toWebSocketOrigin(origin: string): string {
@@ -268,59 +313,203 @@ export function createHerdrCoreClient(
     return JSON.parse(text) as T;
   }
 
+  const teamHubApi = direct ? undefined : options.teamHubApi;
+  const computerId = options.computerId;
+
+  async function runTeamHub<T>(
+    call: () => Promise<{ readonly data?: unknown }>,
+  ): Promise<T> {
+    try {
+      const { data } = await call();
+      return data as T;
+    } catch (error) {
+      mapTeamHubError(error);
+    }
+  }
+
   return {
-    computerId: options.computerId,
+    computerId,
     transportMode,
     directBridge: direct,
     getStatus: (signal) =>
-      requestJson<HerdrCoreStatusResponse>("/status", { signal }),
+      teamHubApi
+        ? runTeamHub<HerdrCoreStatusResponse>(() =>
+            teamHubApi.GET("/api/v1/computers/{computerId}/herdr-core/status", {
+              params: { path: { computerId } },
+              signal,
+            }),
+          )
+        : requestJson<HerdrCoreStatusResponse>("/status", { signal }),
     listTerminals: (query, signal) =>
-      requestJson<HerdrCoreTerminalsResponse>("/terminals", {
-        query: {
-          all: query?.all ?? false,
-          machine: query?.machine,
-          room_id: query?.room_id,
-          work_item_id: query?.work_item_id,
-          status: query?.status,
-        },
-        signal,
-      }),
+      teamHubApi
+        ? runTeamHub<HerdrCoreTerminalsResponse>(() =>
+            teamHubApi.GET(
+              "/api/v1/computers/{computerId}/herdr-core/terminals",
+              {
+                params: {
+                  path: { computerId },
+                  query: {
+                    all: query?.all ?? false,
+                    machine: query?.machine || undefined,
+                    room_id: query?.room_id || undefined,
+                    work_item_id: query?.work_item_id || undefined,
+                    status: query?.status as
+                      | "idle"
+                      | "working"
+                      | "done"
+                      | "blocked"
+                      | "error"
+                      | undefined,
+                  },
+                },
+                signal,
+              },
+            ),
+          )
+        : requestJson<HerdrCoreTerminalsResponse>("/terminals", {
+            query: {
+              all: query?.all ?? false,
+              machine: query?.machine,
+              room_id: query?.room_id,
+              work_item_id: query?.work_item_id,
+              status: query?.status,
+            },
+            signal,
+          }),
     getTerminal: (address, signal) =>
-      requestJson<HerdrCoreTerminalResponse>("/terminal", {
-        query: { address },
-        signal,
-      }),
+      teamHubApi
+        ? runTeamHub<HerdrCoreTerminalResponse>(() =>
+            teamHubApi.GET(
+              "/api/v1/computers/{computerId}/herdr-core/terminal",
+              {
+                params: { path: { computerId }, query: { address } },
+                signal,
+              },
+            ),
+          )
+        : requestJson<HerdrCoreTerminalResponse>("/terminal", {
+            query: { address },
+            signal,
+          }),
     readTerminal: (address, lines = 120, signal) =>
-      requestJson<HerdrCoreReadResponse>("/terminal/read", {
-        query: { address, lines },
-        signal,
-      }),
+      teamHubApi
+        ? runTeamHub<HerdrCoreReadResponse>(() =>
+            teamHubApi.GET(
+              "/api/v1/computers/{computerId}/herdr-core/terminal/read",
+              {
+                params: { path: { computerId }, query: { address, lines } },
+                signal,
+              },
+            ),
+          )
+        : requestJson<HerdrCoreReadResponse>("/terminal/read", {
+            query: { address, lines },
+            signal,
+          }),
     launchTerminal: (input) =>
-      requestJson<HerdrCoreTerminalResponse>("/terminals", {
-        method: "POST",
-        body: input,
-      }),
+      teamHubApi
+        ? runTeamHub<HerdrCoreTerminalResponse>(() =>
+            teamHubApi.POST(
+              "/api/v1/computers/{computerId}/herdr-core/terminals",
+              {
+                params: { path: { computerId } },
+                body: {
+                  ...input,
+                  argv: input.argv ? [...input.argv] : undefined,
+                  labels: input.labels ? { ...input.labels } : undefined,
+                },
+              },
+            ),
+          )
+        : requestJson<HerdrCoreTerminalResponse>("/terminals", {
+            method: "POST",
+            body: input,
+          }),
     sendPrompt: (input) =>
-      requestJson<HerdrCoreSendResponse>("/terminal/send", {
-        method: "POST",
-        body: input,
-      }),
+      teamHubApi
+        ? runTeamHub<HerdrCoreSendResponse>(() =>
+            teamHubApi.POST(
+              "/api/v1/computers/{computerId}/herdr-core/terminal/send",
+              {
+                params: { path: { computerId } },
+                body: {
+                  address: input.address,
+                  text: input.text,
+                  if:
+                    input.if === "idle" ||
+                    input.if === "working" ||
+                    input.if === "blocked"
+                      ? input.if
+                      : undefined,
+                  turn: input.turn,
+                  force: input.force,
+                  wait: input.wait,
+                  timeout: input.timeout,
+                },
+              },
+            ),
+          )
+        : requestJson<HerdrCoreSendResponse>("/terminal/send", {
+            method: "POST",
+            body: input,
+          }),
     sendKeys: (input) =>
-      requestJson<Record<string, unknown>>("/terminal/keys", {
-        method: "POST",
-        body: input,
-      }),
+      teamHubApi
+        ? runTeamHub<Record<string, unknown>>(() =>
+            teamHubApi.POST(
+              "/api/v1/computers/{computerId}/herdr-core/terminal/keys",
+              {
+                params: { path: { computerId } },
+                body: { address: input.address, keys: [...input.keys] },
+              },
+            ),
+          )
+        : requestJson<Record<string, unknown>>("/terminal/keys", {
+            method: "POST",
+            body: input,
+          }),
     interruptTerminal: (input) =>
-      requestJson<HerdrCoreInterruptResponse>("/terminal/interrupt", {
-        method: "POST",
-        body: input,
-      }),
+      teamHubApi
+        ? runTeamHub<HerdrCoreInterruptResponse>(() =>
+            teamHubApi.POST(
+              "/api/v1/computers/{computerId}/herdr-core/terminal/interrupt",
+              {
+                params: { path: { computerId } },
+                body: { address: input.address, timeout: input.timeout },
+              },
+            ),
+          )
+        : requestJson<HerdrCoreInterruptResponse>("/terminal/interrupt", {
+            method: "POST",
+            body: input,
+          }),
     killTerminal: (address) =>
-      requestJson<Record<string, unknown>>("/terminal/kill", {
-        method: "POST",
-        body: { address },
-      }),
+      teamHubApi
+        ? runTeamHub<Record<string, unknown>>(() =>
+            teamHubApi.POST(
+              "/api/v1/computers/{computerId}/herdr-core/terminal/kill",
+              {
+                params: { path: { computerId } },
+                body: { address },
+              },
+            ),
+          )
+        : requestJson<Record<string, unknown>>("/terminal/kill", {
+            method: "POST",
+            body: { address },
+          }),
     removeTerminal: async (address) => {
+      if (teamHubApi) {
+        await runTeamHub(() =>
+          teamHubApi.DELETE(
+            "/api/v1/computers/{computerId}/herdr-core/terminal",
+            {
+              params: { path: { computerId }, query: { address } },
+            },
+          ),
+        );
+        return;
+      }
       await requestJson("/terminal", {
         method: "DELETE",
         query: { address },
@@ -332,33 +521,95 @@ export function createHerdrCoreClient(
         body: { address, labels },
       }),
     putFile: (input) =>
-      requestJson<HerdrCorePutResponse>("/terminal/put", {
-        method: "POST",
-        body: input,
-      }),
+      teamHubApi
+        ? runTeamHub<HerdrCorePutResponse>(() =>
+            teamHubApi.POST(
+              "/api/v1/computers/{computerId}/herdr-core/terminal/put",
+              {
+                params: { path: { computerId } },
+                body: input,
+              },
+            ),
+          )
+        : requestJson<HerdrCorePutResponse>("/terminal/put", {
+            method: "POST",
+            body: input,
+          }),
     listTemplates: (signal) =>
-      requestJson<HerdrCoreTemplatesResponse>("/templates", { signal }),
+      teamHubApi
+        ? runTeamHub<HerdrCoreTemplatesResponse>(() =>
+            teamHubApi.GET(
+              "/api/v1/computers/{computerId}/herdr-core/templates",
+              {
+                params: { path: { computerId } },
+                signal,
+              },
+            ),
+          )
+        : requestJson<HerdrCoreTemplatesResponse>("/templates", { signal }),
     listMachines: (signal) =>
-      requestJson<HerdrCoreMachinesResponse>("/machines", { signal }),
+      teamHubApi
+        ? runTeamHub<HerdrCoreMachinesResponse>(() =>
+            teamHubApi.GET(
+              "/api/v1/computers/{computerId}/herdr-core/machines",
+              {
+                params: { path: { computerId } },
+                signal,
+              },
+            ),
+          )
+        : requestJson<HerdrCoreMachinesResponse>("/machines", { signal }),
     getDoc: (name, on, signal) =>
-      requestJson<HerdrCoreDocResponse>(`/docs/${encodeURIComponent(name)}`, {
-        query: { on },
-        signal,
-      }),
+      teamHubApi
+        ? runTeamHub<HerdrCoreDocResponse>(() =>
+            teamHubApi.GET(
+              "/api/v1/computers/{computerId}/herdr-core/docs/{name}",
+              {
+                params: {
+                  path: { computerId, name },
+                  query: on ? { on } : undefined,
+                },
+                signal,
+              },
+            ),
+          )
+        : requestJson<HerdrCoreDocResponse>(
+            `/docs/${encodeURIComponent(name)}`,
+            {
+              query: { on },
+              signal,
+            },
+          ),
     putDoc: (name, value, docOptions) =>
-      requestJson<{ readonly version: number }>(
-        `/docs/${encodeURIComponent(name)}`,
-        {
-          method: "PUT",
-          query: { on: docOptions?.on },
-          body: {
-            value,
-            ...(docOptions?.version !== undefined
-              ? { version: docOptions.version }
-              : {}),
-          },
-        },
-      ),
+      teamHubApi
+        ? runTeamHub<{ readonly version: number }>(() =>
+            teamHubApi.PUT(
+              "/api/v1/computers/{computerId}/herdr-core/docs/{name}",
+              {
+                params: {
+                  path: { computerId, name },
+                  query: docOptions?.on ? { on: docOptions.on } : undefined,
+                },
+                body: {
+                  value,
+                  version: docOptions?.version ?? 0,
+                },
+              },
+            ),
+          )
+        : requestJson<{ readonly version: number }>(
+            `/docs/${encodeURIComponent(name)}`,
+            {
+              method: "PUT",
+              query: { on: docOptions?.on },
+              body: {
+                value,
+                ...(docOptions?.version !== undefined
+                  ? { version: docOptions.version }
+                  : {}),
+              },
+            },
+          ),
     buildAttachWsUrl: (params) => {
       const url = new URL(`${wsBase}/attach`);
       url.searchParams.set("address", params.address);

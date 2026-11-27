@@ -1226,4 +1226,181 @@ describe("HerdrCoreLocalBridge HTTP, put limits, observe enforcement, and Compan
       observe: true,
     });
   });
+
+  it("buffers and replays initial PTY DATA frames coalesced with the terminal.attach RPC reply", async () => {
+    const receivedFrames: HerdrCoreFrame[] = [];
+    const connectTransport = async (): Promise<HerdrCoreTransport> => {
+      const clientToServer = new PassThrough();
+      const serverToClient = new PassThrough();
+      let framed = false;
+      let lineBuf = "";
+      const decoder = new FrameDecoder();
+
+      clientToServer.on("data", (chunk: Buffer) => {
+        if (!framed) {
+          lineBuf += chunk.toString("utf8");
+          const nl = lineBuf.indexOf("\n");
+          if (nl === -1) return;
+          const req = JSON.parse(lineBuf.slice(0, nl)) as {
+            readonly id: number;
+          };
+          lineBuf = "";
+          serverToClient.write(
+            `${JSON.stringify({
+              jsonrpc: "2.0",
+              id: req.id,
+              result: { generation: 1, framed: true, version: "0.1.21" },
+            })}\n`,
+          );
+          framed = true;
+          return;
+        }
+        for (const frame of decoder.push(chunk)) {
+          if (frame.channel === RPC_CHANNEL && frame.kind === FrameKind.DATA) {
+            const req = JSON.parse(frame.payload.toString("utf8")) as {
+              readonly id: number;
+              readonly method: string;
+            };
+            if (req.method === "terminal.attach") {
+              // Emit channel-0 RPC reply and channel-1 initial paint in a SINGLE
+              // socket chunk to exercise the coalesced-frame buffering path.
+              const rpcReply = encodeFrame(
+                RPC_CHANNEL,
+                FrameKind.DATA,
+                Buffer.from(
+                  JSON.stringify({
+                    jsonrpc: "2.0",
+                    id: req.id,
+                    result: {
+                      channel: 5,
+                      terminal: {
+                        address: "t1",
+                        cols: 80,
+                        rows: 24,
+                        state: "live",
+                        cwd: "/",
+                        argv: ["sh"],
+                        labels: {},
+                        created_ms: 1000,
+                      },
+                      resize_notifications: true,
+                      automatic_input: true,
+                    },
+                  }),
+                  "utf8",
+                ),
+              );
+              const initialPaint = encodeFrame(
+                5,
+                FrameKind.DATA,
+                Buffer.from("COALESCED_PAINT", "utf8"),
+              );
+              serverToClient.write(Buffer.concat([rpcReply, initialPaint]));
+            }
+          } else {
+            receivedFrames.push(frame);
+          }
+        }
+      });
+
+      return {
+        readable: serverToClient,
+        writable: clientToServer,
+        close: () => {
+          clientToServer.end();
+          serverToClient.end();
+        },
+      };
+    };
+
+    const bridge = new HerdrCoreLocalBridge({
+      dialTargetOverride: () => ({ connectTransport }),
+      log: silentLog,
+    });
+    const port = await bridge.start();
+    cleanups.push(() => bridge.stop());
+
+    const ws = await openRawWsClient({
+      port,
+      path: `/herdr-core/attach?address=t1&cols=80&rows=24&observe=true&token=${encodeURIComponent(bridge.token())}`,
+    });
+    cleanups.push(async () => ws.close());
+
+    const attached = await ws.waitForMessage(
+      (m) =>
+        m.kind === "text" && m.data.toString("utf8").includes('"attached"'),
+    );
+    const paint = await ws.waitForMessage((m) => m.kind === "binary");
+    expect(ws.messages.indexOf(attached)).toBeLessThan(
+      ws.messages.indexOf(paint),
+    );
+    expect(paint.data.toString("utf8")).toBe("COALESCED_PAINT");
+    await vi.waitFor(() =>
+      expect(
+        receivedFrames.some(
+          (f) =>
+            f.channel === 5 &&
+            f.kind === FrameKind.CREDIT &&
+            decodeCreditPayload(f.payload) === "COALESCED_PAINT".length,
+        ),
+      ).toBe(true),
+    );
+  });
+
+  it("normalizes null label removals to empty strings and parses COLSxROWS terminal sizes for hc v0.1.21", async () => {
+    const mock = createInMemoryHerdrCore({
+      onRpc: (_method, params) => ({ ok: true, params }),
+    });
+    const bridge = new HerdrCoreLocalBridge({
+      dialTargetOverride: () => ({ connectTransport: mock.connectTransport }),
+      log: silentLog,
+    });
+    const port = await bridge.start();
+    cleanups.push(() => bridge.stop());
+    const headers = {
+      authorization: `Bearer ${bridge.token()}`,
+      "content-type": "application/json",
+    };
+
+    const labelRes = await fetch(
+      `http://127.0.0.1:${port}/herdr-core/terminal/label`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          address: "t1",
+          labels: { "herdr.space": "sp-1", "herdr.tab": null },
+        }),
+      },
+    );
+    expect(labelRes.status).toBe(200);
+    expect(mock.rpcCalls[0]).toEqual({
+      method: "terminal.label",
+      params: {
+        terminal: "t1",
+        labels: { "herdr.space": "sp-1", "herdr.tab": "" },
+      },
+    });
+
+    mock.rpcCalls.length = 0;
+    const createRes = await fetch(
+      `http://127.0.0.1:${port}/herdr-core/terminals`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          argv: ["/bin/sh"],
+          size: "120x36",
+        }),
+      },
+    );
+    expect(createRes.status).toBe(200);
+    expect(mock.rpcCalls[0]).toEqual({
+      method: "terminal.run",
+      params: {
+        argv: ["/bin/sh"],
+        size: { cols: 120, rows: 36 },
+      },
+    });
+  });
 });

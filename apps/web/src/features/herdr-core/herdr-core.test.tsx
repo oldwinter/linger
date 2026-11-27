@@ -780,9 +780,12 @@ describe("HerdrCoreCockpitCard Magpie telemetry widget", () => {
       />,
     );
 
+    expect(screen.getByTestId("herdr-core-identity")).toHaveTextContent(
+      "herdr-core 0.1.21 · mac",
+    );
     expect(screen.getByText("3 live")).toBeVisible();
     expect(screen.getByText("1 working")).toBeVisible();
-    expect(screen.getByText("1 waiting")).toBeVisible();
+    expect(screen.getAllByText("1 waiting").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("1 error")).toBeVisible();
     expect(screen.getByText("2/3 machines")).toBeVisible();
 
@@ -791,5 +794,80 @@ describe("HerdrCoreCockpitCard Magpie telemetry widget", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Open workbench" }));
     expect(onOpen).toHaveBeenCalledOnce();
+  });
+
+  it("supports Compact density, offline/unavailable states, and blocked-agent fallback jump", async () => {
+    const onOpen = vi.fn();
+    const { queryClient, rerender } = renderWithQuery(
+      <HerdrCoreCockpitCard
+        computerId="comp-1"
+        density="compact"
+        onOpenWorkbench={onOpen}
+        status={{
+          available: true,
+          version: "0.1.21",
+          core_id: "core-1",
+          core_name: "mac-studio",
+          pid: 100,
+          uptime_ms: 5000,
+          live_count: 2,
+          finished_count: 1,
+          blocked_count: 1,
+          working_count: 1,
+          machines: [],
+        }}
+        terminals={[]}
+      />,
+    );
+
+    expect(screen.getByTestId("herdr-core-cockpit-card")).toHaveAttribute(
+      "data-cockpit-density",
+      "compact",
+    );
+    expect(screen.getByTestId("herdr-core-identity")).toHaveTextContent(
+      "herdr-core 0.1.21 · mac-studio",
+    );
+    expect(
+      document.querySelector("[data-cockpit-herdr-verbose]"),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Jump to waiting/i }));
+    expect(onOpen).toHaveBeenCalledOnce();
+
+    // Unavailable state degrades gracefully.
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <HerdrCoreCockpitCard
+          computerId="comp-1"
+          onOpenWorkbench={onOpen}
+          status={{
+            available: false,
+            version: null,
+            core_id: null,
+            core_name: null,
+            pid: null,
+            uptime_ms: null,
+            live_count: 0,
+            finished_count: 0,
+            blocked_count: 0,
+            working_count: 0,
+            machines: [],
+          }}
+        />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByText("herdr-core unavailable")).toBeVisible();
+    expect(screen.getByTestId("herdr-core-degraded-note")).toBeVisible();
+
+    // Offline computer state degrades without querying.
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <HerdrCoreCockpitCard
+          computerId="comp-1"
+          computerOnline={false}
+          onOpenWorkbench={onOpen}
+        />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByText("herdr-core offline")).toBeVisible();
   });
 });

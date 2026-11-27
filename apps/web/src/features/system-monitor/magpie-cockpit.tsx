@@ -6,6 +6,9 @@ import {
 } from "motion/react";
 import { useState } from "react";
 
+import type { HerdrCoreClient } from "@/features/herdr-core/api";
+import { HerdrCoreCockpitCard } from "@/features/herdr-core/herdr-core-cockpit-card";
+import type { TeamHubApi } from "@/features/teamhub/teamhub-api";
 import { useTranslation } from "@/i18n/use-translation";
 import { cn } from "@/lib/cn";
 
@@ -39,11 +42,23 @@ function bottleneckTone(
   }
 }
 
+export interface MagpieCockpitProps {
+  readonly snapshot: SystemTelemetrySnapshot;
+  readonly computerId?: string;
+  readonly isDesktopLocalComputer?: boolean;
+  readonly teamHubApi?: TeamHubApi;
+  readonly herdrCoreClient?: HerdrCoreClient;
+  readonly onOpenHerdrWorkbench?: (address?: string) => void;
+}
+
 export function MagpieCockpit({
   snapshot,
-}: {
-  readonly snapshot: SystemTelemetrySnapshot;
-}) {
+  computerId,
+  isDesktopLocalComputer = false,
+  teamHubApi,
+  herdrCoreClient,
+  onOpenHerdrWorkbench,
+}: MagpieCockpitProps) {
   const { language, t } = useTranslation();
   const reducedMotion = useReducedMotion();
   const [verbose, setVerbose] = useState(true);
@@ -307,6 +322,25 @@ export function MagpieCockpit({
             verbose={verbose}
           />
         </div>
+
+        {/* 4. herdr-core Live Terminals & Agent Attention Telemetry */}
+        {computerId ? (
+          <HerdrCoreCockpitCard
+            client={herdrCoreClient}
+            computerId={computerId}
+            density={verbose ? "verbose" : "compact"}
+            isDesktopLocalComputer={isDesktopLocalComputer}
+            onOpenWorkbench={
+              onOpenHerdrWorkbench ? () => onOpenHerdrWorkbench() : undefined
+            }
+            onSelectTerminal={
+              onOpenHerdrWorkbench
+                ? (address) => onOpenHerdrWorkbench(address)
+                : undefined
+            }
+            teamHubApi={teamHubApi}
+          />
+        ) : null}
       </div>
     </LazyMotion>
   );

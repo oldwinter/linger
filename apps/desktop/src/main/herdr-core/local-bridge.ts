@@ -21,6 +21,7 @@ import {
   HerdrCoreFramedSession,
   HerdrCoreRpcError,
   type HerdrCoreDialTarget,
+  type HerdrCoreFrame,
 } from "./protocol.js";
 import {
   MAX_HERDR_CORE_DOC_BYTES,
@@ -776,8 +777,18 @@ export class HerdrCoreLocalBridge {
           rpcParams.parent = b.parent.trim();
         if (typeof b.rm === "boolean") rpcParams.rm = b.rm;
         if (typeof b.no_notify === "boolean") rpcParams.no_notify = b.no_notify;
-        if (b.size && typeof b.size === "object" && !Array.isArray(b.size))
+        if (b.size && typeof b.size === "object" && !Array.isArray(b.size)) {
           rpcParams.size = b.size;
+        } else if (typeof b.size === "string") {
+          const sizeMatch = /^(\d+)x(\d+)$/iu.exec(b.size.trim());
+          if (sizeMatch) {
+            const cols = Number.parseInt(sizeMatch[1]!, 10);
+            const rows = Number.parseInt(sizeMatch[2]!, 10);
+            if (cols >= 1 && cols <= 65535 && rows >= 1 && rows <= 65535) {
+              rpcParams.size = { cols, rows };
+            }
+          }
+        }
 
         const created = await callHerdrCoreRpc(
           target,
@@ -1027,7 +1038,11 @@ export class HerdrCoreLocalBridge {
         const result = await callHerdrCoreRpc(target, "terminal.kill", {
           terminal: address,
         });
-        writeJson(res, 200, result, extraHeaders);
+        const responseBody =
+          result && typeof result === "object" && !Array.isArray(result)
+            ? { ...(result as Record<string, unknown>), ok: true }
+            : { ok: true };
+        writeJson(res, 200, responseBody, extraHeaders);
         return;
       }
 
@@ -1055,9 +1070,30 @@ export class HerdrCoreLocalBridge {
           );
           return;
         }
+        // herdr-core v0.1.21 terminal.label requires string values and treats
+        // empty string ("") as label deletion; normalize null removals to "".
+        const normalizedLabels: Record<string, string> = {};
+        for (const [key, val] of Object.entries(
+          labels as Record<string, unknown>,
+        )) {
+          if (typeof val === "string") {
+            normalizedLabels[key] = val;
+          } else if (val === null) {
+            normalizedLabels[key] = "";
+          } else {
+            writeError(
+              res,
+              400,
+              "INVALID_REQUEST",
+              `Label "${key}" must be a string or null.`,
+              extraHeaders,
+            );
+            return;
+          }
+        }
         const result = await callHerdrCoreRpc(target, "terminal.label", {
           terminal: address,
-          labels,
+          labels: normalizedLabels,
         });
         writeJson(res, 200, result, extraHeaders);
         return;
@@ -1366,6 +1402,8 @@ export class HerdrCoreLocalBridge {
     let cols = initialCols;
     let rows = initialRows;
     let switchingMode = false;
+    let attaching = false;
+    const pendingFrames: HerdrCoreFrame[] = [];
     let framedSession: HerdrCoreFramedSession | null = null;
     let ws: WebSocketServerConnection | null = null;
     let tornDown = false;
@@ -1377,6 +1415,7 @@ export class HerdrCoreLocalBridge {
     const teardown = (): void => {
       if (tornDown) return;
       tornDown = true;
+      pendingFrames.length = 0;
       this.#activeSessions.delete(sessionHandle);
       if (framedSession) {
         if (activeChannel !== null) {
@@ -1394,6 +1433,46 @@ export class HerdrCoreLocalBridge {
       ws?.sendText(JSON.stringify(payload));
     };
 
+    const handleChannelFrame = (
+      session: HerdrCoreFramedSession,
+      frame: HerdrCoreFrame,
+    ): void => {
+      if (tornDown || frame.channel !== activeChannel) return;
+      if (frame.kind === FrameKind.DATA) {
+        if (frame.payload.length > 0) {
+          ws?.sendBinary(frame.payload);
+          session.sendCredit(frame.channel, frame.payload.length);
+        }
+      } else if (frame.kind === FrameKind.RESIZE) {
+        const size = decodeResizePayload(frame.payload);
+        if (size) {
+          cols = size.cols;
+          rows = size.rows;
+          sendWsJson({
+            type: "resize",
+            cols: size.cols,
+            rows: size.rows,
+          });
+        }
+      } else if (frame.kind === FrameKind.FACTS) {
+        try {
+          const facts = JSON.parse(frame.payload.toString("utf8")) as Record<
+            string,
+            unknown
+          >;
+          sendWsJson({ type: "status", ...facts });
+        } catch {
+          // Ignore non-JSON facts payload.
+        }
+      } else if (frame.kind === FrameKind.CLOSE) {
+        if (!switchingMode) {
+          activeChannel = null;
+          sendWsJson({ type: "closed", reason: "terminal_closed" });
+          teardown();
+        }
+      }
+    };
+
     const attachOnSession = async (
       session: HerdrCoreFramedSession,
       params: {
@@ -1403,32 +1482,45 @@ export class HerdrCoreLocalBridge {
         readonly isResumed: boolean;
       },
     ): Promise<void> => {
-      const result = await session.call<AttachRpcResult>("terminal.attach", {
-        terminal: address,
-        cols: params.nextCols,
-        rows: params.nextRows,
-        observe: params.nextObserve,
-        history: params.isResumed ? 0 : history,
-        resumed: params.isResumed,
-        resize_notifications: true,
-      });
-      if (tornDown) {
-        session.sendCloseChannel(result.channel);
-        return;
+      attaching = true;
+      pendingFrames.length = 0;
+      try {
+        const result = await session.call<AttachRpcResult>("terminal.attach", {
+          terminal: address,
+          cols: params.nextCols,
+          rows: params.nextRows,
+          observe: params.nextObserve,
+          history: params.isResumed ? 0 : history,
+          resumed: params.isResumed,
+          resize_notifications: true,
+        });
+        if (tornDown) {
+          session.sendCloseChannel(result.channel);
+          return;
+        }
+        activeChannel = result.channel;
+        observe = params.nextObserve;
+        cols = result.terminal?.cols ?? params.nextCols;
+        rows = result.terminal?.rows ?? params.nextRows;
+        attaching = false;
+        sendWsJson({
+          type: "attached",
+          terminal: result.terminal,
+          cols,
+          rows,
+          observe,
+          resize_notifications: Boolean(result.resize_notifications),
+          automatic_input: Boolean(result.automatic_input),
+        });
+        // Flush any initial screen paint frames that arrived in the same
+        // socket chunk as the channel-0 terminal.attach RPC reply.
+        for (const buffered of pendingFrames.splice(0)) {
+          handleChannelFrame(session, buffered);
+        }
+      } finally {
+        attaching = false;
+        pendingFrames.length = 0;
       }
-      activeChannel = result.channel;
-      observe = params.nextObserve;
-      cols = result.terminal?.cols ?? params.nextCols;
-      rows = result.terminal?.rows ?? params.nextRows;
-      sendWsJson({
-        type: "attached",
-        terminal: result.terminal,
-        cols,
-        rows,
-        observe,
-        resize_notifications: Boolean(result.resize_notifications),
-        automatic_input: Boolean(result.automatic_input),
-      });
     };
 
     const maxWsBytes = Math.max(
@@ -1613,39 +1705,14 @@ export class HerdrCoreLocalBridge {
         const { target } = await this.#resolveDialTarget();
         const { session } = await HerdrCoreFramedSession.connect(target, {
           onFrame: (frame) => {
-            if (tornDown || frame.channel !== activeChannel) return;
-            if (frame.kind === FrameKind.DATA) {
-              if (frame.payload.length > 0) {
-                ws?.sendBinary(frame.payload);
-                session.sendCredit(frame.channel, frame.payload.length);
+            if (tornDown) return;
+            if (attaching) {
+              if (pendingFrames.length < 512) {
+                pendingFrames.push(frame);
               }
-            } else if (frame.kind === FrameKind.RESIZE) {
-              const size = decodeResizePayload(frame.payload);
-              if (size) {
-                cols = size.cols;
-                rows = size.rows;
-                sendWsJson({
-                  type: "resize",
-                  cols: size.cols,
-                  rows: size.rows,
-                });
-              }
-            } else if (frame.kind === FrameKind.FACTS) {
-              try {
-                const facts = JSON.parse(
-                  frame.payload.toString("utf8"),
-                ) as Record<string, unknown>;
-                sendWsJson({ type: "status", ...facts });
-              } catch {
-                // Ignore non-JSON facts payload.
-              }
-            } else if (frame.kind === FrameKind.CLOSE) {
-              if (!switchingMode) {
-                activeChannel = null;
-                sendWsJson({ type: "closed", reason: "terminal_closed" });
-                teardown();
-              }
+              return;
             }
+            handleChannelFrame(session, frame);
           },
           onClose: () => {
             if (!tornDown) {

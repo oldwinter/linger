@@ -16,6 +16,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import type { TeamHubApi } from "@/features/teamhub/teamhub-api";
 import { useT } from "@/i18n/use-translation";
 import { cn } from "@/lib/cn";
 
@@ -61,6 +62,7 @@ export interface HerdrCoreWorkbenchProps {
   readonly defaultWorkItemId?: string;
   readonly initialAddress?: string;
   readonly client?: HerdrCoreClient;
+  readonly teamHubApi?: TeamHubApi;
   readonly className?: string;
 }
 
@@ -71,6 +73,7 @@ export function HerdrCoreWorkbench({
   defaultWorkItemId = "",
   initialAddress,
   client: providedClient,
+  teamHubApi,
   className,
 }: HerdrCoreWorkbenchProps) {
   const t = useT();
@@ -106,8 +109,15 @@ export function HerdrCoreWorkbench({
       createHerdrCoreClient({
         computerId,
         directBridge: isDesktopLocalComputer ? desktopBridge : null,
+        teamHubApi,
       }),
-    [computerId, desktopBridge, isDesktopLocalComputer, providedClient],
+    [
+      computerId,
+      desktopBridge,
+      isDesktopLocalComputer,
+      providedClient,
+      teamHubApi,
+    ],
   );
 
   const [filters, setFilters] = useState<TerminalFilterCriteria>({
