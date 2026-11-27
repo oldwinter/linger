@@ -78,6 +78,10 @@ export interface ComputerDaemonOptions {
 // The stdio features this Desktop offers the daemon in its hello line.
 export const DAEMON_FEATURES = ["permissions.v1"];
 
+// Structured shutdown reason telling the daemon to cancel in-flight Operations
+// with this reason before exiting when the user picks "Quit and Stop Tasks".
+export const DAEMON_STOP_TASKS_SHUTDOWN_REASON = "desktop_quit_stop_tasks";
+
 interface PermissionRequest {
   readonly id: string;
   readonly op: unknown;
@@ -297,6 +301,16 @@ export class ComputerDaemonModule implements Module {
     for (const off of this.#unsubscribe.splice(0)) off();
     clearTimeout(this.#retry);
     await this.#terminate();
+    this.#setState("stopped");
+  }
+
+  // Stops the daemon for an explicit "Quit and Stop Tasks" confirmation by
+  // sending the structured stop-tasks shutdown reason before closing stdin.
+  async stopTasksAndTerminate(): Promise<void> {
+    this.#stopping = true;
+    for (const off of this.#unsubscribe.splice(0)) off();
+    clearTimeout(this.#retry);
+    await this.#terminate(DAEMON_STOP_TASKS_SHUTDOWN_REASON);
     this.#setState("stopped");
   }
 
@@ -521,7 +535,7 @@ export class ComputerDaemonModule implements Module {
     }
   }
 
-  async #terminate(): Promise<void> {
+  async #terminate(shutdownReason?: string): Promise<void> {
     const child = this.#child;
     if (!child) return;
     this.#child = undefined;
@@ -537,6 +551,9 @@ export class ComputerDaemonModule implements Module {
         clearTimeout(timer);
         resolve();
       });
+      if (shutdownReason) {
+        this.#send(child, { type: "shutdown", reason: shutdownReason });
+      }
       child.stop();
     });
   }

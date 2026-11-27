@@ -124,3 +124,72 @@ func TestQuietTaskReportAsksForOneReminder(t *testing.T) {
 		t.Fatalf("ordinary report=%q", ordinary)
 	}
 }
+
+func TestClassifyAttemptStopSuppressesMetaWakeForCanceledAndInterruptedRuns(t *testing.T) {
+	tests := []struct {
+		name        string
+		timedOut    bool
+		runs        currentAttemptRuns
+		wantStopped bool
+		want        attemptStopOutcome
+	}{
+		{
+			name: "still running",
+			runs: currentAttemptRuns{},
+		},
+		{
+			name:        "attempt timeout notifies Meta",
+			timedOut:    true,
+			runs:        currentAttemptRuns{},
+			wantStopped: true,
+			want: attemptStopOutcome{
+				status:         "failed",
+				stopReason:     "attempt_timeout",
+				failureMessage: "the Run did not finish within its time limit",
+				notifyMeta:     true,
+			},
+		},
+		{
+			name:        "provider failure notifies Meta",
+			runs:        currentAttemptRuns{failed: true, failureMessage: "provider quota exceeded"},
+			wantStopped: true,
+			want: attemptStopOutcome{
+				status:         "failed",
+				stopReason:     "agent_run_failed",
+				failureMessage: "provider quota exceeded",
+				notifyMeta:     true,
+			},
+		},
+		{
+			name:        "process_interrupted stays failed without waking Meta",
+			runs:        currentAttemptRuns{failed: true, failureMessage: "process_interrupted"},
+			wantStopped: true,
+			want: attemptStopOutcome{
+				status:         "failed",
+				stopReason:     "agent_run_failed",
+				failureMessage: "process_interrupted",
+				notifyMeta:     false,
+			},
+		},
+		{
+			name:        "canceled Run moves Task to canceled without waking Meta",
+			runs:        currentAttemptRuns{canceled: true},
+			wantStopped: true,
+			want: attemptStopOutcome{
+				status:         "canceled",
+				stopReason:     "agent_run_canceled",
+				failureMessage: "the Run was canceled",
+				notifyMeta:     false,
+			},
+		},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			got, stopped := classifyAttemptStop(testCase.timedOut, testCase.runs)
+			if stopped != testCase.wantStopped || got != testCase.want {
+				t.Fatalf("classifyAttemptStop(%v, %+v) = (%+v, %v), want (%+v, %v)",
+					testCase.timedOut, testCase.runs, got, stopped, testCase.want, testCase.wantStopped)
+			}
+		})
+	}
+}

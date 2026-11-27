@@ -549,7 +549,7 @@ func run(args []string) (resultErr error) {
 		_ = controlServer.Close(closeCtx)
 	}()
 	if desktop != nil {
-		go desktop.read(os.Stdin, controller.Shutdown)
+		go desktop.readWithShutdown(os.Stdin, controller.ShutdownWithReason)
 		go reportDesktopStatus(ctx, desktop.encode, localDaemon, desktopStatusInterval)
 	}
 	inventory.start(ctx, localDaemon)
@@ -699,8 +699,19 @@ func (c *controlController) StopService(ctx context.Context, name string) (any, 
 	return service, service != nil, err
 }
 
+// shutdownDrainTimeout bounds how long ShutdownWithReason waits for active
+// Operations to stop and have their terminal cancellations acknowledged before
+// closing the Runner Gateway stream, staying below the Desktop's stop grace.
+const shutdownDrainTimeout = 2500 * time.Millisecond
+
 func (c *controlController) Shutdown() {
-	c.daemon.Drain()
+	c.ShutdownWithReason("")
+}
+
+func (c *controlController) ShutdownWithReason(reason string) {
+	drainCtx, drainCancel := context.WithTimeout(context.Background(), shutdownDrainTimeout)
+	defer drainCancel()
+	c.daemon.DrainAndWait(drainCtx, reason)
 	c.cancel()
 }
 
