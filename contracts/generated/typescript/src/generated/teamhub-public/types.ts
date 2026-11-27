@@ -9479,6 +9479,8 @@ export interface components {
     HerdrCoreTerminalStatus: {
       state: components["schemas"]["HerdrCoreTerminalStatusState"];
       app?: string;
+      /** @description Optional OSC 7501 blocked reason kind (for example permission, question, or auth). */
+      kind?: string;
       msg?: string;
       progress?: number | null;
       title?: string;
@@ -17758,6 +17760,7 @@ export interface operations {
         rows?: number;
         observe?: boolean;
         history?: number;
+        resumed?: boolean;
       };
       header?: never;
       path: {

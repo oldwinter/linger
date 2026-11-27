@@ -52,6 +52,7 @@ type HerdrCoreAttachTokenClaims struct {
 	Rows         int    `json:"rows"`
 	Observe      bool   `json:"observe"`
 	History      int    `json:"history"`
+	Resumed      bool   `json:"resumed,omitempty"`
 	Exp          int64  `json:"exp"`
 }
 
@@ -764,6 +765,10 @@ func (a *App) attachHerdrCoreTerminal(c *gin.Context) {
 	if params.History != nil {
 		history = *params.History
 	}
+	resumed := false
+	if params.Resumed != nil {
+		resumed = *params.Resumed
+	}
 	if cols < 1 || cols > 500 || rows < 1 || rows > 200 || history < 0 || history > 10000 {
 		a.writeError(c, http.StatusBadRequest, "INVALID_REQUEST", "cols, rows, or history out of range")
 		return
@@ -787,6 +792,7 @@ func (a *App) attachHerdrCoreTerminal(c *gin.Context) {
 		Rows:         rows,
 		Observe:      observe,
 		History:      history,
+		Resumed:      resumed,
 		Exp:          time.Now().UTC().Add(herdrCoreAttachTokenTTL).Unix(),
 	}
 	token, err := SignHerdrCoreAttachToken(claims, a.cfg.NodeServicesInternalToken)

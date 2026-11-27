@@ -86,6 +86,12 @@ describe("Vite config", () => {
         target: "http://localhost:8080",
         xfwd: true,
       },
+      "/api/v1": {
+        changeOrigin: true,
+        target: "http://localhost:8080",
+        ws: true,
+        xfwd: true,
+      },
       "/install/": { changeOrigin: true, target: "http://127.0.0.1:4319" },
       "/document-collaboration": {
         changeOrigin: true,

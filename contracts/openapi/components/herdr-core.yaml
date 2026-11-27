@@ -15,6 +15,10 @@ components:
         app:
           type: string
           maxLength: 120
+        kind:
+          type: string
+          maxLength: 64
+          description: Optional OSC 7501 blocked reason kind (for example permission, question, or auth).
         msg:
           type: string
           maxLength: 2000

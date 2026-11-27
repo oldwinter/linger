@@ -35,6 +35,7 @@ func TestSignHerdrCoreAttachTokenMatchesNodeServicesFormat(t *testing.T) {
 		Rows:         36,
 		Observe:      true,
 		History:      200,
+		Resumed:      true,
 		Exp:          1732670460,
 	}
 	token, err := SignHerdrCoreAttachToken(claims, "shared-secret")
