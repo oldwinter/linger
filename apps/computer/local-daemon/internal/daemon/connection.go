@@ -371,6 +371,7 @@ func (d *Daemon) acceptRunnerWelcome(ctx, connectionCtx context.Context, stream 
 	d.dynamicReasoningEfforts.Store(slices.Contains(command.ServiceFeatures, serviceFeatureDynamicReasoningEfforts))
 	d.herdrCoreV1.Store(slices.Contains(command.ServiceFeatures, serviceFeatureHerdrCoreV1))
 	d.herdrCoreStream.Store(slices.Contains(command.ServiceFeatures, serviceFeatureHerdrCoreStream))
+	d.herdrCoreStatusKind.Store(slices.Contains(command.ServiceFeatures, serviceFeatureHerdrCoreStatusKind))
 	d.closeHerdrCoreStreams("connection_epoch_changed")
 	d.antigravityHistory.Store(slices.Contains(command.ServiceFeatures, serviceFeatureAntigravityHistory))
 	d.antigravityUsageProvider.Store(slices.Contains(command.ServiceFeatures, serviceFeatureAntigravityUsageProvider))
@@ -555,6 +556,7 @@ func (d *Daemon) clearDiagnosticsStream(stream transport.Stream) {
 		d.dynamicReasoningEfforts.Store(false)
 		d.herdrCoreV1.Store(false)
 		d.herdrCoreStream.Store(false)
+		d.herdrCoreStatusKind.Store(false)
 		d.antigravityHistory.Store(false)
 		d.antigravityUsageProvider.Store(false)
 		cleared = true

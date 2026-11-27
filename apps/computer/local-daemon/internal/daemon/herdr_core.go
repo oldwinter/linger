@@ -32,6 +32,10 @@ const serviceFeatureHerdrCoreV1 = "herdr_core_v1"
 // Agent Service accepts outbound binary PTY attach WebSocket streams.
 const serviceFeatureHerdrCoreStream = "herdr_core_stream"
 
+// serviceFeatureHerdrCoreStatusKind in runner.welcome's service_features says
+// the Agent Service decodes status.kind on runner.herdr_core_event frames.
+const serviceFeatureHerdrCoreStatusKind = "herdr_core_status_kind"
+
 // ownerHerdrCoreAgentID is the wire sentinel Agent ID Node Services sends for
 // owner-scoped herdr_core REST and attach calls that do not require an Agent
 // placement on this Computer.
@@ -109,6 +113,7 @@ func (d *Daemon) PublishHerdrCoreEvent(ctx context.Context, event herdrcore.Even
 	d.connectionMu.Lock()
 	stream := d.diagnosticsStream
 	enabled := d.herdrCoreV1.Load()
+	includeStatusKind := d.herdrCoreStatusKind.Load()
 	d.connectionMu.Unlock()
 	if stream == nil {
 		return errors.New("Runner Gateway is not connected")
@@ -116,7 +121,7 @@ func (d *Daemon) PublishHerdrCoreEvent(ctx context.Context, event herdrcore.Even
 	if !enabled {
 		return nil
 	}
-	wireEvent, ok := toWireHerdrCoreEvent(event)
+	wireEvent, ok := toWireHerdrCoreEvent(event, includeStatusKind)
 	if !ok {
 		return errors.New("invalid herdr-core event")
 	}
@@ -142,7 +147,7 @@ func (d *Daemon) PublishHerdrCoreEvent(ctx context.Context, event herdrcore.Even
 	})
 }
 
-func toWireHerdrCoreEvent(event herdrcore.Event) (wire.HerdrCoreEvent, bool) {
+func toWireHerdrCoreEvent(event herdrcore.Event, includeStatusKind bool) (wire.HerdrCoreEvent, bool) {
 	switch event.Kind {
 	case herdrcore.EventBlocked, herdrcore.EventFinished, herdrcore.EventError, herdrcore.EventTerminalChanged:
 	default:
@@ -166,7 +171,7 @@ func toWireHerdrCoreEvent(event herdrcore.Event) (wire.HerdrCoreEvent, bool) {
 		Machine:  clipRunes(machineFromAddress(address), 128),
 		Turn:     event.Turn,
 		StatusMs: statusMS,
-		Status:   toWireHerdrCoreStatus(event.Status),
+		Status:   toWireHerdrCoreStatus(event.Status, includeStatusKind),
 		Name:     clipRunes(event.Name, 256),
 		Cwd:      clipRunes(event.Cwd, 4096),
 		Title:    clipRunes(event.Title, 500),
@@ -177,7 +182,7 @@ func toWireHerdrCoreEvent(event herdrcore.Event) (wire.HerdrCoreEvent, bool) {
 	}, true
 }
 
-func toWireHerdrCoreStatus(status *herdrcore.Status) *wire.HerdrCoreTerminalStatus {
+func toWireHerdrCoreStatus(status *herdrcore.Status, includeKind bool) *wire.HerdrCoreTerminalStatus {
 	if status == nil {
 		return nil
 	}
@@ -186,11 +191,20 @@ func toWireHerdrCoreStatus(status *herdrcore.Status) *wire.HerdrCoreTerminalStat
 	default:
 		return nil
 	}
+	msg := status.Msg
+	if msg != "" {
+		msg = clipRunes(herdrcore.RedactSecrets(msg), 2000)
+	}
 	out := &wire.HerdrCoreTerminalStatus{
 		State: status.State,
 		App:   clipRunes(status.App, 120),
-		Msg:   clipRunes(status.Msg, 2000),
+		Msg:   msg,
 		Title: clipRunes(status.Title, 500),
+	}
+	if includeKind && status.Kind != nil {
+		if kind := strings.TrimSpace(*status.Kind); kind != "" {
+			out.Kind = clipRunes(kind, 64)
+		}
 	}
 	if status.Progress != nil {
 		v := float64(*status.Progress)
@@ -1286,8 +1300,10 @@ func serializeHerdrCoreStatus(status *herdrcore.Status) any {
 	if status.App != "" {
 		out["app"] = status.App
 	}
-	if status.Kind != nil && *status.Kind != "" {
-		out["kind"] = *status.Kind
+	if status.Kind != nil {
+		if kind := strings.TrimSpace(*status.Kind); kind != "" {
+			out["kind"] = kind
+		}
 	}
 	if status.Msg != "" {
 		out["msg"] = status.Msg

@@ -22,6 +22,7 @@ components:
         msg:
           type: string
           maxLength: 2000
+          description: Optional OSC 7501 status message or block reason (obvious secrets redacted on proactive events).
         progress:
           type: number
           minimum: 0

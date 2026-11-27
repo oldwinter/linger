@@ -236,6 +236,7 @@ export const runnerGatewayEnvelopeSchema = {
         "herdr_core_stream",
         "antigravity_history",
         "antigravity_usage_provider",
+        "herdr_core_status_kind",
       ],
     },
     ReasoningEffort: {
@@ -4324,11 +4325,19 @@ export const runnerGatewayEnvelopeSchema = {
         state: {
           enum: ["idle", "working", "done", "blocked", "error"],
         },
+        kind: {
+          description:
+            "Optional OSC 7501 blocked kind (for example permission, question, or auth). Sent only when runner.welcome service_features names herdr_core_status_kind.",
+          type: "string",
+          maxLength: 64,
+        },
         app: {
           type: "string",
           maxLength: 120,
         },
         msg: {
+          description:
+            "Optional OSC 7501 status message or block reason, with obvious secrets redacted on the Computer.",
           type: "string",
           maxLength: 2000,
         },

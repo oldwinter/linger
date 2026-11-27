@@ -94,12 +94,17 @@ Items already created stay and show the mandate as revoked.
 
 ## Coding agents in herdr
 
-When [herdr](https://github.com/herdrdev/herdr) is on your computer's PATH, the
-Linger Computer watches the coding agents in its panes. A pane that starts
-waiting on an approval or a question, or an agent that finishes its work,
-reaches Another Me as one event per pane state, with the agent, its folder and
-the pane's last lines, obvious secrets removed. Quiet hours, the daily limit
-and your rules apply as to any app event.
+When [herdr](https://github.com/herdrdev/herdr) or
+[herdr-core (`hc`)](https://github.com/herdrdev/herdr-core) is on your
+computer's PATH, the Linger Computer watches the coding agents in its
+panes or terminals. A pane or terminal that starts waiting on an approval or a
+question, or an agent that finishes its work, reaches Another Me as one event
+per state, with the agent, its folder, the structured block kind and block
+reason when reported by `herdr-core` (OSC 7501 `status.kind` and `status.msg`),
+and the pane or terminal's last lines, obvious secrets removed (falling back to
+the last lines alone when no block reason is reported, including on legacy
+`herdr` v0.9.5). Quiet hours, the daily limit and your rules apply as to any
+app event.
 
 When the agent waits on a choice, Another Me asks you with a question card
 bound to that pane and that question. Only your own answer on that card ever

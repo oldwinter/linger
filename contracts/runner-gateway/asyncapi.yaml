@@ -87,7 +87,10 @@ info:
     runner.herdr_core_event reports herdr-core terminal transitions
     (agent_blocked, agent_finished, agent_error, terminal_changed) only after
     service_features names herdr_core_v1; Agent Service forwards it to TeamHub
-    for SSE invalidation and proactive judgment. Interactive PTY attach runs
+    for SSE invalidation and proactive judgment. Optional OSC 7501
+    status.kind (permission, question, auth) travels on runner.herdr_core_event
+    only after service_features names herdr_core_status_kind, so older Agent
+    Services that do not decode kind remain compatible. Interactive PTY attach runs
     on a separate WebSocket channel (/v1/runner-gateway/herdr-core-stream for
     daemon stream sessions initiated via computer_tool attach, bridged to
     /v1/herdr-core/attach for clients holding a TeamHub-signed attach token)

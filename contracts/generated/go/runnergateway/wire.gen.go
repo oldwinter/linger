@@ -2136,6 +2136,7 @@ func (RunnerHerdrEvent) RequiredFields() []string {
 // HerdrCoreTerminalStatus mirrors the HerdrCoreTerminalStatus schema shape.
 type HerdrCoreTerminalStatus struct {
 	State    string   `json:"state"`
+	Kind     string   `json:"kind,omitempty"`
 	App      string   `json:"app,omitempty"`
 	Msg      string   `json:"msg,omitempty"`
 	Progress *float64 `json:"progress,omitempty"`

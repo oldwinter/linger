@@ -24,15 +24,22 @@ var (
 	}
 )
 
-// Redact removes obvious secret values and private keys from terminal text and
-// bounds the retained tail to maxTailBytes on a UTF-8 line boundary.
-func Redact(text string) string {
+// RedactSecrets removes obvious secret values and private keys from text
+// without truncating from the front, suitable for bounded single-value fields
+// such as OSC 7501 status messages.
+func RedactSecrets(text string) string {
 	text = privateKeyBlock.ReplaceAllString(text, "[redacted private key]")
 	text = secretValue.ReplaceAllString(text, "$1$2[redacted]")
 	for _, pattern := range secretTokens {
 		text = pattern.ReplaceAllString(text, "[redacted]")
 	}
-	text = strings.TrimRight(text, " \t\r\n")
+	return strings.TrimRight(text, " \t\r\n")
+}
+
+// Redact removes obvious secret values and private keys from terminal text and
+// bounds the retained tail to maxTailBytes on a UTF-8 line boundary.
+func Redact(text string) string {
+	text = RedactSecrets(text)
 	if len(text) <= maxTailBytes {
 		return text
 	}

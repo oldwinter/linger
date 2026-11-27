@@ -191,6 +191,9 @@ type Daemon struct {
 	// herdrCoreStream holds whether the current Agent Service declared
 	// serviceFeatureHerdrCoreStream in its welcome.
 	herdrCoreStream atomic.Bool
+	// herdrCoreStatusKind holds whether the current Agent Service declared
+	// serviceFeatureHerdrCoreStatusKind in its welcome.
+	herdrCoreStatusKind atomic.Bool
 	// antigravityHistory holds whether the current Agent Service declared
 	// serviceFeatureAntigravityHistory in its welcome.
 	antigravityHistory atomic.Bool

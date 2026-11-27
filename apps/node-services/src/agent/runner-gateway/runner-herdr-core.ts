@@ -205,6 +205,33 @@ export class RunnerHerdrCore {
         event,
       );
     } catch (error) {
+      if (
+        error instanceof TeamHubRuntimeStateError &&
+        error.status === 400 &&
+        event.status?.kind !== undefined
+      ) {
+        // Older TeamHub releases reject unknown status.kind with HTTP 400;
+        // drop only kind and retry once so status.msg and the event still land.
+        const { kind: _droppedKind, ...legacyStatus } = event.status;
+        try {
+          await this.#context.computerRegistry?.reportHerdrCoreEvent?.(
+            connection.runnerId,
+            { ...event, status: legacyStatus },
+          );
+          return;
+        } catch (retryError) {
+          logAgentEvent("warn", "runner.herdr_core_event.report_failed", {
+            runnerId: connection.runnerId,
+            kind: event.kind,
+            address: event.address,
+            status:
+              retryError instanceof TeamHubRuntimeStateError
+                ? retryError.status
+                : null,
+          });
+          return;
+        }
+      }
       logAgentEvent("warn", "runner.herdr_core_event.report_failed", {
         runnerId: connection.runnerId,
         kind: event.kind,

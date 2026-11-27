@@ -17,7 +17,7 @@ func blockedHerdrCoreReport(turn, statusMs int64) HerdrCoreReport {
 		Machine:    "vps",
 		Turn:       turn,
 		StatusMs:   statusMs,
-		Status:     &HerdrCoreStatus{State: "blocked", App: "codex", Msg: "Apply migration?"},
+		Status:     &HerdrCoreStatus{State: "blocked", Kind: "permission", App: "codex", Msg: "Apply migration?"},
 		Name:       "deploy",
 		Cwd:        "/srv/app/api",
 		Title:      "deploy migration",
@@ -41,7 +41,8 @@ func TestHerdrCoreEventCarriesStructuredStateAndWakePrompt(t *testing.T) {
 		event.State != "4:1732670400000" || event.HerdrCore == nil ||
 		event.HerdrCore.Address != "vps/t7" || event.HerdrCore.Machine != "vps" ||
 		event.HerdrCore.Turn != 4 || event.HerdrCore.StatusMs != 1732670400000 ||
-		event.HerdrCore.App != "codex" || event.HerdrCore.Cwd != "/srv/app/api" {
+		event.HerdrCore.App != "codex" || event.HerdrCore.Cwd != "/srv/app/api" ||
+		event.HerdrCore.BlockKind != "permission" || event.HerdrCore.BlockReason != "Apply migration?" {
 		t.Fatalf("event=%+v", event)
 	}
 	for _, want := range []string{
@@ -50,6 +51,9 @@ func TestHerdrCoreEventCarriesStructuredStateAndWakePrompt(t *testing.T) {
 		"Terminal: vps/t7",
 		"App: codex",
 		"Directory: /srv/app/api",
+		"Status: blocked",
+		"Block kind: permission",
+		"Block reason: Apply migration?",
 		"Labels: linger.room=room-1, linger.work_item=wi-42",
 		"Last lines of the terminal: Apply migration? [y/N]",
 	} {
@@ -61,15 +65,23 @@ func TestHerdrCoreEventCarriesStructuredStateAndWakePrompt(t *testing.T) {
 	text := eventText("[Proactive event: decide yourself]", event, "", receivedAt)
 	if !strings.Contains(text, "teamhub computer hc ask --address vps/t7 --turn 4 --status-ms 1732670400000 ") ||
 		!strings.Contains(text, "herdr_ask_gated") ||
+		!strings.Contains(text, "Block reason") ||
+		!strings.Contains(text, "Block reason: Apply migration?") ||
+		strings.Index(text, "Block reason: Apply migration?") > strings.Index(text, "</event>") ||
 		strings.Index(text, "</event>") > strings.Index(text, "teamhub computer hc ask") {
 		t.Fatalf("wake text=%q", text)
 	}
 
 	errReport := blockedHerdrCoreReport(5, 1732670500000)
 	errReport.Kind = HerdrCoreAgentError
+	errReport.Status = &HerdrCoreStatus{State: "error", App: "codex", Msg: "API timeout"}
 	errEvent := HerdrCoreEvent("tenant", "owner", errReport)
-	if !strings.Contains(errEvent.Summary, "What: A coding agent reported an error") {
-		t.Fatalf("error summary=%s", errEvent.Summary)
+	if !strings.Contains(errEvent.Summary, "What: A coding agent reported an error") ||
+		!strings.Contains(errEvent.Summary, "Status: error: API timeout") ||
+		strings.Contains(errEvent.Summary, "Block reason:") ||
+		strings.Contains(errEvent.Summary, "Block kind:") ||
+		errEvent.HerdrCore.BlockReason != "" || errEvent.HerdrCore.BlockKind != "" {
+		t.Fatalf("error summary=%s ref=%+v", errEvent.Summary, errEvent.HerdrCore)
 	}
 	if errText := eventText("[Proactive event]", errEvent, "", receivedAt); strings.Contains(errText, "hc ask") {
 		t.Fatalf("error event should not instruct hc ask: %q", errText)
@@ -79,6 +91,62 @@ func TestHerdrCoreEventCarriesStructuredStateAndWakePrompt(t *testing.T) {
 	both.Grant = &reminder.GrantReference{ID: "grant", Revision: 1}
 	if err := both.validate(); !errors.Is(err, ErrInvalidEvent) {
 		t.Fatal("event with two authorities should be rejected")
+	}
+}
+
+func TestHerdrCoreBlockedReasonAndTailFallback(t *testing.T) {
+	// Structured block reason reaches Another Me even when terminal tail is absent.
+	reasonOnly := HerdrCoreReport{
+		ComputerID: "computer-1",
+		Kind:       HerdrCoreAgentBlocked,
+		Address:    "t7",
+		Turn:       2,
+		StatusMs:   2000,
+		Status:     &HerdrCoreStatus{State: "blocked", Kind: "question", App: "claude", Msg: "Keep existing config or overwrite?"},
+	}
+	reasonEvent := HerdrCoreEvent("tenant", "owner", reasonOnly)
+	if !strings.Contains(reasonEvent.Summary, "Block kind: question") ||
+		!strings.Contains(reasonEvent.Summary, "Block reason: Keep existing config or overwrite?") ||
+		strings.Contains(reasonEvent.Summary, "Last lines of the terminal:") ||
+		reasonEvent.HerdrCore.BlockKind != "question" ||
+		reasonEvent.HerdrCore.BlockReason != "Keep existing config or overwrite?" {
+		t.Fatalf("reason-only event=%+v summary=%s", reasonEvent.HerdrCore, reasonEvent.Summary)
+	}
+
+	// Omitted/empty status.msg and status.kind fall back cleanly to terminal tail.
+	tailOnly := HerdrCoreReport{
+		ComputerID: "computer-1",
+		Kind:       HerdrCoreAgentBlocked,
+		Address:    "t8",
+		Turn:       3,
+		StatusMs:   3000,
+		Status:     &HerdrCoreStatus{State: "blocked", App: "claude", Msg: "   "},
+		Tail:       "Overwrite config? [y/N]",
+	}
+	tailEvent := HerdrCoreEvent("tenant", "owner", tailOnly)
+	if strings.Contains(tailEvent.Summary, "Block kind:") ||
+		strings.Contains(tailEvent.Summary, "Block reason:") ||
+		!strings.Contains(tailEvent.Summary, "Status: blocked") ||
+		!strings.Contains(tailEvent.Summary, "Last lines of the terminal: Overwrite config? [y/N]") ||
+		tailEvent.HerdrCore.BlockKind != "" ||
+		tailEvent.HerdrCore.BlockReason != "" {
+		t.Fatalf("tail-fallback event=%+v summary=%s", tailEvent.HerdrCore, tailEvent.Summary)
+	}
+
+	// Nil status still falls back cleanly to terminal tail.
+	nilStatus := HerdrCoreReport{
+		ComputerID: "computer-1",
+		Kind:       HerdrCoreAgentBlocked,
+		Address:    "t9",
+		Turn:       4,
+		StatusMs:   4000,
+		Tail:       "Approve command? [y/N]",
+	}
+	nilEvent := HerdrCoreEvent("tenant", "owner", nilStatus)
+	if strings.Contains(nilEvent.Summary, "Block kind:") ||
+		strings.Contains(nilEvent.Summary, "Block reason:") ||
+		!strings.Contains(nilEvent.Summary, "Last lines of the terminal: Approve command? [y/N]") {
+		t.Fatalf("nil-status event summary=%s", nilEvent.Summary)
 	}
 }
 

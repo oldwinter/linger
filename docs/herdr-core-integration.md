@@ -44,6 +44,9 @@ Per [apps/computer/AGENTS.md](../apps/computer/AGENTS.md), a Local Computer Daem
 - **`herdr_core_stream`**:
   - Advertised by Agent Service once it supports multiplexed binary PTY attach tunnels bridging Daemon `AttachSession` channels to WebSocket clients.
   - The Daemon opens framed `terminal.attach` streams only when `runner.welcome.service_features` includes `herdr_core_stream`.
+- **`herdr_core_status_kind`**:
+  - Advertised by Agent Service once it decodes optional OSC 7501 `status.kind` (`permission`, `question`, `auth`) on `runner.herdr_core_event` frames.
+  - The Daemon includes `status.kind` on `runner.herdr_core_event` only when `runner.welcome.service_features` includes `herdr_core_status_kind`, keeping older Agent Services compatible. When forwarding to an older TeamHub that rejects `status.kind` with HTTP 400, Agent Service drops `kind` and retries once so `status.msg` and the event still land.
 
 Compatibility guarantees:
 
@@ -120,7 +123,7 @@ The Daemon watcher (`internal/linger/herdrcore/watch.go`) subscribes via `events
 
 ### 5.2 Emitted Linger Transitions
 
-- **`agent_blocked`**: Root status entered `blocked` (new `turn`, `status_ms`, `kind`, or `msg`). Triggers proactive judgment and optional owner Question Card.
+- **`agent_blocked`**: Root status entered `blocked` (new `turn`, `status_ms`, `kind`, or `msg`). Triggers proactive judgment and optional owner Question Card. Obvious secrets are redacted from `status.msg` alongside the terminal tail on the Computer; TeamHub surfaces `status.kind` and `status.msg` to Another Me as structured `Block kind` and `Block reason` lines inside `<event>` and falls back gracefully to the terminal tail when absent or empty.
 - **`agent_finished`**: Terminal completed work (`turn` advanced into `done` or `idle`, or status entered `done` from a non-`done` state). Never fires for a fresh terminal starting `idle` at `turn == 0`.
 - **`agent_error`**: Root status entered `error` (new `turn`, `status_ms`, or `msg`).
 

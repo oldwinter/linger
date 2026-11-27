@@ -144,6 +144,20 @@ func (a *App) reportLocalComputerHerdrCoreEvent(c *gin.Context) {
 		a.writeError(c, http.StatusBadRequest, "INVALID_REQUEST", "herdr-core event is invalid")
 		return
 	}
+	err := a.proactive.EnqueueHerdrCoreEvent(c.Request.Context(), herdrCoreReportFromRequest(request))
+	switch {
+	case err == nil:
+		c.Status(http.StatusAccepted)
+	case errors.Is(err, proactive.ErrInvalidEvent):
+		a.writeError(c, http.StatusBadRequest, "INVALID_REQUEST", "herdr-core event is invalid")
+	case errors.Is(err, proactive.ErrUnknownComputer):
+		a.writeError(c, http.StatusNotFound, "LOCAL_COMPUTER_NOT_FOUND", "Local Computer was not found")
+	default:
+		a.internalError(c, "queue herdr-core event", err)
+	}
+}
+
+func herdrCoreReportFromRequest(request teamhubinternal.HerdrCoreEventReport) proactive.HerdrCoreReport {
 	optionalString := func(value *string) string {
 		if value == nil {
 			return ""
@@ -159,6 +173,7 @@ func (a *App) reportLocalComputerHerdrCoreEvent(c *gin.Context) {
 		}
 		status = &proactive.HerdrCoreStatus{
 			State:    string(request.Status.State),
+			Kind:     optionalString(request.Status.Kind),
 			App:      optionalString(request.Status.App),
 			Msg:      optionalString(request.Status.Msg),
 			Progress: progress,
@@ -169,7 +184,7 @@ func (a *App) reportLocalComputerHerdrCoreEvent(c *gin.Context) {
 	if request.Labels != nil {
 		labels = *request.Labels
 	}
-	err := a.proactive.EnqueueHerdrCoreEvent(c.Request.Context(), proactive.HerdrCoreReport{
+	return proactive.HerdrCoreReport{
 		ComputerID: request.ComputerId,
 		Kind:       string(request.Kind),
 		Address:    request.Address,
@@ -184,16 +199,6 @@ func (a *App) reportLocalComputerHerdrCoreEvent(c *gin.Context) {
 		Parent:     optionalString(request.Parent),
 		Labels:     labels,
 		Tail:       optionalString(request.Tail),
-	})
-	switch {
-	case err == nil:
-		c.Status(http.StatusAccepted)
-	case errors.Is(err, proactive.ErrInvalidEvent):
-		a.writeError(c, http.StatusBadRequest, "INVALID_REQUEST", "herdr-core event is invalid")
-	case errors.Is(err, proactive.ErrUnknownComputer):
-		a.writeError(c, http.StatusNotFound, "LOCAL_COMPUTER_NOT_FOUND", "Local Computer was not found")
-	default:
-		a.internalError(c, "queue herdr-core event", err)
 	}
 }
 

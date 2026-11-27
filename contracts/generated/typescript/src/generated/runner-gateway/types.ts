@@ -49,7 +49,8 @@ export type ServiceFeature =
   | "herdr_core_v1"
   | "herdr_core_stream"
   | "antigravity_history"
-  | "antigravity_usage_provider";
+  | "antigravity_usage_provider"
+  | "herdr_core_status_kind";
 export type JsonValue =
   | null
   | boolean
@@ -1399,7 +1400,14 @@ export interface HerdrCoreEvent {
 }
 export interface HerdrCoreTerminalStatus {
   state: "idle" | "working" | "done" | "blocked" | "error";
+  /**
+   * Optional OSC 7501 blocked kind (for example permission, question, or auth). Sent only when runner.welcome service_features names herdr_core_status_kind.
+   */
+  kind?: string;
   app?: string;
+  /**
+   * Optional OSC 7501 status message or block reason, with obvious secrets redacted on the Computer.
+   */
   msg?: string;
   progress?: number;
   title?: string;
