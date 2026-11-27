@@ -37,21 +37,24 @@ func (d *Daemon) handleComputerTool(ctx context.Context, stream transport.Stream
 	d.activeMu.Lock()
 	stopped := d.locallyStopped[command.AgentID]
 	d.activeMu.Unlock()
+	ownerScopedHerdrCore := request.Server == "herdr_core" && command.AgentID == ownerHerdrCoreAgentID
 	authorized := !draining && !stopped && d.ownedBy(command.TenantID, command.OwnerActorID) && command.RunnerID == d.computerID
-	if authorized && d.assignments != nil {
-		rows, err := d.assignments.List(ctx)
-		if err != nil {
-			return err
-		}
-		authorized = false
-		for _, row := range rows {
-			if row.TenantID == command.TenantID && row.AgentID == command.AgentID && row.State == "ready" {
-				authorized = true
-				break
+	if authorized && !ownerScopedHerdrCore {
+		if d.assignments != nil {
+			rows, err := d.assignments.List(ctx)
+			if err != nil {
+				return err
 			}
+			authorized = false
+			for _, row := range rows {
+				if row.TenantID == command.TenantID && row.AgentID == command.AgentID && row.State == "ready" {
+					authorized = true
+					break
+				}
+			}
+		} else {
+			authorized = false
 		}
-	} else {
-		authorized = false
 	}
 	if !authorized {
 		result = map[string]any{"status": "forbidden"}
@@ -72,6 +75,8 @@ func (d *Daemon) handleComputerTool(ctx context.Context, stream transport.Stream
 			result, err = d.callPlayground(callCtx, command.TenantID, command.AgentID, request.Name, request.Arguments)
 		case "herdr":
 			result, err = d.callHerdr(callCtx, request.Name, request.Arguments)
+		case "herdr_core":
+			result, err = d.callHerdrCore(ctx, callCtx, command.ConnectionEpoch, command.AgentID, request.Name, request.Arguments)
 		case "feishu_mail":
 			if d.feishuMail != nil {
 				result = d.feishuMail.Call(callCtx, request.Name, request.Arguments)

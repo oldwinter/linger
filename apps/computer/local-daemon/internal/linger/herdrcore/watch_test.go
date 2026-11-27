@@ -317,6 +317,56 @@ func TestWatchSnapshotEventsMissedResyncAndReconnect(t *testing.T) {
 	}
 }
 
+func TestWatchEmitTerminalChangesAndParent(t *testing.T) {
+	srv := newFakeCoreServer(t)
+	events := make(chan Event, 16)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- WatchWithOptions(ctx, &Client{Socket: srv.socket}, WatchOptions{
+			Settle:              15 * time.Millisecond,
+			RetryInitial:        20 * time.Millisecond,
+			RetryMax:            50 * time.Millisecond,
+			EmitTerminalChanges: true,
+		}, func(_ context.Context, ev Event) error {
+			events <- ev
+			return nil
+		})
+	}()
+
+	waitForCondition(t, func() bool {
+		srv.mu.Lock()
+		defer srv.mu.Unlock()
+		return len(srv.plainSubscribers) == 1
+	})
+
+	created := Terminal{
+		Address: "t10",
+		Parent:  strPtr("t1"),
+		State:   TerminalStateLive,
+		Turn:    0,
+		Status:  &Status{State: StatusWorking, App: "codex"},
+	}
+	srv.setTerminal(created)
+	srv.pushEvent("t10", "created", created)
+
+	ev1 := receiveWatchEvent(t, events)
+	if ev1.Kind != EventTerminalChanged || ev1.Address != "t10" || ev1.Parent != "t1" {
+		t.Fatalf("created event=%+v", ev1)
+	}
+
+	srv.pushEvent("t10", "removed", map[string]any{})
+	ev2 := receiveWatchEvent(t, events)
+	if ev2.Kind != EventTerminalChanged || ev2.Address != "t10" {
+		t.Fatalf("removed event=%+v", ev2)
+	}
+
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("Watch ended with %v, want context.Canceled", err)
+	}
+}
+
 func receiveWatchEvent(t *testing.T, ch <-chan Event) Event {
 	t.Helper()
 	select {

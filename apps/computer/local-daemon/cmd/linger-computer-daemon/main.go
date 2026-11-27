@@ -27,6 +27,7 @@ import (
 	lingercontext "github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/linger/context"
 	lingercontrol "github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/linger/control"
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/linger/herdr"
+	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/linger/herdrcore"
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/linger/localskills"
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/linger/localtools"
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/linger/registration"
@@ -448,13 +449,21 @@ func run(args []string) (resultErr error) {
 		},
 	})
 	codexModelSessions := &provider.CodexSessions{Root: filepath.Join(computer.StateDirectory, "model-invoke", "codex-sessions")}
-	// herdr is optional: without it on the terminal PATH nothing watches it
-	// and the herdr tool reports herdr_unavailable.
+	// herdr and herdr-core are optional and coexist independently: without each
+	// binary on the terminal PATH nothing watches it and its tool reports unavailable.
+	terminalEnv := provider.TerminalEnvironment(context.Background(), environment)
 	var herdrClient *herdr.Client
 	var herdrPanes daemon.HerdrPanes
-	if installation, ok := herdr.Locate(provider.TerminalEnvironment(context.Background(), environment)); ok {
+	if installation, ok := herdr.Locate(terminalEnv); ok {
 		herdrClient = &herdr.Client{Socket: installation.Socket}
 		herdrPanes = herdrClient
+	}
+	var herdrCoreClient *herdrcore.Client
+	var herdrCore daemon.HerdrCoreClient
+	if installation, ok := herdrcore.Locate(terminalEnv); ok {
+		herdrCoreClient = installation.Client()
+		herdrCoreClient.Environment = herdrCoreProcessEnv(terminalEnv)
+		herdrCore = herdrCoreClient
 	}
 	telemetryCollector := telemetry.NewCollector(telemetry.Options{
 		SnapshotLocalModels: localModels.Snapshot,
@@ -487,6 +496,7 @@ func run(args []string) (resultErr error) {
 		CLICredentials:      cliCredentials,
 		TeamHubCLIBin:       teamhubBin,
 		HerdrPanes:          herdrPanes,
+		HerdrCore:           herdrCore,
 		LocalModels:         localModels,
 		ModelSource:         modelSource,
 		SystemTelemetry:     telemetryCollector,
@@ -556,6 +566,16 @@ func run(args []string) (resultErr error) {
 	if herdrClient != nil {
 		go func() { _ = herdr.Watch(ctx, herdrClient, localDaemon.PublishHerdrEvent) }()
 	}
+	if herdrCoreClient != nil {
+		go func() {
+			_ = herdrcore.WatchWithOptions(
+				ctx,
+				herdrCoreClient,
+				herdrcore.WatchOptions{EmitTerminalChanges: true},
+				localDaemon.PublishHerdrCoreEvent,
+			)
+		}()
+	}
 	monitorDone := make(chan error, 1)
 	go func() {
 		monitorDone <- provider.MonitorRuntimeDiagnostics(ctx, provider.RuntimeMonitorOptions{
@@ -599,6 +619,16 @@ func run(args []string) (resultErr error) {
 		handoffErr = updates.Handoff()
 	}
 	return errors.Join(daemonErr, monitorErr, handoffErr)
+}
+
+func herdrCoreProcessEnv(terminalEnv map[string]string) []string {
+	var extra []string
+	for _, key := range []string{"HC_SOCKET", "HC_SESSION", "XDG_STATE_HOME", "XDG_CONFIG_HOME"} {
+		if value := strings.TrimSpace(terminalEnv[key]); value != "" {
+			extra = append(extra, key+"="+value)
+		}
+	}
+	return extra
 }
 
 type controlController struct {
