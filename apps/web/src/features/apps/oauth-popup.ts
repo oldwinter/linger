@@ -1,4 +1,4 @@
-import { desktopConnectorOAuth } from "./desktop-connector-oauth";
+import { desktopConnectorOAuth } from "@/lib/desktop-connector-oauth";
 
 const OAUTH_POPUP_NAME = "linger_composio_oauth";
 const OAUTH_POPUP_WIDTH = 560;

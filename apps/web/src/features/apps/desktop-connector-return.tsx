@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 
 import { isExternalSourceAccountQuery } from "./connected-apps-queries";
-import { desktopConnectorOAuth } from "./desktop-connector-oauth";
+import { desktopConnectorOAuth } from "@/lib/desktop-connector-oauth";
 
 export function DesktopConnectorReturn() {
   const { client } = useTeamHubRuntime();
