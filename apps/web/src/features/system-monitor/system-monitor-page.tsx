@@ -4,14 +4,19 @@ import {
   PlayIcon,
   RefreshIcon,
 } from "@hugeicons/core-free-icons";
-import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
-import { type ReactNode, useEffect, useState } from "react";
+import {
+  useQuery,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query";
+import { lazy, type ReactNode, Suspense, useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import { FormFeedback } from "@/components/ui/form-feedback";
 import { Icon } from "@/components/ui/icon";
 import { Skeleton } from "@/components/ui/skeleton";
+import type { HerdrCoreClient } from "@/features/herdr-core/api";
 import { useDesktopComputer } from "@/features/local-computer/desktop-computer";
 import { localComputersQueryOptions } from "@/features/local-computer/local-computer-queries";
 import {
@@ -39,6 +44,12 @@ import {
 } from "./system-monitor-queries";
 
 type InventoryComputer = TeamHubLocalComputerPage["items"][number];
+
+const LazyHerdrCoreComputerDialog = lazy(() =>
+  import("@/features/herdr-core/herdr-core-computer-drawer").then((module) => ({
+    default: module.HerdrCoreComputerDialog,
+  })),
+);
 
 function computersPath(tenantId: string) {
   return `/t/${tenantId}/settings/computers`;
@@ -77,6 +88,8 @@ function streamDotTone(status: SystemTelemetryStreamStatus): string {
 export interface SystemMonitorPageProps {
   /** Optional EventSource factory override for tests. */
   readonly eventSourceFactory?: EventSourceFactory;
+  /** Optional herdr-core client override for tests. */
+  readonly herdrCoreClient?: HerdrCoreClient;
   /** Optional TeamHub base URL override for tests. */
   readonly streamBaseUrl?: string;
 }
@@ -87,6 +100,7 @@ export interface SystemMonitorPageProps {
  */
 export function SystemMonitorPage({
   eventSourceFactory,
+  herdrCoreClient,
   streamBaseUrl,
 }: SystemMonitorPageProps = {}) {
   const t = useT();
@@ -136,12 +150,16 @@ export function SystemMonitorPage({
     );
   }
 
+  const desktopComputerId = desktop?.status?.computerId;
+
   return (
     <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-col pb-6">
       {sharedId ? (
         <ComputerSystemMonitor
           computerId={sharedId}
           eventSourceFactory={eventSourceFactory}
+          herdrCoreClient={herdrCoreClient}
+          isDesktopLocalComputer={desktopComputerId === sharedId}
           key={sharedId}
           onSelectComputer={select}
           ownedComputers={computers}
@@ -154,6 +172,8 @@ export function SystemMonitorPage({
           computerId={computer.computer_id}
           displayName={computer.display_name}
           eventSourceFactory={eventSourceFactory}
+          herdrCoreClient={herdrCoreClient}
+          isDesktopLocalComputer={desktopComputerId === computer.computer_id}
           key={computer.computer_id}
           onSelectComputer={select}
           ownedComputers={computers}
@@ -187,6 +207,8 @@ function ComputerSystemMonitor({
   computerId,
   displayName,
   eventSourceFactory,
+  herdrCoreClient,
+  isDesktopLocalComputer,
   onSelectComputer,
   ownedComputers,
   streamBaseUrl,
@@ -196,15 +218,22 @@ function ComputerSystemMonitor({
   readonly computerId: string;
   readonly displayName?: string;
   readonly eventSourceFactory?: EventSourceFactory;
+  readonly herdrCoreClient?: HerdrCoreClient;
+  readonly isDesktopLocalComputer: boolean;
   readonly onSelectComputer: (computerId: string) => void;
   readonly ownedComputers: readonly InventoryComputer[];
   readonly streamBaseUrl?: string;
   readonly tenantId: string;
 }) {
   const t = useT();
+  const queryClient = useQueryClient();
   const { client, pageActivity } = useTeamHubRuntime();
   const [paused, setPaused] = useState(false);
   const [retryToken, setRetryToken] = useState(0);
+  const [workbenchState, setWorkbenchState] = useState<{
+    readonly open: boolean;
+    readonly initialAddress?: string;
+  }>({ open: false });
 
   const initialQuery = useQuery(
     systemTelemetryQueryOptions(client, tenantId, computerId),
@@ -284,6 +313,16 @@ function ComputerSystemMonitor({
   function handleRetry() {
     setRetryToken((current) => current + 1);
     void initialQuery.refetch();
+    void queryClient.invalidateQueries({
+      queryKey: ["herdr-core", "cockpit-status", computerId],
+    });
+    void queryClient.invalidateQueries({
+      queryKey: ["herdr-core", "cockpit-terminals", computerId],
+    });
+  }
+
+  function openHerdrWorkbench(address?: string) {
+    setWorkbenchState({ open: true, initialAddress: address });
   }
 
   return (
@@ -400,7 +439,14 @@ function ComputerSystemMonitor({
           {initialQuery.isError ? (
             <FormFeedback tone="danger">{t(m.loadFailedBody)}</FormFeedback>
           ) : null}
-          <MagpieCockpit snapshot={activeView.telemetry} />
+          <MagpieCockpit
+            computerId={computerId}
+            herdrCoreClient={herdrCoreClient}
+            isDesktopLocalComputer={isDesktopLocalComputer}
+            onOpenHerdrWorkbench={openHerdrWorkbench}
+            snapshot={activeView.telemetry}
+            teamHubApi={client.api}
+          />
           <div className="flex items-center justify-end text-xs text-muted-foreground">
             <Link
               className="font-medium text-app-link underline-offset-2 hover:underline"
@@ -430,6 +476,20 @@ function ComputerSystemMonitor({
       ) : (
         <CockpitLoadingSkeleton label={t(m.loading)} />
       )}
+
+      {workbenchState.open ? (
+        <Suspense fallback={null}>
+          <LazyHerdrCoreComputerDialog
+            client={herdrCoreClient}
+            computerId={computerId}
+            computerName={computerLabel}
+            initialAddress={workbenchState.initialAddress}
+            isDesktopLocalComputer={isDesktopLocalComputer}
+            onClose={() => setWorkbenchState({ open: false })}
+            teamHubApi={client.api}
+          />
+        </Suspense>
+      ) : null}
     </div>
   );
 }

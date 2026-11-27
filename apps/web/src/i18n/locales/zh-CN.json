@@ -5121,10 +5121,20 @@
     "cockpitWorkingCount": "{count} 个工作中",
     "cockpitBlockedCount": "{count} 个待处理",
     "cockpitErrorCount": "{count} 个错误",
+    "cockpitFinishedCount": "{count} 个已结束",
     "cockpitMachinesOnline": "{online}/{total} 台机器在线",
+    "cockpitMachinesLabel": "机器",
+    "cockpitBlockedAttention": {
+      "other": "{count} 个待处理"
+    },
     "cockpitJumpBlocked": "跳转到待处理",
+    "cockpitJumpErrors": "错误终端",
     "cockpitOpenWorkbench": "打开工作台",
     "cockpitOffline": "herdr-core 离线",
+    "cockpitOfflineHint": "重新连接这台电脑后，即可监控实时 herdr-core 终端。",
+    "cockpitUnavailable": "herdr-core 不可用",
+    "cockpitUnavailableHint": "在这台电脑上安装或启动 herdr-core 后，即可在此查看实时终端。",
+    "cockpitChecking": "正在检查 herdr-core…",
     "toggleSidebar": "终端列表",
     "closePanel": "关闭"
   }

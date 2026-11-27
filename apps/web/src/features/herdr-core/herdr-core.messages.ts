@@ -111,10 +111,23 @@ export const herdrCoreMessages = defineMessages("herdrCore", {
   cockpitWorkingCount: "{count} working",
   cockpitBlockedCount: "{count} waiting",
   cockpitErrorCount: "{count} error",
+  cockpitFinishedCount: "{count} finished",
   cockpitMachinesOnline: "{online}/{total} machines",
+  cockpitMachinesLabel: "Machines",
+  cockpitBlockedAttention: {
+    one: "{count} waiting",
+    other: "{count} waiting",
+  },
   cockpitJumpBlocked: "Jump to waiting",
+  cockpitJumpErrors: "Error terminals",
   cockpitOpenWorkbench: "Open workbench",
   cockpitOffline: "herdr-core offline",
+  cockpitOfflineHint:
+    "Reconnect this Computer to monitor live herdr-core terminals.",
+  cockpitUnavailable: "herdr-core unavailable",
+  cockpitUnavailableHint:
+    "Install or start herdr-core on this Computer to monitor live terminals here.",
+  cockpitChecking: "Checking herdr-core…",
   toggleSidebar: "Terminals list",
   closePanel: "Close",
 });
