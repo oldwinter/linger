@@ -1165,7 +1165,15 @@ func (a *App) callAgentHerdrCore(c *gin.Context) {
 		Arguments:     request.Arguments,
 		DeadlineMs:    request.DeadlineMs,
 	}
-	result, err := tools.CallLocalComputerTool(ctx, toolCall)
+	var result map[string]any
+	if rawTools, ok := a.localComputers.(roomagent.LocalComputerToolResults); ok {
+		result, err = rawTools.CallLocalComputerToolResult(ctx, toolCall)
+		if err == nil {
+			err = roomagent.ClassifyHerdrCoreResult(result)
+		}
+	} else {
+		result, err = tools.CallLocalComputerTool(ctx, toolCall)
+	}
 	if err != nil {
 		var toolErr *roomagent.LocalComputerToolError
 		if errors.As(err, &toolErr) {
@@ -1176,7 +1184,7 @@ func (a *App) callAgentHerdrCore(c *gin.Context) {
 			case "not_found", "terminal_not_found", "doc_not_found":
 				a.writeAgentAPIError(c, http.StatusNotFound, agentapi.AgentApiErrorCodeNotFound, toolErr.Message)
 				return
-			case "computer_unavailable", "unavailable":
+			case "computer_unavailable", "unavailable", "herdr_core_unavailable":
 				a.writeAgentAPIError(c, http.StatusServiceUnavailable, agentapi.AgentApiErrorCodeDependencyUnavailable, toolErr.Message)
 				return
 			default:

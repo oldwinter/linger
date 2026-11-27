@@ -17,9 +17,10 @@ import (
 // Event kinds emitted by Watch when a herdr-core terminal reaches a moment
 // that may need user attention.
 const (
-	EventBlocked  = "agent_blocked"
-	EventFinished = "agent_finished"
-	EventError    = "agent_error"
+	EventBlocked         = "agent_blocked"
+	EventFinished        = "agent_finished"
+	EventError           = "agent_error"
+	EventTerminalChanged = "terminal_changed"
 )
 
 // Answer delivery outcomes. Only AnswerSent means input reached the terminal.
@@ -37,6 +38,7 @@ type Event struct {
 	Address  string
 	Name     string
 	Template string
+	Parent   string
 	Agent    string
 	Cwd      string
 	Title    string
@@ -58,6 +60,10 @@ type WatchOptions struct {
 	ReadTimeout  time.Duration
 	// DisableSettle emits transitions immediately without coalescing delay.
 	DisableSettle bool
+	// EmitTerminalChanges also emits lightweight terminal_changed events for
+	// lifecycle and metadata updates (created, finished, removed, labels, title,
+	// keep, and non-proactive status updates) without reading scrollback tails.
+	EmitTerminalChanges bool
 }
 
 const (
@@ -336,7 +342,12 @@ func (w *watcher) subscribeOnce(ctx context.Context) (bool, error) {
 				if packet.msg.Event == nil {
 					continue
 				}
-				address, interesting := w.applyEvent(*packet.msg.Event)
+				address, interesting, immediate := w.applyEvent(*packet.msg.Event)
+				if immediate != nil {
+					if err := w.emit(ctx, *immediate); err != nil {
+						slog.Warn("herdrcore.event_dropped", "address", immediate.Address, "kind", immediate.Kind, "error", err)
+					}
+				}
 				if interesting && address != "" {
 					dirty[address] = true
 					if w.opts.Settle <= 0 {
@@ -414,9 +425,9 @@ func (w *watcher) handleMissed(ctx context.Context, missed *MissedNotification) 
 	return nil
 }
 
-func (w *watcher) applyEvent(ev EventNotification) (string, bool) {
+func (w *watcher) applyEvent(ev EventNotification) (string, bool, *Event) {
 	if ev.Seq > 0 && ev.Seq <= w.lastSeq {
-		return "", false
+		return "", false, nil
 	}
 	if ev.Seq > w.lastSeq {
 		w.lastSeq = ev.Seq
@@ -430,7 +441,7 @@ func (w *watcher) applyEvent(ev EventNotification) (string, bool) {
 				address = created.Address
 			}
 			w.current[address] = cloneTerminal(created)
-			return address, created.Status != nil && (created.Status.State == StatusBlocked || created.Status.State == StatusError)
+			return address, w.opts.EmitTerminalChanges || (created.Status != nil && (created.Status.State == StatusBlocked || created.Status.State == StatusError)), nil
 		}
 	case "status":
 		var data StatusEventData
@@ -448,7 +459,7 @@ func (w *watcher) applyEvent(ev EventNotification) (string, bool) {
 				terminal.Records = maps.Clone(data.Records)
 			}
 			w.current[address] = terminal
-			return address, true
+			return address, true, nil
 		}
 	case "turn":
 		var data TurnEventData
@@ -463,7 +474,7 @@ func (w *watcher) applyEvent(ev EventNotification) (string, bool) {
 				}
 			}
 			w.current[address] = terminal
-			return address, true
+			return address, true, nil
 		}
 	case "title":
 		var data TitleEventData
@@ -471,6 +482,7 @@ func (w *watcher) applyEvent(ev EventNotification) (string, bool) {
 			terminal := w.ensureTerminal(address)
 			terminal.Title = data.Title
 			w.current[address] = terminal
+			return address, w.opts.EmitTerminalChanges, nil
 		}
 	case "labels":
 		var data LabelsEventData
@@ -478,6 +490,7 @@ func (w *watcher) applyEvent(ev EventNotification) (string, bool) {
 			terminal := w.ensureTerminal(address)
 			terminal.Labels = maps.Clone(data.Labels)
 			w.current[address] = terminal
+			return address, w.opts.EmitTerminalChanges, nil
 		}
 	case "foreground":
 		var fg Foreground
@@ -500,6 +513,11 @@ func (w *watcher) applyEvent(ev EventNotification) (string, bool) {
 			terminal := w.ensureTerminal(address)
 			terminal.Keep = data.Keep
 			w.current[address] = terminal
+			return address, w.opts.EmitTerminalChanges, nil
+		}
+	case "lost", "restarted":
+		if address != "" && w.opts.EmitTerminalChanges {
+			return address, true, nil
 		}
 	case "finished":
 		var data FinishedEventData
@@ -513,15 +531,28 @@ func (w *watcher) applyEvent(ev EventNotification) (string, bool) {
 			terminal.Status = nil
 			w.current[address] = terminal
 			w.baseline[address] = cloneTerminal(terminal)
+			if w.opts.EmitTerminalChanges {
+				changed := buildEvent(EventTerminalChanged, terminal)
+				return address, false, &changed
+			}
 		}
 	case "removed":
 		if address != "" {
+			previous, existed := w.current[address]
 			delete(w.current, address)
 			delete(w.baseline, address)
 			delete(w.emitted, address)
+			if w.opts.EmitTerminalChanges {
+				if !existed {
+					previous = Terminal{Address: address}
+				}
+				previous.Status = nil
+				changed := buildEvent(EventTerminalChanged, previous)
+				return address, false, &changed
+			}
 		}
 	}
-	return address, false
+	return address, false, nil
 }
 
 func (w *watcher) ensureTerminal(address string) Terminal {
@@ -561,12 +592,20 @@ func (w *watcher) reconcileAddresses(ctx context.Context, addresses []string) {
 		events := Transitions(prevMap, map[string]Terminal{address: authoritative})
 		w.baseline[address] = cloneTerminal(authoritative)
 		w.clearStaleWatermarks(address, authoritative)
+		emittedProactive := false
 		for _, event := range events {
 			if !w.shouldEmit(address, event.Kind, authoritative) {
 				continue
 			}
 			w.attachTailAndEmit(ctx, event)
 			w.recordEmitted(address, event.Kind, authoritative)
+			emittedProactive = true
+		}
+		if w.opts.EmitTerminalChanges && !emittedProactive {
+			changed := buildEvent(EventTerminalChanged, authoritative)
+			if err := w.emit(ctx, changed); err != nil {
+				slog.Warn("herdrcore.event_dropped", "address", changed.Address, "kind", changed.Kind, "error", err)
+			}
 		}
 	}
 }
@@ -712,12 +751,15 @@ func Transitions(previous, current map[string]Terminal) []Event {
 }
 
 func buildEvent(kind string, terminal Terminal) Event {
-	var name, template, fgName, fgCwd string
+	var name, template, parent, fgName, fgCwd string
 	if terminal.Name != nil {
 		name = *terminal.Name
 	}
 	if terminal.Template != nil {
 		template = *terminal.Template
+	}
+	if terminal.Parent != nil {
+		parent = *terminal.Parent
 	}
 	if terminal.Foreground != nil {
 		fgName = terminal.Foreground.Name
@@ -738,6 +780,7 @@ func buildEvent(kind string, terminal Terminal) Event {
 		Address:  terminal.Address,
 		Name:     clip(name, 120),
 		Template: clip(template, 120),
+		Parent:   clip(parent, 256),
 		Agent:    clip(firstNonEmpty(statusApp, template, fgName), 120),
 		Cwd:      clip(firstNonEmpty(fgCwd, terminal.Cwd), 4096),
 		Title:    clip(firstNonEmpty(statusTitle, terminal.Title), 500),

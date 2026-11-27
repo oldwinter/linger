@@ -62,20 +62,8 @@ func (g *HTTPGateway) CallLocalComputerHerdrCore(ctx context.Context, call Local
 			return nil, fmt.Errorf("AgentManagement returned empty herdr-core result for %s", call.ToolName)
 		}
 		result := response.JSON200.Result
-		if status, ok := result["status"].(string); ok {
-			switch status {
-			case "outcome_unknown":
-				return nil, ErrHerdrCoreTimeout
-			case "busy", "error", "unavailable", "not_found", "terminal_not_found", "doc_not_found", "version_conflict", "conflict", "invalid_request", "invalid_arguments", "terminal_closed", "terminal_not_blocked":
-				detail, _ := result["detail"].(string)
-				if detail == "" {
-					detail, _ = result["message"].(string)
-				}
-				if detail == "" {
-					detail = "herdr-core call returned status " + status
-				}
-				return nil, &LocalComputerToolError{Code: status, Message: detail}
-			}
+		if err := ClassifyHerdrCoreResult(result); err != nil {
+			return nil, err
 		}
 		return result, nil
 	case http.StatusBadRequest:
@@ -95,5 +83,39 @@ func (g *HTTPGateway) CallLocalComputerHerdrCore(ctx context.Context, call Local
 		return nil, ErrLocalComputerOffline
 	default:
 		return nil, fmt.Errorf("AgentManagement returned status %d for herdr-core %s: %s", response.StatusCode(), call.ToolName, truncateUTF8(string(response.Body), 1000))
+	}
+}
+
+// ClassifyHerdrCoreResult maps structured herdr_core computer_tool error
+// statuses onto typed errors while preserving non-error OSC 7501 terminal
+// status words (such as working, idle, done, blocked, or error alongside turn)
+// returned by send, keys, and wait.
+func ClassifyHerdrCoreResult(result map[string]any) error {
+	status, ok := result["status"].(string)
+	if !ok {
+		return nil
+	}
+	if status == "error" {
+		if _, hasTurn := result["turn"]; hasTurn {
+			return nil
+		}
+	}
+	switch status {
+	case "outcome_unknown":
+		return ErrHerdrCoreTimeout
+	case "busy", "error", "unavailable", "herdr_core_unavailable", "computer_unavailable",
+		"not_found", "terminal_not_found", "doc_not_found",
+		"version_conflict", "conflict", "invalid_request", "invalid_arguments", "invalid_answer",
+		"terminal_closed", "terminal_not_blocked", "forbidden":
+		detail, _ := result["detail"].(string)
+		if detail == "" {
+			detail, _ = result["message"].(string)
+		}
+		if detail == "" {
+			detail = "herdr-core call returned status " + status
+		}
+		return &LocalComputerToolError{Code: status, Message: detail}
+	default:
+		return nil
 	}
 }

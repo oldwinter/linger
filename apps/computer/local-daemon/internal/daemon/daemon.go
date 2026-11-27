@@ -71,6 +71,12 @@ type Options struct {
 	// HerdrPanes answers blocked herdr agent panes; nil when herdr is not
 	// installed, and the herdr tool then reports herdr_unavailable.
 	HerdrPanes HerdrPanes
+	// HerdrCore talks to the user's herdr-core (hc) runtime; nil when
+	// herdr-core is not installed, and herdr_core tools report herdr_core_unavailable.
+	HerdrCore HerdrCoreClient
+	// HerdrCoreStream overrides the outbound PTY attach WebSocket target; when
+	// zero, Daemon derives it from transport.GatewayControlPlane.
+	HerdrCoreStream HerdrCoreStreamTarget
 	// LocalModels runs owner-chosen localmodels library actions; nil
 	// refuses each with TOOL_NOT_INSTALLED.
 	LocalModels LocalModelLibrary
@@ -109,20 +115,22 @@ type localToolPrewarmer interface {
 }
 
 type Daemon struct {
-	controlPlane      transport.ControlPlane
-	identityStore     transport.IdentityStore
-	executor          provider.Executor
-	protocolVersion   string
-	computerID        string
-	operationResolver OperationResolver
-	enabledRuntimes   []string
-	ledger            OperationLedgerStore
-	registrations     registration.Store
-	assignments       assignment.Store
-	contextViews      *lingercontext.ViewStore
-	localSkills       LocalSkillCatalog
-	localTools        LocalToolBinder
-	herdrPanes        HerdrPanes
+	controlPlane          transport.ControlPlane
+	identityStore         transport.IdentityStore
+	executor              provider.Executor
+	protocolVersion       string
+	computerID            string
+	operationResolver     OperationResolver
+	enabledRuntimes       []string
+	ledger                OperationLedgerStore
+	registrations         registration.Store
+	assignments           assignment.Store
+	contextViews          *lingercontext.ViewStore
+	localSkills           LocalSkillCatalog
+	localTools            LocalToolBinder
+	herdrPanes            HerdrPanes
+	herdrCore             HerdrCoreClient
+	herdrCoreStreamTarget HerdrCoreStreamTarget
 	// feishuMail runs TeamHub's Feishu Mail calls through the owner's lark-cli.
 	feishuMail          *localtools.FeishuMail
 	browserConnections  BrowserConnections
@@ -176,6 +184,12 @@ type Daemon struct {
 	// dynamicReasoningEfforts holds whether the current Agent Service declared
 	// serviceFeatureDynamicReasoningEfforts in its welcome.
 	dynamicReasoningEfforts atomic.Bool
+	// herdrCoreV1 holds whether the current Agent Service declared
+	// serviceFeatureHerdrCoreV1 in its welcome.
+	herdrCoreV1 atomic.Bool
+	// herdrCoreStream holds whether the current Agent Service declared
+	// serviceFeatureHerdrCoreStream in its welcome.
+	herdrCoreStream atomic.Bool
 	// authorityRevision counts, under admissionMu, the commands that can change
 	// what an accepted Operation may start with: Registration snapshots, Agent
 	// Runner commands and Context commands. A start whose revision is unchanged
@@ -209,6 +223,9 @@ type Daemon struct {
 	inputWG                 sync.WaitGroup
 	preparationWG           sync.WaitGroup
 	cleanupWG               sync.WaitGroup
+	herdrCoreStreamsMu      sync.Mutex
+	herdrCoreStreams        map[string]*herdrCoreAttachBridge
+	herdrCoreStreamsWG      sync.WaitGroup
 	draining                bool
 	closing                 bool
 	selfUpdate              SelfUpdater
@@ -283,55 +300,58 @@ func New(options Options) (*Daemon, error) {
 		return nil, errors.New("daemon requires Operation, Registration and Assignment stores")
 	}
 	return &Daemon{
-		controlPlane:         options.ControlPlane,
-		identityStore:        options.IdentityStore,
-		executor:             options.Executor,
-		protocolVersion:      protocol.Version,
-		computerID:           options.ComputerID,
-		operationResolver:    options.OperationResolver,
-		enabledRuntimes:      append([]string(nil), options.EnabledRuntimes...),
-		activeOperations:     make(map[string]*activeOperation),
-		preparedOperations:   make(map[string]*preparedOperation),
-		providerPrepares:     make(map[string]*providerPrepare),
-		sessionCompacts:      make(map[string]*sessionCompact),
-		takeParkedSession:    takeNativeParkedSession,
-		modelInvoker:         options.ModelInvoker,
-		modelInvokes:         make(map[string]*modelInvoke),
-		localModels:          options.LocalModels,
-		modelSource:          options.ModelSource,
-		systemTelemetry:      options.SystemTelemetry,
-		telemetryTracker:     options.TelemetryTracker,
-		contextDispatchLimit: defaultContextDispatchLimit,
-		retryDelay:           defaultRetryDelay(options.RetryDelay),
-		stableConnection:     stableGatewayConnection,
-		now:                  time.Now,
-		displayName:          options.DisplayName,
-		runtimes:             append([]string(nil), options.Runtimes...),
-		runtimeDiagnostics:   append(json.RawMessage(nil), options.RuntimeDiagnostics...),
-		workspaceGrants:      append(json.RawMessage(nil), options.WorkspaceGrants...),
-		stateDirectory:       options.StateDirectory,
-		runtimeHomeRoot:      options.RuntimeHomeRoot,
-		runtimeObservations:  append([]transport.RegistrationObservation(nil), options.RuntimeObservations...),
-		diagnosticsRevision:  nextRevisionAbove(1, options.RuntimeObservations),
-		gatewayState:         "connecting",
-		locallyStopped:       make(map[string]bool),
-		welcomedEpochs:       make(map[uint64]bool),
-		ledger:               options.Ledger,
-		registrations:        options.Registrations,
-		assignments:          options.Assignments,
-		contextViews:         options.ContextViews,
-		localSkills:          options.LocalSkills,
-		localTools:           options.LocalTools,
-		feishuMail:           localtools.NewFeishuMail(),
-		browserConnections:   options.BrowserConnections,
-		computerPermissions:  options.ComputerPermissions,
-		owners:               options.Owners,
-		cliCredentials:       options.CLICredentials,
-		teamhubCLIBin:        options.TeamHubCLIBin,
-		openMCPProxies:       mcpproxy.Open,
-		onModelUnavailable:   options.OnModelUnavailable,
-		herdrPanes:           options.HerdrPanes,
-		modelInvokeUnready:   options.ModelInvokeUnready,
+		controlPlane:          options.ControlPlane,
+		identityStore:         options.IdentityStore,
+		executor:              options.Executor,
+		protocolVersion:       protocol.Version,
+		computerID:            options.ComputerID,
+		operationResolver:     options.OperationResolver,
+		enabledRuntimes:       append([]string(nil), options.EnabledRuntimes...),
+		activeOperations:      make(map[string]*activeOperation),
+		preparedOperations:    make(map[string]*preparedOperation),
+		providerPrepares:      make(map[string]*providerPrepare),
+		sessionCompacts:       make(map[string]*sessionCompact),
+		takeParkedSession:     takeNativeParkedSession,
+		modelInvoker:          options.ModelInvoker,
+		modelInvokes:          make(map[string]*modelInvoke),
+		localModels:           options.LocalModels,
+		modelSource:           options.ModelSource,
+		systemTelemetry:       options.SystemTelemetry,
+		telemetryTracker:      options.TelemetryTracker,
+		contextDispatchLimit:  defaultContextDispatchLimit,
+		retryDelay:            defaultRetryDelay(options.RetryDelay),
+		stableConnection:      stableGatewayConnection,
+		now:                   time.Now,
+		displayName:           options.DisplayName,
+		runtimes:              append([]string(nil), options.Runtimes...),
+		runtimeDiagnostics:    append(json.RawMessage(nil), options.RuntimeDiagnostics...),
+		workspaceGrants:       append(json.RawMessage(nil), options.WorkspaceGrants...),
+		stateDirectory:        options.StateDirectory,
+		runtimeHomeRoot:       options.RuntimeHomeRoot,
+		runtimeObservations:   append([]transport.RegistrationObservation(nil), options.RuntimeObservations...),
+		diagnosticsRevision:   nextRevisionAbove(1, options.RuntimeObservations),
+		gatewayState:          "connecting",
+		locallyStopped:        make(map[string]bool),
+		welcomedEpochs:        make(map[uint64]bool),
+		ledger:                options.Ledger,
+		registrations:         options.Registrations,
+		assignments:           options.Assignments,
+		contextViews:          options.ContextViews,
+		localSkills:           options.LocalSkills,
+		localTools:            options.LocalTools,
+		feishuMail:            localtools.NewFeishuMail(),
+		browserConnections:    options.BrowserConnections,
+		computerPermissions:   options.ComputerPermissions,
+		owners:                options.Owners,
+		cliCredentials:        options.CLICredentials,
+		teamhubCLIBin:         options.TeamHubCLIBin,
+		openMCPProxies:        mcpproxy.Open,
+		onModelUnavailable:    options.OnModelUnavailable,
+		herdrPanes:            options.HerdrPanes,
+		herdrCore:             options.HerdrCore,
+		herdrCoreStreamTarget: resolveHerdrCoreStreamTarget(options.HerdrCoreStream, options.ControlPlane),
+		herdrCoreStreams:      make(map[string]*herdrCoreAttachBridge),
+		modelInvokeUnready:    options.ModelInvokeUnready,
 	}, nil
 }
 
@@ -526,6 +546,7 @@ func (d *Daemon) DrainWithReason(reason string) {
 	}
 	d.activeMu.Unlock()
 	d.admissionMu.Unlock()
+	d.closeHerdrCoreStreams("daemon_draining")
 }
 
 // DrainAndWait stops admissions, cancels in-flight Operations with reason, and
@@ -561,6 +582,7 @@ func (d *Daemon) WaitForOperations() {
 	d.operationWG.Wait()
 	d.inputWG.Wait()
 	d.cleanupWG.Wait()
+	d.herdrCoreStreamsWG.Wait()
 }
 
 func mustJSON(value any) json.RawMessage {

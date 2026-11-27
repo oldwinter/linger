@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -306,5 +307,29 @@ func TestProxyWebSocketsForwardsBinaryAndTextFrames(t *testing.T) {
 	msgType, data, err = client.ReadMessage()
 	if err != nil || msgType != websocket.TextMessage || string(data) != `{"type":"ping"}` {
 		t.Fatalf("text echo failed: type=%d data=%q err=%v", msgType, data, err)
+	}
+}
+
+func TestClassifyHerdrCoreResultPreservesOSCStatusAndFlagsErrors(t *testing.T) {
+	for _, okResult := range []map[string]any{
+		{"status": "ok", "turn": 1, "started": true},
+		{"status": "working", "turn": 2, "started": true},
+		{"status": "idle", "turn": 2, "started": false},
+		{"status": "error", "turn": 3, "started": false},
+		{"terminals": []any{}},
+	} {
+		if err := roomagent.ClassifyHerdrCoreResult(okResult); err != nil {
+			t.Fatalf("expected non-error for %+v, got %v", okResult, err)
+		}
+	}
+	var toolErr *roomagent.LocalComputerToolError
+	if err := roomagent.ClassifyHerdrCoreResult(map[string]any{"status": "herdr_core_unavailable", "detail": "not installed"}); !errors.As(err, &toolErr) || toolErr.Code != "herdr_core_unavailable" {
+		t.Fatalf("herdr_core_unavailable => %v", err)
+	}
+	if err := roomagent.ClassifyHerdrCoreResult(map[string]any{"status": "error", "detail": "boom"}); !errors.As(err, &toolErr) || toolErr.Code != "error" {
+		t.Fatalf("error without turn => %v", err)
+	}
+	if err := roomagent.ClassifyHerdrCoreResult(map[string]any{"status": "outcome_unknown"}); !errors.Is(err, roomagent.ErrHerdrCoreTimeout) {
+		t.Fatalf("outcome_unknown => %v", err)
 	}
 }

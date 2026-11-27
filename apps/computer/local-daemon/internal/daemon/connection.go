@@ -187,8 +187,13 @@ func (d *Daemon) handleConnectionCommand(ctx, connectionCtx context.Context, str
 			return errors.New("Computer tool connection authority is stale")
 		}
 		// A synthetic dispatch key serializes one Live session without occupying
-		// an AlterEgo's Context or starting a Runtime.
+		// an AlterEgo's Context or starting a Runtime. Owner-scoped herdr_core
+		// calls use per-command keys so concurrent reads, attaches, and waits do
+		// not head-of-line block each other.
 		command.ExecutionContextKey = "live-tools:" + command.AgentID
+		if command.AgentID == ownerHerdrCoreAgentID && command.CommandID != "" {
+			command.ExecutionContextKey = "herdr-core:" + command.CommandID
+		}
 		dispatch.submit(command, func() error { return d.handleComputerTool(connectionCtx, stream, command) })
 	case protocol.CommandModelInvoke:
 		if !d.welcomeSeen || command.ConnectionEpoch != d.connectionEpoch {
@@ -364,6 +369,9 @@ func (d *Daemon) acceptRunnerWelcome(ctx, connectionCtx context.Context, stream 
 	d.runtimeFailureDetail.Store(slices.Contains(command.ServiceFeatures, serviceFeatureRuntimeFailureDetail))
 	d.operationBackgroundWait.Store(slices.Contains(command.ServiceFeatures, serviceFeatureOperationBackgroundWait))
 	d.dynamicReasoningEfforts.Store(slices.Contains(command.ServiceFeatures, serviceFeatureDynamicReasoningEfforts))
+	d.herdrCoreV1.Store(slices.Contains(command.ServiceFeatures, serviceFeatureHerdrCoreV1))
+	d.herdrCoreStream.Store(slices.Contains(command.ServiceFeatures, serviceFeatureHerdrCoreStream))
+	d.closeHerdrCoreStreams("connection_epoch_changed")
 	localModels := slices.Contains(command.ServiceFeatures, serviceFeatureLocalModels)
 	if err := d.activateStreamAndReplay(ctx, stream, command.ReconcileOperationIDs, localModels, helloRev); err != nil {
 		return err
@@ -533,6 +541,7 @@ func (d *Daemon) advanceDiagnosticsRevisionAbove(observations []transport.Regist
 }
 
 func (d *Daemon) clearDiagnosticsStream(stream transport.Stream) {
+	cleared := false
 	d.connectionMu.Lock()
 	if d.diagnosticsStream == stream {
 		d.diagnosticsStream = nil
@@ -542,6 +551,9 @@ func (d *Daemon) clearDiagnosticsStream(stream transport.Stream) {
 		d.runtimeFailureDetail.Store(false)
 		d.operationBackgroundWait.Store(false)
 		d.dynamicReasoningEfforts.Store(false)
+		d.herdrCoreV1.Store(false)
+		d.herdrCoreStream.Store(false)
+		cleared = true
 	}
 	if d.localModelsStream == stream {
 		d.localModelsStream = nil
@@ -552,6 +564,9 @@ func (d *Daemon) clearDiagnosticsStream(stream transport.Stream) {
 		d.localModelUnavailable.Store(false)
 	}
 	d.connectionMu.Unlock()
+	if cleared {
+		d.closeHerdrCoreStreams("connection_lost")
+	}
 }
 
 // capabilities lists the host features this Computer has; everything else is
