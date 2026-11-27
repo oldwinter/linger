@@ -23,6 +23,7 @@ import (
 	"github.com/oldwinter/linger/mobile/internal/screens/rooms"
 	"github.com/oldwinter/linger/mobile/internal/screens/settings"
 	"github.com/oldwinter/linger/mobile/internal/screens/terminals"
+	voiceScreen "github.com/oldwinter/linger/mobile/internal/screens/voice"
 	"github.com/oldwinter/linger/mobile/internal/screens/work"
 	"github.com/oldwinter/linger/mobile/internal/state"
 	"github.com/oldwinter/linger/mobile/internal/theme"
@@ -45,6 +46,7 @@ type Shell struct {
 	workScr      *work.Screen
 	libraryScr   *library.Screen
 	settingsScr  *settings.Screen
+	voiceScr     *voiceScreen.Screen
 	systemDark   func() bool
 
 	mu                   sync.Mutex
@@ -93,6 +95,7 @@ func New(store *state.AppStore, systemDark func() bool) *Shell {
 		OnOpenCompute: func(computerID, section string) {
 			s.OpenLiveCompute(computerID, section)
 		},
+		OnOpenVoice: s.OpenVoice,
 	})
 	s.liveCtl = live.NewController(store, live.NavigationHooks{
 		OnOpenConnect: s.OpenConnect,
@@ -142,6 +145,13 @@ func New(store *state.AppStore, systemDark func() bool) *Shell {
 		ShowErrorToast: func(msg string) { s.ShowToastWithTone(components.ToneDanger, msg) },
 		OnNotify:       store.Notify,
 	})
+	s.voiceScr = voiceScreen.New(voiceScreen.Deps{
+		Store: store,
+		OnOpenVoiceSettings: func() {
+			s.OpenMoreRoute("/more/settings?focus=provider_key")
+		},
+		ShowToast: s.ShowToast,
+	})
 	return s
 }
 
@@ -165,6 +175,9 @@ func (s *Shell) Close() {
 	}
 	if s.libraryScr != nil {
 		s.libraryScr.Close()
+	}
+	if s.voiceScr != nil {
+		s.voiceScr.Close()
 	}
 }
 
@@ -252,6 +265,23 @@ func (s *Shell) Library() *library.Screen { return s.libraryScr }
 
 // Settings returns Tab 5's More/Settings screen controller.
 func (s *Shell) Settings() *settings.Screen { return s.settingsScr }
+
+// Voice returns the Live Voice WebRTC sheet screen controller.
+func (s *Shell) Voice() *voiceScreen.Screen { return s.voiceScr }
+
+// OpenVoice presents the Live Voice sheet bound to roomID.
+func (s *Shell) OpenVoice(roomID, roomName string) {
+	if s.voiceScr != nil {
+		s.voiceScr.Open(roomID, roomName)
+	}
+}
+
+// SetSuspended propagates OS background/suspend lifecycle transitions to real-time voice resources.
+func (s *Shell) SetSuspended(suspended bool) {
+	if s.voiceScr != nil {
+		s.voiceScr.SetSuspended(suspended)
+	}
+}
 
 // RefreshAllTabs triggers background sync for Terminals, Work, Library, and Settings screens.
 func (s *Shell) RefreshAllTabs(ctx context.Context) {
@@ -449,6 +479,9 @@ func (s *Shell) View(c *ui.Context) {
 				renderMainStage(activeTab, router)
 			})
 		})
+		if s.voiceScr != nil {
+			s.voiceScr.ViewSheet(c, snap)
+		}
 		return
 	}
 
@@ -461,6 +494,9 @@ func (s *Shell) View(c *ui.Context) {
 		// Refined 5-destination elevated dock bar with duotone active icons and haloed badges.
 		s.viewBottomBar(c, snap, activeTab, m)
 	})
+	if s.voiceScr != nil {
+		s.voiceScr.ViewSheet(c, snap)
+	}
 }
 
 type navTabSpec struct {

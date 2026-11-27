@@ -27,6 +27,7 @@ type NavigationHooks struct {
 	OnOpenConnect     func()
 	OnOpenSettingsKey func(kind, key string)
 	OnOpenCompute     func(computerID, section string)
+	OnOpenVoice       func(roomID, roomName string)
 }
 
 // Controller manages Tab 1 Rooms state, sheets, inspector, run watch, and composer state.

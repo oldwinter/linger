@@ -1,0 +1,15 @@
+{
+  "mobile": {
+    "id": "linger_voice_mic",
+    "ios": {
+      "sources": ["ios/*.swift"],
+      "class": "VoiceMicPlugin",
+      "frameworks": ["AVFoundation"]
+    },
+    "android": {
+      "sources": ["android/*.kt"],
+      "class": "VoiceMicPlugin",
+      "permissions": ["RECORD_AUDIO", "MODIFY_AUDIO_SETTINGS"]
+    }
+  }
+}

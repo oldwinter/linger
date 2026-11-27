@@ -15,6 +15,7 @@
       "NSLocalNetworkUsageDescription": "LingerX discovers your LingerX Desktop host on the local network.",
       "NSBonjourServices": ["_linger._tcp"],
       "NSCameraUsageDescription": "Scan the pairing QR code shown on LingerX Desktop.",
+      "NSMicrophoneUsageDescription": "Stream your microphone during live voice sessions and dictation in LingerX.",
       "NSFaceIDUsageDescription": "Unlock LingerX Mobile and protect your paired desktop credentials."
     }
   },
@@ -30,6 +31,8 @@
       "android.permission.ACCESS_NETWORK_STATE",
       "android.permission.CHANGE_WIFI_MULTICAST_STATE",
       "android.permission.CAMERA",
+      "android.permission.RECORD_AUDIO",
+      "android.permission.MODIFY_AUDIO_SETTINGS",
       "android.permission.USE_BIOMETRIC"
     ]
   }

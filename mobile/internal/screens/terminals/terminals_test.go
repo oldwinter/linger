@@ -596,6 +596,13 @@ func TestTerminalsDetailLiveReaderControlBarAndConfirmations(t *testing.T) {
 		defer fb.mu.Unlock()
 		return len(fb.sentReqs) == 1 && fb.sentReqs[0].Text == "status --short"
 	})
+	// Wait for the async delivery notice banner and post-send refresh to finish
+	// laying out so header height changes cannot shift Scroll mid-click.
+	waitUntil(t, 2*time.Second, func() bool {
+		tt.Frame()
+		return tt.HasText("Delivered to deploy-claude") && tt.HasText("Working")
+	})
+	tt.Frame()
 
 	// Verify quick keys and prompt dock satisfy >=44pt touch target height.
 	for _, label := range []string{"Enter", "Esc", "Ctrl+C", "y", "n", "Interrupt", "Kill"} {
