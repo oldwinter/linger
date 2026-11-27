@@ -16,6 +16,7 @@ import (
 
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/linger/herdr"
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/linger/herdrcore"
+	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/linger/localtools"
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/platform/privatefs"
 	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/provider"
 )
@@ -45,7 +46,8 @@ func (c *cli) runDoctor(ctx context.Context, parsed command) (doctorReport, erro
 	if config.configCheck.Status == "fail" {
 		return doctorReport{Version: 1, OK: false, Checks: checks}, nil
 	}
-	checks = append(checks, inspectStateDirectory(config.stateDirectory))
+	stateCheck := inspectStateDirectory(config.stateDirectory)
+	checks = append(checks, stateCheck)
 	checks = append(checks, c.deps.probeGateway(ctx, config.gatewayURL))
 	checks = append(checks, c.deps.inspectDaemon(ctx, config.stateDirectory))
 	configuredPaths := parsed.runtimePaths
@@ -56,7 +58,15 @@ func (c *cli) runDoctor(ctx context.Context, parsed command) (doctorReport, erro
 	if config.codexHome != "" {
 		environment = withVariable(environment, "CODEX_HOME", config.codexHome)
 	}
-	diagnostics, err := c.deps.diagnoseRuntimes(ctx, configuredPaths, environment, config.enabledRuntimes)
+	tempBase := ""
+	if stateCheck.Status == "pass" {
+		tempBase = filepath.Join(config.stateDirectory, "operation-tmp")
+	}
+	diagnostics, err := c.deps.diagnoseRuntimes(ctx, runtimeRequest{
+		configuredPaths: configuredPaths,
+		environment:     environment,
+		tempBase:        tempBase,
+	}, config.enabledRuntimes)
 	if err != nil {
 		return doctorReport{}, err
 	}
@@ -295,40 +305,43 @@ func inspectBrowserMode(homeDirectory string, environment map[string]string, goo
 	check := func(status, detail string) doctorCheck {
 		return doctorCheck{Name: "browser", Category: categoryConfiguration, Status: status, Detail: detail}
 	}
-	var executables []string
 	userData := ""
 	switch goos {
 	case "darwin":
-		executables = []string{
-			"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-			filepath.Join(homeDirectory, "Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
-		}
 		userData = filepath.Join(homeDirectory, "Library", "Application Support", "Google", "Chrome")
 	case "windows":
-		for _, name := range []string{"LOCALAPPDATA", "PROGRAMFILES", "PROGRAMFILES(X86)", "PROGRAMW6432"} {
-			if base := environmentValue(environment, name); base != "" {
-				executables = append(executables, filepath.Join(base, "Google", "Chrome", "Application", "chrome.exe"))
-			}
-		}
 		if local := environmentValue(environment, "LOCALAPPDATA"); local != "" {
 			userData = filepath.Join(local, "Google", "Chrome", "User Data")
 		}
 	default:
 		return check("pass", "Browser tools use the Chrome inside each Agent desktop on this Computer")
 	}
-	chrome := false
-	for _, executable := range executables {
-		if info, err := os.Stat(executable); err == nil && info.Mode().IsRegular() {
-			chrome = true
+	env := []string{"HOME=" + homeDirectory}
+	for name, value := range environment {
+		if !strings.EqualFold(name, "HOME") {
+			env = append(env, name+"="+value)
 		}
 	}
-	if !chrome {
-		return check("warn", "Google Chrome is not installed, so browser tools are unavailable; desktop and file tools are unaffected")
+	executables, edgeExecutables := localtools.BrowserCandidates(goos, env)
+	if !anyFile(executables) {
+		if anyFile(edgeExecutables) {
+			return check("pass", "Google Chrome is not installed; Agents use a dedicated Microsoft Edge profile without your sign-ins. Install Google Chrome to connect your everyday browser")
+		}
+		return check("warn", "Neither Google Chrome nor Microsoft Edge is installed, so browser tools are unavailable; desktop and file tools are unaffected")
 	}
 	if profiles := profilesWithExtension(userData); len(profiles) > 0 {
 		return check("pass", "Google Chrome found; the Playwright Extension is installed in "+strings.Join(profiles, ", ")+". Connect your everyday Chrome from a Room chat with Connect my browser")
 	}
 	return check("pass", "Google Chrome found; Agents use a dedicated Chrome profile without your sign-ins. To reuse your signed-in Chrome, choose Connect my browser in a Room chat")
+}
+
+func anyFile(paths []string) bool {
+	for _, path := range paths {
+		if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
+			return true
+		}
+	}
+	return false
 }
 
 func profilesWithExtension(root string) []string {

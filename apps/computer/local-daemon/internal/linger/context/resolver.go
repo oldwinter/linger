@@ -74,20 +74,74 @@ const teamHubWebToolGuide = "Web tools: search the web with `teamhub web search 
 // link that still has its own web tools.
 const teamHubWebOverOwnTools = "Use them instead of your built-in web search and fetch tools, which may not work through the API this model is served by."
 
-// piWindowsPowerShellGuide tells Windows Pi Agents to invoke teamhub with
-// PowerShell syntax rather than POSIX bash heredocs.
-const piWindowsPowerShellGuide = "Shell on Windows: your shell tool is `powershell` (PowerShell), not bash. Run `teamhub` with the `powershell` tool and PowerShell syntax; do not use POSIX heredocs (`<<'EOF'`). For `teamhub` text containing newlines, `$`, `%`, `&`, backticks, or quotes, pass `--file -` using a PowerShell single-quoted here-string (`@'` on its own line, the text, then `'@ | teamhub ... --file -` with `'@` at column 0)."
+// piWindowsPowerShellGuide tells Windows Pi Agents to use PowerShell syntax
+// and file/here-string inputs that avoid Windows PowerShell 5.1 argument
+// corruption.
+const piWindowsPowerShellGuide = "Shell on Windows: your shell tool is `powershell` (PowerShell), not bash; do not use POSIX heredocs (`<<'EOF'`), `&&`/`||` (unsupported in Windows PowerShell 5.1), or inline `VAR=val cmd`. Windows PowerShell 5.1 strips embedded `\"` from native command arguments, breaking inline JSON and quoted text: never pass inline JSON (`--questions`, `--message`, `--item`, `--schedule`, `--arguments`, `--segments`) or strings containing `\"`, newlines, `$`, `%`, `&`, or backticks on the command line; assigning JSON to a PowerShell variable (such as `$q` or `@args`) and passing it to an inline flag is corrupted the same way. Instead pipe a PowerShell single-quoted here-string (`@'` on its own line, the text or JSON, then `'@ | teamhub ... --<name>-file -` with `'@` at column 0), or write a UTF-8 file with the `write` tool (never PowerShell `>`, `Out-File`, or `Set-Content` without `-Encoding utf8`) and pass `--<name>-file <path>`. Quote comma-separated values or use repeatable flags such as `--message-id`, since unquoted `,` splits arguments in PowerShell."
 
-// staticPrefixEndMarker is the internal insertion slot emitted between the
+// codexWindowsPowerShellGuide tells Windows Codex Agents to avoid PowerShell
+// 5.1 argument quote stripping and default ASCII stdin piping when invoking
+// teamhub.
+const codexWindowsPowerShellGuide = "Shell on Windows: your shell runs PowerShell, not bash; do not use POSIX heredocs (`<<'EOF'`), `&&`/`||` (unsupported in Windows PowerShell 5.1), or inline `VAR=val cmd`. Windows PowerShell 5.1 strips embedded `\"` from native command arguments and defaults piped stdin `$OutputEncoding` to ASCII, so for JSON (`--questions`, `--message`, `--item`, `--schedule`, `--arguments`, `--segments`) or text containing `\"`, newlines, non-ASCII characters, `$`, `%`, `&`, or backticks, never pass it inline or through a PowerShell variable (such as `$q` or `@args`, which is corrupted the same way) — write a UTF-8 file (never PowerShell `>`, `Out-File`, or `Set-Content` without `-Encoding utf8`) and pass `--<name>-file <path>` (or `--file <path>`). Quote comma-separated values or use repeatable flags such as `--message-id`, since unquoted `,` splits arguments in PowerShell."
+
+// WindowsHostEnvironmentGuide describes Windows shell and Python
+// conventions for Operations running on a Windows Local Computer.
+const WindowsHostEnvironmentGuide = "Windows environment: prefer `python` or `py -3` over `python3`, because Windows Python and Miniconda installs often lack `python3.exe` and `python3` may hit the Microsoft Store stub (`Python was not found`). If Python is not on PATH, check `py -3` or common Miniconda/Anaconda paths such as `%USERPROFILE%\\miniconda3\\python.exe`. Avoid piping commands whose failure matters through `| head` or `| tail`, because pipes can mask non-zero exit codes."
+
+// StaticPrefixEndMarker is the internal insertion slot emitted between the
 // static prefix and volatile context sections by node-services. It is consumed
 // and removed by assembleResolvedInstructions so the model never sees it.
-const staticPrefixEndMarker = "<!-- LINGER_STATIC_PREFIX_END -->"
+const StaticPrefixEndMarker = "<!-- LINGER_STATIC_PREFIX_END -->"
+
+// PiDaemonStaticGuides returns the trusted Daemon static guides added before
+// StaticPrefixEndMarker for managed Pi Runs, keeping warm-up aligned byte for byte.
+func PiDaemonStaticGuides(serviceCommand []string, toolGuide, hostEnvironmentGuide string, apiLink, modelGateway, teamHubCLI bool) []string {
+	return daemonStaticGuidesFor("trusted", "pi", runtime.GOOS, serviceCommand, toolGuide, hostEnvironmentGuide, apiLink, modelGateway, teamHubCLI)
+}
+
+func daemonStaticGuidesFor(hostAccess, runtimeType, goos string, serviceCommand []string, toolGuide, hostEnvironmentGuide string, apiLink, modelGateway, teamHubCLI bool) []string {
+	var guides []string
+	if hostAccess == "trusted" {
+		guides = append(guides, trustedHostServiceInstructions, boundServiceInstructions(serviceCommand))
+	}
+	if toolGuide != "" {
+		guides = append(guides, toolGuide)
+	}
+	if hostEnvironmentGuide != "" {
+		guides = append(guides, hostEnvironmentGuide)
+	}
+	if webGuide := webToolGuide(runtimeType, apiLink, modelGateway, teamHubCLI); webGuide != "" {
+		guides = append(guides, webGuide)
+	}
+	if shellGuide := shellToolGuide(runtimeType, goos, teamHubCLI); shellGuide != "" {
+		guides = append(guides, shellGuide)
+	}
+	return guides
+}
+
+// AssembleWarmupSystemPrompt combines a static system-prompt prefix from
+// Agent Service with the Daemon's static guides and terminates them with
+// StaticPrefixEndMarker so PolyStrata pins the exact byte prefix of real Runs.
+func AssembleWarmupSystemPrompt(staticPart string, daemonStaticGuides []string) string {
+	staticSection := joinNonEmptySections(append([]string{staticPart}, daemonStaticGuides...)...)
+	if staticSection == "" {
+		return ""
+	}
+	return staticSection + "\n\n" + StaticPrefixEndMarker
+}
 
 func shellToolGuide(runtimeType, goos string, teamHubCLI bool) string {
-	if runtimeType == "pi" && goos == "windows" && teamHubCLI {
-		return piWindowsPowerShellGuide
+	if goos != "windows" || !teamHubCLI {
+		return ""
 	}
-	return ""
+	switch runtimeType {
+	case "pi":
+		return piWindowsPowerShellGuide
+	case "codex":
+		return codexWindowsPowerShellGuide
+	default:
+		return ""
+	}
 }
 
 // webToolGuide describes the web tools an Operation has. A Runtime on a
@@ -115,14 +169,15 @@ func webToolGuide(runtimeType string, apiLink, modelGateway, teamHubCLI bool) st
 
 type ExecutionResolver struct {
 	// Bound by the local launcher; never accepted from a wire request.
-	ServiceCommand     []string
-	TeamHubCLIBin      string
-	ToolGuide          string // describes the Computer's local tools to every Operation
-	Providers          map[string]ProviderInstallation
-	ProviderLookup     func(context.Context, string) (ProviderInstallation, bool, error)
-	WorkspaceGrants    map[string]WorkspaceGrant
-	Registrations      map[string]RegistrationBinding
-	RegistrationLookup func(context.Context, string) (RegistrationBinding, bool, error)
+	ServiceCommand       []string
+	TeamHubCLIBin        string
+	ToolGuide            string // describes the Computer's local tools to every Operation
+	HostEnvironmentGuide string // describes host OS environment caveats to every Operation
+	Providers            map[string]ProviderInstallation
+	ProviderLookup       func(context.Context, string) (ProviderInstallation, bool, error)
+	WorkspaceGrants      map[string]WorkspaceGrant
+	Registrations        map[string]RegistrationBinding
+	RegistrationLookup   func(context.Context, string) (RegistrationBinding, bool, error)
 	// CLICredentials finds the Agent-level TeamHub CLI credential the Daemon
 	// stored. Nil leaves every Operation without a TeamHub CLI profile.
 	CLICredentials CLICredentialLookup
@@ -210,25 +265,21 @@ func (r ExecutionResolver) Resolve(ctx context.Context, command protocol.Command
 		return provider.OperationSpec{}, errors.New("Codex run.start requires a retained session or an explicit first-run marker")
 	}
 	developerInstructions := instructionValue(request.SessionOptions.DeveloperInstructions)
-	var daemonStaticGuides []string
-	if command.HostAccess == "trusted" {
-		daemonStaticGuides = append(daemonStaticGuides, trustedHostServiceInstructions, boundServiceInstructions(r.ServiceCommand))
-	}
-	if r.ToolGuide != "" {
-		daemonStaticGuides = append(daemonStaticGuides, r.ToolGuide)
-	}
 	cliInstalled, err := r.cliCredentialInstalled(command.TenantID, command.AgentID)
 	if err != nil {
 		return provider.OperationSpec{}, err
 	}
-	teamHubCLI := cliInstalled && r.TeamHubCLIBin != ""
-	webGuide := webToolGuide(command.RuntimeType, installation.APILink, installation.ModelGateway, teamHubCLI)
-	if webGuide != "" {
-		daemonStaticGuides = append(daemonStaticGuides, webGuide)
-	}
-	if shellGuide := shellToolGuide(command.RuntimeType, r.targetOS(), teamHubCLI); shellGuide != "" {
-		daemonStaticGuides = append(daemonStaticGuides, shellGuide)
-	}
+	daemonStaticGuides := daemonStaticGuidesFor(
+		command.HostAccess,
+		command.RuntimeType,
+		r.targetOS(),
+		r.ServiceCommand,
+		r.ToolGuide,
+		r.HostEnvironmentGuide,
+		installation.APILink,
+		installation.ModelGateway,
+		cliInstalled && r.TeamHubCLIBin != "",
+	)
 	resolvedBase, resolvedDeveloper, systemPrompt, baseHadMarker, devHadMarker := assembleResolvedInstructions(
 		instructionValue(request.SessionOptions.BaseInstructions),
 		developerInstructions,
@@ -523,19 +574,19 @@ func joinNonEmptySections(parts ...string) string {
 	return strings.Join(nonEmpty, "\n\n")
 }
 
-// assembleResolvedInstructions replaces staticPrefixEndMarker (in either
+// assembleResolvedInstructions replaces StaticPrefixEndMarker (in either
 // developer or base instructions) with static Daemon guides and places
 // per-Agent BaseInstructions before the dynamic tail when the slot is in
 // developer instructions. Legacy inputs without the marker keep
 // BaseInstructions first and append guides at the end.
 func assembleResolvedInstructions(base, developer string, daemonStaticGuides []string) (string, string, string, bool, bool) {
-	if staticPart, dynamicPart, hasMarker := strings.Cut(developer, staticPrefixEndMarker); hasMarker {
+	if staticPart, dynamicPart, hasMarker := strings.Cut(developer, StaticPrefixEndMarker); hasMarker {
 		staticSection := joinNonEmptySections(append([]string{staticPart}, daemonStaticGuides...)...)
 		resolvedDeveloper := joinNonEmptySections(staticSection, dynamicPart)
 		systemPrompt := joinNonEmptySections(staticSection, base, dynamicPart)
 		return base, resolvedDeveloper, systemPrompt, false, true
 	}
-	if staticPart, dynamicPart, hasMarker := strings.Cut(base, staticPrefixEndMarker); hasMarker {
+	if staticPart, dynamicPart, hasMarker := strings.Cut(base, StaticPrefixEndMarker); hasMarker {
 		staticSection := joinNonEmptySections(append([]string{staticPart}, daemonStaticGuides...)...)
 		resolvedBase := joinNonEmptySections(staticSection, dynamicPart)
 		systemPrompt := joinNonEmptySections(resolvedBase, developer)

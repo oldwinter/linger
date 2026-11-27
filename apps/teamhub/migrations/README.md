@@ -2,7 +2,8 @@
 
 The migration target is this fork's database history. Versions `00866` through
 `00869` identify proactive rule records, proactive mandates, Local Computer
-wake authority, and message pins. Their filenames and SQL remain immutable.
+wake authority, and message pins, and version `00901` identifies group Room
+Agent mention routing. Their filenames and SQL remain immutable.
 
 The upstream migrations below enter the fork as new forward migrations. Each
 import preserves the upstream filename suffix, SQL bytes, and relative order.
@@ -42,6 +43,7 @@ whitelist function that uses the resulting schema.
 | 00894            | 00898        | room_handoff_reports                      |
 | 00895            | 00899        | runtime_local_computers                   |
 | 00896            | 00900        | message_continues                         |
+| 00897            | 00902        | drop_agent_templates                      |
 
 This sequence supports an empty database and an existing fork database,
 including one at version `00869`. Goose records numeric versions without a

@@ -13,6 +13,11 @@ const state = vi.hoisted(() => {
   const theme = Object.assign(new EventEmitter(), {
     shouldUseDarkColors: false,
   });
+  const screen = Object.assign(new EventEmitter(), {
+    getDisplayMatching: vi.fn(() => ({
+      workArea: { x: 0, y: 0, width: 1440, height: 900 },
+    })),
+  });
 
   class MockWebContents extends EventEmitter {
     readonly id = 1;
@@ -115,6 +120,7 @@ const state = vi.hoisted(() => {
     views,
     netFetch,
     theme,
+    screen,
     MockBaseWindow,
     MockWebContentsView,
   };
@@ -141,11 +147,7 @@ vi.mock("electron", () => ({
     handle: vi.fn(),
     unhandle: vi.fn(),
   },
-  screen: {
-    getDisplayMatching: vi.fn(() => ({
-      workArea: { x: 0, y: 0, width: 1440, height: 900 },
-    })),
-  },
+  screen: state.screen,
   session: {
     defaultSession: {
       setPermissionRequestHandler: vi.fn(),

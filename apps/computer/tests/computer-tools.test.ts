@@ -12,6 +12,7 @@ import {
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { expect, it } from "vitest";
 
@@ -510,12 +511,14 @@ it("stages a compact self-contained computer-tools bundle with bundled Pi MCP, j
         target: string,
       ) => Promise<string[]>;
     };
+    const stageTarget =
+      process.platform === "win32" ? "win32-x64" : "linux-x64";
     const manifest = await bundler.stageComputerTools(root, {
-      target: "linux-x64",
+      target: stageTarget,
     });
     const validated = await bundler.validatedComputerToolAssets(
       root,
-      "linux-x64",
+      stageTarget,
     );
     expect(validated).toContain("cli/computer-tools/manifest.json");
     expect(manifest.assets.length).toBeLessThan(400);
@@ -643,6 +646,9 @@ it("stages a compact self-contained computer-tools bundle with bundled Pi MCP, j
       throw new Error("Fixture MCP server did not bind a TCP port");
 
     const toolsDir = path.join(root, "cli", "computer-tools");
+    const expectedJitiDir = await realpath(
+      path.join(toolsDir, "node_modules", "jiti"),
+    );
     const piMcpPath = path.join(toolsDir, "extensions", "pi-mcp.mjs");
     const mcpConfigPath = path.join(root, "managed-mcp.json");
     await writeFile(
@@ -670,13 +676,14 @@ it("stages a compact self-contained computer-tools bundle with bundled Pi MCP, j
         "--eval",
         `
       import assert from "node:assert/strict";
+      import { realpathSync } from "node:fs";
       import { createRequire } from "node:module";
       import path from "node:path";
 
       const req = createRequire(import.meta.url);
       const jitiEntry = req.resolve("jiti");
       assert.ok(
-        jitiEntry.startsWith(${JSON.stringify(path.join(toolsDir, "node_modules", "jiti"))}),
+        realpathSync(jitiEntry).startsWith(${JSON.stringify(expectedJitiDir)} + path.sep),
         "jiti must resolve from staged computer-tools",
       );
       const { createJiti } = req("jiti");
@@ -1120,3 +1127,1002 @@ it.skipIf(process.platform === "win32")(
   },
   30_000,
 );
+
+it("detects Windows PowerShell 5.1 only on win32 and fails open on errors", async () => {
+  const entry = new URL("../tools/pi-mcp.mjs", import.meta.url).href;
+  const { isWindowsPowerShell51 } = (await import(entry)) as {
+    isWindowsPowerShell51: (options?: {
+      platform?: string;
+      resolveShell?: () => { shell: string; args: string[] };
+    }) => boolean;
+  };
+
+  expect(
+    isWindowsPowerShell51({
+      platform: "win32",
+      resolveShell: () => ({
+        shell: "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        args: [],
+      }),
+    }),
+  ).toBe(true);
+  expect(
+    isWindowsPowerShell51({
+      platform: "win32",
+      resolveShell: () => ({
+        shell: "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+        args: [],
+      }),
+    }),
+  ).toBe(false);
+  expect(
+    isWindowsPowerShell51({
+      platform: "darwin",
+      resolveShell: () => ({ shell: "powershell.exe", args: [] }),
+    }),
+  ).toBe(false);
+  expect(
+    isWindowsPowerShell51({
+      platform: "linux",
+      resolveShell: () => ({ shell: "powershell.exe", args: [] }),
+    }),
+  ).toBe(false);
+  expect(
+    isWindowsPowerShell51({
+      platform: "win32",
+      resolveShell: () => {
+        throw new Error("no powershell");
+      },
+    }),
+  ).toBe(false);
+});
+
+it.skipIf(process.platform === "win32")(
+  "routes powershell shell-text checks to shell-text-hook with lazy PS 5.1 fast-paths",
+  async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "linger-pi-ps-hook-"));
+    try {
+      const hook = path.join(root, "daemon");
+      const logFile = path.join(root, "calls.jsonl");
+      await writeFile(
+        hook,
+        `#!${process.execPath}
+const fs = require("node:fs");
+let input = "";
+process.stdin.on("data", (chunk) => (input += chunk));
+process.stdin.on("end", () => {
+  const payload = JSON.parse(input);
+  fs.appendFileSync(${JSON.stringify(logFile)}, JSON.stringify({ argv: process.argv.slice(2), payload }) + "\\n");
+  if (payload.tool_input.command.includes("<<")) {
+    process.stderr.write("Not run: PowerShell does not support POSIX heredocs\\n");
+    process.exit(2);
+  }
+  if (payload.powershell_51 && payload.tool_input.command.includes("'[{")) {
+    process.stderr.write("Not run: Windows PowerShell 5.1 strips embedded double quotes\\n");
+    process.exit(2);
+  }
+  process.exit(0);
+});
+`,
+        { mode: 0o700 },
+      );
+
+      const entry = new URL("../tools/pi-mcp.mjs", import.meta.url).href;
+      const { refuseRewrittenShellText } = (await import(entry)) as {
+        refuseRewrittenShellText: (
+          event: { toolName: string; input?: { command?: string } },
+          hook?: string,
+          options?: { isPowerShell51?: () => boolean },
+        ) => Promise<{ block: boolean; reason: string } | undefined>;
+      };
+
+      const ps = (command: string) => ({
+        toolName: "powershell",
+        input: { command },
+      });
+      let ps51Calls = 0;
+      const isPs51True = () => {
+        ps51Calls += 1;
+        return true;
+      };
+      let ps7Calls = 0;
+      const isPs51False = () => {
+        ps7Calls += 1;
+        return false;
+      };
+
+      // Fast-path skips both hook and isPowerShell51 when command has no
+      // teamhub or no double quotes / heredoc operator.
+      expect(
+        await refuseRewrittenShellText(
+          ps(`node -e 'console.log("hi")'`),
+          hook,
+          {
+            isPowerShell51: isPs51True,
+          },
+        ),
+      ).toBeUndefined();
+      expect(
+        await refuseRewrittenShellText(
+          ps("teamhub message ask-user --title Pick --questions-file q.json"),
+          hook,
+          { isPowerShell51: isPs51True },
+        ),
+      ).toBeUndefined();
+      expect(ps51Calls).toBe(0);
+
+      // PowerShell 7 with double quotes and no << skips spawning the hook.
+      expect(
+        await refuseRewrittenShellText(
+          ps(
+            `teamhub message ask-user --title "Pick" --questions '[{"question":"Where?"}]'`,
+          ),
+          hook,
+          { isPowerShell51: isPs51False },
+        ),
+      ).toBeUndefined();
+      expect(ps7Calls).toBe(1);
+
+      // PowerShell 5.1 with double quotes invokes shell-text-hook and blocks on exit 2.
+      const ps51Cmd = `teamhub message ask-user --title "Pick" --questions '[{"question":"Where?"}]'`;
+      expect(
+        await refuseRewrittenShellText(ps(ps51Cmd), hook, {
+          isPowerShell51: isPs51True,
+        }),
+      ).toEqual({
+        block: true,
+        reason: "Not run: Windows PowerShell 5.1 strips embedded double quotes",
+      });
+      expect(ps51Calls).toBe(1);
+
+      // PowerShell 5.1 command allowed by hook (exit 0) passes through.
+      expect(
+        await refuseRewrittenShellText(
+          ps('teamhub message send --content "Done."'),
+          hook,
+          { isPowerShell51: isPs51True },
+        ),
+      ).toBeUndefined();
+
+      // PowerShell 7 with POSIX heredoc invokes shell-text-hook with powershell_51: false.
+      const heredocCmd = "teamhub message send --file - <<'EOF'\nHello\nEOF";
+      expect(
+        await refuseRewrittenShellText(ps(heredocCmd), hook, {
+          isPowerShell51: isPs51False,
+        }),
+      ).toEqual({
+        block: true,
+        reason: "Not run: PowerShell does not support POSIX heredocs",
+      });
+
+      // Missing or unset hook fails open.
+      expect(
+        await refuseRewrittenShellText(
+          ps(ps51Cmd),
+          path.join(root, "missing"),
+          {
+            isPowerShell51: isPs51True,
+          },
+        ),
+      ).toBeUndefined();
+      expect(
+        await refuseRewrittenShellText(ps(ps51Cmd), "", {
+          isPowerShell51: isPs51True,
+        }),
+      ).toBeUndefined();
+
+      const recorded = (await readFile(logFile, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+      expect(recorded).toEqual([
+        {
+          argv: ["shell-text-hook"],
+          payload: {
+            tool_name: "powershell",
+            powershell_51: true,
+            tool_input: { command: ps51Cmd },
+          },
+        },
+        {
+          argv: ["shell-text-hook"],
+          payload: {
+            tool_name: "powershell",
+            powershell_51: true,
+            tool_input: { command: 'teamhub message send --content "Done."' },
+          },
+        },
+        {
+          argv: ["shell-text-hook"],
+          payload: {
+            tool_name: "powershell",
+            powershell_51: false,
+            tool_input: { command: heredocCmd },
+          },
+        },
+      ]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+  30_000,
+);
+
+it("warns at 3 consecutive failures, blocks at 5, preserves structuredContent, exempts --help, and resets cleanly", async () => {
+  const entry = new URL("../tools/pi-mcp.mjs", import.meta.url).href;
+  const { createFailureLoopTracker, PIPEFAIL_PREFIX, shellFailureSignature } =
+    (await import(entry)) as {
+      PIPEFAIL_PREFIX: string;
+      shellFailureSignature: (
+        toolName: string,
+        command: string,
+      ) => string | undefined;
+      createFailureLoopTracker: () => {
+        reset: () => void;
+        beforeToolCall: (
+          event: Record<string, unknown>,
+        ) => { block: boolean; reason: string } | undefined;
+        onToolResult: (event: Record<string, unknown>) =>
+          | {
+              content?: Array<{ type: string; text: string }>;
+              structuredContent?: unknown;
+            }
+          | undefined;
+      };
+    };
+
+  expect(
+    shellFailureSignature(
+      "powershell",
+      `@'\n[{"a":"b"}]\n'@ | teamhub.exe message ask-user --title "Pick" --questions-file -`,
+    ),
+  ).toBe("teamhub message ask-user");
+  expect(
+    shellFailureSignature(
+      "powershell",
+      `$q = '[{"a":"b"}]'; & teamhub.cmd message ask-user --title "Pick" --questions $q`,
+    ),
+  ).toBe("teamhub message ask-user");
+  expect(
+    shellFailureSignature(
+      "powershell",
+      `& "C:\\bin\\teamhub.exe" message ask-user --title "Pick"`,
+    ),
+  ).toBe("teamhub message ask-user");
+  expect(
+    shellFailureSignature(
+      "powershell",
+      `&"C:\\bin\\teamhub.exe" message ask-user --title "Pick"`,
+    ),
+  ).toBe("teamhub message ask-user");
+  expect(
+    shellFailureSignature("powershell", "./teamhub message send --content hi"),
+  ).toBe("teamhub message send");
+  expect(
+    shellFailureSignature("powershell", "teamhub message ask-user `\n  --help"),
+  ).toBeUndefined();
+  expect(
+    shellFailureSignature("powershell", `$body = "teamhub" + ' says "hello"'`),
+  ).toBe(`powershell:$body = "teamhub" + ' says "hello"'`);
+  expect(shellFailureSignature("powershell", "& teamhub @args")).toBe(
+    "teamhub",
+  );
+  expect(
+    shellFailureSignature(
+      "bash",
+      "teamhub docs update doc-1 --command str_replace --pattern a --content b",
+    ),
+  ).toBe("teamhub docs update");
+  expect(shellFailureSignature("bash", 'teamhub message search "budget"')).toBe(
+    "teamhub message search",
+  );
+  expect(shellFailureSignature("bash", "teamhub message search budget")).toBe(
+    "teamhub message search",
+  );
+  expect(
+    shellFailureSignature(
+      "bash",
+      "teamhub docs comment reply thr_1 --content hi",
+    ),
+  ).toBe("teamhub docs comment");
+  expect(
+    shellFailureSignature(
+      "bash",
+      "teamhub image-gen --provider fal --model fal-ai/flux/dev --prompt fox",
+    ),
+  ).toBe("teamhub image-gen");
+  expect(
+    shellFailureSignature(
+      "bash",
+      "cat <<'EOF' | teamhub message send --file -\nteamhub docs create --title \"fake\"\nEOF",
+    ),
+  ).toBe("teamhub message send");
+  expect(
+    shellFailureSignature(
+      "bash",
+      `${PIPEFAIL_PREFIX}teamhub message ask-user --title "Pick"`,
+    ),
+  ).toBe("teamhub message ask-user");
+  expect(
+    shellFailureSignature("powershell", "teamhub message ask-user --help"),
+  ).toBeUndefined();
+  expect(
+    shellFailureSignature("bash", "teamhub message ask-user -h"),
+  ).toBeUndefined();
+  expect(
+    shellFailureSignature("bash", "teamhub message ask-user --schema --json"),
+  ).toBeUndefined();
+  expect(
+    shellFailureSignature("bash", 'teamhub message send --content "--help"'),
+  ).toBe("teamhub message send");
+  expect(
+    shellFailureSignature(
+      "bash",
+      'teamhub message send --content "see --help here"',
+    ),
+  ).toBe("teamhub message send");
+  expect(
+    shellFailureSignature(
+      "powershell",
+      "teamhub message send --content 'it''s --help and -h here'",
+    ),
+  ).toBe("teamhub message send");
+  expect(
+    shellFailureSignature("bash", 'teamhub message send --content "hi" --help'),
+  ).toBeUndefined();
+  expect(
+    shellFailureSignature(
+      "bash",
+      'df -h; teamhub message ask-user --title "Pick" --questions-file q.json',
+    ),
+  ).toBe("teamhub message ask-user");
+  expect(
+    shellFailureSignature(
+      "powershell",
+      'teamhub apps list; teamhub message ask-user --title "Pick" --questions-file q.json',
+    ),
+  ).toBe("teamhub message ask-user");
+  expect(
+    shellFailureSignature(
+      "powershell",
+      "teamhub apps list; teamhub message ask-user --help",
+    ),
+  ).toBeUndefined();
+  expect(shellFailureSignature("bash", "df -h")).toBe("bash:df -h");
+  expect(shellFailureSignature("bash", "git status --help")).toBeUndefined();
+  expect(shellFailureSignature("bash", 'echo "--help"')).toBe(
+    'bash:echo "--help"',
+  );
+  expect(shellFailureSignature("bash", 'echo "see --help here"')).toBe(
+    'bash:echo "see --help here"',
+  );
+  expect(shellFailureSignature("bash", "pnpm   test\n")).toBe("bash:pnpm test");
+  expect(shellFailureSignature("read", "teamhub message send")).toBeUndefined();
+
+  const tracker = createFailureLoopTracker();
+  const variants = [
+    `teamhub message ask-user --title "Pick" --questions '[{"a":"b"}]'`,
+    `$q = '[{"a":"b"}]'; teamhub message ask-user --title "Pick" --questions $q`,
+    `teamhub.exe message ask-user --title "Pick" --questions-file missing.json`,
+    `@'\n[]\n'@ | teamhub message ask-user --title "Pick" --questions-file -`,
+    `& teamhub.cmd message ask-user --title "Pick" --questions-file broken.json`,
+  ];
+
+  for (let i = 0; i < variants.length; i += 1) {
+    const call = {
+      toolCallId: `call_${i}`,
+      toolName: "powershell",
+      input: { command: variants[i] },
+    };
+    expect(tracker.beforeToolCall(call)).toBeUndefined();
+    const structuredContent = { exitCode: 2 };
+    const result = tracker.onToolResult({
+      ...call,
+      isError: true,
+      content: [{ type: "text", text: "invalid_input" }],
+      structuredContent,
+    });
+    if (i === 2) {
+      expect(result).toEqual({
+        content: [
+          { type: "text", text: "invalid_input" },
+          {
+            type: "text",
+            text: expect.stringContaining(
+              "[Linger loop guard] teamhub message ask-user has failed 3 times in a row.",
+            ),
+          },
+        ],
+        structuredContent,
+      });
+    } else {
+      expect(result).toBeUndefined();
+    }
+  }
+
+  // 6th call (after 5 consecutive failures) is blocked.
+  expect(
+    tracker.beforeToolCall({
+      toolCallId: "call_blocked",
+      toolName: "powershell",
+      input: { command: "teamhub message ask-user --title 'Again'" },
+    }),
+  ).toEqual({
+    block: true,
+    reason: expect.stringContaining(
+      "Blocked after 5 consecutive failures of teamhub message ask-user.",
+    ),
+  });
+
+  // --help is never blocked and succeeding resets the streak.
+  const helpCall = {
+    toolCallId: "call_help",
+    toolName: "powershell",
+    input: { command: "teamhub message ask-user --help" },
+  };
+  expect(tracker.beforeToolCall(helpCall)).toBeUndefined();
+  expect(
+    tracker.onToolResult({
+      ...helpCall,
+      isError: false,
+      content: [{ type: "text", text: "Usage..." }],
+    }),
+  ).toBeUndefined();
+  expect(
+    tracker.beforeToolCall({
+      toolCallId: "call_after_help",
+      toolName: "powershell",
+      input: { command: "teamhub message ask-user --title 'After help'" },
+    }),
+  ).toBeUndefined();
+
+  // Succeeding with another tool (such as write) also resets a streak, and
+  // non-teamhub guidance omits "--help" suggestions.
+  for (let i = 0; i < 5; i += 1) {
+    const call = {
+      toolCallId: `bash_${i}`,
+      toolName: "bash",
+      input: { command: `${PIPEFAIL_PREFIX}npm test` },
+    };
+    const res = tracker.onToolResult({ ...call, isError: true, content: [] });
+    if (i === 2) {
+      expect(res?.content?.[0]?.text).toContain(
+        "bash:npm test has failed 3 times in a row. Do not keep retrying the same failing command",
+      );
+      expect(res?.content?.[0]?.text).not.toContain("--help");
+    }
+  }
+  const bashBlocked = tracker.beforeToolCall({
+    toolCallId: "bash_blocked",
+    toolName: "bash",
+    input: { command: "npm test" },
+  });
+  expect(bashBlocked).toMatchObject({
+    block: true,
+    reason: expect.stringContaining(
+      "Blocked after 5 consecutive failures of bash:npm test.",
+    ),
+  });
+  expect(bashBlocked?.reason).not.toContain("--help");
+  // Distinct non-teamhub command is not blocked.
+  expect(
+    tracker.beforeToolCall({
+      toolCallId: "bash_other",
+      toolName: "bash",
+      input: { command: "npm run lint" },
+    }),
+  ).toBeUndefined();
+
+  tracker.onToolResult({
+    toolCallId: "write_1",
+    toolName: "write",
+    isError: false,
+    content: [],
+  });
+  expect(
+    tracker.beforeToolCall({
+      toolCallId: "bash_after_write",
+      toolName: "bash",
+      input: { command: "npm test" },
+    }),
+  ).toBeUndefined();
+
+  // reset() clears streak across Runs in a resident Pi process.
+  for (let i = 0; i < 5; i += 1) {
+    const call = {
+      toolCallId: `res_${i}`,
+      toolName: "bash",
+      input: { command: "npm test" },
+    };
+    tracker.onToolResult({ ...call, isError: true, content: [] });
+  }
+  expect(
+    tracker.beforeToolCall({
+      toolCallId: "res_blocked",
+      toolName: "bash",
+      input: { command: "npm test" },
+    }),
+  ).toMatchObject({ block: true });
+  tracker.reset();
+  expect(
+    tracker.beforeToolCall({
+      toolCallId: "res_after_reset",
+      toolName: "bash",
+      input: { command: "npm test" },
+    }),
+  ).toBeUndefined();
+});
+
+it("wires loop guard reset on before_agent_start and blocks before review in managedExtension", async () => {
+  const entry = new URL("../tools/pi-mcp.mjs", import.meta.url).href;
+  const mod = (await import(entry)) as {
+    default: (pi: Record<string, unknown>) => Promise<void>;
+  };
+
+  type Handler = (
+    event: Record<string, unknown>,
+    ctx?: Record<string, unknown>,
+  ) => unknown;
+  const handlers = new Map<string, Handler[]>();
+  const fakePi = {
+    on: (event: string, handler: Handler) => {
+      handlers.set(event, [...(handlers.get(event) ?? []), handler]);
+    },
+  };
+  const prevConfig = process.env.LINGER_PI_MANAGED_MCP_CONFIG;
+  delete process.env.LINGER_PI_MANAGED_MCP_CONFIG;
+  try {
+    await mod.default(fakePi);
+  } finally {
+    if (prevConfig !== undefined) {
+      process.env.LINGER_PI_MANAGED_MCP_CONFIG = prevConfig;
+    }
+  }
+
+  let reviewCalls = 0;
+  const ctx = {
+    ui: {
+      input: async () => {
+        reviewCalls += 1;
+        return JSON.stringify({ allow: true });
+      },
+    },
+  };
+  const emitToolCall = async (event: Record<string, unknown>) => {
+    for (const handler of handlers.get("tool_call") ?? []) {
+      const result = await handler(event, ctx);
+      if (result) return result;
+    }
+    return undefined;
+  };
+  const emitToolResult = async (event: Record<string, unknown>) => {
+    for (const handler of handlers.get("tool_result") ?? []) {
+      const result = await handler(event, ctx);
+      if (result) return result;
+    }
+    return undefined;
+  };
+
+  // 5 consecutive bash failures trigger warning on 3rd and block on 6th before review.
+  for (let i = 0; i < 5; i += 1) {
+    const call = {
+      toolCallId: `loop_${i}`,
+      toolName: "bash",
+      input: { command: `teamhub message ask-user --title "T${i}"` },
+    };
+    expect(await emitToolCall(call)).toBeUndefined();
+    const res = await emitToolResult({
+      ...call,
+      isError: true,
+      content: [{ type: "text", text: "bad" }],
+    });
+    if (i === 2) {
+      expect(res).toMatchObject({
+        content: expect.arrayContaining([
+          expect.objectContaining({
+            text: expect.stringContaining("failed 3 times in a row"),
+          }),
+        ]),
+      });
+    }
+  }
+  expect(reviewCalls).toBe(5);
+  const loopBlocked = await emitToolCall({
+    toolCallId: "loop_5",
+    toolName: "bash",
+    input: { command: 'teamhub message ask-user --title "T5"' },
+  });
+  expect(loopBlocked).toMatchObject({
+    block: true,
+    reason: expect.stringContaining("Blocked after 5 consecutive failures"),
+  });
+  expect(reviewCalls).toBe(5);
+
+  // before_agent_start resets the streak for the next Run.
+  for (const start of handlers.get("before_agent_start") ?? []) {
+    await start({}, ctx);
+  }
+  expect(
+    await emitToolCall({
+      toolCallId: "loop_next_run",
+      toolName: "bash",
+      input: { command: 'teamhub message ask-user --title "Fresh"' },
+    }),
+  ).toBeUndefined();
+  expect(reviewCalls).toBe(6);
+});
+
+it("injects strata_pin and Bifrost passthrough headers during prefix warm-up", async () => {
+  const result = await run(
+    process.execPath,
+    [
+      "--input-type=module",
+      "--eval",
+      `
+      import assert from "node:assert/strict";
+      const mod = await import(${JSON.stringify(new URL("../tools/pi-mcp.mjs", import.meta.url).href)});
+      assert.equal(process.env.LINGER_PI_STRATA_PIN, undefined);
+
+      assert.throws(() => mod.parseStrataPinConfig(JSON.stringify({ name: "meta", prefill_only: true, resident: "ram", persist: true })), /Unsupported strata_pin field/);
+      assert.throws(() => mod.parseStrataPinConfig(JSON.stringify({ name: "../bad", prefill_only: true })), /Invalid strata_pin\\.name/);
+      assert.throws(() => mod.parseStrataPinConfig(JSON.stringify({ name: "meta", prefill_only: "yes" })), /Invalid strata_pin\\.prefill_only/);
+
+      const parsed = mod.parseStrataPinConfig(JSON.stringify({
+        name: "meta",
+        prefill_only: true,
+        resident: "ram",
+        anchor: "<!-- LINGER_STATIC_PREFIX_END -->",
+      }));
+      assert.deepEqual(parsed, {
+        name: "meta",
+        prefill_only: true,
+        resident: "ram",
+        anchor: "<!-- LINGER_STATIC_PREFIX_END -->",
+      });
+
+      const handlers = new Map();
+      const pi = {
+        on: (event, handler) => handlers.set(event, handler),
+      };
+      await mod.default(pi);
+      assert.ok(handlers.has("before_provider_headers"));
+      assert.ok(handlers.has("before_provider_request"));
+      assert.ok(handlers.has("tool_call"));
+
+      const headers = { Authorization: "Bearer test" };
+      await handlers.get("before_provider_headers")({ headers });
+      assert.equal(headers["x-bf-passthrough-extra-params"], "true");
+
+      const originalPayload = { model: "localmodels/m", messages: [] };
+      const mutatedPayload = await handlers.get("before_provider_request")({ payload: originalPayload });
+      assert.equal("strata_pin" in originalPayload, false);
+      assert.deepEqual(mutatedPayload, {
+        model: "localmodels/m",
+        messages: [],
+        strata_pin: parsed,
+      });
+
+      const blocked = await handlers.get("tool_call")({ toolName: "read", input: {} }, { ui: {} });
+      assert.equal(blocked.block, true);
+      console.log("strata pin hooks passed");
+      `,
+    ],
+    {
+      timeout: 20_000,
+      env: {
+        ...process.env,
+        LINGER_PI_STRATA_PIN: JSON.stringify({
+          name: "meta",
+          prefill_only: true,
+          resident: "ram",
+          anchor: "<!-- LINGER_STATIC_PREFIX_END -->",
+        }),
+      },
+    },
+  );
+  expect(result.stdout).toContain("strata pin hooks passed");
+}, 30_000);
+
+it("waits for cold-start MCP initialize and tools/list before sending a prefix warm-up prompt", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "linger-pi-warmup-mcp-"));
+  const mcpMethods: string[] = [];
+  const llmRequests: Array<{
+    headers: Record<string, string | string[] | undefined>;
+    body: {
+      strata_pin?: Record<string, unknown>;
+      tools?: Array<{ function?: { name?: string } }>;
+    };
+  }> = [];
+  let mcpServer: Server | undefined;
+  let llmServer: Server | undefined;
+  try {
+    mcpServer = createServer((request, response) => {
+      void (async () => {
+        if (request.method !== "POST") {
+          response.writeHead(405);
+          response.end();
+          return;
+        }
+        const chunks: Buffer[] = [];
+        for await (const chunk of request) chunks.push(Buffer.from(chunk));
+        const message = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
+          id?: number | string;
+          method?: string;
+        };
+        if (message.method) mcpMethods.push(message.method);
+        if (message.method === "notifications/initialized") {
+          response.writeHead(202);
+          response.end();
+          return;
+        }
+        const reply = (result: Record<string, unknown>) => {
+          response.writeHead(200, { "content-type": "application/json" });
+          response.end(
+            JSON.stringify({ jsonrpc: "2.0", id: message.id, result }),
+          );
+        };
+        if (message.method === "initialize") {
+          reply({
+            protocolVersion: "2025-03-26",
+            capabilities: { tools: { listChanged: false } },
+            serverInfo: { name: "linger-local-tools", version: "0.0.0-test" },
+          });
+          return;
+        }
+        if (message.method === "tools/list") {
+          // Delay tools/list briefly so cold-start session_start has returned
+          // before MCP registration finishes, proving prompt waits for it.
+          await new Promise((resolve) => setTimeout(resolve, 60));
+          reply({
+            tools: [
+              {
+                name: "ui_exec",
+                description: "Execute UI script",
+                inputSchema: {
+                  type: "object",
+                  properties: { code: { type: "string" } },
+                  required: ["code"],
+                },
+              },
+              {
+                name: "ui_reset",
+                description: "Reset UI state",
+                inputSchema: { type: "object", properties: {} },
+              },
+            ],
+          });
+          return;
+        }
+        reply({
+          isError: true,
+          content: [{ type: "text", text: "unexpected call" }],
+        });
+      })();
+    });
+    await new Promise<void>((resolve) =>
+      mcpServer!.listen(0, "127.0.0.1", resolve),
+    );
+    const mcpAddr = mcpServer.address();
+    if (!mcpAddr || typeof mcpAddr === "string")
+      throw new Error("MCP server did not bind TCP port");
+
+    llmServer = createServer((request, response) => {
+      void (async () => {
+        const chunks: Buffer[] = [];
+        for await (const chunk of request) chunks.push(Buffer.from(chunk));
+        const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
+          strata_pin?: Record<string, unknown>;
+          tools?: Array<{ function?: { name?: string } }>;
+        };
+        llmRequests.push({ headers: request.headers, body });
+        response.writeHead(200, {
+          "content-type": "text/event-stream",
+          "cache-control": "no-cache",
+        });
+        response.end(
+          `data: ${JSON.stringify({
+            id: "chatcmpl-warmup",
+            object: "chat.completion.chunk",
+            choices: [{ index: 0, delta: { role: "assistant", content: "" } }],
+          })}\n\ndata: ${JSON.stringify({
+            id: "chatcmpl-warmup",
+            object: "chat.completion.chunk",
+            choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+            usage: {
+              prompt_tokens: 12,
+              completion_tokens: 0,
+              total_tokens: 12,
+            },
+          })}\n\ndata: [DONE]\n\n`,
+        );
+      })();
+    });
+    await new Promise<void>((resolve) =>
+      llmServer!.listen(0, "127.0.0.1", resolve),
+    );
+    const llmAddr = llmServer.address();
+    if (!llmAddr || typeof llmAddr === "string")
+      throw new Error("LLM server did not bind TCP port");
+
+    const agentDir = path.join(root, "agent");
+    await mkdir(agentDir, { recursive: true });
+    await writeFile(
+      path.join(agentDir, "models.json"),
+      JSON.stringify({
+        providers: {
+          localmodels: {
+            baseUrl: `http://127.0.0.1:${llmAddr.port}/v1`,
+            api: "openai-completions",
+            apiKey: "warmup-test-key",
+            models: [{ id: "test-qwen" }],
+          },
+        },
+      }),
+      { mode: 0o600 },
+    );
+
+    const mcpConfigPath = path.join(root, "linger-mcp.json");
+    await writeFile(
+      mcpConfigPath,
+      JSON.stringify({
+        mcpServers: {
+          computer: {
+            type: "http",
+            url: `http://127.0.0.1:${mcpAddr.port}/mcp/warmup`,
+            tool_timeout_sec: 600,
+          },
+        },
+      }),
+      { mode: 0o600 },
+    );
+    const systemPromptPath = path.join(root, "meta.md");
+    await writeFile(
+      systemPromptPath,
+      "Static prefix\n\n<!-- LINGER_STATIC_PREFIX_END -->",
+      { mode: 0o600 },
+    );
+
+    const piCliPath = fileURLToPath(
+      new URL(
+        "../node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js",
+        import.meta.url,
+      ),
+    );
+    const piMcpPath = fileURLToPath(
+      new URL("../tools/pi-mcp.mjs", import.meta.url),
+    );
+    const shellTool = process.platform === "win32" ? "powershell" : "bash";
+
+    const { spawn } = await import("node:child_process");
+    const child = spawn(
+      process.execPath,
+      [
+        piCliPath,
+        "--mode",
+        "rpc",
+        "--no-session",
+        "--system-prompt",
+        systemPromptPath,
+        "--model",
+        "localmodels/test-qwen",
+        "--extension",
+        piMcpPath,
+        "--tools",
+        `read,${shellTool},edit,write,grep,find,ls,mcp__*`,
+      ],
+      {
+        cwd: root,
+        env: {
+          ...process.env,
+          PI_CODING_AGENT_DIR: agentDir,
+          LINGER_PI_MANAGED_MCP_CONFIG: mcpConfigPath,
+          LINGER_PI_STRATA_PIN: JSON.stringify({
+            name: "linger-meta",
+            prefill_only: true,
+            resident: "ram",
+            anchor: "<!-- LINGER_STATIC_PREFIX_END -->",
+          }),
+        },
+        stdio: ["pipe", "pipe", "pipe"],
+      },
+    );
+
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf8");
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    });
+
+    const waitForLine = (
+      predicate: (line: Record<string, unknown>) => boolean,
+    ) =>
+      new Promise<Record<string, unknown>>((resolve, reject) => {
+        const timer = setTimeout(
+          () =>
+            reject(
+              new Error(
+                `Timed out waiting for RPC frame. stdout=${stdout} stderr=${stderr}`,
+              ),
+            ),
+          15_000,
+        );
+        const check = () => {
+          for (const raw of stdout.split("\n")) {
+            if (!raw.trim()) continue;
+            try {
+              const parsed = JSON.parse(raw) as Record<string, unknown>;
+              if (predicate(parsed)) {
+                clearTimeout(timer);
+                child.stdout.off("data", check);
+                resolve(parsed);
+                return;
+              }
+            } catch {
+              // ignore partial line
+            }
+          }
+        };
+        child.stdout.on("data", check);
+        check();
+      });
+
+    child.stdin.write(JSON.stringify({ id: "1", type: "get_state" }) + "\n");
+    const stateResp = await waitForLine(
+      (frame) => frame.type === "response" && frame.id === "1",
+    );
+    expect(stateResp.success).toBe(true);
+
+    child.stdin.write(
+      JSON.stringify({ id: "2", type: "prompt", message: "." }) + "\n",
+    );
+    const settled = await waitForLine(
+      (frame) => frame.type === "agent_settled",
+    );
+    expect(settled.aborted).toBe(false);
+    child.stdin.end();
+    await new Promise<void>((resolve) => child.once("exit", () => resolve()));
+
+    expect(mcpMethods).toEqual([
+      "initialize",
+      "notifications/initialized",
+      "tools/list",
+    ]);
+    expect(llmRequests).toHaveLength(1);
+    const [llmRequest] = llmRequests;
+    if (!llmRequest) {
+      throw new Error("Expected one LLM warm-up request");
+    }
+    expect(llmRequest.headers["x-bf-passthrough-extra-params"]).toBe("true");
+    expect(llmRequest.body.strata_pin).toEqual({
+      name: "linger-meta",
+      prefill_only: true,
+      resident: "ram",
+      anchor: "<!-- LINGER_STATIC_PREFIX_END -->",
+    });
+    const toolNames = (llmRequest.body.tools ?? []).map(
+      (tool) => tool.function?.name,
+    );
+    expect(toolNames).toEqual([
+      "read",
+      shellTool,
+      "edit",
+      "write",
+      "grep",
+      "find",
+      "ls",
+      "mcp__computer__ui_exec",
+      "mcp__computer__ui_reset",
+    ]);
+  } finally {
+    if (mcpServer) {
+      await new Promise<void>((resolve) => mcpServer!.close(() => resolve()));
+    }
+    if (llmServer) {
+      await new Promise<void>((resolve) => llmServer!.close(() => resolve()));
+    }
+    await rm(root, { recursive: true, force: true });
+  }
+}, 30_000);

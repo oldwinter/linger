@@ -86,6 +86,7 @@ import {
 import { RoomHeaderMenu } from "./room-header-menu";
 import { requireRoomRouteParam } from "./room-route-params";
 import {
+  documentQueryKey,
   roomMembersQueryOptions,
   roomMessagesInfiniteQueryOptions,
   roomQueryOptions,
@@ -95,6 +96,7 @@ import {
   tenantAgentsQueryOptions,
   tenantRoomsQueryKey,
 } from "./room-queries";
+import { selectAutoOpenMessageFile } from "./auto-open-message-file";
 import { RoomDeleteDialog } from "./room-delete-dialog";
 import { stepOutPath } from "./step-out";
 import { useRoomPanelSidebar } from "./use-room-panel-sidebar";
@@ -296,6 +298,7 @@ function RoomSurfaceContent({
   roomId,
   tenantId,
 }: RoomSurfaceContentProps) {
+  const queryClient = useQueryClient();
   const { client } = useTeamHubRuntime();
   const shell = useOutletContext<RoomShellOutletContext | undefined>();
   const t = useT();
@@ -441,18 +444,18 @@ function RoomSurfaceContent({
     roomSurfaceRef,
   });
 
-  // A canvas delivered while the Room is open opens in the panel at once.
-  function openCanvasMessage(message: TeamHubMessage) {
-    const canvas = message.segments.find(
-      (segment) =>
-        segment.type === "document" && segment.presentation === "canvas",
-    );
-    if (canvas?.type !== "document") return;
-    openPanelTabFromRoom({
-      kind: "file",
-      documentId: canvas.document_id,
-      title: canvas.content,
-    });
+  // A canvas or Agent-delivered previewable file arriving while the Room is
+  // open opens in the panel at once.
+  function openDeliveredMessageFile(message: TeamHubMessage) {
+    const target = selectAutoOpenMessageFile(message);
+    if (!target) return;
+    if (target.kind === "file" && target.documentId) {
+      queryClient.removeQueries({
+        queryKey: documentQueryKey(tenantId, target.documentId),
+        exact: true,
+      });
+    }
+    openPanelTabFromRoom(target);
   }
 
   // A team.md published while the Room is open opens Collaboration at once.
@@ -541,7 +544,7 @@ function RoomSurfaceContent({
                 members={members.items}
                 onAppliedRoomSeq={setLastAppliedRoomSeq}
                 onOpenSearch={shell?.openRoomSearch}
-                onMessageCreated={openCanvasMessage}
+                onMessageCreated={openDeliveredMessageFile}
                 onTeamMdPublished={openCollaboration}
                 onJumpToPinnedMessage={openPinnedMessage}
                 onOpenAgent={openProfile}
@@ -1002,7 +1005,7 @@ function RoomHeader({
           </button>
           <h1
             aria-label={room.name}
-            className="pointer-events-none min-w-0 truncate text-sm leading-[18px] font-medium text-foreground"
+            className="pointer-events-none min-w-0 max-w-80 truncate text-sm leading-[18px] font-medium text-foreground"
           >
             {room.name}
           </h1>

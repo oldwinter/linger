@@ -453,7 +453,7 @@ function WikiOverview({
                 <section aria-label={group.label} key={group.label}>
                   <h2 className="landing-section-title mb-3">
                     {group.label}
-                    <span className="section-count">
+                    <span className="ml-2 inline-flex rounded-full bg-muted px-2 py-0.5 align-middle text-xs font-medium text-muted-foreground">
                       {group.matches.length}
                     </span>
                   </h2>
@@ -484,11 +484,7 @@ function WikiOverview({
         <div className="landing-grid">
           <div className="landing-col landing-col-left">
             <section className="landing-section landing-daily">
-              <SectionHeader
-                title={t(m.dailyReport)}
-                count={daily.length}
-                to={`${base}/graph`}
-              />
+              <SectionHeader title={t(m.dailyReport)} to={`${base}/graph`} />
               {reports.isPending ? (
                 <p className="landing-empty">{t(m.loadingReports)}</p>
               ) : reports.error ? (
@@ -566,11 +562,7 @@ function WikiOverview({
           </div>
           <div className="landing-col landing-col-right">
             <section className="landing-section landing-people">
-              <SectionHeader
-                title={t(m.people)}
-                count={people.length}
-                to={`${base}/contacts`}
-              />
+              <SectionHeader title={t(m.people)} to={`${base}/contacts`} />
               {people.length ? (
                 <div className="people-grid">
                   {people.slice(0, 4).map((entry, index) => (
@@ -596,11 +588,7 @@ function WikiOverview({
               )}
             </section>
             <section className="landing-section landing-companies">
-              <SectionHeader
-                title={t(m.companies)}
-                count={companies.length}
-                to={`${base}/clients`}
-              />
+              <SectionHeader title={t(m.companies)} to={`${base}/clients`} />
               {companies.length ? (
                 <div className="companies-grid">
                   {companies.slice(0, 6).map((entry, index) => (
@@ -692,7 +680,7 @@ function EntryCards({
   const t = useT();
   return (
     <section className={`landing-section ${className}`}>
-      <SectionHeader title={title} count={entries.length} to={to} />
+      <SectionHeader title={title} to={to} />
       {entries.length ? (
         <div className="projects-grid">
           {entries.slice(0, 3).map((entry) => (
@@ -734,22 +722,11 @@ function EntryCards({
   );
 }
 
-function SectionHeader({
-  title,
-  count,
-  to,
-}: {
-  title: string;
-  count: number;
-  to: string;
-}) {
+function SectionHeader({ title, to }: { title: string; to: string }) {
   const t = useT();
   return (
     <header className="landing-section-header">
-      <h2 className="landing-section-title">
-        {title}
-        <span className="section-count">{count}</span>
-      </h2>
+      <h2 className="landing-section-title">{title}</h2>
       <Link className="landing-view-all" to={to}>
         {t(m.viewAll)}
         <Icon icon={ArrowRight02Icon} size={14} />

@@ -69,6 +69,7 @@ import {
   type LocalServerOptions,
 } from "./local-server.js";
 import { localIdentityProof } from "@linger/local-installation/account";
+import { tarCommand } from "@linger/local-installation/archive";
 import * as fsRetry from "@linger/local-installation/fs-retry";
 import { ensureLocalmodelsTool } from "@linger/local-installation/localmodels-tool";
 import * as nativeProcess from "@linger/local-installation/native-process";
@@ -363,7 +364,7 @@ const sourceArchive = (root: string, variant?: string) => {
     ),
   );
   const file = path.join(root, "linger.tar.gz");
-  execFileSync("tar", [
+  execFileSync(tarCommand(), [
     "-czf",
     file,
     "-C",
@@ -615,6 +616,9 @@ const fixture = (
   const enroll = vi.fn(async () => {});
   const unenroll = vi.fn(async () => {});
   const syncLocalGatewayUrl = vi.fn(() => false);
+  const defaultGrantFailure = vi.fn<
+    () => { readonly directory: string; readonly error: string } | undefined
+  >(() => undefined);
   let context: ModuleContext | undefined;
   const signIn = vi.fn(async () => {});
   // The installed server proves itself unless a test says otherwise.
@@ -669,6 +673,10 @@ const fixture = (
           context = ctx;
         },
       } as never,
+      {
+        ...stubModule("WorkspaceGrants"),
+        defaultFailure: defaultGrantFailure,
+      } as never,
       module,
     ],
     config,
@@ -690,6 +698,7 @@ const fixture = (
     enroll,
     unenroll,
     syncLocalGatewayUrl,
+    defaultGrantFailure,
     config: () => context!.config.get(),
     signIn,
     proveServer,
@@ -1268,7 +1277,7 @@ describe("LocalServerModule", () => {
     mkdirSync(store, { recursive: true });
     writeFileSync(path.join(store, "index"), "packages");
     const bundleFile = path.join(root, "deps.tar.gz");
-    execFileSync("tar", [
+    execFileSync(tarCommand(), [
       "-czf",
       bundleFile,
       "-C",
@@ -1446,6 +1455,153 @@ describe("LocalServerModule", () => {
     await expect(f.module.begin()).rejects.toThrow(
       "No signed-in AI runtime is reported by this computer. It found Claude Code: not found on this computer; Codex: not signed in.",
     );
+    expect(f.module.status().phase).toBe("failed");
+    await f.host.stop("quit");
+  });
+
+  it("surfaces server placement_blocker diagnostics while polling and on timeout", async () => {
+    let polls = 0;
+    const server = (async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/v0/me")
+        return Response.json({ actors: [{ kind: "human", tenant_id: "t1" }] });
+      if (url.pathname === "/v0/tenants/t1/another-me") {
+        polls += 1;
+        return Response.json({
+          placement_blocker: {
+            reason: "no_ready_runtime_with_models",
+            computer_id: "cmp_win_1",
+            runtimes: [
+              {
+                type: "codex",
+                status: "error",
+                model_count: 0,
+                message: "node.exe not found",
+              },
+              {
+                type: "pi",
+                status: "ready",
+                model_count: 0,
+              },
+            ],
+          },
+        });
+      }
+      // Even when /local-computers returns 404, server placement_blocker explains why.
+      return new Response(null, { status: 404 });
+    }) as typeof fetch;
+    const f = fixture(
+      (home) => ({
+        ...withCheckout(home),
+        fetch: server,
+        sessionCookie: async () => "session=s",
+        pollMs: 1,
+        agentsTimeoutMs: 15,
+      }),
+      { computerId: "cmp_win_1" },
+      checkout,
+    );
+    const messages: string[] = [];
+    f.host.ctx.bus.on("local-server.changed", () => {
+      messages.push(f.module.status().message);
+    });
+    await f.host.start();
+    await expect(f.module.begin()).rejects.toThrow(
+      "No signed-in AI runtime is reported by this computer. It found Codex: check failed (node.exe not found); Pi: signed in but reports no models.",
+    );
+    expect(polls).toBeGreaterThanOrEqual(1);
+    expect(messages).toContain("Waiting for a signed-in AI runtime…");
+    expect(f.module.status().phase).toBe("failed");
+    await f.host.stop("quit");
+  });
+
+  it("completes setup when placement_blocker clears after the runtime becomes ready", async () => {
+    let polls = 0;
+    const server = (async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/v0/me")
+        return Response.json({ actors: [{ kind: "human", tenant_id: "t1" }] });
+      if (url.pathname === "/v0/tenants/t1/another-me") {
+        polls += 1;
+        return Response.json(
+          polls < 3
+            ? {
+                placement_blocker: {
+                  reason: "no_ready_runtime_with_models",
+                  computer_id: "cmp_win_1",
+                  runtimes: [
+                    {
+                      type: "codex",
+                      status: "authentication_required",
+                      model_count: 0,
+                    },
+                  ],
+                },
+              }
+            : { agent_actor_id: "actor_anotherme_1" },
+        );
+      }
+      if (url.pathname === "/v0/tenants/t1/rooms")
+        return Response.json({ items: [{ name: "Getting Started" }] });
+      if (url.pathname === "/v0/tenants/t1/local-computers")
+        return Response.json({
+          items: [{ computer_id: "cmp_win_1", status: "online" }],
+        });
+      return new Response(null, { status: 404 });
+    }) as typeof fetch;
+    const f = fixture(
+      (home) => ({
+        ...withCheckout(home),
+        fetch: server,
+        sessionCookie: async () => "session=s",
+        pollMs: 1,
+      }),
+      { computerId: "cmp_win_1" },
+      checkout,
+    );
+    await f.host.start();
+    await f.module.begin();
+    expect(polls).toBe(3);
+    expect(f.module.status().phase).toBe("ready");
+    await f.host.stop("quit");
+  });
+
+  it("stops waiting immediately when creating the default workspace folder failed", async () => {
+    let polls = 0;
+    const server = (async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/v0/me")
+        return Response.json({ actors: [{ kind: "human", tenant_id: "t1" }] });
+      if (url.pathname === "/v0/tenants/t1/another-me") {
+        polls += 1;
+        return Response.json({
+          placement_blocker: {
+            reason: "no_writable_workspace_grant",
+            computer_id: "cmp_1",
+          },
+        });
+      }
+      return new Response(null, { status: 404 });
+    }) as typeof fetch;
+    const f = fixture(
+      (home) => ({
+        ...withCheckout(home),
+        fetch: server,
+        sessionCookie: async () => "session=s",
+        pollMs: 1,
+      }),
+      { computerId: "cmp_1" },
+      checkout,
+    );
+    await f.host.start();
+    f.defaultGrantFailure.mockReturnValue({
+      directory: "/Users/alice/Linger",
+      error: "EACCES: permission denied",
+    });
+    await expect(f.module.begin()).rejects.toThrow(
+      "LingerX could not create its default workspace folder (/Users/alice/Linger): EACCES: permission denied. Choose a writable folder in LingerX Settings, then try again.",
+    );
+    expect(polls).toBe(1);
     expect(f.module.status().phase).toBe("failed");
     await f.host.stop("quit");
   });
@@ -1746,7 +1902,13 @@ describe("LocalServerModule", () => {
     writeFileSync(
       path.join(bundle, "runtime.tar.zst"),
       zstdCompressSync(
-        execFileSync("tar", ["-cf", "-", "-C", path.dirname(tree), "runtime"]),
+        execFileSync(tarCommand(), [
+          "-cf",
+          "-",
+          "-C",
+          path.dirname(tree),
+          "runtime",
+        ]),
       ),
     );
     const runtimeSha256 = createHash("sha256")
@@ -1840,7 +2002,7 @@ describe("LocalServerModule", () => {
     writeFileSync(path.join(skeletonRoot, "scripts", "with-local-env.mjs"), "");
 
     const archiveFile = path.join(f.root, "skeleton-linger.tar.gz");
-    execFileSync("tar", [
+    execFileSync(tarCommand(), [
       "-czf",
       archiveFile,
       "-C",
@@ -1877,7 +2039,7 @@ describe("LocalServerModule", () => {
     writeFileSync(
       path.join(runtimeBundle, "runtime.tar.zst"),
       zstdCompressSync(
-        execFileSync("tar", [
+        execFileSync(tarCommand(), [
           "-cf",
           "-",
           "-C",
@@ -6054,7 +6216,7 @@ describe("LocalServerModule after a restart", () => {
     writeFileSync(path.join(pkg, "tool.json"), manifestBody);
     const tgz = path.join(root, "localmodels.tgz");
     execFileSync(
-      process.platform === "win32" ? "tar.exe" : "tar",
+      tarCommand(),
       ["-czf", tgz, "-C", path.join(root, "kit"), "package"],
       { env: { ...process.env, COPYFILE_DISABLE: "1" } },
     );
@@ -6338,6 +6500,7 @@ describe("LocalServerModule after a restart", () => {
     readonly region?: boolean;
     readonly fetch?: typeof fetch;
     readonly rename?: LocalServerOptions["rename"];
+    readonly bundledNodePath?: string;
     readonly setup?: (home: string, repo: string) => void;
   }) => {
     const repoName = options.repoName ?? "active";
@@ -6356,9 +6519,23 @@ describe("LocalServerModule after a restart", () => {
           : {}),
         ...(options.fetch ? { fetch: options.fetch } : {}),
         ...(options.rename ? { rename: options.rename } : {}),
+        ...(options.bundledNodePath
+          ? { bundledNodePath: options.bundledNodePath }
+          : {}),
       },
       enrolled,
       (home) => {
+        if (process.platform === "win32") {
+          fixtureNode(
+            path.join(
+              home,
+              "desktop",
+              "node",
+              `v${NODE_RUNTIME_VERSION}`,
+              "node.exe",
+            ),
+          );
+        }
         const repo = path.join(home, "desktop", "source", repoName);
         unpackedSource(repo);
         mkdirSync(path.join(home, "desktop"), { recursive: true });
@@ -7143,6 +7320,330 @@ describe("LocalServerModule after a restart", () => {
     await f.host.stop("quit");
   });
 
+  it("pre-stages a newer shared bundled Node.js binary during prepareUpdateTool without touching status", async () => {
+    const info = vi.spyOn(silentLog, "info");
+    try {
+      const root = tempDirectory();
+      const target = `${process.platform}-${process.arch}`;
+      const nextNodeVersion = "99.1.0";
+      const nextArchive = sourceArchive(path.join(root, "node-src"), "next");
+      const { staged, runtimeDir } = buildStagedUpdateBundle(root, {
+        target,
+        source: nextArchive,
+        teamhubDigest: nextArchive.sha256,
+        runtimeDigest: nextArchive.sha256,
+        includeTool: false,
+      });
+
+      const stagedNodePath = path.join(
+        staged,
+        "Contents",
+        "Resources",
+        "runtime",
+        "bin",
+        "node",
+      );
+      mkdirSync(path.dirname(stagedNodePath), { recursive: true });
+      const nodePayload = "#!/bin/sh\necho node-99\n";
+      writeFileSync(stagedNodePath, nodePayload, { mode: 0o755 });
+      const nodeSha = sha256Hex(nodePayload);
+
+      const manifestPath = path.join(runtimeDir, "manifest.json");
+      const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as Record<
+        string,
+        unknown
+      >;
+      manifest.node = {
+        version: nextNodeVersion,
+        shared: true,
+        binary: "runtime/bin/node",
+        sha256: nodeSha,
+      };
+      writeFileSync(manifestPath, JSON.stringify(manifest));
+
+      const currentNodePath = path.join(
+        root,
+        "current-app",
+        "runtime",
+        "bin",
+        "node",
+      );
+      mkdirSync(path.dirname(currentNodePath), { recursive: true });
+      writeFileSync(currentNodePath, "#!/bin/sh\necho node-old\n", {
+        mode: 0o755,
+      });
+
+      const f = await startEnrolledLocalServer({
+        repoName: "active",
+        bundledNodePath: currentNodePath,
+      });
+      const beforeStatus = f.module.status();
+      const changed = vi.fn();
+      const offChanged = f.bus.on("local-server.changed", changed);
+
+      await f.module.prepareUpdateTool(staged, new AbortController().signal);
+      offChanged();
+
+      const expectedNode = path.join(
+        f.home,
+        "desktop",
+        "node",
+        `v${nextNodeVersion}`,
+        "bin",
+        "node",
+      );
+      expect(existsSync(expectedNode)).toBe(true);
+      expect(readFileSync(expectedNode, "utf8")).toBe(nodePayload);
+      expect(changed).not.toHaveBeenCalled();
+      expect(f.module.status()).toEqual(beforeStatus);
+      expect(info).toHaveBeenCalledWith(
+        "local_server.update_node_prepared",
+        expect.objectContaining({
+          version: nextNodeVersion,
+          ms: expect.any(Number),
+        }),
+      );
+
+      // Repeat call skips silently without copying or logging again.
+      info.mockClear();
+      await f.module.prepareUpdateTool(staged, new AbortController().signal);
+      expect(info).not.toHaveBeenCalledWith(
+        "local_server.update_node_prepared",
+        expect.anything(),
+      );
+
+      // Invalid shared node specs (bad version, unexpected binary, empty
+      // sha256, non-shared flag, mismatched target) are ignored without
+      // copying or failing.
+      const invalidSpecs: Array<{
+        readonly label: string;
+        readonly target?: string;
+        readonly node: Record<string, unknown>;
+      }> = [
+        {
+          label: "../escape",
+          node: {
+            version: "../escape",
+            shared: true,
+            binary: "runtime/bin/node",
+            sha256: nodeSha,
+          },
+        },
+        {
+          label: "99.4.0",
+          node: {
+            version: "99.4.0",
+            shared: true,
+            binary: "runtime/bin/node.exe",
+            sha256: nodeSha,
+          },
+        },
+        {
+          label: "99.5.0",
+          node: {
+            version: "99.5.0",
+            shared: true,
+            binary: "runtime/bin/node",
+            sha256: "",
+          },
+        },
+        {
+          label: "99.6.0",
+          node: {
+            version: "99.6.0",
+            shared: false,
+            binary: "runtime/bin/node",
+            sha256: nodeSha,
+          },
+        },
+        {
+          label: "99.7.0",
+          target: "other-arch",
+          node: {
+            version: "99.7.0",
+            shared: true,
+            binary: "runtime/bin/node",
+            sha256: nodeSha,
+          },
+        },
+      ];
+      for (const spec of invalidSpecs) {
+        const nextManifest = {
+          ...manifest,
+          target: spec.target ?? target,
+          node: spec.node,
+        };
+        writeFileSync(manifestPath, JSON.stringify(nextManifest));
+        await expect(
+          f.module.prepareUpdateTool(staged, new AbortController().signal),
+        ).resolves.toBeUndefined();
+        expect(
+          existsSync(path.join(f.home, "desktop", "node", `v${spec.label}`)),
+        ).toBe(false);
+      }
+      expect(info).not.toHaveBeenCalledWith(
+        "local_server.update_node_prepared",
+        expect.anything(),
+      );
+
+      // A staged bundle without a shared Node binary skips without failing and
+      // does not fall back to the current app's bundledNodePath.
+      rmSync(stagedNodePath);
+      const manifestMissing = {
+        ...manifest,
+        target,
+        node: {
+          version: "99.2.0",
+          shared: true,
+          binary: "runtime/bin/node",
+          sha256: nodeSha,
+        },
+      };
+      writeFileSync(manifestPath, JSON.stringify(manifestMissing));
+      await expect(
+        f.module.prepareUpdateTool(staged, new AbortController().signal),
+      ).resolves.toBeUndefined();
+      expect(existsSync(path.join(f.home, "desktop", "node", "v99.2.0"))).toBe(
+        false,
+      );
+
+      await f.host.stop("quit");
+    } finally {
+      info.mockRestore();
+    }
+  });
+
+  it("rejects on staged shared Node.js SHA-256 mismatch, cleans up partial, and lets sibling source staging settle", async () => {
+    const info = vi.spyOn(silentLog, "info");
+    const realRemoveRetrying = fsRetry.removeRetrying;
+    const nodeCleanupDone = deferred();
+    const sourceReached = deferred();
+    const allowSourcePublish = deferred();
+    let expectedNodeDir = "";
+    let nodePartialRemovals = 0;
+    const removeSpy = vi
+      .spyOn(fsRetry, "removeRetrying")
+      .mockImplementation(async (targetPath) => {
+        await realRemoveRetrying(targetPath);
+        if (expectedNodeDir && targetPath === `${expectedNodeDir}.partial`) {
+          nodePartialRemovals += 1;
+          if (nodePartialRemovals === 2) nodeCleanupDone.resolve();
+        }
+      });
+    try {
+      const root = tempDirectory();
+      const target = `${process.platform}-${process.arch}`;
+      const nextNodeVersion = "99.3.0";
+      const nextArchive = sourceArchive(
+        path.join(root, "node-mismatch-src"),
+        "next-mismatch",
+      );
+      const { staged, runtimeDir } = buildStagedUpdateBundle(root, {
+        target,
+        source: nextArchive,
+        teamhubDigest: nextArchive.sha256,
+        runtimeDigest: nextArchive.sha256,
+        includeTool: false,
+      });
+
+      const stagedNodePath = path.join(
+        staged,
+        "Contents",
+        "Resources",
+        "runtime",
+        "bin",
+        "node",
+      );
+      mkdirSync(path.dirname(stagedNodePath), { recursive: true });
+      writeFileSync(stagedNodePath, "#!/bin/sh\necho tampered-node\n", {
+        mode: 0o755,
+      });
+
+      const manifestPath = path.join(runtimeDir, "manifest.json");
+      const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as Record<
+        string,
+        unknown
+      >;
+      manifest.node = {
+        version: nextNodeVersion,
+        shared: true,
+        binary: "runtime/bin/node",
+        sha256: "0".repeat(64),
+      };
+      writeFileSync(manifestPath, JSON.stringify(manifest));
+
+      let preStaged = "";
+      const f = await startEnrolledLocalServer({
+        repoName: "active",
+        rename: async (from, to) => {
+          if (preStaged && to === preStaged) {
+            sourceReached.resolve();
+            await allowSourcePublish.promise;
+          }
+          await rename(from, to);
+        },
+      });
+      expectedNodeDir = path.join(
+        f.home,
+        "desktop",
+        "node",
+        `v${nextNodeVersion}`,
+      );
+      preStaged = path.join(
+        f.home,
+        "desktop",
+        "source",
+        nextArchive.sha256.slice(0, 16),
+      );
+
+      let settled = false;
+      const outcome = f.module
+        .prepareUpdateTool(staged, new AbortController().signal)
+        .then(
+          () => {
+            settled = true;
+            return { ok: true as const };
+          },
+          (error: unknown) => {
+            settled = true;
+            return { ok: false as const, error };
+          },
+        );
+
+      // Wait until both #prepareUpdateNode has failed and cleaned up its
+      // .partial directory and #prepareUpdateSource is paused at publish.
+      await Promise.all([sourceReached.promise, nodeCleanupDone.promise]);
+      await delay(10);
+      expect(settled).toBe(false);
+
+      allowSourcePublish.resolve();
+      const result = await outcome;
+      expect(result.ok).toBe(false);
+      expect(result.ok ? undefined : result.error).toBeInstanceOf(Error);
+      expect(result.ok ? "" : (result.error as Error).message).toMatch(
+        /damaged/,
+      );
+      expect(existsSync(`${expectedNodeDir}.partial`)).toBe(false);
+      expect(existsSync(expectedNodeDir)).toBe(false);
+      expect(
+        existsSync(path.join(preStaged, "scripts/source-native.mjs")),
+      ).toBe(true);
+      expect(info).toHaveBeenCalledWith(
+        "local_server.update_source_prepared",
+        expect.objectContaining({ source: nextArchive.sha256.slice(0, 16) }),
+      );
+      expect(info).not.toHaveBeenCalledWith(
+        "local_server.update_node_prepared",
+        expect.anything(),
+      );
+
+      await f.host.stop("quit");
+    } finally {
+      removeSpy.mockRestore();
+      info.mockRestore();
+    }
+  });
+
   it("forgets the installation and its enrollment when the person sets up again", async () => {
     const f = fixture({}, enrolled, (home) => {
       record(home);
@@ -7357,6 +7858,7 @@ describe("LocalServerModule after a restart", () => {
         {
           ...stubModule("WorkspaceGrants", ["Config"]),
           ensureDefault: vi.fn(async () => {}),
+          defaultFailure: vi.fn(() => undefined),
         } as never,
         enrollment,
         module,
@@ -7736,6 +8238,59 @@ describe("anotherMeMissing", () => {
     [{ ...online, runtimes: [] }, "codex login"],
   ])("names the reason for %j", (computer, reason) => {
     expect(anotherMeMissing(computer, 60_000).split("\n")[1]).toContain(reason);
+  });
+
+  it.each([
+    [
+      { reason: "no_online_computer", computer_id: "cmp_1" },
+      "computer-daemon.log",
+    ],
+    [
+      { reason: "computer_upgrade_required", computer_id: "cmp_1" },
+      "Update Linger",
+    ],
+    [
+      { reason: "no_writable_workspace_grant", computer_id: "cmp_1" },
+      "no folder",
+    ],
+    [
+      {
+        reason: "no_ready_runtime_with_models",
+        computer_id: "cmp_win_1",
+        runtimes: [
+          {
+            type: "codex",
+            status: "authentication_required",
+            model_count: 0,
+            message: "Sign in required",
+          },
+          { type: "pi", status: "ready", model_count: 0 },
+        ],
+      },
+      "Codex: not signed in (Sign in required); Pi: signed in but reports no models",
+    ],
+    [
+      {
+        reason: "create_failed",
+        computer_id: "cmp_1",
+      },
+      "another_me.create_failed",
+    ],
+  ])("prefers server placement_blocker for %j", (blocker, reason) => {
+    expect(anotherMeMissing(null, 60_000, blocker).split("\n")[1]).toContain(
+      reason,
+    );
+  });
+
+  it("includes default workspace grant failure details when no writable grant exists", () => {
+    const [, detail] = anotherMeMissing(
+      undefined,
+      60_000,
+      { reason: "no_writable_workspace_grant", computer_id: "cmp_1" },
+      { directory: "C:\\Users\\alice\\Linger", error: "EPERM: access denied" },
+    ).split("\n");
+    expect(detail).toContain("C:\\Users\\alice\\Linger");
+    expect(detail).toContain("EPERM: access denied");
   });
 });
 
@@ -8500,6 +9055,51 @@ describe("LocalServerModule background pre-staging, Bifrost pre-fetch, and early
     return { ...f, archive };
   };
 
+  // Match the host's child-process abort semantics (stdin EOF on Windows,
+  // SIGTERM on POSIX) when testing Bifrost pre-fetch cancellation.
+  const hostCheckoutFixture = (
+    extra: (home: string) => Partial<LocalServerOptions> = () => ({}),
+    api = installerApi(),
+  ) => {
+    const platform: NodeJS.Platform =
+      process.platform === "win32" ? "win32" : "linux";
+    return fixture(
+      (home) => ({
+        ...withCheckout(home),
+        platform,
+        arch: "x64",
+        ...(platform === "win32"
+          ? { checkPrivateLocation: async () => {} }
+          : {}),
+        ...extra(home),
+      }),
+      {},
+      (home) => {
+        checkout(home);
+        writeFileSync(
+          path.join(path.dirname(home), "installer", "distribution.json"),
+          JSON.stringify({
+            platform,
+            arch: "x64",
+            nativeSources: [{ target: `${platform}-x64` }],
+          }),
+        );
+        if (platform === "win32") {
+          fixtureNode(
+            path.join(
+              home,
+              "desktop",
+              "node",
+              `v${NODE_RUNTIME_VERSION}`,
+              "node.exe",
+            ),
+          );
+        }
+      },
+      api,
+    );
+  };
+
   it("silently pre-stages bundled source and native runtime during inspect() and joins on begin() with granular timings", async () => {
     const info = vi.spyOn(silentLog, "info");
     const f = setupBundledArchiveFixture("linux", "x64");
@@ -8722,7 +9322,7 @@ describe("LocalServerModule background pre-staging, Bifrost pre-fetch, and early
 
     // 2. Switching location via chooseLocation() also cancels Bifrost pre-fetch
     //    for the old home and leaves the new candidate untouched.
-    const f2 = fixture(withCheckout, {}, checkout);
+    const f2 = hostCheckoutFixture();
     writeFileSync(path.join(f2.root, "prefetch-track"), "");
     writeFileSync(path.join(f2.root, "prefetch-hang"), "");
     const picked = path.join(f2.root, "other-home");
@@ -8766,7 +9366,7 @@ describe("LocalServerModule background pre-staging, Bifrost pre-fetch, and early
       }
       return origHandle(url, init);
     };
-    const fByok = fixture(withCheckout, {}, checkout, byokApi);
+    const fByok = hostCheckoutFixture(undefined, byokApi);
     fByokRoot = fByok.root;
     writeFileSync(path.join(fByok.root, "prefetch-track"), "");
     writeFileSync(path.join(fByok.root, "prefetch-hang"), "");
@@ -8817,7 +9417,7 @@ describe("LocalServerModule background pre-staging, Bifrost pre-fetch, and early
     }
 
     // 2. Pure subscription install (claude/codex) aborts in-flight Bifrost pre-fetch.
-    const fSub = fixture(withCheckout, {}, checkout);
+    const fSub = hostCheckoutFixture();
     writeFileSync(path.join(fSub.root, "prefetch-track"), "");
     writeFileSync(path.join(fSub.root, "prefetch-hang"), "");
     await fSub.host.start();
@@ -9262,13 +9862,8 @@ describe("LocalServerModule background pre-staging, Bifrost pre-fetch, and early
       setupChoice: "codex",
     });
     signInApi.runtime.login = { state: "idle" };
-    const fSignIn = fixture(
-      (home) => ({
-        ...withCheckout(home),
-        signInPollMs: 20,
-      }),
-      {},
-      checkout,
+    const fSignIn = hostCheckoutFixture(
+      () => ({ signInPollMs: 20 }),
       signInApi,
     );
     writeFileSync(path.join(fSignIn.root, "prefetch-track"), "");

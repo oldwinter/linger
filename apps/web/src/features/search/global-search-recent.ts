@@ -7,10 +7,17 @@
 
 import {
   notifyPreferenceChange,
-  removePreferenceKeys,
   storedPreferenceKeys,
   subscribePreferenceChange,
 } from "@/lib/local-preference-keys";
+
+import {
+  GLOBAL_SEARCH_RECENT_PREFIX as storagePrefix,
+  SEARCH_HISTORY_CHANGED,
+  clearGlobalSearchHistory,
+} from "./global-search-recent-storage";
+
+export { clearGlobalSearchHistory };
 
 export interface SearchTargetActor {
   id: string;
@@ -84,17 +91,9 @@ export interface GlobalSearchStore {
 
 const MAX_QUERIES = 8;
 
-const storagePrefix = "global-search-recent.v2:";
-const SEARCH_HISTORY_CHANGED = "global-search-history-changed";
-
 const storageKey = (tenantId: string) => `${storagePrefix}${tenantId}`;
 
 const emptyStore = (): GlobalSearchStore => ({ queries: [] });
-
-export function clearGlobalSearchHistory() {
-  removePreferenceKeys([storagePrefix]);
-  notifyPreferenceChange(SEARCH_HISTORY_CHANGED);
-}
 
 /** Whether this browser remembers a query for any Tenant. */
 export function hasGlobalSearchHistory(): boolean {

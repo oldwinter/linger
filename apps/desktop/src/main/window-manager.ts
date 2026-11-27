@@ -55,7 +55,7 @@ import {
   voiceWindowRequest,
 } from "./navigation.js";
 import {
-  VOICE_WINDOW_MIN,
+  voiceWindowOptions,
   acceptVoiceWindow,
   voiceWindowPosition,
 } from "./voice-window.js";
@@ -686,15 +686,7 @@ export class WindowManagerModule implements Module {
         return {
           action: "allow",
           overrideBrowserWindowOptions: {
-            title: "LingerX",
-            // The page asks for the size of its content, as in a browser.
-            useContentSize: true,
-            minWidth: VOICE_WINDOW_MIN.width,
-            minHeight: VOICE_WINDOW_MIN.height,
-            minimizable: false,
-            maximizable: false,
-            fullscreenable: false,
-            autoHideMenuBar: true,
+            ...voiceWindowOptions(process.platform),
             backgroundColor: currentShellColors().canvas,
           },
         };
@@ -703,15 +695,24 @@ export class WindowManagerModule implements Module {
       return { action: "deny" };
     });
     contents.on("did-create-window", (child) => {
+      const main = this.#window;
       const close = acceptVoiceWindow(
         child,
         contents,
         this.#closeVoiceWindow,
         process.platform,
+        [
+          ...(main && !main.isDestroyed()
+            ? [[main, ["show", "restore", "focus"]] as const]
+            : []),
+          [
+            screen,
+            ["display-added", "display-removed", "display-metrics-changed"],
+          ],
+        ],
       );
       if (!close) return;
       this.#closeVoiceWindow = close;
-      const main = this.#window;
       if (main && !main.isDestroyed()) {
         const { workArea } = screen.getDisplayMatching(main.getBounds());
         const { x, y } = voiceWindowPosition(child.getBounds(), workArea);

@@ -8,7 +8,6 @@ import { ActionMenu } from "@/components/ui/action-menu";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Spinner } from "@/components/ui/spinner";
-import { UnderlineTabs } from "@/components/ui/underline-tabs";
 import { cn } from "@/lib/cn";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type {
@@ -102,32 +101,38 @@ export function ConnectedAppsPage() {
       appConnections.some(externalConnectionNeedsAttention)
     );
   });
-  const activeGroupEntry = requestedTab
-    ? groups.find((entry) => entry.group.id === requestedTab)
-    : undefined;
-  const filter =
-    requestedTab === WEB_SEARCH_FILTER.id
-      ? WEB_SEARCH_FILTER.id
-      : activeGroupEntry
-        ? activeGroupEntry.group.id
-        : "all";
+  // One filter row: "all" shows every section, a group id shows that group's
+  // apps, and Web search shows the search backends.
   const filters = [
     { id: "all", label: t(m.filterAll) },
     ...groups.map(({ group }) => ({ id: group.id, label: t(group.title) })),
     { id: WEB_SEARCH_FILTER.id, label: t(WEB_SEARCH_FILTER.label) },
   ];
+  const activeGroupEntry = requestedTab
+    ? groups.find((entry) => entry.group.id === requestedTab)
+    : undefined;
+  const effectiveFilter =
+    requestedTab === WEB_SEARCH_FILTER.id
+      ? WEB_SEARCH_FILTER.id
+      : activeGroupEntry
+        ? activeGroupEntry.group.id
+        : "all";
+  const searchFilter = effectiveFilter === WEB_SEARCH_FILTER.id;
   const trimmedQuery = searchQuery.trim();
   const normalizedQuery = trimmedQuery.toLowerCase();
   const hasSearch = normalizedQuery.length > 0;
-  const hasAnyFilter = hasSearch || connectedOnly || filter !== "all";
-  const groupApps = activeGroupEntry?.apps;
+  const hasAnyFilter = hasSearch || connectedOnly || effectiveFilter !== "all";
+  const selectedGroupApps = activeGroupEntry?.apps;
   // Connected only and search narrow whichever view is open; with All and no search,
   // sections keep their category headings.
+  const connectedAppSet = new Set(connectedApps);
   const baseFlatApps = connectedOnly
-    ? (groupApps ?? connectedApps).filter((app) => connectedApps.includes(app))
+    ? (selectedGroupApps ?? connectedApps).filter((app) =>
+        connectedAppSet.has(app),
+      )
     : hasSearch
-      ? (groupApps ?? catalogApps)
-      : groupApps;
+      ? (selectedGroupApps ?? catalogApps)
+      : selectedGroupApps;
   const filteredApps = baseFlatApps
     ? baseFlatApps.filter((app) =>
         matchesConnectorQuery(app, normalizedQuery, t),
@@ -144,12 +149,11 @@ export function ConnectedAppsPage() {
           backend.description.toLowerCase().includes(normalizedQuery),
       )
     : baseSearchBackends;
-  const searchFilter = filter === WEB_SEARCH_FILTER.id;
   // DuckDuckGo needs no key, so Connected only always keeps the section;
   // when searching across All, hide Web search if no backend matches.
   const showSearch =
     searchFilter ||
-    (filter === "all" && (!hasSearch || searchBackends.length > 0));
+    (effectiveFilter === "all" && (!hasSearch || searchBackends.length > 0));
   const emptySearchTab =
     searchFilter &&
     hasSearch &&
@@ -157,9 +161,13 @@ export function ConnectedAppsPage() {
     !webSearch.error &&
     searchBackends.length === 0;
   const showApps =
-    !searchFilter && (!showSearch || !filteredApps || filteredApps.length > 0);
+    !searchFilter &&
+    (selectedGroupApps !== undefined ||
+      !showSearch ||
+      !filteredApps ||
+      filteredApps.length > 0);
   const emptyMessage = hasSearch
-    ? filter !== "all" || connectedOnly
+    ? effectiveFilter !== "all" || connectedOnly
       ? t(m.noConnectorsMatchInView, { query: trimmedQuery })
       : t(m.noConnectorsMatch, { query: trimmedQuery })
     : connectedOnly
@@ -184,12 +192,12 @@ export function ConnectedAppsPage() {
     );
   }
 
-  function toggleConnectedOnly() {
+  function setConnectedOnly(nextConnectedOnly: boolean) {
     setSearchParams(
       (current) => {
         const next = new URLSearchParams(current);
-        if (connectedOnly) next.delete("connected");
-        else next.set("connected", "1");
+        if (nextConnectedOnly) next.set("connected", "1");
+        else next.delete("connected");
         return next;
       },
       { replace: true },
@@ -305,30 +313,42 @@ export function ConnectedAppsPage() {
                   </button>
                 ) : null}
               </label>
-              <Button
-                aria-pressed={connectedOnly}
-                className="shrink-0"
-                onClick={toggleConnectedOnly}
-                size="default"
-                tone={connectedOnly ? "primary" : "secondary"}
-              >
-                {t(m.connectedOnly)}
-              </Button>
             </div>
-            {/* On narrow phones, the right fade cue signals additional category tabs off-screen. */}
-            <div className="relative min-w-0">
-              <UnderlineTabs
-                className="pr-8"
-                items={filters}
-                label={t(m.connectorCategories)}
-                onChange={setFilter}
-                value={filter}
-              />
-              <span
-                aria-hidden="true"
-                className="pointer-events-none absolute top-0 right-0 h-9 w-10 bg-gradient-to-l from-background to-transparent lg:hidden"
-                data-scroll-cue="tabs"
-              />
+            <div className="mb-5 flex items-start gap-3">
+              <div
+                aria-label={t(m.connectorCategories)}
+                className="flex min-w-0 flex-1 flex-wrap items-center gap-2"
+                role="group"
+              >
+                {filters.map((item) => (
+                  <button
+                    aria-pressed={item.id === effectiveFilter}
+                    className="select-pill shrink-0"
+                    key={item.id}
+                    onClick={() => setFilter(item.id)}
+                    type="button"
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+              <label
+                className={cn(
+                  "inline-flex h-7 shrink-0 cursor-pointer select-none items-center gap-2 text-sm transition-colors duration-150 motion-reduce:transition-none",
+                  connectedOnly
+                    ? "text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <span>{t(m.connectedOnly)}</span>
+                <input
+                  checked={connectedOnly}
+                  className="agent-connector-switch"
+                  onChange={(event) => setConnectedOnly(event.target.checked)}
+                  role="switch"
+                  type="checkbox"
+                />
+              </label>
             </div>
             {!showApps ? null : filteredApps ? (
               filteredApps.length ? (
@@ -390,7 +410,7 @@ export function ConnectedAppsPage() {
                     size="compact"
                     tone="secondary"
                   >
-                    Show all connectors
+                    {t(m.showAllConnectors)}
                   </Button>
                 ) : null}
               </div>
@@ -452,19 +472,22 @@ function CatalogAppCard({
             count: needsReconnecting,
           })
         : t(m.accountCount, { count: active.length })
-    : needsReconnecting
-      ? needsReconnecting === 1
-        ? t(m.needsReconnecting)
-        : `${needsReconnecting} need reconnecting`
-      : null;
+    : null;
   const authorizing =
     createConnection.isPending || Boolean(createConnection.blockedConnectUrl);
   const unconfirmed = connections.some(externalConnectionUnconfirmed);
-  const summary =
-    connectFlow.configured && app.availability === "unavailable"
-      ? t(m.unavailable)
-      : authorizing
-        ? t(m.authorizing)
+  const unavailable =
+    connectFlow.configured && app.availability === "unavailable";
+  const showNeedsReconnecting =
+    !connectedLabel && !unavailable && !authorizing && needsReconnecting > 0;
+  const summary = unavailable
+    ? t(m.unavailable)
+    : authorizing
+      ? t(m.authorizing)
+      : needsReconnecting > 0
+        ? needsReconnecting === 1
+          ? t(m.needsReconnecting)
+          : t(m.needReconnectingCount, { count: needsReconnecting })
         : unconfirmed
           ? t(m.couldNotConfirm)
           : appSummary(app, t);
@@ -501,11 +524,19 @@ function CatalogAppCard({
                     : "bg-[var(--app-status-success-text)]",
                 )}
               />
+            ) : showNeedsReconnecting ? (
+              <span
+                aria-hidden
+                className="size-1.5 shrink-0 rounded-full bg-[var(--app-status-warning-text)]"
+              />
             ) : null}
             <span
               className={cn(
                 "truncate",
-                !connectedLabel && authorizing && "town-shimmer-text",
+                !connectedLabel &&
+                  !unavailable &&
+                  authorizing &&
+                  "town-shimmer-text",
               )}
               title={connectedLabel ?? summary}
             >
@@ -514,28 +545,18 @@ function CatalogAppCard({
           </span>
         </span>
       </button>
-      {canStart && needsReconnecting > 0 ? (
+      {active.length === 0 && needsReconnecting > 0 ? (
         <Button
-          aria-label={t(m.reconnectAccount, { account: app.display_name })}
+          aria-label={t(m.manageApp, { app: app.display_name })}
           className="px-2.5"
-          disabled={createConnection.isPending}
           onClick={(event) => {
             stopCardClick(event);
-            if (attention.length === 1) {
-              const broken = attention[0]!;
-              if (app.supports_reauthorization === false) {
-                connectFlow.start(app, pending);
-              } else {
-                connectFlow.reconnect(broken);
-              }
-            } else {
-              onOpen();
-            }
+            onOpen();
           }}
           size="compact"
           tone="secondary"
         >
-          {t(m.reconnect)}
+          {t(m.manage)}
         </Button>
       ) : canStart && active.length === 0 ? (
         <Button

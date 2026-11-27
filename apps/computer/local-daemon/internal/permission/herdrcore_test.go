@@ -8,7 +8,7 @@ import (
 )
 
 func TestShellClassifiesHerdrCoreCommands(t *testing.T) {
-	workspace := shellWorkspace(t)
+	workspace, _ := shellWorkspace(t)
 	for _, test := range []struct {
 		command string
 		want    ShellDecision
@@ -196,7 +196,7 @@ func TestHerdrCoreDelegationsExtractTargetsAndText(t *testing.T) {
 }
 
 func TestReviewerReviewsHerdrCoreAndAllowsReadOnly(t *testing.T) {
-	workspace := shellWorkspace(t)
+	workspace, _ := shellWorkspace(t)
 
 	// Read-only hc commands are allowed without reaching the requester.
 	readRequester := newFakeRequester()

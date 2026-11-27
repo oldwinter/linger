@@ -1,13 +1,18 @@
 import {
   notifyPreferenceChange,
-  removePreferenceKeys,
   storedPreferenceKeys,
   subscribePreferenceChange,
 } from "@/lib/local-preference-keys";
 
+import {
+  RECENT_WIKI_PAGES_CHANGED,
+  RECENT_WIKI_PAGES_PREFIX as STORAGE_PREFIX,
+  clearAllRecentWikiPages,
+} from "./recent-wiki-pages-storage";
+
 const RECENT_LIMIT = 5;
-const STORAGE_PREFIX = "wiki-recent-pages.v1:";
-const RECENT_WIKI_PAGES_CHANGED = "wiki-recent-pages-changed";
+
+export { clearAllRecentWikiPages };
 
 /** One Wiki page this Account opened, as it was named and routed then. */
 export interface RecentWikiPage {
@@ -114,12 +119,6 @@ export function clearRecentWikiPages(
 /** Whether this browser lists a recently opened Wiki page for any Account. */
 export function hasRecentWikiPages(): boolean {
   return storedPreferenceKeys([STORAGE_PREFIX]).length > 0;
-}
-
-/** Clears the list for every Account in this browser. */
-export function clearAllRecentWikiPages(): void {
-  removePreferenceKeys([STORAGE_PREFIX]);
-  notifyPreferenceChange(RECENT_WIKI_PAGES_CHANGED);
 }
 
 export function subscribeRecentWikiPages(listener: () => void): () => void {

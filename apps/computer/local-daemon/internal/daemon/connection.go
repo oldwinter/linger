@@ -372,6 +372,8 @@ func (d *Daemon) acceptRunnerWelcome(ctx, connectionCtx context.Context, stream 
 	d.herdrCoreV1.Store(slices.Contains(command.ServiceFeatures, serviceFeatureHerdrCoreV1))
 	d.herdrCoreStream.Store(slices.Contains(command.ServiceFeatures, serviceFeatureHerdrCoreStream))
 	d.closeHerdrCoreStreams("connection_epoch_changed")
+	d.antigravityHistory.Store(slices.Contains(command.ServiceFeatures, serviceFeatureAntigravityHistory))
+	d.antigravityUsageProvider.Store(slices.Contains(command.ServiceFeatures, serviceFeatureAntigravityUsageProvider))
 	localModels := slices.Contains(command.ServiceFeatures, serviceFeatureLocalModels)
 	if err := d.activateStreamAndReplay(ctx, stream, command.ReconcileOperationIDs, localModels, helloRev); err != nil {
 		return err
@@ -553,6 +555,8 @@ func (d *Daemon) clearDiagnosticsStream(stream transport.Stream) {
 		d.dynamicReasoningEfforts.Store(false)
 		d.herdrCoreV1.Store(false)
 		d.herdrCoreStream.Store(false)
+		d.antigravityHistory.Store(false)
+		d.antigravityUsageProvider.Store(false)
 		cleared = true
 	}
 	if d.localModelsStream == stream {
@@ -667,7 +671,11 @@ func (d *Daemon) replayRetainedEvents(ctx context.Context, stream transport.Stre
 	if err != nil {
 		return err
 	}
+	allowAntigravityProvider := d.antigravityUsageProvider.Load()
 	for _, event := range events {
+		if !allowAntigravityProvider {
+			event = downgradeAntigravityUsageProvider(event)
+		}
 		if err := stream.Send(ctx, event); err != nil {
 			return err
 		}
@@ -784,6 +792,9 @@ func (d *Daemon) deliverRecordedOperationEvent(ctx context.Context, event protoc
 	connectionLockWait = time.Since(lockStartedAt)
 	if d.operationStream == nil {
 		return connectionLockWait, 0
+	}
+	if !d.antigravityUsageProvider.Load() {
+		event = downgradeAntigravityUsageProvider(event)
 	}
 	sendStartedAt := time.Now()
 	_ = d.operationStream.Send(ctx, event)

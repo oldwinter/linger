@@ -11,7 +11,7 @@ import (
 // that hands text to a pane or changes the session is reviewed, because the
 // pane's shell, working directory, and foreground program are unknown.
 func TestShellClassifiesHerdrCommands(t *testing.T) {
-	workspace := shellWorkspace(t)
+	workspace, _ := shellWorkspace(t)
 	for _, test := range []struct {
 		command string
 		want    ShellDecision
@@ -112,7 +112,7 @@ func TestHerdrDelegationsNameTheTextAPaneReceives(t *testing.T) {
 }
 
 func TestReviewerReviewsHerdrDelegationsWithTheirText(t *testing.T) {
-	workspace := shellWorkspace(t)
+	workspace, _ := shellWorkspace(t)
 	for _, test := range []struct {
 		name     string
 		evidence *Evidence
@@ -173,7 +173,7 @@ func TestReviewerReviewsHerdrDelegationsWithTheirText(t *testing.T) {
 
 func TestReviewerAllowsReadOnlyHerdrCommandsWithoutAsking(t *testing.T) {
 	requester := newFakeRequester()
-	workspace := shellWorkspace(t)
+	workspace, _ := shellWorkspace(t)
 	reviewer := &Reviewer{Requester: requester, Environment: Environment{Workspace: workspace}}
 	for _, runtime := range []string{"claude", "codex"} {
 		for _, command := range []string{

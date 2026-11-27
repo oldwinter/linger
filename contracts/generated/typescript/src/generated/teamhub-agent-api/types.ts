@@ -5221,6 +5221,7 @@ export interface operations {
           "application/json": {
             /** @enum {string} */
             status: "ready" | "permission_requested";
+            subject?: components["schemas"]["ComputerPermissionSubject"];
             computer_id: string;
             permissions: components["schemas"]["ComputerPermissionStatus"];
             room_id?: string;

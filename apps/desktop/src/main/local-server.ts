@@ -35,13 +35,17 @@ import {
   readLocalIdentity,
   readLocalLogin,
 } from "@linger/local-installation/account";
-import { extractArchiveFallback } from "@linger/local-installation/archive";
+import {
+  extractArchiveFallback,
+  tarCommand,
+} from "@linger/local-installation/archive";
 import { downloadInRegion } from "@linger/local-installation/region";
 import { latestLegacyBackup } from "@linger/local-installation/legacy-database";
 import { legacyMigrationPending } from "@linger/local-installation/home";
 import { loadInstance } from "@linger/local-installation/instance";
 import { foldersInUse } from "@linger/local-installation/native-process";
 import {
+  bundledToolArchivePath,
   ensureLocalmodelsTool,
   readPublishedTool,
 } from "@linger/local-installation/localmodels-tool";
@@ -104,6 +108,10 @@ import { humanTenant, type EnrollmentModule } from "./enrollment.js";
 import { compareVersions } from "./update-manifest.js";
 import { systemProxy } from "./system-proxy.js";
 import type { WindowManagerModule } from "./window-manager.js";
+import type {
+  DefaultWorkspaceGrantFailure,
+  WorkspaceGrantsModule,
+} from "./workspace-grants.js";
 import {
   installerKeyChanges,
   savedProviderKeys,
@@ -115,6 +123,7 @@ import type {
   SetupByokEndpoint,
   SetupByokModels,
   SetupByokProtocol,
+  SetupDetectedRuntime,
   SetupReason,
 } from "../shared/setup.js";
 
@@ -176,6 +185,8 @@ export type LocalModelsCheck =
       // The localmodels tool's pick for this computer, which Quick Install
       // installs; the page adds no rule of its own.
       readonly recommendation?: SetupChoice;
+      // Harnesses discovered on this computer during inspect.
+      readonly runtimes?: readonly SetupDetectedRuntime[];
     };
 
 // A download under way: its bytes so far and in all, and the rate when the
@@ -434,7 +445,8 @@ export interface LocalServerOptions {
   readonly freeDiskBytes?: (directory: string) => Promise<number | undefined>;
   // Where the Desktop Computer daemon stores its config and state
   // (<userData>/computer); validated on Windows during setup preflight so
-  // ancestor ACL refusals fail immediately instead of after installation.
+  // private-path validation failures (such as symlink/junction ancestors or
+  // foreign target ownership) fail immediately instead of after installation.
   readonly daemonDirectory?: string;
   // Checks Windows private-path safety for a candidate directory without
   // creating it or mutating ACLs; windowsPrivateLocation by default on Windows.
@@ -848,8 +860,8 @@ export class LocalServerModule implements Module {
   }
 
   // Pre-fetches the updated release's pinned localmodels tool and pre-stages
-  // its bundled source checkout, TeamHub binaries, and offline runtime into
-  // the enrolled home before the user restarts to apply an update.
+  // its bundled source checkout, TeamHub binaries, offline runtime, and
+  // shared Node.js binary before the user restarts to apply an update.
   async prepareUpdateTool(
     stagedBundle: string,
     signal: AbortSignal,
@@ -874,9 +886,11 @@ export class LocalServerModule implements Module {
       "installer",
     );
     const prepareTool = async (): Promise<void> => {
-      const source = await readPublishedTool(
-        path.join(installerDirectory, "distribution.json"),
+      const distributionFile = path.join(
+        installerDirectory,
+        "distribution.json",
       );
+      const source = await readPublishedTool(distributionFile);
       if (!source) return;
       const startedAt = Date.now();
       await ensureLocalmodelsTool(
@@ -884,6 +898,7 @@ export class LocalServerModule implements Module {
         { signal: effectiveSignal },
         {
           source,
+          bundledArchivePath: bundledToolArchivePath(distributionFile),
           fetcher: followHttps(this.#options.fetch ?? fetch),
         },
       );
@@ -900,10 +915,42 @@ export class LocalServerModule implements Module {
         installerDirectory,
         effectiveSignal,
       ),
+      this.#prepareUpdateNode(installerDirectory, effectiveSignal),
     ]);
     effectiveSignal.throwIfAborted();
     const rejected = results.find((result) => result.status === "rejected");
     if (rejected) throw rejected.reason;
+  }
+
+  async #prepareUpdateNode(
+    installerDirectory: string,
+    signal: AbortSignal,
+  ): Promise<void> {
+    signal.throwIfAborted();
+    const bundle = await this.#bundledRuntime(installerDirectory);
+    signal.throwIfAborted();
+    const spec = this.#sharedNodeSpec(bundle, false);
+    if (!spec) return;
+    const source = this.#sharedBundledNodePath(false, installerDirectory);
+    if (!source) return;
+    const directory = this.#desktopDirectory("node", `v${spec.version}`);
+    const relativeBinary = path.join("bin", "node");
+    if (existsSync(path.join(directory, relativeBinary))) return;
+    const startedAt = Date.now();
+    const copied = await this.#copySharedNode(
+      source,
+      directory,
+      relativeBinary,
+      spec.sha256,
+      false,
+      signal,
+    );
+    if (copied) {
+      this.#ctx?.log.info("local_server.update_node_prepared", {
+        version: spec.version,
+        ms: Date.now() - startedAt,
+      });
+    }
   }
 
   async #resolveUpdateSource(
@@ -1493,6 +1540,7 @@ export class LocalServerModule implements Module {
     // A failed check prints null; its cause is in the logged stderr.
     const report = JSON.parse(output) as {
       recommendation?: unknown;
+      runtimes?: unknown;
       localModels?: {
         eligible?: unknown;
         state?: unknown;
@@ -1588,6 +1636,38 @@ export class LocalServerModule implements Module {
       (pick !== "local-models" || eligible)
         ? (pick as SetupChoice)
         : undefined;
+    const validRuntimes = new Set<SetupDetectedRuntime["runtime"]>([
+      "codex",
+      "claude",
+      "pi",
+    ]);
+    const runtimes: SetupDetectedRuntime[] = Array.isArray(report.runtimes)
+      ? report.runtimes.flatMap((entry): SetupDetectedRuntime[] => {
+          if (!entry || typeof entry !== "object") return [];
+          const row = entry as {
+            choice?: unknown;
+            installed?: unknown;
+            auth?: unknown;
+            status?: unknown;
+          };
+          if (
+            typeof row.choice !== "string" ||
+            !validRuntimes.has(row.choice as SetupDetectedRuntime["runtime"])
+          )
+            return [];
+          const installed = row.installed === true;
+          const authenticated = row.auth === "authenticated";
+          const ready = row.status === "ready" || (installed && authenticated);
+          return [
+            {
+              runtime: row.choice as SetupDetectedRuntime["runtime"],
+              installed,
+              authenticated,
+              ready,
+            },
+          ];
+        })
+      : [];
     const check: LocalModelsCheck = {
       state: "checked",
       eligible,
@@ -1614,6 +1694,7 @@ export class LocalServerModule implements Module {
         : {}),
       ...(reasons.length ? { reasons } : {}),
       ...(recommendation ? { recommendation } : {}),
+      ...(runtimes.length ? { runtimes } : {}),
     };
     return { check, reasonLog };
   }
@@ -2095,8 +2176,10 @@ export class LocalServerModule implements Module {
       );
       if (error) throw new Error(`${home}: ${error}`);
       // On Windows, pre-check both the install home and the Computer daemon
-      // directory (<userData>/computer) before unpacking so ancestor ACL
-      // refusals fail immediately instead of after installation and enrollment.
+      // directory (<userData>/computer) before unpacking so private-path
+      // validation failures (such as symlink/junction ancestors or foreign
+      // target ownership) fail immediately instead of after installation and
+      // enrollment.
       if (platform === "win32") {
         const checkPrivate =
           this.#options.checkPrivateLocation ?? windowsPrivateLocation;
@@ -2864,18 +2947,12 @@ export class LocalServerModule implements Module {
     // archive / folder copy inside runtime-<target>/.
     const bundle = await this.#bundledRuntime();
     const bundled = bundle?.node;
-    const expectedSharedBinary = isWindows
-      ? "runtime/bin/node.exe"
-      : "runtime/bin/node";
-    if (
-      bundle?.target === this.#target() &&
-      bundled?.shared === true &&
-      bundled.version === NODE_RUNTIME_VERSION &&
-      (bundled.binary === undefined ||
-        bundled.binary === expectedSharedBinary) &&
-      typeof bundled.sha256 === "string" &&
-      bundled.sha256.length > 0
-    ) {
+    const sharedNode = this.#sharedNodeSpec(
+      bundle,
+      isWindows,
+      NODE_RUNTIME_VERSION,
+    );
+    if (sharedNode) {
       const source = this.#sharedBundledNodePath(isWindows);
       if (source) {
         try {
@@ -2883,7 +2960,7 @@ export class LocalServerModule implements Module {
             source,
             directory,
             path.relative(directory, binary),
-            bundled.sha256,
+            sharedNode.sha256,
             isWindows,
             signal,
           );
@@ -2945,16 +3022,51 @@ export class LocalServerModule implements Module {
     return binary;
   }
 
-  #sharedBundledNodePath(isWindows: boolean): string | undefined {
+  #sharedNodeSpec(
+    bundle: BundledRuntime | undefined,
+    isWindows: boolean,
+    expectedVersion?: string,
+  ): { version: string; sha256: string } | undefined {
+    const bundled = bundle?.node;
+    const expectedSharedBinary = isWindows
+      ? "runtime/bin/node.exe"
+      : "runtime/bin/node";
+    if (
+      bundle?.target !== this.#target() ||
+      bundled?.shared !== true ||
+      typeof bundled.version !== "string" ||
+      !/^[0-9]+(?:\.[0-9]+){1,2}(?:-[0-9A-Za-z.-]+)?$/.test(bundled.version) ||
+      (expectedVersion !== undefined && bundled.version !== expectedVersion) ||
+      (bundled.binary !== undefined &&
+        bundled.binary !== expectedSharedBinary) ||
+      typeof bundled.sha256 !== "string" ||
+      bundled.sha256.length === 0
+    )
+      return undefined;
+    return { version: bundled.version, sha256: bundled.sha256 };
+  }
+
+  #sharedBundledNodePath(
+    isWindows: boolean,
+    installerDirectory?: string,
+  ): string | undefined {
     const candidate =
-      this.#options.bundledNodePath ??
-      path.resolve(
-        this.#options.installerDirectory,
-        "../../..",
-        "runtime",
-        "bin",
-        isWindows ? "node.exe" : "node",
-      );
+      installerDirectory !== undefined
+        ? path.resolve(
+            installerDirectory,
+            "../../..",
+            "runtime",
+            "bin",
+            isWindows ? "node.exe" : "node",
+          )
+        : (this.#options.bundledNodePath ??
+          path.resolve(
+            this.#options.installerDirectory,
+            "../../..",
+            "runtime",
+            "bin",
+            isWindows ? "node.exe" : "node",
+          ));
     return existsSync(candidate) ? candidate : undefined;
   }
 
@@ -2968,25 +3080,31 @@ export class LocalServerModule implements Module {
     sha256: string,
     isWindows: boolean,
     signal: AbortSignal,
-  ): Promise<void> {
-    if (existsSync(path.join(directory, relativeBinary))) return;
-    const copied = `${directory}.partial`;
-    const target = path.join(copied, relativeBinary);
-    try {
-      await removeRetrying(copied);
-      await mkdir(path.dirname(target), { recursive: true });
-      await copyFile(source, target, fsConstants.COPYFILE_FICLONE);
-      const hash = createHash("sha256");
-      for await (const chunk of createReadStream(target, { signal }))
-        hash.update(chunk as Buffer);
-      if (hash.digest("hex") !== sha256)
-        throw new Error(`The bundled ${relativeBinary} is damaged`);
-      if (!isWindows) await chmod(target, 0o755);
-      await this.#unquarantine(copied, signal, [target, source]);
-      await this.#publish(copied, directory, relativeBinary, signal);
-    } finally {
-      await removeRetrying(copied);
-    }
+  ): Promise<boolean> {
+    if (existsSync(path.join(directory, relativeBinary))) return false;
+    let copiedAny = false;
+    await this.#stageDirectory(directory, signal, async () => {
+      if (existsSync(path.join(directory, relativeBinary))) return;
+      const copied = `${directory}.partial`;
+      const target = path.join(copied, relativeBinary);
+      try {
+        await removeRetrying(copied);
+        await mkdir(path.dirname(target), { recursive: true });
+        await copyFile(source, target, fsConstants.COPYFILE_FICLONE);
+        const hash = createHash("sha256");
+        for await (const chunk of createReadStream(target, { signal }))
+          hash.update(chunk as Buffer);
+        if (hash.digest("hex") !== sha256)
+          throw new Error(`The bundled ${relativeBinary} is damaged`);
+        if (!isWindows) await chmod(target, 0o755);
+        await this.#unquarantine(copied, signal, [target, source]);
+        await this.#publish(copied, directory, relativeBinary, signal);
+        copiedAny = true;
+      } finally {
+        await removeRetrying(copied);
+      }
+    });
+    return copiedAny;
   }
 
   // The source package, unpacked once into the installation folder; or the
@@ -3959,6 +4077,7 @@ export class LocalServerModule implements Module {
     const timeout = this.#options.agentsTimeoutMs ?? AGENTS_TIMEOUT_MS;
     const pollStartedAt = Date.now();
     const deadline = pollStartedAt + timeout;
+    let lastBlockerKey: string | undefined;
     for (;;) {
       signal.throwIfAborted();
       // A Computer service that cannot start never connects; waiting out the
@@ -3990,7 +4109,10 @@ export class LocalServerModule implements Module {
       // The Another Me has an Agent once the server created it; there is no
       // status to wait for.
       const anotherMe = (await get(`${base}/another-me`)) as
-        | { agent_actor_id?: string }
+        | {
+            agent_actor_id?: string;
+            placement_blocker?: AnotherMePlacementBlocker;
+          }
         | undefined;
       if (!anotherMe) return;
       if (anotherMe.agent_actor_id) {
@@ -4024,8 +4146,47 @@ export class LocalServerModule implements Module {
           this.#advance("agents", 0.6, "Adding your starter agents…");
         }
       } else {
+        const blocker = anotherMe.placement_blocker;
+        if (blocker?.reason) {
+          const blockerRuntimes = blocker.runtimes?.map(
+            (runtime) =>
+              `${runtime.type ?? ""}:${runtime.status ?? ""}:${runtime.model_count ?? 0}`,
+          );
+          const blockerKey = [
+            blocker.reason,
+            blocker.computer_id ?? "",
+            (blockerRuntimes ?? []).join(","),
+          ].join("|");
+          if (blockerKey !== lastBlockerKey) {
+            lastBlockerKey = blockerKey;
+            this.#ctx?.log.warn("local_server.another_me_placement_blocked", {
+              reason: blocker.reason,
+              ...(blocker.computer_id
+                ? { computer_id: blocker.computer_id }
+                : {}),
+              ...(blockerRuntimes?.length ? { runtimes: blockerRuntimes } : {}),
+            });
+          }
+        }
+        const defaultGrantFailure = this.#ctx
+          ?.get<WorkspaceGrantsModule>("WorkspaceGrants")
+          .defaultFailure();
+        const hasWritableGrant =
+          this.#ctx?.config
+            .get()
+            .workspaceGrants.some((grant) => grant.access === "read_write") ??
+          false;
+        if (defaultGrantFailure && !hasWritableGrant) {
+          this.#ctx?.log.warn("local_server.default_workspace_grant_failed", {
+            directory: defaultGrantFailure.directory,
+            error: defaultGrantFailure.error,
+            ...(blocker?.reason ? { blocker_reason: blocker.reason } : {}),
+          });
+          throw new Error(defaultWorkspaceGrantFailed(defaultGrantFailure));
+        }
         if (Date.now() >= deadline) {
-          // Say what the server is missing, as this computer last reported it.
+          // Say what the server is missing, combining the server's placement
+          // blocker with what this computer last reported.
           const computers = (await get(`${base}/local-computers`).catch(
             () => undefined,
           )) as { items?: ReportedComputer[] } | undefined;
@@ -4036,16 +4197,30 @@ export class LocalServerModule implements Module {
           this.#ctx?.log.warn("local_server.another_me_missing", {
             computer_id: computerId,
             computer_status: computer?.status,
-            runtimes: computer?.runtimes?.map(
-              (runtime) =>
-                `${runtime.type}:${runtime.status}:${runtime.models?.length ?? 0}`,
-            ),
+            ...(blocker?.reason ? { blocker_reason: blocker.reason } : {}),
+            ...(blocker?.computer_id
+              ? { blocker_computer_id: blocker.computer_id }
+              : {}),
+            runtimes:
+              blocker?.runtimes?.map(
+                (runtime) =>
+                  `${runtime.type ?? ""}:${runtime.status ?? ""}:${runtime.model_count ?? 0}`,
+              ) ??
+              computer?.runtimes?.map(
+                (runtime) =>
+                  `${runtime.type}:${runtime.status}:${runtime.models?.length ?? 0}`,
+              ),
           });
           throw new Error(
-            anotherMeMissing(computers ? computer : null, timeout),
+            anotherMeMissing(
+              computers ? computer : null,
+              timeout,
+              blocker,
+              hasWritableGrant ? undefined : defaultGrantFailure,
+            ),
           );
         }
-        this.#advance("agents", 0.2, "Preparing your Another Me…");
+        this.#advance("agents", 0.2, anotherMeProgressMessage(blocker));
       }
       await delay(
         pollDelayMs(pollStartedAt, this.#options.pollMs ?? 1_000),
@@ -4179,7 +4354,11 @@ export class LocalServerModule implements Module {
           source: path.basename(repo),
           from: currentRecord.version,
         });
-      this.#ready(origin, currentRecord.origin, "resume_ready");
+      this.#ready(
+        origin,
+        currentRecord.origin,
+        serving.revived ? "resume_revived" : "resume_ready",
+      );
       await this.#syncLocalGateway(
         currentRecord.home,
         origin,
@@ -4210,17 +4389,37 @@ export class LocalServerModule implements Module {
   async #isOrphanedLocalServer(config: DesktopConfig): Promise<boolean> {
     if (!config.serverUrl || !config.computerId) return false;
     if (!isManagedLocalServerConfig(config)) return false;
+    const recordFile = this.#recordFile();
     try {
-      await stat(this.#recordFile());
+      await stat(recordFile);
       return false;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") return false;
     }
+    // Windows stat() reports ENOENT instead of ENOTDIR when traversing through
+    // a regular file ancestor, so check ancestors before treating it as absent.
+    if (await this.#hasNonDirectoryAncestor(recordFile)) return false;
     return !(await answers(
       this.#options.fetch ?? fetch,
       config.serverUrl,
       ORPHANED_SERVER_PROBE_MS,
+      { ready: false },
     ));
+  }
+
+  async #hasNonDirectoryAncestor(target: string): Promise<boolean> {
+    let current = path.dirname(target);
+    while (true) {
+      try {
+        const info = await stat(current);
+        return !info.isDirectory();
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") return true;
+      }
+      const parent = path.dirname(current);
+      if (parent === current) return false;
+      current = parent;
+    }
   }
 
   // The person gave up on the installation the window used, whose services
@@ -4335,13 +4534,14 @@ export class LocalServerModule implements Module {
   }
 
   // Resolves with the source folder the installer reports the services
-  // serving from, and the origin they serve at.
+  // serving from, the origin they serve at, and whether resume cold-started
+  // stopped services.
   async #runResume(
     record: LocalRecord,
     repo: string,
     signal: AbortSignal,
     onStage?: (stage: string) => void,
-  ): Promise<{ source?: string; origin?: string }> {
+  ): Promise<{ source?: string; origin?: string; revived: boolean }> {
     await this.#adoptSourceKeys(record.home);
     // Resolved while the Node runtime is checked, so a slow PAC script does
     // not add to the start.
@@ -4517,13 +4717,33 @@ export class LocalServerModule implements Module {
     } else {
       this.#localModelsDegraded = undefined;
     }
-    this.#adoptRuntime(outcome.runtime);
+    const restoredLocalModels = Array.isArray(
+      outcome.details?.restoredLocalModels,
+    )
+      ? outcome.details.restoredLocalModels.filter(
+          (item): item is string => typeof item === "string" && item.length > 0,
+        )
+      : [];
+    const localModelsRestored =
+      outcome.details?.localModelsRestored === true ||
+      restoredLocalModels.length > 0;
+    const adoptedRuntime = this.#adoptRuntime(outcome.runtime);
+    if (localModelsRestored) {
+      this.#ctx?.log.info("local_server.local_models_restored", {
+        ...(restoredLocalModels.length ? { models: restoredLocalModels } : {}),
+      });
+      // When services were already running, the Computer Daemon may have
+      // probed `library status` while quit-unloaded models were still idle.
+      // Signal a restart/refresh when `#adoptRuntime` did not already do so.
+      if (!adoptedRuntime) this.#ctx?.bus.emit("computer.runtime");
+    }
     const { source, origin } = outcome.details ?? {};
     return {
       ...(typeof source === "string" ? { source } : {}),
       ...(typeof origin === "string" && parseServerUrl(origin) === origin
         ? { origin }
         : {}),
+      revived: resumeTimings?.path === "cold",
     };
   }
 
@@ -4538,7 +4758,7 @@ export class LocalServerModule implements Module {
   // Every resume reports the runtime and localmodels tool paths, so an
   // install from before the Computer knew one gains it. A change restarts
   // the Computer once its running tasks end.
-  #adoptRuntime(runtime: InstanceRuntime | undefined): void {
+  #adoptRuntime(runtime: InstanceRuntime | undefined): boolean {
     const ctx = this.#ctx;
     if (
       !ctx ||
@@ -4548,20 +4768,21 @@ export class LocalServerModule implements Module {
         (value) => typeof value !== "string",
       )
     )
-      return;
+      return false;
     if (
       isDeepStrictEqual(
         ctx.config.get().runtimeEnvironment ?? {},
         runtime.environment,
       )
     )
-      return;
+      return false;
     ctx.config.update({ runtimeEnvironment: runtime.environment });
     ctx.log.info("local_server.runtime", {
       runtime: runtime.setupChoice,
       keys: Object.keys(runtime.environment),
     });
     ctx.bus.emit("computer.runtime");
+    return true;
   }
 
   // Reads the desktop instance's current origin from instance.json via the
@@ -4718,6 +4939,10 @@ interface ResumeOutcome {
     byokGateway?: unknown;
     // Why local models did not come back on resume: `{ code, message, reasons? }`.
     localModelsDegraded?: unknown;
+    // Set when resume revived the local stack or reloaded library models.
+    localModelsRestored?: unknown;
+    // Library model IDs reloaded during resume.
+    restoredLocalModels?: unknown;
   };
   runtime?: InstanceRuntime;
   // Resume stderr is not piped (detached services could hold it open), so
@@ -4897,6 +5122,45 @@ const RUNTIME_STATES: Record<string, string> = {
   unknown: "not checked yet",
 };
 
+// Server-reported diagnostic explaining why TeamHub skipped or failed creating
+// the Human's Another Me on GET /v0/tenants/{tenantId}/another-me.
+export interface AnotherMePlacementRuntimeStatus {
+  readonly type?: string;
+  readonly status?: string;
+  readonly model_count?: number;
+  readonly message?: string;
+}
+
+export interface AnotherMePlacementBlocker {
+  readonly reason?: string;
+  readonly computer_id?: string;
+  readonly runtimes?: readonly AnotherMePlacementRuntimeStatus[];
+}
+
+const anotherMeProgressMessage = (
+  blocker: AnotherMePlacementBlocker | undefined,
+): string => {
+  switch (blocker?.reason) {
+    case "no_online_computer":
+      return "Waiting for this computer to connect…";
+    case "computer_upgrade_required":
+      return "Waiting for an updated Computer service…";
+    case "no_writable_workspace_grant":
+      return "Waiting for a writable workspace folder…";
+    case "no_ready_runtime_with_models":
+      return "Waiting for a signed-in AI runtime…";
+    case "create_failed":
+      return "Retrying Another Me setup…";
+    default:
+      return "Preparing your Another Me…";
+  }
+};
+
+export const defaultWorkspaceGrantFailed = (
+  failure: DefaultWorkspaceGrantFailure,
+): string =>
+  `LingerX could not create its default workspace folder (${failure.directory}): ${failure.error.replace(/[.\s]+$/, "")}. Choose a writable folder in LingerX Settings, then try again.`;
+
 // Why setup gave up on the Another Me. The server creates it once this
 // computer is online, shares a writable folder and reports a signed-in
 // runtime with a model; `computer` is what the server last heard from this
@@ -4917,13 +5181,63 @@ export function computerNotOnline(
   return "This computer did not come online on LingerX.";
 }
 
+const formatMissingRuntimes = (
+  runtimes: readonly {
+    readonly type?: string;
+    readonly status?: string;
+    readonly message?: string;
+  }[],
+): string => {
+  const found = runtimes.map((runtime) => {
+    const name = RUNTIME_NAMES[runtime.type ?? ""] ?? runtime.type;
+    const state =
+      runtime.status === "ready"
+        ? "signed in but reports no models"
+        : (RUNTIME_STATES[runtime.status ?? ""] ?? runtime.status);
+    return `${name}: ${state}${runtime.message ? ` (${runtime.message})` : ""}`;
+  });
+  return [
+    "No signed-in AI runtime is reported by this computer.",
+    ...(found.length ? [`It found ${found.join("; ")}.`] : []),
+    "Install Codex or Claude Code and sign in to it in a terminal (codex login, or claude), then restart LingerX and try again.",
+  ].join(" ");
+};
+
 export const anotherMeMissing = (
   computer: ReportedComputer | undefined | null,
   timeoutMs: number,
+  blocker?: AnotherMePlacementBlocker,
+  defaultGrantFailure?: DefaultWorkspaceGrantFailure,
 ): string => {
   const minutes = Math.max(1, Math.round(timeoutMs / 60_000));
   const waited = `Your Another Me was not created after ${minutes} minute${minutes === 1 ? "" : "s"}. The server creates it once this computer is connected with a signed-in AI runtime (Codex, Claude Code or Pi).`;
   const reason = ((): string => {
+    switch (blocker?.reason) {
+      case "no_online_computer":
+        return "The server sees this computer as offline: its Computer service is not connected. computer-daemon.log in the logs says why.";
+      case "computer_upgrade_required":
+        return "This computer's Computer service is too old for the server. Update LingerX, then try again.";
+      case "no_writable_workspace_grant":
+        return defaultGrantFailure
+          ? defaultWorkspaceGrantFailed(defaultGrantFailure)
+          : "This computer shares no folder that agents can write to.";
+      case "no_ready_runtime_with_models":
+        return formatMissingRuntimes(
+          blocker.runtimes?.length
+            ? blocker.runtimes
+            : (computer?.runtimes ?? []),
+        );
+      case "create_failed":
+        return "This computer reports a signed-in runtime, but the server did not create the Another Me; the server log says why (another_me.create_failed).";
+    }
+    if (
+      defaultGrantFailure &&
+      (!computer ||
+        !computer.workspace_grants?.some(
+          (grant) => grant.mode === "workspace-write",
+        ))
+    )
+      return defaultWorkspaceGrantFailed(defaultGrantFailure);
     if (computer === null)
       return "LingerX could not read this computer's status from the server.";
     if (!computer)
@@ -4945,19 +5259,7 @@ export const anotherMeMissing = (
       )
     )
       return "This computer reports a signed-in runtime, but the server did not create the Another Me; the server log says why (another_me.create_failed).";
-    const found = runtimes.map((runtime) => {
-      const name = RUNTIME_NAMES[runtime.type ?? ""] ?? runtime.type;
-      const state =
-        runtime.status === "ready"
-          ? "signed in but reports no models"
-          : (RUNTIME_STATES[runtime.status ?? ""] ?? runtime.status);
-      return `${name}: ${state}${runtime.message ? ` (${runtime.message})` : ""}`;
-    });
-    return [
-      "No signed-in AI runtime is reported by this computer.",
-      ...(found.length ? [`It found ${found.join("; ")}.`] : []),
-      "Install Codex or Claude Code and sign in to it in a terminal (codex login, or claude), then restart LingerX and try again.",
-    ].join(" ");
+    return formatMissingRuntimes(runtimes);
   })();
   return `${waited}\n${reason}`;
 };
@@ -5003,19 +5305,52 @@ const STAGES: Record<string, readonly [LocalServerStep, number, number]> = {
   computer: ["workspace", 1, 1],
 };
 
-// Whether a server answers at an origin at all.
+// Whether a server is ready to serve at an origin. When `ready` is true
+// (default), probes /readyz first so a web host whose TeamHub or database
+// upstream is down is not mistaken for ready, falling back to HEAD / when an
+// older server returns 404. When `ready` is false, checks plain liveness at
+// HEAD / so transient backend blips do not look like a removed installation.
 async function answers(
   fetcher: typeof fetch,
   origin: string,
   timeoutMs = 1_000,
+  options: { ready?: boolean } = {},
 ): Promise<boolean> {
+  if (options.ready === false) {
+    try {
+      const response = await fetcher(origin, {
+        method: "HEAD",
+        redirect: "manual",
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      await response.body?.cancel().catch(() => {});
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  const startedAt = Date.now();
   try {
-    await fetcher(origin, {
+    const response = await fetcher(new URL("/readyz", origin).toString(), {
       method: "HEAD",
       redirect: "manual",
       signal: AbortSignal.timeout(timeoutMs),
     });
-    return true;
+    await response.body?.cancel().catch(() => {});
+    if (response.ok) return true;
+    if (response.status !== 404) return false;
+  } catch {
+    return false;
+  }
+  const remainingMs = Math.max(200, timeoutMs - (Date.now() - startedAt));
+  try {
+    const fallback = await fetcher(origin, {
+      method: "HEAD",
+      redirect: "manual",
+      signal: AbortSignal.timeout(remainingMs),
+    });
+    await fallback.body?.cancel().catch(() => {});
+    return fallback.status < 500;
   } catch {
     return false;
   }
@@ -6024,18 +6359,6 @@ const isFile = async (file: string): Promise<boolean> => {
   }
 };
 
-// Windows' own bsdtar reads both the tar.gz source package and the Node zip;
-// a GNU tar earlier on PATH (Git for Windows) reads neither "C:" paths nor zips.
-export function tarCommand(
-  platform: NodeJS.Platform = process.platform,
-  env: NodeJS.ProcessEnv = process.env,
-): string {
-  if (platform !== "win32") return "tar";
-  const systemRoot =
-    env.SystemRoot?.trim() || env.windir?.trim() || "C:\\Windows";
-  return path.win32.join(systemRoot, "System32", "tar.exe");
-}
-
 export interface UnpackArchiveOptions {
   readonly command?: string;
   readonly platform?: NodeJS.Platform;
@@ -6072,10 +6395,21 @@ export async function unpackArchive(
       );
       return;
     }
+    // Windows' tar.exe reads argv in the ANSI code page, so pass a relative path
+    // from the resolved destination when both share a drive; POSIX tar is UTF-8
+    // native and takes the archive path directly without symlink depth drift.
+    let archiveArg = file;
+    let cwd = unpacked;
+    if (platform === "win32") {
+      const realUnpacked = await realpath(unpacked).catch(() => unpacked);
+      const realFile = await realpath(file).catch(() => file);
+      archiveArg = path.relative(realUnpacked, realFile);
+      cwd = realUnpacked;
+    }
     await runCommand(
       command,
-      ["-xf", path.relative(unpacked, file), "--strip-components=1"],
-      unpacked,
+      ["-xf", archiveArg, "--strip-components=1"],
+      cwd,
       signal,
     );
   } catch (error) {
