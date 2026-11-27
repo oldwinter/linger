@@ -1,9 +1,14 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Add01Icon,
+  ArrowLeft01Icon,
+  ClipboardCopyIcon,
   ComputerTerminal01Icon,
   FlashIcon,
+  Folder01Icon,
+  Layers01Icon,
   RefreshIcon,
+  Tick02Icon,
 } from "@hugeicons/core-free-icons";
 import {
   lazy,
@@ -16,6 +21,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { TeamHubApi } from "@/features/teamhub/teamhub-api";
 import { useT } from "@/i18n/use-translation";
 import { cn } from "@/lib/cn";
@@ -37,7 +43,9 @@ import {
   filterTerminals,
   flattenTerminalTree,
   parseHerdrAppDoc,
+  terminalCurrentCwd,
   terminalDisplayName,
+  terminalStatusWord,
   type TerminalFilterCriteria,
 } from "./tree";
 import type {
@@ -54,10 +62,12 @@ const LazyXtermView = lazy(() =>
 );
 
 const EMPTY_TERMINALS: readonly HerdrCoreTerminal[] = [];
+const START_COMMAND = "hc server start";
 
 export interface HerdrCoreWorkbenchProps {
   readonly computerId: string;
   readonly isDesktopLocalComputer?: boolean;
+  readonly embedded?: boolean;
   readonly roomId?: string;
   readonly defaultWorkItemId?: string;
   readonly initialAddress?: string;
@@ -69,6 +79,7 @@ export interface HerdrCoreWorkbenchProps {
 export function HerdrCoreWorkbench({
   computerId,
   isDesktopLocalComputer = false,
+  embedded = false,
   roomId,
   defaultWorkItemId = "",
   initialAddress,
@@ -83,6 +94,8 @@ export function HerdrCoreWorkbench({
     useState<DesktopHerdrCoreBridgeInfo | null>(null);
   const [startingLocalCore, setStartingLocalCore] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
+  const [copiedStartCmd, setCopiedStartCmd] = useState(false);
+  const [copiedAddress, setCopiedAddress] = useState(false);
 
   useEffect(() => {
     if (!isDesktopLocalComputer || !desktopApi || providedClient) {
@@ -134,11 +147,17 @@ export function HerdrCoreWorkbench({
     initialAddress ?? null,
   );
   const [viewMode, setViewMode] = useState<"light" | "interactive">("light");
-  const [mobileListOpen, setMobileListOpen] = useState(true);
+  // Narrow container (<720px) switches cleanly between list and detail panes.
+  const [narrowPane, setNarrowPane] = useState<"list" | "detail">(
+    initialAddress ? "detail" : "list",
+  );
   const [launchOpen, setLaunchOpen] = useState(false);
   const [launching, setLaunching] = useState(false);
   const [launchError, setLaunchError] = useState<string | null>(null);
   const [syncingAddress, setSyncingAddress] = useState<string | null>(null);
+  const [quickKeyBusyAddress, setQuickKeyBusyAddress] = useState<string | null>(
+    null,
+  );
 
   const statusQuery = useQuery({
     queryKey: ["herdr-core", "status", computerId, client.transportMode],
@@ -204,6 +223,15 @@ export function HerdrCoreWorkbench({
     [filteredTerminals],
   );
 
+  const blockedCount = useMemo(
+    () =>
+      allTerminals.filter(
+        (term) =>
+          term.state === "live" && terminalStatusWord(term) === "blocked",
+      ).length,
+    [allTerminals],
+  );
+
   const activeAddress =
     selectedAddress &&
     allTerminals.some((term) => term.address === selectedAddress)
@@ -248,15 +276,33 @@ export function HerdrCoreWorkbench({
     try {
       const created = await client.launchTerminal(request);
       setLaunchOpen(false);
+      // If user launched outside current Room filter, broaden filter so the new terminal is visible immediately.
+      if (roomId && filters.roomOnly && !request.labels?.["linger.room"]) {
+        setFilters((prev) => ({ ...prev, roomOnly: false }));
+      }
       if (created.terminal?.address) {
         setSelectedAddress(created.terminal.address);
-        setMobileListOpen(false);
+        setNarrowPane("detail");
       }
       refreshAll();
     } catch (error) {
       setLaunchError(error instanceof Error ? error.message : String(error));
     } finally {
       setLaunching(false);
+    }
+  }
+
+  async function handleQuickKeys(
+    terminal: HerdrCoreTerminal,
+    keys: readonly string[],
+  ) {
+    if (quickKeyBusyAddress !== null) return;
+    setQuickKeyBusyAddress(terminal.address);
+    try {
+      await client.sendKeys({ address: terminal.address, keys });
+      refreshAll();
+    } finally {
+      setQuickKeyBusyAddress(null);
     }
   }
 
@@ -274,10 +320,11 @@ export function HerdrCoreWorkbench({
       await client.putDoc("herdr-app", adoption.nextDocValue, {
         version: herdrAppDocQuery.data?.version ?? 0,
       });
-      // Best-effort label sync (if Track 2 relay exposes /terminal/label or direct bridge is active).
-      await client
-        .labelTerminal(terminal.address, adoption.labels)
-        .catch(() => undefined);
+      if (client.transportMode === "desktop_direct") {
+        await client
+          .labelTerminal(terminal.address, adoption.labels)
+          .catch(() => undefined);
+      }
       await herdrAppDocQuery.refetch();
       refreshAll();
     } finally {
@@ -285,13 +332,41 @@ export function HerdrCoreWorkbench({
     }
   }
 
+  function copyStartCommand() {
+    void navigator.clipboard?.writeText(START_COMMAND).then(() => {
+      setCopiedStartCmd(true);
+      window.setTimeout(() => setCopiedStartCmd(false), 1_500);
+    });
+  }
+
+  function copySelectedAddress() {
+    if (!selectedTerminal) return;
+    void navigator.clipboard?.writeText(selectedTerminal.address).then(() => {
+      setCopiedAddress(true);
+      window.setTimeout(() => setCopiedAddress(false), 1_500);
+    });
+  }
+
   const statusError =
     statusQuery.error instanceof HerdrCoreApiError ? statusQuery.error : null;
+
+  const selectedCwd = selectedTerminal
+    ? terminalCurrentCwd(selectedTerminal)
+    : "";
+  const selectedSpace = selectedTerminal
+    ? (selectedTerminal.labels["herdr.space"] ??
+      herdrAppDoc.spaces.find((s) =>
+        s.tabs.some((tab) => tab.terminal === selectedTerminal.address),
+      )?.name ??
+      null)
+    : null;
+  const selectedWorkItem = selectedTerminal?.labels["linger.work_item"]?.trim();
+  const selectedRoom = selectedTerminal?.labels["linger.room"]?.trim();
 
   return (
     <div
       className={cn(
-        "flex h-full min-h-0 w-full min-w-0 flex-col bg-card text-foreground",
+        "@container flex h-full min-h-0 w-full min-w-0 flex-col bg-card text-foreground",
         className,
       )}
       data-testid="herdr-core-workbench"
@@ -300,50 +375,62 @@ export function HerdrCoreWorkbench({
       {/* Top workbench header */}
       <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
         <div className="flex min-w-0 items-center gap-2">
-          <span
-            aria-hidden="true"
-            className="grid size-7 shrink-0 place-items-center rounded-lg bg-muted text-foreground"
-          >
-            <Icon icon={ComputerTerminal01Icon} size={16} />
-          </span>
+          {!embedded ? (
+            <span
+              aria-hidden="true"
+              className="grid size-7 shrink-0 place-items-center rounded-lg bg-muted text-foreground"
+            >
+              <Icon icon={ComputerTerminal01Icon} size={15} />
+            </span>
+          ) : null}
           <div className="min-w-0">
-            <div className="flex items-center gap-1.5">
-              <h2 className="truncate text-sm font-semibold text-foreground">
-                {t(m.workbenchTitle)}
-              </h2>
-              <span className="hidden rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground sm:inline-flex">
+            <div className="flex flex-wrap items-center gap-1.5">
+              {!embedded ? (
+                <h2 className="truncate text-sm font-semibold text-foreground">
+                  {t(m.workbenchTitle)}
+                </h2>
+              ) : null}
+              {statusQuery.data?.version ? (
+                <span className="truncate font-mono text-[11px] text-muted-foreground">
+                  herdr-core {statusQuery.data.version}
+                  {statusQuery.data.core_name
+                    ? ` · ${statusQuery.data.core_name}`
+                    : ""}
+                </span>
+              ) : null}
+              <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
                 {client.transportMode === "desktop_direct"
                   ? t(m.transportDirect)
                   : t(m.transportRelay)}
               </span>
             </div>
-            {statusQuery.data?.version ? (
-              <p className="truncate text-[11px] text-muted-foreground">
-                herdr-core {statusQuery.data.version}
-                {statusQuery.data.core_name
-                  ? ` · ${statusQuery.data.core_name}`
-                  : ""}
-              </p>
-            ) : null}
           </div>
         </div>
 
         <div className="flex items-center gap-1.5">
+          {isAvailable && narrowPane === "detail" ? (
+            <Button
+              className="@[720px]:hidden"
+              onClick={() => setNarrowPane("list")}
+              size="compact"
+              tone="secondary"
+            >
+              <Icon icon={ArrowLeft01Icon} size={13} />
+              <span>{t(m.backToList)}</span>
+              {blockedCount > 0 ? (
+                <span className="inline-flex size-4 items-center justify-center rounded-full bg-[var(--app-status-warning-text)] text-[10px] font-semibold text-background tabular-nums">
+                  {blockedCount}
+                </span>
+              ) : null}
+            </Button>
+          ) : null}
           <Button
-            className="sm:hidden"
-            onClick={() => setMobileListOpen((v) => !v)}
-            size="compact"
-            tone="secondary"
-          >
-            {t(m.toggleSidebar)}
-          </Button>
-          <Button
+            aria-label={t(m.refresh)}
             loading={statusQuery.isFetching || terminalsQuery.isFetching}
             onClick={refreshAll}
             size="compactIcon"
             title={t(m.refresh)}
             tone="ghost"
-            aria-label={t(m.refresh)}
           >
             <Icon icon={RefreshIcon} size={14} />
           </Button>
@@ -363,8 +450,26 @@ export function HerdrCoreWorkbench({
         </div>
       </header>
 
-      {/* Unavailable / offline / not-implemented degradation states */}
-      {!statusQuery.isLoading && !isAvailable ? (
+      {/* Initial loading skeleton (zero layout jump) */}
+      {statusQuery.isLoading ? (
+        <div
+          aria-busy="true"
+          aria-label={t(m.loadingWorkbench)}
+          className="flex min-h-0 flex-1 flex-col gap-3 p-3 @[720px]:flex-row"
+          role="status"
+        >
+          <div className="flex flex-col gap-2 @[720px]:w-68 @[720px]:shrink-0">
+            <Skeleton className="h-8 w-full rounded-lg" />
+            <Skeleton className="h-16 w-full rounded-xl" />
+            <Skeleton className="h-16 w-full rounded-xl" />
+          </div>
+          <div className="flex min-h-0 flex-1 flex-col gap-2">
+            <Skeleton className="h-10 w-full rounded-lg" />
+            <Skeleton className="h-48 flex-1 rounded-lg" />
+          </div>
+        </div>
+      ) : !isAvailable ? (
+        /* Unavailable / offline / not-implemented degradation states */
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-10 text-center">
           <span
             aria-hidden="true"
@@ -389,20 +494,45 @@ export function HerdrCoreWorkbench({
                     t(m.unavailableBody)}
             </p>
           </div>
-          {isDesktopLocalComputer && desktopApi ? (
-            <Button
-              data-voice-risk="confirm"
-              loading={startingLocalCore}
-              onClick={() => void handleStartLocalCore()}
-              tone="primary"
-            >
-              <Icon icon={FlashIcon} size={14} />
-              <span>
-                {startingLocalCore
-                  ? t(m.startingLocalCore)
-                  : t(m.startLocalCore)}
-              </span>
-            </Button>
+          {statusError?.kind !== "not_implemented" &&
+          statusError?.kind !== "offline" ? (
+            <div className="flex flex-col items-center gap-2">
+              {isDesktopLocalComputer && desktopApi ? (
+                <Button
+                  data-voice-risk="confirm"
+                  loading={startingLocalCore}
+                  onClick={() => void handleStartLocalCore()}
+                  tone="primary"
+                >
+                  <Icon icon={FlashIcon} size={14} />
+                  <span>
+                    {startingLocalCore
+                      ? t(m.startingLocalCore)
+                      : t(m.startLocalCore)}
+                  </span>
+                </Button>
+              ) : null}
+              <p className="text-[11px] text-muted-foreground">
+                {t(m.startCommandHint)}
+              </p>
+              <div className="flex items-center gap-1.5 rounded-lg border border-border bg-muted/40 px-2.5 py-1.5">
+                <code className="font-mono text-xs text-foreground">
+                  {START_COMMAND}
+                </code>
+                <Button
+                  aria-label={t(m.copyCommand)}
+                  onClick={copyStartCommand}
+                  size="compact"
+                  tone="secondary"
+                >
+                  <Icon
+                    icon={copiedStartCmd ? Tick02Icon : ClipboardCopyIcon}
+                    size={12}
+                  />
+                  <span>{copiedStartCmd ? t(m.copied) : t(m.copyCommand)}</span>
+                </Button>
+              </div>
+            </div>
           ) : null}
           {startError ? (
             <p
@@ -414,16 +544,17 @@ export function HerdrCoreWorkbench({
           ) : null}
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
-          {/* Sidebar list (responsive drawer/toggle on <640px) */}
+        <div className="flex min-h-0 flex-1 flex-col @[720px]:flex-row">
+          {/* Sidebar list: full-width pane on <720px containers, fixed 272px column on >=720px */}
           <aside
             aria-label={t(m.toggleSidebar)}
             className={cn(
-              "min-h-0 w-full flex-col border-b border-border p-2.5 sm:flex sm:w-64 sm:shrink-0 sm:border-r sm:border-b-0",
-              mobileListOpen ? "flex max-h-[45%] sm:max-h-none" : "hidden",
+              "min-h-0 min-w-0 flex-1 flex-col p-2.5 @[720px]:flex @[720px]:w-72 @[720px]:flex-none @[720px]:shrink-0 @[720px]:border-r @[720px]:border-border",
+              narrowPane === "list" ? "flex" : "hidden",
             )}
           >
             <TerminalSidebarList
+              allTerminals={allTerminals}
               filters={filters}
               groupBySpace={groupBySpace}
               herdrAppDoc={herdrAppDoc}
@@ -432,11 +563,13 @@ export function HerdrCoreWorkbench({
                 setFilters((prev) => ({ ...prev, ...patch }))
               }
               onGroupBySpaceChange={setGroupBySpace}
+              onQuickKeys={handleQuickKeys}
               onSelect={(address) => {
                 setSelectedAddress(address);
-                setMobileListOpen(false);
+                setNarrowPane("detail");
               }}
               onSyncToSpace={handleSyncToSpace}
+              quickKeyBusyAddress={quickKeyBusyAddress}
               roomId={roomId}
               selectedAddress={activeAddress}
               syncingAddress={syncingAddress}
@@ -445,55 +578,119 @@ export function HerdrCoreWorkbench({
           </aside>
 
           {/* Main terminal inspection & interactive pane */}
-          <section className="flex min-h-0 min-w-0 flex-1 flex-col gap-2 p-2.5">
+          <section
+            className={cn(
+              "min-h-0 min-w-0 flex-1 flex-col gap-2 p-2.5 @[720px]:flex",
+              narrowPane === "detail" ? "flex" : "hidden",
+            )}
+          >
             {selectedTerminal ? (
               <>
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-2">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
+                <div className="flex flex-col gap-1.5 border-b border-border pb-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex min-w-0 flex-1 items-center gap-1.5">
                       <h3 className="truncate text-sm font-semibold text-foreground">
                         {terminalDisplayName(selectedTerminal)}
                       </h3>
-                      <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
-                        {selectedTerminal.address}
-                      </span>
+                      <button
+                        aria-label={
+                          copiedAddress
+                            ? t(m.addressCopied, {
+                                address: selectedTerminal.address,
+                              })
+                            : t(m.copyAddress, {
+                                address: selectedTerminal.address,
+                              })
+                        }
+                        className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border bg-muted/40 px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        data-testid="herdr-copy-address"
+                        onClick={copySelectedAddress}
+                        title={t(m.copyAddress, {
+                          address: selectedTerminal.address,
+                        })}
+                        type="button"
+                      >
+                        <span>{selectedTerminal.address}</span>
+                        <Icon
+                          icon={copiedAddress ? Tick02Icon : ClipboardCopyIcon}
+                          size={11}
+                        />
+                      </button>
                     </div>
-                    <div className="mt-1">
-                      <HerdrCoreStatusPill terminal={selectedTerminal} />
-                    </div>
+
+                    {selectedTerminal.state === "live" ? (
+                      <div
+                        className="inline-flex shrink-0 rounded-lg border border-border bg-muted/50 p-0.5"
+                        role="group"
+                      >
+                        <button
+                          aria-pressed={viewMode === "light"}
+                          className={cn(
+                            "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                            viewMode === "light"
+                              ? "bg-card text-foreground shadow-outline"
+                              : "text-muted-foreground hover:text-foreground",
+                          )}
+                          onClick={() => setViewMode("light")}
+                          type="button"
+                        >
+                          {t(m.lightMode)}
+                        </button>
+                        <button
+                          aria-pressed={viewMode === "interactive"}
+                          className={cn(
+                            "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                            viewMode === "interactive"
+                              ? "bg-card text-foreground shadow-outline"
+                              : "text-muted-foreground hover:text-foreground",
+                          )}
+                          onClick={() => setViewMode("interactive")}
+                          type="button"
+                        >
+                          {t(m.interactiveMode)}
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
 
-                  {selectedTerminal.state === "live" ? (
-                    <div
-                      className="inline-flex shrink-0 rounded-lg border border-border bg-muted/50 p-0.5"
-                      role="group"
-                    >
-                      <button
-                        aria-pressed={viewMode === "light"}
-                        className={cn(
-                          "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
-                          viewMode === "light"
-                            ? "bg-card text-foreground shadow-outline"
-                            : "text-muted-foreground hover:text-foreground",
-                        )}
-                        onClick={() => setViewMode("light")}
-                        type="button"
-                      >
-                        {t(m.lightMode)}
-                      </button>
-                      <button
-                        aria-pressed={viewMode === "interactive"}
-                        className={cn(
-                          "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
-                          viewMode === "interactive"
-                            ? "bg-card text-foreground shadow-outline"
-                            : "text-muted-foreground hover:text-foreground",
-                        )}
-                        onClick={() => setViewMode("interactive")}
-                        type="button"
-                      >
-                        {t(m.interactiveMode)}
-                      </button>
+                  <HerdrCoreStatusPill terminal={selectedTerminal} />
+
+                  {/* Compact live metadata ribbon */}
+                  {selectedCwd ||
+                  selectedTerminal.template ||
+                  selectedWorkItem ||
+                  selectedRoom ||
+                  selectedSpace ? (
+                    <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+                      {selectedTerminal.template ? (
+                        <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-foreground">
+                          {selectedTerminal.template}
+                        </span>
+                      ) : null}
+                      {selectedWorkItem ? (
+                        <span className="rounded bg-[var(--app-card-info-surface)] px-1.5 py-0.5 font-mono text-[10px] font-medium text-[var(--app-card-info-text)]">
+                          {selectedWorkItem}
+                        </span>
+                      ) : null}
+                      {selectedSpace ? (
+                        <span className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-foreground">
+                          <Icon icon={Layers01Icon} size={10} />
+                          <span>{selectedSpace}</span>
+                        </span>
+                      ) : null}
+                      {selectedCwd ? (
+                        <span
+                          className="inline-flex min-w-0 max-w-full items-center gap-1 truncate font-mono text-[10px]"
+                          title={selectedCwd}
+                        >
+                          <Icon
+                            className="shrink-0"
+                            icon={Folder01Icon}
+                            size={11}
+                          />
+                          <span className="truncate">{selectedCwd}</span>
+                        </span>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>
@@ -512,6 +709,7 @@ export function HerdrCoreWorkbench({
                       client={client}
                       initialCols={selectedTerminal.cols || 100}
                       initialRows={selectedTerminal.rows || 30}
+                      key={selectedTerminal.address}
                       onStatusMessage={(msg) => {
                         if (msg.type === "status" || msg.type === "closed") {
                           refreshAll();
@@ -522,6 +720,7 @@ export function HerdrCoreWorkbench({
                 ) : (
                   <TerminalLightView
                     client={client}
+                    key={selectedTerminal.address}
                     onRefreshList={refreshAll}
                     terminal={selectedTerminal}
                   />
@@ -538,6 +737,7 @@ export function HerdrCoreWorkbench({
 
       {launchOpen ? (
         <LaunchTerminalDialog
+          defaultCwd={selectedCwd}
           defaultMachine={filters.machine}
           defaultRoomId={roomId}
           defaultWorkItemId={filters.workItemId}

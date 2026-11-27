@@ -213,6 +213,7 @@ export type HerdrCoreAttachClientMessage =
       readonly cols?: number;
       readonly rows?: number;
     }
+  | { readonly type: "focus"; readonly focused: boolean }
   | {
       readonly type: "put";
       readonly name: string;
@@ -227,6 +228,7 @@ export type HerdrCoreAttachServerMessage =
       readonly cols?: number;
       readonly rows?: number;
       readonly observe?: boolean;
+      readonly resumed?: boolean;
       readonly resize_notifications?: boolean;
       readonly automatic_input?: boolean;
     }
@@ -239,7 +241,9 @@ export type HerdrCoreAttachServerMessage =
     }
   | {
       readonly type: "put_result";
-      readonly path: string;
+      readonly ok?: boolean;
+      readonly error?: string;
+      readonly path?: string;
       readonly name?: string;
       readonly bytes?: number;
     }

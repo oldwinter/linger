@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 
+import { Skeleton } from "@/components/ui/skeleton";
 import { useDesktopComputer } from "@/features/local-computer/desktop-computer";
 import { localComputersQueryOptions } from "@/features/local-computer/local-computer-queries";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
@@ -47,7 +48,23 @@ export function HerdrCoreRoomPanel({
 
   if (hidden) return null;
 
-  if (!computersQuery.isLoading && !preferredComputer) {
+  if (computersQuery.isLoading) {
+    return (
+      <div
+        aria-busy="true"
+        aria-label={t(m.loadingWorkbench)}
+        className="flex h-full flex-col gap-3 p-3"
+        role="status"
+      >
+        <Skeleton className="h-9 w-full rounded-lg" />
+        <Skeleton className="h-16 w-full rounded-xl" />
+        <Skeleton className="h-16 w-full rounded-xl" />
+        <Skeleton className="h-32 flex-1 rounded-xl" />
+      </div>
+    );
+  }
+
+  if (!preferredComputer) {
     return (
       <div className="flex h-full flex-col items-center justify-center px-6 py-10 text-center">
         <p className="text-sm font-semibold text-foreground">
@@ -75,7 +92,7 @@ export function HerdrCoreRoomPanel({
             className="h-7 max-w-[200px] truncate rounded-md border border-border bg-card px-2 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             id="herdr-room-computer-picker"
             onChange={(event) => setChosenComputerId(event.target.value)}
-            value={preferredComputer?.computer_id ?? ""}
+            value={preferredComputer.computer_id}
           >
             {computers.map((computer) => (
               <option key={computer.computer_id} value={computer.computer_id}>
@@ -89,16 +106,15 @@ export function HerdrCoreRoomPanel({
         </div>
       ) : null}
 
-      {preferredComputer ? (
-        <HerdrCoreWorkbench
-          computerId={preferredComputer.computer_id}
-          isDesktopLocalComputer={
-            Boolean(desktopComputerId) &&
-            preferredComputer.computer_id === desktopComputerId
-          }
-          roomId={roomId}
-        />
-      ) : null}
+      <HerdrCoreWorkbench
+        computerId={preferredComputer.computer_id}
+        isDesktopLocalComputer={
+          Boolean(desktopComputerId) &&
+          preferredComputer.computer_id === desktopComputerId
+        }
+        roomId={roomId}
+        teamHubApi={client.api}
+      />
     </div>
   );
 }

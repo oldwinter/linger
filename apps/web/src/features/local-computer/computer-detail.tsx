@@ -30,6 +30,7 @@ import { Link } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Icon, type IconSvgElement } from "@/components/ui/icon";
 import { ModalDialog } from "@/components/ui/modal-dialog";
+import type { TeamHubApi } from "@/features/teamhub/teamhub-api";
 import type {
   TeamHubLocalComputerPage,
   TeamHubLocalRuntimeType,
@@ -104,6 +105,7 @@ export function ComputerDetail({
   onOpenAgent,
   onRefreshStatus,
   onRemove,
+  teamHubApi,
 }: {
   /** Active runtime from the Computer's current model source when known. */
   activeRuntime?: TeamHubLocalRuntimeType;
@@ -123,6 +125,7 @@ export function ComputerDetail({
   /** Refreshes TeamHub computer queries alongside live desktop status checks. */
   onRefreshStatus?: () => Promise<void> | void;
   onRemove?: () => void;
+  teamHubApi?: TeamHubApi;
 }) {
   const t = useT();
   const [reportedComputer, setReportedComputer] = useState(latestComputer);
@@ -399,6 +402,7 @@ export function ComputerDetail({
             computerName={computer.display_name}
             isDesktopLocalComputer={isThisComputer}
             onClose={() => setTerminalsOpen(false)}
+            teamHubApi={teamHubApi}
           />
         </Suspense>
       ) : null}

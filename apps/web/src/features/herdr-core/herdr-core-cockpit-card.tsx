@@ -1,13 +1,16 @@
 import {
   Alert01Icon,
   ArrowUpRight01Icon,
+  ClipboardCopyIcon,
   ComputerTerminal01Icon,
+  Tick02Icon,
 } from "@hugeicons/core-free-icons";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { TeamHubApi } from "@/features/teamhub/teamhub-api";
 import { useT } from "@/i18n/use-translation";
 import { cn } from "@/lib/cn";
@@ -32,6 +35,8 @@ import type {
 } from "./types";
 
 export type HerdrCoreCockpitDensity = "compact" | "verbose";
+
+const START_COMMAND = "hc server start";
 
 export interface HerdrCoreCockpitCardProps {
   readonly computerId: string;
@@ -61,10 +66,21 @@ function machineDotTone(machine: HerdrCoreMachine): string {
   return "bg-muted-foreground";
 }
 
+function splitMetricLabel(label: string): {
+  readonly leadingNumber: string | null;
+  readonly suffix: string;
+} {
+  const match = /^(\d+)(.*)$/u.exec(label.trim());
+  if (!match) {
+    return { leadingNumber: null, suffix: label };
+  }
+  return { leadingNumber: match[1] ?? null, suffix: match[2] ?? "" };
+}
+
 /**
- * Variant-B-compatible Magpie Cockpit telemetry card summarizing `herdr-core`
- * daemon identity, online machines, live/working/blocked/error terminal
- * counters, and direct jumps to blocked agents or the live Terminal Workbench.
+ * Magpie Cockpit telemetry card summarizing `herdr-core` daemon identity,
+ * online machines, live/working/blocked/error terminal odometers, and direct
+ * jumps to blocked or errored agents in the live Terminal Workbench.
  */
 export function HerdrCoreCockpitCard({
   computerId,
@@ -81,6 +97,7 @@ export function HerdrCoreCockpitCard({
 }: HerdrCoreCockpitCardProps) {
   const t = useT();
   const isCompact = density === "compact";
+  const [copiedCmd, setCopiedCmd] = useState(false);
   const desktopApi = useMemo(() => getDesktopHerdrCoreApi(), []);
   const shouldProbeDesktopBridge =
     isDesktopLocalComputer &&
@@ -199,12 +216,19 @@ export function HerdrCoreCockpitCard({
         ? t(m.cockpitOffline)
         : t(m.cockpitUnavailable);
 
+  function copyStartCommand() {
+    void navigator.clipboard?.writeText(START_COMMAND).then(() => {
+      setCopiedCmd(true);
+      window.setTimeout(() => setCopiedCmd(false), 1_500);
+    });
+  }
+
   return (
     <section
       aria-label={t(m.cockpitTitle)}
       className={cn(
         "flex flex-col rounded-xl border border-border bg-card shadow-2xs",
-        isCompact ? "gap-2.5 p-3" : "gap-3 p-4",
+        isCompact ? "gap-2.5 p-3" : "gap-3.5 p-4",
         className,
       )}
       data-cockpit-density={density}
@@ -221,23 +245,46 @@ export function HerdrCoreCockpitCard({
         transportMode={client.transportMode}
       />
 
-      {isAvailable ? (
+      {isChecking ? (
+        <div
+          aria-busy="true"
+          className="grid grid-cols-2 gap-2 sm:grid-cols-4"
+          role="status"
+        >
+          <Skeleton className="h-12 w-full rounded-lg" />
+          <Skeleton className="h-12 w-full rounded-lg" />
+          <Skeleton className="h-12 w-full rounded-lg" />
+          <Skeleton className="h-12 w-full rounded-lg" />
+        </div>
+      ) : isAvailable ? (
         <>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <MetricPill
+            <MetricTile
               label={t(m.cockpitLiveCount, { count: liveCount })}
+              onClick={onOpenWorkbench}
               tone="neutral"
             />
-            <MetricPill
+            <MetricTile
               label={t(m.cockpitWorkingCount, { count: workingCount })}
-              tone="info"
+              onClick={onOpenWorkbench}
+              tone={workingCount > 0 ? "info" : "neutral"}
             />
-            <MetricPill
+            <MetricTile
               label={t(m.cockpitBlockedCount, { count: blockedCount })}
+              onClick={
+                blockedTerminals[0] && onSelectTerminal
+                  ? () => onSelectTerminal(blockedTerminals[0]!.address)
+                  : onOpenWorkbench
+              }
               tone={blockedCount > 0 ? "warning" : "neutral"}
             />
-            <MetricPill
+            <MetricTile
               label={t(m.cockpitErrorCount, { count: errorTerminals.length })}
+              onClick={
+                errorTerminals[0] && onSelectTerminal
+                  ? () => onSelectTerminal(errorTerminals[0]!.address)
+                  : onOpenWorkbench
+              }
               tone={errorTerminals.length > 0 ? "danger" : "neutral"}
             />
           </div>
@@ -261,14 +308,35 @@ export function HerdrCoreCockpitCard({
             />
           ) : null}
         </>
-      ) : !isChecking ? (
-        <p
-          className="text-xs text-muted-foreground"
+      ) : (
+        <div
+          className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/80 bg-muted/30 px-3 py-2 text-xs text-muted-foreground"
           data-testid="herdr-core-degraded-note"
         >
-          {isOffline ? t(m.cockpitOfflineHint) : t(m.cockpitUnavailableHint)}
-        </p>
-      ) : null}
+          <span>
+            {isOffline ? t(m.cockpitOfflineHint) : t(m.cockpitUnavailableHint)}
+          </span>
+          {!isOffline ? (
+            <div className="flex items-center gap-1.5">
+              <code className="rounded bg-card px-2 py-0.5 font-mono text-[11px] text-foreground shadow-outline">
+                {START_COMMAND}
+              </code>
+              <Button
+                aria-label={t(m.copyCommand)}
+                onClick={copyStartCommand}
+                size="compact"
+                tone="secondary"
+              >
+                <Icon
+                  icon={copiedCmd ? Tick02Icon : ClipboardCopyIcon}
+                  size={12}
+                />
+                <span>{copiedCmd ? t(m.copied) : t(m.copyCommand)}</span>
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      )}
     </section>
   );
 }
@@ -524,29 +592,80 @@ function CockpitVerboseDetails({
   );
 }
 
-function MetricPill({
+function MetricTile({
   label,
   tone,
+  onClick,
 }: {
   readonly label: string;
   readonly tone: "neutral" | "info" | "warning" | "danger";
+  readonly onClick?: () => void;
 }) {
-  const toneClass =
+  const { leadingNumber, suffix } = splitMetricLabel(label);
+  const surfaceClass =
     tone === "warning"
       ? "border-[var(--app-status-warning-border)] bg-[var(--app-status-warning-surface)] text-[var(--app-status-warning-text)]"
       : tone === "danger"
         ? "border-[var(--app-status-danger-border)] bg-[var(--app-status-danger-surface)] text-[var(--app-status-danger-text)]"
         : tone === "info"
           ? "border-[var(--app-card-info-border)] bg-[var(--app-card-info-surface)] text-[var(--app-card-info-text)]"
-          : "border-border bg-muted/50 text-foreground";
+          : "border-border bg-muted/35 text-foreground";
+  const dotClass =
+    tone === "warning"
+      ? "bg-[var(--app-status-warning-text)]"
+      : tone === "danger"
+        ? "bg-[var(--app-status-danger-text)]"
+        : tone === "info"
+          ? "bg-[var(--app-card-info-text)]"
+          : "bg-muted-foreground/50";
+
+  const content = (
+    <span className="flex items-baseline gap-1.5 tabular-nums">
+      <span
+        aria-hidden="true"
+        className={cn("size-1.5 shrink-0 self-center rounded-full", dotClass)}
+      />
+      {leadingNumber !== null ? (
+        <>
+          <span className="sr-only">{label}</span>
+          <span aria-hidden="true" className="inline-flex items-baseline gap-1">
+            <span className="text-base font-semibold leading-none tracking-tight">
+              {leadingNumber}
+            </span>
+            <span className="text-xs font-medium opacity-80">
+              {suffix.trim()}
+            </span>
+          </span>
+        </>
+      ) : (
+        <span className="text-xs font-medium">{label}</span>
+      )}
+    </span>
+  );
+
+  if (onClick) {
+    return (
+      <button
+        className={cn(
+          "flex items-center justify-between rounded-lg border px-3 py-2 text-left transition-colors hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none",
+          surfaceClass,
+        )}
+        onClick={onClick}
+        type="button"
+      >
+        {content}
+      </button>
+    );
+  }
+
   return (
-    <span
+    <div
       className={cn(
-        "inline-flex items-center justify-center rounded-lg border px-2 py-1.5 text-xs font-medium tabular-nums",
-        toneClass,
+        "flex items-center justify-between rounded-lg border px-3 py-2",
+        surfaceClass,
       )}
     >
-      {label}
-    </span>
+      {content}
+    </div>
   );
 }
