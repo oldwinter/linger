@@ -11,6 +11,7 @@ Authoritative references:
 - [Local Inference](../../../../docs/local-inference.md)
 - [Model Scheduling](../../../../docs/model-scheduling.md)
 - [Desktop Release](../../../../docs/desktop-release.md)
+- [Desktop Release Test Plan](../../../../docs/desktop-release-test-plan.md)
 - [Local Models contract](../../../../contracts/openapi/components/local-models.yaml)
 - [Model Source / BYOK contract](../../../../contracts/openapi/components/model-source.yaml)
 - [Local Installation engine](../../../../packages/local-installation/AGENTS.md)
@@ -71,12 +72,12 @@ Run the cross-platform helper first (`node .agents/skills/verify-linger/scripts/
 
 1. Launch Desktop setup. Observe cold-cache `localmodels` kit download and SHA-256 verification under `<defaultHome>/tools/localmodels/<sha256>`.
 2. **Selected drive check (Windows secondary drive or Linux extra mount):** Open **Customize** and pick another drive/mount. Confirm inspection re-runs with `--inspect-target <selectedHome>` while kit cache stays in default home, and free disk space reflects the chosen mount. Verify an undersized or read-only folder is refused before install starts.
-3. **Memory held (`blocked-now`) branch:** When testable, occupy GPU/RAM with another process so `setup inspect` returns `blocked-now` (`gpu-memory-required` or `free-memory-required`). Verify Local model shows held state with free vs required memory, Quick Install recommends a non-local runtime instead, and clicking **Check again** after freeing memory transitions to `ready`.
-4. **Pi-only gating:** Under **Customize**, select Codex or Claude Code and confirm Local model is disabled (`aria-disabled`, stating local models are only available with Pi). Switch to Pi and select Local model.
+3. **Memory held (`blocked-now`) and unavailable branches:** When testable, occupy GPU/RAM with another process so `setup inspect` (which passes `--share-gpu` by default) returns `blocked-now` (`gpu-memory-required` or `free-memory-required`). Verify Quick Install recommends a non-local runtime with the structured reason summary, selecting **Local model** under **Customize** keeps the `#local-model` card visible and disabled (never hidden) with held/unavailable reason copy, and clicking **Check again** after freeing memory transitions to `ready`.
+4. **Model source separation (Local model vs Subscription vs BYOK):** Under **Customize**, verify the 3-way **Model source** selector (**Local model** | **Subscription** | **BYOK**): **Local model** binds to Pi via Bifrost, **Subscription** offers `Auto` / `Codex` / `Claude Code`, and **BYOK** offers `Claude Code` / `Codex` / `Pi`. Select **Local model** when ready.
 5. Run installation. Observe `stack apply --jsonl` byte progress, rate, and remaining bytes without premature timeout. Wait until `Linger is ready` (a model counts as installed only after answering a real question).
 6. Open Another Me's Direct Room (placed on Pi via `preferred_runtime`), send a prompt with a unique marker, and confirm a delivered reply from the local model after a fresh browser reload.
 
-**Pass:** Kit is sealed (`0500` POSIX / `0400` + user/SYSTEM ACL Windows) with `.verified.json`; `<targetHome>/runtime/localmodels/{plan.json,plan-inputs.json,binding.json,state/model-source.json}` are owner-only; Computer `config.json` contains all 4 `local_models` paths; **Settings › Models** reports `mode: local`, `runtime: pi`, loaded model with non-zero `tokens_per_second`, and `Another Me` in `used_by`.
+**Pass:** Kit is sealed (`0500` POSIX / `0400` + user/SYSTEM ACL Windows) with `.verified.json`; `<targetHome>/runtime/localmodels/{plan.json,plan-inputs.json,binding.json,state/model-source.json,tools/,bifrost/,bifrost-addr}` are owner-only (per-home isolated, with no `$INST/model-gateway/` folder created on new installs); Computer `config.json` contains all 4 `local_models` paths; **Settings › Models** reports `mode: local`, `runtime: pi`, loaded model with non-zero `tokens_per_second`, and `Another Me` in `used_by`.
 
 **Evidence:** Setup screenshots (inspection, Customize, progress, ready), kit path/permission listing, `daemon status --json`, `GET /v0/tenants/{tenantId}/local-computers/{computerId}/local-models` JSON, persisted Room message ID and Run ID.
 

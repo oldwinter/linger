@@ -43,8 +43,9 @@ scripts/ci/desktop-release.sh publish desktop-v0.16.36 --notes-file notes.md
   `scripts/ci/desktop-release.sh publish` validates the uploaded assets,
   attaches the release notes, marks it as the latest release, and cleans up
   matching `desktop-v<version>-rc.*` prereleases and tags.
-- Before publishing a stable release, upgrade the previous stable release to
-  the candidate on each platform following the
+- Before publishing a stable release, follow the
+  [Desktop Release Test Plan](desktop-release-test-plan.md) and upgrade the
+  previous stable release to the candidate on each platform following the
   [upgrade recipe](../.agents/skills/verify-linger/features/desktop-and-installer.md#upgrade-from-the-previous-release);
   a fresh install does not catch state an earlier release left behind.
 - The version comes from the tag. The build writes it into
@@ -243,7 +244,8 @@ linked; verify the file bytes and Agent logs separately with
 ### Desktop Lifecycle Verification (LIFE-01 and LIFE-02)
 
 Release verification checks two desktop quit semantics across tray Quit,
-`Cmd+Q`, and Dock / App menu Quit:
+`Cmd+Q`, and Dock / App menu Quit (see also the full
+[Desktop Release Test Plan](desktop-release-test-plan.md)):
 
 - **`LIFE-01` (Quit preserves local background services):** Plain
   **Quit LingerX** (when idle) and **Quit and Stop Tasks** (when busy) exit the
