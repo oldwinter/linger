@@ -1,3 +1,4 @@
+import { requestBodyText } from "@linger/service-kit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { QUICK_NOTE_IPC } from "../shared/quick-note.js";
@@ -210,7 +211,7 @@ describe("QuickNoteModule", () => {
       `${SERVER}/v0/tenants/${TENANT}/me/pocket-notes/today`,
     );
     expect(calls[1]!.init.method).toBe("PUT");
-    expect(JSON.parse(String(calls[1]!.init.body))).toEqual({
+    expect(JSON.parse(requestBodyText(calls[1]!.init.body))).toEqual({
       text: "Morning thoughts\n\nA new idea",
     });
     expect(f.window.close).not.toHaveBeenCalled();
@@ -224,7 +225,7 @@ describe("QuickNoteModule", () => {
     const f = await fixture();
 
     expect(await f.invoke("First note")).toEqual({ ok: true });
-    expect(JSON.parse(String(calls[1]!.init.body))).toEqual({
+    expect(JSON.parse(requestBodyText(calls[1]!.init.body))).toEqual({
       text: "First note",
     });
     await f.host.stop("quit");
@@ -375,7 +376,7 @@ describe("QuickNoteModule", () => {
           if (getCount === 1) await firstGetGate;
           return pageResponse(saved);
         }
-        const body = JSON.parse(String(init.body)) as { text: string };
+        const body = JSON.parse(requestBodyText(init.body)) as { text: string };
         saved = body.text;
         order.push(`PUT:${body.text}`);
         return pageResponse(saved);

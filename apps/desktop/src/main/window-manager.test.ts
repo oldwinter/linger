@@ -737,7 +737,7 @@ describe("WindowManagerModule", () => {
       await host.start();
       const serve = vi.mocked(protocol.handle).mock.calls.at(-1)![1];
       const page = async (url: string) =>
-        (await serve(new Request(url) as never)).text();
+        (await serve(new Request(url))).text();
       expect(await page("app://shell/titlebar")).toContain('lang="en"');
 
       const titlebar = state.views[0]!.webContents;

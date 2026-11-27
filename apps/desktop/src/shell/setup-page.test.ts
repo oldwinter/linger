@@ -929,7 +929,7 @@ describe("setup page Quick Install recommendation", () => {
       .querySelector<HTMLButtonElement>(`[data-value="${value}"]`)!
       .click();
   };
-  const words = (id: string) => $(id).textContent!.replace(/\s+/g, " ").trim();
+  const words = (id: string) => $(id).textContent.replace(/\s+/g, " ").trim();
   const withLocal = (
     base: SetupState,
     localServer: Partial<SetupState["localServer"]>,
@@ -1334,7 +1334,7 @@ describe("setup page Quick Install recommendation", () => {
 describe("setup page permissions", () => {
   it("names the menu bar on macOS and the system tray elsewhere", async () => {
     const permissions = () =>
-      document.querySelector('[data-step="permissions"]')!.textContent!;
+      document.querySelector('[data-step="permissions"]')!.textContent;
     for (const [platform, place] of [
       ["darwin", "menu bar"],
       ["win32", "system tray"],

@@ -11,9 +11,12 @@ import {
 
 // Electron stand-ins: only what the module touches.
 function fakes() {
-  const childContents = Object.assign(new EventEmitter(), {
+  const childContents: EventEmitter & {
+    setWindowOpenHandler: ReturnType<typeof vi.fn>;
+    opener: unknown;
+  } = Object.assign(new EventEmitter(), {
     setWindowOpenHandler: vi.fn(),
-    opener: undefined as unknown,
+    opener: undefined,
   });
   const child = Object.assign(new EventEmitter(), {
     webContents: childContents,

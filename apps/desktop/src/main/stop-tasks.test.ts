@@ -1,3 +1,4 @@
+import { requestUrlText } from "@linger/service-kit";
 import { describe, expect, it, vi } from "vitest";
 
 import { stopActiveRoomRunsBeforeQuit } from "./stop-tasks.js";
@@ -13,7 +14,7 @@ describe("stopActiveRoomRunsBeforeQuit", () => {
   it("cancels queued and running Room Runs without calling background-task cancel", async () => {
     const calls: { method: string; url: string; body?: unknown }[] = [];
     const fetchImpl = vi.fn<typeof fetch>(async (input, init) => {
-      const url = typeof input === "string" ? input : String(input);
+      const url = requestUrlText(input);
       const method = init?.method ?? "GET";
       const body =
         typeof init?.body === "string" ? JSON.parse(init.body) : undefined;

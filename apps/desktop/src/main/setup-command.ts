@@ -149,4 +149,4 @@ const setupCommand = z.discriminatedUnion("op", [
 
 // Commands come from a local page, but are still validated at the boundary.
 export const parseSetupCommand = (value: unknown): SetupCommand =>
-  setupCommand.parse(value) as SetupCommand;
+  setupCommand.parse(value);

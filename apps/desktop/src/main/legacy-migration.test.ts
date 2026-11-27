@@ -150,12 +150,7 @@ describe("retireLegacyBridge", () => {
     };
     const connect = vi.fn(async () => ({ client }));
     const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
-    await retireLegacyBridge(
-      "/tmp/bridge",
-      "0.17.0",
-      log,
-      connect as unknown as Parameters<typeof retireLegacyBridge>[3],
-    );
+    await retireLegacyBridge("/tmp/bridge", "0.17.0", log, connect);
     expect(client.request).toHaveBeenCalledWith({
       op: "shutdown",
       reason: "upgrade",

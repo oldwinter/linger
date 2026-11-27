@@ -5,9 +5,40 @@ import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
 
 const typedFiles = [
-  "apps/{web,node-services,voice-runtime,computer,teamhub-cli}/**/*.{ts,tsx,mts,cts}",
+  "apps/{web,node-services,voice-runtime,computer,teamhub-cli,desktop,linger-installer}/**/*.{ts,tsx,mts,cts}",
   "packages/**/*.{ts,tsx,mts,cts}",
 ];
+
+const nodeServiceRoles = ["agent", "memory", "llm-wiki", "document", "voice"];
+
+// Roles in apps/node-services share only host-level seams under src/ and
+// packages/*; they must never import sibling role modules directly.
+const nodeServiceRoleBoundaryConfigs = nodeServiceRoles.map((role) => {
+  const siblingRoles = nodeServiceRoles.filter((other) => other !== role);
+  return {
+    files: [`apps/node-services/src/${role}/**/*.{ts,tsx,mts,cts}`],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: siblingRoles.map((other) => ({
+            group: [
+              `../${other}`,
+              `../${other}/*`,
+              `../../${other}`,
+              `../../${other}/*`,
+              `../../../${other}`,
+              `../../../${other}/*`,
+              `../../../../${other}`,
+              `../../../../${other}/*`,
+            ],
+            message: `Role "${role}" must not import sibling role "${other}" directly; exchange data through host-owned seams in apps/node-services/src/.`,
+          })),
+        },
+      ],
+    },
+  };
+});
 
 export default [
   {
@@ -76,7 +107,10 @@ export default [
     },
   },
   {
-    files: ["apps/web/src/**/*.{ts,tsx}"],
+    files: [
+      "apps/web/src/**/*.{ts,tsx}",
+      "apps/linger-installer/src/web/**/*.{ts,tsx}",
+    ],
     plugins: { "react-hooks": reactHooks },
     rules: {
       "react-hooks/rules-of-hooks": "error",
@@ -85,8 +119,12 @@ export default [
   },
   {
     ...jsxA11y.flatConfigs.recommended,
-    files: ["apps/web/src/**/*.{ts,tsx}"],
+    files: [
+      "apps/web/src/**/*.{ts,tsx}",
+      "apps/linger-installer/src/web/**/*.{ts,tsx}",
+    ],
   },
+  ...nodeServiceRoleBoundaryConfigs,
   {
     files: ["**/*.mjs"],
     languageOptions: {

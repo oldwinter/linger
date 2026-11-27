@@ -289,7 +289,7 @@ export class ComputerDaemonModule implements Module {
     const protect = this.#protect();
     if (!(env instanceof Promise) && !protect) {
       this.#env = env;
-      this.#launch();
+      void this.#launch();
       return;
     }
     const ready = protect
@@ -297,7 +297,7 @@ export class ComputerDaemonModule implements Module {
       : Promise.resolve(env);
     void ready.then((resolved) => {
       this.#env = resolved;
-      this.#launch();
+      void this.#launch();
     });
   }
 
@@ -376,7 +376,7 @@ export class ComputerDaemonModule implements Module {
         // An earlier restart can arm a retry while this one is queued.
         clearTimeout(this.#retry);
         await this.#terminate();
-        this.#launch();
+        await this.#launch();
       })
       .catch((error: unknown) => {
         // A cycle that threw must not leave the chain rejected, or every
@@ -400,7 +400,9 @@ export class ComputerDaemonModule implements Module {
       if (this.#startFailures >= FAILED_AFTER_EXITS)
         this.#setFailure(startFailure);
     }
-    this.#retry = setTimeout(() => this.#launch(), delay);
+    this.#retry = setTimeout(() => {
+      void this.#launch();
+    }, delay);
   }
 
   #closeDriver(): Promise<void> | undefined {

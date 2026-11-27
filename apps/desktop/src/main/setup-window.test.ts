@@ -357,7 +357,7 @@ describe("SetupWindowModule", () => {
         } as never,
         {
           ...stubModule("WorkspaceGrants"),
-        } as never,
+        },
         setup,
       ],
       {},

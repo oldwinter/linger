@@ -124,9 +124,7 @@ test("reports separate stage timings for a runtime lookup", async () => {
   vi.mocked(localModelsEnvironment).mockImplementationOnce(
     () => localModels.promise,
   );
-  vi.mocked(localmodelsComputerTool).mockImplementationOnce(
-    () => tool.promise as never,
-  );
+  vi.mocked(localmodelsComputerTool).mockImplementationOnce(() => tool.promise);
 
   const pending = instanceRuntime("/home", "local", {
     onTimings: (value) => timings.push(value),
@@ -190,7 +188,7 @@ test("runs independent runtime lookups concurrently after loading the instance",
   });
   vi.mocked(localmodelsComputerTool).mockImplementationOnce(async () => {
     await barrier("tool");
-    return undefined as never;
+    return undefined;
   });
 
   const result = await instanceRuntime("/home", "local");
@@ -235,9 +233,7 @@ test("drains sibling lookups before rejecting and reports settled timings", asyn
   vi.mocked(localModelsEnvironment).mockImplementationOnce(
     () => localModels.promise,
   );
-  vi.mocked(localmodelsComputerTool).mockImplementationOnce(
-    () => tool.promise as never,
-  );
+  vi.mocked(localmodelsComputerTool).mockImplementationOnce(() => tool.promise);
 
   let settled = false;
   const outcome = instanceRuntime("/home", "local", {

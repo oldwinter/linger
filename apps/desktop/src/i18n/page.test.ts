@@ -53,7 +53,7 @@ const load = (language: "en" | "zh-CN") => {
   document.documentElement.innerHTML = html;
   document.documentElement.lang = /<html lang="([^"]+)"/u.exec(html)![1]!;
   const scripts = [...document.querySelectorAll("script:not([type])")];
-  for (const script of scripts) new Function(script.textContent!)();
+  for (const script of scripts) new Function(script.textContent)();
   return (window as unknown as { result: Record<string, string> }).result;
 };
 

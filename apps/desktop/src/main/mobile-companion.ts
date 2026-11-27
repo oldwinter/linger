@@ -424,7 +424,7 @@ export class MobileCompanionModule implements Module {
               "Pairing is not currently open.",
           );
         }
-        clipboard.writeText(current.pairing.pairingUri);
+        await clipboard.writeText(current.pairing.pairingUri);
         return;
       }
       case "device.revoke": {

@@ -18,6 +18,7 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { zstdCompressSync } from "node:zlib";
 
+import { requestBodyText, requestUrlText } from "@linger/service-kit";
 import {
   afterEach,
   beforeEach,
@@ -488,7 +489,7 @@ const installerApi = (
     if (headers.get("origin") !== url.origin)
       return Response.json({ message: "origin" }, { status: 403 });
     if (url.pathname === "/api/session") {
-      expect(JSON.parse(String(init.body))).toEqual({ token: "abc" });
+      expect(JSON.parse(requestBodyText(init.body))).toEqual({ token: "abc" });
       return new Response("{}", {
         headers: {
           "set-cookie": "linger_installer_session=s1; Path=/api; HttpOnly",
@@ -499,7 +500,7 @@ const installerApi = (
       return Response.json({ message: "session" }, { status: 401 });
     if (url.pathname === "/api/setup") return setup.clone();
     if (url.pathname === "/api/jobs" && init.method === "POST") {
-      created.push(JSON.parse(String(init.body)));
+      created.push(JSON.parse(requestBodyText(init.body)));
       return Response.json(job({ state: "queued" }), { status: 202 });
     }
     if (url.pathname === "/api/jobs") return Response.json({ items: jobs });
@@ -508,7 +509,7 @@ const installerApi = (
       return Response.json(job({ state: "canceled" }), { status: 202 });
     }
     if (url.pathname === "/api/jobs/job/retry" && init.method === "POST") {
-      retried.push(JSON.parse(String(init.body)));
+      retried.push(JSON.parse(requestBodyText(init.body)));
       polls = 0;
       return Response.json(job({ state: "queued" }), { status: 202 });
     }
@@ -564,7 +565,7 @@ const installerApi = (
       return Response.json(runtime.login);
     }
     if (url.pathname === "/api/runtime-login" && init.method === "POST") {
-      runtime.logins.push(JSON.parse(String(init.body)));
+      runtime.logins.push(JSON.parse(requestBodyText(init.body)));
       return Response.json(runtime.login);
     }
     if (url.pathname === "/api/runtime-login") {
@@ -926,7 +927,7 @@ describe("LocalServerModule", () => {
     const root = tempDirectory();
     const archive = sourceArchive(root);
     const fetcher = vi.fn(async (input: string | URL | Request) => {
-      const url = String(input);
+      const url = requestUrlText(input);
       if (url === "https://github.com/linger.tar.gz")
         return new Response(null, {
           status: 302,
@@ -939,7 +940,7 @@ describe("LocalServerModule", () => {
         url: "https://github.com/linger.tar.gz",
         sha256: archive.sha256,
       },
-      fetch: fetcher as typeof fetch,
+      fetch: fetcher,
     });
     await f.host.start();
     const progress: number[] = [];
@@ -1314,7 +1315,7 @@ describe("LocalServerModule", () => {
     const bundle = readFileSync(bundleFile);
     for (const available of [true, false]) {
       const fetcher = vi.fn(async (input: string | URL | Request) =>
-        String(input).endsWith("/deps.tar.gz")
+        requestUrlText(input).endsWith("/deps.tar.gz")
           ? available
             ? new Response(bundle)
             : new Response("missing", { status: 404 })
@@ -1329,7 +1330,7 @@ describe("LocalServerModule", () => {
           url: "https://cdn.example/deps.tar.gz",
           sha256: createHash("sha256").update(bundle).digest("hex"),
         },
-        fetch: fetcher as typeof fetch,
+        fetch: fetcher,
       });
       await f.host.start();
       await f.module.begin();
@@ -1353,13 +1354,13 @@ describe("LocalServerModule", () => {
         mirrors: ["https://mirror.example/linger.tar.gz"],
         sha256: archive.sha256,
       },
-      fetch: (async (input: string | URL | Request) => {
-        const url = new URL(String(input));
+      fetch: async (input: string | URL | Request) => {
+        const url = new URL(requestUrlText(input));
         hosts.push(url.host);
         return url.host === "github.com"
           ? new Response("unavailable", { status: 503 })
           : new Response(archive.bytes);
-      }) as typeof fetch,
+      },
     });
     await f.host.start();
     await f.module.begin();
@@ -1378,10 +1379,10 @@ describe("LocalServerModule", () => {
         url: "https://cdn.example/linger.tar.gz",
         sha256: archive.sha256,
       },
-      fetch: (async () => {
+      fetch: async () => {
         during = readdirSync(sources);
         return new Response(archive.bytes);
-      }) as typeof fetch,
+      },
     });
     const sources = path.join(f.home, "desktop", "source");
     for (const old of ["older", "running"])
@@ -1406,7 +1407,7 @@ describe("LocalServerModule", () => {
   it("opens the app once the Another Me and the starter agents are there", async () => {
     const polls = { anotherMe: 0, rooms: 0 };
     const server = (async (input: string | URL | Request) => {
-      const url = new URL(String(input));
+      const url = new URL(requestUrlText(input));
       if (url.pathname === "/v0/me")
         return Response.json({ actors: [{ kind: "human", tenant_id: "t1" }] });
       if (url.pathname === "/v0/tenants/t1/another-me")
@@ -1447,7 +1448,7 @@ describe("LocalServerModule", () => {
 
   it("says what the server is missing when the Another Me never comes", async () => {
     const server = (async (input: string | URL | Request) => {
-      const url = new URL(String(input));
+      const url = new URL(requestUrlText(input));
       if (url.pathname === "/v0/me")
         return Response.json({ actors: [{ kind: "human", tenant_id: "t1" }] });
       if (url.pathname === "/v0/tenants/t1/another-me")
@@ -1489,7 +1490,7 @@ describe("LocalServerModule", () => {
   it("surfaces server placement_blocker diagnostics while polling and on timeout", async () => {
     let polls = 0;
     const server = (async (input: string | URL | Request) => {
-      const url = new URL(String(input));
+      const url = new URL(requestUrlText(input));
       if (url.pathname === "/v0/me")
         return Response.json({ actors: [{ kind: "human", tenant_id: "t1" }] });
       if (url.pathname === "/v0/tenants/t1/another-me") {
@@ -1545,7 +1546,7 @@ describe("LocalServerModule", () => {
   it("completes setup when placement_blocker clears after the runtime becomes ready", async () => {
     let polls = 0;
     const server = (async (input: string | URL | Request) => {
-      const url = new URL(String(input));
+      const url = new URL(requestUrlText(input));
       if (url.pathname === "/v0/me")
         return Response.json({ actors: [{ kind: "human", tenant_id: "t1" }] });
       if (url.pathname === "/v0/tenants/t1/another-me") {
@@ -1596,7 +1597,7 @@ describe("LocalServerModule", () => {
   it("stops waiting immediately when creating the default workspace folder failed", async () => {
     let polls = 0;
     const server = (async (input: string | URL | Request) => {
-      const url = new URL(String(input));
+      const url = new URL(requestUrlText(input));
       if (url.pathname === "/v0/me")
         return Response.json({ actors: [{ kind: "human", tenant_id: "t1" }] });
       if (url.pathname === "/v0/tenants/t1/another-me") {
@@ -1636,7 +1637,7 @@ describe("LocalServerModule", () => {
   it("stops waiting once the Computer service cannot start", async () => {
     const polls = { anotherMe: 0 };
     const server = (async (input: string | URL | Request) => {
-      const url = new URL(String(input));
+      const url = new URL(requestUrlText(input));
       if (url.pathname === "/v0/me")
         return Response.json({ actors: [{ kind: "human", tenant_id: "t1" }] });
       if (url.pathname === "/v0/tenants/t1/another-me") {
@@ -1672,7 +1673,7 @@ describe("LocalServerModule", () => {
   it("stops waiting immediately when the Computer daemon reports an identity conflict", async () => {
     const polls = { anotherMe: 0 };
     const server = (async (input: string | URL | Request) => {
-      const url = new URL(String(input));
+      const url = new URL(requestUrlText(input));
       if (url.pathname === "/v0/me")
         return Response.json({ actors: [{ kind: "human", tenant_id: "t1" }] });
       if (url.pathname === "/v0/tenants/t1/another-me") {
@@ -1705,7 +1706,7 @@ describe("LocalServerModule", () => {
   it("waits for the enrolled Computer to report online before finishing setup", async () => {
     let computerPolls = 0;
     const server = (async (input: string | URL | Request) => {
-      const url = new URL(String(input));
+      const url = new URL(requestUrlText(input));
       if (url.pathname === "/v0/me")
         return Response.json({ actors: [{ kind: "human", tenant_id: "t1" }] });
       if (url.pathname === "/v0/tenants/t1/another-me")
@@ -1749,7 +1750,7 @@ describe("LocalServerModule", () => {
     // On timeout while offline, it reports the Computer is offline instead
     // of claiming Another Me is missing.
     const offlineServer = (async (input: string | URL | Request) => {
-      const url = new URL(String(input));
+      const url = new URL(requestUrlText(input));
       if (url.pathname === "/v0/me")
         return Response.json({ actors: [{ kind: "human", tenant_id: "t1" }] });
       if (url.pathname === "/v0/tenants/t1/another-me")
@@ -1787,7 +1788,7 @@ describe("LocalServerModule", () => {
         url: "https://example.com/linger.tar.gz",
         sha256: "0".repeat(64),
       },
-      fetch: (async () => new Response(archive.bytes)) as typeof fetch,
+      fetch: async () => new Response(archive.bytes),
     });
     await f.host.start();
     await expect(f.module.begin()).rejects.toThrow();
@@ -2356,7 +2357,7 @@ describe("LocalServerModule", () => {
       );
       const fetchedUrls: string[] = [];
       const fetchMock = vi.fn(async (input: string | URL | Request) => {
-        fetchedUrls.push(String(input));
+        fetchedUrls.push(requestUrlText(input));
         throw new Error("unexpected network download");
       }) as unknown as typeof fetch;
 
@@ -2423,7 +2424,7 @@ describe("LocalServerModule", () => {
       );
       const fetchedUrls: string[] = [];
       const fetchMock = vi.fn(async (input: string | URL | Request) => {
-        fetchedUrls.push(String(input));
+        fetchedUrls.push(requestUrlText(input));
         return new Response("missing", { status: 404 });
       }) as unknown as typeof fetch;
 
@@ -3878,7 +3879,7 @@ describe("LocalServerModule", () => {
     const plain = fixture(
       (home) => ({
         ...withCheckout(home),
-        fetch: (async () => new Response(null)) as typeof fetch,
+        fetch: async () => new Response(null),
       }),
       {},
       checkout,
@@ -5159,7 +5160,7 @@ describe("LocalServerModule after a restart", () => {
           sha256: archive.sha256,
         },
         // The services still answer, as when only the app was replaced.
-        fetch: (async () => new Response(archive.bytes)) as typeof fetch,
+        fetch: async () => new Response(archive.bytes),
       },
       enrolled,
       (home) => {
@@ -5321,7 +5322,7 @@ describe("LocalServerModule after a restart", () => {
           url: "https://cdn.example/linger.tar.gz",
           sha256: archive.sha256,
         },
-        fetch: (async () => new Response(archive.bytes)) as typeof fetch,
+        fetch: async () => new Response(archive.bytes),
       },
       enrolled,
       (home) => {
@@ -5372,7 +5373,7 @@ describe("LocalServerModule after a restart", () => {
           url: "https://cdn.example/linger.tar.gz",
           sha256: archive.sha256,
         },
-        fetch: download as typeof fetch,
+        fetch: download,
       },
       enrolled,
     );
@@ -5384,7 +5385,7 @@ describe("LocalServerModule after a restart", () => {
     expect(second.showStarting).not.toHaveBeenCalled();
     expect(
       download.mock.calls.some(([url]) =>
-        String(url).startsWith("https://cdn.example/"),
+        requestUrlText(url).startsWith("https://cdn.example/"),
       ),
     ).toBe(false);
     await second.host.stop("quit");
@@ -5399,7 +5400,7 @@ describe("LocalServerModule after a restart", () => {
           url: "https://cdn.example/linger.tar.gz",
           sha256: archive.sha256,
         },
-        fetch: (async () => new Response(archive.bytes)) as typeof fetch,
+        fetch: async () => new Response(archive.bytes),
       },
       enrolled,
       (home) => {
@@ -5466,7 +5467,7 @@ describe("LocalServerModule after a restart", () => {
           url: "https://cdn.example/linger.tar.gz",
           sha256: archive.sha256,
         },
-        fetch: download as typeof fetch,
+        fetch: download,
       },
       enrolled,
       (home) => {
@@ -5489,7 +5490,7 @@ describe("LocalServerModule after a restart", () => {
     expect(f.showUpdating).not.toHaveBeenCalled();
     expect(
       download.mock.calls.some(([url]) =>
-        String(url).startsWith("https://cdn.example/"),
+        requestUrlText(url).startsWith("https://cdn.example/"),
       ),
     ).toBe(false);
     await f.host.stop("quit");
@@ -5505,7 +5506,7 @@ describe("LocalServerModule after a restart", () => {
           url: "https://cdn.example/linger.tar.gz",
           sha256: archive.sha256,
         },
-        fetch: (async () => new Response(archive.bytes)) as typeof fetch,
+        fetch: async () => new Response(archive.bytes),
       },
       enrolled,
       (home) => {
@@ -5702,11 +5703,11 @@ describe("LocalServerModule after a restart", () => {
           url: "https://cdn.example/linger.tar.gz",
           sha256: archive.sha256,
         },
-        fetch: (async (url: string | URL | Request) => {
-          if (String(url).startsWith("https://cdn.example/"))
+        fetch: async (url: string | URL | Request) => {
+          if (requestUrlText(url).startsWith("https://cdn.example/"))
             return new Response(archive.bytes);
           return new Response(null, { status: 200 });
-        }) as typeof fetch,
+        },
       },
       enrolled,
       (home) => {
@@ -5792,8 +5793,7 @@ describe("LocalServerModule after a restart", () => {
   it("keeps the window on the server when the services still run", async () => {
     const f = fixture(
       {
-        fetch: (async () =>
-          new Response(null, { status: 200 })) as typeof fetch,
+        fetch: async () => new Response(null, { status: 200 }),
       },
       enrolled,
       record,
@@ -5847,7 +5847,7 @@ describe("LocalServerModule after a restart", () => {
           url: "https://cdn.example/linger.tar.gz",
           sha256: archive.sha256,
         },
-        fetch: (async () => new Response(archive.bytes)) as typeof fetch,
+        fetch: async () => new Response(archive.bytes),
       },
       enrolled,
       (home) => {
@@ -5883,7 +5883,7 @@ describe("LocalServerModule after a restart", () => {
           url: "https://cdn.example/linger.tar.gz",
           sha256: archive.sha256,
         },
-        fetch: (async () => new Response(archive.bytes)) as typeof fetch,
+        fetch: async () => new Response(archive.bytes),
       },
       enrolled,
       (home) => {
@@ -5922,7 +5922,7 @@ describe("LocalServerModule after a restart", () => {
           url: "https://cdn.example/linger.tar.gz",
           sha256: archive.sha256,
         },
-        fetch: (async () => new Response(archive.bytes)) as typeof fetch,
+        fetch: async () => new Response(archive.bytes),
       },
       enrolled,
       (home) => {
@@ -5965,7 +5965,7 @@ describe("LocalServerModule after a restart", () => {
           url: "https://cdn.example/linger.tar.gz",
           sha256: archive.sha256,
         },
-        fetch: (async () => new Response(archive.bytes)) as typeof fetch,
+        fetch: async () => new Response(archive.bytes),
       },
       enrolled,
       (home) => {
@@ -7798,7 +7798,10 @@ describe("LocalServerModule after a restart", () => {
           server_capabilities: ["local_computer_enrollment_daemon_id"],
         });
       if (url.pathname === "/v0/tenants/t1/local-computer-enrollments") {
-        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        const body = JSON.parse(requestBodyText(init?.body)) as Record<
+          string,
+          unknown
+        >;
         enrollmentBodies.push(body);
         const requestedId =
           typeof body.computer_id === "string" ? body.computer_id : undefined;
@@ -8010,11 +8013,11 @@ describe("LocalServerModule after a restart", () => {
 describe("followHttps", () => {
   it("refuses a redirect away from HTTPS", async () => {
     const fetcher = followHttps(
-      (async () =>
+      async () =>
         new Response(null, {
           status: 302,
           headers: { location: "http://example.com/x" },
-        })) as typeof fetch,
+        }),
     );
     await expect(fetcher("https://example.com/a")).rejects.toThrow(/HTTPS/);
   });
@@ -8029,10 +8032,10 @@ const teamhub = (
     }),
 ) =>
   vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-    const url = new URL(String(input));
+    const url = new URL(requestUrlText(input));
     if (url.pathname === "/v0/local/identity")
       return answer(
-        (JSON.parse(String(init?.body)) as { nonce: string }).nonce,
+        (JSON.parse(requestBodyText(init?.body)) as { nonce: string }).nonce,
       );
     return new Response("{}", {
       headers: {
@@ -8042,7 +8045,10 @@ const teamhub = (
     });
   });
 const sentPassword = (fetcher: ReturnType<typeof teamhub>, password: string) =>
-  fetcher.mock.calls.some(([, init]) => String(init?.body).includes(password));
+  fetcher.mock.calls.some(
+    ([, init]) =>
+      typeof init?.body === "string" && init.body.includes(password),
+  );
 
 describe("proveLocalServer", () => {
   // The same vector as TeamHub's internal/localidentity test.
@@ -8054,10 +8060,12 @@ describe("proveLocalServer", () => {
 
   it("accepts the server that holds the key, asked on its own port", async () => {
     const fetcher = teamhub();
-    await proveLocalServer(server(WEB_ORIGIN), fetcher as typeof fetch);
+    await proveLocalServer(server(WEB_ORIGIN), fetcher);
     const [url, init] = fetcher.mock.calls[0]!;
-    expect(String(url)).toBe(`${TEAMHUB}/v0/local/identity`);
-    const { nonce } = JSON.parse(String(init?.body)) as { nonce: string };
+    expect(requestUrlText(url)).toBe(`${TEAMHUB}/v0/local/identity`);
+    const { nonce } = JSON.parse(requestBodyText(init?.body)) as {
+      nonce: string;
+    };
     expect(nonce).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(Buffer.from(nonce, "base64url")).toHaveLength(32);
   });
@@ -8108,12 +8116,13 @@ describe("proveLocalServer", () => {
       );
       return Response.json({ proof: first });
     });
-    await proveLocalServer(server(WEB_ORIGIN), fetcher as typeof fetch);
+    await proveLocalServer(server(WEB_ORIGIN), fetcher);
     await expect(
       proveLocalServer(server(WEB_ORIGIN), fetcher as typeof fetch),
     ).rejects.toMatchObject({ reason: "wrong proof" });
     const nonces = fetcher.mock.calls.map(
-      ([, init]) => (JSON.parse(String(init?.body)) as { nonce: string }).nonce,
+      ([, init]) =>
+        (JSON.parse(requestBodyText(init?.body)) as { nonce: string }).nonce,
     );
     expect(new Set(nonces).size).toBe(2);
   });
@@ -8136,9 +8145,9 @@ describe("proveLocalServer", () => {
 
   it("treats nothing listening as no answer", async () => {
     await expect(
-      proveLocalServer(server(WEB_ORIGIN), (async () => {
+      proveLocalServer(server(WEB_ORIGIN), async () => {
         throw new TypeError("fetch failed");
-      }) as typeof fetch),
+      }),
     ).rejects.toBeInstanceOf(LocalServerUnverifiedError);
   });
 });
@@ -8152,11 +8161,11 @@ describe("signInWithPassword", () => {
       "owner@linger.local",
       "pw",
       set,
-      fetcher as typeof fetch,
+      fetcher,
     );
     const [url, init] = fetcher.mock.calls[1]!;
     // The login goes to TeamHub's port, as the window's origin.
-    expect(String(url)).toBe(`${TEAMHUB}/v0/auth/login`);
+    expect(requestUrlText(url)).toBe(`${TEAMHUB}/v0/auth/login`);
     expect(init?.headers).toMatchObject({ origin: WEB_ORIGIN });
     expect(set).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -8190,7 +8199,9 @@ describe("signInWithPassword", () => {
   it("fails without a session", async () => {
     const fetcher = teamhub();
     fetcher.mockImplementationOnce(async (_input, init) => {
-      const { nonce } = JSON.parse(String(init?.body)) as { nonce: string };
+      const { nonce } = JSON.parse(requestBodyText(init?.body)) as {
+        nonce: string;
+      };
       return Response.json({
         proof: localIdentityProof(KEY, nonce, WEB_ORIGIN).toString("base64url"),
       });
@@ -8746,7 +8757,7 @@ it("allows a slow installer runtime lookup and keeps the login deadline", async 
     const api = await InstallerApi.open(
       "http://127.0.0.1:9/#token=abc",
       (input, options) => {
-        const pathname = new URL(String(input)).pathname;
+        const pathname = new URL(requestUrlText(input)).pathname;
         if (pathname === "/api/session")
           return Promise.resolve(
             new Response("{}", {
@@ -8857,7 +8868,7 @@ describe("InstallerApi polling", () => {
           headers: { "set-cookie": "linger_installer_session=s1; Path=/api" },
         });
       if (input.pathname === "/api/jobs" && init.method === "POST") {
-        created.push(JSON.parse(String(init.body)));
+        created.push(JSON.parse(requestBodyText(init.body)));
         return job({ state: "queued" });
       }
       if (input.pathname === "/api/jobs") return Response.json({ items: [] });
@@ -9678,12 +9689,12 @@ describe("LocalServerModule background pre-staging, Bifrost pre-fetch, and early
         key: KEY,
       }),
       proveServer: async () => {},
-      fetch: ((input: string | URL | Request, init?: RequestInit) => {
+      fetch: (input: string | URL | Request, init?: RequestInit) => {
         const url = new URL(
           input instanceof Request ? input.url : String(input),
         );
         return api.handle(url, init);
-      }) as typeof fetch,
+      },
       rename: async (from, to) => {
         renameCalls += 1;
         if (renameCalls === 1) {

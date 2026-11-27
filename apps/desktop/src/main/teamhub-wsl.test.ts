@@ -191,10 +191,15 @@ it.skipIf(!wslAvailable)(
         ? cleanupError
         : new AggregateError(
             [primaryError, cleanupError],
-            String(primaryError),
+            primaryError instanceof Error
+              ? primaryError.message
+              : JSON.stringify(primaryError),
           );
     }
-    if (primaryError !== undefined) throw primaryError;
+    if (primaryError !== undefined)
+      throw primaryError instanceof Error
+        ? primaryError
+        : new Error(JSON.stringify(primaryError));
   },
   180_000,
 );

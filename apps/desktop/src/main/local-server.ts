@@ -29,6 +29,7 @@ import { pipeline } from "node:stream/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import { createZstdDecompress } from "node:zlib";
 
+import { asError } from "@linger/service-kit";
 import {
   LocalIdentityError,
   proveLocalIdentity,
@@ -1647,11 +1648,12 @@ export class LocalServerModule implements Module {
         )
         .map(parseReason),
     ];
-    const reasonLog = [...listed, ...upgradeListed].map(({ code, message }) =>
-      typeof message === "string" && message
-        ? `${code}: ${message}`
-        : `${code}`,
-    );
+    const reasonLog = [...listed, ...upgradeListed].map(({ code, message }) => {
+      const codeText = typeof code === "string" ? code : "";
+      return typeof message === "string" && message
+        ? `${codeText}: ${message}`
+        : codeText;
+    });
     const pick = report.recommendation;
     // The local model is recommended only with a model the page can show.
     const recommendation =
@@ -2009,7 +2011,7 @@ export class LocalServerModule implements Module {
           stderr = (stderr + chunk.toString("utf8")).slice(-1000);
         });
         let settled = false;
-        let spawnError: unknown;
+        let spawnError: Error | undefined;
         let escalation: ReturnType<typeof setTimeout> | undefined;
         const cleanup = () => {
           signal.removeEventListener("abort", onAbort);
@@ -6548,7 +6550,7 @@ export function runChild(
       if (settled) return;
       settled = true;
       cleanup();
-      if (failure !== undefined) reject(failure);
+      if (failure !== undefined) reject(asError(failure));
       else if (code === 0) resolve();
       else reject(new Error(`${command} exited with code ${code}`));
     });

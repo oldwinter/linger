@@ -431,15 +431,12 @@ export class UpdaterModule implements Module {
       windowed: true,
       noStdio: true,
     });
-    const child = (this.#options.spawn ?? (spawnProcess as SpawnSetup))(
-      launch.command,
-      launch.args,
-      {
-        detached: true,
-        stdio: "ignore",
-        ...(launch.isolatedViaDaemon ? { windowsHide: true } : {}),
-      },
-    );
+    const spawn: SpawnSetup = this.#options.spawn ?? spawnProcess;
+    const child = spawn(launch.command, launch.args, {
+      detached: true,
+      stdio: "ignore",
+      ...(launch.isolatedViaDaemon ? { windowsHide: true } : {}),
+    });
     await new Promise<void>((resolve, reject) => {
       child.once("spawn", resolve);
       child.once("error", reject);

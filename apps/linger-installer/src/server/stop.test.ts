@@ -133,11 +133,11 @@ test("an uninstall with nothing running or installed stops nothing", async () =>
   const outcome = await stopDesktopInstallation(options(value), {
     load: async () => undefined,
     stopInstance,
-    fetch: (async () => {
+    fetch: async () => {
       throw Object.assign(new TypeError("fetch failed"), {
         cause: { code: "ECONNREFUSED" },
       });
-    }) as typeof fetch,
+    },
   });
   expect(outcome.failed).toEqual([]);
   expect(stopInstance).not.toHaveBeenCalled();
@@ -159,7 +159,7 @@ test("stops the services even when the manager refuses to stop", async () => {
     stopInstance: async (target) => {
       stopped.push(target.root);
     },
-    fetch: (async () => new Response("", { status: 404 })) as typeof fetch,
+    fetch: async () => new Response("", { status: 404 }),
   });
   expect(stopped).toEqual([path.join(value, "instances/desktop")]);
   expect(outcome.failed).toEqual([

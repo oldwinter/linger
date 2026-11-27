@@ -7,6 +7,7 @@ import {
   instanceRoot,
   privateDirectory,
 } from "@linger/local-installation/instance";
+import { displayText, requestUrlText } from "@linger/service-kit";
 import { describe, expect, it, vi } from "vitest";
 
 import { NODE_RUNTIME_VERSION } from "../../../../scripts/local-computer-node-distributions.mjs";
@@ -123,9 +124,9 @@ function setupResumeFixture(
     ...(options.proveServer ? { proveServer: options.proveServer } : {}),
     fetch:
       options.fetch ??
-      ((async () => {
+      (async () => {
         throw new Error("offline");
-      }) as typeof fetch),
+      }),
     resolveProxy: options.resolveProxy,
     ...(options.watchMs ? { watchMs: options.watchMs } : {}),
     ...(options.unreachableGraceMs
@@ -507,7 +508,7 @@ describe("LocalServerModule resume coordination", () => {
     expect(failed).toBeDefined();
     expect(failed?.fields?.stage).toBe("installer_resume");
     expect(typeof failed?.fields?.total_ms).toBe("number");
-    const errorText = String(failed?.fields?.error ?? "");
+    const errorText = displayText(failed?.fields?.error ?? "");
     expect(errorText.length).toBeLessThanOrEqual(500);
     expect(errorText).not.toContain("token=secret123");
     expect(errorText).not.toContain("#frag");
@@ -668,12 +669,12 @@ describe("LocalServerModule resume coordination", () => {
         proveServer: async (server) => {
           proved.push(server);
         },
-        fetch: (async (input: string | URL | Request) => {
-          const url = String(input);
+        fetch: async (input: string | URL | Request) => {
+          const url = requestUrlText(input);
           if (url.startsWith("http://localhost:63009"))
             return new Response(null, { status: 200 });
           throw new Error("connection refused");
-        }) as typeof fetch,
+        },
       },
     );
     await writeDesktopInstance(f.home, 63009);
@@ -715,13 +716,13 @@ describe("LocalServerModule resume coordination", () => {
         proveServer: async () => {
           throw new LocalServerUnverifiedError("proof_mismatch");
         },
-        fetch: (async (input: string | URL | Request) => {
-          const url = String(input);
+        fetch: async (input: string | URL | Request) => {
+          const url = requestUrlText(input);
           // Unrelated server answers 200 on the moved port.
           if (url.startsWith("http://localhost:63009"))
             return new Response(null, { status: 200 });
           throw new Error("connection refused");
-        }) as typeof fetch,
+        },
       },
     );
     await writeDesktopInstance(f.home, 63009);
@@ -980,9 +981,7 @@ describe("LocalServerModule resume coordination", () => {
       async (degradedStatus) => {
         let readyStatus = degradedStatus;
         const probe = vi.fn(async (input: string | URL | Request) => {
-          const url = new URL(
-            typeof input === "string" ? input : input.toString(),
-          );
+          const url = new URL(requestUrlText(input));
           if (url.pathname === "/readyz") {
             return new Response(null, { status: readyStatus });
           }
@@ -1013,9 +1012,7 @@ describe("LocalServerModule resume coordination", () => {
 
     it("falls back to HEAD / when an older server returns 404 for /readyz", async () => {
       const probe = vi.fn(async (input: string | URL | Request) => {
-        const url = new URL(
-          typeof input === "string" ? input : input.toString(),
-        );
+        const url = new URL(requestUrlText(input));
         if (url.pathname === "/readyz") {
           return new Response(null, { status: 404 });
         }
@@ -1283,8 +1280,7 @@ describe("LocalServerModule resume coordination", () => {
                 LINGER_CLAUDE_PATH: "/home/.simplexai/bin/claude",
               },
             },
-            fetch: (async () =>
-              new Response(null, { status: 200 })) as typeof fetch,
+            fetch: async () => new Response(null, { status: 200 }),
           },
         );
         await f.host.start();

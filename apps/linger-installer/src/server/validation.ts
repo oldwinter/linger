@@ -70,7 +70,7 @@ export function validateLocalModelsAuthority(
     authority.localModelsReplan !== undefined
   )
     throw new Error("Review and approval require separate requests");
-  return authority as components["schemas"]["LocalModelsAuthority"];
+  return authority;
 }
 export function validateInput(value: unknown): Input {
   const input = object(value);
@@ -94,9 +94,8 @@ export function validateInput(value: unknown): Input {
     throw new Error("Invalid GPU sharing consent");
   if (
     input.setupChoice !== undefined &&
-    !["local-models", "codex", "claude", "pi"].includes(
-      String(input.setupChoice),
-    )
+    (typeof input.setupChoice !== "string" ||
+      !["local-models", "codex", "claude", "pi"].includes(input.setupChoice))
   )
     throw new Error("Invalid setup choice");
   if (
@@ -120,7 +119,8 @@ export function validateInput(value: unknown): Input {
     throw new Error("Review and approval require separate requests");
   if (
     input.preparation !== undefined &&
-    !["codex", "claude", "pi"].includes(String(input.preparation))
+    (typeof input.preparation !== "string" ||
+      !["codex", "claude", "pi"].includes(input.preparation))
   )
     throw new Error("Invalid dependency");
   if (

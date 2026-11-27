@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
+import { requestBodyText } from "@linger/service-kit";
 import { describe, expect, it, vi } from "vitest";
 
 import { CredentialStore } from "./computer-credential.js";
@@ -57,7 +58,7 @@ const fakeServer = (
   const fetchImpl = (async (input: URL, init: RequestInit) => {
     const headers = init.headers as Record<string, string>;
     const body = init.body
-      ? (JSON.parse(String(init.body)) as Record<string, unknown>)
+      ? (JSON.parse(requestBodyText(init.body)) as Record<string, unknown>)
       : undefined;
     calls.push({
       url: input.pathname,

@@ -227,7 +227,7 @@ it("answers runtime lookups from the install's descriptors, one probe at a time"
   );
   const adapter = coreAdapter("/test", "/checkout", true);
   await adapter.run(
-    { instance: "default" } as Parameters<typeof adapter.run>[0],
+    { instance: "default" },
     new AbortController().signal,
     () => {},
   );
@@ -259,7 +259,7 @@ it("probes the runtime again once another install starts", async () => {
   const adapter = coreAdapter("/test", "/checkout", true);
   await adapter.runtime("default");
   await adapter.run(
-    { instance: "default" } as Parameters<typeof adapter.run>[0],
+    { instance: "default" },
     new AbortController().signal,
     () => {},
   );

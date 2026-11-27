@@ -39,7 +39,7 @@ export const diagnosticsDialogs = (
         defaultId: 0,
         cancelId: 1,
       });
-      if (copy === 0) clipboard.writeText(state.reportId);
+      if (copy === 0) await clipboard.writeText(state.reportId);
     },
     failed: async (state) =>
       (await show({

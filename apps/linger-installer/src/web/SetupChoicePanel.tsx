@@ -144,10 +144,13 @@ export function SetupChoicePanel({
               );
             })}
           <label
+            htmlFor="setup-choice-byok"
+            aria-label="BYOK"
             className={`setup-option ${isByok ? "selected" : ""}`}
             title="Bring Your Own Key — Connect your own OpenAI-compatible or Anthropic API endpoint, key, and model through Linger's local Bifrost gateway."
           >
             <input
+              id="setup-choice-byok"
               type="radio"
               name="setup-choice"
               value="byok"
@@ -155,11 +158,9 @@ export function SetupChoicePanel({
               onChange={() => onChange("byok")}
             />
             <span>
-              <strong>{"BYOK"}</strong>
+              <strong>BYOK</strong>
               <small>
-                {
-                  "Bring Your Own Key · Mounted on local Bifrost for all runtimes"
-                }
+                Bring Your Own Key · Mounted on local Bifrost for all runtimes
               </small>
             </span>
           </label>
