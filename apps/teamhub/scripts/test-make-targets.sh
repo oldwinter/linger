@@ -28,6 +28,7 @@ assert_expands_to test-integration-migrations "go test -tags=integration_migrati
 parallel_output=$(CI=false make --no-print-directory -n -C "$repo_root" PARALLEL=4 test-integration)
 grep -F -- '-parallel 4' <<<"$parallel_output" >/dev/null || fail 'PARALLEL override did not reach go test -parallel'
 assert_expands_to test-integration "go test ./tests/integration/layout -count=1"
+assert_expands_to test "./tests/integration/layout"
 
 
 grep -F -- 'down -v --remove-orphans' "$repo_root/scripts/lib/compose-cleanup.sh" >/dev/null || \

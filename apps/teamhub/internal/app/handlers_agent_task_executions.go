@@ -2,28 +2,16 @@ package app
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/taskexecution"
 	"github.com/simplexai-labs/linger/contracts-go/teamhubinternal"
 )
-
-type taskExecutionService interface {
-	ResolveAgentParticipantTaskByWorkRoom(context.Context, string, string) (taskexecution.ParticipantTaskResolution, error)
-	GetExecutionForHuman(context.Context, string, string) (taskexecution.Execution, error)
-	GetConversationForHuman(context.Context, string, string) (taskexecution.Conversation, error)
-	ClaimExecution(context.Context, taskexecution.WorkerClaimInput) (taskexecution.WorkerExecution, bool, *time.Duration, error)
-	GetExecutionForWorker(context.Context, taskexecution.WorkerLeaseInput) (taskexecution.WorkerExecution, error)
-	HeartbeatExecution(context.Context, taskexecution.WorkerHeartbeatInput) (taskexecution.WorkerLease, error)
-	TransitionExecution(context.Context, taskexecution.WorkerTransitionInput) (taskexecution.WorkerExecution, error)
-}
 
 func (a *App) resolveAgentParticipantTaskByWorkRoom(c *gin.Context) {
 	params := contractParams[teamhubinternal.ResolveAgentParticipantTaskByWorkRoomParams](c)

@@ -267,9 +267,12 @@ Go service owning Human HTTP/SSE, Agent callbacks, and active product state.
   language here; the client keeps the English for a code it does not know.
 - `internal/app` opens no transaction and calls no store queries: handlers
   call a domain service and map its errors. `TestAppLayerHoldsNoTransactionsOrQueries`
-  (`tests/integration/layout`) fails on a transaction, SQL, a `store.Queries` or
-  `pgx.Tx` reference, or the pool outside `app.go` and `feature*.go`. The Task
-  and Work Item handlers listed in that test are the only exception.
+  (`tests/integration/layout`, run as part of `make -C apps/teamhub test` and `check-code`)
+  fails on any transaction, SQL, `store.Queries` or `pgx.Tx` reference, or pool
+  access outside `app.go` and `feature*.go`. `TestInternalPackagesReadNoRawEnv`
+  forbids direct `os.Getenv`/`os.LookupEnv` outside `internal/config`, and
+  `TestAppLayerUsesStandardErrorEnvelope` forbids raw `gin.H{"error": ...}` in
+  new or migrated handlers.
 - New data access uses sqlc queries in `internal/store/queries`; do not add
   hand-written SQL.
 - `app.New(ctx, cfg, deps)` builds the App from a complete Config and starts

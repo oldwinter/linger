@@ -136,7 +136,7 @@ type App struct {
 	loginFailures                  *loginFailures
 	workItems                      *workitem.Service
 	reminders                      *reminder.Service
-	taskExecutions                 taskExecutionService
+	taskExecutions                 *taskexecution.Service
 	readTaskProgress               func(context.Context, string) (taskexecution.CoordinatorProgress, error)
 	permissionReviews              *permissionreview.Service
 	proactive                      *proactive.Service

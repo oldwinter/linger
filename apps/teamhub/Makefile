@@ -83,9 +83,10 @@ lint-go-daemon: $(GOLANGCI_LINT)
 	cd ../computer/local-daemon && $(GOLANGCI_RUN) ./...
 	$(if $(strip $(BASE)),cd ../computer/local-daemon && $(DOC_COMMENTS_LINT))
 
-# Integration packages (tests/integration/...) run in test-integration.
+# Integration packages (tests/integration/...) run in test-integration, except
+# tests/integration/layout which enforces AST/boundary rules with no database.
 test:
-	TEST_DATABASE_URL= go test $$(go list ./... | grep -v '/tests/integration')
+	TEST_DATABASE_URL= go test $$(go list ./... | grep -v '/tests/integration') ./tests/integration/layout
 	cd ../../skills && go test ./...
 
 test-race:
