@@ -117,13 +117,7 @@ func (a *App) askAgentHerdrPane(c *gin.Context) {
 	result, err := a.typedCards.CreateDecision(ctx, roomID, auth.AgentID, "herdr-question-"+hex.EncodeToString(digest[:16]), digest[:], typedcard.DecisionCommand{
 		Principal: auth.Principal, DeciderActorID: ownerID, Question: &question,
 	})
-	switch {
-	case errors.Is(err, typedcard.ErrAssigneeNotMember), errors.Is(err, typedcard.ErrForbidden), errors.Is(err, typedcard.ErrNotFound), errors.Is(err, typedcard.ErrInvalid):
-		a.writeAgentAPIError(c, http.StatusForbidden, agentapi.AgentApiErrorCodeForbidden, "Question cards are unavailable in this chat")
-		return
-	case err != nil:
-		a.logger.Error("create herdr question card", "error", err)
-		a.writeAgentAPIError(c, http.StatusServiceUnavailable, agentapi.AgentApiErrorCodeDependencyUnavailable, "Asking about herdr agents is temporarily unavailable")
+	if a.writeAgentDecisionCardError(c, "create herdr question card", "Question cards are unavailable in this chat", "Asking about herdr agents is temporarily unavailable", err) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "asked", "computer_id": computerID, "room_id": roomID, "message_id": result.MessageID, "interaction_id": result.DecisionID})

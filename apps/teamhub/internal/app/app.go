@@ -148,11 +148,11 @@ type App struct {
 	mcpContexts                    mcpContextService
 	agentAuth                      agentauth.Authorizer
 	agentDirectMessages            agentDirectMessageService
-	agentRoomHandoffs              agentRoomHandoffService
+	agentRoomHandoffs              *agentroomhandoff.Service
 	agentDocumentCreations         agentDocumentCreateService
-	agentDocumentComments          agentDocumentCommentService
+	agentDocumentComments          *agentdocument.CommentTool
 	agentDocumentSemanticMutations agentDocumentSemanticService
-	agentSendMessages              agentSendMessageService
+	agentSendMessages              *agentsendmessage.Service
 	agentCreationApprovals         agentCreationApprovalService
 	taskDelegation                 *taskdelegation.Service
 	agentConnectedApps             *agentconnectedapps.Service
@@ -1179,32 +1179,31 @@ func (a *App) optionalPrincipal(c *gin.Context) (principal, bool, error) {
 }
 
 func (a *App) requireAgentService() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		if a.cfg.TeamHubInternalToken == "" {
-			a.writeError(c, http.StatusServiceUnavailable, "AGENT_API_UNAVAILABLE", "Agent service authentication is not configured")
-			c.Abort()
-			return
-		}
-		token, ok := strings.CutPrefix(c.GetHeader("Authorization"), "Bearer ")
-		if !ok || token == "" || subtle.ConstantTimeCompare([]byte(token), []byte(a.cfg.TeamHubInternalToken)) != 1 {
-			a.writeError(c, http.StatusUnauthorized, "UNAUTHENTICATED", "Agent service authentication is invalid")
-			c.Abort()
-			return
-		}
-		c.Next()
-	}
+	return a.requireInternalBearer(
+		"AGENT_API_UNAVAILABLE",
+		"Agent service authentication is not configured",
+		"Agent service authentication is invalid",
+	)
 }
 
 func (a *App) requireMemoryService() gin.HandlerFunc {
+	return a.requireInternalBearer(
+		"MEMORY_API_UNAVAILABLE",
+		"Memory service authentication is not configured",
+		"Memory service authentication is invalid",
+	)
+}
+
+func (a *App) requireInternalBearer(unconfiguredCode, unconfiguredMessage, invalidMessage string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if a.cfg.TeamHubInternalToken == "" {
-			a.writeError(c, http.StatusServiceUnavailable, "MEMORY_API_UNAVAILABLE", "Memory service authentication is not configured")
+			a.writeError(c, http.StatusServiceUnavailable, unconfiguredCode, unconfiguredMessage)
 			c.Abort()
 			return
 		}
-		token, ok := strings.CutPrefix(c.GetHeader("Authorization"), "Bearer ")
-		if !ok || token == "" || subtle.ConstantTimeCompare([]byte(token), []byte(a.cfg.TeamHubInternalToken)) != 1 {
-			a.writeError(c, http.StatusUnauthorized, "UNAUTHENTICATED", "Memory service authentication is invalid")
+		token, ok := strictAgentBearer(c)
+		if !ok || subtle.ConstantTimeCompare([]byte(token), []byte(a.cfg.TeamHubInternalToken)) != 1 {
+			a.writeError(c, http.StatusUnauthorized, "UNAUTHENTICATED", invalidMessage)
 			c.Abort()
 			return
 		}

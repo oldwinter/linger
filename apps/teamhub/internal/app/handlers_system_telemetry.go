@@ -193,7 +193,7 @@ func (a *App) sampleSystemTelemetryView(ctx context.Context, computer agentrunti
 	case err != nil:
 		return httpapi.SystemTelemetryView{}, err
 	}
-	public, err := reencodeJSON[httpapi.SystemTelemetrySnapshot](snapshot)
+	public, err := convertJSON[httpapi.SystemTelemetrySnapshot](snapshot)
 	if err != nil {
 		return httpapi.SystemTelemetryView{}, err
 	}

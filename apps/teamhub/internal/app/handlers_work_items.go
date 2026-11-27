@@ -150,6 +150,14 @@ func (a *App) transitionWorkItem(c *gin.Context) {
 	writeWorkItemResult(c, http.StatusOK, result.Replay, workItemModel(result.Value))
 }
 
+func (a *App) archiveWorkItem(c *gin.Context) {
+	a.setWorkItemArchived(c, true)
+}
+
+func (a *App) unarchiveWorkItem(c *gin.Context) {
+	a.setWorkItemArchived(c, false)
+}
+
 func (a *App) setWorkItemArchived(c *gin.Context, archived bool) {
 	key, ok := a.requireIdempotencyKey(c)
 	if !ok {

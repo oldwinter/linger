@@ -14,9 +14,8 @@ import (
 const agentPresentationSequenceRequestMaxBytes = 512 << 10
 
 func (a *App) sendAgentPresentationSequence(c *gin.Context) {
-	token, ok := strictAgentBearer(c)
+	token, ok := a.agentCommandBearer(c)
 	if !ok {
-		a.writeAgentPresentationSequenceError(c, agentauth.ErrCredentialInvalid)
 		return
 	}
 	var request teamhubagentapi.AgentSendPresentationSequenceRequest

@@ -52,7 +52,7 @@ func (a *App) connectAgentRuntimeLocalComputer(c *gin.Context) {
 		IdentityVersion: identityVersion, Status: string(request.Status), SeenAt: request.SeenAt,
 		DisplayName: request.DisplayName, Platform: platform,
 		Runtimes: runtimes, RuntimeDiagnostics: diagnostics, WorkspaceGrants: grants,
-		DaemonVersion: request.DaemonVersion, RecommendedVersion: optionalStringValue(request.RecommendedVersion),
+		DaemonVersion: request.DaemonVersion, RecommendedVersion: optionalString(request.RecommendedVersion),
 	})
 	if a.writeAgentRuntimeStateError(c, "connect Local Computer", err) {
 		return
@@ -116,7 +116,7 @@ func (a *App) touchAgentRuntimeLocalComputer(c *gin.Context) {
 	value, err := a.agentRuntimeState.TouchLocalComputer(c.Request.Context(), agentruntimestate.TouchLocalComputerInput{
 		ComputerID: request.ComputerId, Status: string(request.Status), SeenAt: request.SeenAt,
 		Runtimes: runtimes, RuntimeDiagnostics: diagnostics, ActiveOperations: activeOperations,
-		DaemonVersion: optionalStringValue(request.DaemonVersion), RecommendedVersion: optionalStringValue(request.RecommendedVersion),
+		DaemonVersion: optionalString(request.DaemonVersion), RecommendedVersion: optionalString(request.RecommendedVersion),
 	})
 	if a.writeAgentRuntimeStateError(c, "touch Local Computer", err) {
 		return

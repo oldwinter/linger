@@ -51,7 +51,7 @@ func (a *App) createLocalComputerEnrollment(c *gin.Context) {
 	codeHash := sha256.Sum256([]byte(authorizationCode))
 	expiresAt := time.Now().UTC().Add(localComputerEnrollmentLifetime)
 	resolvedComputerID, err := a.agentRuntimeState.CreateLocalComputerEnrollment(c.Request.Context(), agentruntimestate.CreateLocalComputerEnrollmentInput{
-		EnrollmentID: enrollmentID, ComputerID: computerID, DaemonID: optionalStringValue(request.DaemonId), DisplayName: request.DisplayName,
+		EnrollmentID: enrollmentID, ComputerID: computerID, DaemonID: optionalString(request.DaemonId), DisplayName: request.DisplayName,
 		Owner:       agentruntimestate.LocalComputerOwner{TenantID: tenantID, OwnerActorID: ownerID},
 		RedirectURI: request.RedirectUri, CodeChallenge: request.CodeChallenge,
 		AuthorizationCodeHash: codeHash[:], ExpiresAt: expiresAt, RenewsExistingComputer: renews,

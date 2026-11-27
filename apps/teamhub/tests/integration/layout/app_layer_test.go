@@ -22,7 +22,6 @@ import (
 // gin.H{"error": ...} responses for wire-compatibility with existing callers.
 // New or migrated handlers must use writeError / typed error envelopes.
 var legacyRawErrorFiles = map[string]bool{
-	"contract_server_agent_cli_files.go": true,
 	"contract_server_memory_tracking.go": true,
 }
 

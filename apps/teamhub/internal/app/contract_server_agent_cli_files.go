@@ -10,6 +10,20 @@ import (
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/roomdocument"
 )
 
+type agentCLIFileErrorDetails struct {
+	RetryAfterSeconds int32 `json:"retry_after_seconds"`
+}
+
+type agentCLIFileError struct {
+	Code    string                    `json:"code"`
+	Message string                    `json:"message"`
+	Details *agentCLIFileErrorDetails `json:"details,omitempty"`
+}
+
+type agentCLIFileErrorEnvelope struct {
+	Error agentCLIFileError `json:"error"`
+}
+
 func (a *App) writeAgentCLIFileError(c *gin.Context, err error) bool {
 	if err == nil {
 		return false
@@ -45,10 +59,10 @@ func (a *App) writeAgentCLIFileError(c *gin.Context, err error) bool {
 	case errors.Is(err, document.ErrRecoveryBudgetExceeded), errors.Is(err, artifactstore.ErrTooLarge):
 		code, message, httpStatus = "too_large", "File exceeds the size limit", http.StatusRequestEntityTooLarge
 	}
-	value := gin.H{"code": code, "message": message}
+	payload := agentCLIFileError{Code: code, Message: message}
 	if code == "latest_not_ready" {
-		value["details"] = gin.H{"retry_after_seconds": 1}
+		payload.Details = &agentCLIFileErrorDetails{RetryAfterSeconds: 1}
 	}
-	c.JSON(httpStatus, gin.H{"error": value})
+	c.JSON(httpStatus, agentCLIFileErrorEnvelope{Error: payload})
 	return true
 }

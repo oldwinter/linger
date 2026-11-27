@@ -3,7 +3,6 @@ package app
 import (
 	"crypto/subtle"
 	"net/http"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 	idgen "github.com/simplexai-labs/linger/apps/teamhub/internal/ids"
@@ -35,12 +34,8 @@ func (a *App) authenticateMcpInternalBearer(
 		c.Abort()
 		return false
 	}
-	headers := c.Request.Header.Values("Authorization")
-	token := ""
-	if len(headers) == 1 && !strings.Contains(headers[0], ",") {
-		token, _ = strings.CutPrefix(headers[0], "Bearer ")
-	}
-	if token == "" || subtle.ConstantTimeCompare([]byte(token), []byte(expectedToken)) != 1 {
+	token, ok := strictAgentBearer(c)
+	if !ok || subtle.ConstantTimeCompare([]byte(token), []byte(expectedToken)) != 1 {
 		a.writeMcpContextError(
 			c,
 			http.StatusUnauthorized,
