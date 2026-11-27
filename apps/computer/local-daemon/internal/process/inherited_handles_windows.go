@@ -6,6 +6,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -57,33 +58,30 @@ type objectTypeInformationHeader struct {
 	TypeName windows.NTUnicodeString
 }
 
-// CloseInheritedHandles closes inherited non-stdio File and Section handles
-// (including Winsock sockets, pipes, disk files, and file mappings) leaked by
-// a parent process that called CreateProcess with bInheritHandles=TRUE without
-// PROC_THREAD_ATTRIBUTE_HANDLE_LIST.
+// CloseInheritedHandles closes inherited non-stdio File handles (including
+// Winsock AFD sockets, pipes, and disk files) leaked by a parent process that
+// called CreateProcess with bInheritHandles=TRUE without
+// PROC_THREAD_ATTRIBUTE_HANDLE_LIST. Non-File kernel objects (such as Thread,
+// Process, IoCompletion, Event, Section, Mutant, Semaphore, Key, Token, and
+// Timer handles) and any handle whose live flags or object type cannot be
+// verified are never closed.
 func CloseInheritedHandles() int {
 	entries, ok := queryCurrentProcessHandles()
 	if !ok || len(entries) == 0 {
 		return 0
 	}
 	preserved := preservedStdHandles()
-	selected := selectInheritedWindowsHandles(
+	return closeInheritedWindowsHandles(
 		entries,
 		preserved,
 		queryHandleFlags,
 		queryHandleTypeName,
+		windows.CloseHandle,
 	)
-	closed := 0
-	for _, handle := range selected {
-		if windows.CloseHandle(handle) == nil {
-			closed++
-		}
-	}
-	return closed
 }
 
 func preservedStdHandles() map[windows.Handle]struct{} {
-	preserved := make(map[windows.Handle]struct{}, 6)
+	preserved := make(map[windows.Handle]struct{}, 9)
 	add := func(handle windows.Handle) {
 		if handle != 0 && handle != windows.InvalidHandle {
 			preserved[handle] = struct{}{}
@@ -98,9 +96,19 @@ func preservedStdHandles() map[windows.Handle]struct{} {
 			add(handle)
 		}
 	}
+	add(windows.Handle(syscall.Stdin))
+	add(windows.Handle(syscall.Stdout))
+	add(windows.Handle(syscall.Stderr))
+	// Use SyscallConn instead of File.Fd so stdio pipes stay associated with
+	// Go's IOCP netpoller.
 	for _, file := range []*os.File{os.Stdin, os.Stdout, os.Stderr} {
-		if file != nil {
-			add(windows.Handle(file.Fd()))
+		if file == nil {
+			continue
+		}
+		if raw, err := file.SyscallConn(); err == nil {
+			_ = raw.Control(func(fd uintptr) {
+				add(windows.Handle(fd))
+			})
 		}
 	}
 	return preserved
@@ -112,45 +120,49 @@ func queryCurrentProcessHandles() ([]processHandleTableEntryInfo, bool) {
 	}
 	size := initialHandleSnapshotBufSize
 	for range 8 {
-		buf := make([]byte, size)
+		words := make([]uint64, (size+7)/8)
+		bufBytes := len(words) * 8
 		var returnLength uint32
 		r1, _, _ := ntQueryInformationProcess.Call(
 			uintptr(windows.CurrentProcess()),
 			uintptr(processHandleInformation),
-			uintptr(unsafe.Pointer(&buf[0])),
-			uintptr(len(buf)),
+			uintptr(unsafe.Pointer(&words[0])),
+			uintptr(bufBytes),
 			uintptr(unsafe.Pointer(&returnLength)),
 		)
 		status := uint32(r1)
 		if status == ntStatusSuccess {
 			headerSize := unsafe.Sizeof(processHandleSnapshotHeader{})
 			entrySize := unsafe.Sizeof(processHandleTableEntryInfo{})
-			if uintptr(len(buf)) < headerSize {
+			if uintptr(bufBytes) < headerSize {
 				return nil, false
 			}
-			header := (*processHandleSnapshotHeader)(unsafe.Pointer(&buf[0]))
-			maxEntries := (uintptr(len(buf)) - headerSize) / entrySize
+			header := (*processHandleSnapshotHeader)(unsafe.Pointer(&words[0]))
+			maxEntries := (uintptr(bufBytes) - headerSize) / entrySize
 			count := min(header.NumberOfHandles, maxEntries)
 			if count == 0 {
 				return nil, true
 			}
 			raw := unsafe.Slice(
-				(*processHandleTableEntryInfo)(unsafe.Add(unsafe.Pointer(&buf[0]), headerSize)),
+				(*processHandleTableEntryInfo)(unsafe.Add(unsafe.Pointer(&words[0]), headerSize)),
 				int(count),
 			)
 			entries := make([]processHandleTableEntryInfo, len(raw))
 			copy(entries, raw)
-			runtime.KeepAlive(buf)
+			runtime.KeepAlive(words)
 			return entries, true
 		}
 		if status != ntStatusInfoLengthMismatch && status != ntStatusBufferTooSmall && status != ntStatusBufferOverflow {
 			return nil, false
 		}
-		next := max(int(returnLength)+4096, size*2)
-		if next > maxHandleSnapshotBufSize {
+		next := uint64(size) * 2
+		if needed := uint64(returnLength) + 4096; needed > next {
+			next = needed
+		}
+		if next <= uint64(size) || next > maxHandleSnapshotBufSize {
 			return nil, false
 		}
-		size = next
+		size = int(next)
 	}
 	return nil, false
 }
@@ -177,40 +189,47 @@ func queryHandleTypeName(handle windows.Handle) (string, bool) {
 	if err := ntQueryObject.Find(); err != nil {
 		return "", false
 	}
-	buf := make([]byte, 2048)
+	words := make([]uint64, 256)
+	bufBytes := len(words) * 8
 	var returnLength uint32
 	r1, _, _ := ntQueryObject.Call(
 		uintptr(handle),
 		uintptr(objectTypeInformation),
-		uintptr(unsafe.Pointer(&buf[0])),
-		uintptr(len(buf)),
+		uintptr(unsafe.Pointer(&words[0])),
+		uintptr(bufBytes),
 		uintptr(unsafe.Pointer(&returnLength)),
 	)
 	if uint32(r1) != ntStatusSuccess {
 		return "", false
 	}
-	info := (*objectTypeInformationHeader)(unsafe.Pointer(&buf[0]))
+	info := (*objectTypeInformationHeader)(unsafe.Pointer(&words[0]))
 	if info.TypeName.Buffer == nil || info.TypeName.Length == 0 || info.TypeName.Length%2 != 0 {
 		return "", false
 	}
-	base := uintptr(unsafe.Pointer(&buf[0]))
+	base := uintptr(unsafe.Pointer(&words[0]))
 	ptr := uintptr(unsafe.Pointer(info.TypeName.Buffer))
-	if ptr < base || ptr+uintptr(info.TypeName.Length) > base+uintptr(len(buf)) {
+	length := uintptr(info.TypeName.Length)
+	if ptr < base || ptr > base+uintptr(bufBytes) {
 		return "", false
 	}
-	name := windows.UTF16ToString(unsafe.Slice(info.TypeName.Buffer, int(info.TypeName.Length/2)))
-	runtime.KeepAlive(buf)
+	offset := ptr - base
+	if offset%2 != 0 || length > uintptr(bufBytes)-offset {
+		return "", false
+	}
+	utf16Slice := unsafe.Slice((*uint16)(unsafe.Add(unsafe.Pointer(&words[0]), offset)), int(length/2))
+	name := windows.UTF16ToString(utf16Slice)
+	runtime.KeepAlive(words)
 	return name, true
 }
 
-func selectInheritedWindowsHandles(
+func closeInheritedWindowsHandles(
 	entries []processHandleTableEntryInfo,
 	preserved map[windows.Handle]struct{},
 	getFlags func(windows.Handle) (uint32, error),
 	getTypeName func(windows.Handle) (string, bool),
-) []windows.Handle {
-	typeNames := make(map[uint32]string)
-	var selected []windows.Handle
+	closeHandle func(windows.Handle) error,
+) int {
+	closed := 0
 	seen := make(map[windows.Handle]struct{})
 	for _, entry := range entries {
 		handle := windows.Handle(entry.HandleValue)
@@ -223,33 +242,44 @@ func selectInheritedWindowsHandles(
 		if _, dup := seen[handle]; dup {
 			continue
 		}
-		if entry.HandleAttributes&objInherit == 0 || entry.HandleAttributes&objProtectClose != 0 {
-			continue
-		}
-		flags, err := getFlags(handle)
-		if err != nil || flags&windows.HANDLE_FLAG_INHERIT == 0 || flags&handleFlagProtectFromClose != 0 {
-			continue
-		}
-		typeName, cached := typeNames[entry.ObjectTypeIndex]
-		if !cached {
-			resolved, ok := getTypeName(handle)
-			if !ok {
-				continue
-			}
-			typeName = resolved
-			if entry.ObjectTypeIndex != 0 {
-				typeNames[entry.ObjectTypeIndex] = typeName
-			}
-		}
-		if !isClosableInheritedObjectType(typeName) {
-			continue
-		}
 		seen[handle] = struct{}{}
-		selected = append(selected, handle)
+		if !isInheritableSnapshotEntry(entry) {
+			continue
+		}
+		if !isClosableLiveFlags(handle, getFlags) {
+			continue
+		}
+		// Always query the live object type per handle instead of caching by
+		// snapshot ObjectTypeIndex, because a recycled handle slot can hold a
+		// different kernel object type than the snapshot recorded.
+		typeName, ok := getTypeName(handle)
+		if !ok || !isClosableInheritedObjectType(typeName) {
+			continue
+		}
+		// Re-check live flags right before closing so a handle closed and
+		// recycled as a non-inheritable File between checks is skipped.
+		if !isClosableLiveFlags(handle, getFlags) {
+			continue
+		}
+		if closeHandle(handle) == nil {
+			closed++
+		}
 	}
-	return selected
+	return closed
+}
+
+func isInheritableSnapshotEntry(entry processHandleTableEntryInfo) bool {
+	return entry.HandleAttributes&objInherit != 0 && entry.HandleAttributes&objProtectClose == 0
+}
+
+func isClosableLiveFlags(handle windows.Handle, getFlags func(windows.Handle) (uint32, error)) bool {
+	flags, err := getFlags(handle)
+	if err != nil {
+		return false
+	}
+	return flags&windows.HANDLE_FLAG_INHERIT != 0 && flags&handleFlagProtectFromClose == 0
 }
 
 func isClosableInheritedObjectType(typeName string) bool {
-	return strings.EqualFold(typeName, "File") || strings.EqualFold(typeName, "Section")
+	return strings.EqualFold(typeName, "File")
 }
