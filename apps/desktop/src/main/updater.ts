@@ -8,6 +8,7 @@ import { pipeline } from "node:stream/promises";
 import { promisify } from "node:util";
 
 import type { ComputerDaemonModule } from "./computer-daemon.js";
+import { resolveIsolatedExecutableSpawn } from "./isolated-spawn.js";
 import type { Module, ModuleContext } from "./modules.js";
 import {
   DEFAULT_FEED_URL,
@@ -80,6 +81,10 @@ export interface UpdaterOptions {
   readonly fetch?: typeof fetch;
   readonly extract?: (archive: string, directory: string) => Promise<void>;
   readonly spawn?: SpawnSetup;
+  // Bundled Go daemon executable; on Windows, launches the setup installer via
+  // `exec-isolated --no-stdio` so the installer never inherits Electron handles.
+  readonly daemonExecutable?: string;
+  readonly daemonExists?: (file: string) => boolean;
   readonly publicKey?: string;
   readonly checkDelayMs?: number;
   readonly checkIntervalMs?: number;
@@ -95,7 +100,7 @@ export interface SetupProcess {
 export type SpawnSetup = (
   file: string,
   args: readonly string[],
-  options: { detached: true; stdio: "ignore" },
+  options: { detached: true; stdio: "ignore"; windowsHide?: boolean },
 ) => SetupProcess;
 
 // installer.nsi: /update shows only its progress page and the questions about
@@ -416,10 +421,24 @@ export class UpdaterModule implements Module {
     const staged = this.#staged;
     if (!staged) throw new UpdateError("No update is ready");
     await this.#verify(createReadStream(staged.path), staged.pkg);
+    const launch = resolveIsolatedExecutableSpawn({
+      platform: this.#options.platform as NodeJS.Platform,
+      daemonExecutable: this.#options.daemonExecutable,
+      daemonExists: this.#options.daemonExists,
+      executable: staged.path,
+      args: SETUP_ARGS,
+      detached: true,
+      windowed: true,
+      noStdio: true,
+    });
     const child = (this.#options.spawn ?? (spawnProcess as SpawnSetup))(
-      staged.path,
-      SETUP_ARGS,
-      { detached: true, stdio: "ignore" },
+      launch.command,
+      launch.args,
+      {
+        detached: true,
+        stdio: "ignore",
+        ...(launch.isolatedViaDaemon ? { windowsHide: true } : {}),
+      },
     );
     await new Promise<void>((resolve, reject) => {
       child.once("spawn", resolve);

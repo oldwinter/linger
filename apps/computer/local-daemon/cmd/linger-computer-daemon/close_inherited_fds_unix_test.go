@@ -1,4 +1,4 @@
-//go:build linux
+//go:build unix
 
 package main
 
@@ -8,46 +8,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
-)
 
-func TestCloseInheritedFDsFromSelectivelyClosesNonCloexecDescriptors(t *testing.T) {
-	fdDir := t.TempDir()
-	for _, name := range []string{"0", "1", "2", "3", "4", "5", "67", "not-a-fd"} {
-		if err := os.WriteFile(filepath.Join(fdDir, name), nil, 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	flagsByFD := map[int]int{
-		3:  syscall.FD_CLOEXEC,
-		4:  0,
-		5:  syscall.FD_CLOEXEC,
-		67: 0,
-	}
-	var closed []int
-	count := closeInheritedFDsFrom(
-		fdDir,
-		func(fd int) (int, error) {
-			flags, ok := flagsByFD[fd]
-			if !ok {
-				return 0, syscall.EBADF
-			}
-			return flags, nil
-		},
-		func(fd int) error {
-			closed = append(closed, fd)
-			return nil
-		},
-	)
-	slices.Sort(closed)
-	if count != 2 || !slices.Equal(closed, []int{4, 67}) {
-		t.Fatalf("closed = %v (count=%d), want [4 67]", closed, count)
-	}
-}
+	"golang.org/x/sys/unix"
+)
 
 func TestCloseInheritedFDsDropsInheritedSocketsInSubprocess(t *testing.T) {
 	if os.Getenv("LINGER_TEST_CLOSE_FDS_HELPER") == "1" {
@@ -58,8 +24,8 @@ func TestCloseInheritedFDsDropsInheritedSocketsInSubprocess(t *testing.T) {
 				fmt.Fprintf(os.Stderr, "invalid fd %q\n", raw)
 				os.Exit(2)
 			}
-			if _, _, errno := syscall.Syscall(syscall.SYS_FCNTL, uintptr(fd), syscall.F_GETFD, 0); errno != syscall.EBADF {
-				fmt.Fprintf(os.Stderr, "fd %d stayed open (errno=%v)\n", fd, errno)
+			if _, err := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0); err != unix.EBADF {
+				fmt.Fprintf(os.Stderr, "fd %d stayed open (err=%v)\n", fd, err)
 				os.Exit(3)
 			}
 		}
@@ -78,7 +44,19 @@ func TestCloseInheritedFDsDropsInheritedSocketsInSubprocess(t *testing.T) {
 	}
 	defer tcpFile.Close()
 
-	unixPath := filepath.Join(t.TempDir(), "inherited.sock")
+	sockDir, err := os.MkdirTemp("", "lfd-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(filepath.Join(sockDir, "s.sock")) >= 100 {
+		_ = os.RemoveAll(sockDir)
+		sockDir, err = os.MkdirTemp("/tmp", "lfd-")
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(sockDir) })
+	unixPath := filepath.Join(sockDir, "s.sock")
 	unixListener, err := net.Listen("unix", unixPath)
 	if err != nil {
 		t.Fatal(err)

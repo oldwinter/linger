@@ -16,7 +16,10 @@ setting from existing Computer configuration on first load. Existing
 ## Ownership
 
 - `internal/daemon`: daemon lifecycle and local reconciliation loop.
-- `internal/process`: process ownership, cancellation, and cleanup.
+- `internal/process`: process ownership, cancellation, inherited FD/handle
+  cleanup (`CloseInheritedHandles` on Unix via `/proc/self/fd` or `/dev/fd` and
+  Windows via `NtQueryInformationProcess`), Windows `exec-isolated` handle-isolated
+  child launches, and managed child services.
 - `internal/provider`: Codex/Claude/Pi/Antigravity execution adapters.
 - `internal/workspace`: local workspace and Runtime-home preparation.
 - `internal/protocol`: the Daemon's routed command/event model. The wire shapes

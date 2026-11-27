@@ -64,6 +64,12 @@ func main() {
 	if len(os.Args) == 3 && os.Args[1] == "antigravity-hook" {
 		os.Exit(native.AntigravityRunHook(os.Stdin, os.Stdout, os.Stderr, os.Args[2]))
 	}
+	if code, handled, err := platformExecEntry(os.Args[1:]); handled {
+		if err != nil {
+			_, _ = fmt.Fprintln(os.Stderr, err)
+		}
+		os.Exit(code)
+	}
 	if handoff := recoverPendingUpgrade(os.Args[1:]); handoff != nil {
 		if execErr := handoff.Exec(); execErr != nil {
 			_, _ = fmt.Fprintln(os.Stderr, execErr)

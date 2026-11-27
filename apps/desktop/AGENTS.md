@@ -103,10 +103,16 @@ Gateway and runs Agents. The daemon exits with the app.
   Windows also validates private access when a folder is picked. Tar runs inside the target with relative paths, falling back to
   the pure-Node extractor when `tar.exe` is missing with `ENOENT` on stripped
   Windows images. The
-  finished folder is moved into place with `renameRetrying`, which waits out
+  The finished folder is moved into place with `renameRetrying`, which waits out
   Windows' short-lived locks on new files, and starts the bundled
   `dist/installer/installer.js` headless (`--no-open`), which runs every
-  service natively. It drives the installer's local API itself (`InstallerApi`):
+  service natively. On Windows, `isolated-spawn.ts` routes `installer.js`
+  launches and `UpdaterModule`'s detached setup launches through the bundled
+  `linger-computer-daemon.exe exec-isolated` helper (which closes inherited
+  non-stdio handles and starts the target via Go's
+  `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` or `NoInheritHandles`) so neither long-lived
+  services nor the updater inherit Electron's remote-debugging socket or app
+  file handles. It drives the installer's local API itself (`InstallerApi`):
   the session from `installer/launch.html`, one job for instance `desktop`
   with the chosen AI runtime and local models, then the job's progress, which
   the setup page shows as five steps. Each Install or Try Again is a new attempt: its timers and bar

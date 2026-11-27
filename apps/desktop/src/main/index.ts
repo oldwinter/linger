@@ -247,6 +247,7 @@ async function main(): Promise<void> {
     version: VERSION,
     platform: process.platform,
     arch: process.arch,
+    daemonExecutable: daemonPath,
     install: app.isPackaged
       ? updateInstallFor(process.platform, process.execPath, existsSync)
       : undefined,
