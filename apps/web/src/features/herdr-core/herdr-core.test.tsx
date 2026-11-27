@@ -333,6 +333,11 @@ describe("herdr-core tree, filtering, and herdr-app doc sync helpers", () => {
     expect(isMachineNeedsLogin({ name: "vps", state: "needs_login" })).toBe(
       true,
     );
+    expect(isMachineConnected({ name: "vps", online: true })).toBe(true);
+    expect(isMachineConnected({ name: "vps", online: false })).toBe(false);
+    expect(isMachineNeedsLogin({ name: "vps", status: "needs_login" })).toBe(
+      true,
+    );
   });
 
   it("filters by machine, Room, Work Item, and groups/adopts terminals into herdr-app Spaces", () => {

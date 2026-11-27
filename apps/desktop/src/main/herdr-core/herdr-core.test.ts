@@ -890,6 +890,7 @@ describe("HerdrCoreLocalBridge HTTP, put limits, observe enforcement, and Compan
           cols: 100,
           rows: 30,
           created_ms: 1000,
+          turn: 2,
           status: { state: "blocked", kind: "permission", msg: "Run tests?" },
         },
       ],
@@ -956,7 +957,7 @@ describe("HerdrCoreLocalBridge HTTP, put limits, observe enforcement, and Compan
       "content-type": "application/json",
     };
 
-    // 1. Live + blocked with { if: "blocked", force: true } verifies via terminal.get,
+    // 1. Live + blocked with { if: "blocked", turn: 2, force: true } verifies via terminal.get,
     //    then calls terminal.send WITHOUT `if` and WITH `force: true`.
     const blockedOk = await fetch(
       `http://127.0.0.1:${port}/herdr-core/terminal/send`,
@@ -967,6 +968,7 @@ describe("HerdrCoreLocalBridge HTTP, put limits, observe enforcement, and Compan
           address: "t-blocked",
           text: "yes",
           if: "blocked",
+          turn: 2,
           force: true,
         }),
       },
@@ -983,6 +985,27 @@ describe("HerdrCoreLocalBridge HTTP, put limits, observe enforcement, and Compan
         method: "terminal.send",
         params: { terminal: "t-blocked", text: "yes", force: true },
       },
+    ]);
+
+    // 1b. Stale turn with if: "blocked" rejects with 409 CONFLICT without calling terminal.send.
+    mock.rpcCalls.length = 0;
+    const staleTurnRes = await fetch(
+      `http://127.0.0.1:${port}/herdr-core/terminal/send`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          address: "t-blocked",
+          text: "yes",
+          if: "blocked",
+          turn: 99,
+          force: true,
+        }),
+      },
+    );
+    expect(staleTurnRes.status).toBe(409);
+    expect(mock.rpcCalls).toEqual([
+      { method: "terminal.get", params: { terminal: "t-blocked" } },
     ]);
 
     // 2. Live + working with if: "blocked" rejects with 409 CONFLICT without calling terminal.send.

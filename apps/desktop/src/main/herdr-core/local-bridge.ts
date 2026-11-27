@@ -908,6 +908,21 @@ export class HerdrCoreLocalBridge {
             );
             return;
           }
+          if (
+            rawIf === "blocked" &&
+            typeof body.data.turn === "number" &&
+            Number.isInteger(body.data.turn) &&
+            current.turn !== body.data.turn
+          ) {
+            writeError(
+              res,
+              409,
+              "CONFLICT",
+              `Terminal "${address}" turn is ${String(current.turn ?? "unknown")}, expected ${body.data.turn}.`,
+              extraHeaders,
+            );
+            return;
+          }
           if (rawIf === "blocked" && body.data.force === undefined) {
             params.force = true;
           }

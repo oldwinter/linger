@@ -262,7 +262,7 @@ export function HerdrCoreWorkbench({
         spaceName,
       });
       await client.putDoc("herdr-app", adoption.nextDocValue, {
-        version: herdrAppDocQuery.data?.version,
+        version: herdrAppDocQuery.data?.version ?? 0,
       });
       // Best-effort label sync (if Track 2 relay exposes /terminal/label or direct bridge is active).
       await client

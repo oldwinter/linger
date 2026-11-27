@@ -37,7 +37,12 @@ export function terminalDisplayName(terminal: HerdrCoreTerminal): string {
 }
 
 export function terminalCurrentCwd(terminal: HerdrCoreTerminal): string {
-  return terminal.foreground?.cwd?.trim() || terminal.cwd || "";
+  return (
+    terminal.foreground?.cwd?.trim() ||
+    terminal.foreground_cwd?.trim() ||
+    terminal.cwd ||
+    ""
+  );
 }
 
 export function terminalStatusWord(
@@ -50,12 +55,22 @@ export function terminalStatusWord(
 }
 
 export function isMachineNeedsLogin(machine: HerdrCoreMachine): boolean {
-  return machine.state === "needs_login" || Boolean(machine.needs_login);
+  return (
+    machine.state === "needs_login" ||
+    machine.status === "needs_login" ||
+    Boolean(machine.needs_login)
+  );
 }
 
 export function isMachineConnected(machine: HerdrCoreMachine): boolean {
+  if (typeof machine.online === "boolean") {
+    return machine.online;
+  }
   if (typeof machine.state === "string" && machine.state.trim().length > 0) {
     return machine.state === "connected";
+  }
+  if (typeof machine.status === "string" && machine.status.trim().length > 0) {
+    return machine.status === "connected" || machine.status === "online";
   }
   return machine.connected !== false;
 }

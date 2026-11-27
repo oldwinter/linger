@@ -26,10 +26,12 @@ export interface HerdrCoreTerminalForeground {
 
 export interface HerdrCoreTerminal {
   readonly address: string;
+  readonly machine?: string | null;
   readonly name?: string | null;
   readonly state: string;
   readonly cwd: string;
-  readonly argv: readonly string[];
+  readonly foreground_cwd?: string | null;
+  readonly argv?: readonly string[];
   readonly labels: Readonly<Record<string, string>>;
   readonly parent?: string | null;
   readonly template?: string | null;
@@ -56,6 +58,8 @@ export interface HerdrCoreMachine {
   readonly target?: string | null;
   readonly via?: boolean;
   readonly state?: string | null;
+  readonly status?: string | null;
+  readonly online?: boolean;
   readonly connected?: boolean;
   readonly needs_login?: boolean;
   readonly keeps_running_after_logout?: boolean | null;
@@ -125,6 +129,7 @@ export interface HerdrCoreSendRequest {
   readonly address: string;
   readonly text: string;
   readonly if?: "idle" | "working" | "done" | "blocked" | "error";
+  readonly turn?: number;
   readonly force?: boolean;
   readonly wait?: boolean;
   readonly timeout?: number;
