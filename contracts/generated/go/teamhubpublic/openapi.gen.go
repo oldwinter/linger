@@ -9070,7 +9070,9 @@ type PocketNoteText = string
 
 // PocketNoteUpdateRequest defines model for PocketNoteUpdateRequest.
 type PocketNoteUpdateRequest struct {
-	Text PocketNoteText `json:"text"`
+	// ExpectedUpdatedAt Optional optimistic concurrency precondition. Omit for an unconditional write. Pass an empty string to require that today's page is currently empty, or pass the last observed RFC 3339 updated_at timestamp of today's page. TeamHub returns 409 POCKET_NOTE_CONFLICT when today's stored page no longer matches.
+	ExpectedUpdatedAt *string        `json:"expected_updated_at,omitempty"`
+	Text              PocketNoteText `json:"text"`
 }
 
 // ProactiveAction notify tells the Human now, track records a Tracking Item to follow up, silent does nothing.

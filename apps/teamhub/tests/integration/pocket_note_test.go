@@ -118,3 +118,144 @@ func TestPocketNotesDeletePastDaysOnly(t *testing.T) {
 		t.Fatalf("listed after delete=%v", dates)
 	}
 }
+
+func TestPocketNotesRejectStaleExpectedUpdatedAtAndAllowUnconditionalWrites(t *testing.T) {
+	allowParallelIntegrationTest(t)
+	env := newRoomMembershipEnv(t)
+	alice := env.login("alice", alicePassword)
+	path := "/v0/tenants/" + acmeTenant + "/me/pocket-notes"
+
+	type note struct {
+		Date      string `json:"date"`
+		Text      string `json:"text"`
+		UpdatedAt string `json:"updated_at"`
+	}
+	type errorEnvelope struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	readToday := func() string {
+		t.Helper()
+		status, _, body := env.request(alice, http.MethodGet, path, nil, "")
+		if status != http.StatusOK {
+			t.Fatalf("list Pocket Notes status=%d body=%s", status, body)
+		}
+		var page struct {
+			Today string `json:"today"`
+			Items []note `json:"items"`
+		}
+		decode(t, body, &page)
+		for _, item := range page.Items {
+			if item.Date == page.Today {
+				return item.Text
+			}
+		}
+		return ""
+	}
+
+	// First writer creates today's note expecting an empty page.
+	status, _, body := env.request(alice, http.MethodPut, path+"/today", map[string]any{
+		"text":                "Tab 1 words",
+		"expected_updated_at": "",
+	}, "")
+	if status != http.StatusOK {
+		t.Fatalf("create Pocket Note status=%d body=%s", status, body)
+	}
+	var first note
+	decode(t, body, &first)
+	if first.Text != "Tab 1 words" || first.UpdatedAt == "" {
+		t.Fatalf("first=%+v", first)
+	}
+
+	// Competing writer expecting an empty page gets 409 POCKET_NOTE_CONFLICT.
+	status, _, body = env.request(alice, http.MethodPut, path+"/today", map[string]any{
+		"text":                "Tab 2 words",
+		"expected_updated_at": "",
+	}, "")
+	if status != http.StatusConflict {
+		t.Fatalf("competing empty create status=%d body=%s", status, body)
+	}
+	var conflict errorEnvelope
+	decode(t, body, &conflict)
+	if conflict.Error.Code != "POCKET_NOTE_CONFLICT" {
+		t.Fatalf("conflict code=%q body=%s", conflict.Error.Code, body)
+	}
+	if got := readToday(); got != "Tab 1 words" {
+		t.Fatalf("today text after empty conflict=%q", got)
+	}
+
+	// Writer with matching expected_updated_at succeeds and advances updated_at.
+	status, _, body = env.request(alice, http.MethodPut, path+"/today", map[string]any{
+		"text":                "Tab 1 + Tab 2",
+		"expected_updated_at": first.UpdatedAt,
+	}, "")
+	if status != http.StatusOK {
+		t.Fatalf("matching update status=%d body=%s", status, body)
+	}
+	var second note
+	decode(t, body, &second)
+	if second.UpdatedAt == first.UpdatedAt {
+		t.Fatalf("updated_at did not advance: %q", second.UpdatedAt)
+	}
+
+	// Stale writer using first.UpdatedAt is rejected and does not overwrite second.
+	status, _, body = env.request(alice, http.MethodPut, path+"/today", map[string]any{
+		"text":                "Stale overwrite",
+		"expected_updated_at": first.UpdatedAt,
+	}, "")
+	if status != http.StatusConflict {
+		t.Fatalf("stale update status=%d body=%s", status, body)
+	}
+	if got := readToday(); got != "Tab 1 + Tab 2" {
+		t.Fatalf("today text after stale conflict=%q", got)
+	}
+
+	// Stale clear is also rejected with 409.
+	status, _, body = env.request(alice, http.MethodPut, path+"/today", map[string]any{
+		"text":                "",
+		"expected_updated_at": first.UpdatedAt,
+	}, "")
+	if status != http.StatusConflict {
+		t.Fatalf("stale clear status=%d body=%s", status, body)
+	}
+	if got := readToday(); got != "Tab 1 + Tab 2" {
+		t.Fatalf("today text after stale clear=%q", got)
+	}
+
+	// Malformed expected_updated_at returns 400 INVALID_REQUEST.
+	status, _, body = env.request(alice, http.MethodPut, path+"/today", map[string]any{
+		"text":                "Bad precondition",
+		"expected_updated_at": "not-a-timestamp",
+	}, "")
+	if status != http.StatusBadRequest {
+		t.Fatalf("invalid expected_updated_at status=%d body=%s", status, body)
+	}
+
+	// Matching clear deletes the row; a subsequent stale write using second.UpdatedAt conflicts.
+	status, _, body = env.request(alice, http.MethodPut, path+"/today", map[string]any{
+		"text":                "",
+		"expected_updated_at": second.UpdatedAt,
+	}, "")
+	if status != http.StatusOK {
+		t.Fatalf("matching clear status=%d body=%s", status, body)
+	}
+	status, _, body = env.request(alice, http.MethodPut, path+"/today", map[string]any{
+		"text":                "Write after clear",
+		"expected_updated_at": second.UpdatedAt,
+	}, "")
+	if status != http.StatusConflict {
+		t.Fatalf("stale write after clear status=%d body=%s", status, body)
+	}
+
+	// Legacy callers omitting expected_updated_at remain backward compatible.
+	status, _, body = env.request(alice, http.MethodPut, path+"/today", map[string]any{
+		"text": "Unconditional legacy write",
+	}, "")
+	if status != http.StatusOK {
+		t.Fatalf("legacy unconditional write status=%d body=%s", status, body)
+	}
+	if got := readToday(); got != "Unconditional legacy write" {
+		t.Fatalf("today text after legacy write=%q", got)
+	}
+}

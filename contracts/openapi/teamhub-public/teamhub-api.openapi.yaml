@@ -5023,6 +5023,7 @@ paths:
         '400': { $ref: '../components/common.yaml#/components/responses/BadRequest' }
         '401': { $ref: '../components/common.yaml#/components/responses/Unauthenticated' }
         '404': { $ref: '../components/common.yaml#/components/responses/NotFound' }
+        '409': { $ref: '../components/common.yaml#/components/responses/Conflict' }
   /v0/tenants/{tenantId}/me/pocket-notes/{noteDate}:
     parameters:
       - $ref: '#/components/parameters/TenantId'

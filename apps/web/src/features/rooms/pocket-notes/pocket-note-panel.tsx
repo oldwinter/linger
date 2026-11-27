@@ -20,6 +20,7 @@ import { Icon } from "@/components/ui/icon";
 import {
   useInfiniteQuery,
   useMutation,
+  useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
 import {
@@ -34,6 +35,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
+import { teamHubIdentityQueryOptions } from "@/features/rooms/room-queries";
 import { teamHubData, teamHubDone } from "@/features/teamhub/teamhub-api";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import type { TeamHubPocketNote } from "@/features/teamhub/teamhub-types";
@@ -46,10 +48,31 @@ import { writeClipboardText } from "@/lib/clipboard";
 import { cn } from "@/lib/cn";
 
 import {
+  fetchTodayPocketNote,
+  pocketNotesQueryKey,
   pocketNotesQueryOptions,
   removePocketNote,
   storeTodayPocketNote,
 } from "./pocket-note-queries";
+import {
+  isPocketNoteConflictError,
+  mergePocketNoteConflict,
+} from "./pocket-note-conflict";
+import {
+  broadcastPocketNoteUpdated,
+  clearPocketNoteDraft,
+  localPocketNoteDate,
+  pocketNoteExpectedUpdatedAt,
+  readPocketNoteDraft,
+  subscribePocketNoteUpdates,
+  writePocketNoteDraft,
+  type PocketNoteDraftScope,
+} from "./pocket-note-draft";
+import {
+  PocketNoteConflictBar,
+  PocketNoteUnsyncedDraftBar,
+  type PocketNoteConflictState,
+} from "./pocket-note-recovery-bars";
 import {
   POCKET_NOTES_FILENAME,
   pocketNoteFilename,
@@ -104,6 +127,7 @@ interface CloseGuard {
 }
 
 export default function PocketNotePanel({
+  accountId: accountIdProp,
   anchor,
   anotherMeRoomId,
   closeRef,
@@ -111,6 +135,8 @@ export default function PocketNotePanel({
   onOpenChat,
   tenantId,
 }: {
+  /** Signed-in account ID isolating local recovery drafts; falls back to /v0/me. */
+  accountId?: string;
   /** The toolbar button, when that room's navigation is on screen. */
   anchor: HTMLButtonElement | null;
   anotherMeRoomId?: string;
@@ -123,8 +149,15 @@ export default function PocketNotePanel({
 }) {
   const t = useT();
   const { client } = useTeamHubRuntime();
+  const identity = useQuery({
+    ...teamHubIdentityQueryOptions(client),
+    enabled: !accountIdProp,
+  });
+  const accountId = accountIdProp ?? identity.data?.account.id;
   const notes = useInfiniteQuery(pocketNotesQueryOptions(client, tenantId));
   const [view, setView] = useState<PocketNoteView>({ kind: "today" });
+  const [autoSaveRecoveredOnce, setAutoSaveRecoveredOnce] = useState(false);
+  const [offlineDraftVersion, setOfflineDraftVersion] = useState(0);
   const panelRef = useRef<HTMLDivElement>(null);
   const position = usePanelPosition(anchor);
   const closeGuard = useRef<CloseGuard | undefined>(undefined);
@@ -209,8 +242,21 @@ export default function PocketNotePanel({
   const items = notes.data?.pages.flatMap((page) => page.items) ?? [];
   const today = firstPage?.today;
   const todayNote = items.find((item) => item.date === today);
+  const waitingForIdentity = !accountIdProp && identity.isPending;
+  const offlineDate = localPocketNoteDate();
+  const offlineDraft =
+    !firstPage && notes.isError && accountId && offlineDraftVersion >= 0
+      ? readPocketNoteDraft({ accountId, date: offlineDate, tenantId })
+      : undefined;
   const [downloading, setDownloading] = useState(false);
   const [downloadFailed, setDownloadFailed] = useState(false);
+
+  async function retryOfflineLoad() {
+    const result = await notes.refetch();
+    if (!result.isError && result.data?.pages[0]?.today) {
+      setAutoSaveRecoveredOnce(true);
+    }
+  }
 
   /**
    * Loads every page still on the server before writing the file, so the
@@ -272,7 +318,26 @@ export default function PocketNotePanel({
         role="dialog"
         style={position}
       >
-        {!firstPage || !today ? (
+        {offlineDraft ? (
+          <TodayPocketNote
+            accountId={accountId}
+            anotherMeRoomId={anotherMeRoomId}
+            closeGuard={closeGuard}
+            key={`${accountId ?? ""}:${tenantId}:${offlineDate}:offline`}
+            offlineLoad
+            onClose={() => void close()}
+            onOfflineDraftDiscarded={() => {
+              setOfflineDraftVersion((value) => value + 1);
+            }}
+            onOpenChat={onOpenChat}
+            onRetryLoad={retryOfflineLoad}
+            onShowAll={() => setView({ kind: "all" })}
+            storedText={offlineDraft.baseText}
+            storedUpdatedAt={offlineDraft.baseUpdatedAt}
+            tenantId={tenantId}
+            today={offlineDate}
+          />
+        ) : !firstPage || !today || waitingForIdentity ? (
           <>
             <PocketNoteHeader onClose={() => void close()} title={t(m.panel)} />
             {notes.isError ? (
@@ -319,14 +384,18 @@ export default function PocketNotePanel({
           />
         ) : view.kind === "today" ? (
           <TodayPocketNote
+            accountId={accountId}
             anotherMeRoomId={anotherMeRoomId}
+            autoSaveRecovered={autoSaveRecoveredOnce}
             closeGuard={closeGuard}
             earlier={pocketNoteBefore(items, today)}
-            key={`${tenantId}:${today}`}
+            key={`${accountId ?? ""}:${tenantId}:${today}`}
+            onAutoSaveRecoveredConsumed={() => setAutoSaveRecoveredOnce(false)}
             onClose={() => void close()}
             onOpenChat={onOpenChat}
             onShowAll={() => setView({ kind: "all" })}
             storedText={todayNote?.text ?? ""}
+            storedUpdatedAt={pocketNoteExpectedUpdatedAt(todayNote)}
             tenantId={tenantId}
             today={today}
           />
@@ -343,25 +412,91 @@ export default function PocketNotePanel({
   );
 }
 
+function initialTodayRecovery({
+  offlineLoad,
+  scope,
+  storedText,
+  storedUpdatedAt,
+}: {
+  offlineLoad: boolean;
+  scope?: PocketNoteDraftScope;
+  storedText: string;
+  storedUpdatedAt?: string;
+}): {
+  conflict?: PocketNoteConflictState;
+  restoredDraft: boolean;
+  staleDraftToClear: boolean;
+  text: string;
+} {
+  if (!scope) {
+    return { restoredDraft: false, staleDraftToClear: false, text: storedText };
+  }
+  const recovered = readPocketNoteDraft(scope);
+  if (!recovered) {
+    return { restoredDraft: false, staleDraftToClear: false, text: storedText };
+  }
+  if (!offlineLoad && recovered.text === storedText) {
+    return { restoredDraft: false, staleDraftToClear: true, text: storedText };
+  }
+  const currentUpdatedAt = storedUpdatedAt ?? "";
+  const serverMoved =
+    !offlineLoad &&
+    recovered.baseText !== storedText &&
+    recovered.baseUpdatedAt !== currentUpdatedAt;
+  if (serverMoved) {
+    return {
+      conflict: {
+        baseText: recovered.baseText,
+        serverText: storedText,
+        serverUpdatedAt: currentUpdatedAt,
+      },
+      restoredDraft: false,
+      staleDraftToClear: false,
+      text: recovered.text,
+    };
+  }
+  return {
+    restoredDraft: true,
+    staleDraftToClear: false,
+    text: recovered.text,
+  };
+}
+
 function TodayPocketNote({
+  accountId,
   anotherMeRoomId,
+  autoSaveRecovered = false,
   closeGuard,
   earlier,
+  offlineLoad = false,
+  onAutoSaveRecoveredConsumed,
   onClose,
+  onOfflineDraftDiscarded,
   onOpenChat,
+  onRetryLoad,
   onShowAll,
   storedText,
+  storedUpdatedAt,
   tenantId,
   today,
 }: {
+  accountId?: string;
   anotherMeRoomId?: string;
+  autoSaveRecovered?: boolean;
   closeGuard: RefObject<CloseGuard | undefined>;
   /** The newest written page before today, read on the same paper. */
   earlier?: TeamHubPocketNote;
+  /** True when today's page is rendered from a local recovery draft while TeamHub is unreachable. */
+  offlineLoad?: boolean;
+  onAutoSaveRecoveredConsumed?: () => void;
   /** Today's saved text, which a save from elsewhere can change underneath. */
   storedText: string;
+  /** Server updated_at token for today's page ("" when empty, undefined only for synthetic empty timestamps). */
+  storedUpdatedAt?: string;
   onClose: () => void;
+  onOfflineDraftDiscarded?: () => void;
   onOpenChat?: () => void;
+  onRetryLoad?: () => Promise<void>;
   onShowAll: () => void;
   tenantId: string;
   today: string;
@@ -369,10 +504,39 @@ function TodayPocketNote({
   const t = useT();
   const { client } = useTeamHubRuntime();
   const queryClient = useQueryClient();
-  const [text, setText] = useState(storedText);
-  const textRef = useRef(storedText);
+  const scope: PocketNoteDraftScope | undefined = accountId
+    ? { accountId, date: today, tenantId }
+    : undefined;
+  const [initial] = useState(() =>
+    initialTodayRecovery({
+      offlineLoad,
+      scope,
+      storedText,
+      storedUpdatedAt,
+    }),
+  );
+  const [text, setText] = useState(initial.text);
+  const [savedTextState, setSavedTextState] = useState(storedText);
+  const [restoredDraft, setRestoredDraft] = useState(initial.restoredDraft);
+  const [userEdited, setUserEdited] = useState(false);
+  const [conflict, setConflict] = useState<PocketNoteConflictState | undefined>(
+    initial.conflict,
+  );
+  const [confirmingDiscard, setConfirmingDiscard] = useState(false);
+  const [storageUnavailable, setStorageUnavailable] = useState(false);
+  const [retryingOfflineLoad, setRetryingOfflineLoad] = useState(false);
+
+  const textRef = useRef(initial.text);
   const savedText = useRef(storedText);
+  const savedUpdatedAt = useRef<string | undefined>(storedUpdatedAt);
   const storedRef = useRef(storedText);
+  const storedUpdatedAtRef = useRef<string | undefined>(storedUpdatedAt);
+  const conflictRef = useRef<PocketNoteConflictState | undefined>(
+    initial.conflict,
+  );
+  const restoredDraftRef = useRef(initial.restoredDraft);
+  const userEditedRef = useRef(false);
+  const lastFailedTextRef = useRef<string | undefined>(undefined);
   const saving = useRef<Promise<void> | undefined>(undefined);
   const editorRef = useRef<PocketNoteEditorHandle>(null);
   const liveRef = useRef<HTMLSpanElement>(null);
@@ -380,27 +544,125 @@ function TodayPocketNote({
   // Where this dictation began; later turns continue its paragraph.
   const blockStart = useRef(0);
   const [truncated, setTruncated] = useState(false);
+
+  function setConflictState(next: PocketNoteConflictState | undefined) {
+    conflictRef.current = next;
+    setConflict(next);
+  }
+
+  function setRestoredDraftState(next: boolean) {
+    restoredDraftRef.current = next;
+    setRestoredDraft(next);
+  }
+
+  function setSavedBaseline(nextText: string, nextUpdatedAt?: string) {
+    savedText.current = nextText;
+    savedUpdatedAt.current = nextUpdatedAt;
+    setSavedTextState(nextText);
+  }
+
   const save = useMutation({
-    mutationFn: (value: string) =>
+    mutationFn: (input: { expectedUpdatedAt?: string; text: string }) =>
       teamHubData(
         client.api.PUT("/v0/tenants/{tenantId}/me/pocket-notes/today", {
           params: { path: { tenantId } },
-          body: { text: value },
+          body: {
+            text: input.text,
+            ...(input.expectedUpdatedAt !== undefined
+              ? { expected_updated_at: input.expectedUpdatedAt }
+              : {}),
+          },
         }),
       ),
     onSuccess: (note) => {
-      savedText.current = note.text;
-      storedRef.current = note.text;
+      const nextUpdatedAt = pocketNoteExpectedUpdatedAt(note);
+      lastFailedTextRef.current = undefined;
+      setSavedBaseline(note.text, nextUpdatedAt);
+      setRestoredDraftState(false);
+      setStorageUnavailable(false);
+      setConfirmingDiscard(false);
+      setConflictState(undefined);
       storeTodayPocketNote(queryClient, tenantId, note);
+      broadcastPocketNoteUpdated({ accountId, note, tenantId });
+      if (scope) {
+        if (textRef.current === note.text) {
+          clearPocketNoteDraft(scope);
+        } else {
+          // Edits made while this PUT was in flight stay protected under the
+          // newly confirmed server baseline.
+          const persisted = writePocketNoteDraft(scope, {
+            baseText: note.text,
+            baseUpdatedAt: nextUpdatedAt ?? "",
+            text: textRef.current,
+            updatedAt: new Date().toISOString(),
+          });
+          setStorageUnavailable(!persisted);
+        }
+      }
     },
   });
   const persist = useEffectEvent(() => {
     void ensureSaved().catch(() => {});
   });
+  const resetSaveMutation = useEffectEvent(() => {
+    save.reset();
+  });
+  const consumeAutoSaveRecovered = useEffectEvent(() => {
+    onAutoSaveRecoveredConsumed?.();
+  });
+
+  useEffect(() => {
+    if (initial.staleDraftToClear && accountId) {
+      clearPocketNoteDraft({ accountId, date: today, tenantId });
+    }
+  }, [accountId, initial.staleDraftToClear, tenantId, today]);
+
+  useEffect(() => {
+    if (!autoSaveRecovered || offlineLoad) return;
+    consumeAutoSaveRecovered();
+    if (!conflictRef.current && textRef.current !== savedText.current) {
+      persist();
+    }
+  }, [autoSaveRecovered, offlineLoad]);
+
+  useEffect(() => {
+    if (!accountId || offlineLoad) return;
+    return subscribePocketNoteUpdates(
+      { accountId, date: today, tenantId },
+      {
+        onNote: (note) => {
+          storeTodayPocketNote(queryClient, tenantId, note);
+        },
+        onRemoteChange: () => {
+          void queryClient.invalidateQueries({
+            queryKey: pocketNotesQueryKey(tenantId),
+          });
+        },
+      },
+    );
+  }, [accountId, offlineLoad, queryClient, tenantId, today]);
 
   function update(value: string) {
     textRef.current = value;
+    userEditedRef.current = true;
+    lastFailedTextRef.current = undefined;
     setText(value);
+    setUserEdited(true);
+    setConfirmingDiscard(false);
+    if (!scope) return;
+    if (!offlineLoad && !conflictRef.current && value === savedText.current) {
+      clearPocketNoteDraft(scope);
+      setRestoredDraftState(false);
+      setStorageUnavailable(false);
+      return;
+    }
+    const persisted = writePocketNoteDraft(scope, {
+      baseText: conflictRef.current?.baseText ?? savedText.current,
+      baseUpdatedAt: savedUpdatedAt.current ?? "",
+      text: value,
+      updatedAt: new Date().toISOString(),
+    });
+    setStorageUnavailable(!persisted);
   }
 
   /**
@@ -453,6 +715,13 @@ function TodayPocketNote({
     closeGuard.current = {
       beforeLeave,
       listening: () => dictation.active && !dictation.stopping,
+      onEscape: () => {
+        if (confirmingDiscard) {
+          setConfirmingDiscard(false);
+          return true;
+        }
+        return false;
+      },
       stop: stopDictation,
     };
     return () => {
@@ -460,42 +729,129 @@ function TodayPocketNote({
     };
   });
 
-  // A save from the Message menu writes the same page. With nothing unsaved
-  // the editor takes the new text; with a draft it keeps the person's words and
-  // gains only the appended block, so the next autosave carries both.
+  // External saves (Message menu or another tab) update the query cache.
+  // Clean pages take the new text; pure appends merge onto an unsaved draft
+  // and advance its baseline; competing edits open conflict resolution instead
+  // of silently overwriting on the next autosave.
   useEffect(() => {
-    if (storedText === storedRef.current) return;
-    const previous = storedRef.current;
+    if (offlineLoad) return;
+    if (
+      storedText === storedRef.current &&
+      storedUpdatedAt === storedUpdatedAtRef.current
+    ) {
+      return;
+    }
+    const previousText = storedRef.current;
+    const previousUpdatedAt = storedUpdatedAtRef.current;
     storedRef.current = storedText;
-    if (textRef.current === savedText.current) {
-      savedText.current = storedText;
+    storedUpdatedAtRef.current = storedUpdatedAt;
+    if (saving.current) return;
+    if (
+      storedText === savedText.current &&
+      storedUpdatedAt === savedUpdatedAt.current &&
+      !conflictRef.current
+    ) {
+      return;
+    }
+    if (
+      conflictRef.current &&
+      conflictRef.current.serverText === storedText &&
+      conflictRef.current.serverUpdatedAt === (storedUpdatedAt ?? "")
+    ) {
+      return;
+    }
+    if (textRef.current === savedText.current && !conflictRef.current) {
+      setSavedBaseline(storedText, storedUpdatedAt);
       textRef.current = storedText;
       setText(storedText);
       return;
     }
-    if (!storedText.startsWith(previous)) return;
-    const merged = appendToPocketNote(
-      textRef.current,
-      storedText.slice(previous.length),
-    );
-    textRef.current = merged;
-    setText(merged);
-  }, [storedText]);
+    if (storedText === textRef.current) {
+      lastFailedTextRef.current = undefined;
+      setSavedBaseline(storedText, storedUpdatedAt);
+      setRestoredDraftState(false);
+      setConflictState(undefined);
+      setConfirmingDiscard(false);
+      setStorageUnavailable(false);
+      resetSaveMutation();
+      if (accountId) clearPocketNoteDraft({ accountId, date: today, tenantId });
+      return;
+    }
+    if (
+      !conflictRef.current &&
+      storedText.startsWith(previousText) &&
+      storedText.length > previousText.length
+    ) {
+      const merged = appendToPocketNote(
+        textRef.current,
+        storedText.slice(previousText.length),
+      );
+      setSavedBaseline(storedText, storedUpdatedAt);
+      textRef.current = merged;
+      setText(merged);
+      if (accountId) {
+        const persisted = writePocketNoteDraft(
+          { accountId, date: today, tenantId },
+          {
+            baseText: storedText,
+            baseUpdatedAt: storedUpdatedAt ?? "",
+            text: merged,
+            updatedAt: new Date().toISOString(),
+          },
+        );
+        setStorageUnavailable(!persisted);
+      }
+      return;
+    }
+    const baseText = conflictRef.current?.baseText ?? previousText;
+    setConflictState({
+      baseText,
+      serverText: storedText,
+      serverUpdatedAt: storedUpdatedAt ?? "",
+    });
+    setRestoredDraftState(false);
+    setConfirmingDiscard(false);
+    if (accountId) {
+      const persisted = writePocketNoteDraft(
+        { accountId, date: today, tenantId },
+        {
+          baseText,
+          baseUpdatedAt: previousUpdatedAt ?? "",
+          text: textRef.current,
+          updatedAt: new Date().toISOString(),
+        },
+      );
+      setStorageUnavailable(!persisted);
+    }
+  }, [accountId, offlineLoad, storedText, storedUpdatedAt, tenantId, today]);
 
   useEffect(() => {
-    if (text === savedText.current) return;
+    if (
+      offlineLoad ||
+      conflict ||
+      text === savedTextState ||
+      (restoredDraft && !userEdited)
+    ) {
+      return;
+    }
     const timer = window.setTimeout(() => persist(), autosaveDelayMs);
     return () => window.clearTimeout(timer);
-  }, [text]);
+  }, [conflict, offlineLoad, restoredDraft, savedTextState, text, userEdited]);
 
   // Closing the notepad inside the autosave delay must not drop the last words.
   useEffect(
     () => () => {
-      if (textRef.current !== savedText.current) {
+      if (
+        !offlineLoad &&
+        !conflictRef.current &&
+        !(restoredDraftRef.current && !userEditedRef.current) &&
+        lastFailedTextRef.current !== textRef.current &&
+        textRef.current !== savedText.current
+      ) {
         persist();
       }
     },
-    [],
+    [offlineLoad],
   );
 
   // Keep the words being spoken in view, and hand the caret back after them.
@@ -526,13 +882,83 @@ function TodayPocketNote({
     }
     startDictation();
   }
-  function ensureSaved(): Promise<void> {
+
+  async function handleConflict() {
+    const preConflictBaseText =
+      conflictRef.current?.baseText ?? savedText.current;
+    const preConflictBaseUpdatedAt = savedUpdatedAt.current ?? "";
+    const fresh = await fetchTodayPocketNote(client, queryClient, tenantId);
+    const serverText = fresh.note?.text ?? "";
+    const serverUpdatedAt = pocketNoteExpectedUpdatedAt(fresh.note) ?? "";
+    if (serverText === textRef.current) {
+      lastFailedTextRef.current = undefined;
+      setSavedBaseline(serverText, serverUpdatedAt);
+      setRestoredDraftState(false);
+      setConflictState(undefined);
+      setConfirmingDiscard(false);
+      setStorageUnavailable(false);
+      save.reset();
+      if (scope) clearPocketNoteDraft(scope);
+      return;
+    }
+    setConflictState({
+      baseText: preConflictBaseText,
+      serverText,
+      serverUpdatedAt,
+    });
+    setRestoredDraftState(false);
+    setConfirmingDiscard(false);
+    if (scope) {
+      // Keep the pre-conflict base so reloading before resolution still detects
+      // the server divergence.
+      const persisted = writePocketNoteDraft(scope, {
+        baseText: preConflictBaseText,
+        baseUpdatedAt: preConflictBaseUpdatedAt,
+        text: textRef.current,
+        updatedAt: new Date().toISOString(),
+      });
+      setStorageUnavailable(!persisted);
+    }
+  }
+
+  function ensureSaved(options?: {
+    overrideExpectedUpdatedAt?: string;
+  }): Promise<void> {
+    if (offlineLoad) {
+      return Promise.reject(new Error("Pocket Notes are offline"));
+    }
+    if (
+      conflictRef.current &&
+      options?.overrideExpectedUpdatedAt === undefined
+    ) {
+      return Promise.reject(new Error("Pocket Note conflict requires choice"));
+    }
     if (saving.current) return saving.current;
     // Only one full-text write may be in flight. Edits made while it saves
     // become the next write instead of racing the previous version.
     const pending = (async () => {
-      while (textRef.current !== savedText.current) {
-        await save.mutateAsync(textRef.current);
+      let nextExpected = options?.overrideExpectedUpdatedAt;
+      while (
+        textRef.current !== savedText.current ||
+        nextExpected !== undefined
+      ) {
+        const valueToSave = textRef.current;
+        const expectedUpdatedAt =
+          nextExpected !== undefined ? nextExpected : savedUpdatedAt.current;
+        nextExpected = undefined;
+        try {
+          await save.mutateAsync({
+            expectedUpdatedAt,
+            text: valueToSave,
+          });
+        } catch (error) {
+          lastFailedTextRef.current = valueToSave;
+          if (isPocketNoteConflictError(error)) {
+            await handleConflict().catch(() => {});
+          }
+          throw error;
+        }
+        if (conflictRef.current) return;
       }
     })();
     saving.current = pending;
@@ -544,7 +970,10 @@ function TodayPocketNote({
   }
 
   function beforeLeave() {
-    if (dictation.active) return stopDictation().then(ensureSaved);
+    if (offlineLoad || conflictRef.current) {
+      return Promise.reject(new Error("Unsynced Pocket Note requires action"));
+    }
+    if (dictation.active) return stopDictation().then(() => ensureSaved());
     if (saving.current || textRef.current !== savedText.current) {
       return ensureSaved();
     }
@@ -563,8 +992,101 @@ function TodayPocketNote({
     dictation.start();
   }
 
-  const unsaved = text !== savedText.current;
-  const saveFailed = save.isError && unsaved;
+  function saveDraftNow() {
+    if (offlineLoad) {
+      if (!onRetryLoad || retryingOfflineLoad) return;
+      setRetryingOfflineLoad(true);
+      void onRetryLoad().finally(() => {
+        setRetryingOfflineLoad(false);
+      });
+      return;
+    }
+    void ensureSaved().catch(() => {});
+  }
+
+  function discardLocalDraft() {
+    if (scope) clearPocketNoteDraft(scope);
+    lastFailedTextRef.current = undefined;
+    setConfirmingDiscard(false);
+    setRestoredDraftState(false);
+    setStorageUnavailable(false);
+    setConflictState(undefined);
+    save.reset();
+    if (offlineLoad) {
+      onOfflineDraftDiscarded?.();
+      return;
+    }
+    userEditedRef.current = false;
+    setUserEdited(false);
+    textRef.current = savedText.current;
+    setText(savedText.current);
+  }
+
+  function resolveKeepMine() {
+    const current = conflictRef.current;
+    if (!current) return;
+    lastFailedTextRef.current = undefined;
+    setSavedBaseline(current.serverText, current.serverUpdatedAt);
+    setConflictState(undefined);
+    save.reset();
+    void ensureSaved({
+      overrideExpectedUpdatedAt: current.serverUpdatedAt,
+    }).catch(() => {});
+  }
+
+  function resolveKeepServer() {
+    const current = conflictRef.current;
+    if (!current) return;
+    lastFailedTextRef.current = undefined;
+    setSavedBaseline(current.serverText, current.serverUpdatedAt);
+    textRef.current = current.serverText;
+    userEditedRef.current = false;
+    setText(current.serverText);
+    setUserEdited(false);
+    setConflictState(undefined);
+    setRestoredDraftState(false);
+    setConfirmingDiscard(false);
+    setStorageUnavailable(false);
+    save.reset();
+    if (scope) clearPocketNoteDraft(scope);
+  }
+
+  function resolveMergeBoth() {
+    const current = conflictRef.current;
+    if (!current) return;
+    const merged = mergePocketNoteConflict({
+      baseText: current.baseText,
+      localText: textRef.current,
+      maxLength: maximumNoteLength,
+      serverText: current.serverText,
+    });
+    if (merged.truncated) setTruncated(true);
+    lastFailedTextRef.current = undefined;
+    setSavedBaseline(current.serverText, current.serverUpdatedAt);
+    textRef.current = merged.text;
+    userEditedRef.current = true;
+    setText(merged.text);
+    setUserEdited(true);
+    setConflictState(undefined);
+    save.reset();
+    if (scope) {
+      const persisted = writePocketNoteDraft(scope, {
+        baseText: current.serverText,
+        baseUpdatedAt: current.serverUpdatedAt,
+        text: merged.text,
+        updatedAt: new Date().toISOString(),
+      });
+      setStorageUnavailable(!persisted);
+    }
+    void ensureSaved({
+      overrideExpectedUpdatedAt: current.serverUpdatedAt,
+    }).catch(() => {});
+  }
+
+  const unsaved = offlineLoad || text !== savedTextState;
+  const saveFailed = !conflict && save.isError && unsaved;
+  const showUnsyncedBar =
+    !conflict && (offlineLoad || (unsaved && (restoredDraft || saveFailed)));
   const status = dictation.error
     ? dictation.error
     : truncated
@@ -577,11 +1099,15 @@ function TodayPocketNote({
           ? t(m.saving)
           : dictating
             ? t(m.listening)
-            : saveFailed
-              ? t(m.couldNotSave)
-              : save.isPending || unsaved
-                ? t(m.saving)
-                : t(m.saved);
+            : conflict
+              ? t(m.conflictStatus)
+              : saveFailed
+                ? t(m.couldNotSave)
+                : offlineLoad || (restoredDraft && !save.isPending && unsaved)
+                  ? t(m.unsyncedLocalDraft)
+                  : save.isPending || unsaved
+                    ? t(m.saving)
+                    : t(m.saved);
   // While speaking, the words still being recognized sit at the anchor.
   const at = Math.min(anchor.current, text.length);
   const before = text.slice(0, at);
@@ -615,6 +1141,26 @@ function TodayPocketNote({
         subtitle={status}
         title={t(m.todayTitle, { date: formatPocketNoteDate(today) })}
       />
+      {conflict ? (
+        <PocketNoteConflictBar
+          conflict={conflict}
+          onKeepMine={resolveKeepMine}
+          onKeepServer={resolveKeepServer}
+          onMergeBoth={resolveMergeBoth}
+          saving={save.isPending}
+        />
+      ) : showUnsyncedBar ? (
+        <PocketNoteUnsyncedDraftBar
+          confirmingDiscard={confirmingDiscard}
+          onCancelDiscard={() => setConfirmingDiscard(false)}
+          onConfirmDiscard={discardLocalDraft}
+          onRequestDiscard={() => setConfirmingDiscard(true)}
+          onSaveNow={saveDraftNow}
+          saving={save.isPending || retryingOfflineLoad}
+          showSaveAction={offlineLoad || restoredDraft}
+          storageUnavailable={storageUnavailable}
+        />
+      ) : null}
       <div className="relative flex min-h-0 flex-1 flex-col">
         <div
           className={

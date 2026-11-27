@@ -44,3 +44,12 @@ components:
         text:
           $ref: "#/components/schemas/PocketNoteText"
           description: Replaces today's page; an empty string clears it.
+        expected_updated_at:
+          type: string
+          maxLength: 64
+          description: >-
+            Optional optimistic concurrency precondition. Omit for an
+            unconditional write. Pass an empty string to require that today's
+            page is currently empty, or pass the last observed RFC 3339
+            updated_at timestamp of today's page. TeamHub returns 409
+            POCKET_NOTE_CONFLICT when today's stored page no longer matches.

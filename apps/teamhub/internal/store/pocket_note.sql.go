@@ -29,6 +29,35 @@ func (q *Queries) DeletePocketNote(ctx context.Context, arg DeletePocketNotePara
 	return err
 }
 
+const deletePocketNoteIfUpdatedAt = `-- name: DeletePocketNoteIfUpdatedAt :execrows
+DELETE FROM pocket_notes
+WHERE tenant_id=$1::text
+  AND owner_actor_id=$2::text
+  AND note_date=$3::date
+  AND hidden_at IS NULL
+  AND updated_at=$4::timestamptz
+`
+
+type DeletePocketNoteIfUpdatedAtParams struct {
+	TenantID          string             `json:"tenant_id"`
+	OwnerActorID      string             `json:"owner_actor_id"`
+	NoteDate          pgtype.Date        `json:"note_date"`
+	ExpectedUpdatedAt pgtype.Timestamptz `json:"expected_updated_at"`
+}
+
+func (q *Queries) DeletePocketNoteIfUpdatedAt(ctx context.Context, arg DeletePocketNoteIfUpdatedAtParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deletePocketNoteIfUpdatedAt,
+		arg.TenantID,
+		arg.OwnerActorID,
+		arg.NoteDate,
+		arg.ExpectedUpdatedAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getPocketNoteUpdatedAt = `-- name: GetPocketNoteUpdatedAt :one
 SELECT updated_at
 FROM pocket_notes
@@ -51,6 +80,30 @@ func (q *Queries) GetPocketNoteUpdatedAt(ctx context.Context, arg GetPocketNoteU
 	return updated_at, err
 }
 
+const hasPocketNote = `-- name: HasPocketNote :one
+SELECT EXISTS (
+  SELECT 1
+  FROM pocket_notes
+  WHERE tenant_id=$1::text
+    AND owner_actor_id=$2::text
+    AND note_date=$3::date
+    AND hidden_at IS NULL
+)
+`
+
+type HasPocketNoteParams struct {
+	TenantID     string      `json:"tenant_id"`
+	OwnerActorID string      `json:"owner_actor_id"`
+	NoteDate     pgtype.Date `json:"note_date"`
+}
+
+func (q *Queries) HasPocketNote(ctx context.Context, arg HasPocketNoteParams) (bool, error) {
+	row := q.db.QueryRow(ctx, hasPocketNote, arg.TenantID, arg.OwnerActorID, arg.NoteDate)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const hidePocketNote = `-- name: HidePocketNote :exec
 UPDATE pocket_notes
 SET hidden_at=clock_timestamp()
@@ -69,6 +122,38 @@ type HidePocketNoteParams struct {
 func (q *Queries) HidePocketNote(ctx context.Context, arg HidePocketNoteParams) error {
 	_, err := q.db.Exec(ctx, hidePocketNote, arg.TenantID, arg.OwnerActorID, arg.NoteDate)
 	return err
+}
+
+const insertPocketNoteIfAbsent = `-- name: InsertPocketNoteIfAbsent :one
+INSERT INTO pocket_notes(tenant_id,owner_actor_id,note_date,body)
+VALUES($1::text,$2::text,$3::date,$4::text)
+ON CONFLICT (tenant_id,owner_actor_id,note_date) DO NOTHING
+RETURNING note_date,body,updated_at
+`
+
+type InsertPocketNoteIfAbsentParams struct {
+	TenantID     string      `json:"tenant_id"`
+	OwnerActorID string      `json:"owner_actor_id"`
+	NoteDate     pgtype.Date `json:"note_date"`
+	Body         string      `json:"body"`
+}
+
+type InsertPocketNoteIfAbsentRow struct {
+	NoteDate  pgtype.Date        `json:"note_date"`
+	Body      string             `json:"body"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) InsertPocketNoteIfAbsent(ctx context.Context, arg InsertPocketNoteIfAbsentParams) (InsertPocketNoteIfAbsentRow, error) {
+	row := q.db.QueryRow(ctx, insertPocketNoteIfAbsent,
+		arg.TenantID,
+		arg.OwnerActorID,
+		arg.NoteDate,
+		arg.Body,
+	)
+	var i InsertPocketNoteIfAbsentRow
+	err := row.Scan(&i.NoteDate, &i.Body, &i.UpdatedAt)
+	return i, err
 }
 
 const listPocketNotes = `-- name: ListPocketNotes :many
@@ -120,11 +205,51 @@ func (q *Queries) ListPocketNotes(ctx context.Context, arg ListPocketNotesParams
 	return items, nil
 }
 
+const updatePocketNoteIfUpdatedAt = `-- name: UpdatePocketNoteIfUpdatedAt :one
+UPDATE pocket_notes
+SET body=$1::text,
+    updated_at=GREATEST(clock_timestamp(), pocket_notes.updated_at + interval '1 microsecond')
+WHERE tenant_id=$2::text
+  AND owner_actor_id=$3::text
+  AND note_date=$4::date
+  AND hidden_at IS NULL
+  AND updated_at=$5::timestamptz
+RETURNING note_date,body,updated_at
+`
+
+type UpdatePocketNoteIfUpdatedAtParams struct {
+	Body              string             `json:"body"`
+	TenantID          string             `json:"tenant_id"`
+	OwnerActorID      string             `json:"owner_actor_id"`
+	NoteDate          pgtype.Date        `json:"note_date"`
+	ExpectedUpdatedAt pgtype.Timestamptz `json:"expected_updated_at"`
+}
+
+type UpdatePocketNoteIfUpdatedAtRow struct {
+	NoteDate  pgtype.Date        `json:"note_date"`
+	Body      string             `json:"body"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) UpdatePocketNoteIfUpdatedAt(ctx context.Context, arg UpdatePocketNoteIfUpdatedAtParams) (UpdatePocketNoteIfUpdatedAtRow, error) {
+	row := q.db.QueryRow(ctx, updatePocketNoteIfUpdatedAt,
+		arg.Body,
+		arg.TenantID,
+		arg.OwnerActorID,
+		arg.NoteDate,
+		arg.ExpectedUpdatedAt,
+	)
+	var i UpdatePocketNoteIfUpdatedAtRow
+	err := row.Scan(&i.NoteDate, &i.Body, &i.UpdatedAt)
+	return i, err
+}
+
 const upsertPocketNote = `-- name: UpsertPocketNote :one
 INSERT INTO pocket_notes(tenant_id,owner_actor_id,note_date,body)
 VALUES($1::text,$2::text,$3::date,$4::text)
 ON CONFLICT (tenant_id,owner_actor_id,note_date) DO UPDATE
-SET body=excluded.body,updated_at=clock_timestamp()
+SET body=excluded.body,
+    updated_at=GREATEST(clock_timestamp(), pocket_notes.updated_at + interval '1 microsecond')
 RETURNING note_date,body,updated_at
 `
 
