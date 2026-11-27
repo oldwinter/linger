@@ -92,6 +92,61 @@ the event, and the strength. It shows on the Work Item and under the rule in
 My Rules. Lowering the mandate, or deleting the rule, stops later acts; Work
 Items already created stay and show the mandate as revoked.
 
+## Routing follow-up threads (Subscriptions)
+
+When Another Me delegates a Task under a `create_and_delegate` mandate for a
+supported external thread, TeamHub automatically attaches an active
+**Subscription** to that Task in the same transaction. Later activity on that
+same thread reaches the Task directly without anyone `@`-mentioning Another Me
+again or manually calling `task send`.
+
+### Normalized thread identity
+
+Subscriptions normalize external thread references into a canonical
+`(source_type, normalized_source_key)` pair so replies, state transitions, and
+different URL forms for the same logical thread always match:
+
+| Source family          | Canonical `source_type` | Normalized key format                                     |
+| ---------------------- | ----------------------- | --------------------------------------------------------- |
+| Gmail, Outlook, Feishu | `mail`                  | `<account>:<threadId>` (account lowercased, thread exact) |
+| `herdr`, `herdr-core`  | `herdr`                 | `<computerId>/<paneOrTerminalAddress>`                    |
+| GitHub issue / PR      | `github`                | `<owner>/<repo>#<number>` (lowercase owner/repo, integer) |
+
+Malformed keys are rejected at the boundary. For mail mandates, Another Me
+passes `--account <connection-id>` on `teamhub proactive act --delegate` (and
+when omitted, TeamHub resolves the account automatically only if the Human has
+one unambiguous granted mailbox for that provider).
+
+### Active routing and human-only ended-task resume
+
+- **Active Task (`running` or `waiting_for_approval`)**: matching follow-up
+  events on the subscribed thread are routed directly into the Task's execution
+  input queue (with per-event deduplication so retries and cursor replays never
+  double-deliver).
+- **Ended Task (`idle`, `failed`, or `canceled`)**: only a verified
+  **human-authored** follow-up message may resume the Task (starting a new
+  Attempt under TeamHub's normal concurrency and running-Task cap invariants).
+  Bot, CI (`check_run`, `workflow_run`, `[bot]` actors), automated/no-reply or
+  RFC 3834 `Auto-Submitted` mail, `herdr` machine transitions, and events with
+  unknown actor metadata **never** revive an ended Task; they are recorded as
+  skipped (`skipped_non_human_ended`).
+
+### Unsubscribing
+
+Both the Task's Human owner and Another Me may drop a Subscription:
+
+- **Owner (Human)**: view active and dropped subscriptions on the Work Item
+  detail panel and click **Unsubscribe** (`POST /v0/work-items/{workItemId}/subscriptions/{subscriptionId}/drop`).
+  Subscriptions are strictly owner-scoped: other Humans in the same Tenant
+  cannot see or drop them.
+- **Another Me (Agent)**: inspect active subscriptions with
+  `teamhub proactive subscriptions` and drop one when follow-up routing is no
+  longer needed with `teamhub proactive unsubscribe --subscription <id> [--reason "<why>"]`.
+
+Dropping a Subscription is idempotent and audited (`dropped_by_kind`: `owner` or
+`another_me`, actor ID, timestamp, and optional reason). Once dropped, later
+events on that thread stop routing to or resuming the Task immediately.
+
 ## Coding agents in herdr
 
 When [herdr](https://github.com/herdrdev/herdr) or

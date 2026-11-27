@@ -198,6 +198,13 @@ export const commandExamples: Record<string, string[]> = {
     "--brief",
     "Compare the new terms with the signed contract.",
   ],
+  list_proactive_subscriptions: ["--work-item", "workitem_one"],
+  drop_proactive_subscription: [
+    "--subscription",
+    "tsub_0123456789abcdef0123456789abcdef",
+    "--reason",
+    "Thread concluded",
+  ],
   record_shadow_divergence: [
     "--rule",
     "pr_0123456789abcdef0123456789abcdef",

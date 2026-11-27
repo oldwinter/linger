@@ -194,11 +194,11 @@ WHERE registration.agent_management_id=sqlc.arg(agent_management_id)::text
 
 -- name: LockTaskExecutionSnapshot :one
 SELECT item.id AS task_id,item.tenant_id,item.title,item.state AS work_item_state,item.resolution,item.version,
-       item.quiet,item.task_source_key,item.task_execution_generation,
+       item.archived_at,item.quiet,item.task_source_key,item.task_execution_generation,
        item.task_execution_status,item.task_execution_revision,item.task_execution_reason_code,
        item.task_desired_control,item.task_control_revision,item.task_control_settled_revision,
        item.task_control_outcome,item.task_control_payload,item.task_execution_updated_at,
-       generation.result_agent_actor_id,generation.spec,generation.spec_hash,
+       generation.result_agent_actor_id,generation.coordinator_actor_id,generation.spec,generation.spec_hash,
        COALESCE(work_room.room_id,origin.room_id)::text AS event_room_id,
        COALESCE(origin.room_id,live.home_room_id,'')::text AS origin_room_id
 FROM work_items item

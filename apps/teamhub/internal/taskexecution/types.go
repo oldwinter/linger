@@ -12,6 +12,7 @@ var (
 	ErrForbidden           = errors.New("task execution operation is forbidden")
 	ErrConflict            = errors.New("task execution state conflicts with the request")
 	ErrIdempotencyConflict = errors.New("task execution idempotency key reused")
+	ErrLimitReached        = errors.New("task execution running limit reached")
 )
 
 // RunSpecV1 is a Task generation's immutable execution contract. Its result

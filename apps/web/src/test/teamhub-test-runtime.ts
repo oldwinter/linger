@@ -1200,6 +1200,12 @@ function installSeedRoutes(server: TeamHubTestServer, seed: TeamHubTestSeed) {
       );
       return exists ? page([]) : notFound("WORK_ITEM_NOT_FOUND");
     })
+    .on("GET", "/v0/work-items/{workItemId}/subscriptions", ({ params }) => {
+      const exists = seed.workItems.some(
+        (item) => item.id === params.workItemId,
+      );
+      return exists ? { items: [] } : notFound("WORK_ITEM_NOT_FOUND");
+    })
     .on("GET", "/v0/work-items/{workItemId}/timeline", () => ({
       items: [],
       page: { has_more: false },

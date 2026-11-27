@@ -125,28 +125,29 @@ func normalizeListener(spec *ListenerSpec) error {
 // ListenerEvent is the canonical shape every inbound source maps to before
 // local matching and routing. Undelivered events wait in the poll cursor.
 type ListenerEvent struct {
-	Grant       *GrantReference `json:"-"`
-	Source      string          `json:"source"`
-	EventID     string          `json:"event_id"`
-	EventKind   string          `json:"event_kind,omitempty"` // gcal/outlook_calendar: created|updated|cancelled; slack: message
-	Channel     string          `json:"channel,omitempty"`
-	ChannelID   string          `json:"channel_id,omitempty"`
-	Sender      string          `json:"sender,omitempty"`
-	Text        string          `json:"text,omitempty"`
-	IsMention   bool            `json:"is_mention,omitempty"`
-	From        string          `json:"from,omitempty"`
-	Subject     string          `json:"subject,omitempty"`
-	Snippet     string          `json:"snippet,omitempty"` // Cleaned, bounded mail body; not the provider preview.
-	MessageID   string          `json:"message_id,omitempty"`
-	ThreadID    string          `json:"thread_id,omitempty"`
-	LabelIDs    []string        `json:"label_ids,omitempty"`
-	Summary     string          `json:"summary,omitempty"`
-	Start       string          `json:"start,omitempty"`
-	End         string          `json:"end,omitempty"`
-	To          string          `json:"to,omitempty"`
-	Description string          `json:"description,omitempty"`
-	Location    string          `json:"location,omitempty"`
-	Organizer   string          `json:"organizer,omitempty"`
+	Grant         *GrantReference `json:"-"`
+	Source        string          `json:"source"`
+	EventID       string          `json:"event_id"`
+	EventKind     string          `json:"event_kind,omitempty"` // gcal/outlook_calendar: created|updated|cancelled; slack: message
+	Channel       string          `json:"channel,omitempty"`
+	ChannelID     string          `json:"channel_id,omitempty"`
+	Sender        string          `json:"sender,omitempty"`
+	Text          string          `json:"text,omitempty"`
+	IsMention     bool            `json:"is_mention,omitempty"`
+	From          string          `json:"from,omitempty"`
+	Subject       string          `json:"subject,omitempty"`
+	Snippet       string          `json:"snippet,omitempty"` // Cleaned, bounded mail body; not the provider preview.
+	MessageID     string          `json:"message_id,omitempty"`
+	ThreadID      string          `json:"thread_id,omitempty"`
+	LabelIDs      []string        `json:"label_ids,omitempty"`
+	AutoSubmitted bool            `json:"auto_submitted,omitempty"`
+	Summary       string          `json:"summary,omitempty"`
+	Start         string          `json:"start,omitempty"`
+	End           string          `json:"end,omitempty"`
+	To            string          `json:"to,omitempty"`
+	Description   string          `json:"description,omitempty"`
+	Location      string          `json:"location,omitempty"`
+	Organizer     string          `json:"organizer,omitempty"`
 }
 
 // MatchEvent reports whether a spec matches the normalized event locally.

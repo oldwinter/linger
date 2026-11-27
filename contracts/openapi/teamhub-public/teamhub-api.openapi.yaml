@@ -4616,6 +4616,67 @@ paths:
           $ref: '../components/common.yaml#/components/responses/Unauthenticated'
         '404':
           $ref: '../components/common.yaml#/components/responses/NotFound'
+  /v0/work-items/{workItemId}/subscriptions:
+    parameters:
+      - $ref: '#/components/parameters/WorkItemId'
+    get:
+      tags: [Work Items]
+      operationId: listWorkItemSubscriptions
+      summary: List the signed-in Human's external thread subscriptions on a Work Item.
+      description: >-
+        Returns active and dropped follow-up subscriptions owned by the signed-in Human for this
+        Work Item. Subscriptions belonging to other Humans in the same Tenant are never returned.
+      responses:
+        '200':
+          description: Owner-scoped subscriptions for the Work Item.
+          content:
+            application/json:
+              schema:
+                $ref: '../components/proactive.yaml#/components/schemas/TaskSubscriptionList'
+        '401':
+          $ref: '../components/common.yaml#/components/responses/Unauthenticated'
+        '404':
+          $ref: '../components/common.yaml#/components/responses/NotFound'
+        '503':
+          $ref: '../components/common.yaml#/components/responses/ServiceUnavailable'
+  /v0/work-items/{workItemId}/subscriptions/{subscriptionId}/drop:
+    parameters:
+      - $ref: '#/components/parameters/WorkItemId'
+      - name: subscriptionId
+        in: path
+        required: true
+        schema:
+          $ref: '../components/proactive.yaml#/components/schemas/TaskSubscriptionId'
+    post:
+      tags: [Work Items]
+      operationId: dropWorkItemSubscription
+      summary: Drop an external thread subscription owned by the signed-in Human.
+      description: >-
+        Idempotently drops a follow-up subscription so subsequent events on that thread no longer
+        route to or resume the Task. Only the subscription owner may drop it.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '../components/proactive.yaml#/components/schemas/TaskSubscriptionDropRequest'
+      responses:
+        '200':
+          description: The dropped subscription record.
+          content:
+            application/json:
+              schema:
+                $ref: '../components/proactive.yaml#/components/schemas/TaskSubscription'
+        '400':
+          $ref: '../components/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../components/common.yaml#/components/responses/Unauthenticated'
+        '403':
+          $ref: '../components/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../components/common.yaml#/components/responses/NotFound'
+        '503':
+          $ref: '../components/common.yaml#/components/responses/ServiceUnavailable'
   /v0/work-items/{workItemId}/archive:
     parameters:
       - $ref: '#/components/parameters/WorkItemId'

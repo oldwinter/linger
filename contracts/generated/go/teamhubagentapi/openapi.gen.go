@@ -1268,6 +1268,63 @@ func (e ReferenceSegmentTargetType) Valid() bool {
 	}
 }
 
+// Defines values for TaskSubscriptionDroppedByKind.
+const (
+	TaskSubscriptionDroppedByAnotherMe TaskSubscriptionDroppedByKind = "another_me"
+	TaskSubscriptionDroppedByOwner     TaskSubscriptionDroppedByKind = "owner"
+)
+
+// Valid indicates whether the value is a known member of the TaskSubscriptionDroppedByKind enum.
+func (e TaskSubscriptionDroppedByKind) Valid() bool {
+	switch e {
+	case TaskSubscriptionDroppedByAnotherMe:
+		return true
+	case TaskSubscriptionDroppedByOwner:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TaskSubscriptionSourceType.
+const (
+	TaskSubscriptionSourceGitHub TaskSubscriptionSourceType = "github"
+	TaskSubscriptionSourceHerdr  TaskSubscriptionSourceType = "herdr"
+	TaskSubscriptionSourceMail   TaskSubscriptionSourceType = "mail"
+)
+
+// Valid indicates whether the value is a known member of the TaskSubscriptionSourceType enum.
+func (e TaskSubscriptionSourceType) Valid() bool {
+	switch e {
+	case TaskSubscriptionSourceGitHub:
+		return true
+	case TaskSubscriptionSourceHerdr:
+		return true
+	case TaskSubscriptionSourceMail:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TaskSubscriptionStatus.
+const (
+	TaskSubscriptionStatusActive  TaskSubscriptionStatus = "active"
+	TaskSubscriptionStatusDropped TaskSubscriptionStatus = "dropped"
+)
+
+// Valid indicates whether the value is a known member of the TaskSubscriptionStatus enum.
+func (e TaskSubscriptionStatus) Valid() bool {
+	switch e {
+	case TaskSubscriptionStatusActive:
+		return true
+	case TaskSubscriptionStatusDropped:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for TrackingItemKind.
 const (
 	TrackingItemKindMeeting  TrackingItemKind = "meeting"
@@ -3661,6 +3718,9 @@ type ProactiveActRequest struct {
 	// Delegate Delegate the work as a Task to the caller's own AlterEgo; needs a create_and_delegate mandate.
 	Delegate bool `json:"delegate"`
 
+	// EventAccount Optional connected account or connection ID for mail events, used to normalize the task's follow-up subscription key.
+	EventAccount *string `json:"event_account,omitempty"`
+
 	// EventExternalId The outside event's ID in its source, as the wake names it.
 	EventExternalId string `json:"event_external_id"`
 
@@ -3673,9 +3733,10 @@ type ProactiveActRequest struct {
 // ProactiveActResult defines model for ProactiveActResult.
 type ProactiveActResult struct {
 	// Replay True when this rule already acted on this event; the first act's Work Item is returned.
-	Replay     bool                     `json:"replay"`
-	Strength   ProactiveMandateStrength `json:"strength"`
-	WorkItemId string                   `json:"work_item_id"`
+	Replay         bool                     `json:"replay"`
+	Strength       ProactiveMandateStrength `json:"strength"`
+	SubscriptionId *TaskSubscriptionId      `json:"subscription_id,omitempty"`
+	WorkItemId     string                   `json:"work_item_id"`
 }
 
 // ProactiveAction notify tells the Human now, track records a Tracking Item to follow up, silent does nothing.
@@ -3715,6 +3776,31 @@ type ProactiveShadowDivergenceRecord struct {
 	TakenAction ProactiveAction `json:"taken_action"`
 }
 
+// ProactiveSubscriptionDropRequest defines model for ProactiveSubscriptionDropRequest.
+type ProactiveSubscriptionDropRequest struct {
+	// Reason Optional reason why Another Me judged follow-up routing is no longer needed.
+	Reason         *string            `json:"reason,omitempty"`
+	SubscriptionId TaskSubscriptionId `json:"subscription_id"`
+}
+
+// ProactiveSubscriptionDropResult defines model for ProactiveSubscriptionDropResult.
+type ProactiveSubscriptionDropResult struct {
+	// Replay True when the subscription was already dropped prior to this command.
+	Replay bool `json:"replay"`
+
+	// Subscription Durable link routing later activity on a normalized external thread (mail, herdr/herdr-core, or GitHub issue/PR) to the delegated Task Another Me started. Active tasks receive matching follow-ups directly; ended tasks resume only on human-authored messages.
+	Subscription TaskSubscription `json:"subscription"`
+}
+
+// ProactiveSubscriptionListRequest defines model for ProactiveSubscriptionListRequest.
+type ProactiveSubscriptionListRequest struct {
+	// IncludeDropped Include previously dropped subscriptions alongside active ones.
+	IncludeDropped *bool `json:"include_dropped,omitempty"`
+
+	// TaskId Optional Task Work Item ID to filter subscriptions to one Task.
+	TaskId *string `json:"task_id,omitempty"`
+}
+
 // ReferenceSegment defines model for ReferenceSegment.
 type ReferenceSegment struct {
 	Content string `json:"content"`
@@ -3748,6 +3834,44 @@ type SkillSegment struct {
 	Target Id     `json:"target"`
 	Type   string `json:"type"`
 }
+
+// TaskSubscription Durable link routing later activity on a normalized external thread (mail, herdr/herdr-core, or GitHub issue/PR) to the delegated Task Another Me started. Active tasks receive matching follow-ups directly; ended tasks resume only on human-authored messages.
+type TaskSubscription struct {
+	CreatedAt           time.Time                      `json:"created_at"`
+	CreatedByActorId    string                         `json:"created_by_actor_id"`
+	DisplayLabel        *string                        `json:"display_label,omitempty"`
+	DropReason          *string                        `json:"drop_reason,omitempty"`
+	DroppedAt           *time.Time                     `json:"dropped_at,omitempty"`
+	DroppedByActorId    *string                        `json:"dropped_by_actor_id,omitempty"`
+	DroppedByKind       *TaskSubscriptionDroppedByKind `json:"dropped_by_kind,omitempty"`
+	Id                  TaskSubscriptionId             `json:"id"`
+	NormalizedSourceKey string                         `json:"normalized_source_key"`
+	OwnerActorId        string                         `json:"owner_actor_id"`
+	RuleId              *ProactiveRuleId               `json:"rule_id,omitempty"`
+
+	// SourceType External thread source family routed to a delegated Task.
+	SourceType TaskSubscriptionSourceType `json:"source_type"`
+	Status     TaskSubscriptionStatus     `json:"status"`
+	TaskId     string                     `json:"task_id"`
+	TenantId   string                     `json:"tenant_id"`
+}
+
+// TaskSubscriptionDroppedByKind defines model for TaskSubscriptionDroppedByKind.
+type TaskSubscriptionDroppedByKind string
+
+// TaskSubscriptionId defines model for TaskSubscriptionId.
+type TaskSubscriptionId = string
+
+// TaskSubscriptionList defines model for TaskSubscriptionList.
+type TaskSubscriptionList struct {
+	Items []TaskSubscription `json:"items"`
+}
+
+// TaskSubscriptionSourceType External thread source family routed to a delegated Task.
+type TaskSubscriptionSourceType string
+
+// TaskSubscriptionStatus defines model for TaskSubscriptionStatus.
+type TaskSubscriptionStatus string
 
 // TextSegment defines model for TextSegment.
 type TextSegment struct {
@@ -4356,6 +4480,12 @@ type ActUnderProactiveMandateJSONRequestBody = ProactiveActRequest
 
 // RecordProactiveShadowDivergenceJSONRequestBody defines body for RecordProactiveShadowDivergence for application/json ContentType.
 type RecordProactiveShadowDivergenceJSONRequestBody = ProactiveShadowDivergenceRecord
+
+// DropAgentProactiveSubscriptionJSONRequestBody defines body for DropAgentProactiveSubscription for application/json ContentType.
+type DropAgentProactiveSubscriptionJSONRequestBody = ProactiveSubscriptionDropRequest
+
+// ListAgentProactiveSubscriptionsJSONRequestBody defines body for ListAgentProactiveSubscriptions for application/json ContentType.
+type ListAgentProactiveSubscriptionsJSONRequestBody = ProactiveSubscriptionListRequest
 
 // HandOffAgentRoomWorkJSONRequestBody defines body for HandOffAgentRoomWork for application/json ContentType.
 type HandOffAgentRoomWorkJSONRequestBody = AgentRoomHandoffRequest

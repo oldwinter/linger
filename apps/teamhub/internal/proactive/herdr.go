@@ -80,6 +80,7 @@ func HerdrEvent(tenantID, ownerActorID string, report HerdrReport) Event {
 		ComputerID: report.ComputerID, TenantID: tenantID, OwnerActorID: ownerActorID,
 		Source: SourceHerdr, Kind: report.Kind, ExternalID: herdrExternalID(report.ComputerID, report.PaneID, report.StateChangeSeq),
 		State: state, Summary: summary,
+		Actor: &EventActor{Kind: EventActorSystem, DisplayName: report.Agent},
 		Herdr: &HerdrPane{PaneID: report.PaneID, StateChangeSeq: report.StateChangeSeq},
 	}
 }

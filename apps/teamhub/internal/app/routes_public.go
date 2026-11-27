@@ -252,6 +252,8 @@ func (a *App) publicRoutes() []contractRoute {
 		route(http.MethodPatch, "/v0/work-items/:workItemId", httpapi.UpdateWorkItemParams{}, session, a.updateWorkItem),
 		route(http.MethodDelete, "/v0/work-items/:workItemId/access-grants/:actorId", httpapi.DeleteWorkItemAccessGrantParams{}, session, a.deleteWorkItemAccessGrant),
 		route(http.MethodPut, "/v0/work-items/:workItemId/access-grants/:actorId", httpapi.PutWorkItemAccessGrantParams{}, session, a.putWorkItemAccessGrant),
+		route(http.MethodGet, "/v0/work-items/:workItemId/subscriptions", nil, session, a.listWorkItemSubscriptions),
+		route(http.MethodPost, "/v0/work-items/:workItemId/subscriptions/:subscriptionId/drop", nil, session, a.dropWorkItemSubscription),
 		route(http.MethodPost, "/v0/work-items/:workItemId/archive", httpapi.ArchiveWorkItemParams{}, session, a.archiveWorkItem),
 		route(http.MethodDelete, "/v0/work-items/:workItemId/assignments/:actorId", httpapi.DeleteWorkItemAssignmentParams{}, session, a.deleteWorkItemAssignment),
 		route(http.MethodPut, "/v0/work-items/:workItemId/assignments/:actorId", httpapi.PutWorkItemAssignmentParams{}, session, a.putWorkItemAssignment),

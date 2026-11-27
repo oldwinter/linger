@@ -4367,6 +4367,63 @@ func (e TaskExecutionStatus) Valid() bool {
 	}
 }
 
+// Defines values for TaskSubscriptionDroppedByKind.
+const (
+	TaskSubscriptionDroppedByAnotherMe TaskSubscriptionDroppedByKind = "another_me"
+	TaskSubscriptionDroppedByOwner     TaskSubscriptionDroppedByKind = "owner"
+)
+
+// Valid indicates whether the value is a known member of the TaskSubscriptionDroppedByKind enum.
+func (e TaskSubscriptionDroppedByKind) Valid() bool {
+	switch e {
+	case TaskSubscriptionDroppedByAnotherMe:
+		return true
+	case TaskSubscriptionDroppedByOwner:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TaskSubscriptionSourceType.
+const (
+	TaskSubscriptionSourceGitHub TaskSubscriptionSourceType = "github"
+	TaskSubscriptionSourceHerdr  TaskSubscriptionSourceType = "herdr"
+	TaskSubscriptionSourceMail   TaskSubscriptionSourceType = "mail"
+)
+
+// Valid indicates whether the value is a known member of the TaskSubscriptionSourceType enum.
+func (e TaskSubscriptionSourceType) Valid() bool {
+	switch e {
+	case TaskSubscriptionSourceGitHub:
+		return true
+	case TaskSubscriptionSourceHerdr:
+		return true
+	case TaskSubscriptionSourceMail:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TaskSubscriptionStatus.
+const (
+	TaskSubscriptionStatusActive  TaskSubscriptionStatus = "active"
+	TaskSubscriptionStatusDropped TaskSubscriptionStatus = "dropped"
+)
+
+// Valid indicates whether the value is a known member of the TaskSubscriptionStatus enum.
+func (e TaskSubscriptionStatus) Valid() bool {
+	switch e {
+	case TaskSubscriptionStatusActive:
+		return true
+	case TaskSubscriptionStatusDropped:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for TeamMdPattern.
 const (
 	AdversarialVerification TeamMdPattern = "adversarial-verification"
@@ -10511,6 +10568,50 @@ type TaskRuntimePresentationRunPage struct {
 	WorkRoomId *Id `json:"work_room_id,omitempty"`
 }
 
+// TaskSubscription Durable link routing later activity on a normalized external thread (mail, herdr/herdr-core, or GitHub issue/PR) to the delegated Task Another Me started. Active tasks receive matching follow-ups directly; ended tasks resume only on human-authored messages.
+type TaskSubscription struct {
+	CreatedAt           time.Time                      `json:"created_at"`
+	CreatedByActorId    string                         `json:"created_by_actor_id"`
+	DisplayLabel        *string                        `json:"display_label,omitempty"`
+	DropReason          *string                        `json:"drop_reason,omitempty"`
+	DroppedAt           *time.Time                     `json:"dropped_at,omitempty"`
+	DroppedByActorId    *string                        `json:"dropped_by_actor_id,omitempty"`
+	DroppedByKind       *TaskSubscriptionDroppedByKind `json:"dropped_by_kind,omitempty"`
+	Id                  TaskSubscriptionId             `json:"id"`
+	NormalizedSourceKey string                         `json:"normalized_source_key"`
+	OwnerActorId        string                         `json:"owner_actor_id"`
+	RuleId              *ProactiveRuleId               `json:"rule_id,omitempty"`
+
+	// SourceType External thread source family routed to a delegated Task.
+	SourceType TaskSubscriptionSourceType `json:"source_type"`
+	Status     TaskSubscriptionStatus     `json:"status"`
+	TaskId     string                     `json:"task_id"`
+	TenantId   string                     `json:"tenant_id"`
+}
+
+// TaskSubscriptionDropRequest defines model for TaskSubscriptionDropRequest.
+type TaskSubscriptionDropRequest struct {
+	// Reason Optional reason for dropping follow-up routing.
+	Reason *string `json:"reason,omitempty"`
+}
+
+// TaskSubscriptionDroppedByKind defines model for TaskSubscriptionDroppedByKind.
+type TaskSubscriptionDroppedByKind string
+
+// TaskSubscriptionId defines model for TaskSubscriptionId.
+type TaskSubscriptionId = string
+
+// TaskSubscriptionList defines model for TaskSubscriptionList.
+type TaskSubscriptionList struct {
+	Items []TaskSubscription `json:"items"`
+}
+
+// TaskSubscriptionSourceType External thread source family routed to a delegated Task.
+type TaskSubscriptionSourceType string
+
+// TaskSubscriptionStatus defines model for TaskSubscriptionStatus.
+type TaskSubscriptionStatus string
+
 // TeamMdDocument One Room's parsed collaboration protocol document. TeamHub owns parsing so every consumer reads the same structure; raw_markdown is the verbatim submitted content.
 type TeamMdDocument struct {
 	// CollaboratePattern Collaboration pattern declared in the team.md frontmatter. TeamHub matches this value exactly; it does not normalize spelling, spacing, or case.
@@ -12430,6 +12531,9 @@ type UpdateWorkItemCommentJSONRequestBody = WorkItemCommentUpdateRequest
 
 // UploadWorkItemDocumentMultipartRequestBody defines body for UploadWorkItemDocument for multipart/form-data ContentType.
 type UploadWorkItemDocumentMultipartRequestBody = ContextDocumentUploadRequest
+
+// DropWorkItemSubscriptionJSONRequestBody defines body for DropWorkItemSubscription for application/json ContentType.
+type DropWorkItemSubscriptionJSONRequestBody = TaskSubscriptionDropRequest
 
 // TransitionWorkItemJSONRequestBody defines body for TransitionWorkItem for application/json ContentType.
 type TransitionWorkItemJSONRequestBody = WorkItemTransitionRequest

@@ -101,6 +101,120 @@ func (q *Queries) CreateProactiveShadowDivergence(ctx context.Context, arg Creat
 	return i, err
 }
 
+const createTaskSubscription = `-- name: CreateTaskSubscription :one
+INSERT INTO task_subscriptions(
+    id, tenant_id, owner_actor_id, task_id, source_type, normalized_source_key,
+    display_label, rule_id, created_by_actor_id
+)
+VALUES (
+    $1::text, $2::text, $3::text,
+    $4::text, $5::text, $6::text,
+    $7::text, $8::text, $9::text
+)
+ON CONFLICT (tenant_id, owner_actor_id, source_type, normalized_source_key, task_id)
+WHERE status = 'active'
+DO UPDATE SET display_label = COALESCE(NULLIF(task_subscriptions.display_label, ''), EXCLUDED.display_label)
+RETURNING id, tenant_id, owner_actor_id, task_id, source_type, normalized_source_key,
+          display_label, rule_id, status, created_by_actor_id, created_at,
+          dropped_at, dropped_by_kind, dropped_by_actor_id, drop_reason
+`
+
+type CreateTaskSubscriptionParams struct {
+	ID                  string      `json:"id"`
+	TenantID            string      `json:"tenant_id"`
+	OwnerActorID        string      `json:"owner_actor_id"`
+	TaskID              string      `json:"task_id"`
+	SourceType          string      `json:"source_type"`
+	NormalizedSourceKey string      `json:"normalized_source_key"`
+	DisplayLabel        string      `json:"display_label"`
+	RuleID              pgtype.Text `json:"rule_id"`
+	CreatedByActorID    string      `json:"created_by_actor_id"`
+}
+
+// Idempotently ensures one active subscription linking an external normalized
+// thread key to a delegated Task for one owner.
+func (q *Queries) CreateTaskSubscription(ctx context.Context, arg CreateTaskSubscriptionParams) (TaskSubscription, error) {
+	row := q.db.QueryRow(ctx, createTaskSubscription,
+		arg.ID,
+		arg.TenantID,
+		arg.OwnerActorID,
+		arg.TaskID,
+		arg.SourceType,
+		arg.NormalizedSourceKey,
+		arg.DisplayLabel,
+		arg.RuleID,
+		arg.CreatedByActorID,
+	)
+	var i TaskSubscription
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.OwnerActorID,
+		&i.TaskID,
+		&i.SourceType,
+		&i.NormalizedSourceKey,
+		&i.DisplayLabel,
+		&i.RuleID,
+		&i.Status,
+		&i.CreatedByActorID,
+		&i.CreatedAt,
+		&i.DroppedAt,
+		&i.DroppedByKind,
+		&i.DroppedByActorID,
+		&i.DropReason,
+	)
+	return i, err
+}
+
+const dropTaskSubscription = `-- name: DropTaskSubscription :one
+UPDATE task_subscriptions
+SET status = 'dropped',
+    dropped_at = now(),
+    dropped_by_kind = $1::text,
+    dropped_by_actor_id = $2::text,
+    drop_reason = $3::text
+WHERE id = $4::text
+  AND status = 'active'
+RETURNING id, tenant_id, owner_actor_id, task_id, source_type, normalized_source_key,
+          display_label, rule_id, status, created_by_actor_id, created_at,
+          dropped_at, dropped_by_kind, dropped_by_actor_id, drop_reason
+`
+
+type DropTaskSubscriptionParams struct {
+	DroppedByKind    string `json:"dropped_by_kind"`
+	DroppedByActorID string `json:"dropped_by_actor_id"`
+	DropReason       string `json:"drop_reason"`
+	ID               string `json:"id"`
+}
+
+func (q *Queries) DropTaskSubscription(ctx context.Context, arg DropTaskSubscriptionParams) (TaskSubscription, error) {
+	row := q.db.QueryRow(ctx, dropTaskSubscription,
+		arg.DroppedByKind,
+		arg.DroppedByActorID,
+		arg.DropReason,
+		arg.ID,
+	)
+	var i TaskSubscription
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.OwnerActorID,
+		&i.TaskID,
+		&i.SourceType,
+		&i.NormalizedSourceKey,
+		&i.DisplayLabel,
+		&i.RuleID,
+		&i.Status,
+		&i.CreatedByActorID,
+		&i.CreatedAt,
+		&i.DroppedAt,
+		&i.DroppedByKind,
+		&i.DroppedByActorID,
+		&i.DropReason,
+	)
+	return i, err
+}
+
 const getAnotherMeHuman = `-- name: GetAnotherMeHuman :one
 SELECT represented_human_actor_id::text
 FROM agent_registrations
@@ -234,6 +348,125 @@ func (q *Queries) GetRunProactiveWakeSource(ctx context.Context, arg GetRunProac
 	return source, err
 }
 
+const getTaskSubscriptionByIDAndTask = `-- name: GetTaskSubscriptionByIDAndTask :one
+SELECT id, tenant_id, owner_actor_id, task_id, source_type, normalized_source_key,
+       display_label, rule_id, status, created_by_actor_id, created_at,
+       dropped_at, dropped_by_kind, dropped_by_actor_id, drop_reason
+FROM task_subscriptions
+WHERE id = $1::text
+  AND task_id = $2::text
+  AND tenant_id = $3::text
+`
+
+type GetTaskSubscriptionByIDAndTaskParams struct {
+	ID       string `json:"id"`
+	TaskID   string `json:"task_id"`
+	TenantID string `json:"tenant_id"`
+}
+
+func (q *Queries) GetTaskSubscriptionByIDAndTask(ctx context.Context, arg GetTaskSubscriptionByIDAndTaskParams) (TaskSubscription, error) {
+	row := q.db.QueryRow(ctx, getTaskSubscriptionByIDAndTask, arg.ID, arg.TaskID, arg.TenantID)
+	var i TaskSubscription
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.OwnerActorID,
+		&i.TaskID,
+		&i.SourceType,
+		&i.NormalizedSourceKey,
+		&i.DisplayLabel,
+		&i.RuleID,
+		&i.Status,
+		&i.CreatedByActorID,
+		&i.CreatedAt,
+		&i.DroppedAt,
+		&i.DroppedByKind,
+		&i.DroppedByActorID,
+		&i.DropReason,
+	)
+	return i, err
+}
+
+const getWorkItemChangeEventContext = `-- name: GetWorkItemChangeEventContext :one
+SELECT wi.id, wi.tenant_id, wi.version, origin.room_id AS origin_room_id
+FROM work_items wi
+LEFT JOIN work_item_room_links origin
+  ON origin.work_item_id = wi.id
+ AND origin.tenant_id = wi.tenant_id
+ AND origin.link_type = 'origin'
+WHERE wi.id = $1::text
+  AND wi.tenant_id = $2::text
+`
+
+type GetWorkItemChangeEventContextParams struct {
+	WorkItemID string `json:"work_item_id"`
+	TenantID   string `json:"tenant_id"`
+}
+
+type GetWorkItemChangeEventContextRow struct {
+	ID           string      `json:"id"`
+	TenantID     string      `json:"tenant_id"`
+	Version      int64       `json:"version"`
+	OriginRoomID pgtype.Text `json:"origin_room_id"`
+}
+
+func (q *Queries) GetWorkItemChangeEventContext(ctx context.Context, arg GetWorkItemChangeEventContextParams) (GetWorkItemChangeEventContextRow, error) {
+	row := q.db.QueryRow(ctx, getWorkItemChangeEventContext, arg.WorkItemID, arg.TenantID)
+	var i GetWorkItemChangeEventContextRow
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.Version,
+		&i.OriginRoomID,
+	)
+	return i, err
+}
+
+const getWorkItemSubscriptionContextForHuman = `-- name: GetWorkItemSubscriptionContextForHuman :one
+SELECT wi.id, wi.tenant_id, wi.kind, wi.version, caller.id AS human_actor_id,
+       origin.room_id AS origin_room_id
+FROM work_items wi
+JOIN actors caller
+  ON caller.tenant_id = wi.tenant_id
+ AND caller.account_id = $1::text
+ AND caller.kind = 'human'
+LEFT JOIN work_item_room_links origin
+  ON origin.work_item_id = wi.id
+ AND origin.tenant_id = wi.tenant_id
+ AND origin.link_type = 'origin'
+WHERE wi.id = $2::text
+`
+
+type GetWorkItemSubscriptionContextForHumanParams struct {
+	AccountID  string `json:"account_id"`
+	WorkItemID string `json:"work_item_id"`
+}
+
+type GetWorkItemSubscriptionContextForHumanRow struct {
+	ID           string      `json:"id"`
+	TenantID     string      `json:"tenant_id"`
+	Kind         string      `json:"kind"`
+	Version      int64       `json:"version"`
+	HumanActorID string      `json:"human_actor_id"`
+	OriginRoomID pgtype.Text `json:"origin_room_id"`
+}
+
+// Resolves a Tenant-visible Work Item together with the signed-in Human's Actor
+// ID in that Tenant and the Work Item's origin Room for event fanout.
+func (q *Queries) GetWorkItemSubscriptionContextForHuman(ctx context.Context, arg GetWorkItemSubscriptionContextForHumanParams) (GetWorkItemSubscriptionContextForHumanRow, error) {
+	row := q.db.QueryRow(ctx, getWorkItemSubscriptionContextForHuman, arg.AccountID, arg.WorkItemID)
+	var i GetWorkItemSubscriptionContextForHumanRow
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.Kind,
+		&i.Version,
+		&i.HumanActorID,
+		&i.OriginRoomID,
+	)
+	return i, err
+}
+
 const hasProactiveSignalForSource = `-- name: HasProactiveSignalForSource :one
 SELECT EXISTS(
   SELECT 1 FROM proactive_potential_items
@@ -258,6 +491,26 @@ func (q *Queries) HasProactiveSignalForSource(ctx context.Context, arg HasProact
 		arg.Source,
 		arg.SourceKey,
 	)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const hasTaskSubscriptionDelivery = `-- name: HasTaskSubscriptionDelivery :one
+SELECT EXISTS (
+    SELECT 1 FROM task_subscription_deliveries
+    WHERE subscription_id = $1::text
+      AND event_dedupe_key = $2::text
+)::boolean
+`
+
+type HasTaskSubscriptionDeliveryParams struct {
+	SubscriptionID string `json:"subscription_id"`
+	EventDedupeKey string `json:"event_dedupe_key"`
+}
+
+func (q *Queries) HasTaskSubscriptionDelivery(ctx context.Context, arg HasTaskSubscriptionDeliveryParams) (bool, error) {
+	row := q.db.QueryRow(ctx, hasTaskSubscriptionDelivery, arg.SubscriptionID, arg.EventDedupeKey)
 	var column_1 bool
 	err := row.Scan(&column_1)
 	return column_1, err
@@ -292,6 +545,193 @@ func (q *Queries) InsertProactiveGuideline(ctx context.Context, arg InsertProact
 		arg.ChangeNote,
 	)
 	return err
+}
+
+const insertTaskSubscriptionDelivery = `-- name: InsertTaskSubscriptionDelivery :execrows
+INSERT INTO task_subscription_deliveries(
+    subscription_id, tenant_id, task_id, event_dedupe_key, event_source,
+    event_external_id, event_state, actor_kind, outcome, task_execution_revision
+)
+VALUES (
+    $1::text, $2::text, $3::text,
+    $4::text, $5::text,
+    $6::text, $7::text,
+    $8::text, $9::text, $10::bigint
+)
+ON CONFLICT (subscription_id, event_dedupe_key) DO NOTHING
+`
+
+type InsertTaskSubscriptionDeliveryParams struct {
+	SubscriptionID        string      `json:"subscription_id"`
+	TenantID              string      `json:"tenant_id"`
+	TaskID                string      `json:"task_id"`
+	EventDedupeKey        string      `json:"event_dedupe_key"`
+	EventSource           string      `json:"event_source"`
+	EventExternalID       string      `json:"event_external_id"`
+	EventState            string      `json:"event_state"`
+	ActorKind             string      `json:"actor_kind"`
+	Outcome               string      `json:"outcome"`
+	TaskExecutionRevision pgtype.Int8 `json:"task_execution_revision"`
+}
+
+func (q *Queries) InsertTaskSubscriptionDelivery(ctx context.Context, arg InsertTaskSubscriptionDeliveryParams) (int64, error) {
+	result, err := q.db.Exec(ctx, insertTaskSubscriptionDelivery,
+		arg.SubscriptionID,
+		arg.TenantID,
+		arg.TaskID,
+		arg.EventDedupeKey,
+		arg.EventSource,
+		arg.EventExternalID,
+		arg.EventState,
+		arg.ActorKind,
+		arg.Outcome,
+		arg.TaskExecutionRevision,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const listActiveGrantedConnectionsForOwnerProvider = `-- name: ListActiveGrantedConnectionsForOwnerProvider :many
+SELECT c.id
+FROM external_connection_agent_grants d
+JOIN external_connections c
+  ON c.id = d.connection_id
+ AND c.status = 'active'
+ AND c.provider = $1::text
+WHERE d.tenant_id = $2::text
+  AND d.represented_human_actor_id = $3::text
+  AND d.agent_actor_id = $4::text
+  AND d.status = 'active'
+ORDER BY c.created_at ASC, c.id ASC
+LIMIT 2
+`
+
+type ListActiveGrantedConnectionsForOwnerProviderParams struct {
+	Provider     string `json:"provider"`
+	TenantID     string `json:"tenant_id"`
+	OwnerActorID string `json:"owner_actor_id"`
+	AgentActorID string `json:"agent_actor_id"`
+}
+
+// Returns up to two active granted connection IDs for an owner + Another Me +
+// provider so mail mandate acts that omit event_account can resolve an
+// unambiguous single mailbox without guessing across multiple accounts.
+func (q *Queries) ListActiveGrantedConnectionsForOwnerProvider(ctx context.Context, arg ListActiveGrantedConnectionsForOwnerProviderParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, listActiveGrantedConnectionsForOwnerProvider,
+		arg.Provider,
+		arg.TenantID,
+		arg.OwnerActorID,
+		arg.AgentActorID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listActiveTaskSubscriptionsBySource = `-- name: ListActiveTaskSubscriptionsBySource :many
+SELECT sub.id, sub.tenant_id, sub.owner_actor_id, sub.task_id, sub.source_type,
+       sub.normalized_source_key, sub.display_label, sub.rule_id, sub.status,
+       sub.created_by_actor_id, sub.created_at, sub.dropped_at,
+       sub.dropped_by_kind, sub.dropped_by_actor_id, sub.drop_reason,
+       COALESCE(gen.coordinator_actor_id, '')::text AS coordinator_actor_id
+FROM task_subscriptions sub
+JOIN work_items item
+  ON item.id = sub.task_id AND item.tenant_id = sub.tenant_id
+LEFT JOIN task_execution_generations gen
+  ON gen.task_id = item.id AND gen.tenant_id = item.tenant_id
+ AND gen.generation = item.task_execution_generation
+WHERE sub.tenant_id = $1::text
+  AND sub.owner_actor_id = $2::text
+  AND sub.source_type = $3::text
+  AND sub.normalized_source_key = $4::text
+  AND sub.status = 'active'
+ORDER BY sub.created_at ASC, sub.id ASC
+`
+
+type ListActiveTaskSubscriptionsBySourceParams struct {
+	TenantID            string `json:"tenant_id"`
+	OwnerActorID        string `json:"owner_actor_id"`
+	SourceType          string `json:"source_type"`
+	NormalizedSourceKey string `json:"normalized_source_key"`
+}
+
+type ListActiveTaskSubscriptionsBySourceRow struct {
+	ID                  string             `json:"id"`
+	TenantID            string             `json:"tenant_id"`
+	OwnerActorID        string             `json:"owner_actor_id"`
+	TaskID              string             `json:"task_id"`
+	SourceType          string             `json:"source_type"`
+	NormalizedSourceKey string             `json:"normalized_source_key"`
+	DisplayLabel        string             `json:"display_label"`
+	RuleID              pgtype.Text        `json:"rule_id"`
+	Status              string             `json:"status"`
+	CreatedByActorID    string             `json:"created_by_actor_id"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	DroppedAt           pgtype.Timestamptz `json:"dropped_at"`
+	DroppedByKind       pgtype.Text        `json:"dropped_by_kind"`
+	DroppedByActorID    pgtype.Text        `json:"dropped_by_actor_id"`
+	DropReason          string             `json:"drop_reason"`
+	CoordinatorActorID  string             `json:"coordinator_actor_id"`
+}
+
+// Active subscriptions matching one owner's normalized external thread key,
+// with each Task's coordinator actor ID so callers can acquire per-Agent locks
+// in canonical order before locking work_items.
+func (q *Queries) ListActiveTaskSubscriptionsBySource(ctx context.Context, arg ListActiveTaskSubscriptionsBySourceParams) ([]ListActiveTaskSubscriptionsBySourceRow, error) {
+	rows, err := q.db.Query(ctx, listActiveTaskSubscriptionsBySource,
+		arg.TenantID,
+		arg.OwnerActorID,
+		arg.SourceType,
+		arg.NormalizedSourceKey,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListActiveTaskSubscriptionsBySourceRow{}
+	for rows.Next() {
+		var i ListActiveTaskSubscriptionsBySourceRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.OwnerActorID,
+			&i.TaskID,
+			&i.SourceType,
+			&i.NormalizedSourceKey,
+			&i.DisplayLabel,
+			&i.RuleID,
+			&i.Status,
+			&i.CreatedByActorID,
+			&i.CreatedAt,
+			&i.DroppedAt,
+			&i.DroppedByKind,
+			&i.DroppedByActorID,
+			&i.DropReason,
+			&i.CoordinatorActorID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listAnotherMeConnectionsWithoutListener = `-- name: ListAnotherMeConnectionsWithoutListener :many
@@ -519,6 +959,120 @@ func (q *Queries) ListProactiveTrackingItems(ctx context.Context, arg ListProact
 	return items, nil
 }
 
+const listTaskSubscriptionsForOwner = `-- name: ListTaskSubscriptionsForOwner :many
+SELECT id, tenant_id, owner_actor_id, task_id, source_type, normalized_source_key,
+       display_label, rule_id, status, created_by_actor_id, created_at,
+       dropped_at, dropped_by_kind, dropped_by_actor_id, drop_reason
+FROM task_subscriptions
+WHERE tenant_id = $1::text
+  AND owner_actor_id = $2::text
+  AND ($3::text = '' OR task_id = $3::text)
+  AND ($4::boolean OR status = 'active')
+ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, created_at DESC, id DESC
+LIMIT 100
+`
+
+type ListTaskSubscriptionsForOwnerParams struct {
+	TenantID       string `json:"tenant_id"`
+	OwnerActorID   string `json:"owner_actor_id"`
+	TaskID         string `json:"task_id"`
+	IncludeDropped bool   `json:"include_dropped"`
+}
+
+func (q *Queries) ListTaskSubscriptionsForOwner(ctx context.Context, arg ListTaskSubscriptionsForOwnerParams) ([]TaskSubscription, error) {
+	rows, err := q.db.Query(ctx, listTaskSubscriptionsForOwner,
+		arg.TenantID,
+		arg.OwnerActorID,
+		arg.TaskID,
+		arg.IncludeDropped,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []TaskSubscription{}
+	for rows.Next() {
+		var i TaskSubscription
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.OwnerActorID,
+			&i.TaskID,
+			&i.SourceType,
+			&i.NormalizedSourceKey,
+			&i.DisplayLabel,
+			&i.RuleID,
+			&i.Status,
+			&i.CreatedByActorID,
+			&i.CreatedAt,
+			&i.DroppedAt,
+			&i.DroppedByKind,
+			&i.DroppedByActorID,
+			&i.DropReason,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listTaskSubscriptionsForOwnerTask = `-- name: ListTaskSubscriptionsForOwnerTask :many
+SELECT id, tenant_id, owner_actor_id, task_id, source_type, normalized_source_key,
+       display_label, rule_id, status, created_by_actor_id, created_at,
+       dropped_at, dropped_by_kind, dropped_by_actor_id, drop_reason
+FROM task_subscriptions
+WHERE tenant_id = $1::text
+  AND task_id = $2::text
+  AND owner_actor_id = $3::text
+ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, created_at DESC, id DESC
+`
+
+type ListTaskSubscriptionsForOwnerTaskParams struct {
+	TenantID     string `json:"tenant_id"`
+	TaskID       string `json:"task_id"`
+	OwnerActorID string `json:"owner_actor_id"`
+}
+
+func (q *Queries) ListTaskSubscriptionsForOwnerTask(ctx context.Context, arg ListTaskSubscriptionsForOwnerTaskParams) ([]TaskSubscription, error) {
+	rows, err := q.db.Query(ctx, listTaskSubscriptionsForOwnerTask, arg.TenantID, arg.TaskID, arg.OwnerActorID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []TaskSubscription{}
+	for rows.Next() {
+		var i TaskSubscription
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.OwnerActorID,
+			&i.TaskID,
+			&i.SourceType,
+			&i.NormalizedSourceKey,
+			&i.DisplayLabel,
+			&i.RuleID,
+			&i.Status,
+			&i.CreatedByActorID,
+			&i.CreatedAt,
+			&i.DroppedAt,
+			&i.DroppedByKind,
+			&i.DroppedByActorID,
+			&i.DropReason,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockConnectionAutoReminders = `-- name: LockConnectionAutoReminders :one
 SELECT auto_reminders FROM external_connections WHERE id=$1::text FOR SHARE
 `
@@ -530,6 +1084,38 @@ func (q *Queries) LockConnectionAutoReminders(ctx context.Context, id string) (b
 	var auto_reminders bool
 	err := row.Scan(&auto_reminders)
 	return auto_reminders, err
+}
+
+const lockTaskSubscriptionForUpdate = `-- name: LockTaskSubscriptionForUpdate :one
+SELECT id, tenant_id, owner_actor_id, task_id, source_type, normalized_source_key,
+       display_label, rule_id, status, created_by_actor_id, created_at,
+       dropped_at, dropped_by_kind, dropped_by_actor_id, drop_reason
+FROM task_subscriptions
+WHERE id = $1::text
+FOR UPDATE
+`
+
+func (q *Queries) LockTaskSubscriptionForUpdate(ctx context.Context, id string) (TaskSubscription, error) {
+	row := q.db.QueryRow(ctx, lockTaskSubscriptionForUpdate, id)
+	var i TaskSubscription
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.OwnerActorID,
+		&i.TaskID,
+		&i.SourceType,
+		&i.NormalizedSourceKey,
+		&i.DisplayLabel,
+		&i.RuleID,
+		&i.Status,
+		&i.CreatedByActorID,
+		&i.CreatedAt,
+		&i.DroppedAt,
+		&i.DroppedByKind,
+		&i.DroppedByActorID,
+		&i.DropReason,
+	)
+	return i, err
 }
 
 const pruneProactiveShadowDivergences = `-- name: PruneProactiveShadowDivergences :exec
