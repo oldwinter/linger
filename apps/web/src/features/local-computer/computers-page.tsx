@@ -292,6 +292,7 @@ export function ComputersPage() {
               activeRuntime={modelSource.data?.status?.runtime}
               agentAvailabilities={agentAvailabilities}
               agents={selectedAgents}
+              teamHubApi={client.api}
               browserConnection={(variant) => (
                 <ComputerBrowserConnection
                   computerId={selectedComputer.computer_id}

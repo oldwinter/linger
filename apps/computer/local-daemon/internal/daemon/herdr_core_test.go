@@ -1802,3 +1802,26 @@ func waitCondition(t *testing.T, ok func() bool) {
 	}
 	t.Fatal("condition was not met before timeout")
 }
+
+func TestSerializeHerdrCoreStatusIncludesBlockedKind(t *testing.T) {
+	kind := "permission"
+	progress := uint8(65)
+	got := serializeHerdrCoreStatus(&herdrcore.Status{
+		State:    "blocked",
+		App:      "claude",
+		Kind:     &kind,
+		Msg:      "Allow bash command?",
+		Progress: &progress,
+		Title:    "Permission Check",
+	})
+	m, ok := got.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map[string]any, got %T", got)
+	}
+	if m["kind"] != "permission" {
+		t.Fatalf("expected kind=permission, got %#v", m["kind"])
+	}
+	if m["state"] != "blocked" || m["app"] != "claude" || m["msg"] != "Allow bash command?" {
+		t.Fatalf("unexpected serialized status: %#v", m)
+	}
+}

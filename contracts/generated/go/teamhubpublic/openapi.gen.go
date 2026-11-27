@@ -7578,7 +7578,10 @@ type HerdrCoreTerminalSendResponse struct {
 
 // HerdrCoreTerminalStatus Current OSC 7501 status attached to a herdr-core terminal.
 type HerdrCoreTerminalStatus struct {
-	App      *string  `json:"app,omitempty"`
+	App *string `json:"app,omitempty"`
+
+	// Kind Optional OSC 7501 blocked reason kind (for example permission, question, or auth).
+	Kind     *string  `json:"kind,omitempty"`
 	Msg      *string  `json:"msg,omitempty"`
 	Progress *float32 `json:"progress,omitempty"`
 
@@ -11647,6 +11650,7 @@ type AttachHerdrCoreTerminalParams struct {
 	Rows    *int   `form:"rows,omitempty" json:"rows,omitempty"`
 	Observe *bool  `form:"observe,omitempty" json:"observe,omitempty"`
 	History *int   `form:"history,omitempty" json:"history,omitempty"`
+	Resumed *bool  `form:"resumed,omitempty" json:"resumed,omitempty"`
 }
 
 // GetHerdrCoreDocParams defines parameters for GetHerdrCoreDoc.

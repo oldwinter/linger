@@ -57,6 +57,7 @@ export interface HerdrCoreAttachTokenClaims {
   readonly rows: number;
   readonly observe: boolean;
   readonly history: number;
+  readonly resumed?: boolean;
   readonly exp: number;
 }
 
@@ -483,6 +484,7 @@ class AttachRelaySession {
           rows: this.#rows,
           observe: this.#observe,
           history: this.claims.history,
+          resumed: Boolean(this.claims.resumed),
           resize_notifications: true,
         },
         deadlineMs: this.#daemonJoinTimeoutMs,
@@ -584,8 +586,52 @@ class AttachRelaySession {
           });
           return;
         }
+        const nextCols = parsed.cols;
+        const nextRows = parsed.rows;
+        const hasCols = nextCols !== undefined;
+        const hasRows = nextRows !== undefined;
+        if (hasCols || hasRows) {
+          if (
+            typeof nextCols !== "number" ||
+            !Number.isInteger(nextCols) ||
+            nextCols < 1 ||
+            nextCols > 500 ||
+            typeof nextRows !== "number" ||
+            !Number.isInteger(nextRows) ||
+            nextRows < 1 ||
+            nextRows > 200
+          ) {
+            this.#sendClientControl({
+              type: "error",
+              code: "INVALID_CONTROL_FRAME",
+              message:
+                "mode cols (1..500) and rows (1..200) must both be valid integers",
+            });
+            return;
+          }
+          this.#cols = nextCols;
+          this.#rows = nextRows;
+        }
         this.#observe = parsed.observe;
-        this.#sendDaemonControl({ type: "mode", observe: this.#observe });
+        this.#sendDaemonControl({
+          type: "mode",
+          observe: this.#observe,
+          ...(hasCols && hasRows ? { cols: this.#cols, rows: this.#rows } : {}),
+        });
+        return;
+      }
+      case "focus": {
+        if (typeof parsed.focused !== "boolean") {
+          this.#sendClientControl({
+            type: "error",
+            code: "INVALID_CONTROL_FRAME",
+            message: "focus requires boolean focused",
+          });
+          return;
+        }
+        if (!this.#observe) {
+          this.#sendDaemonControl({ type: "focus", focused: parsed.focused });
+        }
         return;
       }
       case "resize": {
@@ -672,7 +718,7 @@ class AttachRelaySession {
           cols: this.#cols,
           rows: this.#rows,
           observe: this.#observe,
-          resumed: false,
+          resumed: Boolean(this.claims.resumed),
         });
       }
       if (this.#clientWs.bufferedAmount >= this.#clientHardLimitBytes) {
@@ -814,6 +860,7 @@ function isValidAttachClaims(
     Number.isInteger(value.history) &&
     value.history >= 0 &&
     value.history <= 10_000 &&
+    (value.resumed === undefined || typeof value.resumed === "boolean") &&
     typeof value.exp === "number" &&
     Number.isSafeInteger(value.exp) &&
     value.exp > 0

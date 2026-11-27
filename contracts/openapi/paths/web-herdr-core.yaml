@@ -743,6 +743,12 @@ attach:
           minimum: 0
           maximum: 10000
           default: 200
+      - name: resumed
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
     responses:
       "101":
         description: Switching Protocols to the binary PTY attach WebSocket.

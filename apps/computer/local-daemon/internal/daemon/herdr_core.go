@@ -1286,6 +1286,9 @@ func serializeHerdrCoreStatus(status *herdrcore.Status) any {
 	if status.App != "" {
 		out["app"] = status.App
 	}
+	if status.Kind != nil && *status.Kind != "" {
+		out["kind"] = *status.Kind
+	}
 	if status.Msg != "" {
 		out["msg"] = status.Msg
 	}

@@ -226,6 +226,8 @@ describe("Web static host routing", () => {
     "/collaboration",
     "/collaboration/document-1",
     "/internal/v0/documents/document-1/state",
+    "/api/v1",
+    "/api/v1/computers/comp-1/herdr-core/status",
     "/v0",
     "/v0/session",
     "/healthz/missing",
@@ -525,6 +527,8 @@ describe("Web service proxy", () => {
     expect(routes["/v0"]).toBe("http://teamhub:8080");
     // The teamhub CLI on a Computer calls TeamHub on the Web origin.
     expect(routes["/api/agent"]).toBe("http://teamhub:8080");
+    // Product v1 APIs (including herdr-core HTTP and PTY attach WebSockets).
+    expect(routes["/api/v1"]).toBe("http://teamhub:8080");
     expect(
       Object.values(serviceProxyRoutes({})).every(
         (target) => target === undefined,

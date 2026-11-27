@@ -37,6 +37,14 @@ export function resolveDevelopmentProxy(
     // Computers call the Agent CLI API on the Web origin, as on the
     // production host; without this it would answer with the SPA page.
     "/api/agent/": { changeOrigin: true, target: teamHubBaseUrl, xfwd: true },
+    // Product v1 APIs (including herdr-core control plane HTTP and binary PTY
+    // attach WebSockets) are served by TeamHub on the same origin.
+    "/api/v1": {
+      changeOrigin: true,
+      target: teamHubBaseUrl,
+      ws: true,
+      xfwd: true,
+    },
     "/document-collaboration": {
       changeOrigin: true,
       target: documentRuntimeUrl,

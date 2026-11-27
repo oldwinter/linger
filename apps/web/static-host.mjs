@@ -8,6 +8,7 @@ import sirv from "sirv";
 
 const reservedPathPrefixes = [
   "/api/agent",
+  "/api/v1",
   "/assets",
   "/brand",
   "/collaboration",
@@ -235,6 +236,7 @@ export function serviceProxyRoutes(environment) {
   return {
     "/v0": environment.TEAMHUB_BASE_URL,
     "/api/agent": environment.TEAMHUB_BASE_URL,
+    "/api/v1": environment.TEAMHUB_BASE_URL,
     "/document-collaboration": environment.TEAMHUB_DOCUMENT_RUNTIME_URL,
     "/install": agentService,
     "/v1/runner-gateway": agentService,

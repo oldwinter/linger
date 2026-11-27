@@ -44,10 +44,11 @@ export function HerdrCoreComputerDialog({
       size="xl"
       title={t(m.workbenchTitle)}
     >
-      <div className="h-[min(75vh,680px)] min-h-[360px] w-full">
+      <div className="h-[min(78vh,700px)] min-h-[380px] w-full">
         <HerdrCoreWorkbench
           client={client}
           computerId={computerId}
+          embedded
           initialAddress={initialAddress}
           isDesktopLocalComputer={isDesktopLocalComputer}
           teamHubApi={teamHubApi}

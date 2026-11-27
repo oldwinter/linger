@@ -326,13 +326,24 @@ describe("Independent binary PTY attach WS relay", () => {
     const pong = await clientQueue.next();
     expect(JSON.parse(pong.data.toString("utf8"))).toEqual({ type: "pong" });
 
-    // Switch to interactive mode; mode, resize, and binary input now forward to daemon.
-    clientWs.send(JSON.stringify({ type: "mode", observe: false }));
+    // Switch to interactive mode with explicit viewport dimensions; mode, focus, resize, and binary input forward to daemon.
+    clientWs.send(
+      JSON.stringify({ type: "mode", observe: false, cols: 112, rows: 34 }),
+    );
     const daemonMode = await daemonQueue.next();
     expect(daemonMode.isBinary).toBe(false);
     expect(JSON.parse(daemonMode.data.toString("utf8"))).toEqual({
       type: "mode",
       observe: false,
+      cols: 112,
+      rows: 34,
+    });
+
+    clientWs.send(JSON.stringify({ type: "focus", focused: true }));
+    const daemonFocus = await daemonQueue.next();
+    expect(JSON.parse(daemonFocus.data.toString("utf8"))).toEqual({
+      type: "focus",
+      focused: true,
     });
 
     clientWs.send(JSON.stringify({ type: "resize", cols: 100, rows: 30 }));
