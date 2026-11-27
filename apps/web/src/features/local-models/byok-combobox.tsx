@@ -257,7 +257,7 @@ export function ByokCombobox({
         aria-invalid={ariaInvalid || undefined}
         autoComplete="off"
         className={cn(
-          "h-full min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/55 disabled:cursor-not-allowed",
+          "h-full min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-app-placeholder disabled:cursor-not-allowed",
           filled ? "text-muted-foreground" : "text-foreground",
           inputClassName,
         )}

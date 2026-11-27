@@ -47,7 +47,7 @@ import {
 } from "./model-source-queries";
 
 const byokInputClassName =
-  "h-10 w-full rounded-xl border border-transparent bg-muted/50 px-3.5 text-sm text-foreground transition-[background-color,border-color,box-shadow] duration-150 placeholder:text-muted-foreground/55 hover:bg-muted/75 focus:border-foreground/15 focus:bg-card focus:shadow-sm focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none";
+  "h-10 w-full rounded-xl border border-transparent bg-muted/50 px-3.5 text-sm text-foreground transition-[background-color,border-color,box-shadow] duration-150 placeholder:text-app-placeholder hover:bg-muted/75 focus:border-foreground/15 focus:bg-card focus:shadow-sm focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none";
 
 const byokFieldButtonClassName =
   "inline-flex h-10 shrink-0 items-center justify-center rounded-xl border border-transparent bg-muted/55 text-sm font-medium text-foreground transition-[color,background-color,border-color,transform] duration-150 hover:bg-muted/85 active:scale-(--chat-press-scale) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-45 motion-reduce:transition-none motion-reduce:active:scale-100";
