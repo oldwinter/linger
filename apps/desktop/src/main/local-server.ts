@@ -1544,6 +1544,7 @@ export class LocalServerModule implements Module {
       localModels?: {
         eligible?: unknown;
         state?: unknown;
+        basis?: unknown;
         memory?: Record<string, unknown>;
         reasons?: unknown;
         estimate?: {
@@ -1551,6 +1552,11 @@ export class LocalServerModule implements Module {
           downloadBytes?: unknown;
           diskBytes?: unknown;
           memoryBytes?: unknown;
+        };
+        upgrade?: {
+          modelName?: unknown;
+          estimate?: { model?: unknown };
+          reasons?: unknown;
         };
       };
       hardware?: {
@@ -1594,9 +1600,18 @@ export class LocalServerModule implements Module {
               : {}),
           }
         : undefined;
-    const listed = Array.isArray(report.localModels.reasons)
-      ? (report.localModels.reasons as Record<string, unknown>[]).filter(
-          (reason) => typeof reason?.code === "string",
+    const rawReasons = (entries: unknown): Record<string, unknown>[] =>
+      Array.isArray(entries)
+        ? (entries as Record<string, unknown>[]).filter(
+            (reason) => typeof reason?.code === "string",
+          )
+        : [];
+    const listed = rawReasons(report.localModels.reasons);
+    const upgradeListed = eligible
+      ? rawReasons(report.localModels.upgrade?.reasons).filter(
+          (reason) =>
+            reason.code === "free-memory-required" ||
+            reason.code === "gpu-memory-required",
         )
       : [];
     // The page words each reason by its code and counts, never the tool's.
@@ -1604,7 +1619,7 @@ export class LocalServerModule implements Module {
       typeof value === "string" && /^\d+(?:\.\d+){0,2}$/.test(value)
         ? value
         : null;
-    const reasons = listed.map((reason): SetupReason => {
+    const parseReason = (reason: Record<string, unknown>): SetupReason => {
       const counted = (key: "gpuIndex" | "freeBytes" | "requiredBytes") =>
         bytes(reason[key]) !== null ? { [key]: reason[key] as number } : {};
       const versioned = (
@@ -1622,8 +1637,17 @@ export class LocalServerModule implements Module {
         ...versioned("requiredCudaVersion"),
         ...versioned("driverVersion"),
       };
-    });
-    const reasonLog = listed.map(({ code, message }) =>
+    };
+    const reasons = [
+      ...listed.map(parseReason),
+      ...upgradeListed
+        .filter(
+          (upgradeReason) =>
+            !listed.some((existing) => existing.code === upgradeReason.code),
+        )
+        .map(parseReason),
+    ];
+    const reasonLog = [...listed, ...upgradeListed].map(({ code, message }) =>
       typeof message === "string" && message
         ? `${code}: ${message}`
         : `${code}`,
@@ -1668,6 +1692,9 @@ export class LocalServerModule implements Module {
           ];
         })
       : [];
+    // Only expose a concrete model when local models are eligible right now:
+    // blocked-now reports carry capacity-only fallbacks that do not predict
+    // which model will fit once memory frees up.
     const check: LocalModelsCheck = {
       state: "checked",
       eligible,
@@ -1679,7 +1706,7 @@ export class LocalServerModule implements Module {
       ...(typeof gpu === "string" ? { gpu } : {}),
       ...(blockedNow ? { blockedNow } : {}),
       ...(freeMemory ? { freeMemory } : {}),
-      ...((eligible || blockedNow) && name
+      ...(eligible && name
         ? {
             model: {
               name,

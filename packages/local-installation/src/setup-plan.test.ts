@@ -147,7 +147,13 @@ it("recommends the next runtime while the local plan waits for free memory (tool
         message: "Close other programs before installing.",
       },
     ],
-    estimate: { model: "upstream-model" },
+    selectedGpuIndex: null,
+    estimate: {
+      model: "",
+      downloadBytes: null,
+      diskBytes: null,
+      memoryBytes: null,
+    },
   });
   expect(report.localModels).not.toHaveProperty("memory");
   expect(report.recommendation).toBe("pi");
@@ -205,7 +211,13 @@ it("reads the tool's blocked-now state, memory and recommendation", async () => 
       vramFreeBytes: 3,
       vramRequiredBytes: 8,
     },
-    estimate: { model: "upstream-model" },
+    selectedGpuIndex: null,
+    estimate: {
+      model: "",
+      downloadBytes: null,
+      diskBytes: null,
+      memoryBytes: null,
+    },
   });
   // The tool's non-local pick stands, even with Pi installed.
   expect(report.recommendation).toBe("codex");
@@ -791,4 +803,100 @@ it("keeps bundled Pi excluded from both localmodels and daemon setup inspection"
     expect.objectContaining({ bundledPi: null }),
   );
   expect(legacyFallback.recommendation).toBe("codex");
+});
+
+it("omits speculative 27B capacity plans while tight memory holds a 24 GB Apple Silicon Mac, and picks the live model once memory frees", async () => {
+  const GiB = 1024 ** 3;
+  const macFacts = {
+    platform: "darwin",
+    arch: "arm64",
+    ram: { total_bytes: 24 * GiB },
+    disk: { free_bytes: 200 * GiB },
+    gpus: [],
+  };
+  const tightReport = await inspectWithoutDaemon({
+    localmodels: runner({
+      ...upstream(false),
+      facts: macFacts,
+      stack: {
+        available: false,
+        state: "blocked-now",
+        hardwareCapable: true,
+        basis: "capacity",
+        memory: {
+          ramAvailableBytes: Math.round(3.2 * GiB),
+          ramRequiredBytes: Math.round(20.8 * GiB),
+        },
+        reasons: [
+          {
+            code: "free-memory-required",
+            message: "Close other apps before installing.",
+            freeBytes: Math.round(3.2 * GiB),
+            requiredBytes: Math.round(20.8 * GiB),
+          },
+        ],
+        plan: {
+          llm: {
+            model: { id: "qwen3.8-27b-iq3s:UD-IQ3_S" },
+            placement: { gpus: [] },
+          },
+          budget: {
+            download_bytes: Math.round(12.1 * GiB),
+            disk_needed_bytes: Math.round(13 * GiB),
+            ram_needed_bytes: Math.round(20.8 * GiB),
+          },
+        },
+      },
+      recommendation: "codex",
+    }),
+  });
+  expect(tightReport.localModels).toMatchObject({
+    eligible: false,
+    state: "blocked-now",
+    hardwareCapable: true,
+    basis: "capacity",
+    selectedGpuIndex: null,
+    estimate: {
+      model: "",
+      downloadBytes: null,
+      diskBytes: null,
+      memoryBytes: null,
+    },
+    memory: {
+      ramAvailableBytes: Math.round(3.2 * GiB),
+      ramRequiredBytes: Math.round(20.8 * GiB),
+    },
+  });
+  expect(tightReport.recommendation).toBe("codex");
+
+  const freedReport = await inspectWithoutDaemon({
+    localmodels: runner({
+      ...upstream(true),
+      facts: macFacts,
+      stack: {
+        available: true,
+        state: "ready",
+        hardwareCapable: true,
+        reasons: [],
+        plan: {
+          llm: {
+            model: { id: "spark-x2.6-4b" },
+            placement: { gpus: [] },
+          },
+          budget: {
+            download_bytes: Math.round(2.6 * GiB),
+            disk_needed_bytes: Math.round(3.1 * GiB),
+            ram_needed_bytes: Math.round(4.9 * GiB),
+          },
+        },
+      },
+      recommendation: "local-models",
+    }),
+  });
+  expect(freedReport.localModels).toMatchObject({
+    eligible: true,
+    state: "ready",
+    estimate: { model: "spark-x2.6-4b" },
+  });
+  expect(freedReport.recommendation).toBe("local-models");
 });

@@ -5088,7 +5088,17 @@
         // use, or harness unavailable): shown on hold until a new check clears
         // it.
         const held = models.state === "checked" && !!models.blockedNow;
-        const heldModel = held && models.model;
+        // When a smaller model fits right now while memory pressure blocks a
+        // stronger model on this hardware, local-server forwards the memory
+        // reason so Setup labels the pick honestly and offers Check again.
+        const upgradeMemoryReason = model
+          ? models.reasons?.find(
+              (reason) =>
+                reason.code === "free-memory-required" ||
+                reason.code === "gpu-memory-required",
+            )
+          : undefined;
+        const fitsNowOnly = Boolean(upgradeMemoryReason);
         plan.localModel = plan.source === "local" && !!model;
         // Quick Install waits for the check, so it installs what it shows.
         // BYOK uses the user's own endpoint and does not depend on local-model
@@ -5186,12 +5196,21 @@
               ? [
                   model.name,
                   models.gpu
-                    ? t("fitsGpu", { gpu: models.gpu })
-                    : t("fitsComputer"),
+                    ? t(fitsNowOnly ? "fitsGpuNow" : "fitsGpu", {
+                        gpu: models.gpu,
+                      })
+                    : t(fitsNowOnly ? "fitsComputerNow" : "fitsComputer"),
                   t("memoryAmount", { size: gigabytes(models.memoryBytes) }),
                   model.downloadBytes != null &&
                     t("downloadAmount", {
                       size: gigabytes(model.downloadBytes),
+                    }),
+                  fitsNowOnly &&
+                    t("upgradeMemoryHint", {
+                      counts: counts(
+                        upgradeMemoryReason.freeBytes,
+                        upgradeMemoryReason.requiredBytes,
+                      ),
                     }),
                 ]
                   .filter(Boolean)
@@ -5233,7 +5252,7 @@
           remove.textContent = t(removing ? "keep" : "remove");
         }
         $("keys-note").textContent = t("keysNote");
-        const shown = model || heldModel;
+        const shown = model;
         const inklingRecommended = Boolean(
           recommended.localModel && model?.featuredInkling,
         );
@@ -5275,6 +5294,7 @@
           models.state === "checked" || models.state === "unavailable";
         const canRecheck =
           held ||
+          fitsNowOnly ||
           (models.state === "checked" &&
             !models.eligible &&
             !!models.reasons?.some((reason) =>
@@ -5359,14 +5379,18 @@
         $("local-plan-actions").hidden =
           $("local-recheck").hidden && !showDriverActions;
         if (shown) {
-          $("local-sub").textContent = held
-            ? heldLine(models)
-            : [
-                t(recommended.localModel ? "localRecommended" : "localRuns"),
-                models.gpu,
-              ]
-                .filter(Boolean)
-                .join(" · ");
+          $("local-sub").textContent = [
+            t(
+              fitsNowOnly
+                ? "localFitsNow"
+                : recommended.localModel
+                  ? "localRecommended"
+                  : "localRuns",
+            ),
+            models.gpu,
+          ]
+            .filter(Boolean)
+            .join(" · ");
           $("local-model-name").textContent = shown.name;
           $("local-model-needs").textContent = [
             shown.downloadBytes != null &&
@@ -5380,8 +5404,8 @@
           ]
             .filter(Boolean)
             .join(" · ");
-          $("local-model").setAttribute("aria-checked", String(!!model));
-          $("local-model").disabled = busy || !model;
+          $("local-model").setAttribute("aria-checked", "true");
+          $("local-model").disabled = busy;
         } else if (held) {
           $("local-sub").textContent = heldLine(models);
           $("local-model-name").textContent = t("localOnHold");

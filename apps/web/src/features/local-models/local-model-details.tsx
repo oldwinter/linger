@@ -348,6 +348,10 @@ export function ModelFacts({
   const speed = speedLabel(model, t);
   const sourceUrl = safeModelSourceUrl(model.source_url);
   const reclaimable = memoryReclaimable(view, model);
+  const availableTooBig =
+    status === "available" &&
+    pool !== undefined &&
+    model.memory_bytes > pool.total_bytes;
   const computerId = view.computer.computer_id;
   const usedNames = usedByAgentNames(entry, assignableAgents, computerId);
   const idleUsedWarning =
@@ -509,6 +513,15 @@ export function ModelFacts({
           {t(m.idleUsedWarning, {
             count: usedNames.length,
             names: joinList(usedNames, t),
+          })}
+        </FormFeedback>
+      ) : null}
+      {availableTooBig && pool ? (
+        <FormFeedback tone="warning">
+          {t(m.tooBig, {
+            name: model.name,
+            pool: poolLabel(view, pool, t),
+            total: formatGigabytes(pool.total_bytes, t),
           })}
         </FormFeedback>
       ) : null}
