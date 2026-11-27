@@ -6361,4 +6361,137 @@ describe("Featured Inkling 2 Mini spotlight", () => {
     expect(details).toHaveTextContent("10.4 GB");
     expect(details).toHaveTextContent("Unified memory");
   });
+
+  it("distinguishes Best for this Mac vs Fits right now and never marks an oversized 27B model Recommended on a tight 24 GB Mac", async () => {
+    const mac24Tight = (usedGb: number) =>
+      macView({
+        computer: {
+          ...macView().computer,
+          computer_id: "computer-mac-24",
+          display_name: "MacBook Pro 24 GB",
+          host: {
+            ...macView().computer.host!,
+            platform: "darwin",
+            ram_total_bytes: gb(24),
+          },
+        },
+        models: [
+          modelView(
+            localModel({
+              download_bytes: gb(12.1),
+              family: "qwen",
+              fit: "unified",
+              id: "qwen3.8-27b-iq3s:UD-IQ3_S",
+              memory_bytes: gb(20.8),
+              name: "Qwen3.8 27B (UD-IQ3_S)",
+              parameters: "27B",
+              pool: "unified",
+              quant: "UD-IQ3_S",
+              recommended: true,
+            }),
+          ),
+          modelView(
+            localModel({
+              download_bytes: gb(11.5),
+              family: "other",
+              fit: "unified",
+              id: "inkling-2-mini-iq3xxs:UD-IQ3_XXS",
+              memory_bytes: gb(14.9),
+              name: "Inkling 2 Mini (UD-IQ3_XXS)",
+              parameters: "26.4B",
+              pool: "unified",
+              quant: "UD-IQ3_XXS",
+            }),
+          ),
+          modelView(
+            localModel({
+              download_bytes: gb(2.6),
+              family: "other",
+              fit: "unified",
+              id: "spark-x2.6-4b:Q4_K_M",
+              memory_bytes: gb(4.9),
+              name: "Spark-X2.6 4B (Q4_K_M)",
+              parameters: "4B",
+              pool: "unified",
+              quant: "Q4_K_M",
+            }),
+          ),
+        ],
+        observed_at: `2026-11-13T10:${String(usedGb).padStart(2, "0")}:00.000Z`,
+        pools: [
+          {
+            ...memoryPool("unified", 19.2),
+            used_bytes: gb(usedGb),
+          },
+        ],
+      });
+
+    // 13 GB of 19.2 GB in use -> 6.2 GB free.
+    const fixture = setup([mac24Tight(13)]);
+    await renderPage(fixture, "?computer=computer-mac-24");
+    await findModels();
+
+    const qwenCard = card("Qwen3.8 27B");
+    const inklingCard = card("Inkling 2 Mini");
+    const sparkCard = card("Spark-X2.6 4B");
+
+    expect(within(qwenCard).queryByText("Recommended")).not.toBeInTheDocument();
+    expect(qwenCard).not.toHaveAttribute("data-recommended");
+    expect(statusOf("Qwen3.8 27B")).toBe("12.1 GB · needs 20.8 GB");
+    expect(
+      within(qwenCard).queryByText(/Needs .* free/u),
+    ).not.toBeInTheDocument();
+
+    expect(within(inklingCard).getByText("Best for this Mac")).toBeVisible();
+    expect(inklingCard).toHaveAttribute(
+      "data-recommendation",
+      "best_for_hardware",
+    );
+    expect(inklingCard).not.toHaveAttribute("data-recommended");
+    expect(within(inklingCard).getByText("Needs 14.9 GB free")).toBeVisible();
+
+    expect(within(sparkCard).getByText("Fits right now")).toBeVisible();
+    expect(sparkCard).toHaveAttribute("data-recommendation", "fits_now");
+    expect(sparkCard).not.toHaveAttribute("data-recommended");
+
+    // Expanding the oversized 27B row explains that it exceeds the 19.2 GB pool.
+    fireEvent.click(
+      within(qwenCard).getByRole("button", { name: "Qwen3.8 27B" }),
+    );
+    expect(
+      screen.getByRole("region", { name: "Qwen3.8 27B (UD-IQ3_S) details" }),
+    ).toHaveTextContent(
+      "Qwen3.8 27B (UD-IQ3_S) needs more than all 19.2 GB of Unified memory, so it can't load there.",
+    );
+
+    // Chinese locale renders matching translated recommendation labels.
+    await reactAct(async () => {
+      await setLanguage("zh-CN");
+    });
+    expect(
+      within(inklingCard).getByText(zhCN.localModels.bestForThisMac),
+    ).toBeVisible();
+    expect(
+      within(sparkCard).getByText(zhCN.localModels.fitsRightNow),
+    ).toBeVisible();
+    await reactAct(async () => {
+      resetLanguageForTest();
+    });
+
+    // Once memory frees up (3 GB of 19.2 GB used -> 16.2 GB free), Inkling 2 Mini
+    // fits both the Mac and live memory and becomes Recommended.
+    publishSnapshot(fixture, mac24Tight(3));
+    await waitFor(() =>
+      expect(card("Inkling 2 Mini")).toHaveAttribute(
+        "data-recommended",
+        "true",
+      ),
+    );
+    expect(
+      within(card("Inkling 2 Mini")).getByText("Recommended"),
+    ).toBeVisible();
+    expect(
+      within(card("Spark-X2.6 4B")).queryByText("Fits right now"),
+    ).not.toBeInTheDocument();
+  });
 });

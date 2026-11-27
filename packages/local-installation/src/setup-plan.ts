@@ -341,6 +341,13 @@ export async function inspectSetup(
     });
     // Either structured mark means the plan needs memory other programs
     // hold now, which the install-time plan refuses.
+    const memoryBlockedReason = value.stack.reasons.some(
+      (reason) =>
+        reason.code === "free-memory-required" ||
+        reason.code === "gpu-memory-required" ||
+        reason.code === "gpu-sharing-required" ||
+        reason.code === "plan-unavailable",
+    );
     const capacity =
       value.stack.basis === "capacity" ||
       value.stack.reasons.some(
@@ -357,6 +364,16 @@ export async function inspectSetup(
           : value.stack.available
             ? "ready"
             : "unavailable";
+    const capacityBasis =
+      capacity ||
+      (state === "blocked-now" &&
+        (value.stack.memory != null || memoryBlockedReason));
+    // A blocked-now report (especially a capacity-basis fallback) does not
+    // lock in the model that will be picked once memory frees up; installing
+    // plans again against live free memory. Keep quantitative memory counts
+    // and reasons, and expose an actionable model estimate only when ready.
+    const actionablePlan =
+      state === "ready" && value.stack.available ? plan : null;
     const ok = (bytes: unknown): bytes is number =>
       typeof bytes === "number" && Number.isFinite(bytes) && bytes >= 0;
     const version = (text: unknown): text is string =>
@@ -485,7 +502,15 @@ export async function inspectSetup(
         ...(gpuApps.length ? { gpuApps } : {}),
       };
     };
-    const upgrade = parseUpgrade(value.stack.upgrade);
+    const parsedUpgrade =
+      state === "ready" && value.stack.available
+        ? parseUpgrade(value.stack.upgrade)
+        : undefined;
+    const upgrade =
+      parsedUpgrade &&
+      parsedUpgrade.estimate.model !== actionablePlan?.llm.model.id
+        ? parsedUpgrade
+        : undefined;
     const memory = value.stack.memory ? counts(value.stack.memory) : undefined;
     const upstreamRuntimes = value.harness?.runtimes ?? [];
     const upstreamEstimates = new Map(
@@ -565,22 +590,22 @@ export async function inspectSetup(
           : {}),
         ...(memory ? { memory } : {}),
         reasons: value.stack.reasons.map(sanitizeReason),
-        ...(capacity ? { basis: "capacity" as const } : {}),
-        selectedGpuIndex: plan?.llm.placement.gpus[0]?.index ?? null,
+        ...(capacityBasis ? { basis: "capacity" as const } : {}),
+        selectedGpuIndex: actionablePlan?.llm.placement.gpus[0]?.index ?? null,
         estimate: {
           ...estimate(
-            plan
+            actionablePlan
               ? {
-                  downloadBytes: plan.budget.download_bytes,
-                  diskBytes: plan.budget.disk_needed_bytes,
-                  memoryBytes: plan.budget.ram_needed_bytes,
+                  downloadBytes: actionablePlan.budget.download_bytes,
+                  diskBytes: actionablePlan.budget.disk_needed_bytes,
+                  memoryBytes: actionablePlan.budget.ram_needed_bytes,
                   durationSeconds: null,
                   assumption:
                     "Resource plan supplied by localmodels; duration is unknown.",
                 }
               : undefined,
           ),
-          model: plan?.llm.model.id ?? "",
+          model: actionablePlan?.llm.model.id ?? "",
         },
         ...(upgrade ? { upgrade } : {}),
       },

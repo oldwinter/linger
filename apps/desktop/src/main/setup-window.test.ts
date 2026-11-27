@@ -158,6 +158,7 @@ function setupHost(options: {
       : {}),
   });
   const inspect = vi.fn();
+  const recheck = vi.fn();
   const cancelPrestage = vi.fn();
   const refreshLocationSpace = vi.fn(
     options.refreshLocationSpace ?? (async () => {}),
@@ -183,6 +184,7 @@ function setupHost(options: {
     stop: async () => {},
     ...({
       inspect,
+      recheck,
       cancelPrestage,
       refreshLocationSpace,
       status: () => options.localStatus?.() ?? defaultStatus(),
@@ -231,6 +233,7 @@ function setupHost(options: {
     host,
     config,
     inspect,
+    recheck,
     cancelPrestage,
     refreshLocationSpace,
     setup,
@@ -528,6 +531,126 @@ describe("SetupWindowModule", () => {
       vi.advanceTimersByTime(2000);
       window.emit("focus");
       expect(refreshLocationSpace).toHaveBeenCalledTimes(2);
+    } finally {
+      await host.stop("quit");
+    }
+  });
+
+  it("triggers a fresh local-model recheck when the setup page reloads while idle or failed", async () => {
+    let phase: LocalServerStatus["phase"] = "idle";
+    let localModels: LocalServerStatus["localModels"] = {
+      state: "checked",
+      eligible: false,
+      blockedNow: true,
+      memoryBytes: 24 * 1024 ** 3,
+      diskFreeBytes: 200 * 1024 ** 3,
+      reasons: [{ code: "free-memory-required" }],
+      recommendation: "codex",
+    };
+    const { host, recheck } = setupHost({
+      show: true,
+      localStatus: () => ({
+        available: true,
+        phase,
+        message: "",
+        steps: ["prepare", "services", "connect", "agents"],
+        step: "prepare",
+        progress: 0,
+        attempt: 0,
+        localModels,
+        location: { path: "/tmp/linger", custom: false },
+        keys: { composio: false },
+      }),
+    });
+    recheck.mockImplementation(() => {
+      localModels = { state: "checking" };
+    });
+    await host.start();
+    try {
+      const window = state.windows[0]!;
+      const handler = state.ipcHandlers.get(SETUP_IPC.state)!;
+      const callState = () =>
+        handler({
+          sender: window.webContents,
+          senderFrame: { url: "app://setup/" },
+        }) as Promise<SetupState>;
+
+      // Opening Setup when a prior check was already settled rechecks immediately.
+      expect(recheck).toHaveBeenCalledTimes(1);
+
+      // Initial page boot fetches state without firing a duplicate recheck.
+      await callState();
+      expect(recheck).toHaveBeenCalledTimes(1);
+
+      // Simulate check finishing with a stale blocked-now snapshot, then reloading Setup.
+      localModels = {
+        state: "checked",
+        eligible: false,
+        blockedNow: true,
+        memoryBytes: 24 * 1024 ** 3,
+        diskFreeBytes: 200 * 1024 ** 3,
+        reasons: [{ code: "free-memory-required" }],
+        recommendation: "codex",
+      };
+      const reloaded = await callState();
+      expect(recheck).toHaveBeenCalledTimes(2);
+      expect(reloaded.localServer.localModels).toEqual({ state: "checking" });
+
+      // Reloading after a failed install also rechecks.
+      phase = "failed";
+      await callState();
+      expect(recheck).toHaveBeenCalledTimes(3);
+
+      // Reloading while installing or once ready does not disturb localModels.
+      phase = "installing";
+      await callState();
+      expect(recheck).toHaveBeenCalledTimes(3);
+
+      phase = "ready";
+      await callState();
+      expect(recheck).toHaveBeenCalledTimes(3);
+    } finally {
+      await host.stop("quit");
+    }
+  });
+
+  it("rechecks instead of serving stale cached results when the setup window is closed and reopened", async () => {
+    let localModels: LocalServerStatus["localModels"] = { state: "unchecked" };
+    const { host, inspect, recheck, setup } = setupHost({
+      show: true,
+      localStatus: () => ({
+        available: true,
+        phase: "idle",
+        message: "",
+        steps: ["prepare", "services", "connect", "agents"],
+        step: "prepare",
+        progress: 0,
+        attempt: 0,
+        localModels,
+        location: { path: "/tmp/linger", custom: false },
+        keys: { composio: false },
+      }),
+    });
+    await host.start();
+    try {
+      expect(inspect).toHaveBeenCalledTimes(1);
+      expect(recheck).not.toHaveBeenCalled();
+
+      // Check settles while open, user closes Setup, frees memory, and reopens Setup.
+      localModels = {
+        state: "checked",
+        eligible: false,
+        blockedNow: true,
+        memoryBytes: 24 * 1024 ** 3,
+        diskFreeBytes: 200 * 1024 ** 3,
+        reasons: [{ code: "free-memory-required" }],
+        recommendation: "codex",
+      };
+      state.windows[0]!.close();
+      setup.show();
+
+      expect(recheck).toHaveBeenCalledTimes(1);
+      expect(inspect).toHaveBeenCalledTimes(1);
     } finally {
       await host.stop("quit");
     }

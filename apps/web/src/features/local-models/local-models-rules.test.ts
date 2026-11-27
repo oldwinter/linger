@@ -35,6 +35,8 @@ import {
   modelBaseName,
   modelCapabilities,
   modelEntries,
+  modelFitsCurrentMemory,
+  modelFitsPoolCapacity,
   modelGroupKey,
   parametersLabel,
   placeName,
@@ -1620,5 +1622,121 @@ describe("hostBlocker, RAM reclaimability, and diagnostics copy", () => {
     expect(
       dualActiveSections.onComputer.map((g) => g.defaultEntry.model.id),
     ).toEqual(["qwen3.8-27b:UD-Q4_K_M", "qwen3.8-27b-iq3s:UD-IQ3_S"]);
+  });
+
+  it("aligns recommendations with pool capacity and current free memory on a 24 GB Apple Silicon Mac", () => {
+    const qwen27 = localModel({
+      download_bytes: gb(12.1),
+      family: "qwen",
+      fit: "unified",
+      id: "qwen3.8-27b-iq3s:UD-IQ3_S",
+      memory_bytes: gb(20.8),
+      name: "Qwen3.8 27B (UD-IQ3_S)",
+      parameters: "27B",
+      pool: "unified",
+      quant: "UD-IQ3_S",
+      recommended: true,
+    });
+    const inkling = localModel({
+      download_bytes: gb(11.5),
+      family: "other",
+      fit: "unified",
+      id: "inkling-2-mini-iq3xxs:UD-IQ3_XXS",
+      memory_bytes: gb(14.9),
+      name: "Inkling 2 Mini (UD-IQ3_XXS)",
+      parameters: "26.4B",
+      pool: "unified",
+      quant: "UD-IQ3_XXS",
+    });
+    const spark4b = localModel({
+      download_bytes: gb(2.6),
+      family: "other",
+      fit: "unified",
+      id: "spark-x2.6-4b:Q4_K_M",
+      memory_bytes: gb(4.9),
+      name: "Spark-X2.6 4B (Q4_K_M)",
+      parameters: "4B",
+      pool: "unified",
+      quant: "Q4_K_M",
+    });
+    const mac24 = (usedGb: number, models = [qwen27, inkling, spark4b]) =>
+      macView({
+        computer: {
+          ...macView().computer,
+          host: {
+            ...macView().computer.host!,
+            ram_total_bytes: gb(24),
+          },
+        },
+        models: models.map((model) => modelView(model)),
+        pools: [
+          {
+            ...memoryPool("unified", 19.2),
+            used_bytes: gb(usedGb),
+          },
+        ],
+      });
+
+    // Tight memory (13 GB / 19.2 GB used -> 6.2 GB free):
+    // 27B (20.8 GB) exceeds the 19.2 GB pool total and is never recommended;
+    // Spark 4B fits right now and sorts first, while Inkling is labeled best for hardware.
+    const tight6GbFree = mac24(13);
+    expect(modelFitsPoolCapacity(tight6GbFree, qwen27)).toBe(false);
+    expect(modelFitsPoolCapacity(tight6GbFree, inkling)).toBe(true);
+    expect(modelFitsCurrentMemory(tight6GbFree, inkling)).toBe(false);
+    expect(modelFitsCurrentMemory(tight6GbFree, spark4b)).toBe(true);
+    expect(
+      modelEntries(tight6GbFree).map((entry) => [
+        entry.model.id,
+        entry.recommendation,
+      ]),
+    ).toEqual([
+      ["spark-x2.6-4b:Q4_K_M", "fits_now"],
+      ["inkling-2-mini-iq3xxs:UD-IQ3_XXS", "best_for_hardware"],
+      ["qwen3.8-27b-iq3s:UD-IQ3_S", undefined],
+    ]);
+
+    // When only 27B (20.8 GB > 19.2 GB) and Spark 4B (4.9 GB) exist with 6.2 GB free,
+    // Spark 4B matches both hardware capacity and live memory and becomes Recommended.
+    const twoModelMac = mac24(13, [qwen27, spark4b]);
+    expect(
+      modelEntries(twoModelMac).map((entry) => [
+        entry.model.id,
+        entry.recommendation,
+      ]),
+    ).toEqual([
+      ["spark-x2.6-4b:Q4_K_M", "recommended"],
+      ["qwen3.8-27b-iq3s:UD-IQ3_S", undefined],
+    ]);
+    // 20.8 GB exceeds the 19.2 GB pool total, so it does not trigger close-apps guidance.
+    expect(memoryGuidance(twoModelMac)).toBeNull();
+
+    // Very tight memory (16 GB / 19.2 GB used -> 3.2 GB free):
+    // Nothing fits right now; only the hardware-fitting model gets best_for_hardware.
+    const veryTight = mac24(16);
+    expect(
+      modelEntries(veryTight).map((entry) => [
+        entry.model.id,
+        entry.recommendation,
+      ]),
+    ).toEqual([
+      ["inkling-2-mini-iq3xxs:UD-IQ3_XXS", "best_for_hardware"],
+      ["spark-x2.6-4b:Q4_K_M", undefined],
+      ["qwen3.8-27b-iq3s:UD-IQ3_S", undefined],
+    ]);
+
+    // Plentiful free memory (3 GB / 19.2 GB used -> 16.2 GB free):
+    // Inkling 2 Mini fits both hardware and live memory and becomes Recommended.
+    const plentiful = mac24(3);
+    expect(
+      modelEntries(plentiful).map((entry) => [
+        entry.model.id,
+        entry.recommendation,
+      ]),
+    ).toEqual([
+      ["inkling-2-mini-iq3xxs:UD-IQ3_XXS", "recommended"],
+      ["spark-x2.6-4b:Q4_K_M", undefined],
+      ["qwen3.8-27b-iq3s:UD-IQ3_S", undefined],
+    ]);
   });
 });

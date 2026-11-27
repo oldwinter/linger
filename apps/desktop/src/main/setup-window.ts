@@ -104,6 +104,10 @@ export class SetupWindowModule implements Module {
   #driverUpdatePendingRecheck = false;
   #lastDriverAutoRecheckAt = 0;
   #lastLocationSpaceRefreshAt = 0;
+  // Tracks whether the current setup BrowserWindow already loaded its initial
+  // state, so a subsequent SETUP_IPC.state call means the page reloaded and
+  // needs a fresh local-model probe instead of returning a cached check.
+  #stateLoadedForWindow = false;
   #permissions: PermissionStatuses | undefined;
   #diagnostics: SetupState["diagnostics"];
   #account: SetupAccount | undefined;
@@ -132,6 +136,14 @@ export class SetupWindowModule implements Module {
     };
     ipcMain.handle(SETUP_IPC.state, async (event) => {
       fromSetup(event);
+      const reloaded = this.#stateLoadedForWindow;
+      this.#stateLoadedForWindow = true;
+      if (reloaded) {
+        const { phase } = local.status();
+        if (phase === "idle" || phase === "failed") {
+          local.recheck();
+        }
+      }
       this.#lastLocationSpaceRefreshAt = Date.now();
       await Promise.all([
         this.#refreshSignedIn(),
@@ -257,7 +269,10 @@ export class SetupWindowModule implements Module {
       this.#maybeRefreshLocationSpaceOnFocus();
     });
     window.on("closed", () => {
-      if (this.#window === window) this.#window = undefined;
+      if (this.#window === window) {
+        this.#window = undefined;
+        this.#stateLoadedForWindow = false;
+      }
       this.#account?.hide();
       // Idle background pre-staging and Bifrost pre-fetch stop when setup
       // closes before Install is started.
@@ -267,10 +282,20 @@ export class SetupWindowModule implements Module {
       if (sender?.state().phase === "confirm") void sender.cancel();
     });
     this.#window = window;
+    this.#stateLoadedForWindow = false;
     void window.loadURL(SETUP_URL).catch(() => undefined);
     // Whether this computer can serve a local model, found out while the
-    // page is read; the option appears once it can.
-    this.#ctx?.get<LocalServerModule>("LocalServer").inspect();
+    // page is read; reopening Setup after a previous check triggers a fresh
+    // probe so freed memory is observed immediately.
+    const local = this.#ctx?.get<LocalServerModule>("LocalServer");
+    if (local) {
+      const checkState = local.status().localModels.state;
+      if (checkState === "checked" || checkState === "unavailable") {
+        local.recheck();
+      } else {
+        local.inspect();
+      }
+    }
   }
 
   get #t() {

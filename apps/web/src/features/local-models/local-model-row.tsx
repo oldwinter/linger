@@ -44,6 +44,8 @@ import {
   formatGigabytes,
   joinList,
   modelBaseName,
+  modelFitsCurrentMemory,
+  modelFitsPoolCapacity,
   placeName,
   placeTitle,
   poolFreeBytes,
@@ -51,6 +53,7 @@ import {
   poolOtherBytes,
   usedByBadge,
   type ModelEntry,
+  type ModelRecommendation,
   type ModelStatus,
 } from "./local-models-rules";
 
@@ -138,12 +141,14 @@ function OpenChatLink({
 
 function RowStatusLine({
   availableSummary,
+  availableWarning,
   detail,
   slower,
   status,
   tag,
 }: {
   availableSummary: string;
+  availableWarning?: string;
   detail: string | null;
   slower: boolean;
   status: ModelStatus;
@@ -185,12 +190,27 @@ function RowStatusLine({
             {" · "}
             <span className="text-app-warning">{t(m.runsSlower)}</span>
           </>
+        ) : status === "available" && availableWarning ? (
+          <>
+            {" · "}
+            <span className="text-app-warning">{availableWarning}</span>
+          </>
         ) : detail && status !== "available" ? (
           ` · ${detail}`
         ) : null}
       </span>
     </span>
   );
+}
+
+function recommendationLabel(
+  recommendation: ModelRecommendation,
+  isMac: boolean,
+  t: Translate,
+): string {
+  if (recommendation === "recommended") return t(m.recommended);
+  if (recommendation === "fits_now") return t(m.fitsRightNow);
+  return t(isMac ? m.bestForThisMac : m.bestForThisComputer);
 }
 
 function availableDetailCopy(model: LocalModel, t: Translate): string {
@@ -208,7 +228,11 @@ function loadedMemoryCopy(model: LocalModel, t: Translate): string {
   return memory;
 }
 
-function variantDetailCopy(entry: ModelEntry, t: Translate): string {
+function variantDetailCopy(
+  entry: ModelEntry,
+  isMac: boolean,
+  t: Translate,
+): string {
   const { model, status } = entry;
   if (status === "loaded") {
     return model.memory_bytes > 0
@@ -228,7 +252,9 @@ function variantDetailCopy(entry: ModelEntry, t: Translate): string {
     );
   }
   const base = availableDetailCopy(model, t);
-  return model.recommended ? `${base} · ${t(m.recommended)}` : base;
+  return entry.recommendation
+    ? `${base} · ${recommendationLabel(entry.recommendation, isMac, t)}`
+    : base;
 }
 
 function RowMetadataPills({
@@ -422,11 +448,21 @@ export function ModelRow({
         : statusTags[status];
   const progress = downloadPercent(model);
   const availableSummary = availableDetailCopy(model, t);
-  const recommended = status === "available" && model.recommended;
+  const isMac = view.computer.host?.platform === "darwin";
+  const recommendation =
+    status === "available" ? entry.recommendation : undefined;
+  const recommended = recommendation === "recommended";
+  const highlighted =
+    recommendation === "recommended" || recommendation === "fits_now";
+  const exceedsPool =
+    status === "available" && !modelFitsPoolCapacity(view, model);
+  const availableWarning = exceedsPool
+    ? t(m.shortNeedsSize, { need: formatGigabytes(model.memory_bytes, t) })
+    : undefined;
   const featured = isInkling2MiniModelId(model.id);
   const showFeaturedPill = featured && !inSpotlight;
   const slower =
-    status === "available" && !model.recommended && model.fit === "system";
+    status === "available" && !highlighted && model.fit === "system";
   const hasVariants = Boolean(
     variants && variants.length > 1 && onSelectVariant,
   );
@@ -458,9 +494,10 @@ export function ModelRow({
   const pool = poolOf(view, model.pool);
   const lowCurrentMemory =
     status === "available" &&
+    !exceedsPool &&
     pool !== undefined &&
-    poolOtherBytes(pool) > 0 &&
-    poolFreeBytes(pool) < model.memory_bytes;
+    ((poolOtherBytes(pool) > 0 && poolFreeBytes(pool) < model.memory_bytes) ||
+      !modelFitsCurrentMemory(view, model));
   const installed =
     status === "loaded" || status === "idle" || status === "loading";
   const mutedRow = status === "unavailable";
@@ -561,6 +598,7 @@ export function ModelRow({
         rowTone(status, expanded),
       )}
       data-featured={featured || undefined}
+      data-recommendation={recommendation}
       data-recommended={recommended || undefined}
       data-status={status}
     >
@@ -609,14 +647,24 @@ export function ModelRow({
                   {t(m.installedBadge)}
                 </span>
               ) : null}
-              {recommended ? (
-                <span className="inline-flex h-5 shrink-0 items-center rounded-full bg-[var(--app-mention-surface)] px-2 text-[11px] font-medium text-app-info">
-                  {t(m.recommended)}
+              {recommendation ? (
+                <span
+                  className={cn(
+                    "inline-flex h-5 shrink-0 items-center rounded-full px-2 text-[11px] font-medium",
+                    recommendation === "recommended"
+                      ? "bg-[var(--app-mention-surface)] text-app-info"
+                      : recommendation === "fits_now"
+                        ? "bg-[var(--app-status-success-surface)] text-app-success"
+                        : "bg-muted text-secondary-foreground",
+                  )}
+                >
+                  {recommendationLabel(recommendation, isMac, t)}
                 </span>
               ) : null}
             </span>
             <RowStatusLine
               availableSummary={availableSummary}
+              availableWarning={availableWarning}
               detail={ending ? null : detail}
               slower={slower}
               status={status}
@@ -675,7 +723,7 @@ export function ModelRow({
                     value={variant.model.id}
                   >
                     {t(m.variantOptionDetail, {
-                      detail: variantDetailCopy(variant, t),
+                      detail: variantDetailCopy(variant, isMac, t),
                       label: optionLabel,
                     })}
                   </SelectItem>
@@ -756,7 +804,7 @@ export function ModelRow({
                   ? "ghost"
                   : damagedFiles
                     ? "danger"
-                    : recommended
+                    : highlighted
                       ? "primary"
                       : "subtle"
               }

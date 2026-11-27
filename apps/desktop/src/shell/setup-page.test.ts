@@ -310,9 +310,14 @@ describe("setup page Quick Install recommendation", () => {
     expect($("local-row").hidden).toBe(false);
     expect($("subscription-row").hidden).toBe(true);
     expect($("byok-row").hidden).toBe(true);
-    expect($("local-model-name").textContent).toBe("qwen3-8b");
+    // Tight memory holds local models without promising a speculative capacity
+    // model name that can contradict the live free-memory pick.
+    expect($("local-model-name").textContent).toBe("Local model on hold");
     expect($("local-sub").textContent).toBe(
       "On hold: close other programs, then Check again.",
+    );
+    expect($("local-model-needs").textContent).toBe(
+      "Not enough free memory. Close other apps.",
     );
     expect(($("local-model") as HTMLButtonElement).disabled).toBe(true);
     expect($("local-model").getAttribute("aria-checked")).toBe("false");
@@ -389,6 +394,87 @@ describe("setup page Quick Install recommendation", () => {
     customizeLocal();
     expect($("local-sub").textContent).toBe(
       "On hold: 2.7 GB of memory free, needs 12.7 GB",
+    );
+  });
+
+  it("never names a contradictory 27B model while a 24 GB Mac is on hold, and labels a fits-right-now 4B pick clearly", async () => {
+    const macTight: SetupLocalModelsCheck = {
+      state: "checked",
+      eligible: false,
+      blockedNow: true,
+      memoryBytes: 24 * GB,
+      diskFreeBytes: 200 * GB,
+      freeMemory: {
+        ramAvailableBytes: Math.round(3.2 * GB),
+        ramRequiredBytes: Math.round(20.8 * GB),
+      },
+      model: {
+        name: "qwen3.8-27b-iq3s",
+        downloadBytes: Math.round(12.1 * GB),
+        diskBytes: Math.round(13 * GB),
+        memoryBytes: Math.round(20.8 * GB),
+      },
+      reasons: [
+        reason({
+          code: "free-memory-required",
+          freeBytes: Math.round(3.2 * GB),
+          requiredBytes: Math.round(20.8 * GB),
+        }),
+      ],
+      recommendation: "codex",
+    };
+    const { push, run } = await openPage(welcome(macTight), "welcome");
+    $("local-customize").click();
+    document
+      .querySelector<HTMLButtonElement>(
+        '[data-plan="source"] [data-value="local"]',
+      )!
+      .click();
+    expect($("local-model-name").textContent).toBe("Local model on hold");
+    expect(document.body.textContent).not.toContain("qwen3.8-27b-iq3s");
+    expect($("local-sub").textContent).toBe(
+      "On hold: 3.2 GB of memory free, needs 20.8 GB",
+    );
+
+    // After freeing memory, spark-x2.6-4b fits right now while a larger model
+    // would need additional memory.
+    const macFitsNow: SetupLocalModelsCheck = {
+      state: "checked",
+      eligible: true,
+      memoryBytes: 24 * GB,
+      diskFreeBytes: 200 * GB,
+      model: {
+        name: "spark-x2.6-4b",
+        downloadBytes: Math.round(2.6 * GB),
+        diskBytes: Math.round(3.1 * GB),
+        memoryBytes: Math.round(4.9 * GB),
+      },
+      reasons: [
+        reason({
+          code: "free-memory-required",
+          freeBytes: 12 * GB,
+          requiredBytes: Math.round(14.9 * GB),
+        }),
+      ],
+      recommendation: "local-models",
+    };
+    $("local-customize").click();
+    push(welcome(macFitsNow));
+    expect($("plan-summary").textContent).toBe(
+      "Recommended for this computer: Local model + Pi",
+    );
+    expect($("plan-why").textContent).toBe(
+      "spark-x2.6-4b · fits right now · 24 GB memory · 3 GB download · Free memory for a larger model (12.0 GB free, 14.9 GB needed)",
+    );
+    expect($("local-recheck").hidden).toBe(false);
+    $("local-customize").click();
+    expect($("local-model-name").textContent).toBe("spark-x2.6-4b");
+    expect($("local-sub").textContent).toBe(
+      "Fits right now · Runs on Pi via Bifrost",
+    );
+    $("local-recheck").click();
+    await vi.waitFor(() =>
+      expect(run).toHaveBeenCalledWith({ op: "local.recheck" }),
     );
   });
 
@@ -1729,7 +1815,7 @@ describe("setup page Inkling 2 Mini featured spotlight", () => {
     }
   });
 
-  it("badges a held Inkling 2 Mini card in Customize without showing the welcome spotlight", async () => {
+  it("suppresses a speculative held Inkling 2 Mini model and featured badge in Customize", async () => {
     await openPage(
       welcome({
         ...held,
@@ -1752,10 +1838,10 @@ describe("setup page Inkling 2 Mini featured spotlight", () => {
         '[data-plan="source"] [data-value="local"]',
       )!
       .click();
-    expect($("local-model-name").textContent).toBe("inkling-2-mini:UD-Q4_K_M");
-    expect($("local-model-featured").hidden).toBe(false);
-    expect($("local-spotlight").dataset.recommended).toBe("true");
-    expect($("local-spotlight-link").textContent).toBe("Learn more ↗");
+    expect($("local-model-name").textContent).toBe("Local model on hold");
+    expect($("local-model-featured").hidden).toBe(true);
+    expect($("local-spotlight").dataset.recommended).toBe("false");
+    expect($("local-spotlight-link").textContent).toBe("Thinking Machines ↗");
   });
 
   it("hides the featured spotlight when local installation is unavailable", async () => {

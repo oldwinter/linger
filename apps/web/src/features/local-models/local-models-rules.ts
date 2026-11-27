@@ -34,8 +34,22 @@ export const modelStatuses = [
 
 export type ModelStatus = (typeof modelStatuses)[number];
 
+/**
+ * Memory-aware recommendation tier for an available model:
+ * - `recommended`: matches this computer's hardware AND fits available memory now.
+ * - `fits_now`: best available model that fits available memory right now when
+ *   the hardware-best model needs more free memory first.
+ * - `best_for_hardware`: fits this computer's hardware capacity, but needs more
+ *   free memory before it can load.
+ */
+export type ModelRecommendation =
+  | "recommended"
+  | "fits_now"
+  | "best_for_hardware";
+
 export interface ModelEntry extends LocalModelView {
   status: ModelStatus;
+  recommendation?: ModelRecommendation;
 }
 
 export function modelStatus(model: LocalModel): ModelStatus {
@@ -185,6 +199,8 @@ export function featuredInklingEntry(
     }
     return (
       fitOrder[a.model.fit] - fitOrder[b.model.fit] ||
+      recommendationRank(b.recommendation) -
+        recommendationRank(a.recommendation) ||
       Number(b.model.recommended) - Number(a.model.recommended) ||
       preferredInklingRank(b.model) - preferredInklingRank(a.model)
     );
@@ -352,14 +368,159 @@ export function buildModelGroups(
   };
 }
 
-/** The library as one list: by status, then recommended, then featured, then by fit. */
+function recommendationRank(
+  recommendation: ModelRecommendation | undefined,
+): number {
+  switch (recommendation) {
+    case "recommended":
+      return 3;
+    case "fits_now":
+      return 2;
+    case "best_for_hardware":
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+function poolLoadedModelBytes(pool: LocalModelPool): number {
+  return pool.holders.reduce(
+    (sum, holder) => (holder.kind === "model" ? sum + holder.bytes : sum),
+    0,
+  );
+}
+
+/** Whether a model's memory footprint fits within its assigned pool's total capacity. */
+export function modelFitsPoolCapacity(
+  view: LocalModelsView,
+  model: LocalModel,
+): boolean {
+  if (model.pool === undefined) return view.pools.length === 0;
+  const pool = poolOf(view, model.pool);
+  if (!pool) return true;
+  if (model.memory_bytes > pool.total_bytes) return false;
+  if (model.host_ram_bytes && model.host_ram_bytes > 0) {
+    const systemPool = view.pools.find((item) => item.kind === "system");
+    if (systemPool && model.host_ram_bytes > systemPool.total_bytes) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Whether a model can load in its pool without closing external apps (counting
+ * free memory plus memory held by Linger's own loaded models that Make room
+ * can unload).
+ */
+export function modelFitsCurrentMemory(
+  view: LocalModelsView,
+  model: LocalModel,
+): boolean {
+  if (!modelFitsPoolCapacity(view, model)) return false;
+  if (model.pool === undefined) return view.pools.length === 0;
+  const pool = poolOf(view, model.pool);
+  if (!pool) return true;
+  const roomNow = Math.min(
+    pool.total_bytes,
+    poolFreeBytes(pool) + poolLoadedModelBytes(pool),
+  );
+  if (model.memory_bytes > roomNow) return false;
+  if (model.host_ram_bytes && model.host_ram_bytes > 0) {
+    const systemPool = view.pools.find((item) => item.kind === "system");
+    if (systemPool) {
+      const systemRoomNow = Math.min(
+        systemPool.total_bytes,
+        poolFreeBytes(systemPool) + poolLoadedModelBytes(systemPool),
+      );
+      if (model.host_ram_bytes > systemRoomNow) return false;
+    }
+  }
+  return true;
+}
+
+function pickStrongestFitting(
+  candidates: readonly { entry: ModelEntry; index: number }[],
+): ModelEntry | undefined {
+  return [...candidates].sort(
+    (a, b) =>
+      fitOrder[a.entry.model.fit] - fitOrder[b.entry.model.fit] ||
+      Number(isInkling2MiniModelId(b.entry.model.id)) -
+        Number(isInkling2MiniModelId(a.entry.model.id)) ||
+      b.entry.model.memory_bytes - a.entry.model.memory_bytes ||
+      a.index - b.index,
+  )[0]?.entry;
+}
+
+function assignRecommendations(
+  view: LocalModelsView,
+  entries: readonly ModelEntry[],
+): Map<string, ModelRecommendation> {
+  const result = new Map<string, ModelRecommendation>();
+  const available: { entry: ModelEntry; index: number }[] = [];
+  for (const [index, entry] of entries.entries()) {
+    if (entry.status === "available") available.push({ entry, index });
+  }
+  const upstreamRecommended = available.find(
+    ({ entry }) => entry.model.recommended,
+  )?.entry;
+  if (!upstreamRecommended) return result;
+
+  if (modelFitsCurrentMemory(view, upstreamRecommended.model)) {
+    result.set(upstreamRecommended.model.id, "recommended");
+    return result;
+  }
+
+  const capacityCandidates = available.filter(({ entry }) =>
+    modelFitsPoolCapacity(view, entry.model),
+  );
+  const hardwareBest = modelFitsPoolCapacity(view, upstreamRecommended.model)
+    ? upstreamRecommended
+    : pickStrongestFitting(capacityCandidates);
+  const fitsNowBest = pickStrongestFitting(
+    capacityCandidates.filter(({ entry }) =>
+      modelFitsCurrentMemory(view, entry.model),
+    ),
+  );
+
+  if (hardwareBest && fitsNowBest) {
+    if (hardwareBest.model.id === fitsNowBest.model.id) {
+      result.set(hardwareBest.model.id, "recommended");
+    } else {
+      result.set(hardwareBest.model.id, "best_for_hardware");
+      result.set(fitsNowBest.model.id, "fits_now");
+    }
+    return result;
+  }
+  if (hardwareBest) {
+    result.set(hardwareBest.model.id, "best_for_hardware");
+  } else if (fitsNowBest) {
+    result.set(fitsNowBest.model.id, "fits_now");
+  }
+  return result;
+}
+
+/** The library as one list: by status, then memory-aware recommendation, then featured, then by fit. */
 export function modelEntries(view: LocalModelsView): ModelEntry[] {
-  return view.models
-    .map((item) => ({ ...item, status: modelStatus(item.model) }))
+  const baseEntries: ModelEntry[] = view.models.map((item) => ({
+    ...item,
+    status: modelStatus(item.model),
+  }));
+  const recommendations = assignRecommendations(view, baseEntries);
+  return baseEntries
+    .map((entry) => {
+      const recommendation = recommendations.get(entry.model.id);
+      return recommendation ? { ...entry, recommendation } : entry;
+    })
     .sort(
       (a, b) =>
         modelStatuses.indexOf(a.status) - modelStatuses.indexOf(b.status) ||
-        Number(b.model.recommended) - Number(a.model.recommended) ||
+        recommendationRank(b.recommendation) -
+          recommendationRank(a.recommendation) ||
+        (a.status === "available" && b.status === "available"
+          ? Number(modelFitsPoolCapacity(view, b.model)) -
+            Number(modelFitsPoolCapacity(view, a.model))
+          : 0) ||
         Number(isInkling2MiniModelId(b.model.id)) -
           Number(isInkling2MiniModelId(a.model.id)) ||
         fitOrder[a.model.fit] - fitOrder[b.model.fit],
@@ -732,6 +893,7 @@ export function memoryGuidance(view: LocalModelsView): MemoryGuidance | null {
       return (
         pool !== undefined &&
         poolOtherBytes(pool) > 0 &&
+        entry.model.memory_bytes <= pool.total_bytes &&
         entry.model.memory_bytes > poolFreeBytes(pool)
       );
     });

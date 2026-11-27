@@ -257,6 +257,7 @@ if (args.includes("--prefetch-bifrost")) {
   const portBlocked = fs.existsSync(path.join(target, "port-in-use"));
   const oldDriver = !portBlocked && fs.existsSync(path.join(target, "old-driver"));
   const lowMemory = eligible && !portBlocked && !oldDriver && fs.existsSync(path.join(target, "low-memory"));
+  const upgradeReady = eligible && !portBlocked && !oldDriver && !lowMemory && fs.existsSync(path.join(target, "upgrade-ready"));
   const reasons = portBlocked
     ? [{ code: "gateway-port-in-use", message: "Gateway port 8080 is held by another process." }]
     : oldDriver
@@ -287,8 +288,34 @@ if (args.includes("--prefetch-bifrost")) {
     eligible: eligible && !lowMemory && !oldDriver && !portBlocked,
     state: portBlocked || oldDriver || lowMemory ? "blocked-now" : eligible ? "ready" : "unavailable",
     ...(lowMemory ? { basis: "capacity", memory: { ramAvailableBytes: 2899102924, ramRequiredBytes: 13689304433 } } : {}),
+    ...(upgradeReady
+      ? {
+          upgrade: {
+            modelName: "Inkling 2 Mini (IQ3_XXS)",
+            selectedGpuIndex: null,
+            estimate: {
+              model: "inkling-2-mini-iq3xxs",
+              downloadBytes: 11800000000,
+              diskBytes: 12500000000,
+              memoryBytes: 14900000000,
+            },
+            reasons: [
+              {
+                code: "free-memory-required",
+                message: "Close other apps to free RAM for Inkling 2 Mini (IQ3_XXS).",
+                freeBytes: 12884901888,
+                requiredBytes: 15998753178,
+              },
+            ],
+          },
+        }
+      : {}),
   };
-  const finalEstimate = oldDriver || portBlocked ? { model: "", downloadBytes: null, diskBytes: null, memoryBytes: null } : estimate;
+  const finalEstimate = oldDriver || portBlocked
+    ? { model: "", downloadBytes: null, diskBytes: null, memoryBytes: null }
+    : upgradeReady
+      ? { model: "spark-x2.6-4b", downloadBytes: 2791728742, diskBytes: 3328599654, memoryBytes: 5261334938 }
+      : estimate;
   process.stdout.write(JSON.stringify({ hardware, localModels: { ...local, reasons, estimate: finalEstimate }, recommendation }) + "\n");
   process.exit(0);
 } else {
@@ -2779,7 +2806,6 @@ describe("LocalServerModule", () => {
           ramAvailableBytes: 2899102924,
           ramRequiredBytes: 13689304433,
         },
-        model: { name: "qwen3-8b" },
         reasons: [
           {
             code: "free-memory-required",
@@ -2790,6 +2816,9 @@ describe("LocalServerModule", () => {
         recommendation: "codex",
       }),
     );
+    // Capacity-only models from blocked-now checks must not be exposed as the
+    // held install pick, because freeing memory re-plans against live RAM.
+    expect(f.module.status().localModels).not.toHaveProperty("model");
     expect(info).toHaveBeenCalledWith(
       "local_server.inspected",
       expect.objectContaining({ eligible: false, blocked_now: true }),
@@ -2802,12 +2831,41 @@ describe("LocalServerModule", () => {
       expect(f.module.status().localModels).toMatchObject({
         state: "checked",
         eligible: true,
+        model: { name: "qwen3-8b" },
         recommendation: "local-models",
       }),
     );
     expect(f.module.status().localModels).not.toHaveProperty("blockedNow");
     expect(f.module.status().localModels).not.toHaveProperty("freeMemory");
     info.mockRestore();
+  });
+
+  it("forwards sanitized memory upgrade reasons when a smaller local model fits right now", async () => {
+    const f = fixture({ checkout: "/src" }, {}, (home) => {
+      mkdirSync(home, { recursive: true });
+      writeFileSync(path.join(home, "upgrade-ready"), "");
+    });
+    await f.host.start();
+    f.module.inspect();
+    await waitForInstaller(() =>
+      expect(f.module.status().localModels).toMatchObject({
+        state: "checked",
+        eligible: true,
+        model: { name: "spark-x2.6-4b" },
+        reasons: [
+          {
+            code: "free-memory-required",
+            freeBytes: 12884901888,
+            requiredBytes: 15998753178,
+          },
+        ],
+        recommendation: "local-models",
+      }),
+    );
+    expect(JSON.stringify(f.module.status().localModels)).not.toContain(
+      "Close other apps to free RAM",
+    );
+    await f.host.stop("quit");
   });
 
   it("marks localModels blockedNow even when plan is null (such as gateway-port-in-use)", async () => {
