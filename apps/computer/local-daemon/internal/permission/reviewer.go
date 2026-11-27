@@ -65,9 +65,11 @@ func (r *Reviewer) Review(ctx context.Context, request Request) Verdict {
 	}
 	switch request.Action.Tool {
 	case "Bash":
-		delegations, unread := HerdrDelegations(request.Action.Command)
+		herdrDelegations, herdrUnread := HerdrDelegations(request.Action.Command)
+		hcDelegations, hcUnread := HerdrCoreDelegations(request.Action.Command)
+		delegations := slices.Concat(herdrDelegations, hcDelegations)
 		// Quoting can hide a program name from the raw command, but the pane
-		// receives the delegated text whole.
+		// or remote machine receives the delegated text whole.
 		if SystemPrivacyUI(request.Action.Command) || slices.ContainsFunc(delegations, func(delegation Delegation) bool {
 			return SystemPrivacyUI(delegation.Text)
 		}) {
@@ -85,7 +87,7 @@ func (r *Reviewer) Review(ctx context.Context, request Request) Verdict {
 		case ShellRunAlone:
 			return Verdict{Decision: Deny, Message: RunAloneMessage(confirm)}
 		}
-		request.Evidence = withDelegations(request.Evidence, delegations, unread)
+		request.Evidence = withDelegations(request.Evidence, delegations, herdrUnread, hcUnread)
 	case "PowerShell":
 		switch decision, confirm := ShellPowerShell(request.Action.Command, r.TeamHubCommands); decision {
 		case ShellAllow:
@@ -154,10 +156,10 @@ func (r *Reviewer) Review(ctx context.Context, request Request) Verdict {
 	return unavailable()
 }
 
-// withDelegations adds what a herdr command hands to its panes to the
-// adapter's evidence, without changing the adapter's copy.
-func withDelegations(evidence *Evidence, delegations []Delegation, unread bool) *Evidence {
-	if len(delegations) == 0 && !unread {
+// withDelegations adds what a herdr or herdr-core (hc) command hands to panes
+// or remote machines to the adapter's evidence, without changing the adapter's copy.
+func withDelegations(evidence *Evidence, delegations []Delegation, herdrUnread, hcUnread bool) *Evidence {
+	if len(delegations) == 0 && !herdrUnread && !hcUnread {
 		return evidence
 	}
 	var combined Evidence
@@ -166,8 +168,11 @@ func withDelegations(evidence *Evidence, delegations []Delegation, unread bool) 
 		combined.Missing = slices.Clone(evidence.Missing)
 	}
 	combined.Delegations = delegations
-	if unread {
+	if herdrUnread {
 		combined.Missing = append(combined.Missing, HerdrUnreadMissing)
+	}
+	if hcUnread {
+		combined.Missing = append(combined.Missing, HerdrCoreUnreadMissing)
 	}
 	return &combined
 }

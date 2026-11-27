@@ -44,6 +44,7 @@ export interface AttachRunnerGatewayWebSocketOptions {
   readonly gateway: RunnerGateway;
   readonly credentialAuthenticators: readonly RunnerCredentialAuthenticator[];
   readonly path?: string;
+  readonly ignoredPaths?: readonly string[];
   readonly rejectUnmatchedUpgrades?: boolean;
   readonly helloTimeoutMs?: number;
   /** How long a protocol close waits for the peer before terminating. */
@@ -124,7 +125,10 @@ export const attachRunnerGatewayWebSocket = (
       return;
     }
     if (requestPath !== path) {
-      if (options.rejectUnmatchedUpgrades) {
+      if (
+        options.rejectUnmatchedUpgrades &&
+        !options.ignoredPaths?.includes(requestPath)
+      ) {
         rejectUpgrade(socket, 404, "Not Found");
       }
       return;

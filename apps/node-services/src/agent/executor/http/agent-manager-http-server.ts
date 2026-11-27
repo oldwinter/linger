@@ -12,11 +12,23 @@ import {
 import { AgentLifecycleCoordinator } from "../lifecycle-coordinator.js";
 import { hasBearerToken } from "../../../service-bearer-auth.js";
 import {
+  LocalComputerNotFoundError,
+  LocalComputerOfflineError,
   parseLocalPlacement,
   type LocalAgentRunnerManagement,
   type LocalComputerManagement,
   type LocalPlacementRequirement,
 } from "../../runner-gateway/local-computer-management.js";
+import {
+  HerdrCoreInvalidRequestError,
+  HerdrCoreUnsupportedError,
+  isHerdrCoreToolName,
+} from "../../runner-gateway/runner-herdr-core.js";
+import {
+  attachHerdrCoreStreamRelay,
+  HERDR_CORE_CLIENT_ATTACH_PATH,
+  HERDR_CORE_DAEMON_STREAM_PATH,
+} from "../../runner-gateway/runner-herdr-core-stream.js";
 import type { RunnerCredentialAuthenticator } from "../../runner-gateway/runner-credential-authority.js";
 import type { RunnerGateway } from "../../runner-gateway/runner-gateway.js";
 import type { ContextViewContent } from "../../runner-gateway/context-view-content.js";
@@ -196,6 +208,7 @@ export const createAgentManagerHttpServer = <TRuntimeSettings>(
   let ownedHost: HttpHost | undefined;
   let unmountRoutes: (() => void) | undefined;
   let runnerGatewayWebSocket: { close(): Promise<void> } | undefined;
+  let herdrCoreStreamRelay: { close(): Promise<void> } | undefined;
   let lifecycle: ServerLifecycle = "idle";
   let starting: Promise<AgentManagerHttpServerAddress> | undefined;
   let closing: Promise<void> | undefined;
@@ -209,6 +222,8 @@ export const createAgentManagerHttpServer = <TRuntimeSettings>(
   const closeOwnedNetwork = async (): Promise<void> => {
     unmountRoutes?.();
     unmountRoutes = undefined;
+    await herdrCoreStreamRelay?.close();
+    herdrCoreStreamRelay = undefined;
     await runnerGatewayWebSocket?.close();
     runnerGatewayWebSocket = undefined;
     await ownedHost?.close();
@@ -227,12 +242,17 @@ export const createAgentManagerHttpServer = <TRuntimeSettings>(
       readiness,
     });
     if (options.runnerGateway) {
+      const credentialAuthenticators = options.runnerCredentialAuthority
+        ? [options.runnerCredentialAuthority]
+        : [];
       runnerGatewayWebSocket = attachRunnerGatewayWebSocket({
         server: httpHost.server,
         gateway: options.runnerGateway,
-        credentialAuthenticators: options.runnerCredentialAuthority
-          ? [options.runnerCredentialAuthority]
-          : [],
+        credentialAuthenticators,
+        ignoredPaths: [
+          HERDR_CORE_DAEMON_STREAM_PATH,
+          HERDR_CORE_CLIENT_ATTACH_PATH,
+        ],
         rejectUnmatchedUpgrades: true,
         onSessionError: (error, context) => {
           logAgentEvent("error", "runner.session.failed", {
@@ -240,6 +260,12 @@ export const createAgentManagerHttpServer = <TRuntimeSettings>(
             error,
           });
         },
+      });
+      herdrCoreStreamRelay = attachHerdrCoreStreamRelay({
+        server: httpHost.server,
+        gateway: options.runnerGateway,
+        credentialAuthenticators,
+        attachTokenSigningKey: serviceToken,
       });
     }
     return hostAddress(httpHost);
@@ -354,7 +380,7 @@ const createAgentManagerHttpApp = <TRuntimeSettings>(
   admission?: { isDraining(): boolean; enter(): () => void },
   proactiveEvents?: ProactiveEventJudgePort,
   modelCall?: ModelCall,
-  computerTools?: Pick<RunnerGateway, "callComputerTool">,
+  computerTools?: Pick<RunnerGateway, "callComputerTool" | "callHerdrCore">,
 ): Hono => {
   const app = new Hono();
   app.use("/v1/*", async (context, next) => {
@@ -427,9 +453,13 @@ const createAgentManagerHttpApp = <TRuntimeSettings>(
       if (
         !isRecord(body) ||
         !isRecord(body.arguments) ||
-        !["browser", "playground", "herdr", "feishu_mail"].includes(
-          String(body.server),
-        ) ||
+        ![
+          "browser",
+          "playground",
+          "herdr",
+          "herdr_core",
+          "feishu_mail",
+        ].includes(String(body.server)) ||
         (body.deadline_ms !== undefined &&
           (!Number.isInteger(body.deadline_ms) ||
             Number(body.deadline_ms) < 1_000 ||
@@ -464,19 +494,123 @@ const createAgentManagerHttpApp = <TRuntimeSettings>(
         );
       const request =
         body as unknown as AgentManagementSchemas["schemas"]["LocalComputerToolCall"];
-      const result = await computerTools.callComputerTool({
-        tenantId: request.tenant_id,
-        ownerActorId: request.owner_actor_id,
-        computerId: request.computer_id,
-        agentId: request.agent_id,
-        toolSessionId: request.tool_session_id,
-        server: request.server,
-        toolName: request.tool_name,
-        arguments: request.arguments,
-        ...(request.deadline_ms ? { deadlineMs: request.deadline_ms } : {}),
-        signal: context.req.raw.signal,
-      });
-      return context.json({ result });
+      try {
+        const result = await computerTools.callComputerTool({
+          tenantId: request.tenant_id,
+          ownerActorId: request.owner_actor_id,
+          computerId: request.computer_id,
+          agentId: request.agent_id,
+          toolSessionId: request.tool_session_id,
+          server: request.server,
+          toolName: request.tool_name,
+          arguments: request.arguments,
+          ...(request.deadline_ms ? { deadlineMs: request.deadline_ms } : {}),
+          signal: context.req.raw.signal,
+        });
+        return context.json({ result });
+      } catch (error) {
+        if (error instanceof HerdrCoreUnsupportedError) {
+          return writeProtocolError(
+            context,
+            409,
+            "HERDR_CORE_UNSUPPORTED",
+            error.message,
+          );
+        }
+        if (error instanceof LocalComputerNotFoundError) {
+          return writeProtocolError(
+            context,
+            404,
+            "LOCAL_COMPUTER_NOT_FOUND",
+            error.message,
+          );
+        }
+        if (error instanceof LocalComputerOfflineError) {
+          return writeProtocolError(
+            context,
+            409,
+            "LOCAL_COMPUTER_OFFLINE",
+            error.message,
+          );
+        }
+        throw error;
+      }
+    },
+    callLocalComputerHerdrCore: async (context: Context) => {
+      if (!computerTools) {
+        return writeProtocolError(
+          context,
+          503,
+          "COMPUTER_UNAVAILABLE",
+          "Runner Gateway is unavailable",
+        );
+      }
+      // Allow base64 payloads for terminal/put up to 16 MiB.
+      const body = await readJsonBody(context, MODEL_CALL_MAX_BODY_BYTES);
+      if (
+        !isRecord(body) ||
+        !isHerdrCoreToolName(body.tool_name) ||
+        !isRecord(body.arguments) ||
+        (body.deadline_ms !== undefined &&
+          (!Number.isInteger(body.deadline_ms) ||
+            Number(body.deadline_ms) < 1_000 ||
+            Number(body.deadline_ms) > 120_000))
+      ) {
+        return writeProtocolError(
+          context,
+          400,
+          "INVALID_REQUEST",
+          "tool_name and arguments are required",
+        );
+      }
+      try {
+        const result = await computerTools.callHerdrCore({
+          tenantId: pathId(context, "tenantId"),
+          ownerActorId: pathId(context, "ownerActorId"),
+          computerId: pathId(context, "computerId"),
+          toolName: body.tool_name,
+          arguments: body.arguments,
+          ...(typeof body.deadline_ms === "number"
+            ? { deadlineMs: body.deadline_ms }
+            : {}),
+          signal: context.req.raw.signal,
+        });
+        return writeJson(context, 200, { result });
+      } catch (error) {
+        if (error instanceof HerdrCoreInvalidRequestError) {
+          return writeProtocolError(
+            context,
+            400,
+            "INVALID_REQUEST",
+            error.message,
+          );
+        }
+        if (error instanceof LocalComputerNotFoundError) {
+          return writeProtocolError(
+            context,
+            404,
+            "LOCAL_COMPUTER_NOT_FOUND",
+            error.message,
+          );
+        }
+        if (error instanceof LocalComputerOfflineError) {
+          return writeProtocolError(
+            context,
+            409,
+            "LOCAL_COMPUTER_OFFLINE",
+            error.message,
+          );
+        }
+        if (error instanceof HerdrCoreUnsupportedError) {
+          return writeProtocolError(
+            context,
+            409,
+            "HERDR_CORE_UNSUPPORTED",
+            error.message,
+          );
+        }
+        throw error;
+      }
     },
     readAgentDebugContextHistory: async (context: Context) => {
       const inspection = requireAgentDebugInspectionApi(debugApi);
@@ -653,6 +787,10 @@ const createAgentManagerHttpApp = <TRuntimeSettings>(
   };
   AgentManagementRoutes.registerAgentManagementRoutes(app, handlers);
   app.post("/v1/local-computer-tools:call", handlers.callLocalComputerTool);
+  const herdrCorePath =
+    "/v1/tenants/:tenantId/owners/:ownerActorId/local-computers/:computerId/herdr-core:call";
+  app.post(herdrCorePath, handlers.callLocalComputerHerdrCore);
+  app.all(herdrCorePath, (context) => methodNotAllowed(context, "POST"));
   registerLocalComputerCompatibilityRoutes(app, handlers);
   registerLocalComputerPermissionRoutes(app, handlers);
   registerLocalComputerModelRoutes(app, handlers);

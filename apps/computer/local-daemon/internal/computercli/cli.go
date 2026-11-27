@@ -49,7 +49,9 @@ type deps struct {
 	productRuntime   func() doctorCheck
 	// inspectHerdr reports herdr when it is installed; ok is false without it.
 	inspectHerdr func(ctx context.Context) (check doctorCheck, ok bool)
-	readLogs     func(ctx context.Context, request logRequest, output io.Writer) error
+	// inspectHerdrCore reports herdr-core (hc) when it is installed; ok is false without it.
+	inspectHerdrCore func(ctx context.Context) (check doctorCheck, ok bool)
+	readLogs         func(ctx context.Context, request logRequest, output io.Writer) error
 	// runInteractive runs a Runtime on the CLI's terminal for sign-in.
 	runInteractive        func(cmd *exec.Cmd) (int, error)
 	setup                 func(ctx context.Context, options setupOptions) (setupResult, error)
@@ -149,6 +151,11 @@ func (c *cli) execute(ctx context.Context, parsed command) (int, error) {
 		report.Checks = append(report.Checks, inspectBrowserMode(c.deps.homeDirectory, c.deps.environment, c.deps.goos))
 		if check, ok := c.deps.inspectHerdr(ctx); ok {
 			report.Checks = append(report.Checks, check)
+		}
+		if c.deps.inspectHerdrCore != nil {
+			if check, ok := c.deps.inspectHerdrCore(ctx); ok {
+				report.Checks = append(report.Checks, check)
+			}
 		}
 		report.OK = allPass(report.Checks)
 		if parsed.json {

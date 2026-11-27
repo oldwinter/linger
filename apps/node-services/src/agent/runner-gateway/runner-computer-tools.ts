@@ -10,9 +10,12 @@ import type {
 } from "./runner-gateway-context.js";
 import { isServingConnection } from "./runner-connections.js";
 import {
+  FIRST_SERVICE_FEATURES_COMPUTER_VERSION,
+  isComputerVersionAtLeast,
   LocalComputerNotFoundError,
   LocalComputerOfflineError,
 } from "./local-computer-management.js";
+import { HerdrCoreUnsupportedError } from "./runner-herdr-core.js";
 
 export interface ComputerToolRequest {
   tenantId: string;
@@ -20,9 +23,11 @@ export interface ComputerToolRequest {
   computerId: string;
   agentId: string;
   toolSessionId: string;
-  server: "browser" | "playground" | "herdr" | "feishu_mail";
+  server: "browser" | "playground" | "herdr" | "herdr_core" | "feishu_mail";
   toolName: string;
   arguments: Record<string, unknown>;
+  /** Owner-scoped herdr_core calls check Computer ownership without requiring an Agent placement. */
+  ownerScoped?: boolean;
   /** How long the Computer may take; defaults to one minute. */
   deadlineMs?: number;
   signal: AbortSignal;
@@ -61,6 +66,15 @@ export class RunnerComputerTools {
     if (connection.tenantOwners.get(request.tenantId) !== request.ownerActorId)
       throw new LocalComputerNotFoundError();
     if (
+      request.server === "herdr_core" &&
+      !isComputerVersionAtLeast(
+        connection.hello.daemon_version,
+        FIRST_SERVICE_FEATURES_COMPUTER_VERSION,
+      )
+    )
+      throw new HerdrCoreUnsupportedError();
+    if (
+      !(request.server === "herdr_core" && request.ownerScoped === true) &&
       !this.owners
         .lifecycle()
         .places(request.computerId, request.tenantId, request.agentId)

@@ -1,6 +1,12 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync } from "node:fs";
-import { readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import {
+  readFile,
+  readlink,
+  realpath,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { createHash, randomBytes } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -34,6 +40,14 @@ const services = new Set([
   "node-services",
   "web",
 ]);
+export interface NativeSupervisorIdentity {
+  /** Canonical path of the supervisor worker script. */
+  script: string;
+  /** Canonical path of the Node executable running the supervisor. */
+  executable: string;
+  /** SHA-256 hex digest of the supervisor worker script contents. */
+  digest: string;
+}
 interface Lease {
   schemaVersion: 1;
   name: NativeService;
@@ -41,6 +55,7 @@ interface Lease {
   birth: string;
   lease: string;
   configuration: string;
+  supervisor?: NativeSupervisorIdentity;
 }
 export interface NativeProcessState {
   running: boolean;
@@ -87,6 +102,20 @@ function stopRequest(root: string, name: NativeService, lease: string) {
 async function requestStop(file: string) {
   await writeFile(file, "", { flag: "a", mode: 0o600 });
 }
+function validSupervisorIdentity(
+  value: unknown,
+): value is NativeSupervisorIdentity {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.script === "string" &&
+    candidate.script.length > 0 &&
+    typeof candidate.executable === "string" &&
+    candidate.executable.length > 0 &&
+    typeof candidate.digest === "string" &&
+    /^[a-f0-9]{64}$/.test(candidate.digest)
+  );
+}
 async function stored(
   root: string,
   name: NativeService,
@@ -102,7 +131,9 @@ async function stored(
     typeof record.birth !== "string" ||
     !record.birth ||
     !/^[a-f0-9]{64}$/.test(record.lease) ||
-    !/^[a-f0-9]{64}$/.test(record.configuration)
+    !/^[a-f0-9]{64}$/.test(record.configuration) ||
+    (record.supervisor !== undefined &&
+      !validSupervisorIdentity(record.supervisor))
   )
     throw new Error("Invalid native process identity record");
   if (process.platform === "darwin" && !darwinBirthInCLocale(record.birth))
@@ -284,13 +315,103 @@ function configurationHash(options: NativeConfiguration): string {
     )
     .digest("hex");
 }
-/** True only when a recorded, running process would restart for this configuration. */
+const workerUrl = new URL("./native-process-worker.mjs", import.meta.url);
+
+async function canonicalPath(file: string): Promise<string> {
+  return realpath(file).catch(() => path.resolve(file));
+}
+
+function samePath(left: string, right: string): boolean {
+  return process.platform === "win32"
+    ? comparable(left) === comparable(right)
+    : left === right;
+}
+
+async function currentSupervisorIdentity(): Promise<
+  NativeSupervisorIdentity | undefined
+> {
+  const workerPath = fileURLToPath(workerUrl);
+  let contents: Buffer;
+  try {
+    contents = await readFile(workerPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+  const [script, executable] = await Promise.all([
+    canonicalPath(workerPath),
+    canonicalPath(process.execPath),
+  ]);
+  return {
+    script,
+    executable,
+    digest: createHash("sha256").update(contents).digest("hex"),
+  };
+}
+
+async function liveLinuxExeDeleted(pid: number): Promise<boolean> {
+  if (process.platform !== "linux") return false;
+  const target = await readlink(`/proc/${pid}/exe`).catch(() => "");
+  return target.endsWith(" (deleted)");
+}
+
+async function supervisorMatches(
+  record: Lease,
+  current: NativeSupervisorIdentity,
+): Promise<boolean> {
+  if (!record.supervisor) return false;
+  if (
+    !samePath(record.supervisor.script, current.script) ||
+    !samePath(record.supervisor.executable, current.executable) ||
+    record.supervisor.digest !== current.digest
+  )
+    return false;
+  return !(await liveLinuxExeDeleted(record.pid));
+}
+
+/**
+ * True when any recorded, running native service in `root` is supervised by
+ * a different supervisor script, Node runtime, or worker digest than this
+ * installation's. Records whose metadata already matches skip OS process
+ * enumeration so normal warm resumes stay fast.
+ */
+export async function nativeSupervisorsStale(root: string): Promise<boolean> {
+  const current = await currentSupervisorIdentity();
+  if (!current) return false;
+  const records = (
+    await Promise.all(
+      [...services].map(async (name) => {
+        try {
+          return await stored(root, name as NativeService);
+        } catch {
+          return undefined;
+        }
+      }),
+    )
+  ).filter((record): record is Lease => record !== undefined);
+  const mismatched: Lease[] = [];
+  for (const record of records)
+    if (!(await supervisorMatches(record, current))) mismatched.push(record);
+  if (!mismatched.length) return false;
+  if (process.platform === "win32") {
+    const processes = await windowsProcesses();
+    return mismatched.some(
+      (record) => recordedTree(processes, record).length > 1,
+    );
+  }
+  for (const record of mismatched) if (await serving(record)) return true;
+  return false;
+}
+
+/** True only when a recorded, running process would restart for this configuration or supervisor. */
 export async function nativeConfigurationChanged(
   options: NativeConfiguration & { root: string; name: NativeService },
 ): Promise<boolean> {
   const existing = await stored(options.root, options.name);
   if (!existing || !(await serving(existing))) return false;
-  return configurationHash(options) !== existing.configuration;
+  if (configurationHash(options) !== existing.configuration) return true;
+  const supervisor = await currentSupervisorIdentity();
+  return !supervisor || !(await supervisorMatches(existing, supervisor));
 }
 export async function startNativeProcess(
   options: NativeConfiguration & {
@@ -308,30 +429,31 @@ export async function startNativeProcess(
     withoutAdministrators?: boolean;
     /**
      * Restart the service when it exits unasked. How it is supervised is not
-     * part of the configuration, so a running service keeps its supervisor.
+     * part of the configuration, so a running service keeps its supervisor
+     * while the supervisor itself still matches this installation.
      */
     restartOnExit?: NativeRestartPolicy;
   },
 ): Promise<NativeProcessState> {
   options.signal?.throwIfAborted();
+  const supervisor = await currentSupervisorIdentity();
+  if (!supervisor)
+    throw new Error(
+      "Native process supervisor is missing from this installation.",
+    );
   const location = paths(options.root, options.name);
   const configuration = configurationHash(options);
   const existing = await stored(options.root, options.name);
   if (existing && (await serving(existing))) {
-    if (configuration !== existing.configuration) {
-      if (!options.restartOnConfigurationChange)
-        throw new Error(
-          `Native ${options.name} configuration changed; stop this instance before restarting.`,
-        );
-      await stopNativeProcess(options.root, options.name);
-      return startNativeProcess({
-        ...options,
-        restartOnConfigurationChange: false,
-      });
-    }
-    return { running: true, pid: existing.pid };
-  }
-  if (existing && process.platform === "win32") {
+    const configChanged = configuration !== existing.configuration;
+    if (configChanged && !options.restartOnConfigurationChange)
+      throw new Error(
+        `Native ${options.name} configuration changed; stop this instance before restarting.`,
+      );
+    if (!configChanged && (await supervisorMatches(existing, supervisor)))
+      return { running: true, pid: existing.pid };
+    await stopNativeProcess(options.root, options.name);
+  } else if (existing && process.platform === "win32") {
     // The lease names the supervisor on its command line, so whatever is
     // still on it, such as a supervisor that outlived its service, is this
     // service's own to end. A recorded PID alone proves nothing on Windows,
@@ -389,16 +511,9 @@ export async function startNativeProcess(
       ],
     }),
   );
-  const worker = new URL("./native-process-worker.mjs", import.meta.url);
-  if (!existsSync(worker)) {
-    await rm(job, { force: true });
-    throw new Error(
-      "Native process supervisor is missing from this installation.",
-    );
-  }
   const child = spawn(
     process.execPath,
-    [...linuxNodeFdHygieneArgs(), fileURLToPath(worker), job],
+    [...linuxNodeFdHygieneArgs(), supervisor.script, job],
     {
       cwd: options.cwd,
       env: {
@@ -449,6 +564,7 @@ export async function startNativeProcess(
       birth,
       lease,
       configuration,
+      supervisor,
     };
     await atomicPrivate(location.record, JSON.stringify(record) + "\n");
     child.disconnect();

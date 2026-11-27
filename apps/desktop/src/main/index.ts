@@ -56,6 +56,7 @@ import { SetupWindowModule } from "./setup-window.js";
 import { loginShellEnvironment, withLoginShell } from "./shell-env.js";
 import { markStartMenuShortcut } from "./start-menu-shortcut.js";
 import { StatusModule } from "./status.js";
+import { stopActiveRoomRunsBeforeQuit } from "./stop-tasks.js";
 import { SystemPermissions } from "./system-permissions.js";
 import { TrayModule } from "./tray.js";
 import { updateNotice } from "./tray-menu.js";
@@ -424,6 +425,18 @@ async function main(): Promise<void> {
       return response === 0;
     },
     prepareQuit: () => windows.prepareQuit(),
+    stopTasksBeforeQuit: async () => {
+      const current = config.get();
+      await Promise.allSettled([
+        stopActiveRoomRunsBeforeQuit({
+          serverUrl: current.serverUrl,
+          tenantId: current.tenantId,
+          sessionCookie: webSessionCookie,
+          log,
+        }),
+        daemon.stopTasksAndTerminate(),
+      ]);
+    },
     // Setup and the uninstaller stop the services and the local models
     // themselves right after --quit; a stop from here would race theirs.
     stopHost: (reason) => host.stop(reason),

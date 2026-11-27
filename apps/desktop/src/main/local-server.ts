@@ -2311,6 +2311,7 @@ export class LocalServerModule implements Module {
         this.#awaitAgents(job.origin, signal),
       );
       await prune;
+      await installer.shutdown();
       this.#cancelBifrostPrefetch("install_finished");
       this.#set("ready", "LingerX is running on this computer.");
     } catch (error) {
@@ -5610,6 +5611,22 @@ export class InstallerApi {
           ...(method ? { method } : {}),
         })
       : this.#json(`/api/runtime-login?instance=${LOCAL_INSTANCE}`);
+  }
+
+  // Asks an idle installer manager to exit once setup is complete; ignores
+  // errors so a completed installation never fails on cleanup.
+  async shutdown(): Promise<void> {
+    try {
+      const response = await this.#call(
+        "/api/shutdown",
+        {},
+        "POST",
+        AbortSignal.timeout(5_000),
+      );
+      await response.body?.cancel();
+    } catch {
+      // Already exited or unreachable.
+    }
   }
 
   #call(

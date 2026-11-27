@@ -3,6 +3,10 @@ import {
   RunnerComputerTools,
   type ComputerToolRequest,
 } from "./runner-computer-tools.js";
+import {
+  RunnerHerdrCore,
+  type OwnerHerdrCoreCallRequest,
+} from "./runner-herdr-core.js";
 import type {
   DebugHistoryInspectionRequest,
   DebugHistoryInspectionResult,
@@ -150,6 +154,7 @@ export class RunnerGateway
   readonly #modelInvocation: RunnerModelInvocation;
   readonly #queue: ModelQueue;
   readonly #computerTools: RunnerComputerTools;
+  readonly #herdrCore: RunnerHerdrCore;
   readonly #localModels: RunnerLocalModels;
   constructor(options: RunnerGatewayOptions) {
     const context = createRunnerGatewayContext(options);
@@ -165,6 +170,7 @@ export class RunnerGateway
       modelInvocation: () => this.#modelInvocation,
       queue: () => this.#queue,
       computerTools: () => this.#computerTools,
+      herdrCore: () => this.#herdrCore,
       localModels: () => this.#localModels,
       contextViewContent: () => this.contextViewContent,
     };
@@ -217,6 +223,7 @@ export class RunnerGateway
       },
     );
     this.#computerTools = new RunnerComputerTools(context, owners);
+    this.#herdrCore = new RunnerHerdrCore(context, owners);
     this.#localModels = new RunnerLocalModels(context, owners);
     validateRunnerGatewayContext(context);
     if (options.contextContent) {
@@ -487,6 +494,32 @@ export class RunnerGateway
 
   callComputerTool(request: ComputerToolRequest) {
     return this.#computerTools.call(request);
+  }
+
+  callHerdrCore(request: OwnerHerdrCoreCallRequest) {
+    return this.#herdrCore.callOwnerTool(request);
+  }
+
+  supportsHerdrCore(computerId: string): boolean {
+    return this.#herdrCore.supportsHerdrCore(computerId);
+  }
+
+  servingOwnerConnectionEpoch(
+    computerId: string,
+    tenantId: string,
+    ownerActorId: string,
+  ): number | undefined {
+    return this.#herdrCore.servingOwnerConnectionEpoch(
+      computerId,
+      tenantId,
+      ownerActorId,
+    );
+  }
+
+  onHerdrCoreComputerDisconnected(
+    listener: (computerId: string) => void,
+  ): () => void {
+    return this.#herdrCore.onComputerDisconnected(listener);
   }
 
   supportsModelInvoke(

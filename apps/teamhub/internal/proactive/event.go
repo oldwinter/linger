@@ -42,6 +42,8 @@ type Event struct {
 	Urgent bool `json:"urgent,omitempty"`
 	// Herdr names the pane of a herdr event, so AnotherMe can answer it.
 	Herdr *HerdrPane `json:"herdr,omitempty"`
+	// HerdrCore names the terminal state and matchable attributes of a herdr_core event.
+	HerdrCore *HerdrCoreTerminalRef `json:"herdr_core,omitempty"`
 }
 
 const (
@@ -189,7 +191,7 @@ func (s *Service) HandleEvent(ctx context.Context, event Event) (Outcome, error)
 	if err != nil {
 		return Outcome{}, err
 	}
-	request := EventJudgeRequest{Rules: guideline.JudgeRules(), OpenItems: []OpenItem{}}
+	request := EventJudgeRequest{Rules: guideline.JudgeRulesForEvent(event), OpenItems: []OpenItem{}}
 	for _, item := range items {
 		open := OpenItem{ID: item.ID, Kind: item.Kind, Content: item.Content}
 		if item.DueAt.Valid {
@@ -324,6 +326,13 @@ func eventText(label string, event Event, accountLabel string, receivedAt time.T
 	if event.Herdr != nil && event.Kind == HerdrAgentBlocked {
 		text += "\n" + reminder.Prompt(reminder.HerdrBlocked, map[string]string{
 			"pane_id": event.Herdr.PaneID, "state": strconv.FormatInt(event.Herdr.StateChangeSeq, 10),
+		})
+	}
+	if event.HerdrCore != nil && event.Kind == HerdrCoreAgentBlocked {
+		text += "\n" + reminder.Prompt(reminder.HerdrCoreBlocked, map[string]string{
+			"address":   event.HerdrCore.Address,
+			"turn":      strconv.FormatInt(event.HerdrCore.Turn, 10),
+			"status_ms": strconv.FormatInt(event.HerdrCore.StatusMs, 10),
 		})
 	}
 	return text

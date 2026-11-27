@@ -96,6 +96,7 @@ export class RunnerConnections {
       | "lifecycle"
       | "modelInvocation"
       | "computerTools"
+      | "herdrCore"
       | "localModels"
       | "operations"
       | "preparation"
@@ -505,6 +506,8 @@ export class RunnerConnections {
               "runtime_failure_detail",
               "operation_background_wait",
               "dynamic_reasoning_efforts",
+              "herdr_core_v1",
+              "herdr_core_stream",
             ],
           }
         : {}),
@@ -733,6 +736,10 @@ export class RunnerConnections {
             error instanceof TeamHubRuntimeStateError ? error.status : null,
         });
       }
+      return;
+    }
+    if (envelope.type === "runner.herdr_core_event") {
+      await this.owners.herdrCore().receiveEvent(connection, envelope.event);
       return;
     }
     if (envelope.type === "runtime.registration.observed") {
@@ -1099,6 +1106,7 @@ export class RunnerConnections {
     this.owners.capabilities().rejectConnectionWaiters(connection);
     this.owners.localModels().disconnected(connection);
     this.owners.computerTools().disconnected(connection);
+    this.owners.herdrCore().disconnected(connection);
     this.owners.debug().rejectWaitersForConnection(connection);
     this.owners.compaction().rejectWaitersForConnection(connection);
     this.owners.cli().rejectCredentialWaitersForConnection(connection);

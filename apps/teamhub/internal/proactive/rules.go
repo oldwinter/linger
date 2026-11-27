@@ -63,6 +63,9 @@ type Rule struct {
 	// Mandate is what the Human allows Another Me to do beyond reminding
 	// when this rule applies. Only the Human sets it, on an active rule.
 	Mandate string `json:"mandate"`
+	// HerdrCore optionally scopes this rule to herdr-core events matching the
+	// given machine, cwd, app, and labels attributes.
+	HerdrCore *HerdrCoreRuleCondition `json:"herdr_core,omitempty"`
 }
 
 // DeletedRule is a rule the Human deleted; dreaming does not write it again
@@ -122,8 +125,25 @@ type JudgeRules struct {
 // JudgeRules splits the guideline into the active rules that decide and the
 // shadow rules that are only compared.
 func (g Guideline) JudgeRules() JudgeRules {
+	return g.judgeRules(nil)
+}
+
+// JudgeRulesForEvent splits the guideline for one outside event, evaluating
+// optional herdr_core attribute conditions so rules scoped to specific
+// machines, directories, apps, or labels apply only to matching events.
+func (g Guideline) JudgeRulesForEvent(event Event) JudgeRules {
+	return g.judgeRules(&event)
+}
+
+func (g Guideline) judgeRules(event *Event) JudgeRules {
 	judge := JudgeRules{Version: g.Version, Rules: []string{}, ShadowRules: []ShadowRule{}, MandateRules: []MandateRule{}}
 	for _, rule := range g.Rules {
+		if rule.HerdrCore != nil && !rule.HerdrCore.Empty() {
+			if event == nil || event.Source != SourceHerdrCore || event.HerdrCore == nil ||
+				!MatchHerdrCoreCondition(rule.HerdrCore, *event.HerdrCore) {
+				continue
+			}
+		}
 		switch rule.Status {
 		case RuleActive:
 			judge.Rules = append(judge.Rules, rule.Text)
@@ -263,9 +283,29 @@ func (s *Service) PinRule(ctx context.Context, owner Owner, ruleID string, pinne
 // EditRule rewrites a rule's text. The rule becomes the Human's own, which
 // dreaming never removes or rewrites; its status is kept.
 func (s *Service) EditRule(ctx context.Context, owner Owner, ruleID, text string) (RuleBook, error) {
+	return s.EditRuleWithCondition(ctx, owner, ruleID, text, nil, false)
+}
+
+// EditRuleWithCondition rewrites a rule's text and optionally updates or clears
+// its herdr_core attribute filter.
+func (s *Service) EditRuleWithCondition(
+	ctx context.Context,
+	owner Owner,
+	ruleID, text string,
+	herdrCore *HerdrCoreRuleCondition,
+	clearHerdrCore bool,
+) (RuleBook, error) {
 	text = strings.TrimSpace(text)
 	if text == "" || utf8.RuneCountInString(text) > maxRuleRunes {
 		return RuleBook{}, ErrInvalidRule
+	}
+	var normalized *HerdrCoreRuleCondition
+	if herdrCore != nil {
+		var err error
+		normalized, err = herdrCore.Normalize()
+		if err != nil {
+			return RuleBook{}, err
+		}
 	}
 	return s.changeRule(ctx, owner, ruleID, "The Human edited a rule.", func(guideline *Guideline, index int, _ time.Time) error {
 		for other, rule := range guideline.Rules {
@@ -277,6 +317,11 @@ func (s *Service) EditRule(ctx context.Context, owner Owner, ruleID, text string
 		if rule.Text != text {
 			rule.Text = text
 			rule.GuidelineVersion = guideline.Version + 1
+		}
+		if clearHerdrCore {
+			rule.HerdrCore = nil
+		} else if herdrCore != nil {
+			rule.HerdrCore = normalized
 		}
 		rule.Source = RuleByHuman
 		return nil

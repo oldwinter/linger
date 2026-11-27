@@ -1,0 +1,728 @@
+components:
+  schemas:
+    HerdrCoreTerminalStatusState:
+      type: string
+      enum: [idle, working, done, blocked, error]
+      description: OSC 7501 agent status state reported by a herdr-core terminal.
+    HerdrCoreTerminalStatus:
+      type: object
+      additionalProperties: false
+      required: [state]
+      description: Current OSC 7501 status attached to a herdr-core terminal.
+      properties:
+        state:
+          $ref: "#/components/schemas/HerdrCoreTerminalStatusState"
+        app:
+          type: string
+          maxLength: 120
+        msg:
+          type: string
+          maxLength: 2000
+        progress:
+          type: number
+          minimum: 0
+          maximum: 100
+          nullable: true
+        title:
+          type: string
+          maxLength: 500
+    HerdrCoreTerminal:
+      type: object
+      additionalProperties: false
+      required:
+        - address
+        - machine
+        - name
+        - state
+        - status
+        - turn
+        - status_ms
+        - cwd
+        - foreground_cwd
+        - title
+        - template
+        - parent
+        - keep
+        - labels
+        - cols
+        - rows
+        - created_ms
+        - finished_ms
+        - exit_code
+      description: >-
+        Canonical summary of one herdr-core terminal (local or remote machine).
+        Standard Linger and Herdr label keys are linger.room, linger.work_item,
+        linger.agent, linger.origin, herdr.space, and herdr.tab.
+      properties:
+        address:
+          type: string
+          minLength: 1
+          maxLength: 256
+          description: Local address (for example t7) or remote address (for example vps/t7).
+        machine:
+          type: string
+          maxLength: 128
+          description: Remote machine name, or empty string for the local machine.
+        name:
+          type: string
+          maxLength: 256
+        state:
+          type: string
+          enum: [live, finished]
+        status:
+          allOf:
+            - $ref: "#/components/schemas/HerdrCoreTerminalStatus"
+          nullable: true
+        turn:
+          type: integer
+          format: int64
+          minimum: 0
+        status_ms:
+          type: integer
+          format: int64
+          minimum: 0
+        cwd:
+          type: string
+          maxLength: 4096
+        foreground_cwd:
+          type: string
+          maxLength: 4096
+        title:
+          type: string
+          maxLength: 500
+        template:
+          type: string
+          maxLength: 120
+        parent:
+          type: string
+          maxLength: 256
+        keep:
+          type: boolean
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+            maxLength: 256
+        cols:
+          type: integer
+          minimum: 0
+        rows:
+          type: integer
+          minimum: 0
+        created_ms:
+          type: integer
+          format: int64
+          minimum: 0
+        finished_ms:
+          type: integer
+          format: int64
+          minimum: 0
+          nullable: true
+        exit_code:
+          type: integer
+          nullable: true
+    HerdrCoreMachine:
+      type: object
+      additionalProperties: true
+      required: [name]
+      description: Summary of one local or remote machine known to herdr-core.
+      properties:
+        name:
+          type: string
+          maxLength: 128
+        host:
+          type: string
+          maxLength: 256
+        status:
+          type: string
+          maxLength: 64
+        online:
+          type: boolean
+        version:
+          type: string
+          maxLength: 64
+        live_count:
+          type: integer
+          minimum: 0
+    HerdrCoreTemplate:
+      type: object
+      additionalProperties: true
+      required: [name]
+      description: Reusable terminal launch template declared in herdr-core.
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        description:
+          type: string
+          maxLength: 1000
+        argv:
+          type: array
+          items:
+            type: string
+        line:
+          type: string
+        cwd:
+          type: string
+          maxLength: 4096
+        keep:
+          type: boolean
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+            maxLength: 256
+    HerdrCoreStatusResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - available
+        - version
+        - core_id
+        - core_name
+        - pid
+        - uptime_ms
+        - live_count
+        - finished_count
+        - blocked_count
+        - working_count
+        - machines
+      properties:
+        available:
+          type: boolean
+        version:
+          type: string
+          maxLength: 64
+        core_id:
+          type: string
+          maxLength: 128
+        core_name:
+          type: string
+          maxLength: 128
+        pid:
+          type: integer
+          format: int64
+          minimum: 0
+        uptime_ms:
+          type: integer
+          format: int64
+          minimum: 0
+        live_count:
+          type: integer
+          minimum: 0
+        finished_count:
+          type: integer
+          minimum: 0
+        blocked_count:
+          type: integer
+          minimum: 0
+        working_count:
+          type: integer
+          minimum: 0
+        machines:
+          type: array
+          items:
+            $ref: "#/components/schemas/HerdrCoreMachine"
+    HerdrCoreTerminalsResponse:
+      type: object
+      additionalProperties: false
+      required: [terminals, machines]
+      properties:
+        terminals:
+          type: array
+          items:
+            $ref: "#/components/schemas/HerdrCoreTerminal"
+        machines:
+          type: array
+          items:
+            $ref: "#/components/schemas/HerdrCoreMachine"
+    HerdrCoreTerminalResponse:
+      type: object
+      additionalProperties: false
+      required: [terminal]
+      properties:
+        terminal:
+          $ref: "#/components/schemas/HerdrCoreTerminal"
+    HerdrCoreTerminalReadResponse:
+      type: object
+      additionalProperties: false
+      required: [text, complete, how, why]
+      properties:
+        text:
+          type: string
+        complete:
+          type: boolean
+        how:
+          type: string
+          maxLength: 128
+        why:
+          type: string
+          maxLength: 500
+    HerdrCoreCreateTerminalRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        argv:
+          type: array
+          maxItems: 128
+          items:
+            type: string
+            maxLength: 4096
+        line:
+          type: string
+          maxLength: 16384
+        template:
+          type: string
+          maxLength: 120
+        task:
+          type: string
+          maxLength: 16384
+        name:
+          type: string
+          maxLength: 120
+        cwd:
+          type: string
+          maxLength: 4096
+        on:
+          type: string
+          maxLength: 128
+        keep:
+          type: boolean
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+            maxLength: 256
+        parent:
+          type: string
+          maxLength: 256
+        rm:
+          type: boolean
+        no_notify:
+          type: boolean
+        size:
+          description: Initial PTY size, such as COLSxROWS string (for example 120x36) or {cols, rows}.
+    HerdrCoreTerminalSendRequest:
+      type: object
+      additionalProperties: false
+      required: [address, text]
+      properties:
+        address:
+          type: string
+          minLength: 1
+          maxLength: 256
+        text:
+          type: string
+          maxLength: 32768
+        if:
+          type: string
+          enum: [idle, working, blocked]
+          description: >-
+            Optional precondition state guard. herdr-core v0.1.21 terminal.send
+            accepts only "idle" and "working" directly; when "blocked" is
+            requested, the Local Computer Daemon performs a terminal.get CAS
+            check (state == "live", status.state == "blocked", and matching
+            turn when provided) and calls terminal.send with force: true and no
+            "if" field rather than forwarding if="blocked" to herdr-core.
+        turn:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Optional expected terminal turn checked by the Daemon when if="blocked".
+        force:
+          type: boolean
+        wait:
+          type: boolean
+        timeout:
+          type: integer
+          minimum: 0
+          maximum: 120000
+    HerdrCoreTerminalSendResponse:
+      type: object
+      additionalProperties: false
+      required: [status, turn, started]
+      properties:
+        status:
+          type: string
+          maxLength: 64
+        turn:
+          type: integer
+          format: int64
+          minimum: 0
+        started:
+          type: boolean
+    HerdrCoreTerminalKeysRequest:
+      type: object
+      additionalProperties: false
+      required: [address, keys]
+      properties:
+        address:
+          type: string
+          minLength: 1
+          maxLength: 256
+        keys:
+          type: array
+          minItems: 1
+          maxItems: 128
+          items:
+            type: string
+            minLength: 1
+            maxLength: 64
+    HerdrCoreTerminalKeysResponse:
+      type: object
+      additionalProperties: false
+      required: [status, turn]
+      properties:
+        status:
+          type: string
+          maxLength: 64
+        turn:
+          type: integer
+          format: int64
+          minimum: 0
+    HerdrCoreTerminalInterruptRequest:
+      type: object
+      additionalProperties: false
+      required: [address]
+      properties:
+        address:
+          type: string
+          minLength: 1
+          maxLength: 256
+        timeout:
+          type: integer
+          minimum: 0
+          maximum: 120000
+    HerdrCoreTerminalInterruptResponse:
+      type: object
+      additionalProperties: false
+      required: [key, outcome]
+      properties:
+        key:
+          type: string
+          maxLength: 64
+        outcome:
+          type: string
+          maxLength: 128
+    HerdrCoreTerminalKillRequest:
+      type: object
+      additionalProperties: false
+      required: [address]
+      properties:
+        address:
+          type: string
+          minLength: 1
+          maxLength: 256
+    HerdrCoreTerminalKillResponse:
+      type: object
+      additionalProperties: false
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+    HerdrCoreTerminalDeleteResponse:
+      type: object
+      additionalProperties: false
+      required: [removed]
+      properties:
+        removed:
+          type: boolean
+    HerdrCoreTerminalPutRequest:
+      type: object
+      additionalProperties: false
+      required: [address, name, data_base64]
+      properties:
+        address:
+          type: string
+          minLength: 1
+          maxLength: 256
+        name:
+          type: string
+          minLength: 1
+          maxLength: 256
+        data_base64:
+          type: string
+          maxLength: 16777216
+    HerdrCoreTerminalPutResponse:
+      type: object
+      additionalProperties: false
+      required: [path, bytes]
+      properties:
+        path:
+          type: string
+          maxLength: 4096
+        bytes:
+          type: integer
+          format: int64
+          minimum: 0
+    HerdrCoreTemplatesResponse:
+      type: object
+      additionalProperties: false
+      required: [templates]
+      properties:
+        templates:
+          type: array
+          items:
+            $ref: "#/components/schemas/HerdrCoreTemplate"
+    HerdrCoreMachinesResponse:
+      type: object
+      additionalProperties: false
+      required: [machines]
+      properties:
+        machines:
+          type: array
+          items:
+            $ref: "#/components/schemas/HerdrCoreMachine"
+    HerdrCoreDocGetResponse:
+      type: object
+      additionalProperties: false
+      required: [version, value]
+      properties:
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+        value:
+          description: Current JSON document value stored in herdr-core.
+    HerdrCoreDocPutRequest:
+      type: object
+      additionalProperties: false
+      required: [version, value]
+      properties:
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+        value:
+          description: Next JSON document value to store in herdr-core with optimistic concurrency.
+    HerdrCoreDocPutResponse:
+      type: object
+      additionalProperties: false
+      required: [version]
+      properties:
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+    HerdrCoreToolName:
+      type: string
+      description: Structured herdr_core tool dispatched over Runner Gateway computer_tool.
+      enum:
+        - status
+        - list
+        - get
+        - read
+        - run
+        - send
+        - keys
+        - interrupt
+        - wait
+        - kill
+        - rm
+        - keep
+        - label
+        - put
+        - templates
+        - machines
+        - exec
+        - file_read
+        - file_write
+        - file_edit
+        - doc_get
+        - doc_set
+        - answer
+    HerdrCoreAskOption:
+      type: object
+      additionalProperties: false
+      required: [label]
+      description: One owner-selectable option on a herdr-core question card.
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 200
+        keys:
+          type: array
+          minItems: 1
+          maxItems: 16
+          description: Optional key sequence sent via herdr_core keys when the owner picks this option; when omitted, label is sent as text.
+          items:
+            type: string
+            minLength: 1
+            maxLength: 64
+    AgentHerdrCoreAskRequest:
+      type: object
+      additionalProperties: false
+      required: [address, turn, status_ms, question, options]
+      properties:
+        address:
+          type: string
+          minLength: 1
+          maxLength: 256
+        turn:
+          type: integer
+          format: int64
+          minimum: 0
+        status_ms:
+          type: integer
+          format: int64
+          minimum: 0
+        question:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: What the coding agent asks, as the card shows it.
+        options:
+          type: array
+          minItems: 1
+          maxItems: 20
+          description: Choices the coding agent offers; the owner may also write their own answer.
+          items:
+            $ref: "#/components/schemas/HerdrCoreAskOption"
+    AgentHerdrCoreAskResponse:
+      type: object
+      additionalProperties: false
+      required: [status, computer_id, room_id, message_id, interaction_id]
+      properties:
+        status:
+          type: string
+          enum: [asked]
+        computer_id:
+          type: string
+        room_id:
+          type: string
+        message_id:
+          type: string
+        interaction_id:
+          type: string
+    AgentHerdrCoreCallRequest:
+      type: object
+      additionalProperties: false
+      required: [tool_name, arguments]
+      properties:
+        operation_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: Optional idempotency key for mutating herdr_core tool calls.
+        tool_name:
+          $ref: "#/components/schemas/HerdrCoreToolName"
+        arguments:
+          type: object
+          additionalProperties: true
+        deadline_ms:
+          type: integer
+          minimum: 1000
+          maximum: 120000
+    AgentHerdrCoreCallResponse:
+      type: object
+      additionalProperties: false
+      required: [computer_id, tool_name, result]
+      properties:
+        computer_id:
+          type: string
+        tool_name:
+          $ref: "#/components/schemas/HerdrCoreToolName"
+        result:
+          type: object
+          additionalProperties: true
+    HerdrCoreEventReport:
+      type: object
+      additionalProperties: false
+      required: [computer_id, kind, address, turn, status_ms]
+      properties:
+        computer_id:
+          type: string
+          pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+        kind:
+          type: string
+          enum: [agent_blocked, agent_finished, agent_error, terminal_changed]
+        address:
+          type: string
+          minLength: 1
+          maxLength: 256
+        machine:
+          type: string
+          maxLength: 128
+        turn:
+          type: integer
+          format: int64
+          minimum: 0
+        status_ms:
+          type: integer
+          format: int64
+          minimum: 0
+        status:
+          allOf:
+            - $ref: "#/components/schemas/HerdrCoreTerminalStatus"
+          nullable: true
+        name:
+          type: string
+          maxLength: 256
+        cwd:
+          type: string
+          maxLength: 4096
+        title:
+          type: string
+          maxLength: 500
+        template:
+          type: string
+          maxLength: 120
+        parent:
+          type: string
+          maxLength: 256
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+            maxLength: 256
+        tail:
+          type: string
+          maxLength: 8000
+          description: Last lines of the terminal with obvious secrets redacted on the Computer.
+    LocalComputerHerdrCoreCallRequest:
+      type: object
+      additionalProperties: false
+      required: [tool_name, arguments]
+      properties:
+        tool_name:
+          $ref: "#/components/schemas/HerdrCoreToolName"
+        arguments:
+          type: object
+          additionalProperties: true
+        deadline_ms:
+          type: integer
+          minimum: 1000
+          maximum: 120000
+    LocalComputerHerdrCoreCallResponse:
+      type: object
+      additionalProperties: false
+      required: [result]
+      properties:
+        result:
+          type: object
+          additionalProperties: true
+    HerdrCoreRuleCondition:
+      type: object
+      additionalProperties: false
+      description: Optional My Rules filter matching herdr-core event attributes.
+      properties:
+        machine:
+          type: string
+          maxLength: 128
+          description: Exact or wildcard match against the herdr-core machine name (use local for the local machine).
+        cwd:
+          type: string
+          maxLength: 4096
+          description: Path prefix or glob match against the terminal working directory.
+        app:
+          type: string
+          maxLength: 120
+          description: Case-insensitive match against the OSC 7501 app or template name.
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+            maxLength: 256
+          description: Required label key-value pairs; value * matches any non-empty label value.

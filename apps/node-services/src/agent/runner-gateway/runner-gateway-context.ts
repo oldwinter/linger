@@ -46,6 +46,7 @@ import {
 import type { RunnerOperations } from "./runner-operations.js";
 import { operationMCPPrepareIdentity } from "./runner-operations.js";
 import type { RunnerComputerTools } from "./runner-computer-tools.js";
+import type { RunnerHerdrCore } from "./runner-herdr-core.js";
 import type { RunnerLocalModels } from "./runner-local-models.js";
 import type { ModelQueue } from "./model-queue.js";
 import type { RunnerModelInvocation } from "./runner-model-invocation.js";
@@ -348,6 +349,7 @@ export interface RunnerGatewayControllers {
   readonly modelInvocation: () => RunnerModelInvocation;
   readonly queue: () => ModelQueue;
   readonly computerTools: () => RunnerComputerTools;
+  readonly herdrCore: () => RunnerHerdrCore;
   readonly localModels: () => RunnerLocalModels;
   readonly contextViewContent: () => ContextViewContent | undefined;
 }

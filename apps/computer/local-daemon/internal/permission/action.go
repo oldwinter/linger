@@ -47,7 +47,8 @@ type Evidence struct {
 	Patch   string   `json:"patch,omitempty"`
 	Browser *Browser `json:"browser,omitempty"`
 	Desktop *Desktop `json:"desktop,omitempty"`
-	// Delegations is the text a herdr command hands to terminal panes.
+	// Delegations is the text a herdr or herdr-core (hc) command hands to
+	// terminal panes, remote machines, or file edits.
 	Delegations []Delegation `json:"delegations,omitempty"`
 	Missing     []string     `json:"missing,omitempty"`
 	// Screenshot is shown only to the approver; the judge never sees it.

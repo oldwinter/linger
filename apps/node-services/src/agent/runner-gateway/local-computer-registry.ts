@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import type {
   HerdrAgentEvent,
+  HerdrCoreEvent,
   LocalModelsSnapshot,
   RunnerHello,
   RuntimeDiagnostics,
@@ -79,6 +80,11 @@ export interface LocalComputerRegistry {
   touch(computerId: string, touch: LocalComputerTouch): Promise<void>;
   /** Hands a herdr pane event to the proactive judgment of the Computer's owner. */
   reportHerdrEvent(computerId: string, event: HerdrAgentEvent): Promise<void>;
+  /** Hands a herdr-core terminal event to TeamHub SSE invalidation and proactive judgment. */
+  reportHerdrCoreEvent?(
+    computerId: string,
+    event: HerdrCoreEvent,
+  ): Promise<void>;
   /** Replaces the Computer's stored model library with its latest snapshot. */
   recordLocalModels(
     computerId: string,
@@ -94,10 +100,12 @@ type TeamHubLocalComputerClient = Pick<
   | "getLocalComputer"
   | "connectLocalComputer"
   | "touchLocalComputer"
-  | "reportHerdrEvent"
   | "removeLocalComputer"
   | "recordLocalModels"
->;
+> &
+  Partial<
+    Pick<TeamHubRuntimeStateClient, "reportHerdrEvent" | "reportHerdrCoreEvent">
+  >;
 
 export const createTeamHubLocalComputerRegistry = (
   client: TeamHubLocalComputerClient,
@@ -201,7 +209,10 @@ const buildTeamHubLocalComputerRegistry = (
     });
   },
   async reportHerdrEvent(computerId, event) {
-    await client.reportHerdrEvent({ computer_id: computerId, ...event });
+    await client.reportHerdrEvent?.({ computer_id: computerId, ...event });
+  },
+  async reportHerdrCoreEvent(computerId, event) {
+    await client.reportHerdrCoreEvent?.({ computer_id: computerId, ...event });
   },
   async recordLocalModels(computerId, snapshot) {
     await client.recordLocalModels({

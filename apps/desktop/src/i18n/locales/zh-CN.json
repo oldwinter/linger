@@ -389,9 +389,9 @@
     "enrollFailed": "无法连接这台电脑"
   },
   "dialogs": {
-    "quitConfirm": "有任务正在运行，确定要退出 LingerX 吗？",
-    "quitConfirmDetail": "退出将关闭 LingerX、中断这台电脑上正在进行的任务并卸载本地模型。本地后台服务会继续运行，排队中的任务可能会在你重新打开 LingerX 时继续执行。",
-    "quitAndStop": "退出 LingerX",
+    "quitConfirm": "要退出 LingerX 并停止正在运行的任务吗？",
+    "quitConfirmDetail": "退出将关闭 LingerX、停止这台电脑上正在进行的任务并卸载本地模型。本地后台服务会继续运行以支持网页端和移动端访问，被停止的任务在你重新打开 LingerX 时不会自动恢复。",
+    "quitAndStop": "退出并停止任务",
     "keepRunning": "保持运行",
     "cancel": "取消",
     "startFailed": "LingerX 启动失败：{error}",

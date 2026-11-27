@@ -45,6 +45,8 @@ type Service struct {
 	executors map[string]DecisionExecutor
 	// herdrDeliverer types herdr answer cards' answers; the app installs it.
 	herdrDeliverer HerdrDeliverer
+	// herdrCoreDeliverer delivers herdr-core answer cards' text or keys; the app installs it.
+	herdrCoreDeliverer HerdrCoreDeliverer
 }
 
 func New(pool *pgxpool.Pool) *Service {

@@ -45,6 +45,9 @@ func defaultDeps() deps {
 		inspectHerdr: func(ctx context.Context) (doctorCheck, bool) {
 			return inspectHerdr(ctx, environment)
 		},
+		inspectHerdrCore: func(ctx context.Context) (doctorCheck, bool) {
+			return inspectHerdrCore(ctx, environment)
+		},
 		readLogs:       streamComputerLogs,
 		runInteractive: runRuntimeInteractive,
 		startDaemon: func(ctx context.Context, configPath string) error {

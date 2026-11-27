@@ -255,6 +255,32 @@ paths:
           $ref: ../components/common.yaml#/components/responses/Unauthenticated
         "404":
           $ref: ../components/common.yaml#/components/responses/NotFound
+  /v0/agent-runtime/local-computers/herdr-core-events:
+    post:
+      tags:
+        - Local Computers
+      operationId: reportLocalComputerHerdrCoreEvent
+      summary: Hand a herdr-core terminal event to TeamHub SSE invalidation and proactive judgment
+      description:
+        The Agent Service forwards a runner.herdr_core_event of a connected Computer. TeamHub takes
+        the owner from its own Local Computer record, publishes a herdr-core SSE invalidation hint
+        for the Computer, and queues proactive judgment for agent_blocked, agent_finished, and
+        agent_error transitions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ../components/herdr-core.yaml#/components/schemas/HerdrCoreEventReport
+      responses:
+        "202":
+          description: The event is accepted, invalidated, and queued when applicable.
+        "400":
+          $ref: ../components/common.yaml#/components/responses/BadRequest
+        "401":
+          $ref: ../components/common.yaml#/components/responses/Unauthenticated
+        "404":
+          $ref: ../components/common.yaml#/components/responses/NotFound
   /v0/agent-runtime/local-computers/local-models:
     post:
       tags: [Local Computers]

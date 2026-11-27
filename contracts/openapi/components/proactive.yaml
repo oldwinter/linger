@@ -100,6 +100,8 @@ components:
           minimum: 1
           description: The guideline version that first held the rule as written.
         mandate: { $ref: "#/components/schemas/ProactiveMandate" }
+        herdr_core:
+          $ref: "./herdr-core.yaml#/components/schemas/HerdrCoreRuleCondition"
     ProactiveClue:
       type: object
       additionalProperties: false
@@ -174,6 +176,11 @@ components:
       required: [text]
       properties:
         text: { type: string, minLength: 1, maxLength: 200 }
+        herdr_core:
+          $ref: "./herdr-core.yaml#/components/schemas/HerdrCoreRuleCondition"
+        clear_herdr_core:
+          type: boolean
+          description: Clear any existing herdr_core attribute filter on this rule.
     ProactiveShadowDivergenceRecord:
       type: object
       additionalProperties: false

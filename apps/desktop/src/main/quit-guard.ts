@@ -6,6 +6,7 @@ export interface QuitGuardOptions {
   readonly isBusy: () => boolean;
   readonly isAutomaticQuit: () => boolean;
   readonly confirmBusyQuit: () => Promise<boolean>;
+  readonly stopTasksBeforeQuit?: () => Promise<void>;
   readonly prepareQuit: () => void;
   readonly stopHost: (reason: "quit" | "update") => Promise<void>;
   readonly requestAppQuit: () => void;
@@ -27,9 +28,11 @@ export function createQuitGuard(options: QuitGuardOptions): QuitGuard {
   let quitting = false;
   let confirming = false;
   let confirmed = false;
+  let stopTasksOnQuit = false;
 
   const requestQuit = async (): Promise<void> => {
     if (quitting || confirming) return;
+    let shouldStopTasks = false;
     if (options.isBusy() && !options.isAutomaticQuit()) {
       confirming = true;
       let proceed: boolean;
@@ -41,8 +44,10 @@ export function createQuitGuard(options: QuitGuardOptions): QuitGuard {
         confirming = false;
       }
       if (!proceed || quitting) return;
+      shouldStopTasks = true;
     }
     confirmed = true;
+    stopTasksOnQuit = shouldStopTasks;
     options.requestAppQuit();
   };
 
@@ -61,11 +66,20 @@ export function createQuitGuard(options: QuitGuardOptions): QuitGuard {
       void requestQuit();
       return;
     }
+    const shouldStopTasks = !automatic && stopTasksOnQuit;
     quitting = true;
     confirmed = false;
+    stopTasksOnQuit = false;
     event.preventDefault();
     options.prepareQuit();
-    void options.stopHost(automatic ? "update" : "quit").finally(() => {
+    const shutdown =
+      shouldStopTasks && options.stopTasksBeforeQuit
+        ? Promise.resolve()
+            .then(() => options.stopTasksBeforeQuit!())
+            .catch(() => {})
+            .then(() => options.stopHost("quit"))
+        : options.stopHost(automatic ? "update" : "quit");
+    void shutdown.finally(() => {
       options.relaunchIfNeeded();
       options.exitApp();
     });

@@ -1069,6 +1069,46 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/agent/v1/computer/herdr-core/ask": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Ask the owner of this AnotherMe's Local Computer how to answer a blocked herdr-core terminal.
+     * @description Only the Computer owner's AnotherMe may ask, and only about a terminal state (address, turn, status_ms) that the Computer reported as blocked. TeamHub posts a question card bound to that terminal state for the owner. When the owner answers, TeamHub dispatches the computer_tool herdr_core answer call so the Daemon verifies terminal.get (state == "live", status.state == "blocked", turn == expected) and delivers either the chosen option's keys sequence (terminal.keys) or the chosen/typed text (terminal.send with force: true and no "if" field, since herdr-core v0.1.21 terminal.send rejects if="blocked") once; the asking Agent then hears the answer and whether it was delivered. Asking again about the same state returns the same card.
+     */
+    post: operations["askAgentHerdrCoreTerminal"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/agent/v1/computer/herdr-core/call": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Invoke one structured herdr-core tool on this Agent's placed Local Computer.
+     * @description Authorizes the Agent against its placed Local Computer and dispatches one allowlisted herdr_core computer_tool call through Node Services. Optional operation_id deduplicates repeated submissions with the same request payload.
+     */
+    post: operations["callAgentHerdrCore"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/agent/v1/apps/tools/bind": {
     parameters: {
       query?: never;
@@ -3076,6 +3116,75 @@ export interface components {
        */
       host: "desktop" | "standalone";
       subjects: components["schemas"]["ComputerPermissionSubjectStatus"][];
+    };
+    /** @description One owner-selectable option on a herdr-core question card. */
+    HerdrCoreAskOption: {
+      label: string;
+      /** @description Optional key sequence sent via herdr_core keys when the owner picks this option; when omitted, label is sent as text. */
+      keys?: string[];
+    };
+    AgentHerdrCoreAskRequest: {
+      address: string;
+      /** Format: int64 */
+      turn: number;
+      /** Format: int64 */
+      status_ms: number;
+      /** @description What the coding agent asks, as the card shows it. */
+      question: string;
+      /** @description Choices the coding agent offers; the owner may also write their own answer. */
+      options: components["schemas"]["HerdrCoreAskOption"][];
+    };
+    AgentHerdrCoreAskResponse: {
+      /** @enum {string} */
+      status: "asked";
+      computer_id: string;
+      room_id: string;
+      message_id: string;
+      interaction_id: string;
+    };
+    /**
+     * @description Structured herdr_core tool dispatched over Runner Gateway computer_tool.
+     * @enum {string}
+     */
+    HerdrCoreToolName:
+      | "status"
+      | "list"
+      | "get"
+      | "read"
+      | "run"
+      | "send"
+      | "keys"
+      | "interrupt"
+      | "wait"
+      | "kill"
+      | "rm"
+      | "keep"
+      | "label"
+      | "put"
+      | "templates"
+      | "machines"
+      | "exec"
+      | "file_read"
+      | "file_write"
+      | "file_edit"
+      | "doc_get"
+      | "doc_set"
+      | "answer";
+    AgentHerdrCoreCallRequest: {
+      /** @description Optional idempotency key for mutating herdr_core tool calls. */
+      operation_id?: string;
+      tool_name: components["schemas"]["HerdrCoreToolName"];
+      arguments: {
+        [key: string]: unknown;
+      };
+      deadline_ms?: number;
+    };
+    AgentHerdrCoreCallResponse: {
+      computer_id: string;
+      tool_name: components["schemas"]["HerdrCoreToolName"];
+      result: {
+        [key: string]: unknown;
+      };
     };
     AgentConnectedApp: {
       connection_id: string;
@@ -5163,6 +5272,66 @@ export interface operations {
             message_id: string;
             interaction_id: string;
           };
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      409: components["responses"]["Conflict"];
+      503: components["responses"]["ServiceUnavailable"];
+      default: components["responses"]["InternalError"];
+    };
+  };
+  askAgentHerdrCoreTerminal: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AgentHerdrCoreAskRequest"];
+      };
+    };
+    responses: {
+      /** @description The question card, new or the one already asked for this terminal state. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AgentHerdrCoreAskResponse"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      409: components["responses"]["Conflict"];
+      503: components["responses"]["ServiceUnavailable"];
+      default: components["responses"]["InternalError"];
+    };
+  };
+  callAgentHerdrCore: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AgentHerdrCoreCallRequest"];
+      };
+    };
+    responses: {
+      /** @description Tool result returned by herdr-core on the Computer. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AgentHerdrCoreCallResponse"];
         };
       };
       400: components["responses"]["BadRequest"];

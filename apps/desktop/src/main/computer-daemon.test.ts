@@ -622,6 +622,21 @@ describe("ComputerDaemonModule", () => {
     expect(daemon.state()).toBe("stopped");
     expect(daemon.connection()).toBe("disconnected");
   });
+
+  it("sends the structured stop-tasks shutdown reason before closing stdin", async () => {
+    const { daemon, ctx, children } = setup();
+    await daemon.start(ctx);
+    await daemon.stopTasksAndTerminate();
+    expect(children[0]!.written).toContainEqual({
+      type: "shutdown",
+      reason: "desktop_quit_stop_tasks",
+    });
+    expect(children[0]!.stopped).toBe(true);
+    expect(daemon.state()).toBe("stopped");
+    // Host teardown calls stop() afterwards; it stays a no-op.
+    await daemon.stop();
+    expect(daemon.state()).toBe("stopped");
+  });
 });
 
 const PERMISSIONS: SystemPermission[] = [

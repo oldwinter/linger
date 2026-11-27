@@ -19,6 +19,7 @@ const (
 	NightlyPlan         = "Nightly plan"
 	RoutineTrackingItem = "Routine tracking item"
 	HerdrBlocked        = "Herdr blocked"
+	HerdrCoreBlocked    = "Herdr core blocked"
 	// Arranging tells an Agent that may create follow-up Routines how to
 	// write what a Routine looks up when it fires.
 	Arranging = "Arranging"
@@ -46,7 +47,7 @@ func parsePrompts(text string) map[string]string {
 		}
 	}
 	parsed := map[string]string{}
-	for _, name := range []string{EventData, EventTrackOnly, NightlyPlan, RoutineTrackingItem, HerdrBlocked, Arranging} {
+	for _, name := range []string{EventData, EventTrackOnly, NightlyPlan, RoutineTrackingItem, HerdrBlocked, HerdrCoreBlocked, Arranging} {
 		if len(sections[name]) == 0 {
 			panic("wake_prompts.md is missing " + name)
 		}

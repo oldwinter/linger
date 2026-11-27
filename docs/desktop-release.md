@@ -240,6 +240,29 @@ linked; verify the file bytes and Agent logs separately with
 `LINGER_ACCEPTANCE_EXPECTED_SHA256`, `LINGER_ACCEPTANCE_AGENT_LOG`, and
 `LINGER_ACCEPTANCE_RUN_ID`).
 
+### Desktop Lifecycle Verification (LIFE-01 and LIFE-02)
+
+Release verification checks two desktop quit semantics across tray Quit,
+`Cmd+Q`, and Dock / App menu Quit:
+
+- **`LIFE-01` (Quit preserves local background services):** Plain
+  **Quit LingerX** (when idle) and **Quit and Stop Tasks** (when busy) exit the
+  Desktop app, the Local Computer Daemon, and any Agent-managed browser, and
+  unload local models via detached `installer.js --stop-local-models`. Local
+  background services (`PostgreSQL`, `TeamHub`, `node-services`, `web`,
+  `LiveKit`, and the `local-models` controller) intentionally stay running so
+  web and mobile clients keep working. Full service teardown happens only on an
+  explicit `installer.js --instance desktop --stop` or uninstall.
+- **`LIFE-02` (`Quit and Stop Tasks` keeps stopped Tasks stopped on reopen):**
+  Triggering Quit while local tasks are running prompts with
+  **Quit and Stop Tasks** and **Keep Running**. Choosing **Keep Running** leaves
+  running tasks undisturbed. Choosing **Quit and Stop Tasks** cancels queued and
+  running Room Runs and drains active Computer Operations with the structured
+  stop-tasks cancellation reason before closing the Desktop app. When LingerX
+  reopens (~3 seconds later), tasks stopped via **Quit and Stop Tasks** remain
+  stopped (`canceled`) or `failed` and are **not** automatically re-dispatched
+  or resumed, and the tray returns to idle (`Online · Idle`).
+
 ## Release Files
 
 | File                                        | Contents                                                       |

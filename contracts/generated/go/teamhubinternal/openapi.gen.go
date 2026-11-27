@@ -757,16 +757,67 @@ func (e FinishAgentLocalRunRequestTerminalType) Valid() bool {
 
 // Defines values for HerdrAgentEventReportKind.
 const (
-	AgentBlocked  HerdrAgentEventReportKind = "agent_blocked"
-	AgentFinished HerdrAgentEventReportKind = "agent_finished"
+	HerdrAgentEventReportKindAgentBlocked  HerdrAgentEventReportKind = "agent_blocked"
+	HerdrAgentEventReportKindAgentFinished HerdrAgentEventReportKind = "agent_finished"
 )
 
 // Valid indicates whether the value is a known member of the HerdrAgentEventReportKind enum.
 func (e HerdrAgentEventReportKind) Valid() bool {
 	switch e {
-	case AgentBlocked:
+	case HerdrAgentEventReportKindAgentBlocked:
 		return true
-	case AgentFinished:
+	case HerdrAgentEventReportKindAgentFinished:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for HerdrCoreEventReportKind.
+const (
+	HerdrCoreEventReportKindAgentBlocked    HerdrCoreEventReportKind = "agent_blocked"
+	HerdrCoreEventReportKindAgentError      HerdrCoreEventReportKind = "agent_error"
+	HerdrCoreEventReportKindAgentFinished   HerdrCoreEventReportKind = "agent_finished"
+	HerdrCoreEventReportKindTerminalChanged HerdrCoreEventReportKind = "terminal_changed"
+)
+
+// Valid indicates whether the value is a known member of the HerdrCoreEventReportKind enum.
+func (e HerdrCoreEventReportKind) Valid() bool {
+	switch e {
+	case HerdrCoreEventReportKindAgentBlocked:
+		return true
+	case HerdrCoreEventReportKindAgentError:
+		return true
+	case HerdrCoreEventReportKindAgentFinished:
+		return true
+	case HerdrCoreEventReportKindTerminalChanged:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for HerdrCoreTerminalStatusState.
+const (
+	HerdrCoreTerminalStatusStateBlocked HerdrCoreTerminalStatusState = "blocked"
+	HerdrCoreTerminalStatusStateDone    HerdrCoreTerminalStatusState = "done"
+	HerdrCoreTerminalStatusStateError   HerdrCoreTerminalStatusState = "error"
+	HerdrCoreTerminalStatusStateIdle    HerdrCoreTerminalStatusState = "idle"
+	HerdrCoreTerminalStatusStateWorking HerdrCoreTerminalStatusState = "working"
+)
+
+// Valid indicates whether the value is a known member of the HerdrCoreTerminalStatusState enum.
+func (e HerdrCoreTerminalStatusState) Valid() bool {
+	switch e {
+	case HerdrCoreTerminalStatusStateBlocked:
+		return true
+	case HerdrCoreTerminalStatusStateDone:
+		return true
+	case HerdrCoreTerminalStatusStateError:
+		return true
+	case HerdrCoreTerminalStatusStateIdle:
+		return true
+	case HerdrCoreTerminalStatusStateWorking:
 		return true
 	default:
 		return false
@@ -2251,22 +2302,22 @@ func (e WorkItemPriority) Valid() bool {
 
 // Defines values for WorkItemResolution.
 const (
-	WorkItemResolutionCompleted  WorkItemResolution = "completed"
-	WorkItemResolutionDuplicate  WorkItemResolution = "duplicate"
-	WorkItemResolutionFailed     WorkItemResolution = "failed"
-	WorkItemResolutionNotPlanned WorkItemResolution = "not_planned"
+	Completed  WorkItemResolution = "completed"
+	Duplicate  WorkItemResolution = "duplicate"
+	Failed     WorkItemResolution = "failed"
+	NotPlanned WorkItemResolution = "not_planned"
 )
 
 // Valid indicates whether the value is a known member of the WorkItemResolution enum.
 func (e WorkItemResolution) Valid() bool {
 	switch e {
-	case WorkItemResolutionCompleted:
+	case Completed:
 		return true
-	case WorkItemResolutionDuplicate:
+	case Duplicate:
 		return true
-	case WorkItemResolutionFailed:
+	case Failed:
 		return true
-	case WorkItemResolutionNotPlanned:
+	case NotPlanned:
 		return true
 	default:
 		return false
@@ -3424,6 +3475,43 @@ type HerdrAgentEventReport struct {
 
 // HerdrAgentEventReportKind defines model for HerdrAgentEventReport.Kind.
 type HerdrAgentEventReportKind string
+
+// HerdrCoreEventReport defines model for HerdrCoreEventReport.
+type HerdrCoreEventReport struct {
+	Address    string                   `json:"address"`
+	ComputerId string                   `json:"computer_id"`
+	Cwd        *string                  `json:"cwd,omitempty"`
+	Kind       HerdrCoreEventReportKind `json:"kind"`
+	Labels     *map[string]string       `json:"labels,omitempty"`
+	Machine    *string                  `json:"machine,omitempty"`
+	Name       *string                  `json:"name,omitempty"`
+	Parent     *string                  `json:"parent,omitempty"`
+	Status     *HerdrCoreTerminalStatus `json:"status,omitempty"`
+	StatusMs   int64                    `json:"status_ms"`
+
+	// Tail Last lines of the terminal with obvious secrets redacted on the Computer.
+	Tail     *string `json:"tail,omitempty"`
+	Template *string `json:"template,omitempty"`
+	Title    *string `json:"title,omitempty"`
+	Turn     int64   `json:"turn"`
+}
+
+// HerdrCoreEventReportKind defines model for HerdrCoreEventReport.Kind.
+type HerdrCoreEventReportKind string
+
+// HerdrCoreTerminalStatus Current OSC 7501 status attached to a herdr-core terminal.
+type HerdrCoreTerminalStatus struct {
+	App      *string  `json:"app,omitempty"`
+	Msg      *string  `json:"msg,omitempty"`
+	Progress *float32 `json:"progress,omitempty"`
+
+	// State OSC 7501 agent status state reported by a herdr-core terminal.
+	State HerdrCoreTerminalStatusState `json:"state"`
+	Title *string                      `json:"title,omitempty"`
+}
+
+// HerdrCoreTerminalStatusState OSC 7501 agent status state reported by a herdr-core terminal.
+type HerdrCoreTerminalStatusState string
 
 // Id Opaque, case-sensitive identifier. Clients must not infer type or time from it.
 type Id = string
@@ -5187,6 +5275,9 @@ type AcceptAgentRuntimeTrustedNotificationJSONRequestBody = AcceptAgentTrustedNo
 
 // ConnectAgentRuntimeLocalComputerJSONRequestBody defines body for ConnectAgentRuntimeLocalComputer for application/json ContentType.
 type ConnectAgentRuntimeLocalComputerJSONRequestBody = ConnectAgentRuntimeLocalComputerRequest
+
+// ReportLocalComputerHerdrCoreEventJSONRequestBody defines body for ReportLocalComputerHerdrCoreEvent for application/json ContentType.
+type ReportLocalComputerHerdrCoreEventJSONRequestBody = HerdrCoreEventReport
 
 // ReportLocalComputerHerdrEventJSONRequestBody defines body for ReportLocalComputerHerdrEvent for application/json ContentType.
 type ReportLocalComputerHerdrEventJSONRequestBody = HerdrAgentEventReport

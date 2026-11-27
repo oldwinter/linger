@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 
@@ -84,6 +85,7 @@ func (c fakeClient) ShutdownIfIdle(context.Context) (object, error) {
 
 type fixture struct {
 	t          *testing.T
+	mu         sync.Mutex
 	root, home string
 	configPath string
 	deps       deps
@@ -92,7 +94,9 @@ type fixture struct {
 	stdin      string
 
 	// herdr is the doctor's herdr line; empty means herdr is not installed.
-	herdr            doctorCheck
+	herdr doctorCheck
+	// herdrCore is the doctor's herdr-core line; empty means hc is not installed.
+	herdrCore        doctorCheck
 	started          []string
 	inspected        []string
 	stopped          []string
@@ -130,7 +134,9 @@ func newFixture(t *testing.T) *fixture {
 		checkUserSession: func() error { return nil },
 		interruptible:    func(ctx context.Context) (context.Context, context.CancelFunc) { return context.WithCancel(ctx) },
 		checkRuntime: func(_ context.Context, runtimeType string, request runtimeRequest) (runtimeCheck, error) {
+			f.mu.Lock()
 			f.diagnoseInputs = append(f.diagnoseInputs, request.configuredPaths)
+			f.mu.Unlock()
 			for _, diagnostic := range runtimeFixtures(request.configuredPaths) {
 				if diagnostic.Type == runtimeType {
 					check := runtimeCheck{diagnostic: diagnostic}
@@ -143,7 +149,9 @@ func newFixture(t *testing.T) *fixture {
 			return runtimeCheck{}, errors.New("missing fixture")
 		},
 		diagnoseRuntimes: func(_ context.Context, configuredPaths, _ map[string]string, _ []string) ([]runtimeDiagnostic, error) {
+			f.mu.Lock()
 			f.diagnoseInputs = append(f.diagnoseInputs, configuredPaths)
+			f.mu.Unlock()
 			return runtimeFixtures(configuredPaths), nil
 		},
 		newClient: func(string) controlClient { return fakeClient{f: f} },
@@ -153,8 +161,9 @@ func newFixture(t *testing.T) *fixture {
 		probeGateway: func(context.Context, string) doctorCheck {
 			return doctorCheck{Name: "gateway-network", Category: categoryNetwork, Status: "pass", Detail: "reachable"}
 		},
-		productRuntime: func() doctorCheck { return productRuntimeCheck(productNodeVersion) },
-		inspectHerdr:   func(context.Context) (doctorCheck, bool) { return f.herdr, f.herdr.Name != "" },
+		productRuntime:   func() doctorCheck { return productRuntimeCheck(productNodeVersion) },
+		inspectHerdr:     func(context.Context) (doctorCheck, bool) { return f.herdr, f.herdr.Name != "" },
+		inspectHerdrCore: func(context.Context) (doctorCheck, bool) { return f.herdrCore, f.herdrCore.Name != "" },
 		readLogs: func(_ context.Context, request logRequest, output io.Writer) error {
 			f.logRequests = append(f.logRequests, request)
 			_, err := io.WriteString(output, "redacted log\n")

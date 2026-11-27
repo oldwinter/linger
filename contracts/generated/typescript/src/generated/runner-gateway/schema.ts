@@ -101,6 +101,9 @@ export const runnerGatewayEnvelopeSchema = {
           $ref: "#/$defs/RunnerHerdrEvent",
         },
         {
+          $ref: "#/$defs/RunnerHerdrCoreEvent",
+        },
+        {
           $ref: "#/$defs/RunnerLocalModels",
         },
         {
@@ -229,6 +232,8 @@ export const runnerGatewayEnvelopeSchema = {
         "runtime_failure_detail",
         "operation_background_wait",
         "dynamic_reasoning_efforts",
+        "herdr_core_v1",
+        "herdr_core_stream",
       ],
     },
     ReasoningEffort: {
@@ -4272,6 +4277,124 @@ export const runnerGatewayEnvelopeSchema = {
         },
       },
     },
+    RunnerHerdrCoreEvent: {
+      type: "object",
+      additionalProperties: false,
+      description:
+        "One herdr-core terminal state transition reported by the Computer when service_features includes herdr_core_v1.",
+      required: ["type", "protocol_version", "runner_id", "sent_at", "event"],
+      properties: {
+        type: {
+          const: "runner.herdr_core_event",
+        },
+        protocol_version: {
+          $ref: "#/$defs/ProtocolVersion",
+        },
+        runner_id: {
+          $ref: "#/$defs/Id",
+        },
+        sent_at: {
+          $ref: "#/$defs/Timestamp",
+        },
+        event: {
+          $ref: "#/$defs/HerdrCoreEvent",
+        },
+      },
+    },
+    HerdrCoreTerminalStatus: {
+      type: "object",
+      additionalProperties: false,
+      required: ["state"],
+      properties: {
+        state: {
+          enum: ["idle", "working", "done", "blocked", "error"],
+        },
+        app: {
+          type: "string",
+          maxLength: 120,
+        },
+        msg: {
+          type: "string",
+          maxLength: 2000,
+        },
+        progress: {
+          type: "number",
+          minimum: 0,
+          maximum: 100,
+        },
+        title: {
+          type: "string",
+          maxLength: 500,
+        },
+      },
+    },
+    HerdrCoreEvent: {
+      type: "object",
+      additionalProperties: false,
+      required: ["kind", "address", "turn", "status_ms"],
+      properties: {
+        kind: {
+          enum: [
+            "agent_blocked",
+            "agent_finished",
+            "agent_error",
+            "terminal_changed",
+          ],
+        },
+        address: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+        },
+        machine: {
+          type: "string",
+          maxLength: 128,
+        },
+        turn: {
+          $ref: "#/$defs/NonNegativeInteger",
+        },
+        status_ms: {
+          $ref: "#/$defs/NonNegativeInteger",
+        },
+        status: {
+          $ref: "#/$defs/HerdrCoreTerminalStatus",
+        },
+        name: {
+          type: "string",
+          maxLength: 256,
+        },
+        cwd: {
+          type: "string",
+          maxLength: 4096,
+        },
+        title: {
+          type: "string",
+          maxLength: 500,
+        },
+        template: {
+          type: "string",
+          maxLength: 120,
+        },
+        parent: {
+          type: "string",
+          maxLength: 256,
+        },
+        labels: {
+          type: "object",
+          maxProperties: 32,
+          additionalProperties: {
+            type: "string",
+            maxLength: 256,
+          },
+        },
+        tail: {
+          description:
+            "The last lines of the terminal, with obvious secrets redacted.",
+          type: "string",
+          maxLength: 8000,
+        },
+      },
+    },
     RunnerReconciled: {
       type: "object",
       additionalProperties: false,
@@ -6940,7 +7063,7 @@ export const runnerGatewayEnvelopeSchema = {
           $ref: "#/$defs/Id",
         },
         server: {
-          enum: ["browser", "playground", "herdr", "feishu_mail"],
+          enum: ["browser", "playground", "herdr", "herdr_core", "feishu_mail"],
         },
         tool_name: {
           type: "string",
