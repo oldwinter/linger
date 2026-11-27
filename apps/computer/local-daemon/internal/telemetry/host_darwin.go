@@ -5,6 +5,7 @@ package telemetry
 import (
 	"context"
 	"os"
+	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
@@ -230,6 +231,22 @@ func (h *hostSampler) sample(ctx context.Context, diskPath string, now time.Time
 	}
 
 	return sample
+}
+
+func configureSubprocess(*exec.Cmd) {}
+
+func normalizeClusterKind(name string) string {
+	lower := strings.ToLower(strings.TrimSpace(name))
+	switch {
+	case strings.Contains(lower, "super"):
+		return "super"
+	case strings.Contains(lower, "perf"):
+		return "performance"
+	case strings.Contains(lower, "effic"):
+		return "efficiency"
+	default:
+		return "generic"
+	}
 }
 
 func parseDarwinPSCPU(text string, totalCores uint64) (float64, bool) {

@@ -1750,11 +1750,11 @@ export interface components {
       /** Format: int64 */
       compute_buffer_bytes: number;
       /** Format: int64 */
-      os_wired_bytes: number;
+      os_wired_bytes?: number | null;
       /** Format: int64 */
       active_apps_bytes: number;
       /** Format: int64 */
-      compressed_bytes: number;
+      compressed_bytes?: number | null;
       /** Format: int64 */
       free_headroom_bytes: number;
       /** Format: int64 */
@@ -1779,10 +1779,10 @@ export interface components {
       swap_io_mb_s?: number | null;
     };
     /**
-     * @description Provenance of effective decode bandwidth. estimated means derived from active model weight footprint multiplied by live decode tokens/s.
+     * @description Provenance of memory bandwidth telemetry. estimated means effective decode bandwidth is derived from active model weight footprint multiplied by live decode tokens/s; spec means the hardware theoretical peak bandwidth is known while no model is actively decoding; unavailable means neither effective nor theoretical peak bandwidth is known.
      * @enum {string}
      */
-    SystemTelemetryBandwidthSource: "estimated" | "unavailable";
+    SystemTelemetryBandwidthSource: "estimated" | "spec" | "unavailable";
     SystemTelemetryBandwidth: {
       effective_decode_gb_s?: number | null;
       theoretical_gb_s?: number | null;
@@ -1815,6 +1815,7 @@ export interface components {
     };
     SystemTelemetryCpu: {
       total_cores: number;
+      logical_threads?: number | null;
       load_pct?: number | null;
       load_avg?: number[];
       clusters: components["schemas"]["SystemTelemetryCpuCluster"][];

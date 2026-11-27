@@ -35,8 +35,11 @@ type Options struct {
 	// SnapshotLocalModels returns the latest local-models library snapshot when installed.
 	SnapshotLocalModels func() *wire.LocalModelsSnapshot
 	// LocalModelsStateDir is the localmodels state directory holding library/models/*.json
-	// deploy records and downloaded weights cache.
+	// deploy records.
 	LocalModelsStateDir string
+	// LocalModelsBaseDir is the localmodels base directory (--base-dir) holding
+	// downloaded model weights.
+	LocalModelsBaseDir string
 	// DiskPath selects the filesystem checked for disk total/free bytes; defaults to "/".
 	DiskPath string
 	// Tracker records in-flight and completed local inference requests; if nil a new one is created.
@@ -58,6 +61,7 @@ type metricsObservation struct {
 type Collector struct {
 	snapshotLocalModels func() *wire.LocalModelsSnapshot
 	localModelsStateDir string
+	localModelsBaseDir  string
 	diskPath            string
 	tracker             *Tracker
 	now                 func() time.Time
@@ -104,6 +108,7 @@ func NewCollector(options Options) *Collector {
 	return &Collector{
 		snapshotLocalModels: options.SnapshotLocalModels,
 		localModelsStateDir: strings.TrimSpace(options.LocalModelsStateDir),
+		localModelsBaseDir:  strings.TrimSpace(options.LocalModelsBaseDir),
 		diskPath:            strings.TrimSpace(options.DiskPath),
 		tracker:             tracker,
 		now:                 now,
@@ -247,6 +252,34 @@ func buildHardwareTelemetry(
 
 	if raw.Architecture == "discrete" && raw.VRAMTotalBytes != nil && *raw.VRAMTotalBytes > 0 {
 		mem.TotalBytes = *raw.VRAMTotalBytes
+		// Guard against divergence when localmodels memory_bytes exceeds WDDM-reported VRAM.
+		if inferenceTotal > mem.TotalBytes {
+			overflow := inferenceTotal - mem.TotalBytes
+			if mem.ComputeBufferBytes >= overflow {
+				mem.ComputeBufferBytes -= overflow
+				overflow = 0
+			} else {
+				overflow -= mem.ComputeBufferBytes
+				mem.ComputeBufferBytes = 0
+			}
+			if overflow > 0 {
+				if mem.KvCacheBytes >= overflow {
+					mem.KvCacheBytes -= overflow
+					overflow = 0
+				} else {
+					overflow -= mem.KvCacheBytes
+					mem.KvCacheBytes = 0
+				}
+			}
+			if overflow > 0 {
+				if mem.ModelWeightsBytes >= overflow {
+					mem.ModelWeightsBytes -= overflow
+				} else {
+					mem.ModelWeightsBytes = 0
+				}
+			}
+			inferenceTotal = mem.ModelWeightsBytes + mem.KvCacheBytes + mem.ComputeBufferBytes
+		}
 		var vramUsed uint64
 		if raw.VRAMUsedBytes != nil {
 			vramUsed = min(*raw.VRAMUsedBytes, mem.TotalBytes)
@@ -259,13 +292,15 @@ func buildHardwareTelemetry(
 		mem.UsedBytes = vramUsed
 		if vramUsed > inferenceTotal {
 			mem.ActiveAppsBytes = vramUsed - inferenceTotal
+		} else {
+			mem.ActiveAppsBytes = 0
 		}
 		if mem.TotalBytes > mem.UsedBytes {
 			mem.FreeHeadroomBytes = mem.TotalBytes - mem.UsedBytes
 		}
 	} else {
 		mem.TotalBytes = systemTotal
-		mem.CompressedBytes = min(raw.CompressedBytes, systemTotal)
+		compressed := min(raw.CompressedBytes, systemTotal)
 		// Subtract GPU-pinned inference memory from raw OS wired/active pages to prevent double counting.
 		remainingInference := inferenceTotal
 		wired := raw.OSWiredBytes
@@ -282,9 +317,8 @@ func buildHardwareTelemetry(
 		} else {
 			apps = 0
 		}
-		mem.OsWiredBytes = wired
 		mem.ActiveAppsBytes = apps
-		sumUsed := mem.ModelWeightsBytes + mem.KvCacheBytes + mem.ComputeBufferBytes + mem.OsWiredBytes + mem.ActiveAppsBytes + mem.CompressedBytes
+		sumUsed := mem.ModelWeightsBytes + mem.KvCacheBytes + mem.ComputeBufferBytes + wired + mem.ActiveAppsBytes + compressed
 		if sumUsed > mem.TotalBytes {
 			// Cap active apps first so bar segments never overflow total RAM.
 			overflow := sumUsed - mem.TotalBytes
@@ -293,14 +327,16 @@ func buildHardwareTelemetry(
 			} else {
 				overflow -= mem.ActiveAppsBytes
 				mem.ActiveAppsBytes = 0
-				if mem.OsWiredBytes >= overflow {
-					mem.OsWiredBytes -= overflow
+				if wired >= overflow {
+					wired -= overflow
 				} else {
-					mem.OsWiredBytes = 0
+					wired = 0
 				}
 			}
-			sumUsed = min(mem.ModelWeightsBytes+mem.KvCacheBytes+mem.ComputeBufferBytes+mem.OsWiredBytes+mem.ActiveAppsBytes+mem.CompressedBytes, mem.TotalBytes)
+			sumUsed = min(mem.ModelWeightsBytes+mem.KvCacheBytes+mem.ComputeBufferBytes+wired+mem.ActiveAppsBytes+compressed, mem.TotalBytes)
 		}
+		mem.OsWiredBytes = &wired
+		mem.CompressedBytes = &compressed
 		mem.UsedBytes = sumUsed
 		if mem.TotalBytes > mem.UsedBytes {
 			mem.FreeHeadroomBytes = mem.TotalBytes - mem.UsedBytes
@@ -310,15 +346,17 @@ func buildHardwareTelemetry(
 	bw := wire.SystemTelemetryBandwidth{Source: "unavailable"}
 	if peak, ok := TheoreticalBandwidthGBs(raw.ChipName, raw.GPUName); ok {
 		bw.TheoreticalGbS = &peak
-		if loadedWeightsBytes > 0 {
+		if loadedWeightsBytes > 0 && liveDecodeTokS > 0 {
 			bw.Source = "estimated"
 			activeWeightsGB := float64(loadedWeightsBytes) / 1e9
-			eff := round1(activeWeightsGB * max(liveDecodeTokS, 0))
+			eff := round1(activeWeightsGB * liveDecodeTokS)
 			bw.EffectiveDecodeGbS = &eff
 			if peak > 0 {
 				util := round1(clampFloat((eff/peak)*100, 0, 100))
 				bw.UtilizationPct = &util
 			}
+		} else {
+			bw.Source = "spec"
 		}
 	}
 
@@ -345,10 +383,11 @@ func buildHardwareTelemetry(
 			ModelCacheBytes: modelCacheBytes,
 		},
 		Cpu: wire.SystemTelemetryCpu{
-			TotalCores: raw.CPUTotalCores,
-			LoadPct:    raw.CPULoadPct,
-			LoadAvg:    raw.LoadAvg,
-			Clusters:   clusters,
+			TotalCores:     raw.CPUTotalCores,
+			LogicalThreads: raw.CPULogicalThreads,
+			LoadPct:        raw.CPULoadPct,
+			LoadAvg:        raw.LoadAvg,
+			Clusters:       clusters,
 		},
 		Gpu:     raw.GPU,
 		Power:   raw.Power,
@@ -612,7 +651,8 @@ func (c *Collector) loopbackGet(ctx context.Context, rawURL, apiKey string, limi
 }
 
 func (c *Collector) modelCacheBytes(now time.Time) *uint64 {
-	if c.localModelsStateDir == "" {
+	modelsDir := c.resolveModelCacheDir()
+	if modelsDir == "" {
 		return nil
 	}
 	c.mu.Lock()
@@ -623,16 +663,32 @@ func (c *Collector) modelCacheBytes(now time.Time) *uint64 {
 	}
 	c.mu.Unlock()
 
-	modelsDir := filepath.Join(c.localModelsStateDir, "models")
-	if info, err := os.Stat(modelsDir); err != nil || !info.IsDir() {
-		return nil
-	}
 	total := sumRegularFileBytes(modelsDir)
 	c.mu.Lock()
 	c.cachedModelBytes = &total
 	c.cachedModelAt = now
 	c.mu.Unlock()
 	return &total
+}
+
+func (c *Collector) resolveModelCacheDir() string {
+	candidates := make([]string, 0, 3)
+	if c.localModelsBaseDir != "" {
+		candidates = append(candidates, c.localModelsBaseDir)
+	}
+	if c.localModelsStateDir != "" {
+		candidates = append(
+			candidates,
+			filepath.Clean(filepath.Join(c.localModelsStateDir, "..", "models")),
+			filepath.Join(c.localModelsStateDir, "models"),
+		)
+	}
+	for _, dir := range candidates {
+		if info, err := os.Stat(dir); err == nil && info.IsDir() {
+			return dir
+		}
+	}
+	return ""
 }
 
 func sumRegularFileBytes(dir string) uint64 {

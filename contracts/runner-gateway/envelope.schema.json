@@ -2028,9 +2028,7 @@
         "model_weights_bytes",
         "kv_cache_bytes",
         "compute_buffer_bytes",
-        "os_wired_bytes",
         "active_apps_bytes",
-        "compressed_bytes",
         "free_headroom_bytes",
         "system_ram_total_bytes",
         "system_ram_used_bytes",
@@ -2069,7 +2067,7 @@
         "effective_decode_gb_s": { "type": "number", "minimum": 0 },
         "theoretical_gb_s": { "type": "number", "minimum": 0 },
         "utilization_pct": { "type": "number", "minimum": 0 },
-        "source": { "enum": ["estimated", "unavailable"] }
+        "source": { "enum": ["estimated", "spec", "unavailable"] }
       }
     },
     "SystemTelemetryDisk": {
@@ -2089,6 +2087,7 @@
       "required": ["total_cores", "clusters"],
       "properties": {
         "total_cores": { "type": "integer", "minimum": 0, "maximum": 4096 },
+        "logical_threads": { "type": "integer", "minimum": 0, "maximum": 4096 },
         "load_pct": { "type": "number", "minimum": 0, "maximum": 100 },
         "load_avg": {
           "type": "array",

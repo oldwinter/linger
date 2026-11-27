@@ -5,7 +5,6 @@ import (
 	"context"
 	"os/exec"
 	"runtime"
-	"strings"
 	"time"
 
 	wire "github.com/simplexai-labs/linger/contracts-go/runnergateway"
@@ -44,6 +43,7 @@ type rawHostSample struct {
 	DiskTotalBytes             *uint64
 	DiskFreeBytes              *uint64
 	CPUTotalCores              uint64
+	CPULogicalThreads          *uint64
 	CPULoadPct                 *float64
 	LoadAvg                    []float64
 	CPUClusters                []wire.SystemTelemetryCpuCluster
@@ -68,24 +68,11 @@ func runCommandBounded(ctx context.Context, timeout time.Duration, name string, 
 	cmdCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(cmdCtx, name, args...)
+	configureSubprocess(cmd)
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	if err := cmd.Run(); err != nil {
 		return "", false
 	}
 	return out.String(), true
-}
-
-func normalizeClusterKind(name string) string {
-	lower := strings.ToLower(strings.TrimSpace(name))
-	switch {
-	case strings.Contains(lower, "super"):
-		return "super"
-	case strings.Contains(lower, "perf"):
-		return "performance"
-	case strings.Contains(lower, "effic"):
-		return "efficiency"
-	default:
-		return "generic"
-	}
 }

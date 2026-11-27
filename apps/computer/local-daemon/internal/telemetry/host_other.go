@@ -5,11 +5,14 @@ package telemetry
 import (
 	"context"
 	"os"
+	"os/exec"
 	"runtime"
 	"time"
 
 	wire "github.com/simplexai-labs/linger/contracts-go/runnergateway"
 )
+
+func configureSubprocess(*exec.Cmd) {}
 
 type hostSampler struct{}
 

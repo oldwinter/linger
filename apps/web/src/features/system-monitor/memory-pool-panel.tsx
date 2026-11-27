@@ -75,7 +75,7 @@ function buildMemorySegments(
       {
         id: "wired",
         label: t(m.segmentWired),
-        bytes: memory.os_wired_bytes,
+        bytes: memory.os_wired_bytes ?? 0,
         colorVar: "var(--telemetry-wired)",
         note: t(m.segmentWiredNote),
       },
@@ -89,7 +89,7 @@ function buildMemorySegments(
       {
         id: "compressed",
         label: t(m.segmentCompressed),
-        bytes: memory.compressed_bytes,
+        bytes: memory.compressed_bytes ?? 0,
         colorVar: "var(--telemetry-compressed)",
         note: t(m.segmentCompressedNote),
         hatch: "compressed",
@@ -110,8 +110,8 @@ function buildMemorySegments(
     memory.kv_cache_bytes +
     memory.compute_buffer_bytes;
   const otherGpu = Math.max(0, primaryUsed - modelTotal);
-  const freeVram =
-    memory.vram_free_bytes ?? Math.max(0, primaryTotal - primaryUsed);
+  const allocated = Math.min(primaryTotal, modelTotal + otherGpu);
+  const freeVram = Math.max(0, primaryTotal - allocated);
 
   return [
     {
@@ -170,7 +170,10 @@ export function MemoryPoolPanel({
     : (memory.vram_total_bytes ?? memory.total_bytes);
   const primaryUsed = isUma
     ? memory.used_bytes
-    : (memory.vram_used_bytes ?? memory.used_bytes);
+    : Math.min(
+        primaryTotal,
+        Math.max(memory.used_bytes, memory.vram_used_bytes ?? 0),
+      );
 
   const kvNote =
     inference.kv_cache_tokens_capacity > 0 &&

@@ -2296,9 +2296,9 @@ export interface SystemTelemetryMemory {
   model_weights_bytes: NonNegativeInteger;
   kv_cache_bytes: NonNegativeInteger;
   compute_buffer_bytes: NonNegativeInteger;
-  os_wired_bytes: NonNegativeInteger;
+  os_wired_bytes?: NonNegativeInteger;
   active_apps_bytes: NonNegativeInteger;
-  compressed_bytes: NonNegativeInteger;
+  compressed_bytes?: NonNegativeInteger;
   free_headroom_bytes: NonNegativeInteger;
   vram_total_bytes?: NonNegativeInteger;
   vram_used_bytes?: NonNegativeInteger;
@@ -2315,7 +2315,7 @@ export interface SystemTelemetryBandwidth {
   effective_decode_gb_s?: number;
   theoretical_gb_s?: number;
   utilization_pct?: number;
-  source: "estimated" | "unavailable";
+  source: "estimated" | "spec" | "unavailable";
 }
 export interface SystemTelemetryDisk {
   total_bytes?: NonNegativeInteger;
@@ -2326,6 +2326,7 @@ export interface SystemTelemetryDisk {
 }
 export interface SystemTelemetryCpu {
   total_cores: number;
+  logical_threads?: number;
   load_pct?: number;
   /**
    * @minItems 3

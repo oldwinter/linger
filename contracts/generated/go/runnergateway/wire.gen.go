@@ -1080,9 +1080,9 @@ type SystemTelemetryMemory struct {
 	ModelWeightsBytes          uint64   `json:"model_weights_bytes"`
 	KvCacheBytes               uint64   `json:"kv_cache_bytes"`
 	ComputeBufferBytes         uint64   `json:"compute_buffer_bytes"`
-	OsWiredBytes               uint64   `json:"os_wired_bytes"`
+	OsWiredBytes               *uint64  `json:"os_wired_bytes,omitempty"`
 	ActiveAppsBytes            uint64   `json:"active_apps_bytes"`
-	CompressedBytes            uint64   `json:"compressed_bytes"`
+	CompressedBytes            *uint64  `json:"compressed_bytes,omitempty"`
 	FreeHeadroomBytes          uint64   `json:"free_headroom_bytes"`
 	VramTotalBytes             *uint64  `json:"vram_total_bytes,omitempty"`
 	VramUsedBytes              *uint64  `json:"vram_used_bytes,omitempty"`
@@ -1101,7 +1101,7 @@ func (SystemTelemetryMemory) FixedFields() map[string]string { return nil }
 
 // RequiredFields lists the keys a SystemTelemetryMemory must carry.
 func (SystemTelemetryMemory) RequiredFields() []string {
-	return []string{"total_bytes", "used_bytes", "model_weights_bytes", "kv_cache_bytes", "compute_buffer_bytes", "os_wired_bytes", "active_apps_bytes", "compressed_bytes", "free_headroom_bytes", "system_ram_total_bytes", "system_ram_used_bytes", "system_ram_available_bytes"}
+	return []string{"total_bytes", "used_bytes", "model_weights_bytes", "kv_cache_bytes", "compute_buffer_bytes", "active_apps_bytes", "free_headroom_bytes", "system_ram_total_bytes", "system_ram_used_bytes", "system_ram_available_bytes"}
 }
 
 // SystemTelemetryBandwidth mirrors the SystemTelemetryBandwidth schema shape.
@@ -1135,10 +1135,11 @@ func (SystemTelemetryDisk) RequiredFields() []string { return nil }
 
 // SystemTelemetryCpu mirrors the SystemTelemetryCpu schema shape.
 type SystemTelemetryCpu struct {
-	TotalCores uint64                      `json:"total_cores"`
-	LoadPct    *float64                    `json:"load_pct,omitempty"`
-	LoadAvg    []float64                   `json:"load_avg,omitempty"`
-	Clusters   []SystemTelemetryCpuCluster `json:"clusters"`
+	TotalCores     uint64                      `json:"total_cores"`
+	LogicalThreads *uint64                     `json:"logical_threads,omitempty"`
+	LoadPct        *float64                    `json:"load_pct,omitempty"`
+	LoadAvg        []float64                   `json:"load_avg,omitempty"`
+	Clusters       []SystemTelemetryCpuCluster `json:"clusters"`
 }
 
 // FixedFields lists the keys whose value the schema fixes for a SystemTelemetryCpu.

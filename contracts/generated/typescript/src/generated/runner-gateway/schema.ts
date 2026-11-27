@@ -2064,9 +2064,7 @@ export const runnerGatewayEnvelopeSchema = {
         "model_weights_bytes",
         "kv_cache_bytes",
         "compute_buffer_bytes",
-        "os_wired_bytes",
         "active_apps_bytes",
-        "compressed_bytes",
         "free_headroom_bytes",
         "system_ram_total_bytes",
         "system_ram_used_bytes",
@@ -2154,7 +2152,7 @@ export const runnerGatewayEnvelopeSchema = {
           minimum: 0,
         },
         source: {
-          enum: ["estimated", "unavailable"],
+          enum: ["estimated", "spec", "unavailable"],
         },
       },
     },
@@ -2187,6 +2185,11 @@ export const runnerGatewayEnvelopeSchema = {
       required: ["total_cores", "clusters"],
       properties: {
         total_cores: {
+          type: "integer",
+          minimum: 0,
+          maximum: 4096,
+        },
+        logical_threads: {
           type: "integer",
           minimum: 0,
           maximum: 4096,

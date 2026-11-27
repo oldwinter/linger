@@ -1,6 +1,7 @@
 package telemetry
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"math"
 	"regexp"
@@ -392,6 +393,187 @@ func normalizeNvidiaThrottleReason(raw string) string {
 		return "hw_slowdown"
 	}
 	return ""
+}
+
+// ParseNvidiaSMITemperature extracts the primary GPU's absolute thermal throttle
+// limit in degrees Celsius from `nvidia-smi -q -d TEMPERATURE` output.
+// Modern drivers report headroom-to-limit in `GPU T.Limit Temp`; this parser
+// never treats bare headroom values as absolute Celsius thresholds.
+func ParseNvidiaSMITemperature(text string) (float64, bool) {
+	var seenGPU bool
+	var targetTemp, maxOpTemp, slowdownTemp *float64
+	var currentTemp, tLimitTemp, maxOpTLimit *float64
+
+	for _, rawLine := range strings.Split(text, "\n") {
+		line := strings.TrimRight(rawLine, "\r")
+		if !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") && strings.HasPrefix(line, "GPU ") {
+			if seenGPU {
+				break
+			}
+			seenGPU = true
+			continue
+		}
+		key, val, ok := strings.Cut(line, ":")
+		if !ok {
+			continue
+		}
+		k := strings.TrimSpace(key)
+		parsed, hasVal := parseNvidiaCelsius(val)
+		if !hasVal {
+			continue
+		}
+		switch k {
+		case "GPU Target Temperature":
+			v := parsed
+			targetTemp = &v
+		case "GPU Max Operating Temp":
+			v := parsed
+			maxOpTemp = &v
+		case "GPU Slowdown Temp":
+			v := parsed
+			slowdownTemp = &v
+		case "GPU Current Temp":
+			v := parsed
+			currentTemp = &v
+		case "GPU T.Limit Temp":
+			v := parsed
+			tLimitTemp = &v
+		case "GPU Max Operating T.Limit Temp":
+			v := parsed
+			maxOpTLimit = &v
+		}
+	}
+
+	validLimit := func(v float64) bool {
+		return !math.IsNaN(v) && !math.IsInf(v, 0) && v >= 30 && v <= 125
+	}
+	if targetTemp != nil && validLimit(*targetTemp) {
+		return *targetTemp, true
+	}
+	if maxOpTemp != nil && validLimit(*maxOpTemp) {
+		return *maxOpTemp, true
+	}
+	if slowdownTemp != nil && validLimit(*slowdownTemp) {
+		return *slowdownTemp, true
+	}
+	if currentTemp != nil && tLimitTemp != nil {
+		offset := 0.0
+		if maxOpTLimit != nil {
+			offset = *maxOpTLimit
+		}
+		absLimit := *currentTemp + *tLimitTemp - offset
+		if validLimit(absLimit) {
+			return math.Round(absLimit*10) / 10, true
+		}
+	}
+	return 0, false
+}
+
+func parseNvidiaCelsius(raw string) (float64, bool) {
+	cleaned := strings.TrimSpace(raw)
+	if cleaned == "" || strings.EqualFold(cleaned, "N/A") || strings.EqualFold(cleaned, "[N/A]") || strings.EqualFold(cleaned, "[Not Supported]") {
+		return 0, false
+	}
+	fields := strings.Fields(cleaned)
+	if len(fields) == 0 {
+		return 0, false
+	}
+	v, err := strconv.ParseFloat(fields[0], 64)
+	if err != nil || math.IsNaN(v) || math.IsInf(v, 0) {
+		return 0, false
+	}
+	return v, true
+}
+
+// ParseWindowsPagefileInfo decodes the SYSTEM_PAGEFILE_INFORMATION array returned
+// by Windows NtQuerySystemInformation(SystemPageFileInformation) into used and
+// total pagefile bytes.
+func ParseWindowsPagefileInfo(buf []byte, pageSize uint64) (usedBytes, totalBytes uint64, ok bool) {
+	if pageSize == 0 {
+		return 0, 0, false
+	}
+	if len(buf) == 0 {
+		return 0, 0, true
+	}
+	const minHeaderBytes = 16
+	offset := 0
+	for {
+		if offset+minHeaderBytes > len(buf) {
+			return 0, 0, false
+		}
+		nextOffset := binary.LittleEndian.Uint32(buf[offset : offset+4])
+		totalPages := binary.LittleEndian.Uint32(buf[offset+4 : offset+8])
+		inUsePages := binary.LittleEndian.Uint32(buf[offset+8 : offset+12])
+		totalBytes += uint64(totalPages) * pageSize
+		usedBytes += uint64(min(inUsePages, totalPages)) * pageSize
+		if nextOffset == 0 {
+			return usedBytes, totalBytes, true
+		}
+		if int(nextOffset) < minHeaderBytes || offset+int(nextOffset) > len(buf) {
+			return 0, 0, false
+		}
+		offset += int(nextOffset)
+	}
+}
+
+// ParseWindowsLogicalProcessorInfoEx counts RelationProcessorCore records in a
+// Windows GetLogicalProcessorInformationEx buffer to report physical CPU cores.
+func ParseWindowsLogicalProcessorInfoEx(buf []byte) (uint64, bool) {
+	if len(buf) < 8 {
+		return 0, false
+	}
+	var cores uint64
+	offset := 0
+	for offset < len(buf) {
+		if offset+8 > len(buf) {
+			return 0, false
+		}
+		relationship := binary.LittleEndian.Uint32(buf[offset : offset+4])
+		size := binary.LittleEndian.Uint32(buf[offset+4 : offset+8])
+		if size < 8 || offset+int(size) > len(buf) {
+			return 0, false
+		}
+		if relationship == 0 {
+			cores++
+		}
+		offset += int(size)
+	}
+	return cores, cores > 0
+}
+
+// NormalizeWindowsCPUBrand trims padding and collapses internal spaces from the
+// Windows ProcessorNameString registry value.
+func NormalizeWindowsCPUBrand(raw string) string {
+	return strings.TrimSpace(multiSpace.ReplaceAllString(raw, " "))
+}
+
+// FormatWindowsOSLabel builds a human-readable Windows version string from
+// HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion values, normalizing the
+// Windows 11 registry ProductName quirk for builds >= 22000.
+func FormatWindowsOSLabel(productName, displayVersion, currentBuildNumber string) string {
+	product := strings.TrimSpace(multiSpace.ReplaceAllString(productName, " "))
+	display := strings.TrimSpace(displayVersion)
+	buildStr := strings.TrimSpace(currentBuildNumber)
+
+	build, buildErr := strconv.Atoi(buildStr)
+	if buildErr == nil && build >= 22000 {
+		if strings.HasPrefix(product, "Windows 10") {
+			product = "Windows 11" + strings.TrimPrefix(product, "Windows 10")
+		} else if product == "" {
+			product = "Windows 11"
+		}
+	}
+	if product == "" {
+		product = "Windows"
+	}
+	label := product
+	if display != "" && !strings.Contains(strings.ToLower(label), strings.ToLower(display)) {
+		label += " " + display
+	}
+	if buildErr == nil && build > 0 {
+		label += " (" + strconv.Itoa(build) + ")"
+	}
+	return label
 }
 
 // ParseProcMeminfo parses Linux /proc/meminfo into byte counts.
