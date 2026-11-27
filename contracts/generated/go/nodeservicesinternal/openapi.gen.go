@@ -1349,6 +1349,7 @@ func (e SystemTelemetryArch) Valid() bool {
 // Defines values for SystemTelemetryArchitecture.
 const (
 	SystemTelemetryArchitectureDiscrete SystemTelemetryArchitecture = "discrete"
+	SystemTelemetryArchitectureHost     SystemTelemetryArchitecture = "host"
 	SystemTelemetryArchitectureUma      SystemTelemetryArchitecture = "uma"
 )
 
@@ -1356,6 +1357,8 @@ const (
 func (e SystemTelemetryArchitecture) Valid() bool {
 	switch e {
 	case SystemTelemetryArchitectureDiscrete:
+		return true
+	case SystemTelemetryArchitectureHost:
 		return true
 	case SystemTelemetryArchitectureUma:
 		return true
@@ -3107,7 +3110,7 @@ type StateVector = string
 // SystemTelemetryArch defines model for SystemTelemetryArch.
 type SystemTelemetryArch string
 
-// SystemTelemetryArchitecture Host memory architecture class.
+// SystemTelemetryArchitecture Host memory architecture class. uma is verified unified memory (e.g. Apple Silicon); discrete has dedicated GPU VRAM separate from host RAM; host is standard system RAM without verified UMA or discrete VRAM telemetry.
 type SystemTelemetryArchitecture string
 
 // SystemTelemetryBandwidth defines model for SystemTelemetryBandwidth.
@@ -3185,7 +3188,7 @@ type SystemTelemetryHardware struct {
 	AneCores *int                `json:"ane_cores,omitempty"`
 	Arch     SystemTelemetryArch `json:"arch"`
 
-	// Architecture Host memory architecture class.
+	// Architecture Host memory architecture class. uma is verified unified memory (e.g. Apple Silicon); discrete has dedicated GPU VRAM separate from host RAM; host is standard system RAM without verified UMA or discrete VRAM telemetry.
 	Architecture SystemTelemetryArchitecture `json:"architecture"`
 	Bandwidth    SystemTelemetryBandwidth    `json:"bandwidth"`
 	ChipName     string                      `json:"chip_name"`

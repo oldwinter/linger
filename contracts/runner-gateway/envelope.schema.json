@@ -2167,7 +2167,7 @@
         "thermal"
       ],
       "properties": {
-        "architecture": { "enum": ["uma", "discrete"] },
+        "architecture": { "enum": ["uma", "discrete", "host"] },
         "platform": { "enum": ["darwin", "linux", "windows"] },
         "arch": { "enum": ["x86_64", "arm64"] },
         "hostname": { "type": "string", "maxLength": 200 },

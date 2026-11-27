@@ -527,6 +527,24 @@ func TestParseWindowsLogicalProcessorInfoExAndIdentity(t *testing.T) {
 			t.Fatalf("FormatWindowsOSLabel(%q,%q,%q)=%q, want %q", tc.product, tc.display, tc.build, got, tc.want)
 		}
 	}
+
+	volCases := []struct {
+		diskPath string
+		baseDir  string
+		want     string
+	}{
+		{"", `D:\linger\runtime\localmodels\models`, `D:\`},
+		{"", `d:/custom/models`, `D:\`},
+		{`E:\data`, `D:\linger\models`, `E:\`},
+		{"", `\\nas01\models\linger`, `\\nas01\models\`},
+		{"", `relative/path`, `C:\`},
+		{"", "", `C:\`},
+	}
+	for _, tc := range volCases {
+		if got := ResolveWindowsDiskVolume(tc.diskPath, tc.baseDir); got != tc.want {
+			t.Fatalf("ResolveWindowsDiskVolume(%q,%q)=%q, want %q", tc.diskPath, tc.baseDir, got, tc.want)
+		}
+	}
 }
 
 func TestModelCacheBytesResolution(t *testing.T) {
@@ -643,6 +661,31 @@ func TestDiscreteHardwareTelemetrySemantics(t *testing.T) {
 	sumSegments := spillover.Memory.ModelWeightsBytes + spillover.Memory.KvCacheBytes + spillover.Memory.ComputeBufferBytes + spillover.Memory.ActiveAppsBytes + spillover.Memory.FreeHeadroomBytes
 	if spillover.Memory.ActiveAppsBytes != 0 || spillover.Memory.UsedBytes != 16*GiB || sumSegments != 16*GiB {
 		t.Fatalf("unexpected spillover memory math: %+v (sum=%d)", spillover.Memory, sumSegments)
+	}
+
+	// Windows host without nvidia-smi stays "host" (never falsely "uma") and omits macOS-only wired/compressed fields.
+	winHostRaw := rawHostSample{
+		Architecture:            "host",
+		Platform:                "windows",
+		Arch:                    "x86_64",
+		Hostname:                "home-win-no-smi",
+		ChipName:                "AMD Ryzen 5 7500F 6-Core Processor",
+		OSLabel:                 "Windows 11 Pro 24H2 (26200)",
+		SystemRAMTotalBytes:     32 * GiB,
+		SystemRAMAvailableBytes: 18 * GiB,
+		ActiveAppsBytes:         14 * GiB,
+		CPUTotalCores:           6,
+		CPULogicalThreads:       &threads,
+	}
+	winHostHW := buildHardwareTelemetry(winHostRaw, nil, nil, 0, 0, 0, 0)
+	if winHostHW.Architecture != "host" {
+		t.Fatalf("expected host architecture when no GPU telemetry, got %q", winHostHW.Architecture)
+	}
+	if winHostHW.Memory.OsWiredBytes != nil || winHostHW.Memory.CompressedBytes != nil {
+		t.Fatalf("expected Windows host architecture to omit UMA-only fields, got wired=%v compressed=%v", winHostHW.Memory.OsWiredBytes, winHostHW.Memory.CompressedBytes)
+	}
+	if winHostHW.Memory.TotalBytes != 32*GiB || winHostHW.Memory.UsedBytes != 14*GiB || winHostHW.Memory.FreeHeadroomBytes != 18*GiB {
+		t.Fatalf("unexpected Windows host memory breakdown: %+v", winHostHW.Memory)
 	}
 }
 

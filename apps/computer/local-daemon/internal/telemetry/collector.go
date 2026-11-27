@@ -143,7 +143,7 @@ func (c *Collector) Sample(ctx context.Context) (wire.SystemTelemetrySnapshot, e
 	}
 	c.mu.Unlock()
 
-	rawHost := c.host.sample(ctx, c.diskPath, now)
+	rawHost := c.host.sample(ctx, c.effectiveDiskPath(), now)
 	var library *wire.LocalModelsSnapshot
 	if c.snapshotLocalModels != nil {
 		library = c.snapshotLocalModels()
@@ -335,8 +335,10 @@ func buildHardwareTelemetry(
 			}
 			sumUsed = min(mem.ModelWeightsBytes+mem.KvCacheBytes+mem.ComputeBufferBytes+wired+mem.ActiveAppsBytes+compressed, mem.TotalBytes)
 		}
-		mem.OsWiredBytes = &wired
-		mem.CompressedBytes = &compressed
+		if raw.Architecture == "uma" || raw.Platform != "windows" {
+			mem.OsWiredBytes = &wired
+			mem.CompressedBytes = &compressed
+		}
 		mem.UsedBytes = sumUsed
 		if mem.TotalBytes > mem.UsedBytes {
 			mem.FreeHeadroomBytes = mem.TotalBytes - mem.UsedBytes
@@ -669,6 +671,16 @@ func (c *Collector) modelCacheBytes(now time.Time) *uint64 {
 	c.cachedModelAt = now
 	c.mu.Unlock()
 	return &total
+}
+
+func (c *Collector) effectiveDiskPath() string {
+	if c.diskPath != "" {
+		return c.diskPath
+	}
+	if c.localModelsBaseDir != "" {
+		return c.localModelsBaseDir
+	}
+	return ""
 }
 
 func (c *Collector) resolveModelCacheDir() string {

@@ -2272,7 +2272,7 @@ export interface SystemTelemetrySnapshot {
   inference: SystemTelemetryInference;
 }
 export interface SystemTelemetryHardware {
-  architecture: "uma" | "discrete";
+  architecture: "uma" | "discrete" | "host";
   platform: "darwin" | "linux" | "windows";
   arch: "x86_64" | "arm64";
   hostname: string;

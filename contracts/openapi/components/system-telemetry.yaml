@@ -10,11 +10,19 @@ components:
             $ref: "#/components/schemas/SystemTelemetryErrorResponse"
   schemas:
     SystemTelemetryArchitecture:
-      description: Host memory architecture class.
+      description: >-
+        Host memory architecture class. uma is verified unified memory (e.g.
+        Apple Silicon); discrete has dedicated GPU VRAM separate from host RAM;
+        host is standard system RAM without verified UMA or discrete VRAM
+        telemetry.
       type: string
-      enum: [uma, discrete]
+      enum: [uma, discrete, host]
       x-enum-varnames:
-        [SystemTelemetryArchitectureUma, SystemTelemetryArchitectureDiscrete]
+        [
+          SystemTelemetryArchitectureUma,
+          SystemTelemetryArchitectureDiscrete,
+          SystemTelemetryArchitectureHost,
+        ]
     SystemTelemetryPlatform:
       type: string
       enum: [darwin, linux, windows]

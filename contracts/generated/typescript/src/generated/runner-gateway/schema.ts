@@ -2347,7 +2347,7 @@ export const runnerGatewayEnvelopeSchema = {
       ],
       properties: {
         architecture: {
-          enum: ["uma", "discrete"],
+          enum: ["uma", "discrete", "host"],
         },
         platform: {
           enum: ["darwin", "linux", "windows"],

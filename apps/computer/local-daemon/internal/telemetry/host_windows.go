@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -53,7 +54,7 @@ type hostSampler struct {
 	prevKernel     uint64
 	prevUser       uint64
 	hasPrevTimes   bool
-	nvidiaMeta     nvidiaMetaCache
+	nvidia         nvidiaSampler
 }
 
 func newHostSampler() *hostSampler {
@@ -103,7 +104,7 @@ func (h *hostSampler) sample(ctx context.Context, diskPath string, now time.Time
 	}
 
 	sample := rawHostSample{
-		Architecture:      "uma",
+		Architecture:      "host",
 		Platform:          "windows",
 		Arch:              wireArch(),
 		Hostname:          clipTelemetryString(hostname, 200),
@@ -174,23 +175,37 @@ func (h *hostSampler) sample(ctx context.Context, diskPath string, now time.Time
 		h.mu.Unlock()
 	}
 
-	if gpus, ok := sampleNvidiaSMI(ctx); ok {
-		throttleC := h.nvidiaMeta.throttleTemp(ctx, now)
+	if gpus, throttleC, ok := h.nvidia.sample(ctx, now); ok {
 		applyNvidiaSamples(&sample, gpus, throttleC)
 	}
 
-	if diskPath == "" {
-		diskPath = `C:\`
+	sampleWindowsDisk(diskPath, &sample)
+
+	return sample
+}
+
+func sampleWindowsDisk(diskPath string, sample *rawHostSample) {
+	vol := ResolveWindowsDiskVolume(diskPath, "")
+	candidates := make([]string, 0, 3)
+	if trimmed := strings.TrimSpace(diskPath); trimmed != "" && !strings.EqualFold(trimmed, vol) {
+		candidates = append(candidates, trimmed)
 	}
-	if ptr, err := windows.UTF16PtrFromString(diskPath); err == nil {
+	candidates = append(candidates, vol)
+	if !strings.EqualFold(vol, `C:\`) {
+		candidates = append(candidates, `C:\`)
+	}
+	for _, target := range candidates {
+		ptr, err := windows.UTF16PtrFromString(target)
+		if err != nil {
+			continue
+		}
 		var freeAvail, totalBytes, totalFree uint64
 		if err := windows.GetDiskFreeSpaceEx(ptr, &freeAvail, &totalBytes, &totalFree); err == nil && totalBytes > 0 {
 			sample.DiskTotalBytes = &totalBytes
 			sample.DiskFreeBytes = &freeAvail
+			return
 		}
 	}
-
-	return sample
 }
 
 func configureSubprocess(cmd *exec.Cmd) {

@@ -4286,6 +4286,7 @@
     "memoryRegion": "内存分配明细",
     "unifiedMemoryTitle": "统一内存池",
     "discreteVramTitle": "显存池",
+    "systemMemoryTitle": "系统内存",
     "hostSystemRamTitle": "主机系统内存",
     "memoryUsedOfTotal": "已用 {used} / 共 {total}",
     "memoryWorkingSetSummary": "Metal 工作集 {size}",

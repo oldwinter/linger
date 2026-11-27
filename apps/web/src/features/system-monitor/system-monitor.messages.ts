@@ -63,6 +63,7 @@ export const systemMonitorMessages = defineMessages("systemMonitor", {
   memoryRegion: "Memory allocation breakdown",
   unifiedMemoryTitle: "Unified Memory Pool",
   discreteVramTitle: "VRAM Pool",
+  systemMemoryTitle: "System Memory",
   hostSystemRamTitle: "Host System RAM",
   memoryUsedOfTotal: "{used} used of {total}",
   memoryWorkingSetSummary: "Metal Working Set {size}",

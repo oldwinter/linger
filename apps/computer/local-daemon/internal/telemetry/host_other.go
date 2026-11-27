@@ -22,7 +22,7 @@ func (h *hostSampler) sample(_ context.Context, _ string, _ time.Time) rawHostSa
 	hostname, _ := os.Hostname()
 	cores := uint64(max(runtime.NumCPU(), 1))
 	return rawHostSample{
-		Architecture:  "uma",
+		Architecture:  "host",
 		Platform:      wirePlatform(),
 		Arch:          wireArch(),
 		Hostname:      clipTelemetryString(hostname, 200),

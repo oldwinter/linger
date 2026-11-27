@@ -725,6 +725,54 @@ describe("SystemMonitorPage (Magpie Cockpit)", () => {
     ).toBeVisible();
   });
 
+  it("renders host architecture as System Memory without UMA working-set marker or duplicate host RAM bar", async () => {
+    const sse = createFakeEventSourceHarness();
+    const hostSnap = umaSnapshot();
+    hostSnap.hardware = {
+      ...hostSnap.hardware,
+      architecture: "host",
+      platform: "windows",
+      arch: "x86_64",
+      chip_name: "AMD Ryzen 5 7500F 6-Core Processor",
+      os_label: "Windows 11 Pro 24H2 (26200)",
+      memory: {
+        total_bytes: 32 * GiB,
+        used_bytes: 14 * GiB,
+        model_weights_bytes: 0,
+        kv_cache_bytes: 0,
+        compute_buffer_bytes: 0,
+        active_apps_bytes: 14 * GiB,
+        free_headroom_bytes: 18 * GiB,
+        system_ram_total_bytes: 32 * GiB,
+        system_ram_used_bytes: 14 * GiB,
+        system_ram_available_bytes: 18 * GiB,
+        memory_pressure: "normal",
+      },
+    };
+    const runtime = setupRuntime({
+      "comp-host": makeView("comp-host", "CPU-only PC", {
+        telemetry: hostSnap,
+      }),
+    });
+
+    const { container } = renderSystemMonitor({
+      eventSourceFactory: sse.factory,
+      runtime,
+    });
+
+    expect(await screen.findByText("System Memory")).toBeVisible();
+    expect(screen.queryByText("Unified Memory Pool")).not.toBeInTheDocument();
+    expect(screen.queryByText("VRAM Pool")).not.toBeInTheDocument();
+    expect(
+      container.querySelector("[data-working-set-marker]"),
+    ).not.toBeInTheDocument();
+    expect(
+      container.querySelector("[data-discrete-host-ram]"),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("OS Wired")).not.toBeInTheDocument();
+    expect(screen.queryByText("Compressed")).not.toBeInTheDocument();
+  });
+
   it("toggles Compact and Verbose modes and expands request waterfalls", async () => {
     const sse = createFakeEventSourceHarness();
     const runtime = setupRuntime({

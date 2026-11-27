@@ -9,51 +9,146 @@ import (
 	"time"
 )
 
-const nvidiaThermalMetaTTL = 5 * time.Minute
+const (
+	nvidiaDynamicSampleTTL = 1200 * time.Millisecond
+	nvidiaRetryBackoffTTL  = 60 * time.Second
+)
 
-type nvidiaMetaCache struct {
-	mu            sync.Mutex
-	fetchedAt     time.Time
-	hasAttempted  bool
-	throttleTempC *float64
+type nvidiaCommandRunner func(ctx context.Context, args ...string) (string, bool)
+
+type nvidiaSampler struct {
+	mu sync.Mutex
+
+	// run overrides nvidia-smi execution in unit tests.
+	run nvidiaCommandRunner
+
+	smiPath        string
+	smiMissingAt   time.Time
+	hasMissingPath bool
+
+	lastSamples    []NvidiaGPUSample
+	lastSampleAt   time.Time
+	hasLastSamples bool
+
+	// Static GPU specs cached once per collector lifetime.
+	staticThermalDone  bool
+	staticThermalTryAt time.Time
+	throttleTempC      *float64
+	staticMaxFreqMHz   *float64
 }
 
-func (c *nvidiaMetaCache) throttleTemp(ctx context.Context, now time.Time) *float64 {
-	c.mu.Lock()
-	if c.hasAttempted && now.Sub(c.fetchedAt) < nvidiaThermalMetaTTL {
-		cached := cloneFloatPtr(c.throttleTempC)
-		c.mu.Unlock()
-		return cached
-	}
-	c.mu.Unlock()
+func (n *nvidiaSampler) execSMI(ctx context.Context, now time.Time, args ...string) (string, bool) {
+	n.mu.Lock()
+	runner := n.run
+	cachedPath := n.smiPath
+	missing := n.hasMissingPath && now.Sub(n.smiMissingAt) < nvidiaRetryBackoffTTL
+	n.mu.Unlock()
 
-	var parsed *float64
-	if smi, err := exec.LookPath("nvidia-smi"); err == nil {
-		if out, ok := runCommandBounded(ctx, hostCommandTimeout, smi, "-q", "-d", "TEMPERATURE"); ok {
-			if limitC, ok := ParseNvidiaSMITemperature(out); ok {
+	if runner != nil {
+		return runner(ctx, args...)
+	}
+	if missing {
+		return "", false
+	}
+	smi := cachedPath
+	if smi == "" {
+		found, err := exec.LookPath("nvidia-smi")
+		if err != nil {
+			n.mu.Lock()
+			n.hasMissingPath = true
+			n.smiMissingAt = now
+			n.mu.Unlock()
+			return "", false
+		}
+		smi = found
+		n.mu.Lock()
+		n.smiPath = smi
+		n.hasMissingPath = false
+		n.mu.Unlock()
+	}
+	return runCommandBounded(ctx, hostCommandTimeout, smi, args...)
+}
+
+func (n *nvidiaSampler) sample(ctx context.Context, now time.Time) ([]NvidiaGPUSample, *float64, bool) {
+	n.mu.Lock()
+	if n.hasLastSamples && now.Sub(n.lastSampleAt) < nvidiaDynamicSampleTTL {
+		gpus := cloneNvidiaSamples(n.lastSamples)
+		throttleC := cloneFloatPtr(n.throttleTempC)
+		n.mu.Unlock()
+		return gpus, throttleC, true
+	}
+	n.mu.Unlock()
+
+	out, ok := n.execSMI(ctx, now, "--query-gpu="+nvidiaSMIColumns, "--format=csv,noheader,nounits")
+	if !ok {
+		return nil, nil, false
+	}
+	gpus, ok := ParseNvidiaSMI(out)
+	if !ok {
+		return nil, nil, false
+	}
+
+	n.mu.Lock()
+	if gpus[0].MaxClockMHz != nil && *gpus[0].MaxClockMHz > 0 {
+		if n.staticMaxFreqMHz == nil {
+			v := *gpus[0].MaxClockMHz
+			n.staticMaxFreqMHz = &v
+		}
+	} else if n.staticMaxFreqMHz != nil {
+		v := *n.staticMaxFreqMHz
+		gpus[0].MaxClockMHz = &v
+	}
+	needThermal := !n.staticThermalDone && (n.staticThermalTryAt.IsZero() || now.Sub(n.staticThermalTryAt) >= nvidiaRetryBackoffTTL)
+	throttleC := cloneFloatPtr(n.throttleTempC)
+	n.mu.Unlock()
+
+	if needThermal {
+		if tempOut, tempOK := n.execSMI(ctx, now, "-q", "-d", "TEMPERATURE"); tempOK {
+			var parsed *float64
+			if limitC, hasLimit := ParseNvidiaSMITemperature(tempOut); hasLimit {
 				parsed = &limitC
 			}
+			n.mu.Lock()
+			n.staticThermalDone = true
+			n.throttleTempC = cloneFloatPtr(parsed)
+			throttleC = cloneFloatPtr(parsed)
+			n.mu.Unlock()
+		} else {
+			n.mu.Lock()
+			n.staticThermalTryAt = now
+			n.mu.Unlock()
 		}
 	}
 
-	c.mu.Lock()
-	c.hasAttempted = true
-	c.fetchedAt = now
-	c.throttleTempC = cloneFloatPtr(parsed)
-	c.mu.Unlock()
-	return parsed
+	n.mu.Lock()
+	n.lastSamples = cloneNvidiaSamples(gpus)
+	n.lastSampleAt = now
+	n.hasLastSamples = true
+	n.mu.Unlock()
+
+	return gpus, throttleC, true
 }
 
-func sampleNvidiaSMI(ctx context.Context) ([]NvidiaGPUSample, bool) {
-	smi, err := exec.LookPath("nvidia-smi")
-	if err != nil {
-		return nil, false
+func cloneNvidiaSamples(src []NvidiaGPUSample) []NvidiaGPUSample {
+	out := make([]NvidiaGPUSample, len(src))
+	for i, g := range src {
+		out[i] = NvidiaGPUSample{
+			Index:           g.Index,
+			Name:            g.Name,
+			MemoryTotalMB:   cloneFloatPtr(g.MemoryTotalMB),
+			MemoryUsedMB:    cloneFloatPtr(g.MemoryUsedMB),
+			MemoryFreeMB:    cloneFloatPtr(g.MemoryFreeMB),
+			UtilPct:         cloneFloatPtr(g.UtilPct),
+			PowerDrawW:      cloneFloatPtr(g.PowerDrawW),
+			PowerLimitW:     cloneFloatPtr(g.PowerLimitW),
+			TempC:           cloneFloatPtr(g.TempC),
+			ClockMHz:        cloneFloatPtr(g.ClockMHz),
+			MaxClockMHz:     cloneFloatPtr(g.MaxClockMHz),
+			FanPct:          cloneFloatPtr(g.FanPct),
+			ThrottleReasons: g.ThrottleReasons,
+		}
 	}
-	out, ok := runCommandBounded(ctx, hostCommandTimeout, smi, "--query-gpu="+nvidiaSMIColumns, "--format=csv,noheader,nounits")
-	if !ok {
-		return nil, false
-	}
-	return ParseNvidiaSMI(out)
+	return out
 }
 
 func applyNvidiaSamples(sample *rawHostSample, gpus []NvidiaGPUSample, throttleTempC *float64) {

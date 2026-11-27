@@ -5657,10 +5657,10 @@ export interface components {
       context_window: number;
     };
     /**
-     * @description Host memory architecture class.
+     * @description Host memory architecture class. uma is verified unified memory (e.g. Apple Silicon); discrete has dedicated GPU VRAM separate from host RAM; host is standard system RAM without verified UMA or discrete VRAM telemetry.
      * @enum {string}
      */
-    SystemTelemetryArchitecture: "uma" | "discrete";
+    SystemTelemetryArchitecture: "uma" | "discrete" | "host";
     /** @enum {string} */
     SystemTelemetryPlatform: "darwin" | "linux" | "windows";
     /** @enum {string} */

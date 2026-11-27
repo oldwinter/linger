@@ -576,6 +576,31 @@ func FormatWindowsOSLabel(productName, displayVersion, currentBuildNumber string
 	return label
 }
 
+// ResolveWindowsDiskVolume returns the Windows volume root (for example `D:\`
+// or `\\server\share\`) derived from diskPath when set, otherwise from
+// localModelsBaseDir, falling back to `C:\` when neither contains a volume.
+func ResolveWindowsDiskVolume(diskPath, localModelsBaseDir string) string {
+	candidate := strings.TrimSpace(diskPath)
+	if candidate == "" {
+		candidate = strings.TrimSpace(localModelsBaseDir)
+	}
+	if len(candidate) >= 2 && isASCIIAlpha(candidate[0]) && candidate[1] == ':' {
+		return strings.ToUpper(candidate[:1]) + `:\`
+	}
+	if strings.HasPrefix(candidate, `\\`) || strings.HasPrefix(candidate, "//") {
+		trimmed := strings.ReplaceAll(candidate, "/", `\`)
+		parts := strings.Split(strings.TrimPrefix(trimmed, `\\`), `\`)
+		if len(parts) >= 2 && parts[0] != "" && parts[1] != "" {
+			return `\\` + parts[0] + `\` + parts[1] + `\`
+		}
+	}
+	return `C:\`
+}
+
+func isASCIIAlpha(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
+}
+
 // ParseProcMeminfo parses Linux /proc/meminfo into byte counts.
 func ParseProcMeminfo(text string) (ProcMeminfo, bool) {
 	var info ProcMeminfo

@@ -27,7 +27,7 @@ type hostSampler struct {
 	prevSwapPages uint64
 	prevSwapAt    time.Time
 	hasPrevSwap   bool
-	nvidiaMeta    nvidiaMetaCache
+	nvidia        nvidiaSampler
 }
 
 func newHostSampler() *hostSampler {
@@ -86,7 +86,7 @@ func (h *hostSampler) sample(ctx context.Context, diskPath string, now time.Time
 	}
 
 	sample := rawHostSample{
-		Architecture:  "uma",
+		Architecture:  "host",
 		Platform:      "linux",
 		Arch:          wireArch(),
 		Hostname:      clipTelemetryString(hostname, 200),
@@ -194,8 +194,7 @@ func (h *hostSampler) sample(ctx context.Context, diskPath string, now time.Time
 		}
 	}
 
-	if gpus, ok := sampleNvidiaSMI(ctx); ok {
-		throttleC := h.nvidiaMeta.throttleTemp(ctx, now)
+	if gpus, throttleC, ok := h.nvidia.sample(ctx, now); ok {
 		applyNvidiaSamples(&sample, gpus, throttleC)
 	} else {
 		sampleLinuxAMDSysfs(&sample)
@@ -205,7 +204,11 @@ func (h *hostSampler) sample(ctx context.Context, diskPath string, now time.Time
 		diskPath = "/"
 	}
 	var stat syscall.Statfs_t
-	if err := syscall.Statfs(diskPath, &stat); err == nil && stat.Bsize > 0 {
+	err := syscall.Statfs(diskPath, &stat)
+	if err != nil && diskPath != "/" {
+		err = syscall.Statfs("/", &stat)
+	}
+	if err == nil && stat.Bsize > 0 {
 		bsize := uint64(stat.Bsize)
 		total := stat.Blocks * bsize
 		free := stat.Bavail * bsize
