@@ -235,7 +235,9 @@ describe("LocalServerModule resume coordination", () => {
       }) + "\\n");
     `);
     await warm.host.start();
-    await vi.waitFor(() => expect(warm.module.status().phase).toBe("ready"));
+    await waitForInstaller(() =>
+      expect(warm.module.status().phase).toBe("ready"),
+    );
     expect(
       warm.logs.find(
         (entry) => entry.event === "local_server.installer_resume_timings",
@@ -268,7 +270,9 @@ describe("LocalServerModule resume coordination", () => {
       }) + "\\n");
     `);
     await cold.host.start();
-    await vi.waitFor(() => expect(cold.module.status().phase).toBe("ready"));
+    await waitForInstaller(() =>
+      expect(cold.module.status().phase).toBe("ready"),
+    );
     expect(
       cold.logs.find(
         (entry) => entry.event === "local_server.installer_resume_timings",
@@ -302,7 +306,9 @@ describe("LocalServerModule resume coordination", () => {
         }) + "\\n");
       `);
       await f.host.start();
-      await vi.waitFor(() => expect(f.module.status().phase).toBe("ready"));
+      await waitForInstaller(() =>
+        expect(f.module.status().phase).toBe("ready"),
+      );
       expect(
         f.logs.find(
           (entry) => entry.event === "local_server.installer_resume_timings",
@@ -423,6 +429,61 @@ describe("LocalServerModule resume coordination", () => {
         reasons: ["binding-unavailable"],
       },
     });
+    await f.host.stop("quit");
+  });
+
+  it("notifies the Computer Daemon once when resume restores local models with an unchanged runtime environment", async () => {
+    const f = setupResumeFixture(`
+      process.stdout.write(JSON.stringify({
+        code: 0,
+        details: {
+          origin: "http://localhost:3000",
+          localModelsRestored: true,
+          restoredLocalModels: ["spark-x2.6-4b:Q4_K_M"],
+        },
+      }) + "\\n");
+    `);
+    const runtimeEvents = vi.fn();
+    f.bus.on("computer.runtime", runtimeEvents);
+
+    await f.host.start();
+
+    await waitForInstaller(() => expect(f.module.status().phase).toBe("ready"));
+    expect(runtimeEvents).toHaveBeenCalledTimes(1);
+    expect(
+      f.logs.find(
+        (entry) => entry.event === "local_server.local_models_restored",
+      ),
+    ).toEqual({
+      level: "info",
+      event: "local_server.local_models_restored",
+      fields: { models: ["spark-x2.6-4b:Q4_K_M"] },
+    });
+    await f.host.stop("quit");
+  });
+
+  it("does not emit computer.runtime twice when resume both updates runtimeEnvironment and restores local models", async () => {
+    const f = setupResumeFixture(`
+      process.stdout.write(JSON.stringify({
+        code: 0,
+        details: {
+          origin: "http://localhost:3000",
+          localModelsRestored: true,
+          restoredLocalModels: ["spark-x2.6-4b:Q4_K_M"],
+        },
+        runtime: {
+          setupChoice: "claude",
+          environment: { LINGER_CLAUDE_PATH: "/mock/claude" },
+        },
+      }) + "\\n");
+    `);
+    const runtimeEvents = vi.fn();
+    f.bus.on("computer.runtime", runtimeEvents);
+
+    await f.host.start();
+
+    await waitForInstaller(() => expect(f.module.status().phase).toBe("ready"));
+    expect(runtimeEvents).toHaveBeenCalledTimes(1);
     await f.host.stop("quit");
   });
 
@@ -609,7 +670,7 @@ describe("LocalServerModule resume coordination", () => {
         },
         fetch: (async (input: string | URL | Request) => {
           const url = String(input);
-          if (url === "http://localhost:63009")
+          if (url.startsWith("http://localhost:63009"))
             return new Response(null, { status: 200 });
           throw new Error("connection refused");
         }) as typeof fetch,
@@ -657,7 +718,7 @@ describe("LocalServerModule resume coordination", () => {
         fetch: (async (input: string | URL | Request) => {
           const url = String(input);
           // Unrelated server answers 200 on the moved port.
-          if (url === "http://localhost:63009")
+          if (url.startsWith("http://localhost:63009"))
             return new Response(null, { status: 200 });
           throw new Error("connection refused");
         }) as typeof fetch,
@@ -913,6 +974,136 @@ describe("LocalServerModule resume coordination", () => {
       await new Promise((resolve) => setTimeout(resolve, 300));
       expect(runs(f)).toBe(1);
     });
+
+    it.each([502, 503])(
+      "treats /readyz %i as unreachable during launch and watch even when / answers 200",
+      async (degradedStatus) => {
+        let readyStatus = degradedStatus;
+        const probe = vi.fn(async (input: string | URL | Request) => {
+          const url = new URL(
+            typeof input === "string" ? input : input.toString(),
+          );
+          if (url.pathname === "/readyz") {
+            return new Response(null, { status: readyStatus });
+          }
+          return new Response(null, { status: 200 });
+        }) as typeof fetch;
+        const f = setupResumeFixture(counting, {
+          fetch: probe,
+          watchMs: 30,
+          unreachableGraceMs: 30,
+        });
+        await f.host.start();
+        await waitForInstaller(() =>
+          expect(f.module.status().phase).toBe("ready"),
+        );
+        expect(f.showStarting).toHaveBeenCalledOnce();
+        expect(runs(f)).toBe(1);
+
+        readyStatus = 200;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        expect(runs(f)).toBe(1);
+
+        readyStatus = degradedStatus;
+        await waitForInstaller(() => expect(runs(f)).toBe(2));
+        expect(recoveries(f)).toEqual([{ trigger: "watch" }]);
+        await f.host.stop("quit");
+      },
+    );
+
+    it("falls back to HEAD / when an older server returns 404 for /readyz", async () => {
+      const probe = vi.fn(async (input: string | URL | Request) => {
+        const url = new URL(
+          typeof input === "string" ? input : input.toString(),
+        );
+        if (url.pathname === "/readyz") {
+          return new Response(null, { status: 404 });
+        }
+        return new Response(null, { status: 200 });
+      }) as typeof fetch;
+      const f = setupResumeFixture(counting, { fetch: probe });
+      await f.host.start();
+      await waitForInstaller(() =>
+        expect(f.module.status().phase).toBe("ready"),
+      );
+      expect(f.showStarting).not.toHaveBeenCalled();
+      expect(probe).toHaveBeenCalledWith(
+        "http://localhost:3000/readyz",
+        expect.objectContaining({ method: "HEAD" }),
+      );
+      expect(probe).toHaveBeenCalledWith(
+        "http://localhost:3000",
+        expect.objectContaining({ method: "HEAD" }),
+      );
+      await f.host.stop("quit");
+    });
+
+    it("passes resume_revived when fast_ready_check passed yet --resume reports a cold path", async () => {
+      const probe = vi.fn(
+        async () => new Response(null, { status: 200 }),
+      ) as typeof fetch;
+      const f = setupResumeFixture(
+        `
+          process.stdout.write(JSON.stringify({
+            code: 0,
+            details: { origin: "http://localhost:3000" },
+            resumeTimings: {
+              path: "cold",
+              probeMs: 12,
+              coldStartMs: 1500,
+              totalMs: 1520,
+            },
+          }) + "\\n");
+        `,
+        { fetch: probe },
+      );
+      await f.host.start();
+      await waitForInstaller(() =>
+        expect(f.module.status().phase).toBe("ready"),
+      );
+      expect(f.showStarting).not.toHaveBeenCalled();
+      expect(f.setServer).toHaveBeenCalledWith(
+        "http://localhost:3000",
+        "http://localhost:3000",
+        { reason: "resume_revived" },
+      );
+      await f.host.stop("quit");
+    });
+
+    it("keeps resume_ready on warm resume even when localModelsRestored is true", async () => {
+      const probe = vi.fn(
+        async () => new Response(null, { status: 200 }),
+      ) as typeof fetch;
+      const f = setupResumeFixture(
+        `
+          process.stdout.write(JSON.stringify({
+            code: 0,
+            details: {
+              origin: "http://localhost:3000",
+              localModelsRestored: true,
+              restoredLocalModels: ["model-a"],
+            },
+            resumeTimings: {
+              path: "warm",
+              probeMs: 10,
+              totalMs: 40,
+            },
+          }) + "\\n");
+        `,
+        { fetch: probe },
+      );
+      await f.host.start();
+      await waitForInstaller(() =>
+        expect(f.module.status().phase).toBe("ready"),
+      );
+      expect(f.showStarting).not.toHaveBeenCalled();
+      expect(f.setServer).toHaveBeenCalledWith(
+        "http://localhost:3000",
+        "http://localhost:3000",
+        { reason: "resume_ready" },
+      );
+      await f.host.stop("quit");
+    });
   });
 
   describe("localServer config flag lifecycle", () => {
@@ -982,7 +1173,9 @@ describe("LocalServerModule resume coordination", () => {
         process.stdout.write(JSON.stringify({ code: 0, details: { origin: "http://localhost:3000" } }) + "\\n");
       `);
       await f.host.start();
-      await vi.waitFor(() => expect(f.module.status().phase).toBe("ready"));
+      await waitForInstaller(() =>
+        expect(f.module.status().phase).toBe("ready"),
+      );
       expect(f.config.get().localServer).toBe(true);
 
       // Moving ports for the same local server preserves localServer.
@@ -1013,12 +1206,14 @@ describe("LocalServerModule resume coordination", () => {
         },
       );
       await f.host.start();
-      await vi.waitFor(() => expect(f.module.status().phase).toBe("ready"));
+      await waitForInstaller(() =>
+        expect(f.module.status().phase).toBe("ready"),
+      );
 
       const opened = vi.fn();
       f.bus.on("setup.open", opened);
       f.bus.emit("local-server.reset");
-      await vi.waitFor(() => expect(opened).toHaveBeenCalledOnce());
+      await waitForInstaller(() => expect(opened).toHaveBeenCalledOnce());
       expect(f.hide).toHaveBeenCalledOnce();
       expect(f.loadServer).toHaveBeenCalledOnce();
       expect(f.config.get().serverUrl).toBeUndefined();
@@ -1094,7 +1289,9 @@ describe("LocalServerModule resume coordination", () => {
         );
         await f.host.start();
         if (localServer === true) {
-          await vi.waitFor(() => expect(f.module.status().phase).toBe("ready"));
+          await waitForInstaller(() =>
+            expect(f.module.status().phase).toBe("ready"),
+          );
           rmSync(path.join(f.home, "desktop", "local-server.json"), {
             force: true,
           });
@@ -1147,7 +1344,9 @@ describe("LocalServerModule resume coordination", () => {
         },
       );
       await f.host.start();
-      await vi.waitFor(() => expect(f.module.status().phase).toBe("ready"));
+      await waitForInstaller(() =>
+        expect(f.module.status().phase).toBe("ready"),
+      );
       expect(f.config.get().localServer).toBe(true);
 
       // Local -> remote clears both the tracked local origin and localServer.
@@ -1453,6 +1652,10 @@ describe("orphaned local server recovery during LocalServerModule.start()", () =
     await f.host.start();
 
     expect(f.probe).toHaveBeenCalledOnce();
+    expect(f.probe).toHaveBeenCalledWith(
+      "http://localhost:3000",
+      expect.objectContaining({ method: "HEAD" }),
+    );
     expect(f.setupOpened).not.toHaveBeenCalled();
     expect(f.config.get().computerId).toBe("cmp_alive");
     expect(f.credentials.read()?.computerId).toBe("cmp_alive");
@@ -1469,7 +1672,9 @@ describe("orphaned local server recovery during LocalServerModule.start()", () =
       { record: "valid", reachable: false },
     );
     await valid.host.start();
-    await vi.waitFor(() => expect(valid.module.status().phase).toBe("ready"));
+    await waitForInstaller(() =>
+      expect(valid.module.status().phase).toBe("ready"),
+    );
     expect(valid.setupOpened).not.toHaveBeenCalled();
     expect(valid.config.get().computerId).toBe("cmp_1");
     expect(valid.credentials.read()?.computerId).toBe("cmp_1");

@@ -59,6 +59,7 @@ type Options struct {
 	WorkspaceGrants     json.RawMessage
 	StateDirectory      string
 	RuntimeHomeRoot     string
+	AntigravityHome     string
 	RuntimeObservations []transport.RegistrationObservation
 	// OnModelUnavailable learns that the Runtime login refused a model, so
 	// the Computer can stop offering it.
@@ -190,6 +191,12 @@ type Daemon struct {
 	// herdrCoreStream holds whether the current Agent Service declared
 	// serviceFeatureHerdrCoreStream in its welcome.
 	herdrCoreStream atomic.Bool
+	// antigravityHistory holds whether the current Agent Service declared
+	// serviceFeatureAntigravityHistory in its welcome.
+	antigravityHistory atomic.Bool
+	// antigravityUsageProvider holds whether the current Agent Service declared
+	// serviceFeatureAntigravityUsageProvider in its welcome.
+	antigravityUsageProvider atomic.Bool
 	// authorityRevision counts, under admissionMu, the commands that can change
 	// what an accepted Operation may start with: Registration snapshots, Agent
 	// Runner commands and Context commands. A start whose revision is unchanged
@@ -238,6 +245,7 @@ type Daemon struct {
 	workspaceGrants         json.RawMessage
 	stateDirectory          string
 	runtimeHomeRoot         string
+	antigravityHome         string
 	runtimeObservations     []transport.RegistrationObservation
 	inventoryMu             sync.RWMutex
 	diagnosticsRevision     uint64
@@ -328,6 +336,7 @@ func New(options Options) (*Daemon, error) {
 		workspaceGrants:       append(json.RawMessage(nil), options.WorkspaceGrants...),
 		stateDirectory:        options.StateDirectory,
 		runtimeHomeRoot:       options.RuntimeHomeRoot,
+		antigravityHome:       options.AntigravityHome,
 		runtimeObservations:   append([]transport.RegistrationObservation(nil), options.RuntimeObservations...),
 		diagnosticsRevision:   nextRevisionAbove(1, options.RuntimeObservations),
 		gatewayState:          "connecting",
@@ -358,9 +367,15 @@ func New(options Options) (*Daemon, error) {
 // Run loads or creates the Daemon Identity and keeps the Gateway stream
 // connected until ctx ends or a terminal configuration error stops redials.
 func (d *Daemon) Run(ctx context.Context) error {
+	if base := d.operationTempBase(); base != "" {
+		native.ConfigureAntigravityHookTempBase(base)
+	}
 	defer func() {
 		_, _ = native.StopAllParkedResidents()
 		_ = native.CloseAntigravitySharedHookEndpoint()
+		if d.stateDirectory != "" {
+			native.ConfigureAntigravityHookTempBase("")
+		}
 		if d.modelInvoker != nil {
 			d.modelInvoker.Close()
 		}
@@ -474,6 +489,15 @@ func (d *Daemon) ActiveModelInvokeCount() int {
 	d.modelInvokeMu.Lock()
 	defer d.modelInvokeMu.Unlock()
 	return len(d.modelInvokes)
+}
+
+// ContentURL returns the active Agent Service context content URL, or an empty
+// string when the Daemon is not connected.
+func (d *Daemon) ContentURL() string {
+	if current := d.contentURL.Load(); current != nil {
+		return *current
+	}
+	return ""
 }
 
 func (d *Daemon) DrainIfIdle() int {

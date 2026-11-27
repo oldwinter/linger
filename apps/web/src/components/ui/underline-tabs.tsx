@@ -57,6 +57,8 @@ export function UnderlineTabs<K extends string>({
     <div
       aria-label={label}
       className={cn(
+        // Tabs that do not fit scroll sideways; the bar under them would read
+        // as part of the underline, so it stays hidden.
         "workspace-file-tabs relative flex max-w-full gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
         className,
       )}

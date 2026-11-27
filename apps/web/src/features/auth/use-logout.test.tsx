@@ -134,14 +134,14 @@ describe("useLogout", () => {
       throw new Error("TeamHub is offline.");
     });
 
-    renderLogout(runtime, "/t/tenant-northstar/settings/security", queryClient);
+    renderLogout(runtime, "/t/tenant-northstar/settings/account", queryClient);
     fireEvent.click(await screen.findByRole("button", { name: "Log out" }));
 
     expect(
       await screen.findByText("Could not confirm logout. Please retry."),
     ).toHaveAttribute("role", "alert");
     expect(screen.getByTestId("location")).toHaveTextContent(
-      "/t/tenant-northstar/settings/security",
+      "/t/tenant-northstar/settings/account",
     );
     expect(queryClient.getQueryData(["teamhub", "session"])).toEqual({
       id: "session-1",
@@ -371,7 +371,7 @@ describe("useLogout", () => {
       new Error("IndexedDB transaction aborted."),
     );
 
-    renderLogout(runtime, "/t/tenant-northstar/settings/security");
+    renderLogout(runtime, "/t/tenant-northstar/settings/account");
     fireEvent.click(await screen.findByRole("button", { name: "Log out" }));
 
     expect(
@@ -381,7 +381,7 @@ describe("useLogout", () => {
       0,
     );
     expect(screen.getByTestId("location")).toHaveTextContent(
-      "/t/tenant-northstar/settings/security",
+      "/t/tenant-northstar/settings/account",
     );
   });
 });
@@ -427,7 +427,7 @@ function LocationProbe() {
 }
 function renderLogout(
   runtime: Awaited<ReturnType<typeof testRuntime>>,
-  initialEntry = "/t/tenant-northstar/settings/security",
+  initialEntry = "/t/tenant-northstar/settings/account",
   queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   }),

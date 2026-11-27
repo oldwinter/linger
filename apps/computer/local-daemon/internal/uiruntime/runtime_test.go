@@ -317,7 +317,8 @@ func TestCloseRevokesActiveCallbackAndPreventsReuse(t *testing.T) {
 }
 
 func TestUnconfirmedCleanupPreventsReplacement(t *testing.T) {
-	r, err := New(t.Context(), Options{NodePath: "/fixture/node", QuickJSDirectory: "/fixture/quickjs", Dispatch: noCalls(t)})
+	root := t.TempDir()
+	r, err := New(t.Context(), Options{NodePath: filepath.Join(root, "node"), QuickJSDirectory: filepath.Join(root, "quickjs"), Dispatch: noCalls(t)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -582,5 +583,61 @@ func TestBridgeSetupIgnoresGuestCPUBudget(t *testing.T) {
 	r := nodeRuntime(t, noCalls(t), Limits{PumpTimeout: time.Millisecond})
 	if got := execute(t, r, `return 1;`); string(got.Value) != "1" {
 		t.Fatalf("result=%+v", got)
+	}
+}
+
+func TestWindowClickMatchesNonAXAndAXRoles(t *testing.T) {
+	var calls []string
+	r := nodeRuntime(t, func(_ context.Context, c Call) (json.RawMessage, error) {
+		calls = append(calls, c.Method)
+		var args struct {
+			Token string `json:"element_token"`
+		}
+		_ = json.Unmarshal(c.Arguments, &args)
+		var view string
+		switch len(calls) {
+		case 1:
+			view = "window_id=8 pid=42 snapshot_id=s01\n- [4] AXButton \"Cancel\"\n- [5] Button \"Save\"\n- [6] MenuItem \"Export\""
+		case 2:
+			if args.Token != "s01:5" {
+				return nil, errors.New("unexpected first token: " + args.Token)
+			}
+			view = "window_id=8 pid=42 snapshot_id=s02\n- [4] AXButton \"Cancel\"\n- [6] MenuItem \"Export\""
+		case 3:
+			if args.Token != "s02:6" {
+				return nil, errors.New("unexpected second token: " + args.Token)
+			}
+			view = "window_id=8 pid=42 snapshot_id=s03\n- [4] AXButton \"Cancel\"\n- [8] Button \"Done\""
+		case 4:
+			if args.Token != "s03:4" {
+				return nil, errors.New("unexpected third token: " + args.Token)
+			}
+			view = "window_id=8 pid=42 snapshot_id=s04\n- [8] Button \"Done\""
+		default:
+			return nil, errors.New("unexpected driver call")
+		}
+		return json.Marshal(map[string]any{"content": []map[string]string{{"type": "text", "text": view}}})
+	}, Limits{})
+
+	result := execute(t, r, `const w = ui.window(42, 8);
+const v1 = await w.observe();
+const v2 = await v1.click("Button", "Save");
+const v3 = await v2.click("MenuItem", "Export");
+const v4 = await v3.click("AXButton", "Cancel");
+try {
+  await v4.click("AXButton", "Done");
+  return "unexpected";
+} catch (error) {
+  return error.message;
+}`)
+	if strings.Join(calls, ",") != "get_window_state,click,click,click" {
+		t.Fatalf("calls=%v", calls)
+	}
+	var errMsg string
+	if err := json.Unmarshal(result.Value, &errMsg); err != nil {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	if !strings.Contains(errMsg, "copy the role and the quoted name exactly from v.text") || strings.Contains(errMsg, "copy the AX role") {
+		t.Fatalf("unexpected unmatched role error: %q", errMsg)
 	}
 }

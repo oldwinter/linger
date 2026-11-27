@@ -8,9 +8,10 @@ import { setTimeout as delay } from "node:timers/promises";
 import { sleep } from "@linger/service-kit";
 import { x as extract } from "tar";
 import {
+  cachedRegion,
   downloadInRegion,
   formatRegionDownloadEvent,
-  resolveRegion,
+  regionFile,
 } from "./region.js";
 import {
   atomicPrivate,
@@ -328,8 +329,60 @@ async function installedKit(directory: string, source: LocalmodelsToolSource) {
   if (tool.hashed > 0) await writeStamps(directory, source, tool.stamps);
   return location(tool);
 }
-interface ToolPrepareDependencies {
+/** Filename of an optional pre-bundled kit archive staged beside distribution.json. */
+export const BUNDLED_LOCALMODELS_KIT_FILENAME = "bundled-localmodels-kit.tgz";
+
+/**
+ * Resolves the optional pre-bundled localmodels kit archive path beside the
+ * given distribution.json, or from LINGER_LOCALMODELS_TOOL_ARCHIVE when omitted.
+ */
+export function bundledToolArchivePath(
+  distributionFile?: string,
+): string | undefined {
+  if (distributionFile !== undefined) {
+    return path.join(
+      path.dirname(path.resolve(distributionFile)),
+      BUNDLED_LOCALMODELS_KIT_FILENAME,
+    );
+  }
+  const configured = process.env.LINGER_LOCALMODELS_TOOL_ARCHIVE?.trim();
+  return configured ? path.resolve(configured) : undefined;
+}
+
+async function verifyBundledToolArchive(
+  archivePath: string,
+  source: LocalmodelsToolSource,
+): Promise<boolean> {
+  let info;
+  try {
+    info = await lstat(archivePath);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") return false;
+    throw error;
+  }
+  if (info.isSymbolicLink() || !info.isFile()) {
+    throw new Error(
+      "Bundled localmodels kit archive must be a regular non-symlink file.",
+    );
+  }
+  if (info.size !== source.bytes) {
+    throw new Error(
+      `Bundled localmodels kit archive size mismatch: expected ${source.bytes} bytes, got ${info.size}.`,
+    );
+  }
+  const actualSha256 = await sha256File(archivePath);
+  if (actualSha256 !== source.sha256) {
+    throw new Error(
+      `Bundled localmodels kit archive checksum mismatch: expected ${source.sha256}, got ${actualSha256}.`,
+    );
+  }
+  return true;
+}
+
+export interface ToolPrepareDependencies {
   source?: LocalmodelsToolSource;
+  bundledArchivePath?: string | null;
   fetcher?: typeof fetch;
   lockPollMs?: number;
   lockWaitMs?: number;
@@ -400,7 +453,9 @@ async function prepareLocalmodelsTool(
         }
         const stage = path.join(base, `pending-${randomUUID()}`);
         await privateDirectory(stage);
-        const archive = path.join(base, `${randomUUID()}.tgz`);
+        const downloadedArchive = path.join(base, `${randomUUID()}.tgz`);
+        let usedBundledArchive = false;
+        let archive = downloadedArchive;
         try {
           options.onEvent?.({
             kind: "stage",
@@ -411,34 +466,62 @@ async function prepareLocalmodelsTool(
               : "Preparing the model and Harness installation tool…",
           });
           const downloadStartedAt = Date.now();
-          await downloadInRegion(
-            home,
-            {
-              url: source.url,
-              mirrors: source.mirrors,
-              output: archive,
-              algorithm: "sha256",
-              digest: source.sha256,
-              maxBytes: source.bytes,
-              signal,
-              onEvent: (event) =>
-                options.onEvent?.({
-                  kind: "log",
-                  stage: "preflight",
-                  message: `${formatRegionDownloadEvent(event)}\n`,
-                }),
-              onProgress: (completed, total) =>
-                options.onEvent?.({
-                  kind: "stage",
-                  stage: "preflight",
-                  state: "running",
-                  message:
-                    "Downloading the model and Harness installation tool…",
-                  progress: { completed, total, unit: "bytes" },
-                }),
-            },
-            dependencies.fetcher,
-          );
+          const bundledArchive =
+            dependencies.bundledArchivePath !== undefined
+              ? (dependencies.bundledArchivePath ?? undefined)
+              : dependencies.source === undefined
+                ? bundledToolArchivePath()
+                : undefined;
+          if (
+            bundledArchive &&
+            (await verifyBundledToolArchive(bundledArchive, source))
+          ) {
+            usedBundledArchive = true;
+            archive = bundledArchive;
+            options.onEvent?.({
+              kind: "stage",
+              stage: "preflight",
+              state: "running",
+              message:
+                "Using verified bundled model and Harness installation tool…",
+            });
+            options.onEvent?.({
+              kind: "log",
+              stage: "preflight",
+              message:
+                "Using verified bundled localmodels kit archive; skipping network download.\n",
+            });
+          } else {
+            await downloadInRegion(
+              home,
+              {
+                url: source.url,
+                mirrors: source.mirrors,
+                output: downloadedArchive,
+                algorithm: "sha256",
+                digest: source.sha256,
+                maxBytes: source.bytes,
+                signal,
+                onEvent: (event) =>
+                  options.onEvent?.({
+                    kind: "log",
+                    stage: "preflight",
+                    message: `${formatRegionDownloadEvent(event)}\n`,
+                  }),
+                onProgress: (completed, total) =>
+                  options.onEvent?.({
+                    kind: "stage",
+                    stage: "preflight",
+                    state: "running",
+                    message:
+                      "Downloading the model and Harness installation tool…",
+                    progress: { completed, total, unit: "bytes" },
+                  }),
+              },
+              dependencies.fetcher,
+            );
+          }
+          signal.throwIfAborted();
           const unpackStartedAt = Date.now();
           await unpack(archive, stage);
           // The kit is an npm tarball: its files sit under package/.
@@ -475,7 +558,9 @@ async function prepareLocalmodelsTool(
           options.onEvent?.({
             kind: "log",
             stage: "preflight",
-            message: `localmodels kit prepared (s): download ${seconds(unpackStartedAt - downloadStartedAt)}, unpack ${seconds(verifyStartedAt - unpackStartedAt)}, verify ${seconds(verifiedAt - verifyStartedAt)}.\n`,
+            message: usedBundledArchive
+              ? `localmodels kit prepared from bundled archive (s): verify-archive ${seconds(unpackStartedAt - downloadStartedAt)}, unpack ${seconds(verifyStartedAt - unpackStartedAt)}, verify ${seconds(verifiedAt - verifyStartedAt)}.\n`
+              : `localmodels kit prepared (s): download ${seconds(unpackStartedAt - downloadStartedAt)}, unpack ${seconds(verifyStartedAt - unpackStartedAt)}, verify ${seconds(verifiedAt - verifyStartedAt)}.\n`,
           });
           return {
             python: publishedPython,
@@ -484,7 +569,9 @@ async function prepareLocalmodelsTool(
           };
         } finally {
           await rm(stage, { recursive: true, force: true });
-          await rm(archive, { force: true });
+          if (!usedBundledArchive) {
+            await rm(downloadedArchive, { force: true });
+          }
         }
       });
     } catch (error) {
@@ -518,7 +605,12 @@ async function prepareLocalmodelsTool(
     }
   }
 }
-type ToolLocation = Awaited<ReturnType<typeof prepareLocalmodelsTool>>;
+export interface LocalmodelsToolLocation {
+  python: string;
+  moduleDir: string;
+  sourceCommit: string;
+}
+type ToolLocation = LocalmodelsToolLocation;
 const preparing = new Map<string, Promise<ToolLocation>>();
 const verifiedToolSession = new AsyncLocalStorage<Map<string, ToolLocation>>();
 
@@ -533,11 +625,23 @@ export function withLocalmodelsToolCache<T>(run: () => Promise<T>): Promise<T> {
   return verifiedToolSession.run(new Map(), run);
 }
 
-function configuredDevTool(): ToolLocation | undefined {
-  const python = process.env.LINGER_LOCALMODELS_DEV_PYTHON?.trim();
-  const moduleDir = process.env.LINGER_LOCALMODELS_DEV_MODULE_DIR?.trim();
-  if (!python || !moduleDir) return undefined;
-  if (!path.isAbsolute(python) || !path.isAbsolute(moduleDir))
+/**
+ * Reads the optional development localmodels checkout override from env.
+ * Rejects partial or relative values so installer and Desktop fail fast
+ * with the same contract.
+ */
+export function configuredDevTool(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+  platformPath: typeof path = path,
+): LocalmodelsToolLocation | undefined {
+  const python = env.LINGER_LOCALMODELS_DEV_PYTHON?.trim();
+  const moduleDir = env.LINGER_LOCALMODELS_DEV_MODULE_DIR?.trim();
+  if (!python && !moduleDir) return undefined;
+  if (!python || !moduleDir)
+    throw new Error(
+      "LINGER_LOCALMODELS_DEV_PYTHON and LINGER_LOCALMODELS_DEV_MODULE_DIR must be set together.",
+    );
+  if (!platformPath.isAbsolute(python) || !platformPath.isAbsolute(moduleDir))
     throw new Error(
       "LINGER_LOCALMODELS_DEV_PYTHON and LINGER_LOCALMODELS_DEV_MODULE_DIR must be absolute paths.",
     );
@@ -611,17 +715,35 @@ const STRIPPED_LOCALMODELS_ENVIRONMENT = new Set([
   "LOCALMODELS_TOOLS_DIR",
   "LOCALMODELS_BIFROST_DIR",
   "LOCALMODELS_BIFROST_ADDR",
+  "SIMPLEX_REGION",
+  "SIMPLEX_REGION_FILE",
 ]);
 
 const resolvingBifrostAddr = new Map<string, Promise<string>>();
 
 /** LOCALMODELS_STATE of every call for this home. */
-export function localmodelsStateDirectory(home: string): string {
-  return path.join(path.resolve(home), "runtime", "localmodels", "state");
+export function localmodelsStateDirectory(
+  home: string,
+  platformPath: typeof path = path,
+): string {
+  return platformPath.join(
+    platformPath.resolve(home),
+    "runtime",
+    "localmodels",
+    "state",
+  );
 }
 /** Where this home's models live: every call's --base-dir. */
-export function localmodelsBaseDirectory(home: string): string {
-  return path.join(path.resolve(home), "runtime", "localmodels", "models");
+export function localmodelsBaseDirectory(
+  home: string,
+  platformPath: typeof path = path,
+): string {
+  return platformPath.join(
+    platformPath.resolve(home),
+    "runtime",
+    "localmodels",
+    "models",
+  );
 }
 /** LOCALMODELS_TOOLS_DIR of every call for this home. */
 export function localmodelsToolsDirectory(home: string): string {
@@ -657,6 +779,118 @@ function parseLoopbackBifrostAddress(
  */
 export function localmodelsPlanFile(home: string): string {
   return path.join(path.resolve(home), "runtime", "localmodels", "plan.json");
+}
+/**
+ * Records library model IDs that were active before a quit or upgrade stop so
+ * the next launch reloads them even after `stopLocalmodels` resets them to
+ * `idle` (or an empty array when the stop ran with downloaded models all idle).
+ */
+export function localmodelsResumeModelsFile(home: string): string {
+  return path.join(
+    path.resolve(home),
+    "runtime",
+    "localmodels",
+    "resume-models.json",
+  );
+}
+const RESUME_MODELS_SCHEMA = "linger.localmodels-resume/v1";
+const LIBRARY_MODEL_ID_PATTERN = /^[a-z0-9][a-z0-9._-]*:[A-Za-z0-9._-]+$/;
+
+/** Reports whether `id` is a valid localmodels library model identifier. */
+export function isLibraryModelId(id: unknown): id is string {
+  return typeof id === "string" && LIBRARY_MODEL_ID_PATTERN.test(id);
+}
+
+/** Filters valid library model IDs and deduplicates them in order. */
+export function uniqueLibraryModelIds(values: readonly unknown[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    if (!isLibraryModelId(value) || seen.has(value)) continue;
+    seen.add(value);
+    result.push(value);
+  }
+  return result;
+}
+
+/**
+ * Reads the persisted model list saved before a quit or upgrade stop, or
+ * undefined when no valid record exists.
+ */
+export async function readResumeLocalModels(
+  home: string,
+): Promise<string[] | undefined> {
+  try {
+    const raw = await readPrivate(localmodelsResumeModelsFile(home));
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw) as { schema?: unknown; models?: unknown };
+    if (
+      parsed?.schema !== RESUME_MODELS_SCHEMA ||
+      !Array.isArray(parsed.models)
+    )
+      return undefined;
+    return uniqueLibraryModelIds(parsed.models);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Atomically persists the library model IDs to restore on the next launch.
+ */
+export async function writeResumeLocalModels(
+  home: string,
+  models: readonly string[],
+): Promise<void> {
+  const file = localmodelsResumeModelsFile(home);
+  await privateDirectory(path.dirname(file));
+  await atomicPrivate(
+    file,
+    JSON.stringify({
+      schema: RESUME_MODELS_SCHEMA,
+      models: uniqueLibraryModelIds(models),
+    }),
+  );
+}
+
+/** Removes any persisted post-stop local model resume record. */
+export async function clearResumeLocalModels(home: string): Promise<void> {
+  await rm(localmodelsResumeModelsFile(home), { force: true });
+}
+
+/**
+ * Reads localmodels' own per-model records under `<state>/library/models/*.json`
+ * and returns IDs whose on-disk state is `loaded`. Used to recover models that
+ * were active before a reboot or crash (when `stopLocalmodels` never ran)
+ * without spawning Python on homes with no loaded models.
+ */
+export async function readOnDiskLoadedLibraryModels(
+  home: string,
+): Promise<string[]> {
+  const modelsDir = path.join(
+    localmodelsStateDirectory(home),
+    "library",
+    "models",
+  );
+  let entries;
+  try {
+    entries = await readdir(modelsDir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const names = entries
+    .filter((entry) => !entry.isDirectory() && entry.name.endsWith(".json"))
+    .map((entry) => entry.name)
+    .sort();
+  const loaded: string[] = [];
+  for (const name of names) {
+    const record = await readOwnedJson(path.join(modelsDir, name));
+    if (!record) continue;
+    const state = field(record, "state");
+    const id = field(record, "id");
+    if (state === "loaded" && isLibraryModelId(id)) loaded.push(id);
+  }
+  return uniqueLibraryModelIds(loaded);
 }
 /**
  * Records the shared tools directory a home kept from before per-home
@@ -1114,10 +1348,14 @@ async function localmodelsEnvironment(
   const state = localmodelsStateDirectory(home);
   await privateDirectory(state);
   const isolation = await localmodelsIsolation(home, args, control);
+  const resolvedRegion = await cachedRegion(home, { signal: options.signal });
   const env: NodeJS.ProcessEnv = {
     ...stripInheritedEnvironment({ ...process.env, ...options.env }),
-    // localmodels downloads from the same region and does not probe again.
-    SIMPLEX_REGION: await resolveRegion(home, { signal: options.signal }),
+    // Reuse a forced or cached region without blocking offline startup on a
+    // network probe; localmodels probes lazily and shares region.json via
+    // SIMPLEX_REGION_FILE when it actually downloads.
+    SIMPLEX_REGION: resolvedRegion ?? "auto",
+    SIMPLEX_REGION_FILE: regionFile(home),
     PYTHONPATH: tool.moduleDir,
     LOCALMODELS_STATE: state,
     ...isolation,
@@ -1443,9 +1681,33 @@ export async function stopLocalmodels(
   };
   if (status.code === 0) {
     let last = status.stdout;
+    const allModels = libraryModels(last, () => true);
     const loading = libraryModelsIn(last, "loading");
-    if (!unloadableLibraryModels(last) || !loading)
+    const resumable = resumableLibraryModels(last);
+    if (!unloadableLibraryModels(last) || !loading || !resumable)
       failed.push("localmodels library status: no model list");
+    // Record active models before cancelling or unloading so the next launch
+    // restores them across quit, reboot, or upgrade stops regardless of active
+    // model source mode. Never wipe an already-pending non-empty list when a
+    // chained stop (such as Windows setup `--stop` after a quit) finds models
+    // already idle.
+    if (resumable) {
+      try {
+        const existing = await readResumeLocalModels(home);
+        if (resumable.length > 0) {
+          await writeResumeLocalModels(home, [
+            ...resumable,
+            ...(existing ?? []),
+          ]);
+        } else if (allModels && allModels.length > 0 && !existing?.length) {
+          await writeResumeLocalModels(home, []);
+        }
+      } catch (error) {
+        options.log?.(
+          `Could not record local models for next launch: ${error instanceof Error ? error.message : String(error)}.`,
+        );
+      }
+    }
     // A load left running would make its model resident after the app is
     // gone. A cancel that fails because the load just finished is not a
     // failure: that model is unloaded below.
@@ -1526,11 +1788,7 @@ function libraryModels(
     if (!Array.isArray(models)) return undefined;
     return models.flatMap(
       (model: { id?: unknown; state?: unknown; error?: unknown }) => {
-        if (
-          typeof model?.id !== "string" ||
-          !/^[a-z0-9][a-z0-9._-]*:[A-Za-z0-9._-]+$/.test(model.id)
-        )
-          return [];
+        if (!isLibraryModelId(model?.id)) return [];
         return include({ id: model.id, state: model.state, error: model.error })
           ? [model.id]
           : [];
@@ -1548,6 +1806,13 @@ function libraryModelsIn(
 ): string[] | undefined {
   return libraryModels(stdout, (model) => model.state === state);
 }
+function isRecoverableFailedLibraryModel(error: unknown): boolean {
+  const errorCode =
+    error && typeof error === "object"
+      ? (error as { code?: unknown }).code
+      : undefined;
+  return !isStoppedDownloadErrorCode(errorCode);
+}
 // The ids of the models `library status` reports as loaded or failed after a
 // server/load failure (excluding stopped downloads, which hold no library
 // record to unload), or undefined when its output is not a status report.
@@ -1555,12 +1820,19 @@ function unloadableLibraryModels(stdout: string): string[] | undefined {
   return libraryModels(stdout, (model) => {
     if (model.state === "loaded") return true;
     if (model.state !== "failed") return false;
-    const errorCode =
-      model.error && typeof model.error === "object"
-        ? (model.error as { code?: unknown }).code
-        : undefined;
-    return !isStoppedDownloadErrorCode(errorCode);
+    return isRecoverableFailedLibraryModel(model.error);
   });
+}
+// The ids of models active before stop that should be restored on next launch:
+// loaded, currently loading, or failed after a server/load failure (excluding
+// stopped downloads).
+function resumableLibraryModels(stdout: string): string[] | undefined {
+  const ids = libraryModels(stdout, (model) => {
+    if (model.state === "loaded" || model.state === "loading") return true;
+    if (model.state !== "failed") return false;
+    return isRecoverableFailedLibraryModel(model.error);
+  });
+  return ids ? uniqueLibraryModelIds(ids) : undefined;
 }
 // A failed step's structured cause: the library's error code, the tool's
 // error, or its exit status.

@@ -2,7 +2,6 @@ import {
   Activity01Icon,
   AiChipIcon,
   Idea01Icon,
-  Key01Icon,
   KeyboardIcon,
   LanguageSkillIcon,
   LaptopIcon,
@@ -39,13 +38,8 @@ export function SettingsLayout() {
         >
           <SettingsLink
             icon={<Icon icon={UserIcon} size={14} />}
-            label={t(settingsMessages.profile)}
+            label={t(settingsMessages.account)}
             to="account"
-          />
-          <SettingsLink
-            icon={<Icon icon={Key01Icon} size={14} />}
-            label={t(settingsMessages.security)}
-            to="security"
           />
           <SettingsLink
             icon={<Icon icon={Idea01Icon} size={14} />}

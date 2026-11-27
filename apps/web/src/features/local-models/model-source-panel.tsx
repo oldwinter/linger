@@ -4,8 +4,6 @@ import { type KeyboardEvent, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { FormFeedback } from "@/components/ui/form-feedback";
 import { ModalDialog } from "@/components/ui/modal-dialog";
-import { Select, SelectItem } from "@/components/ui/select";
-import { useTabIndicator } from "@/components/ui/tab-indicator";
 import { Hint } from "@/features/local-computer/computer-hint";
 import { localComputersQueryKey } from "@/features/local-computer/local-computer-queries";
 import {
@@ -16,7 +14,8 @@ import { TeamHubError } from "@/features/teamhub/teamhub-error";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import { commonMessages } from "@/i18n/common.messages";
 import type { Translate } from "@/i18n/language";
-import { RichMessage, useT } from "@/i18n/use-translation";
+import { useT } from "@/i18n/use-translation";
+import { cn } from "@/lib/cn";
 
 import {
   modelSourceFailureCopy,
@@ -26,10 +25,9 @@ import {
 import { localModelsMessages as m } from "./local-models.messages";
 import {
   invalidateOfflineComputer,
-  type LocalModel,
   tenantLocalModelsQueryKey,
 } from "./local-models-queries";
-import { formatGigabytes, joinList } from "./local-models-rules";
+import { joinList } from "./local-models-rules";
 import {
   type ModelSourceMode,
   type ModelSourceStatus,
@@ -227,7 +225,7 @@ function TerminateTasksDialog({
   );
 }
 
-/** The offered model sources as underline tabs; a dot marks the one in use. */
+/** The offered model sources as a segmented control; a dot marks the one in use. */
 export function ModelSourceTabs({
   active,
   onChange,
@@ -238,8 +236,6 @@ export function ModelSourceTabs({
   value: ModelSourceMode;
 }) {
   const t = useT();
-  const indicatorKey = `${value}:${active}`;
-  const { indicator, tabRef } = useTabIndicator(indicatorKey);
 
   function handleKeyDown(
     event: KeyboardEvent<HTMLButtonElement>,
@@ -259,17 +255,23 @@ export function ModelSourceTabs({
   }
 
   return (
-    <div className="mt-5">
+    <div className="mt-5 flex">
       <div
         aria-label={t(m.modelSource)}
-        className="relative -ml-3 inline-flex max-w-full self-start gap-1"
+        className="inline-flex w-fit max-w-full items-center gap-0.5 self-start rounded-lg bg-muted p-0.5"
         role="tablist"
       >
         {modes.map((mode, index) => {
+          const selected = mode === value;
           const tab = (
             <button
-              aria-selected={mode === value}
-              className="workspace-view-tab inline-flex h-9 shrink-0 items-center gap-1.5 rounded-t-md px-3 text-sm font-medium text-muted-foreground transition-colors duration-150 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+              aria-selected={selected}
+              className={cn(
+                "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-3 text-xs font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none",
+                selected
+                  ? "bg-card text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
               onClick={() => onChange(mode)}
               onKeyDown={(event) => handleKeyDown(event, index)}
               role="tab"
@@ -286,13 +288,9 @@ export function ModelSourceTabs({
             </button>
           );
           return (
-            <span
-              className="inline-flex shrink-0"
-              key={mode}
-              ref={tabRef(`${mode}:${active}`)}
-            >
+            <span className="inline-flex shrink-0" key={mode}>
               {mode === "byok" ? (
-                <Hint placement="top" text={t(m.byokExplanation)}>
+                <Hint align="start" placement="top" text={t(m.byokExplanation)}>
                   {tab}
                 </Hint>
               ) : (
@@ -301,93 +299,7 @@ export function ModelSourceTabs({
             </span>
           );
         })}
-        {indicator}
       </div>
-    </div>
-  );
-}
-
-/** Offered above the library while the Agents use another source. */
-export function SwitchToLocalNotice({
-  disabled,
-  fromSubscription = false,
-  models,
-  switcher,
-}: {
-  disabled: boolean;
-  fromSubscription?: boolean;
-  models: readonly LocalModel[];
-  switcher: ModelSourceSwitcher;
-}) {
-  const t = useT();
-  const [selectedId, setSelectedId] = useState<string | undefined>(undefined);
-  const chosen =
-    (selectedId
-      ? models.find((model) => model.id === selectedId)
-      : undefined) ?? models[0];
-  const single = models.length === 1 ? models[0] : undefined;
-
-  return (
-    <div className="mt-5 flex flex-col gap-3 rounded-xl border border-border bg-card px-4 py-3.5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="min-w-0 flex-1 text-sm text-muted-foreground">
-          {single ? (
-            <RichMessage
-              message={m.switchLocalSingle}
-              tags={{
-                model: (text) => (
-                  <span className="font-medium text-foreground">{text}</span>
-                ),
-              }}
-              values={{ name: single.name }}
-            />
-          ) : (
-            t(models.length > 1 ? m.switchLocalChoose : m.switchLocalDownload)
-          )}
-        </p>
-        <div className="flex shrink-0 flex-wrap items-center gap-2">
-          {models.length > 1 && chosen ? (
-            <Select
-              aria-label={t(m.modeLocal)}
-              onValueChange={setSelectedId}
-              value={chosen.id}
-              variant="pill"
-            >
-              {models.map((model) => (
-                <SelectItem key={model.id} value={model.id}>
-                  {t(
-                    model.state === "loaded"
-                      ? m.localOptionLoaded
-                      : m.localOptionDownloaded,
-                    {
-                      name: model.name,
-                      size: formatGigabytes(model.memory_bytes, t),
-                    },
-                  )}
-                </SelectItem>
-              ))}
-            </Select>
-          ) : null}
-          <Button
-            disabled={disabled || !chosen}
-            loading={switcher.pending?.mode === "local"}
-            onClick={() =>
-              chosen &&
-              switcher.request({ local_model_id: chosen.id, mode: "local" })
-            }
-            size="compact"
-            tone="primary"
-          >
-            {t(m.switchToLocal)}
-          </Button>
-        </div>
-      </div>
-      {fromSubscription ? (
-        <FormFeedback tone="info">
-          This computer currently uses Subscription. Switching away from
-          Subscription cannot be reversed from this page.
-        </FormFeedback>
-      ) : null}
     </div>
   );
 }

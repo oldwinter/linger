@@ -7,12 +7,12 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/agentregistry"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/config"
-	"github.com/simplexai-labs/linger/apps/teamhub/internal/platform/agenttemplates"
 )
 
 // newAnotherMeEnv starts an app whose Human has no Another Me and no Computer
-// yet, with the built-in Agent templates the starter workspace uses.
+// yet.
 func newAnotherMeEnv(t *testing.T) (*testEnv, *http.Client, *recordingAgentManagement) {
 	t.Helper()
 	databaseURL := newIntegrationDatabase(t)
@@ -21,11 +21,6 @@ func newAnotherMeEnv(t *testing.T) (*testEnv, *http.Client, *recordingAgentManag
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	// The integration app skips built-in installation; the template clone
-	// already carries the built-in Skills the templates bind.
-	if err := agenttemplates.Ensure(t.Context(), pool); err != nil {
-		t.Fatal(err)
-	}
 	agentManagement := &recordingAgentManagement{}
 	artifactRoot := integrationArtifactRoot(t)
 	application, err := newIntegrationApp(t.Context(), config.ForTest(func(c *config.Config) {
@@ -180,12 +175,13 @@ func TestComputerComingOnlineCreatesAnotherMeOnce(t *testing.T) {
 // becomes ready while it stays online does.
 func TestAnotherMeWaitsForAReadyRuntimeWithoutAJob(t *testing.T) {
 	allowParallelIntegrationTest(t)
-	env, _, _ := newAnotherMeEnv(t)
+	env, alice, _ := newAnotherMeEnv(t)
 	seedAnotherMeComputers(t, env.pool)
 	computerID := anotherMeFixtureComputerID(acmeTenant, "actor_acme_alice")
 	if _, err := env.pool.Exec(t.Context(), `
 		UPDATE local_computers
 		SET status='offline',last_seen_at=now()-interval '1 minute',
+		    platform='win32',
 		    runtime_diagnostics=jsonb_build_array(jsonb_build_object('type','codex','status','not_installed','protocol','app-server','checked_at',to_jsonb(now())))
 		WHERE computer_id=$1
 	`, computerID); err != nil {
@@ -194,6 +190,15 @@ func TestAnotherMeWaitsForAReadyRuntimeWithoutAJob(t *testing.T) {
 	touchAnotherMeComputer(t, env, computerID, nil)
 	if actorID := anotherMeActorID(t, env, acmeTenant, "actor_acme_alice"); actorID != "" {
 		t.Fatalf("Another Me created without a ready Runtime: %s", actorID)
+	}
+	anotherMePath := "/v0/tenants/" + acmeTenant + "/another-me"
+	status, _, body := env.request(alice, http.MethodGet, anotherMePath, nil, "")
+	if status != http.StatusOK ||
+		!containsJSONText(body, `"reason":"no_ready_runtime_with_models"`) ||
+		!containsJSONText(body, `"computer_id":"`+computerID+`"`) ||
+		!containsJSONText(body, `"status":"not_installed"`) ||
+		!containsJSONText(body, `"model_count":0`) {
+		t.Fatalf("Another Me blocker while online without ready runtime status=%d body=%s", status, body)
 	}
 	if got := countRows(t, env, `SELECT count(*) FROM river_job WHERE kind LIKE 'another_me.%' OR kind LIKE 'maintenance.another_me%'`); got != 0 {
 		t.Fatalf("Another Me jobs=%d want=0", got)
@@ -205,35 +210,67 @@ func TestAnotherMeWaitsForAReadyRuntimeWithoutAJob(t *testing.T) {
 	if actorID := anotherMeActorID(t, env, acmeTenant, "actor_acme_alice"); actorID == "" {
 		t.Fatal("a Runtime that became ready created no Another Me")
 	}
+	status, _, body = env.request(alice, http.MethodGet, anotherMePath, nil, "")
+	if status != http.StatusOK || containsJSONText(body, `"placement_blocker"`) || !containsJSONText(body, `"agent_actor_id"`) {
+		t.Fatalf("Another Me after runtime ready status=%d body=%s", status, body)
+	}
 }
 
-// A starter template that cannot be installed is skipped: the Another Me, the
-// other starter Agent and the Getting Started Room are still created.
-func TestAnotherMeSkipsABrokenStarterTemplate(t *testing.T) {
+// A starter Agent past the Sponsor's Agent limit is skipped: the Another Me,
+// the other starter Agent and the Getting Started Room are still created.
+func TestAnotherMeSkipsAStarterAgentPastTheAgentLimit(t *testing.T) {
 	allowParallelIntegrationTest(t)
 	env, _, _ := newAnotherMeEnv(t)
-	// A repeated Skill makes the Code Reviewer's bindings invalid.
-	if _, err := env.pool.Exec(t.Context(), `
-		UPDATE agent_templates SET skill_bindings=skill_bindings || jsonb_build_array(skill_bindings->0)
-		WHERE template_id='code-reviewer'
-	`); err != nil {
+	var sourceID string
+	if err := env.pool.QueryRow(t.Context(), `
+		SELECT actor_id FROM agent_registrations
+		WHERE tenant_id=$1 AND created_by_actor_id='actor_acme_alice' AND agent_type='general' AND status='active'
+		ORDER BY created_at LIMIT 1
+	`, acmeTenant).Scan(&sourceID); err != nil {
 		t.Fatal(err)
 	}
-	actorID := connectAnotherMeComputer(t, env, acmeTenant, "actor_acme_alice")
-	if actorID == "" {
-		t.Fatal("a broken starter template blocked the Another Me")
+	existing := countRows(t, env, `
+		SELECT count(*) FROM agent_registrations
+		WHERE tenant_id=$1 AND created_by_actor_id='actor_acme_alice' AND agent_type='general' AND status='active'
+	`, acmeTenant)
+	// Leave room for exactly one starter Agent: Research Analyst fits, Code Reviewer does not.
+	missing := agentregistry.MaxSponsorGeneralAgents - 1 - existing
+	if _, err := env.pool.Exec(t.Context(), `
+		INSERT INTO actors
+		SELECT (jsonb_populate_record(actor, jsonb_build_object(
+			'id', 'actor_limit_' || n, 'handle', '@limit-' || n, 'display_name', 'Limit ' || n))).*
+		FROM actors actor, generate_series(1, $2::int) n WHERE actor.id=$1;
+	`, sourceID, missing); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.pool.Exec(t.Context(), `
+		INSERT INTO agent_registrations
+		SELECT (jsonb_populate_record(registration, jsonb_build_object(
+			'actor_id', 'actor_limit_' || n, 'agent_management_id', 'agent-management-limit-' || n))).*
+		FROM agent_registrations registration, generate_series(1, $2::int) n WHERE registration.actor_id=$1;
+	`, sourceID, missing); err != nil {
+		t.Fatal(err)
+	}
+
+	anotherMeID := connectAnotherMeComputer(t, env, acmeTenant, "actor_acme_alice")
+	if anotherMeID == "" {
+		t.Fatal("the Agent limit blocked the Another Me")
 	}
 	if got := countRows(t, env, `
-		SELECT count(*) FROM agent_registrations
-		WHERE tenant_id=$1 AND created_by_actor_id='actor_acme_alice' AND status='active' AND template_id IS NOT NULL
+		SELECT count(*) FROM agent_registrations registration
+		JOIN actors actor ON actor.id=registration.actor_id
+		WHERE registration.tenant_id=$1 AND registration.created_by_actor_id='actor_acme_alice'
+		  AND actor.display_name IN ('Research Analyst','Code Reviewer')
 	`, acmeTenant); got != 1 {
 		t.Fatalf("starter Agents=%d want=1", got)
 	}
 	if got := countRows(t, env, `
 		SELECT count(*) FROM room_members member
 		JOIN rooms room ON room.id=member.room_id
+		JOIN actors actor ON actor.id=member.actor_id
 		WHERE room.tenant_id=$1 AND room.name='Getting Started' AND room.deleted_at IS NULL
-	`, acmeTenant); got != 3 {
+		  AND (member.actor_id='actor_acme_alice' OR member.actor_id=$2 OR actor.display_name='Research Analyst')
+	`, acmeTenant, anotherMeID); got != 3 {
 		t.Fatalf("starter Room members=%d want=3", got)
 	}
 }
@@ -388,17 +425,26 @@ func assertStarterWorkspace(t *testing.T, env *testEnv, anotherMeID string) {
 	t.Helper()
 	if got := countRows(t, env, `
 		SELECT count(*) FROM agent_registrations registration
+		JOIN actors actor ON actor.id=registration.actor_id
 		WHERE registration.tenant_id=$1 AND registration.created_by_actor_id='actor_acme_alice' AND registration.status='active'
-		  AND registration.template_id IN ('research-analyst','code-reviewer') AND registration.template_installed_at IS NOT NULL
+		  AND registration.agent_type='general' AND actor.display_name IN ('Research Analyst','Code Reviewer')
 	`, acmeTenant); got != 2 {
 		t.Fatalf("starter Agents=%d want=2", got)
 	}
 	if got := countRows(t, env, `
+		SELECT count(*) FROM rooms room
+		JOIN actors actor ON actor.id=room.direct_agent_actor_id
+		WHERE room.tenant_id=$1 AND room.direct_human_actor_id='actor_acme_alice' AND room.deletion_started_at IS NULL
+		  AND actor.display_name IN ('Research Analyst','Code Reviewer')
+	`, acmeTenant); got != 2 {
+		t.Fatalf("starter Agent direct Rooms=%d want=2", got)
+	}
+	if got := countRows(t, env, `
 		SELECT count(*) FROM agent_skill_bindings binding
-		JOIN agent_registrations registration ON registration.actor_id=binding.agent_actor_id
-		WHERE registration.template_id='code-reviewer'
+		JOIN actors actor ON actor.id=binding.agent_actor_id
+		WHERE actor.tenant_id=$1 AND actor.display_name='Code Reviewer'
 		  AND binding.skill_id IN ('simplexai_superpowers','simplexai_impeccable','simplexai_taste')
-	`); got != 3 {
+	`, acmeTenant); got != 3 {
 		t.Fatalf("Code Reviewer current Skill bindings=%d want=3", got)
 	}
 	if got := countRows(t, env, `
@@ -409,10 +455,10 @@ func assertStarterWorkspace(t *testing.T, env *testEnv, anotherMeID string) {
 	if got := countRows(t, env, `
 		SELECT count(*) FROM room_members member
 		JOIN rooms room ON room.id=member.room_id
-		LEFT JOIN agent_registrations registration ON registration.actor_id=member.actor_id
+		JOIN actors actor ON actor.id=member.actor_id
 		WHERE room.tenant_id=$1 AND room.name='Getting Started'
 		  AND (member.actor_id='actor_acme_alice' AND member.role='owner'
-		       OR member.actor_id=$2 OR registration.template_id='research-analyst')
+		       OR member.actor_id=$2 OR actor.display_name='Research Analyst')
 	`, acmeTenant, anotherMeID); got != 3 {
 		t.Fatalf("starter Room expected members=%d want=3", got)
 	}

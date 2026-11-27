@@ -27,6 +27,7 @@ import {
   FIRST_MODEL_INVOKE_CANCEL_COMPUTER_VERSION,
   FIRST_MODEL_INVOKE_MODEL_COMPUTER_VERSION,
   FIRST_PI_MODEL_INVOKE_COMPUTER_VERSION,
+  FIRST_ANTIGRAVITY_MODEL_INVOKE_COMPUTER_VERSION,
   FIRST_BYOK_ENDPOINT_COMPUTER_VERSION,
   FIRST_LOCAL_MODELS_DIAGNOSTICS_COMPUTER_VERSION,
   FIRST_MODEL_INVOKE_OUTCOMES_COMPUTER_VERSION,
@@ -289,17 +290,30 @@ export class RunnerConnections {
     const registrations = runtimeRegistrationSnapshot(owner, hello);
     this.owners.operations().validateReconciliationInventory(hello);
     const previous = this.#connections.get(hello.runner_id);
-    const placements =
-      (await this.context.computerRegistry?.connect({
-        computerId: hello.runner_id,
-        owner,
-        credentialGeneration: claims.credentialGeneration,
-        hello,
-        status: isServingConnection(previous) ? "online" : "offline",
-        ...(this.context.options.computerRelease
-          ? { recommendedVersion: this.context.options.computerRelease.version }
-          : {}),
-      })) ?? [];
+    const connectResult = await this.context.computerRegistry?.connect({
+      computerId: hello.runner_id,
+      owner,
+      credentialGeneration: claims.credentialGeneration,
+      hello,
+      status: isServingConnection(previous) ? "online" : "offline",
+      ...(this.context.options.computerRelease
+        ? { recommendedVersion: this.context.options.computerRelease.version }
+        : {}),
+    });
+    const placements = connectResult?.placements ?? [];
+    if (
+      connectResult?.connectedApps !== undefined ||
+      connectResult?.permissionReview !== undefined
+    ) {
+      this.context.deploymentFeatures = {
+        connectedApps:
+          connectResult.connectedApps ??
+          this.context.deploymentFeatures.connectedApps,
+        permissionReview:
+          connectResult.permissionReview ??
+          this.context.deploymentFeatures.permissionReview,
+      };
+    }
     const pending = this.owners
       .operations()
       .retainedOperations(hello.runner_id);
@@ -508,6 +522,8 @@ export class RunnerConnections {
               "dynamic_reasoning_efforts",
               "herdr_core_v1",
               "herdr_core_stream",
+              "antigravity_history",
+              "antigravity_usage_provider",
             ],
           }
         : {}),
@@ -970,6 +986,11 @@ export class RunnerConnections {
         isComputerVersionAtLeast(
           connection.hello.daemon_version,
           FIRST_PI_MODEL_INVOKE_COMPUTER_VERSION,
+        )) &&
+      (runtimeType !== "antigravity" ||
+        isComputerVersionAtLeast(
+          connection.hello.daemon_version,
+          FIRST_ANTIGRAVITY_MODEL_INVOKE_COMPUTER_VERSION,
         )) &&
       connection.hello.runtime_diagnostics.some(
         ({ type, status }) => type === runtimeType && status === "ready",

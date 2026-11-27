@@ -22,25 +22,34 @@ import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { c as archive } from "tar";
+import { tarCommand } from "./archive.js";
 import { INSTANCE_BUSY, withInstanceLock, type Instance } from "./instance.js";
 import { runProcess } from "./process.js";
 import { REGION_SCHEMA, regionFile } from "./region.js";
 import { requestUrlText } from "@linger/service-kit";
 import { afterEach, expect, test, vi } from "vitest";
 import {
+  BUNDLED_LOCALMODELS_KIT_FILENAME,
+  bundledToolArchivePath,
+  clearResumeLocalModels,
+  configuredDevTool,
   ensureLocalmodelsTool,
   localmodelsBifrostAddrFile,
   localmodelsBifrostDirectory,
   localmodelsLegacyToolsMarkerFile,
+  localmodelsResumeModelsFile,
   localmodelsStateDirectory,
   localmodelsToolsDirectory,
   prefetchLocalmodelsBifrost,
+  readOnDiskLoadedLibraryModels,
   readPublishedTool,
+  readResumeLocalModels,
   resolveLocalmodelsBifrostAddr,
   runLocalmodels,
   stopLocalmodels,
   validateToolSource,
   withLocalmodelsToolCache,
+  writeResumeLocalModels,
 } from "./localmodels-tool.js";
 const roots: string[] = [];
 async function reopenDirectories(directory: string): Promise<void> {
@@ -116,7 +125,7 @@ async function packed(f: Awaited<ReturnType<typeof fixture>>) {
   await mkdir(root);
   await rename(f.directory, path.join(root, "package"));
   const archive = path.join(f.home, "kit.tgz");
-  execFileSync("tar", ["-czf", archive, "-C", root, "package"], {
+  execFileSync(tarCommand(), ["-czf", archive, "-C", root, "package"], {
     env: { ...process.env, COPYFILE_DISABLE: "1" },
   });
   return readFile(archive);
@@ -427,7 +436,7 @@ for (const [label, add] of [
       await chmod(f.directory, 0o700);
       await add(f.directory);
       const archive = path.join(f.home, "kit.tgz");
-      execFileSync("tar", ["-czf", archive, "-C", f.directory, "."], {
+      execFileSync(tarCommand(), ["-czf", archive, "-C", f.directory, "."], {
         env: { ...process.env, COPYFILE_DISABLE: "1" },
       });
       await rm(f.directory, { recursive: true, force: true });
@@ -555,8 +564,74 @@ test("passes the resolved download region to every localmodels child", async () 
     string,
     string[],
     { env: NodeJS.ProcessEnv },
-  ][])
+  ][]) {
     expect(call[2].env.SIMPLEX_REGION).toBe("cn");
+    expect(call[2].env.SIMPLEX_REGION_FILE).toBe(regionFile(f.home));
+  }
+});
+test("passes SIMPLEX_REGION=auto and SIMPLEX_REGION_FILE on a cold home without probing npm registries", async () => {
+  const f = await fixture();
+  await rm(regionFile(f.home));
+  vi.stubEnv("LINGER_LOCALMODELS_TOOL_JSON", JSON.stringify(f.source));
+  vi.stubEnv("SIMPLEX_REGION", "");
+  vi.stubEnv("SIMPLEX_REGION_FILE", "/inherited/region.json");
+  const fetcher = vi.fn();
+  vi.stubGlobal("fetch", fetcher);
+  const run = vi.fn(async () => ({ code: 0, stdout: "{}", stderr: "" }));
+
+  await runLocalmodels(
+    f.home,
+    ["harness", "status", "--json"],
+    {
+      env: {
+        simplex_region: "cn",
+        simplex_region_file: "/override/region.json",
+      },
+    },
+    { run },
+  );
+
+  expect(fetcher).not.toHaveBeenCalled();
+  expect(run).toHaveBeenCalledTimes(1);
+  const env = (
+    run.mock.calls[0] as unknown as [
+      string,
+      string[],
+      { env: NodeJS.ProcessEnv },
+    ]
+  )[2].env;
+  expect(env.SIMPLEX_REGION).toBe("auto");
+  expect(env.SIMPLEX_REGION_FILE).toBe(regionFile(f.home));
+  expect(
+    Object.keys(env).filter((key) => key.toUpperCase() === "SIMPLEX_REGION"),
+  ).toEqual(["SIMPLEX_REGION"]);
+  expect(
+    Object.keys(env).filter(
+      (key) => key.toUpperCase() === "SIMPLEX_REGION_FILE",
+    ),
+  ).toEqual(["SIMPLEX_REGION_FILE"]);
+});
+test("passes forced SIMPLEX_REGION and SIMPLEX_REGION_FILE to localmodels children", async () => {
+  const f = await fixture();
+  await rm(regionFile(f.home));
+  vi.stubEnv("LINGER_LOCALMODELS_TOOL_JSON", JSON.stringify(f.source));
+  vi.stubEnv("SIMPLEX_REGION", "cn");
+  const fetcher = vi.fn();
+  vi.stubGlobal("fetch", fetcher);
+  const run = vi.fn(async () => ({ code: 0, stdout: "{}", stderr: "" }));
+
+  await runLocalmodels(f.home, ["harness", "status", "--json"], {}, { run });
+
+  expect(fetcher).not.toHaveBeenCalled();
+  const env = (
+    run.mock.calls[0] as unknown as [
+      string,
+      string[],
+      { env: NodeJS.ProcessEnv },
+    ]
+  )[2].env;
+  expect(env.SIMPLEX_REGION).toBe("cn");
+  expect(env.SIMPLEX_REGION_FILE).toBe(regionFile(f.home));
 });
 // What `library status` prints, cut to the fields the stop reads.
 const libraryStatus = (
@@ -1059,6 +1134,58 @@ test("forwards safe extraction and verification stages after Harness downloads f
   });
   expect(JSON.stringify(onEvent.mock.calls)).not.toContain("private-secret");
 });
+test("configuredDevTool validates partial, relative, POSIX, and Windows dev overrides", () => {
+  expect(configuredDevTool({})).toBeUndefined();
+  expect(
+    configuredDevTool({
+      LINGER_LOCALMODELS_DEV_PYTHON: "  ",
+      LINGER_LOCALMODELS_DEV_MODULE_DIR: "",
+    }),
+  ).toBeUndefined();
+  expect(() =>
+    configuredDevTool({
+      LINGER_LOCALMODELS_DEV_PYTHON: "/opt/venv/bin/python",
+    }),
+  ).toThrow(/set together/i);
+  expect(() =>
+    configuredDevTool({
+      LINGER_LOCALMODELS_DEV_MODULE_DIR: "/src/llm-inference-lab",
+    }),
+  ).toThrow(/set together/i);
+  expect(() =>
+    configuredDevTool({
+      LINGER_LOCALMODELS_DEV_PYTHON: "python3",
+      LINGER_LOCALMODELS_DEV_MODULE_DIR: "/src/llm-inference-lab",
+    }),
+  ).toThrow(/absolute paths/i);
+  expect(
+    configuredDevTool(
+      {
+        LINGER_LOCALMODELS_DEV_PYTHON: " /opt/venv/bin/python ",
+        LINGER_LOCALMODELS_DEV_MODULE_DIR: "/src/llm-inference-lab",
+      },
+      path.posix,
+    ),
+  ).toEqual({
+    python: "/opt/venv/bin/python",
+    moduleDir: "/src/llm-inference-lab",
+    sourceCommit: "0".repeat(40),
+  });
+  expect(
+    configuredDevTool(
+      {
+        LINGER_LOCALMODELS_DEV_PYTHON: "C:\\lab\\.venv\\Scripts\\python.exe",
+        LINGER_LOCALMODELS_DEV_MODULE_DIR: "C:\\lab",
+      },
+      path.win32,
+    ),
+  ).toEqual({
+    python: "C:\\lab\\.venv\\Scripts\\python.exe",
+    moduleDir: "C:\\lab",
+    sourceCommit: "0".repeat(40),
+  });
+});
+
 test("uses a configured development localmodels checkout without downloading a kit", async () => {
   const f = await fixture();
   vi.stubEnv("LINGER_LOCALMODELS_TOOL_JSON", "");
@@ -1848,6 +1975,8 @@ test("logs phase breakdowns for harness apply and source apply alongside the com
 });
 
 test("logs per-step durations when stopping localmodels", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "linger-stop-log-"));
+  roots.push(home);
   const logs: string[] = [];
   const run = vi.fn<typeof runLocalmodels>(async (_home, args) =>
     args[1] === "status"
@@ -1855,7 +1984,7 @@ test("logs per-step durations when stopping localmodels", async () => {
       : { code: 0, stdout: "{}", stderr: "" },
   );
   await stopLocalmodels(
-    "/home",
+    home,
     {
       signal: AbortSignal.timeout(5000),
       log: (message) => logs.push(message),
@@ -2864,3 +2993,302 @@ print(json.dumps({"ok": True}))
   },
   120_000,
 );
+
+test("stopLocalmodels records active models before unloading, preserves pending list across chained stops, and marks explicit empty stops", async () => {
+  const f = await fixture();
+  vi.stubEnv("LINGER_LOCALMODELS_TOOL_JSON", JSON.stringify(f.source));
+  let statusCalls = 0;
+  const runProc = vi.fn<typeof import("./process.js").runProcess>(
+    async (_file, args) => {
+      if (args.includes("status")) {
+        statusCalls += 1;
+        return {
+          code: 0,
+          stdout: JSON.stringify({
+            schema: "localmodels.library-status/v1",
+            models:
+              statusCalls === 1
+                ? [
+                    { id: "spark-x2.6-4b:Q4_K_M", state: "loaded" },
+                    { id: "qwen3.8-27b:UD-Q4_K_M", state: "loading" },
+                    {
+                      id: "crashed-model:Q4_K_M",
+                      state: "failed",
+                      error: { code: "HEALTH_CHECK_FAILED" },
+                    },
+                    {
+                      id: "stopped-dl:Q4_K_M",
+                      state: "failed",
+                      error: { code: "NETWORK_UNAVAILABLE" },
+                    },
+                    { id: "idle-model:Q4_K_M", state: "idle" },
+                  ]
+                : [
+                    { id: "spark-x2.6-4b:Q4_K_M", state: "idle" },
+                    { id: "qwen3.8-27b:UD-Q4_K_M", state: "idle" },
+                    { id: "crashed-model:Q4_K_M", state: "idle" },
+                    { id: "idle-model:Q4_K_M", state: "idle" },
+                  ],
+          }),
+          stderr: "",
+        };
+      }
+      return { code: 0, stdout: "{}", stderr: "" };
+    },
+  );
+  await stopLocalmodels(
+    f.home,
+    { signal: AbortSignal.timeout(5000), keepController: true },
+    { runProcess: runProc, cancelPollMs: 1, cancelWaitMs: 50 },
+  );
+  expect(await readResumeLocalModels(f.home)).toEqual([
+    "spark-x2.6-4b:Q4_K_M",
+    "qwen3.8-27b:UD-Q4_K_M",
+    "crashed-model:Q4_K_M",
+  ]);
+  if (process.platform !== "win32") {
+    expect((await stat(localmodelsResumeModelsFile(f.home))).mode & 0o777).toBe(
+      0o600,
+    );
+  }
+
+  // A follow-up stop (e.g. Windows setup `--stop` after the app already quit)
+  // sees all models idle and preserves the pending list rather than wiping it.
+  await stopLocalmodels(
+    f.home,
+    { signal: AbortSignal.timeout(5000) },
+    { runProcess: runProc },
+  );
+  expect(await readResumeLocalModels(f.home)).toEqual([
+    "spark-x2.6-4b:Q4_K_M",
+    "qwen3.8-27b:UD-Q4_K_M",
+    "crashed-model:Q4_K_M",
+  ]);
+
+  // If a previous restore finished one model and left another pending before a
+  // second quit, newly loaded models merge with the remaining pending list.
+  await writeResumeLocalModels(f.home, ["still-pending:Q4_K_M"]);
+  statusCalls = 0;
+  await stopLocalmodels(
+    f.home,
+    { signal: AbortSignal.timeout(5000), keepController: true },
+    { runProcess: runProc, cancelPollMs: 1, cancelWaitMs: 50 },
+  );
+  expect(await readResumeLocalModels(f.home)).toEqual([
+    "spark-x2.6-4b:Q4_K_M",
+    "qwen3.8-27b:UD-Q4_K_M",
+    "crashed-model:Q4_K_M",
+    "still-pending:Q4_K_M",
+  ]);
+
+  // After resume clears the record, a quit with downloaded models all idle
+  // records an explicit empty list so intentional unloads stay unloaded.
+  await clearResumeLocalModels(f.home);
+  statusCalls = 2;
+  await stopLocalmodels(
+    f.home,
+    { signal: AbortSignal.timeout(5000), keepController: true },
+    { runProcess: runProc },
+  );
+  expect(await readResumeLocalModels(f.home)).toEqual([]);
+});
+
+test("readOnDiskLoadedLibraryModels returns regular owned loaded model records and ignores idle or invalid files", async () => {
+  const f = await fixture();
+  const modelsDir = path.join(
+    localmodelsStateDirectory(f.home),
+    "library",
+    "models",
+  );
+  await mkdir(modelsDir, { recursive: true, mode: 0o700 });
+  // localmodels writes model records under default umask (0644), not 0600.
+  await writeFile(
+    path.join(modelsDir, "a.json"),
+    JSON.stringify({ id: "alpha:Q4_K_M", state: "loaded" }),
+    { mode: 0o644 },
+  );
+  await writeFile(
+    path.join(modelsDir, "b.json"),
+    JSON.stringify({ id: "beta:Q8_0", state: "idle" }),
+    { mode: 0o644 },
+  );
+  await writeFile(
+    path.join(modelsDir, "c.json"),
+    JSON.stringify({ id: "gamma:UD-Q4_K_XL", state: "loaded" }),
+    { mode: 0o644 },
+  );
+  await writeFile(
+    path.join(modelsDir, "bad.json"),
+    JSON.stringify({ id: "../evil", state: "loaded" }),
+    { mode: 0o644 },
+  );
+  await writeFile(path.join(modelsDir, "corrupt.json"), "{not json", {
+    mode: 0o644,
+  });
+  expect(await readOnDiskLoadedLibraryModels(f.home)).toEqual([
+    "alpha:Q4_K_M",
+    "gamma:UD-Q4_K_XL",
+  ]);
+});
+
+test("installs from a verified bundled kit archive offline without calling fetcher or deleting the archive", async () => {
+  const f = await fixture();
+  const bytes = await packed(f);
+  const source = { ...f.source, sha256: hash(bytes), bytes: bytes.length };
+  const distDir = path.join(f.home, "app-installer");
+  await mkdir(distDir, { recursive: true });
+  const distFile = path.join(distDir, "distribution.json");
+  const bundledPath = bundledToolArchivePath(distFile)!;
+  expect(bundledPath).toBe(
+    path.join(distDir, BUNDLED_LOCALMODELS_KIT_FILENAME),
+  );
+  await writeFile(bundledPath, bytes);
+
+  const fetcher = vi.fn(async () => {
+    throw new Error("network should not be called");
+  });
+  const events: Array<{ kind: string; stage?: string; message: string }> = [];
+  const tool = await ensureLocalmodelsTool(
+    f.home,
+    { onEvent: (event) => events.push(event) },
+    { source, bundledArchivePath: bundledPath, fetcher },
+  );
+
+  expect(fetcher).not.toHaveBeenCalled();
+  const directory = path.join(f.home, "tools", "localmodels", source.sha256);
+  expect(tool.python).toBe(path.join(directory, "python", "python"));
+  expect(tool.moduleDir).toBe(path.join(directory, "modules"));
+  expect(tool.sourceCommit).toBe(source.sourceCommit);
+  // The app's bundled archive must remain intact after unpacking.
+  expect(existsSync(bundledPath)).toBe(true);
+  expect(await readFile(bundledPath)).toEqual(bytes);
+  expect(
+    events.some(
+      (event) =>
+        event.kind === "log" &&
+        event.stage === "preflight" &&
+        event.message.includes("bundled localmodels kit archive"),
+    ),
+  ).toBe(true);
+  if (process.platform !== "win32") {
+    expect((await stat(directory)).mode & 0o777).toBe(0o500);
+  }
+});
+
+test("resolves the bundled kit archive via LINGER_LOCALMODELS_TOOL_ARCHIVE when source comes from env", async () => {
+  const f = await fixture();
+  const bytes = await packed(f);
+  const source = { ...f.source, sha256: hash(bytes), bytes: bytes.length };
+  const distDir = path.join(f.home, "env-installer");
+  await mkdir(distDir, { recursive: true });
+  const bundledPath = path.join(distDir, BUNDLED_LOCALMODELS_KIT_FILENAME);
+  await writeFile(bundledPath, bytes);
+  vi.stubEnv("LINGER_LOCALMODELS_TOOL_JSON", JSON.stringify(source));
+  vi.stubEnv("LINGER_LOCALMODELS_TOOL_ARCHIVE", bundledPath);
+
+  const fetcher = vi.fn(async () => {
+    throw new Error("network should not be called");
+  });
+  const tool = await ensureLocalmodelsTool(f.home, {}, { fetcher });
+  expect(fetcher).not.toHaveBeenCalled();
+  expect(tool.moduleDir).toBe(
+    path.join(f.home, "tools", "localmodels", source.sha256, "modules"),
+  );
+  expect(existsSync(bundledPath)).toBe(true);
+});
+
+test("fails closed when a bundled kit archive has a sha256 or byte size mismatch and never calls fetcher", async () => {
+  const f = await fixture();
+  const bytes = await packed(f);
+  const source = { ...f.source, sha256: hash(bytes), bytes: bytes.length };
+  const directory = path.join(f.home, "tools", "localmodels", source.sha256);
+  const fetcher = vi.fn(async () => new Response(bytes));
+
+  // Same byte length, corrupted content -> checksum mismatch.
+  const wrongHashPath = path.join(f.home, "wrong-hash.tgz");
+  const corrupted = Buffer.from(bytes);
+  corrupted[corrupted.length - 1] = (corrupted.at(-1) ?? 0) ^ 0xff;
+  await writeFile(wrongHashPath, corrupted);
+  await expect(
+    ensureLocalmodelsTool(
+      f.home,
+      {},
+      { source, bundledArchivePath: wrongHashPath, fetcher },
+    ),
+  ).rejects.toThrow(/checksum mismatch/i);
+  expect(fetcher).not.toHaveBeenCalled();
+  expect(existsSync(directory)).toBe(false);
+  expect(existsSync(wrongHashPath)).toBe(true);
+
+  // Wrong byte length -> size mismatch.
+  const wrongSizePath = path.join(f.home, "wrong-size.tgz");
+  await writeFile(wrongSizePath, Buffer.concat([bytes, Buffer.from([0])]));
+  await expect(
+    ensureLocalmodelsTool(
+      f.home,
+      {},
+      { source, bundledArchivePath: wrongSizePath, fetcher },
+    ),
+  ).rejects.toThrow(/size mismatch/i);
+  expect(fetcher).not.toHaveBeenCalled();
+  expect(existsSync(directory)).toBe(false);
+});
+
+test.skipIf(process.platform === "win32")(
+  "fails closed when a bundled kit archive is a symlink or directory",
+  async () => {
+    const f = await fixture();
+    const bytes = await packed(f);
+    const source = { ...f.source, sha256: hash(bytes), bytes: bytes.length };
+    const directory = path.join(f.home, "tools", "localmodels", source.sha256);
+    const fetcher = vi.fn(async () => new Response(bytes));
+
+    const realArchive = path.join(f.home, "real.tgz");
+    await writeFile(realArchive, bytes);
+    const linkedArchive = path.join(f.home, BUNDLED_LOCALMODELS_KIT_FILENAME);
+    await symlink(realArchive, linkedArchive);
+    await expect(
+      ensureLocalmodelsTool(
+        f.home,
+        {},
+        { source, bundledArchivePath: linkedArchive, fetcher },
+      ),
+    ).rejects.toThrow(/regular non-symlink/i);
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(existsSync(directory)).toBe(false);
+
+    const dirArchive = path.join(f.home, "dir-archive.tgz");
+    await mkdir(dirArchive);
+    await expect(
+      ensureLocalmodelsTool(
+        f.home,
+        {},
+        { source, bundledArchivePath: dirArchive, fetcher },
+      ),
+    ).rejects.toThrow(/regular non-symlink/i);
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(existsSync(directory)).toBe(false);
+  },
+);
+
+test("falls through to the normal download path when the bundled kit archive is absent", async () => {
+  const f = await fixture();
+  const bytes = await packed(f);
+  const source = { ...f.source, sha256: hash(bytes), bytes: bytes.length };
+  const missingBundledPath = path.join(
+    f.home,
+    "missing-installer",
+    BUNDLED_LOCALMODELS_KIT_FILENAME,
+  );
+  const fetcher = vi.fn(async () => new Response(bytes));
+
+  const tool = await ensureLocalmodelsTool(
+    f.home,
+    {},
+    { source, bundledArchivePath: missingBundledPath, fetcher },
+  );
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  expect(tool.moduleDir).toBe(
+    path.join(f.home, "tools", "localmodels", source.sha256, "modules"),
+  );
+});

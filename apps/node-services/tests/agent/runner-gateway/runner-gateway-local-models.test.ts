@@ -211,6 +211,8 @@ describe("Runner Gateway local models", () => {
         "dynamic_reasoning_efforts",
         "herdr_core_v1",
         "herdr_core_stream",
+        "antigravity_history",
+        "antigravity_usage_provider",
       ],
     ],
     [
@@ -230,6 +232,8 @@ describe("Runner Gateway local models", () => {
         "dynamic_reasoning_efforts",
         "herdr_core_v1",
         "herdr_core_stream",
+        "antigravity_history",
+        "antigravity_usage_provider",
       ],
     ],
     [
@@ -248,6 +252,8 @@ describe("Runner Gateway local models", () => {
         "dynamic_reasoning_efforts",
         "herdr_core_v1",
         "herdr_core_stream",
+        "antigravity_history",
+        "antigravity_usage_provider",
       ],
     ],
     [
@@ -266,6 +272,8 @@ describe("Runner Gateway local models", () => {
         "dynamic_reasoning_efforts",
         "herdr_core_v1",
         "herdr_core_stream",
+        "antigravity_history",
+        "antigravity_usage_provider",
       ],
     ],
     [
@@ -284,6 +292,8 @@ describe("Runner Gateway local models", () => {
         "dynamic_reasoning_efforts",
         "herdr_core_v1",
         "herdr_core_stream",
+        "antigravity_history",
+        "antigravity_usage_provider",
       ],
     ],
     [
@@ -301,6 +311,8 @@ describe("Runner Gateway local models", () => {
         "dynamic_reasoning_efforts",
         "herdr_core_v1",
         "herdr_core_stream",
+        "antigravity_history",
+        "antigravity_usage_provider",
       ],
     ],
     [
@@ -317,6 +329,8 @@ describe("Runner Gateway local models", () => {
         "dynamic_reasoning_efforts",
         "herdr_core_v1",
         "herdr_core_stream",
+        "antigravity_history",
+        "antigravity_usage_provider",
       ],
     ],
     [
@@ -333,6 +347,8 @@ describe("Runner Gateway local models", () => {
         "dynamic_reasoning_efforts",
         "herdr_core_v1",
         "herdr_core_stream",
+        "antigravity_history",
+        "antigravity_usage_provider",
       ],
     ],
     [
@@ -348,6 +364,8 @@ describe("Runner Gateway local models", () => {
         "dynamic_reasoning_efforts",
         "herdr_core_v1",
         "herdr_core_stream",
+        "antigravity_history",
+        "antigravity_usage_provider",
       ],
     ],
     [
@@ -363,6 +381,8 @@ describe("Runner Gateway local models", () => {
         "dynamic_reasoning_efforts",
         "herdr_core_v1",
         "herdr_core_stream",
+        "antigravity_history",
+        "antigravity_usage_provider",
       ],
     ],
     [
@@ -377,6 +397,8 @@ describe("Runner Gateway local models", () => {
         "dynamic_reasoning_efforts",
         "herdr_core_v1",
         "herdr_core_stream",
+        "antigravity_history",
+        "antigravity_usage_provider",
       ],
     ],
     [
@@ -391,6 +413,8 @@ describe("Runner Gateway local models", () => {
         "dynamic_reasoning_efforts",
         "herdr_core_v1",
         "herdr_core_stream",
+        "antigravity_history",
+        "antigravity_usage_provider",
       ],
     ],
     ["0.51.0", undefined],

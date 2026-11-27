@@ -63,12 +63,17 @@ export const connectorMessages = defineMessages("connectors", {
     one: "{accounts} accounts, {count} needs reconnecting",
     other: "{accounts} accounts, {count} need reconnecting",
   },
+  needReconnectingCount: {
+    one: "{count} needs reconnecting",
+    other: "{count} need reconnecting",
+  },
   unavailable: "Unavailable",
   authorizing: "Authorizing…",
   couldNotConfirm: "Couldn't confirm connection",
   connect: "Connect",
   connectApp: "Connect {app}",
   manage: "Manage",
+  manageApp: "Manage {app}",
   disconnect: "Disconnect",
   actionsFor: "Actions for {app}",
   appIcon: "{name} icon",
@@ -131,10 +136,13 @@ export const connectorMessages = defineMessages("connectors", {
   notConfigured:
     "Connecting apps needs a Composio API key. Set <code>COMPOSIO_API_KEY</code> on the server.",
 
-  // API key guide and form. Read All and Write All are labels in Composio.
-  getYourApiKey: "Get your API key",
+  // API key form and status. Read All and Write All are labels in Composio.
   getAKey: "Get a key",
-  composioKeyReminder: "Don't forget to select Read All and Write All.",
+  apiKeyPlaceholder: "Paste your API key",
+  showApiKey: "Show API key",
+  hideApiKey: "Hide API key",
+  composioKeyReminder:
+    "Select <perm>Read All</perm> and <perm>Write All</perm> when creating your key.",
   composioApiKey: "Composio API key",
   checkingKey: "Checking key...",
   saveKey: "Save key",

@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createWriteStream } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { zstdCompressSync } from "node:zlib";
@@ -8,7 +8,9 @@ import { zstdCompressSync } from "node:zlib";
 import { describe, expect, it, vi } from "vitest";
 import { ZipFile } from "yazl";
 
-import { tarCommand, unpackArchive } from "./local-server.js";
+import { tarCommand } from "@linger/local-installation/archive";
+
+import { unpackArchive } from "./local-server.js";
 import { tempDirectory } from "./test-support.js";
 
 const createZip = async (
@@ -51,8 +53,20 @@ describe("unpackArchive", () => {
 
     const tarFile = path.join(root, "pkg.tar");
     const tgzFile = path.join(root, "pkg.tar.gz");
-    execFileSync("tar", ["-cf", tarFile, "-C", path.join(root, "src"), "top"]);
-    execFileSync("tar", ["-czf", tgzFile, "-C", path.join(root, "src"), "top"]);
+    execFileSync(tarCommand(), [
+      "-cf",
+      tarFile,
+      "-C",
+      path.join(root, "src"),
+      "top",
+    ]);
+    execFileSync(tarCommand(), [
+      "-czf",
+      tgzFile,
+      "-C",
+      path.join(root, "src"),
+      "top",
+    ]);
     const zstFile = path.join(root, "pkg.tar.zst");
     await writeFile(zstFile, zstdCompressSync(await readFile(tarFile)));
     const zipFile = path.join(root, "node.zip");
@@ -144,5 +158,33 @@ describe("unpackArchive", () => {
       }),
     ).rejects.toThrow("tar exited with code 2");
     expect(fallback).not.toHaveBeenCalled();
+  });
+
+  it("unpacks archives when the destination crosses a symlinked directory", async () => {
+    if (process.platform === "win32") return;
+    const root = tempDirectory();
+    const src = path.join(root, "src", "top");
+    await mkdir(src, { recursive: true });
+    await writeFile(path.join(src, "hello.txt"), "symlink-ok\n");
+    const tgzFile = path.join(root, "pkg.tar.gz");
+    execFileSync(tarCommand(), [
+      "-czf",
+      tgzFile,
+      "-C",
+      path.join(root, "src"),
+      "top",
+    ]);
+
+    // Deeper real directory reached through a shallower symlink, matching macOS /tmp -> /private/tmp.
+    const deepReal = path.join(root, "a", "b", "c", "target");
+    await mkdir(deepReal, { recursive: true });
+    const link = path.join(root, "link");
+    await symlink(deepReal, link);
+
+    const out = path.join(link, "out");
+    await unpackArchive(tgzFile, out, new AbortController().signal);
+    expect(await readFile(path.join(out, "hello.txt"), "utf8")).toBe(
+      "symlink-ok\n",
+    );
   });
 });

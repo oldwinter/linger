@@ -94,8 +94,10 @@ func (command BrowserConnectionDecision) draft() (decisionDraft, error) {
 	if err != nil || !browserConnectionComputerPattern.MatchString(command.ComputerID) {
 		return decisionDraft{}, ErrInvalid
 	}
+	// Match computer_permission and connection_auth so an undecided card stops
+	// waiting after 30 minutes and wakes the requester.
 	return decisionDraft{kind: DecisionKindBrowserConnection, text: prompt, request: struct{}{},
-		view: connectionView{Prompt: prompt, ComputerID: command.ComputerID}, connection: true}, nil
+		view: connectionView{Prompt: prompt, ComputerID: command.ComputerID}, lifetime: connectionAuthorizationTTL, connection: true}, nil
 }
 
 // ConnectionAuthorizer keeps credential and grant policy in External Source.
@@ -344,6 +346,7 @@ func (s *Service) settleConnectionAuthorization(ctx context.Context, id string) 
 		return err
 	}
 	next := ""
+	reboundConnectionID := ""
 	switch {
 	case due:
 		next = "expired"
@@ -356,17 +359,39 @@ func (s *Service) settleConnectionAuthorization(ctx context.Context, id string) 
 			next = "failed"
 			break
 		}
-		var current string
-		var reauthorizing bool
-		err = tx.QueryRow(ctx, `SELECT status,reauthorization_upstream_id IS NOT NULL FROM external_connections
- WHERE id=$1 AND account_id=$2 AND provider=$3 FOR SHARE`, connectionID, accountID, view.AppKey).Scan(&current, &reauthorizing)
+		queries := store.New(tx)
+		effectiveConnectionID := connectionID
+		row, err := queries.LockExternalConnectionForAuthorizationSettlement(ctx, store.LockExternalConnectionForAuthorizationSettlementParams{
+			ID:        connectionID,
+			AccountID: accountID,
+			Provider:  view.AppKey,
+		})
+		current := row.Status
+		reauthorizing := row.Reauthorizing
+		if err == nil && current == "revoked" && row.StatusErrorCode == "duplicate_remote_principal" && row.RemotePrincipalKey != "" {
+			// The candidate was already committed as revoked during recovery, so taking
+			// FOR SHARE on the canonical non-revoked connection preserves lock order.
+			canonical, canonicalErr := queries.LockCanonicalExternalConnectionForPrincipal(ctx, store.LockCanonicalExternalConnectionForPrincipalParams{
+				AccountID:          accountID,
+				Provider:           view.AppKey,
+				RemotePrincipalKey: row.RemotePrincipalKey,
+			})
+			if canonicalErr == nil {
+				effectiveConnectionID = canonical.ID
+				reboundConnectionID = canonical.ID
+				current = canonical.Status
+				reauthorizing = canonical.Reauthorizing
+			} else if !errors.Is(canonicalErr, pgx.ErrNoRows) {
+				return canonicalErr
+			}
+		}
 		switch {
 		case errors.Is(err, pgx.ErrNoRows):
 			next = "failed"
 		case err != nil:
 			return err
 		case current == "active":
-			if err := s.connections.GrantAgentConnectionInTx(ctx, tx, accountID, connectionID, agentID); err != nil {
+			if err := s.connections.GrantAgentConnectionInTx(ctx, tx, accountID, effectiveConnectionID, agentID); err != nil {
 				return err
 			}
 			next = "succeeded"
@@ -377,7 +402,15 @@ func (s *Service) settleConnectionAuthorization(ctx context.Context, id string) 
 	if next == "" {
 		return tx.Commit(ctx)
 	}
-	if _, err := tx.Exec(ctx, `UPDATE decisions SET status=$2, finished_at=clock_timestamp() WHERE id=$1`, id, next); err != nil {
+	rebound := ""
+	if next == "succeeded" {
+		rebound = reboundConnectionID
+	}
+	if err := store.New(tx).FinishSettledConnectionAuthDecision(ctx, store.FinishSettledConnectionAuthDecisionParams{
+		ID:                  id,
+		Status:              next,
+		ReboundConnectionID: rebound,
+	}); err != nil {
 		return err
 	}
 	if err := endSettledDecision(ctx, tx, id, alterEgo); err != nil {
@@ -552,9 +585,23 @@ func providerKeyNoticeText(decisionID string, view connectionView, status string
 }
 
 // browserConnectionNoticeText tells the waiting Agent what the owner did.
-func browserConnectionNoticeText(decisionID, status string) string {
-	if status == "answered" {
-		return "Human interaction " + decisionID + " resolved: the user connected their everyday Chrome. Continue the browser task now."
+func browserConnectionNoticeText(decisionID, status string, alterEgo bool) string {
+	if alterEgo {
+		switch status {
+		case "answered":
+			return "The Sponsor connected their everyday Chrome. Continue the browser task now."
+		case "expired":
+			return "The everyday Chrome connection request expired before the Sponsor connected it. Do not retry browser tools for this task; continue without it and say what you could not finish in your final reply."
+		default:
+			return "The Sponsor declined to connect their everyday Chrome. Do not retry browser tools for this task; continue without it and say what you could not finish in your final reply."
+		}
 	}
-	return "Human interaction " + decisionID + " resolved: the user declined to connect their everyday Chrome. Do not retry browser tools for this task; tell them what you could not finish."
+	switch status {
+	case "answered":
+		return "Human interaction " + decisionID + " resolved: the user connected their everyday Chrome. Continue the browser task now."
+	case "expired":
+		return "Human interaction " + decisionID + " expired: the user did not connect their everyday Chrome. Do not retry browser tools for this task; tell them what you could not finish."
+	default:
+		return "Human interaction " + decisionID + " resolved: the user declined to connect their everyday Chrome. Do not retry browser tools for this task; tell them what you could not finish."
+	}
 }

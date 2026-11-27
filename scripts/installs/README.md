@@ -91,15 +91,15 @@ Run the pinned script without cloning the repository:
 
 ```sh
 # global
-curl -fsSL https://cdn.jsdelivr.net/npm/@simplexai/localmodels@0.1.0-dev.59/stack.sh | sh -s -- --region global --help
+curl -fsSL https://cdn.jsdelivr.net/npm/@simplexai/localmodels@0.1.0-dev.60/stack.sh | sh -s -- --region global --help
 # cn
-curl -fsSL https://registry.npmmirror.com/@simplexai/localmodels/0.1.0-dev.59/files/stack.sh | sh -s -- --region cn --help
+curl -fsSL https://registry.npmmirror.com/@simplexai/localmodels/0.1.0-dev.60/files/stack.sh | sh -s -- --region cn --help
 ```
 
 ```powershell
-irm https://cdn.jsdelivr.net/npm/@simplexai/localmodels@0.1.0-dev.59/stack.ps1 -OutFile stack.ps1
+irm https://cdn.jsdelivr.net/npm/@simplexai/localmodels@0.1.0-dev.60/stack.ps1 -OutFile stack.ps1
 powershell -ExecutionPolicy Bypass -File .\stack.ps1 -Region global --help
-# cn script URL: https://registry.npmmirror.com/@simplexai/localmodels/0.1.0-dev.59/files/stack.ps1
+# cn script URL: https://registry.npmmirror.com/@simplexai/localmodels/0.1.0-dev.60/files/stack.ps1
 ```
 
 Source, templates and tests live in `localmodels/` and `scripts/installs/` of llm-inference-lab.
@@ -156,7 +156,13 @@ region and `fallback`, and later downloads start there (unless
 | localmodels kit                      | CloudFront, then npm | `cdn.npmmirror.com` where it has the kit |
 | Voice model packages (node-services) | `registry.npmjs.org` | `registry.npmmirror.com`                 |
 
-A registry or `GOPROXY` the person configured still wins. The installer
-passes the resolved region as `SIMPLEX_REGION` to every `localmodels` child
-(stack, foundations, Harness) and to every native service, so none of them
-probes again.
+A registry or `GOPROXY` the person configured still wins. When a region is
+already forced (`SIMPLEX_REGION`) or cached in `region.json`, the installer
+passes it as `SIMPLEX_REGION` to every `localmodels` child (stack, foundations,
+Harness) and to every native service so none of them probes again. On a cold
+home without a cached region, offline native installs run the probe in the
+background without blocking startup (adopting the result before services start
+if ready, else continuing with `global`), and `localmodels` children receive
+`SIMPLEX_REGION=auto` with `SIMPLEX_REGION_FILE` set to
+`<LINGER_HOME>/runtime/region.json` so non-downloading commands skip probing
+while downloading commands resolve lazily and share `region.json`.

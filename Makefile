@@ -10,8 +10,6 @@
 .PHONY: check-container-web check-container-node-services check-container-other check-containers
 .PHONY: check-e2e-room-document check-e2e check-all
 
-OAPI_CODEGEN_VERSION := v2.7.1
-OAPI_CODEGEN_COMMAND ?= go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@$(OAPI_CODEGEN_VERSION)
 BASE ?=
 SCRIPT_TEST_FILTER ?= %
 SCRIPT_PROCESS_TEST_FILTER ?= $(SCRIPT_TEST_FILTER)
@@ -140,12 +138,13 @@ check-desktop:
 	# The Go daemon that packaging bundles, for every platform the app ships on.
 	cd apps/desktop && node scripts/build-daemon.mjs --all
 
-# The Go unit tests of check-computer, which CI runs on its own.
+# The Go and Python unit tests of check-computer, which CI runs on its own.
 check-computer-go:
 	cd apps/computer/local-daemon && go test ./... -run '^$$'
 	cd apps/computer/local-daemon && $(COMPUTER_TEST_RUNNER) go test ./internal/platform/...
 	cd apps/computer/local-daemon && $(COMPUTER_TEST_RUNNER) go test ./cmd/linger-computer-daemon ./cmd/linger-computer-launcher ./cmd/linger-pi-launcher ./cmd/linger-teamhub-launcher ./internal/computercli ./internal/computerconfig ./internal/daemon ./internal/linger/context ./internal/linger/assignment ./internal/linger/control ./internal/linger/herdr ./internal/linger/herdrcore ./internal/linger/registration ./internal/linger/localskills ./internal/linger/mcpproxy ./internal/linger/transport ./internal/linger/runtimehistory ./internal/linger/localtools ./internal/process ./internal/workspace ./internal/provider ./internal/provider/redact ./internal/permission ./internal/localmodels ./internal/telemetry
 	cd apps/computer/local-daemon && $(COMPUTER_TEST_RUNNER) go test ./internal/provider/native ./internal/uiruntime
+	python3 -m unittest discover -s apps/computer/local-daemon/internal/linger/localtools -p '*_test.py'
 
 check-computer-release:
 	pnpm vitest run --no-file-parallelism $(SCRIPT_COMPUTER_RELEASE_TEST)
@@ -293,7 +292,7 @@ source-dependencies:
 		$${SOURCE_ARCHIVE_URL_BASE:+--url-base "$$SOURCE_ARCHIVE_URL_BASE"}
 
 contracts-generate:
-	OAPI_CODEGEN_COMMAND='$(OAPI_CODEGEN_COMMAND)' pnpm exec tsx contracts/codegen/contracts.ts generate
+	pnpm exec tsx contracts/codegen/contracts.ts generate
 
 contracts-verify:
-	OAPI_CODEGEN_COMMAND='$(OAPI_CODEGEN_COMMAND)' pnpm exec tsx contracts/codegen/contracts.ts verify
+	pnpm exec tsx contracts/codegen/contracts.ts verify

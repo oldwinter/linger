@@ -95,7 +95,7 @@ Go service owning Human HTTP/SSE, Agent callbacks, and active product state.
   its answer in between.
 - `internal/<feature>`: business behavior, transactions and data access with
   package tests: `collaboration` (Human Rooms and Messages),
-  `agentregistry` (Agents, templates, Skill bindings, Another Me),
+  `agentregistry` (Agents, starter Agents, Skill bindings, Another Me),
   `messagepin` (a Room's pinned Messages), `voice` (voice features), and the
   older feature packages.
 - `internal/store/queries`: sqlc SQL sources; generated files live in `internal/store`.
@@ -464,5 +464,10 @@ Go service owning Human HTTP/SSE, Agent callbacks, and active product state.
   refusals return generic `MODEL_SOURCE_FAILED` (HTTP 502), and timeouts,
   `MODEL_SOURCE_EXPIRED`, or client disconnects return `MODEL_SOURCE_UNCONFIRMED`
   (HTTP 504).
+- Permission cards store the owner selected from the Computer's status before
+  creation. Embedded Computer Use cards target Linger. Cards settle on grants
+  for their stored subject. The request response returns the permission groups
+  used to select that subject. CLI `--wait` checks the same Computer and
+  subject throughout polling.
 - Do not add write-only audit, event, or provenance tables. A new audit table
   needs a named product or compliance reader in the same pull request.

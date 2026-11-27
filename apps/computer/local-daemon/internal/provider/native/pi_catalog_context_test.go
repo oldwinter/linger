@@ -1,6 +1,7 @@
 package native
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -54,18 +55,9 @@ func (c *triggeredDeadlineContext) Err() error {
 }
 
 func TestPiCatalogPreservesContextCauseAfterChildCleanup(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("fixture uses a POSIX shell")
-	}
 	for _, kind := range []string{"deadline", "cancel"} {
 		t.Run(kind, func(t *testing.T) {
-			root := t.TempDir()
-			program := filepath.Join(root, "pi")
-			pidFile := filepath.Join(root, "pid")
-			script := "#!/bin/sh\necho $$ > \"$HOME/pid.tmp\" && mv \"$HOME/pid.tmp\" \"$HOME/pid\"\nexec /bin/sleep 60\n"
-			if err := os.WriteFile(program, []byte(script), 0700); err != nil {
-				t.Fatal(err)
-			}
+			pidFile := filepath.Join(t.TempDir(), "pid")
 			var runCtx context.Context
 			var trigger func()
 			want := context.DeadlineExceeded
@@ -82,24 +74,26 @@ func TestPiCatalogPreservesContextCauseAfterChildCleanup(t *testing.T) {
 			}
 			done := make(chan error, 1)
 			go func() {
-				_, err := DiscoverPiModels(runCtx, NewInvocation(program, nil).WithEnvironment(map[string]string{"HOME": root}))
+				_, err := DiscoverPiModels(runCtx, fixtureInvocation(t, "block", map[string]string{"FIXTURE_PID_FILE": pidFile}))
 				done <- err
 			}()
 			var encoded []byte
-			deadline := time.Now().Add(10 * time.Second)
-			for time.Now().Before(deadline) {
-				if data, err := os.ReadFile(pidFile); err == nil && strings.HasSuffix(string(data), "\n") {
+			waitDeadline := time.NewTimer(10 * time.Second)
+			defer waitDeadline.Stop()
+			poll := time.NewTicker(5 * time.Millisecond)
+			defer poll.Stop()
+			for len(encoded) == 0 {
+				if data, err := os.ReadFile(pidFile); err == nil && len(bytes.TrimSpace(data)) > 0 {
 					encoded = data
 					break
 				}
 				select {
 				case err := <-done:
-					t.Fatalf("catalog child exited before starting: %v", err)
-				case <-time.After(5 * time.Millisecond):
+					t.Fatalf("catalog child exited before reporting pid: %v", err)
+				case <-waitDeadline.C:
+					t.Fatal("catalog child did not start")
+				case <-poll.C:
 				}
-			}
-			if len(encoded) == 0 {
-				t.Fatal("catalog child did not start")
 			}
 			trigger()
 			err := <-done
@@ -110,13 +104,15 @@ func TestPiCatalogPreservesContextCauseAfterChildCleanup(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			child, err := os.FindProcess(pid)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer child.Release()
-			if child.Signal(syscall.Signal(0)) == nil {
-				t.Fatal("catalog child survived cancellation")
+			if runtime.GOOS != "windows" {
+				child, err := os.FindProcess(pid)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer child.Release()
+				if child.Signal(syscall.Signal(0)) == nil {
+					t.Fatal("catalog child survived cancellation")
+				}
 			}
 		})
 	}

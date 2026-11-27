@@ -560,12 +560,6 @@ importers:
       '@xterm/xterm':
         specifier: ^6.0.0
         version: 6.0.0
-      ajv:
-        specifier: 8.17.1
-        version: 8.17.1
-      ajv-draft-04:
-        specifier: 1.0.0
-        version: 1.0.0(ajv@8.17.1)
       dompurify:
         specifier: ^3.4.17
         version: 3.4.17
@@ -11640,10 +11634,6 @@ snapshots:
       picocolors: 1.1.1
       prompts: 2.4.2
       yaml: 2.9.0
-
-  ajv-draft-04@1.0.0(ajv@8.17.1):
-    optionalDependencies:
-      ajv: 8.17.1
 
   ajv-draft-04@1.0.0(ajv@8.20.0):
     optionalDependencies:
