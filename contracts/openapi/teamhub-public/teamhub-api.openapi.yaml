@@ -23,6 +23,8 @@ tags:
     description: Tenant-scoped Agent collaboration identities and AgentManagement registration.
   - name: Local Computers
     description: User-owned Computer enrollment, inventory, and Local Agent placement.
+  - name: Herdr Core
+    description: Owner-scoped herdr-core (hc) terminal workbench control plane and PTY attach relay.
   - name: Rooms
     description: Member-scoped collaboration spaces.
   - name: Room Members
@@ -5558,6 +5560,32 @@ paths:
         '404': { $ref: '../components/common.yaml#/components/responses/NotFound' }
         '409': { $ref: '../components/common.yaml#/components/responses/Conflict' }
         '503': { $ref: '../components/common.yaml#/components/responses/ServiceUnavailable' }
+  /api/v1/computers/{computerId}/herdr-core/status:
+    $ref: '../paths/web-herdr-core.yaml#/status'
+  /api/v1/computers/{computerId}/herdr-core/terminals:
+    $ref: '../paths/web-herdr-core.yaml#/terminals'
+  /api/v1/computers/{computerId}/herdr-core/terminal:
+    $ref: '../paths/web-herdr-core.yaml#/terminal'
+  /api/v1/computers/{computerId}/herdr-core/terminal/read:
+    $ref: '../paths/web-herdr-core.yaml#/terminalRead'
+  /api/v1/computers/{computerId}/herdr-core/terminal/send:
+    $ref: '../paths/web-herdr-core.yaml#/terminalSend'
+  /api/v1/computers/{computerId}/herdr-core/terminal/keys:
+    $ref: '../paths/web-herdr-core.yaml#/terminalKeys'
+  /api/v1/computers/{computerId}/herdr-core/terminal/interrupt:
+    $ref: '../paths/web-herdr-core.yaml#/terminalInterrupt'
+  /api/v1/computers/{computerId}/herdr-core/terminal/kill:
+    $ref: '../paths/web-herdr-core.yaml#/terminalKill'
+  /api/v1/computers/{computerId}/herdr-core/terminal/put:
+    $ref: '../paths/web-herdr-core.yaml#/terminalPut'
+  /api/v1/computers/{computerId}/herdr-core/templates:
+    $ref: '../paths/web-herdr-core.yaml#/templates'
+  /api/v1/computers/{computerId}/herdr-core/machines:
+    $ref: '../paths/web-herdr-core.yaml#/machines'
+  /api/v1/computers/{computerId}/herdr-core/docs/{name}:
+    $ref: '../paths/web-herdr-core.yaml#/doc'
+  /api/v1/computers/{computerId}/herdr-core/attach:
+    $ref: '../paths/web-herdr-core.yaml#/attach'
 components:
   schemas:
     VoiceLiveClientEvent:

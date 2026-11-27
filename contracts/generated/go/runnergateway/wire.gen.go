@@ -36,6 +36,7 @@ const (
 	TypeRunnerHeartbeat             = "runner.heartbeat"
 	TypeRunnerRuntimeDiagnostics    = "runner.runtime_diagnostics"
 	TypeRunnerHerdrEvent            = "runner.herdr_event"
+	TypeRunnerHerdrCoreEvent        = "runner.herdr_core_event"
 	TypeRunnerLocalModels           = "runner.local_models"
 	TypeRuntimeRegistrationObserved = "runtime.registration.observed"
 	TypeAgentRunnerState            = "agent_runner.state"
@@ -117,6 +118,7 @@ var DaemonToAgentMessages = []Message{
 	{Name: "RunnerHeartbeat", Type: "runner.heartbeat", Match: nil},
 	{Name: "RunnerRuntimeDiagnostics", Type: "runner.runtime_diagnostics", Match: nil},
 	{Name: "RunnerHerdrEvent", Type: "runner.herdr_event", Match: nil},
+	{Name: "RunnerHerdrCoreEvent", Type: "runner.herdr_core_event", Match: nil},
 	{Name: "RunnerLocalModels", Type: "runner.local_models", Match: nil},
 	{Name: "RuntimeRegistrationObserved", Type: "runtime.registration.observed", Match: nil},
 	{Name: "AgentRunnerReady", Type: "agent_runner.state", Match: map[string]string{"state": "ready"}},
@@ -2127,6 +2129,65 @@ func (RunnerHerdrEvent) FixedFields() map[string]string {
 
 // RequiredFields lists the keys a RunnerHerdrEvent must carry.
 func (RunnerHerdrEvent) RequiredFields() []string {
+	return []string{"type", "protocol_version", "runner_id", "sent_at", "event"}
+}
+
+// HerdrCoreTerminalStatus mirrors the HerdrCoreTerminalStatus schema shape.
+type HerdrCoreTerminalStatus struct {
+	State    string   `json:"state"`
+	App      string   `json:"app,omitempty"`
+	Msg      string   `json:"msg,omitempty"`
+	Progress *float64 `json:"progress,omitempty"`
+	Title    string   `json:"title,omitempty"`
+}
+
+// FixedFields lists the keys whose value the schema fixes for a HerdrCoreTerminalStatus.
+func (HerdrCoreTerminalStatus) FixedFields() map[string]string { return nil }
+
+// RequiredFields lists the keys a HerdrCoreTerminalStatus must carry.
+func (HerdrCoreTerminalStatus) RequiredFields() []string { return []string{"state"} }
+
+// HerdrCoreEvent mirrors the HerdrCoreEvent schema shape.
+type HerdrCoreEvent struct {
+	Kind     string                   `json:"kind"`
+	Address  string                   `json:"address"`
+	Machine  string                   `json:"machine,omitempty"`
+	Turn     uint64                   `json:"turn"`
+	StatusMs uint64                   `json:"status_ms"`
+	Status   *HerdrCoreTerminalStatus `json:"status,omitempty"`
+	Name     string                   `json:"name,omitempty"`
+	Cwd      string                   `json:"cwd,omitempty"`
+	Title    string                   `json:"title,omitempty"`
+	Template string                   `json:"template,omitempty"`
+	Parent   string                   `json:"parent,omitempty"`
+	Labels   json.RawMessage          `json:"labels,omitempty"`
+	Tail     string                   `json:"tail,omitempty"`
+}
+
+// FixedFields lists the keys whose value the schema fixes for a HerdrCoreEvent.
+func (HerdrCoreEvent) FixedFields() map[string]string { return nil }
+
+// RequiredFields lists the keys a HerdrCoreEvent must carry.
+func (HerdrCoreEvent) RequiredFields() []string {
+	return []string{"kind", "address", "turn", "status_ms"}
+}
+
+// RunnerHerdrCoreEvent mirrors the RunnerHerdrCoreEvent schema shape.
+type RunnerHerdrCoreEvent struct {
+	Type            string         `json:"type"`
+	ProtocolVersion string         `json:"protocol_version"`
+	RunnerID        string         `json:"runner_id"`
+	SentAt          string         `json:"sent_at"`
+	Event           HerdrCoreEvent `json:"event"`
+}
+
+// FixedFields lists the keys whose value the schema fixes for a RunnerHerdrCoreEvent.
+func (RunnerHerdrCoreEvent) FixedFields() map[string]string {
+	return map[string]string{"type": "runner.herdr_core_event", "protocol_version": "2"}
+}
+
+// RequiredFields lists the keys a RunnerHerdrCoreEvent must carry.
+func (RunnerHerdrCoreEvent) RequiredFields() []string {
 	return []string{"type", "protocol_version", "runner_id", "sent_at", "event"}
 }
 

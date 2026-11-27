@@ -29,6 +29,8 @@ func (a *App) agentAPIRoutes() []contractRoute {
 		route(http.MethodPost, "/api/agent/v1/available-agents", nil, a.listAvailableAgents),
 		route(http.MethodPost, "/api/agent/v1/computer/browser-connection", nil, a.requestAgentBrowserConnection),
 		route(http.MethodPost, "/api/agent/v1/computer/herdr/ask", nil, a.askAgentHerdrPane),
+		route(http.MethodPost, "/api/agent/v1/computer/herdr-core/ask", nil, a.askAgentHerdrCoreTerminal),
+		route(http.MethodPost, "/api/agent/v1/computer/herdr-core/call", nil, a.callAgentHerdrCore),
 		route(http.MethodPost, "/api/agent/v1/computer/permissions/request", nil, a.requestAgentComputerPermissions),
 		route(http.MethodPost, "/api/agent/v1/computer/permissions/status", nil, a.getAgentComputerPermissions),
 		route(http.MethodPost, "/api/agent/v1/creation-approval-requests", nil, a.submitAgentCreationApprovalRequest),

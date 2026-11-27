@@ -617,6 +617,87 @@ func (e ExportDocumentResultMediaType) Valid() bool {
 	}
 }
 
+// Defines values for HerdrCoreToolName.
+const (
+	Answer    HerdrCoreToolName = "answer"
+	DocGet    HerdrCoreToolName = "doc_get"
+	DocSet    HerdrCoreToolName = "doc_set"
+	Exec      HerdrCoreToolName = "exec"
+	FileEdit  HerdrCoreToolName = "file_edit"
+	FileRead  HerdrCoreToolName = "file_read"
+	FileWrite HerdrCoreToolName = "file_write"
+	Get       HerdrCoreToolName = "get"
+	Interrupt HerdrCoreToolName = "interrupt"
+	Keep      HerdrCoreToolName = "keep"
+	Keys      HerdrCoreToolName = "keys"
+	Kill      HerdrCoreToolName = "kill"
+	Label     HerdrCoreToolName = "label"
+	List      HerdrCoreToolName = "list"
+	Machines  HerdrCoreToolName = "machines"
+	Put       HerdrCoreToolName = "put"
+	Read      HerdrCoreToolName = "read"
+	Rm        HerdrCoreToolName = "rm"
+	Run       HerdrCoreToolName = "run"
+	Send      HerdrCoreToolName = "send"
+	Status    HerdrCoreToolName = "status"
+	Templates HerdrCoreToolName = "templates"
+	Wait      HerdrCoreToolName = "wait"
+)
+
+// Valid indicates whether the value is a known member of the HerdrCoreToolName enum.
+func (e HerdrCoreToolName) Valid() bool {
+	switch e {
+	case Answer:
+		return true
+	case DocGet:
+		return true
+	case DocSet:
+		return true
+	case Exec:
+		return true
+	case FileEdit:
+		return true
+	case FileRead:
+		return true
+	case FileWrite:
+		return true
+	case Get:
+		return true
+	case Interrupt:
+		return true
+	case Keep:
+		return true
+	case Keys:
+		return true
+	case Kill:
+		return true
+	case Label:
+		return true
+	case List:
+		return true
+	case Machines:
+		return true
+	case Put:
+		return true
+	case Read:
+		return true
+	case Rm:
+		return true
+	case Run:
+		return true
+	case Send:
+		return true
+	case Status:
+		return true
+	case Templates:
+		return true
+	case Wait:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ImportDocumentRequestSourceKind.
 const (
 	ImportDocumentRequestSourceKindBlank         ImportDocumentRequestSourceKind = "blank"
@@ -736,6 +817,7 @@ const (
 	Browser    LocalComputerToolCallServer = "browser"
 	FeishuMail LocalComputerToolCallServer = "feishu_mail"
 	Herdr      LocalComputerToolCallServer = "herdr"
+	HerdrCore  LocalComputerToolCallServer = "herdr_core"
 	Playground LocalComputerToolCallServer = "playground"
 )
 
@@ -747,6 +829,8 @@ func (e LocalComputerToolCallServer) Valid() bool {
 	case FeishuMail:
 		return true
 	case Herdr:
+		return true
+	case HerdrCore:
 		return true
 	case Playground:
 		return true
@@ -2159,6 +2243,9 @@ type ExportDocumentResult struct {
 // ExportDocumentResultMediaType defines model for ExportDocumentResult.MediaType.
 type ExportDocumentResultMediaType string
 
+// HerdrCoreToolName Structured herdr_core tool dispatched over Runner Gateway computer_tool.
+type HerdrCoreToolName string
+
 // Id Opaque, case-sensitive identifier. Clients must not infer type or time from it.
 type Id = string
 
@@ -2196,6 +2283,20 @@ type InsertDocumentBlocksSemanticOperationPosition string
 // InternalErrorCode defines model for InternalErrorCode.
 type InternalErrorCode string
 
+// LocalComputerHerdrCoreCallRequest defines model for LocalComputerHerdrCoreCallRequest.
+type LocalComputerHerdrCoreCallRequest struct {
+	Arguments  map[string]interface{} `json:"arguments"`
+	DeadlineMs *int                   `json:"deadline_ms,omitempty"`
+
+	// ToolName Structured herdr_core tool dispatched over Runner Gateway computer_tool.
+	ToolName HerdrCoreToolName `json:"tool_name"`
+}
+
+// LocalComputerHerdrCoreCallResponse defines model for LocalComputerHerdrCoreCallResponse.
+type LocalComputerHerdrCoreCallResponse struct {
+	Result map[string]interface{} `json:"result"`
+}
+
 // LocalComputerToolCall defines model for LocalComputerToolCall.
 type LocalComputerToolCall struct {
 	AgentId    string                 `json:"agent_id"`
@@ -2206,14 +2307,14 @@ type LocalComputerToolCall struct {
 	DeadlineMs   *int   `json:"deadline_ms,omitempty"`
 	OwnerActorId string `json:"owner_actor_id"`
 
-	// Server herdr answers blocked herdr panes; feishu_mail runs TeamHub's Feishu Mail calls through the owner's own lark-cli login.
+	// Server herdr answers blocked herdr panes; herdr_core runs structured hc tools on the Computer; feishu_mail runs TeamHub's Feishu Mail calls through the owner's own lark-cli login.
 	Server        LocalComputerToolCallServer `json:"server"`
 	TenantId      string                      `json:"tenant_id"`
 	ToolName      string                      `json:"tool_name"`
 	ToolSessionId string                      `json:"tool_session_id"`
 }
 
-// LocalComputerToolCallServer herdr answers blocked herdr panes; feishu_mail runs TeamHub's Feishu Mail calls through the owner's own lark-cli login.
+// LocalComputerToolCallServer herdr answers blocked herdr panes; herdr_core runs structured hc tools on the Computer; feishu_mail runs TeamHub's Feishu Mail calls through the owner's own lark-cli login.
 type LocalComputerToolCallServer string
 
 // LocalComputerToolResult defines model for LocalComputerToolResult.
@@ -3546,6 +3647,9 @@ type JudgeProactiveEventJSONRequestBody = ProactiveEventJudgeRequest
 // ConfigureLocalComputerBrowserConnectionJSONRequestBody defines body for ConfigureLocalComputerBrowserConnection for application/json ContentType.
 type ConfigureLocalComputerBrowserConnectionJSONRequestBody = BrowserConnectionConfigureCommand
 
+// CallLocalComputerHerdrCoreJSONRequestBody defines body for CallLocalComputerHerdrCore for application/json ContentType.
+type CallLocalComputerHerdrCoreJSONRequestBody = LocalComputerHerdrCoreCallRequest
+
 // ActOnLocalComputerModelsJSONRequestBody defines body for ActOnLocalComputerModels for application/json ContentType.
 type ActOnLocalComputerModelsJSONRequestBody = LocalModelActionCommand
 
@@ -4566,6 +4670,11 @@ type ClientInterface interface {
 
 	ConfigureLocalComputerBrowserConnection(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, body ConfigureLocalComputerBrowserConnectionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// CallLocalComputerHerdrCoreWithBody request with any body
+	CallLocalComputerHerdrCoreWithBody(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	CallLocalComputerHerdrCore(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, body CallLocalComputerHerdrCoreJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ActOnLocalComputerModelsWithBody request with any body
 	ActOnLocalComputerModelsWithBody(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -5187,6 +5296,30 @@ func (c *Client) ConfigureLocalComputerBrowserConnectionWithBody(ctx context.Con
 
 func (c *Client) ConfigureLocalComputerBrowserConnection(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, body ConfigureLocalComputerBrowserConnectionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewConfigureLocalComputerBrowserConnectionRequest(c.Server, tenantId, ownerActorId, computerId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CallLocalComputerHerdrCoreWithBody(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCallLocalComputerHerdrCoreRequestWithBody(c.Server, tenantId, ownerActorId, computerId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CallLocalComputerHerdrCore(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, body CallLocalComputerHerdrCoreJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCallLocalComputerHerdrCoreRequest(c.Server, tenantId, ownerActorId, computerId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -6744,6 +6877,67 @@ func NewConfigureLocalComputerBrowserConnectionRequestWithBody(server string, te
 	return req, nil
 }
 
+// NewCallLocalComputerHerdrCoreRequest calls the generic CallLocalComputerHerdrCore builder with application/json body
+func NewCallLocalComputerHerdrCoreRequest(server string, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, body CallLocalComputerHerdrCoreJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCallLocalComputerHerdrCoreRequestWithBody(server, tenantId, ownerActorId, computerId, "application/json", bodyReader)
+}
+
+// NewCallLocalComputerHerdrCoreRequestWithBody generates requests for CallLocalComputerHerdrCore with any type of body
+func NewCallLocalComputerHerdrCoreRequestWithBody(server string, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "ownerActorId", ownerActorId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithOptions("simple", false, "computerId", computerId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/owners/%s/local-computers/%s/herdr-core:call", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewActOnLocalComputerModelsRequest calls the generic ActOnLocalComputerModels builder with application/json body
 func NewActOnLocalComputerModelsRequest(server string, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, body ActOnLocalComputerModelsJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -7451,6 +7645,11 @@ type ClientWithResponsesInterface interface {
 	ConfigureLocalComputerBrowserConnectionWithBodyWithResponse(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ConfigureLocalComputerBrowserConnectionResponse, error)
 
 	ConfigureLocalComputerBrowserConnectionWithResponse(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, body ConfigureLocalComputerBrowserConnectionJSONRequestBody, reqEditors ...RequestEditorFn) (*ConfigureLocalComputerBrowserConnectionResponse, error)
+
+	// CallLocalComputerHerdrCoreWithBodyWithResponse request with any body
+	CallLocalComputerHerdrCoreWithBodyWithResponse(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CallLocalComputerHerdrCoreResponse, error)
+
+	CallLocalComputerHerdrCoreWithResponse(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, body CallLocalComputerHerdrCoreJSONRequestBody, reqEditors ...RequestEditorFn) (*CallLocalComputerHerdrCoreResponse, error)
 
 	// ActOnLocalComputerModelsWithBodyWithResponse request with any body
 	ActOnLocalComputerModelsWithBodyWithResponse(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ActOnLocalComputerModelsResponse, error)
@@ -8494,6 +8693,42 @@ func (r ConfigureLocalComputerBrowserConnectionResponse) ContentType() string {
 	return ""
 }
 
+type CallLocalComputerHerdrCoreResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *LocalComputerHerdrCoreCallResponse
+	JSON400      *BadRequest
+	JSON401      *Unauthenticated
+	JSON404      *NotFound
+	JSON409      *Conflict
+	JSON502      *BadGateway
+	JSON503      *ServiceUnavailable
+}
+
+// Status returns HTTPResponse.Status
+func (r CallLocalComputerHerdrCoreResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CallLocalComputerHerdrCoreResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CallLocalComputerHerdrCoreResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type ActOnLocalComputerModelsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -9266,6 +9501,23 @@ func (c *ClientWithResponses) ConfigureLocalComputerBrowserConnectionWithRespons
 		return nil, err
 	}
 	return ParseConfigureLocalComputerBrowserConnectionResponse(rsp)
+}
+
+// CallLocalComputerHerdrCoreWithBodyWithResponse request with arbitrary body returning *CallLocalComputerHerdrCoreResponse
+func (c *ClientWithResponses) CallLocalComputerHerdrCoreWithBodyWithResponse(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CallLocalComputerHerdrCoreResponse, error) {
+	rsp, err := c.CallLocalComputerHerdrCoreWithBody(ctx, tenantId, ownerActorId, computerId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCallLocalComputerHerdrCoreResponse(rsp)
+}
+
+func (c *ClientWithResponses) CallLocalComputerHerdrCoreWithResponse(ctx context.Context, tenantId TenantId, ownerActorId OwnerActorId, computerId ComputerId, body CallLocalComputerHerdrCoreJSONRequestBody, reqEditors ...RequestEditorFn) (*CallLocalComputerHerdrCoreResponse, error) {
+	rsp, err := c.CallLocalComputerHerdrCore(ctx, tenantId, ownerActorId, computerId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCallLocalComputerHerdrCoreResponse(rsp)
 }
 
 // ActOnLocalComputerModelsWithBodyWithResponse request with arbitrary body returning *ActOnLocalComputerModelsResponse
@@ -10788,6 +11040,74 @@ func ParseConfigureLocalComputerBrowserConnectionResponse(rsp *http.Response) (*
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest BrowserConnectionStatus
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthenticated
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Conflict
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest BadGateway
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ServiceUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCallLocalComputerHerdrCoreResponse parses an HTTP response from a CallLocalComputerHerdrCoreWithResponse call
+func ParseCallLocalComputerHerdrCoreResponse(rsp *http.Response) (*CallLocalComputerHerdrCoreResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CallLocalComputerHerdrCoreResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest LocalComputerHerdrCoreCallResponse
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

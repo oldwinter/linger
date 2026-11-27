@@ -1,5 +1,6 @@
 import type {
   HerdrAgentEvent,
+  HerdrCoreEvent,
   LocalModelsSnapshot,
   RuntimeDiagnostics,
 } from "@linger/wire-contracts/runner-gateway/types";
@@ -46,6 +47,8 @@ export interface TestLocalComputerRegistry extends LocalComputerRegistry {
   recorded(computerId: string): TestRecordedLocalComputer | undefined;
   /** The herdr events handed to TeamHub, oldest first. */
   readonly herdrEvents: { computerId: string; event: HerdrAgentEvent }[];
+  /** The herdr-core events handed to TeamHub, oldest first. */
+  readonly herdrCoreEvents: { computerId: string; event: HerdrCoreEvent }[];
   list(owner: LocalComputerOwner): readonly TestRecordedLocalComputer[];
   /** Every model library snapshot recorded for the Computer, oldest first. */
   localModels(computerId: string): readonly LocalModelsSnapshot[];
@@ -100,6 +103,13 @@ export function createTestLocalComputerRegistry(
     herdrEvents: [],
     async reportHerdrEvent(computerId, event) {
       registry.herdrEvents.push({ computerId, event: structuredClone(event) });
+    },
+    herdrCoreEvents: [],
+    async reportHerdrCoreEvent(computerId, event) {
+      registry.herdrCoreEvents.push({
+        computerId,
+        event: structuredClone(event),
+      });
     },
     list: (owner) =>
       [...computers.values()]

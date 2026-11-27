@@ -260,6 +260,30 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/tenants/{tenantId}/owners/{ownerActorId}/local-computers/{computerId}/herdr-core:call": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+        ownerActorId: components["parameters"]["OwnerActorId"];
+        computerId: components["parameters"]["ComputerId"];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Invoke one structured herdr_core tool on an owned Local Computer
+     * @description Agent Service validates that the Computer is online, owned by ownerActorId in tenantId, and supports herdr_core_v1, then dispatches one execute computer_tool frame on server herdr_core and returns the Computer result.
+     */
+    post: operations["callLocalComputerHerdrCore"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/agents/{agentId}/registration-changes": {
     parameters: {
       query?: never;
@@ -1362,10 +1386,10 @@ export interface components {
       agent_id: string;
       tool_session_id: string;
       /**
-       * @description herdr answers blocked herdr panes; feishu_mail runs TeamHub's Feishu Mail calls through the owner's own lark-cli login.
+       * @description herdr answers blocked herdr panes; herdr_core runs structured hc tools on the Computer; feishu_mail runs TeamHub's Feishu Mail calls through the owner's own lark-cli login.
        * @enum {string}
        */
-      server: "browser" | "playground" | "herdr" | "feishu_mail";
+      server: "browser" | "playground" | "herdr" | "herdr_core" | "feishu_mail";
       tool_name: string;
       arguments: {
         [key: string]: unknown;
@@ -2060,6 +2084,46 @@ export interface components {
       subject: components["schemas"]["ComputerPermissionSubject"];
       /** @description Required for prompt and open_settings. */
       permission?: components["schemas"]["ComputerPermissionId"];
+    };
+    /**
+     * @description Structured herdr_core tool dispatched over Runner Gateway computer_tool.
+     * @enum {string}
+     */
+    HerdrCoreToolName:
+      | "status"
+      | "list"
+      | "get"
+      | "read"
+      | "run"
+      | "send"
+      | "keys"
+      | "interrupt"
+      | "wait"
+      | "kill"
+      | "rm"
+      | "keep"
+      | "label"
+      | "put"
+      | "templates"
+      | "machines"
+      | "exec"
+      | "file_read"
+      | "file_write"
+      | "file_edit"
+      | "doc_get"
+      | "doc_set"
+      | "answer";
+    LocalComputerHerdrCoreCallRequest: {
+      tool_name: components["schemas"]["HerdrCoreToolName"];
+      arguments: {
+        [key: string]: unknown;
+      };
+      deadline_ms?: number;
+    };
+    LocalComputerHerdrCoreCallResponse: {
+      result: {
+        [key: string]: unknown;
+      };
     };
     /**
      * @description Client-generated key scoped to the authenticated principal and operation.
@@ -3026,6 +3090,40 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["ComputerPermissionStatus"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      502: components["responses"]["BadGateway"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  callLocalComputerHerdrCore: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+        ownerActorId: components["parameters"]["OwnerActorId"];
+        computerId: components["parameters"]["ComputerId"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["LocalComputerHerdrCoreCallRequest"];
+      };
+    };
+    responses: {
+      /** @description Result object returned by herdr-core on the Computer. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LocalComputerHerdrCoreCallResponse"];
         };
       };
       400: components["responses"]["BadRequest"];

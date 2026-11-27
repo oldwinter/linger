@@ -253,6 +253,355 @@ When it posts the card, end your turn. The card result wakes you when the owner 
 {"command":["browser","connect"],"description":"Ask the owner of this Computer to connect their everyday Chrome: posts a browser connection card in this chat unless Chrome is already connected.","read_only":true,"input_schema":{"type":"object","properties":{},"additionalProperties":false},"output_schema":{"type":"object","required":["status"],"properties":{"status":{"enum":["ready","connection_requested"]},"message_id":{"type":"string"},"interaction_id":{"type":"string"}}},"cli":{"usage":["teamhub browser connect"],"arguments":[],"options":{"--json":{"description":"Return machine-readable JSON.","boolean":true},"--help":{"description":"Show this offline command reference.","boolean":true},"-h":{"description":"Show help.","boolean":true},"--schema":{"description":"Show offline input and output schemas.","boolean":true}},"notes":["Run this when a browser tool returns BROWSER_CONNECTION_REQUIRED or BROWSER_CONNECTION_INVALID. Never ask for the extension token in a message.","When it posts the card, end your turn. The card result wakes you when the owner connects Chrome or declines."]}}
 ",
   },
+  "computer hc ask": {
+    "help": "exit 0
+teamhub computer hc ask --address <addr> --turn <n> --status-ms <ms> --question <text> (--option <choice> | --option-keys <label=k1,k2>) [...]
+Ask your owner, with a question card, how to answer a blocked coding agent in a herdr-core terminal; TeamHub delivers their answer (keys or text) once while the terminal stays on that turn.
+
+Options:
+  --address <value>  Terminal address from the herdr-core event (for example t7 or vps/t7).
+  --turn <value>  Terminal turn counter from the herdr-core event.
+  --status-ms <value>  Status timestamp in milliseconds from the herdr-core event.
+  --question <value>  What the coding agent asks, at most 2000 characters.
+  --option <value>  One text choice offered to your owner (1-20 total across --option and --option-keys).
+  --option-keys <value>  One key-sequence choice in label=key1,key2 form (for example Approve=y,Enter); repeatable.
+  --json  Return machine-readable JSON.
+  --help  Show this offline command reference.
+  -h  Show help.
+  --schema  Show offline input and output schemas.
+  --operation-id <value>  Stable operation identity for recovery.
+Only for a herdr-core blocked event in your owner's chat. Asking again for the same address, turn, and status_ms returns the same card.
+When your owner picks an --option-keys choice, TeamHub sends that key sequence; otherwise TeamHub sends their chosen or written text once while the terminal is still blocked on that state.
+An event gated by quiet hours or daily reminders is refused with herdr_ask_gated: keep the address, turn, and status_ms in a Tracking Item and ask when its follow-up comes.
+",
+    "schema": "exit 0
+{"command":["computer","hc","ask"],"description":"Ask your owner, with a question card, how to answer a blocked coding agent in a herdr-core terminal; TeamHub delivers their answer (keys or text) once while the terminal stays on that turn.","read_only":false,"input_schema":{"type":"object","required":["address","turn","status_ms","question","options"],"properties":{"address":{"type":"string","minLength":1,"maxLength":256},"turn":{"type":"integer","minimum":0},"status_ms":{"type":"integer","minimum":0},"question":{"type":"string","minLength":1,"maxLength":2000},"options":{"type":"array","minItems":1,"maxItems":20,"items":{"type":"object","required":["label"],"properties":{"label":{"type":"string","minLength":1,"maxLength":200},"keys":{"type":"array","minItems":1,"maxItems":16,"items":{"type":"string","minLength":1,"maxLength":64}}},"additionalProperties":false}}},"additionalProperties":false},"output_schema":{"type":"object","required":["status","computer_id","room_id","message_id","interaction_id"],"properties":{"status":{"enum":["asked"]},"computer_id":{"type":"string"},"room_id":{"type":"string"},"message_id":{"type":"string"},"interaction_id":{"type":"string"}}},"cli":{"usage":["teamhub computer hc ask --address <addr> --turn <n> --status-ms <ms> --question <text> (--option <choice> | --option-keys <label=k1,k2>) [...]"],"arguments":[],"options":{"--address":{"description":"Terminal address from the herdr-core event (for example t7 or vps/t7)."},"--turn":{"description":"Terminal turn counter from the herdr-core event."},"--status-ms":{"description":"Status timestamp in milliseconds from the herdr-core event."},"--question":{"description":"What the coding agent asks, at most 2000 characters."},"--option":{"description":"One text choice offered to your owner (1-20 total across --option and --option-keys).","repeatable":true},"--option-keys":{"description":"One key-sequence choice in label=key1,key2 form (for example Approve=y,Enter); repeatable.","repeatable":true},"--json":{"description":"Return machine-readable JSON.","boolean":true},"--help":{"description":"Show this offline command reference.","boolean":true},"-h":{"description":"Show help.","boolean":true},"--schema":{"description":"Show offline input and output schemas.","boolean":true},"--operation-id":{"description":"Stable operation identity for recovery."}},"notes":["Only for a herdr-core blocked event in your owner's chat. Asking again for the same address, turn, and status_ms returns the same card.","When your owner picks an --option-keys choice, TeamHub sends that key sequence; otherwise TeamHub sends their chosen or written text once while the terminal is still blocked on that state.","An event gated by quiet hours or daily reminders is refused with herdr_ask_gated: keep the address, turn, and status_ms in a Tracking Item and ask when its follow-up comes."]}}
+",
+  },
+  "computer hc exec": {
+    "help": "exit 0
+teamhub computer hc exec (--line <cmd> | --argv <json-array>) [--cwd <dir>] [--on <machine>] [--timeout <seconds>]
+Run a one-shot non-interactive command through herdr-core on the local or remote machine.
+
+Options:
+  --line <value>  Shell command line to execute.
+  --argv <value>  JSON array of command arguments (mutually exclusive with --line).
+  --cwd <value>  Working directory for the command.
+  --on <value>  Remote machine name to execute on.
+  --timeout <value>  Command timeout in seconds.
+  --json  Return machine-readable JSON.
+  --help  Show this offline command reference.
+  -h  Show help.
+  --schema  Show offline input and output schemas.
+  --operation-id <value>  Stable operation identity for recovery.
+",
+    "schema": "exit 0
+{"command":["computer","hc","exec"],"description":"Run a one-shot non-interactive command through herdr-core on the local or remote machine.","read_only":false,"input_schema":{"type":"object","properties":{"line":{"type":"string","minLength":1,"maxLength":16384},"argv":{"type":"array","minItems":1,"maxItems":128,"items":{"type":"string"}},"cwd":{"type":"string","minLength":1,"maxLength":4096},"on":{"type":"string","minLength":1,"maxLength":128},"timeout":{"type":"number","minimum":0.1}},"additionalProperties":false},"output_schema":{"type":"object","required":["computer_id","tool_name","result"],"properties":{"computer_id":{"type":"string"},"tool_name":{"type":"string"},"result":{"type":"object","additionalProperties":true}}},"cli":{"usage":["teamhub computer hc exec (--line <cmd> | --argv <json-array>) [--cwd <dir>] [--on <machine>] [--timeout <seconds>]"],"arguments":[],"options":{"--line":{"description":"Shell command line to execute."},"--argv":{"description":"JSON array of command arguments (mutually exclusive with --line)."},"--cwd":{"description":"Working directory for the command."},"--on":{"description":"Remote machine name to execute on."},"--timeout":{"description":"Command timeout in seconds."},"--json":{"description":"Return machine-readable JSON.","boolean":true},"--help":{"description":"Show this offline command reference.","boolean":true},"-h":{"description":"Show help.","boolean":true},"--schema":{"description":"Show offline input and output schemas.","boolean":true},"--operation-id":{"description":"Stable operation identity for recovery."}},"notes":[]}}
+",
+  },
+  "computer hc file-edit": {
+    "help": "exit 0
+teamhub computer hc file-edit <path> (--old <text> | --old-file <path>) (--new <text> | --new-file <path>) [--on <machine>] [--replace-all]
+Apply an exact search-and-replace edit to a file through herdr-core.
+
+Arguments:
+  <path>
+
+Options:
+  --old <value>  Exact existing text to replace.
+  --old-file <value>  Read exact existing text from a file or - for stdin.
+  --new <value>  Replacement text.
+  --new-file <value>  Read replacement text from a file or - for stdin.
+  --on <value>  Remote machine name to edit on.
+  --replace-all  Replace every occurrence instead of requiring a single match.
+  --json  Return machine-readable JSON.
+  --help  Show this offline command reference.
+  -h  Show help.
+  --schema  Show offline input and output schemas.
+  --operation-id <value>  Stable operation identity for recovery.
+",
+    "schema": "exit 0
+{"command":["computer","hc","file-edit"],"description":"Apply an exact search-and-replace edit to a file through herdr-core.","read_only":false,"input_schema":{"type":"object","required":["path","old","new"],"properties":{"path":{"type":"string","minLength":1,"maxLength":4096},"old":{"type":"string","minLength":1},"new":{"type":"string"},"on":{"type":"string","minLength":1,"maxLength":128},"replace_all":{"type":"boolean"}},"additionalProperties":false},"output_schema":{"type":"object","required":["computer_id","tool_name","result"],"properties":{"computer_id":{"type":"string"},"tool_name":{"type":"string"},"result":{"type":"object","additionalProperties":true}}},"cli":{"usage":["teamhub computer hc file-edit <path> (--old <text> | --old-file <path>) (--new <text> | --new-file <path>) [--on <machine>] [--replace-all]"],"arguments":["<path>"],"options":{"--old":{"description":"Exact existing text to replace."},"--old-file":{"description":"Read exact existing text from a file or - for stdin."},"--new":{"description":"Replacement text."},"--new-file":{"description":"Read replacement text from a file or - for stdin."},"--on":{"description":"Remote machine name to edit on."},"--replace-all":{"description":"Replace every occurrence instead of requiring a single match.","boolean":true},"--json":{"description":"Return machine-readable JSON.","boolean":true},"--help":{"description":"Show this offline command reference.","boolean":true},"-h":{"description":"Show help.","boolean":true},"--schema":{"description":"Show offline input and output schemas.","boolean":true},"--operation-id":{"description":"Stable operation identity for recovery."}},"notes":[]}}
+",
+  },
+  "computer hc file-read": {
+    "help": "exit 0
+teamhub computer hc file-read <path> [--on <machine>] [--offset <n>] [--limit <n>]
+Read a file on the local or remote machine through herdr-core.
+
+Arguments:
+  <path>
+
+Options:
+  --on <value>  Remote machine name to read from.
+  --offset <value>  Optional starting line or byte offset (>= 0).
+  --limit <value>  Optional maximum lines or bytes to return.
+  --json  Return machine-readable JSON.
+  --help  Show this offline command reference.
+  -h  Show help.
+  --schema  Show offline input and output schemas.
+",
+    "schema": "exit 0
+{"command":["computer","hc","file-read"],"description":"Read a file on the local or remote machine through herdr-core.","read_only":true,"input_schema":{"type":"object","required":["path"],"properties":{"path":{"type":"string","minLength":1,"maxLength":4096},"on":{"type":"string","minLength":1,"maxLength":128},"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1}},"additionalProperties":false},"output_schema":{"type":"object","required":["computer_id","tool_name","result"],"properties":{"computer_id":{"type":"string"},"tool_name":{"type":"string"},"result":{"type":"object","additionalProperties":true}}},"cli":{"usage":["teamhub computer hc file-read <path> [--on <machine>] [--offset <n>] [--limit <n>]"],"arguments":["<path>"],"options":{"--on":{"description":"Remote machine name to read from."},"--offset":{"description":"Optional starting line or byte offset (>= 0)."},"--limit":{"description":"Optional maximum lines or bytes to return."},"--json":{"description":"Return machine-readable JSON.","boolean":true},"--help":{"description":"Show this offline command reference.","boolean":true},"-h":{"description":"Show help.","boolean":true},"--schema":{"description":"Show offline input and output schemas.","boolean":true}},"notes":[]}}
+",
+  },
+  "computer hc file-write": {
+    "help": "exit 0
+teamhub computer hc file-write <path> (--content <text> | --file <path>) [--on <machine>]
+Write UTF-8 content to a file on the local or remote machine through herdr-core.
+
+Arguments:
+  <path>
+
+Options:
+  --content <value>  Inline UTF-8 file content.
+  --file <value>  Read UTF-8 file content from a local file or - for stdin.
+  --on <value>  Remote machine name to write on.
+  --json  Return machine-readable JSON.
+  --help  Show this offline command reference.
+  -h  Show help.
+  --schema  Show offline input and output schemas.
+  --operation-id <value>  Stable operation identity for recovery.
+",
+    "schema": "exit 0
+{"command":["computer","hc","file-write"],"description":"Write UTF-8 content to a file on the local or remote machine through herdr-core.","read_only":false,"input_schema":{"type":"object","required":["path","content"],"properties":{"path":{"type":"string","minLength":1,"maxLength":4096},"content":{"type":"string"},"on":{"type":"string","minLength":1,"maxLength":128}},"additionalProperties":false},"output_schema":{"type":"object","required":["computer_id","tool_name","result"],"properties":{"computer_id":{"type":"string"},"tool_name":{"type":"string"},"result":{"type":"object","additionalProperties":true}}},"cli":{"usage":["teamhub computer hc file-write <path> (--content <text> | --file <path>) [--on <machine>]"],"arguments":["<path>"],"options":{"--content":{"description":"Inline UTF-8 file content."},"--file":{"description":"Read UTF-8 file content from a local file or - for stdin."},"--on":{"description":"Remote machine name to write on."},"--json":{"description":"Return machine-readable JSON.","boolean":true},"--help":{"description":"Show this offline command reference.","boolean":true},"-h":{"description":"Show help.","boolean":true},"--schema":{"description":"Show offline input and output schemas.","boolean":true},"--operation-id":{"description":"Stable operation identity for recovery."}},"notes":[]}}
+",
+  },
+  "computer hc get": {
+    "help": "exit 0
+teamhub computer hc get <address>
+Inspect one herdr-core terminal's metadata, status, turn, cwd, and labels.
+
+Arguments:
+  <address>
+
+Options:
+  --json  Return machine-readable JSON.
+  --help  Show this offline command reference.
+  -h  Show help.
+  --schema  Show offline input and output schemas.
+",
+    "schema": "exit 0
+{"command":["computer","hc","get"],"description":"Inspect one herdr-core terminal's metadata, status, turn, cwd, and labels.","read_only":true,"input_schema":{"type":"object","required":["address"],"properties":{"address":{"type":"string","minLength":1,"maxLength":256}},"additionalProperties":false},"output_schema":{"type":"object","required":["computer_id","tool_name","result"],"properties":{"computer_id":{"type":"string"},"tool_name":{"type":"string"},"result":{"type":"object","additionalProperties":true}}},"cli":{"usage":["teamhub computer hc get <address>"],"arguments":["<address>"],"options":{"--json":{"description":"Return machine-readable JSON.","boolean":true},"--help":{"description":"Show this offline command reference.","boolean":true},"-h":{"description":"Show help.","boolean":true},"--schema":{"description":"Show offline input and output schemas.","boolean":true}},"notes":[]}}
+",
+  },
+  "computer hc interrupt": {
+    "help": "exit 0
+teamhub computer hc interrupt <address> [--timeout <seconds>]
+Interrupt the foreground process in a herdr-core terminal.
+
+Arguments:
+  <address>
+
+Options:
+  --timeout <value>  Optional seconds to wait for the interruption to settle.
+  --json  Return machine-readable JSON.
+  --help  Show this offline command reference.
+  -h  Show help.
+  --schema  Show offline input and output schemas.
+  --operation-id <value>  Stable operation identity for recovery.
+",
+    "schema": "exit 0
+{"command":["computer","hc","interrupt"],"description":"Interrupt the foreground process in a herdr-core terminal.","read_only":false,"input_schema":{"type":"object","required":["address"],"properties":{"address":{"type":"string","minLength":1,"maxLength":256},"timeout":{"type":"number","minimum":0.1}},"additionalProperties":false},"output_schema":{"type":"object","required":["computer_id","tool_name","result"],"properties":{"computer_id":{"type":"string"},"tool_name":{"type":"string"},"result":{"type":"object","additionalProperties":true}}},"cli":{"usage":["teamhub computer hc interrupt <address> [--timeout <seconds>]"],"arguments":["<address>"],"options":{"--timeout":{"description":"Optional seconds to wait for the interruption to settle."},"--json":{"description":"Return machine-readable JSON.","boolean":true},"--help":{"description":"Show this offline command reference.","boolean":true},"-h":{"description":"Show help.","boolean":true},"--schema":{"description":"Show offline input and output schemas.","boolean":true},"--operation-id":{"description":"Stable operation identity for recovery."}},"notes":[]}}
+",
+  },
+  "computer hc keys": {
+    "help": "exit 0
+teamhub computer hc keys <address> --key <key> [--key <key> ...]
+Send a sequence of named keystrokes (for example Down, Enter, C-c) to a herdr-core terminal.
+
+Arguments:
+  <address>
+
+Options:
+  --key <value>  Key token to send (repeatable, 1-64 keys, e.g. y, Down, Enter, C-c).
+  --json  Return machine-readable JSON.
+  --help  Show this offline command reference.
+  -h  Show help.
+  --schema  Show offline input and output schemas.
+  --operation-id <value>  Stable operation identity for recovery.
+",
+    "schema": "exit 0
+{"command":["computer","hc","keys"],"description":"Send a sequence of named keystrokes (for example Down, Enter, C-c) to a herdr-core terminal.","read_only":false,"input_schema":{"type":"object","required":["address","keys"],"properties":{"address":{"type":"string","minLength":1,"maxLength":256},"keys":{"type":"array","minItems":1,"maxItems":64,"items":{"type":"string","minLength":1,"maxLength":64}}},"additionalProperties":false},"output_schema":{"type":"object","required":["computer_id","tool_name","result"],"properties":{"computer_id":{"type":"string"},"tool_name":{"type":"string"},"result":{"type":"object","additionalProperties":true}}},"cli":{"usage":["teamhub computer hc keys <address> --key <key> [--key <key> ...]"],"arguments":["<address>"],"options":{"--key":{"description":"Key token to send (repeatable, 1-64 keys, e.g. y, Down, Enter, C-c).","repeatable":true},"--json":{"description":"Return machine-readable JSON.","boolean":true},"--help":{"description":"Show this offline command reference.","boolean":true},"-h":{"description":"Show help.","boolean":true},"--schema":{"description":"Show offline input and output schemas.","boolean":true},"--operation-id":{"description":"Stable operation identity for recovery."}},"notes":[]}}
+",
+  },
+  "computer hc kill": {
+    "help": "exit 0
+teamhub computer hc kill <address>
+Terminate a live herdr-core terminal.
+
+Arguments:
+  <address>
+
+Options:
+  --json  Return machine-readable JSON.
+  --help  Show this offline command reference.
+  -h  Show help.
+  --schema  Show offline input and output schemas.
+  --operation-id <value>  Stable operation identity for recovery.
+",
+    "schema": "exit 0
+{"command":["computer","hc","kill"],"description":"Terminate a live herdr-core terminal.","read_only":false,"input_schema":{"type":"object","required":["address"],"properties":{"address":{"type":"string","minLength":1,"maxLength":256}},"additionalProperties":false},"output_schema":{"type":"object","required":["computer_id","tool_name","result"],"properties":{"computer_id":{"type":"string"},"tool_name":{"type":"string"},"result":{"type":"object","additionalProperties":true}}},"cli":{"usage":["teamhub computer hc kill <address>"],"arguments":["<address>"],"options":{"--json":{"description":"Return machine-readable JSON.","boolean":true},"--help":{"description":"Show this offline command reference.","boolean":true},"-h":{"description":"Show help.","boolean":true},"--schema":{"description":"Show offline input and output schemas.","boolean":true},"--operation-id":{"description":"Stable operation identity for recovery."}},"notes":[]}}
+",
+  },
+  "computer hc ls": {
+    "help": "exit 0
+teamhub computer hc ls [--all] [--machine <name>] [--room-id <id>] [--work-item-id <id>] [--status <state>]
+List live (or all) herdr-core terminals across local and remote machines on your Computer.
+
+Options:
+  --all  Include finished terminals.
+  --machine <value>  Filter by machine name (use local for the local machine only).
+  --room-id <value>  Filter terminals carrying label linger.room=<id>.
+  --work-item-id <value>  Filter terminals carrying label linger.work_item=<id>.
+  --status <value>  Filter by OSC 7501 status state: idle, working, done, blocked, or error.
+  --json  Return machine-readable JSON.
+  --help  Show this offline command reference.
+  -h  Show help.
+  --schema  Show offline input and output schemas.
+",
+    "schema": "exit 0
+{"command":["computer","hc","ls"],"description":"List live (or all) herdr-core terminals across local and remote machines on your Computer.","read_only":true,"input_schema":{"type":"object","properties":{"all":{"type":"boolean"},"machine":{"type":"string","maxLength":128},"room_id":{"type":"string","maxLength":128},"work_item_id":{"type":"string","maxLength":128},"status":{"enum":["idle","working","done","blocked","error"]}},"additionalProperties":false},"output_schema":{"type":"object","required":["computer_id","tool_name","result"],"properties":{"computer_id":{"type":"string"},"tool_name":{"type":"string"},"result":{"type":"object","additionalProperties":true}}},"cli":{"usage":["teamhub computer hc ls [--all] [--machine <name>] [--room-id <id>] [--work-item-id <id>] [--status <state>]"],"arguments":[],"options":{"--all":{"description":"Include finished terminals.","boolean":true},"--machine":{"description":"Filter by machine name (use local for the local machine only)."},"--room-id":{"description":"Filter terminals carrying label linger.room=<id>."},"--work-item-id":{"description":"Filter terminals carrying label linger.work_item=<id>."},"--status":{"description":"Filter by OSC 7501 status state: idle, working, done, blocked, or error."},"--json":{"description":"Return machine-readable JSON.","boolean":true},"--help":{"description":"Show this offline command reference.","boolean":true},"-h":{"description":"Show help.","boolean":true},"--schema":{"description":"Show offline input and output schemas.","boolean":true}},"notes":[]}}
+",
+  },
+  "computer hc machines": {
+    "help": "exit 0
+teamhub computer hc machines
+List local and remote machines configured in herdr-core.
+
+Options:
+  --json  Return machine-readable JSON.
+  --help  Show this offline command reference.
+  -h  Show help.
+  --schema  Show offline input and output schemas.
+",
+    "schema": "exit 0
+{"command":["computer","hc","machines"],"description":"List local and remote machines configured in herdr-core.","read_only":true,"input_schema":{"type":"object","properties":{},"additionalProperties":false},"output_schema":{"type":"object","required":["computer_id","tool_name","result"],"properties":{"computer_id":{"type":"string"},"tool_name":{"type":"string"},"result":{"type":"object","additionalProperties":true}}},"cli":{"usage":["teamhub computer hc machines"],"arguments":[],"options":{"--json":{"description":"Return machine-readable JSON.","boolean":true},"--help":{"description":"Show this offline command reference.","boolean":true},"-h":{"description":"Show help.","boolean":true},"--schema":{"description":"Show offline input and output schemas.","boolean":true}},"notes":[]}}
+",
+  },
+  "computer hc read": {
+    "help": "exit 0
+teamhub computer hc read <address> [--lines <n>]
+Read recent rendered text from one herdr-core terminal.
+
+Arguments:
+  <address>
+
+Options:
+  --lines <value>  Number of recent lines to return (1-5000).
+  --json  Return machine-readable JSON.
+  --help  Show this offline command reference.
+  -h  Show help.
+  --schema  Show offline input and output schemas.
+",
+    "schema": "exit 0
+{"command":["computer","hc","read"],"description":"Read recent rendered text from one herdr-core terminal.","read_only":true,"input_schema":{"type":"object","required":["address"],"properties":{"address":{"type":"string","minLength":1,"maxLength":256},"lines":{"type":"integer","minimum":1,"maximum":5000}},"additionalProperties":false},"output_schema":{"type":"object","required":["computer_id","tool_name","result"],"properties":{"computer_id":{"type":"string"},"tool_name":{"type":"string"},"result":{"type":"object","additionalProperties":true}}},"cli":{"usage":["teamhub computer hc read <address> [--lines <n>]"],"arguments":["<address>"],"options":{"--lines":{"description":"Number of recent lines to return (1-5000)."},"--json":{"description":"Return machine-readable JSON.","boolean":true},"--help":{"description":"Show this offline command reference.","boolean":true},"-h":{"description":"Show help.","boolean":true},"--schema":{"description":"Show offline input and output schemas.","boolean":true}},"notes":[]}}
+",
+  },
+  "computer hc rm": {
+    "help": "exit 0
+teamhub computer hc rm <address>
+Remove a finished herdr-core terminal record.
+
+Arguments:
+  <address>
+
+Options:
+  --json  Return machine-readable JSON.
+  --help  Show this offline command reference.
+  -h  Show help.
+  --schema  Show offline input and output schemas.
+  --operation-id <value>  Stable operation identity for recovery.
+",
+    "schema": "exit 0
+{"command":["computer","hc","rm"],"description":"Remove a finished herdr-core terminal record.","read_only":false,"input_schema":{"type":"object","required":["address"],"properties":{"address":{"type":"string","minLength":1,"maxLength":256}},"additionalProperties":false},"output_schema":{"type":"object","required":["computer_id","tool_name","result"],"properties":{"computer_id":{"type":"string"},"tool_name":{"type":"string"},"result":{"type":"object","additionalProperties":true}}},"cli":{"usage":["teamhub computer hc rm <address>"],"arguments":["<address>"],"options":{"--json":{"description":"Return machine-readable JSON.","boolean":true},"--help":{"description":"Show this offline command reference.","boolean":true},"-h":{"description":"Show help.","boolean":true},"--schema":{"description":"Show offline input and output schemas.","boolean":true},"--operation-id":{"description":"Stable operation identity for recovery."}},"notes":[]}}
+",
+  },
+  "computer hc run": {
+    "help": "exit 0
+teamhub computer hc run (--line <cmd> | --argv <json-array> | --template <name>) [--prompt <text>] [--name <name>] [--cwd <dir>] [--on <machine>] [--keep] [--label key=value ...] [--parent <addr>] [--rm] [--no-notify] [--size <COLSxROWS>]
+Launch a new herdr-core terminal from a command line, argv array, or template.
+
+Options:
+  --line <value>  Shell command line to run in the terminal.
+  --argv <value>  JSON array of command arguments (mutually exclusive with --line).
+  --template <value>  Named herdr-core template to launch.
+  --prompt <value>  Initial prompt or task text passed to the template or coding agent.
+  --name <value>  Optional terminal name.
+  --cwd <value>  Working directory for the new terminal.
+  --on <value>  Remote machine name to launch on.
+  --keep  Keep the terminal record after exit.
+  --label <value>  Attach a label in key=value form; repeatable.
+  --parent <value>  Parent terminal address.
+  --rm  Remove the terminal record automatically on exit.
+  --no-notify  Suppress completion notifications for this terminal.
+  --size <value>  Initial terminal size as COLSxROWS (e.g. 120x36).
+  --json  Return machine-readable JSON.
+  --help  Show this offline command reference.
+  -h  Show help.
+  --schema  Show offline input and output schemas.
+  --operation-id <value>  Stable operation identity for recovery.
+",
+    "schema": "exit 0
+{"command":["computer","hc","run"],"description":"Launch a new herdr-core terminal from a command line, argv array, or template.","read_only":false,"input_schema":{"type":"object","properties":{"line":{"type":"string","minLength":1,"maxLength":16384},"argv":{"type":"array","minItems":1,"maxItems":128,"items":{"type":"string"}},"template":{"type":"string","minLength":1,"maxLength":120},"task":{"type":"string","minLength":1,"maxLength":16384},"name":{"type":"string","minLength":1,"maxLength":120},"cwd":{"type":"string","minLength":1,"maxLength":4096},"on":{"type":"string","minLength":1,"maxLength":128},"keep":{"type":"boolean"},"labels":{"type":"object","additionalProperties":{"type":"string"}},"parent":{"type":"string","minLength":1,"maxLength":256},"rm":{"type":"boolean"},"no_notify":{"type":"boolean"},"size":{"type":"string","pattern":"^[1-9]\\\\d{0,3}x[1-9]\\\\d{0,3}$"}},"additionalProperties":false},"output_schema":{"type":"object","required":["computer_id","tool_name","result"],"properties":{"computer_id":{"type":"string"},"tool_name":{"type":"string"},"result":{"type":"object","additionalProperties":true}}},"cli":{"usage":["teamhub computer hc run (--line <cmd> | --argv <json-array> | --template <name>) [--prompt <text>] [--name <name>] [--cwd <dir>] [--on <machine>] [--keep] [--label key=value ...] [--parent <addr>] [--rm] [--no-notify] [--size <COLSxROWS>]"],"arguments":[],"options":{"--line":{"description":"Shell command line to run in the terminal."},"--argv":{"description":"JSON array of command arguments (mutually exclusive with --line)."},"--template":{"description":"Named herdr-core template to launch."},"--prompt":{"description":"Initial prompt or task text passed to the template or coding agent."},"--name":{"description":"Optional terminal name."},"--cwd":{"description":"Working directory for the new terminal."},"--on":{"description":"Remote machine name to launch on."},"--keep":{"description":"Keep the terminal record after exit.","boolean":true},"--label":{"description":"Attach a label in key=value form; repeatable.","repeatable":true},"--parent":{"description":"Parent terminal address."},"--rm":{"description":"Remove the terminal record automatically on exit.","boolean":true},"--no-notify":{"description":"Suppress completion notifications for this terminal.","boolean":true},"--size":{"description":"Initial terminal size as COLSxROWS (e.g. 120x36)."},"--json":{"description":"Return machine-readable JSON.","boolean":true},"--help":{"description":"Show this offline command reference.","boolean":true},"-h":{"description":"Show help.","boolean":true},"--schema":{"description":"Show offline input and output schemas.","boolean":true},"--operation-id":{"description":"Stable operation identity for recovery."}},"notes":[]}}
+",
+  },
+  "computer hc send": {
+    "help": "exit 0
+teamhub computer hc send <address> (--text <text> | --file <path>) [--if <state>] [--force] [--wait] [--timeout <seconds>]
+Send a text prompt or input line to a herdr-core terminal, optionally guarding on state or waiting for a turn.
+
+Arguments:
+  <address>
+
+Options:
+  --text <value>  Text to send to the terminal.
+  --file <value>  Read UTF-8 text to send from a file or - for stdin.
+  --if <value>  Require this OSC 7501 state before sending: idle, working, or blocked (Daemon verifies blocked via terminal.get + force send).
+  --force  Send even if the terminal appears busy.
+  --wait  Wait for the triggered turn to progress or complete.
+  --timeout <value>  Optional wait timeout in seconds.
+  --json  Return machine-readable JSON.
+  --help  Show this offline command reference.
+  -h  Show help.
+  --schema  Show offline input and output schemas.
+  --operation-id <value>  Stable operation identity for recovery.
+",
+    "schema": "exit 0
+{"command":["computer","hc","send"],"description":"Send a text prompt or input line to a herdr-core terminal, optionally guarding on state or waiting for a turn.","read_only":false,"input_schema":{"type":"object","required":["address","text"],"properties":{"address":{"type":"string","minLength":1,"maxLength":256},"text":{"type":"string","minLength":1,"maxLength":65536},"if":{"enum":["idle","working","blocked"]},"force":{"type":"boolean"},"wait":{"type":"boolean"},"timeout":{"type":"number","minimum":0.1}},"additionalProperties":false},"output_schema":{"type":"object","required":["computer_id","tool_name","result"],"properties":{"computer_id":{"type":"string"},"tool_name":{"type":"string"},"result":{"type":"object","additionalProperties":true}}},"cli":{"usage":["teamhub computer hc send <address> (--text <text> | --file <path>) [--if <state>] [--force] [--wait] [--timeout <seconds>]"],"arguments":["<address>"],"options":{"--text":{"description":"Text to send to the terminal."},"--file":{"description":"Read UTF-8 text to send from a file or - for stdin."},"--if":{"description":"Require this OSC 7501 state before sending: idle, working, or blocked (Daemon verifies blocked via terminal.get + force send)."},"--force":{"description":"Send even if the terminal appears busy.","boolean":true},"--wait":{"description":"Wait for the triggered turn to progress or complete.","boolean":true},"--timeout":{"description":"Optional wait timeout in seconds."},"--json":{"description":"Return machine-readable JSON.","boolean":true},"--help":{"description":"Show this offline command reference.","boolean":true},"-h":{"description":"Show help.","boolean":true},"--schema":{"description":"Show offline input and output schemas.","boolean":true},"--operation-id":{"description":"Stable operation identity for recovery."}},"notes":[]}}
+",
+  },
+  "computer hc status": {
+    "help": "exit 0
+teamhub computer hc status
+Read herdr-core daemon status, version, terminal counts, and machines on your Computer.
+
+Options:
+  --json  Return machine-readable JSON.
+  --help  Show this offline command reference.
+  -h  Show help.
+  --schema  Show offline input and output schemas.
+",
+    "schema": "exit 0
+{"command":["computer","hc","status"],"description":"Read herdr-core daemon status, version, terminal counts, and machines on your Computer.","read_only":true,"input_schema":{"type":"object","properties":{},"additionalProperties":false},"output_schema":{"type":"object","required":["computer_id","tool_name","result"],"properties":{"computer_id":{"type":"string"},"tool_name":{"type":"string"},"result":{"type":"object","additionalProperties":true}}},"cli":{"usage":["teamhub computer hc status"],"arguments":[],"options":{"--json":{"description":"Return machine-readable JSON.","boolean":true},"--help":{"description":"Show this offline command reference.","boolean":true},"-h":{"description":"Show help.","boolean":true},"--schema":{"description":"Show offline input and output schemas.","boolean":true}},"notes":[]}}
+",
+  },
+  "computer hc templates": {
+    "help": "exit 0
+teamhub computer hc templates [--on <machine>]
+List terminal launch templates configured in herdr-core.
+
+Options:
+  --on <value>  Optional remote machine name.
+  --json  Return machine-readable JSON.
+  --help  Show this offline command reference.
+  -h  Show help.
+  --schema  Show offline input and output schemas.
+",
+    "schema": "exit 0
+{"command":["computer","hc","templates"],"description":"List terminal launch templates configured in herdr-core.","read_only":true,"input_schema":{"type":"object","properties":{"on":{"type":"string","minLength":1,"maxLength":128}},"additionalProperties":false},"output_schema":{"type":"object","required":["computer_id","tool_name","result"],"properties":{"computer_id":{"type":"string"},"tool_name":{"type":"string"},"result":{"type":"object","additionalProperties":true}}},"cli":{"usage":["teamhub computer hc templates [--on <machine>]"],"arguments":[],"options":{"--on":{"description":"Optional remote machine name."},"--json":{"description":"Return machine-readable JSON.","boolean":true},"--help":{"description":"Show this offline command reference.","boolean":true},"-h":{"description":"Show help.","boolean":true},"--schema":{"description":"Show offline input and output schemas.","boolean":true}},"notes":[]}}
+",
+  },
   "computer herdr ask": {
     "help": "exit 0
 teamhub computer herdr ask --pane <pane-id> --state <n> --question <text> --option <choice> [--option <choice> ...]
@@ -4338,6 +4687,253 @@ Options:
 Only for a herdr event in your owner's chat. Asking again about the same pane state returns the same card.
 You never type into the pane. When your owner answers, TeamHub types exactly their answer into the pane, once, and then tells you whether it arrived; pass that on.
 An event that came in during quiet hours or after today's reminders is refused with herdr_ask_gated while that still holds: do not tell your owner now; keep the pane and state in a Tracking Item and ask when its follow-up comes.
+
+teamhub computer hc status
+Read herdr-core daemon status, version, terminal counts, and machines on your Computer.
+
+Options:
+  --json  Return machine-readable JSON.
+  --help  Show this offline command reference.
+  -h  Show help.
+  --schema  Show offline input and output schemas.
+
+teamhub computer hc ls [--all] [--machine <name>] [--room-id <id>] [--work-item-id <id>] [--status <state>]
+List live (or all) herdr-core terminals across local and remote machines on your Computer.
+
+Options:
+  --all  Include finished terminals.
+  --machine <value>  Filter by machine name (use local for the local machine only).
+  --room-id <value>  Filter terminals carrying label linger.room=<id>.
+  --work-item-id <value>  Filter terminals carrying label linger.work_item=<id>.
+  --status <value>  Filter by OSC 7501 status state: idle, working, done, blocked, or error.
+  --json  Return machine-readable JSON.
+  --help  Show this offline command reference.
+  -h  Show help.
+  --schema  Show offline input and output schemas.
+
+teamhub computer hc get <address>
+Inspect one herdr-core terminal's metadata, status, turn, cwd, and labels.
+
+Arguments:
+  <address>
+
+Options:
+  --json  Return machine-readable JSON.
+  --help  Show this offline command reference.
+  -h  Show help.
+  --schema  Show offline input and output schemas.
+
+teamhub computer hc read <address> [--lines <n>]
+Read recent rendered text from one herdr-core terminal.
+
+Arguments:
+  <address>
+
+Options:
+  --lines <value>  Number of recent lines to return (1-5000).
+  --json  Return machine-readable JSON.
+  --help  Show this offline command reference.
+  -h  Show help.
+  --schema  Show offline input and output schemas.
+
+teamhub computer hc run (--line <cmd> | --argv <json-array> | --template <name>) [--prompt <text>] [--name <name>] [--cwd <dir>] [--on <machine>] [--keep] [--label key=value ...] [--parent <addr>] [--rm] [--no-notify] [--size <COLSxROWS>]
+Launch a new herdr-core terminal from a command line, argv array, or template.
+
+Options:
+  --line <value>  Shell command line to run in the terminal.
+  --argv <value>  JSON array of command arguments (mutually exclusive with --line).
+  --template <value>  Named herdr-core template to launch.
+  --prompt <value>  Initial prompt or task text passed to the template or coding agent.
+  --name <value>  Optional terminal name.
+  --cwd <value>  Working directory for the new terminal.
+  --on <value>  Remote machine name to launch on.
+  --keep  Keep the terminal record after exit.
+  --label <value>  Attach a label in key=value form; repeatable.
+  --parent <value>  Parent terminal address.
+  --rm  Remove the terminal record automatically on exit.
+  --no-notify  Suppress completion notifications for this terminal.
+  --size <value>  Initial terminal size as COLSxROWS (e.g. 120x36).
+  --json  Return machine-readable JSON.
+  --help  Show this offline command reference.
+  -h  Show help.
+  --schema  Show offline input and output schemas.
+  --operation-id <value>  Stable operation identity for recovery.
+
+teamhub computer hc send <address> (--text <text> | --file <path>) [--if <state>] [--force] [--wait] [--timeout <seconds>]
+Send a text prompt or input line to a herdr-core terminal, optionally guarding on state or waiting for a turn.
+
+Arguments:
+  <address>
+
+Options:
+  --text <value>  Text to send to the terminal.
+  --file <value>  Read UTF-8 text to send from a file or - for stdin.
+  --if <value>  Require this OSC 7501 state before sending: idle, working, or blocked (Daemon verifies blocked via terminal.get + force send).
+  --force  Send even if the terminal appears busy.
+  --wait  Wait for the triggered turn to progress or complete.
+  --timeout <value>  Optional wait timeout in seconds.
+  --json  Return machine-readable JSON.
+  --help  Show this offline command reference.
+  -h  Show help.
+  --schema  Show offline input and output schemas.
+  --operation-id <value>  Stable operation identity for recovery.
+
+teamhub computer hc keys <address> --key <key> [--key <key> ...]
+Send a sequence of named keystrokes (for example Down, Enter, C-c) to a herdr-core terminal.
+
+Arguments:
+  <address>
+
+Options:
+  --key <value>  Key token to send (repeatable, 1-64 keys, e.g. y, Down, Enter, C-c).
+  --json  Return machine-readable JSON.
+  --help  Show this offline command reference.
+  -h  Show help.
+  --schema  Show offline input and output schemas.
+  --operation-id <value>  Stable operation identity for recovery.
+
+teamhub computer hc interrupt <address> [--timeout <seconds>]
+Interrupt the foreground process in a herdr-core terminal.
+
+Arguments:
+  <address>
+
+Options:
+  --timeout <value>  Optional seconds to wait for the interruption to settle.
+  --json  Return machine-readable JSON.
+  --help  Show this offline command reference.
+  -h  Show help.
+  --schema  Show offline input and output schemas.
+  --operation-id <value>  Stable operation identity for recovery.
+
+teamhub computer hc kill <address>
+Terminate a live herdr-core terminal.
+
+Arguments:
+  <address>
+
+Options:
+  --json  Return machine-readable JSON.
+  --help  Show this offline command reference.
+  -h  Show help.
+  --schema  Show offline input and output schemas.
+  --operation-id <value>  Stable operation identity for recovery.
+
+teamhub computer hc rm <address>
+Remove a finished herdr-core terminal record.
+
+Arguments:
+  <address>
+
+Options:
+  --json  Return machine-readable JSON.
+  --help  Show this offline command reference.
+  -h  Show help.
+  --schema  Show offline input and output schemas.
+  --operation-id <value>  Stable operation identity for recovery.
+
+teamhub computer hc exec (--line <cmd> | --argv <json-array>) [--cwd <dir>] [--on <machine>] [--timeout <seconds>]
+Run a one-shot non-interactive command through herdr-core on the local or remote machine.
+
+Options:
+  --line <value>  Shell command line to execute.
+  --argv <value>  JSON array of command arguments (mutually exclusive with --line).
+  --cwd <value>  Working directory for the command.
+  --on <value>  Remote machine name to execute on.
+  --timeout <value>  Command timeout in seconds.
+  --json  Return machine-readable JSON.
+  --help  Show this offline command reference.
+  -h  Show help.
+  --schema  Show offline input and output schemas.
+  --operation-id <value>  Stable operation identity for recovery.
+
+teamhub computer hc file-read <path> [--on <machine>] [--offset <n>] [--limit <n>]
+Read a file on the local or remote machine through herdr-core.
+
+Arguments:
+  <path>
+
+Options:
+  --on <value>  Remote machine name to read from.
+  --offset <value>  Optional starting line or byte offset (>= 0).
+  --limit <value>  Optional maximum lines or bytes to return.
+  --json  Return machine-readable JSON.
+  --help  Show this offline command reference.
+  -h  Show help.
+  --schema  Show offline input and output schemas.
+
+teamhub computer hc file-edit <path> (--old <text> | --old-file <path>) (--new <text> | --new-file <path>) [--on <machine>] [--replace-all]
+Apply an exact search-and-replace edit to a file through herdr-core.
+
+Arguments:
+  <path>
+
+Options:
+  --old <value>  Exact existing text to replace.
+  --old-file <value>  Read exact existing text from a file or - for stdin.
+  --new <value>  Replacement text.
+  --new-file <value>  Read replacement text from a file or - for stdin.
+  --on <value>  Remote machine name to edit on.
+  --replace-all  Replace every occurrence instead of requiring a single match.
+  --json  Return machine-readable JSON.
+  --help  Show this offline command reference.
+  -h  Show help.
+  --schema  Show offline input and output schemas.
+  --operation-id <value>  Stable operation identity for recovery.
+
+teamhub computer hc file-write <path> (--content <text> | --file <path>) [--on <machine>]
+Write UTF-8 content to a file on the local or remote machine through herdr-core.
+
+Arguments:
+  <path>
+
+Options:
+  --content <value>  Inline UTF-8 file content.
+  --file <value>  Read UTF-8 file content from a local file or - for stdin.
+  --on <value>  Remote machine name to write on.
+  --json  Return machine-readable JSON.
+  --help  Show this offline command reference.
+  -h  Show help.
+  --schema  Show offline input and output schemas.
+  --operation-id <value>  Stable operation identity for recovery.
+
+teamhub computer hc templates [--on <machine>]
+List terminal launch templates configured in herdr-core.
+
+Options:
+  --on <value>  Optional remote machine name.
+  --json  Return machine-readable JSON.
+  --help  Show this offline command reference.
+  -h  Show help.
+  --schema  Show offline input and output schemas.
+
+teamhub computer hc machines
+List local and remote machines configured in herdr-core.
+
+Options:
+  --json  Return machine-readable JSON.
+  --help  Show this offline command reference.
+  -h  Show help.
+  --schema  Show offline input and output schemas.
+
+teamhub computer hc ask --address <addr> --turn <n> --status-ms <ms> --question <text> (--option <choice> | --option-keys <label=k1,k2>) [...]
+Ask your owner, with a question card, how to answer a blocked coding agent in a herdr-core terminal; TeamHub delivers their answer (keys or text) once while the terminal stays on that turn.
+
+Options:
+  --address <value>  Terminal address from the herdr-core event (for example t7 or vps/t7).
+  --turn <value>  Terminal turn counter from the herdr-core event.
+  --status-ms <value>  Status timestamp in milliseconds from the herdr-core event.
+  --question <value>  What the coding agent asks, at most 2000 characters.
+  --option <value>  One text choice offered to your owner (1-20 total across --option and --option-keys).
+  --option-keys <value>  One key-sequence choice in label=key1,key2 form (for example Approve=y,Enter); repeatable.
+  --json  Return machine-readable JSON.
+  --help  Show this offline command reference.
+  -h  Show help.
+  --schema  Show offline input and output schemas.
+  --operation-id <value>  Stable operation identity for recovery.
+Only for a herdr-core blocked event in your owner's chat. Asking again for the same address, turn, and status_ms returns the same card.
+When your owner picks an --option-keys choice, TeamHub sends that key sequence; otherwise TeamHub sends their chosen or written text once while the terminal is still blocked on that state.
+An event gated by quiet hours or daily reminders is refused with herdr_ask_gated: keep the address, turn, and status_ms in a Tracking Item and ask when its follow-up comes.
 ",
   "docs": "exit 0
 teamhub docs create --title <text> (--content <text> | --file <path|->) [flags]

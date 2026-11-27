@@ -209,6 +209,8 @@ describe("Runner Gateway local models", () => {
         "runtime_failure_detail",
         "operation_background_wait",
         "dynamic_reasoning_efforts",
+        "herdr_core_v1",
+        "herdr_core_stream",
       ],
     ],
     [
@@ -226,6 +228,8 @@ describe("Runner Gateway local models", () => {
         "runtime_failure_detail",
         "operation_background_wait",
         "dynamic_reasoning_efforts",
+        "herdr_core_v1",
+        "herdr_core_stream",
       ],
     ],
     [
@@ -242,6 +246,8 @@ describe("Runner Gateway local models", () => {
         "runtime_failure_detail",
         "operation_background_wait",
         "dynamic_reasoning_efforts",
+        "herdr_core_v1",
+        "herdr_core_stream",
       ],
     ],
     [
@@ -258,6 +264,8 @@ describe("Runner Gateway local models", () => {
         "runtime_failure_detail",
         "operation_background_wait",
         "dynamic_reasoning_efforts",
+        "herdr_core_v1",
+        "herdr_core_stream",
       ],
     ],
     [
@@ -274,6 +282,8 @@ describe("Runner Gateway local models", () => {
         "runtime_failure_detail",
         "operation_background_wait",
         "dynamic_reasoning_efforts",
+        "herdr_core_v1",
+        "herdr_core_stream",
       ],
     ],
     [
@@ -289,6 +299,8 @@ describe("Runner Gateway local models", () => {
         "runtime_failure_detail",
         "operation_background_wait",
         "dynamic_reasoning_efforts",
+        "herdr_core_v1",
+        "herdr_core_stream",
       ],
     ],
     [
@@ -303,6 +315,8 @@ describe("Runner Gateway local models", () => {
         "runtime_failure_detail",
         "operation_background_wait",
         "dynamic_reasoning_efforts",
+        "herdr_core_v1",
+        "herdr_core_stream",
       ],
     ],
     [
@@ -317,6 +331,8 @@ describe("Runner Gateway local models", () => {
         "runtime_failure_detail",
         "operation_background_wait",
         "dynamic_reasoning_efforts",
+        "herdr_core_v1",
+        "herdr_core_stream",
       ],
     ],
     [
@@ -330,6 +346,8 @@ describe("Runner Gateway local models", () => {
         "runtime_failure_detail",
         "operation_background_wait",
         "dynamic_reasoning_efforts",
+        "herdr_core_v1",
+        "herdr_core_stream",
       ],
     ],
     [
@@ -343,6 +361,8 @@ describe("Runner Gateway local models", () => {
         "runtime_failure_detail",
         "operation_background_wait",
         "dynamic_reasoning_efforts",
+        "herdr_core_v1",
+        "herdr_core_stream",
       ],
     ],
     [
@@ -355,6 +375,8 @@ describe("Runner Gateway local models", () => {
         "runtime_failure_detail",
         "operation_background_wait",
         "dynamic_reasoning_efforts",
+        "herdr_core_v1",
+        "herdr_core_stream",
       ],
     ],
     [
@@ -367,6 +389,8 @@ describe("Runner Gateway local models", () => {
         "runtime_failure_detail",
         "operation_background_wait",
         "dynamic_reasoning_efforts",
+        "herdr_core_v1",
+        "herdr_core_stream",
       ],
     ],
     ["0.51.0", undefined],

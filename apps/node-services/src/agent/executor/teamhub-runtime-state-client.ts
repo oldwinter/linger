@@ -188,6 +188,10 @@ export interface TeamHubRuntimeStateClient {
     body: RuntimeStateSchemas["HerdrAgentEventReport"],
     signal?: AbortSignal,
   ): Promise<void>;
+  reportHerdrCoreEvent(
+    body: RuntimeStateSchemas["HerdrCoreEventReport"],
+    signal?: AbortSignal,
+  ): Promise<void>;
   recordLocalModels(
     body: RuntimeStateSchemas["RecordLocalModelsRequest"],
     signal?: AbortSignal,
@@ -453,6 +457,8 @@ export const createTeamHubRuntimeStateClient = (
       ),
     reportHerdrEvent: (body, signal) =>
       request<void>(raw.reportHerdrEvent(body, signal), signal),
+    reportHerdrCoreEvent: (body, signal) =>
+      request<void>(raw.reportHerdrCoreEvent(body, signal), signal),
     recordLocalModels: (body, signal) =>
       request<void>(raw.recordLocalModels(body, signal), signal),
     recordRunOperation: (body, signal) =>

@@ -71,6 +71,25 @@ info:
     runner.herdr_event reports a herdr agent pane on the Computer that just
     became blocked or finished; the Agent Service hands it to TeamHub, which
     judges it as a proactive event of the Computer's owner.
+    A computer_tool call on the herdr_core server invokes structured hc tools
+    (status, list, get, read, run, send, keys, interrupt, wait, kill, rm,
+    keep, label, put, templates, machines, exec, file_read, file_write,
+    file_edit, doc_get, doc_set, answer, and attach) only when runner.welcome's
+    service_features names herdr_core_v1 (and herdr_core_stream for attach).
+    Because herdr-core v0.1.21 terminal.send accepts only "idle" and "working"
+    in its own "if" parameter, the Daemon translates both send with if="blocked"
+    and answer (answer_text / answer_keys) into a local terminal.get CAS check
+    (state == "live", status.state == "blocked", matching expected turn)
+    followed by terminal.send(force: true, omitting "if") or terminal.keys,
+    never forwarding if="blocked" to herdr-core.
+    runner.herdr_core_event reports herdr-core terminal transitions
+    (agent_blocked, agent_finished, agent_error, terminal_changed) only after
+    service_features names herdr_core_v1; Agent Service forwards it to TeamHub
+    for SSE invalidation and proactive judgment. Interactive PTY attach runs
+    on a separate WebSocket channel (/v1/runner-gateway/herdr-core-stream for
+    daemon stream sessions initiated via computer_tool attach, bridged to
+    /v1/herdr-core/attach for clients holding a TeamHub-signed attach token)
+    so raw binary terminal throughput never stalls the control-plane channel.
     execute with kind local_models acts on the Computer's localmodels
     library (download, cancel, load with unload_first, unload, remove, or
     refresh). The Computer answers executed with outcome accepted or refused

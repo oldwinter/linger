@@ -1221,6 +1221,10 @@ paths:
     $ref: "../paths/agent-computer-permissions.yaml#/request"
   /api/agent/v1/computer/herdr/ask:
     $ref: "../paths/agent-herdr.yaml#/ask"
+  /api/agent/v1/computer/herdr-core/ask:
+    $ref: "../paths/agent-herdr-core.yaml#/ask"
+  /api/agent/v1/computer/herdr-core/call:
+    $ref: "../paths/agent-herdr-core.yaml#/call"
   /api/agent/v1/apps/tools/bind:
     $ref: ../paths/agent-connector-cli.yaml#/bindings
   /api/agent/v1/apps/account:

@@ -256,19 +256,19 @@ func (e AgentCLIFileRole) Valid() bool {
 
 // Defines values for AgentCLIFileLinkCommandOperation.
 const (
-	Read   AgentCLIFileLinkCommandOperation = "read"
-	Revoke AgentCLIFileLinkCommandOperation = "revoke"
-	Set    AgentCLIFileLinkCommandOperation = "set"
+	AgentCLIFileLinkCommandOperationRead   AgentCLIFileLinkCommandOperation = "read"
+	AgentCLIFileLinkCommandOperationRevoke AgentCLIFileLinkCommandOperation = "revoke"
+	AgentCLIFileLinkCommandOperationSet    AgentCLIFileLinkCommandOperation = "set"
 )
 
 // Valid indicates whether the value is a known member of the AgentCLIFileLinkCommandOperation enum.
 func (e AgentCLIFileLinkCommandOperation) Valid() bool {
 	switch e {
-	case Read:
+	case AgentCLIFileLinkCommandOperationRead:
 		return true
-	case Revoke:
+	case AgentCLIFileLinkCommandOperationRevoke:
 		return true
-	case Set:
+	case AgentCLIFileLinkCommandOperationSet:
 		return true
 	default:
 		return false
@@ -437,6 +437,21 @@ func (e AgentDocumentSemanticMutationResponseStatus) Valid() bool {
 	case AgentDocumentSemanticMutationResponseStatusApplied:
 		return true
 	case AgentDocumentSemanticMutationResponseStatusConflicted:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AgentHerdrCoreAskResponseStatus.
+const (
+	AgentHerdrCoreAskResponseStatusAsked AgentHerdrCoreAskResponseStatus = "asked"
+)
+
+// Valid indicates whether the value is a known member of the AgentHerdrCoreAskResponseStatus enum.
+func (e AgentHerdrCoreAskResponseStatus) Valid() bool {
+	switch e {
+	case AgentHerdrCoreAskResponseStatusAsked:
 		return true
 	default:
 		return false
@@ -1115,6 +1130,87 @@ func (e EditNativeDocumentSemanticOperationCommand) Valid() bool {
 	}
 }
 
+// Defines values for HerdrCoreToolName.
+const (
+	HerdrCoreToolNameAnswer    HerdrCoreToolName = "answer"
+	HerdrCoreToolNameDocGet    HerdrCoreToolName = "doc_get"
+	HerdrCoreToolNameDocSet    HerdrCoreToolName = "doc_set"
+	HerdrCoreToolNameExec      HerdrCoreToolName = "exec"
+	HerdrCoreToolNameFileEdit  HerdrCoreToolName = "file_edit"
+	HerdrCoreToolNameFileRead  HerdrCoreToolName = "file_read"
+	HerdrCoreToolNameFileWrite HerdrCoreToolName = "file_write"
+	HerdrCoreToolNameGet       HerdrCoreToolName = "get"
+	HerdrCoreToolNameInterrupt HerdrCoreToolName = "interrupt"
+	HerdrCoreToolNameKeep      HerdrCoreToolName = "keep"
+	HerdrCoreToolNameKeys      HerdrCoreToolName = "keys"
+	HerdrCoreToolNameKill      HerdrCoreToolName = "kill"
+	HerdrCoreToolNameLabel     HerdrCoreToolName = "label"
+	HerdrCoreToolNameList      HerdrCoreToolName = "list"
+	HerdrCoreToolNameMachines  HerdrCoreToolName = "machines"
+	HerdrCoreToolNamePut       HerdrCoreToolName = "put"
+	HerdrCoreToolNameRead      HerdrCoreToolName = "read"
+	HerdrCoreToolNameRm        HerdrCoreToolName = "rm"
+	HerdrCoreToolNameRun       HerdrCoreToolName = "run"
+	HerdrCoreToolNameSend      HerdrCoreToolName = "send"
+	HerdrCoreToolNameStatus    HerdrCoreToolName = "status"
+	HerdrCoreToolNameTemplates HerdrCoreToolName = "templates"
+	HerdrCoreToolNameWait      HerdrCoreToolName = "wait"
+)
+
+// Valid indicates whether the value is a known member of the HerdrCoreToolName enum.
+func (e HerdrCoreToolName) Valid() bool {
+	switch e {
+	case HerdrCoreToolNameAnswer:
+		return true
+	case HerdrCoreToolNameDocGet:
+		return true
+	case HerdrCoreToolNameDocSet:
+		return true
+	case HerdrCoreToolNameExec:
+		return true
+	case HerdrCoreToolNameFileEdit:
+		return true
+	case HerdrCoreToolNameFileRead:
+		return true
+	case HerdrCoreToolNameFileWrite:
+		return true
+	case HerdrCoreToolNameGet:
+		return true
+	case HerdrCoreToolNameInterrupt:
+		return true
+	case HerdrCoreToolNameKeep:
+		return true
+	case HerdrCoreToolNameKeys:
+		return true
+	case HerdrCoreToolNameKill:
+		return true
+	case HerdrCoreToolNameLabel:
+		return true
+	case HerdrCoreToolNameList:
+		return true
+	case HerdrCoreToolNameMachines:
+		return true
+	case HerdrCoreToolNamePut:
+		return true
+	case HerdrCoreToolNameRead:
+		return true
+	case HerdrCoreToolNameRm:
+		return true
+	case HerdrCoreToolNameRun:
+		return true
+	case HerdrCoreToolNameSend:
+		return true
+	case HerdrCoreToolNameStatus:
+		return true
+	case HerdrCoreToolNameTemplates:
+		return true
+	case HerdrCoreToolNameWait:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ProactiveAction.
 const (
 	Notify ProactiveAction = "notify"
@@ -1660,13 +1756,13 @@ func (e RequestAgentBrowserConnection200JSONResponseBodyStatus) Valid() bool {
 
 // Defines values for AskAgentHerdrPane200JSONResponseBodyStatus.
 const (
-	Asked AskAgentHerdrPane200JSONResponseBodyStatus = "asked"
+	AskAgentHerdrPane200JSONResponseBodyStatusAsked AskAgentHerdrPane200JSONResponseBodyStatus = "asked"
 )
 
 // Valid indicates whether the value is a known member of the AskAgentHerdrPane200JSONResponseBodyStatus enum.
 func (e AskAgentHerdrPane200JSONResponseBodyStatus) Valid() bool {
 	switch e {
-	case Asked:
+	case AskAgentHerdrPane200JSONResponseBodyStatusAsked:
 		return true
 	default:
 		return false
@@ -2338,6 +2434,52 @@ type AgentExecuteAppToolResponse struct {
 type AgentGetAgentRequest struct {
 	// ActorId Opaque, case-sensitive identifier. Clients must not infer type or time from it.
 	ActorId Id `json:"actor_id"`
+}
+
+// AgentHerdrCoreAskRequest defines model for AgentHerdrCoreAskRequest.
+type AgentHerdrCoreAskRequest struct {
+	Address string `json:"address"`
+
+	// Options Choices the coding agent offers; the owner may also write their own answer.
+	Options []HerdrCoreAskOption `json:"options"`
+
+	// Question What the coding agent asks, as the card shows it.
+	Question string `json:"question"`
+	StatusMs int64  `json:"status_ms"`
+	Turn     int64  `json:"turn"`
+}
+
+// AgentHerdrCoreAskResponse defines model for AgentHerdrCoreAskResponse.
+type AgentHerdrCoreAskResponse struct {
+	ComputerId    string                          `json:"computer_id"`
+	InteractionId string                          `json:"interaction_id"`
+	MessageId     string                          `json:"message_id"`
+	RoomId        string                          `json:"room_id"`
+	Status        AgentHerdrCoreAskResponseStatus `json:"status"`
+}
+
+// AgentHerdrCoreAskResponseStatus defines model for AgentHerdrCoreAskResponse.Status.
+type AgentHerdrCoreAskResponseStatus string
+
+// AgentHerdrCoreCallRequest defines model for AgentHerdrCoreCallRequest.
+type AgentHerdrCoreCallRequest struct {
+	Arguments  map[string]interface{} `json:"arguments"`
+	DeadlineMs *int                   `json:"deadline_ms,omitempty"`
+
+	// OperationId Optional idempotency key for mutating herdr_core tool calls.
+	OperationId *string `json:"operation_id,omitempty"`
+
+	// ToolName Structured herdr_core tool dispatched over Runner Gateway computer_tool.
+	ToolName HerdrCoreToolName `json:"tool_name"`
+}
+
+// AgentHerdrCoreCallResponse defines model for AgentHerdrCoreCallResponse.
+type AgentHerdrCoreCallResponse struct {
+	ComputerId string                 `json:"computer_id"`
+	Result     map[string]interface{} `json:"result"`
+
+	// ToolName Structured herdr_core tool dispatched over Runner Gateway computer_tool.
+	ToolName HerdrCoreToolName `json:"tool_name"`
 }
 
 // AgentHistoryInbox defines model for AgentHistoryInbox.
@@ -3416,6 +3558,16 @@ type FileSegment struct {
 	Type      string  `json:"type"`
 }
 
+// HerdrCoreAskOption One owner-selectable option on a herdr-core question card.
+type HerdrCoreAskOption struct {
+	// Keys Optional key sequence sent via herdr_core keys when the owner picks this option; when omitted, label is sent as text.
+	Keys  *[]string `json:"keys,omitempty"`
+	Label string    `json:"label"`
+}
+
+// HerdrCoreToolName Structured herdr_core tool dispatched over Runner Gateway computer_tool.
+type HerdrCoreToolName string
+
 // HtmlFragmentSegment defines model for HtmlFragmentSegment.
 type HtmlFragmentSegment struct {
 	// Content Raw-message text for the inline widget. show_fragment uses the exact flat, content-addressed Documents path of its projected HTML file; this is not widget markup.
@@ -4126,6 +4278,12 @@ type ListAvailableAgentsJSONRequestBody = AgentListAvailableAgentsRequest
 
 // RequestAgentBrowserConnectionJSONRequestBody defines body for RequestAgentBrowserConnection for application/json ContentType.
 type RequestAgentBrowserConnectionJSONRequestBody = RequestAgentBrowserConnectionJSONBody
+
+// AskAgentHerdrCoreTerminalJSONRequestBody defines body for AskAgentHerdrCoreTerminal for application/json ContentType.
+type AskAgentHerdrCoreTerminalJSONRequestBody = AgentHerdrCoreAskRequest
+
+// CallAgentHerdrCoreJSONRequestBody defines body for CallAgentHerdrCore for application/json ContentType.
+type CallAgentHerdrCoreJSONRequestBody = AgentHerdrCoreCallRequest
 
 // AskAgentHerdrPaneJSONRequestBody defines body for AskAgentHerdrPane for application/json ContentType.
 type AskAgentHerdrPaneJSONRequestBody AskAgentHerdrPaneJSONBody
