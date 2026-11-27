@@ -1,13 +1,18 @@
 import {
   notifyPreferenceChange,
-  removePreferenceKeys,
   storedPreferenceKeys,
   subscribePreferenceChange,
 } from "@/lib/local-preference-keys";
 
+import {
+  RECENT_DOCUMENTS_CHANGED,
+  RECENT_DOCUMENTS_PREFIX as STORAGE_PREFIX,
+  clearAllRecentDocuments,
+} from "./recent-documents-storage";
+
 const RECENT_LIMIT = 5;
-const STORAGE_PREFIX = "library-recent-documents.v1:";
-const RECENT_DOCUMENTS_CHANGED = "library-recent-documents-changed";
+
+export { clearAllRecentDocuments };
 
 /** One Document the person opened, as it was named and formatted then. */
 export interface RecentDocument {
@@ -91,12 +96,6 @@ export function clearRecentDocuments(
 /** Whether this browser lists a recently opened Document for any Account. */
 export function hasRecentDocuments(): boolean {
   return storedPreferenceKeys([STORAGE_PREFIX]).length > 0;
-}
-
-/** Clears the list for every Account in this browser. */
-export function clearAllRecentDocuments(): void {
-  removePreferenceKeys([STORAGE_PREFIX]);
-  notifyPreferenceChange(RECENT_DOCUMENTS_CHANGED);
 }
 
 export function subscribeRecentDocuments(listener: () => void): () => void {
