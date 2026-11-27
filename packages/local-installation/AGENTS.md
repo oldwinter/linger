@@ -353,8 +353,15 @@ An output callback failure stops the owned command and rejects its promise
 after the process closes; later output is not delivered to a failed callback.
 
 Each native service runs under a detached supervisor
-(`native-process-worker.mjs`) whose record holds its PID, birth and an
-unguessable lease. On Linux, the supervisor and spawned installer Node
+(`native-process-worker.mjs`) whose record holds its PID, birth, unguessable
+lease, and supervisor identity (`script`, `executable`, and SHA-256 `digest`).
+When a running service's recorded supervisor is absent or no longer matches the
+current installation's worker script path, Node executable, or worker digest
+(or its Linux `/proc/<pid>/exe` is deleted), `nativeSupervisorsStale` and
+`nativeConfigurationChanged` report it stale and `startNativeProcess` hands the
+service off cleanly (`stopNativeProcess` then relaunch under the current
+supervisor), while same-folder restarts whose supervisor matches reuse healthy
+leased services without restarting them. On Linux, the supervisor and spawned installer Node
 processes (`linuxNodeFdHygieneArgs` in `native-process-fds.ts`) close inherited
 non-`O_CLOEXEC` descriptors and listening TCP or Unix sockets >= 3 (keeping the
 active IPC channel) so detached services cannot hold parent Electron sockets

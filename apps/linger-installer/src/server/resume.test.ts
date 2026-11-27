@@ -1,12 +1,31 @@
+import { spawn } from "node:child_process";
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
-import { expect, test, vi } from "vitest";
+import { fileURLToPath } from "node:url";
+import { build } from "esbuild";
+import { afterEach, expect, test, vi } from "vitest";
 import type { Instance } from "@linger/local-installation/instance";
 import type { installNativeSource } from "@linger/local-installation/native-source";
+import { launchInstaller, retireDesktopManager } from "./launch.js";
 import {
   resumeSourceInstance,
   type ResumeEngine,
   type ResumeTimings,
 } from "./resume.js";
+
+const clean: Array<() => Promise<unknown>> = [];
+afterEach(async () => {
+  for (const fn of clean.splice(0).reverse()) await fn();
+});
 
 // Resume compares the resolved checkout, so the fixtures use resolved paths
 // (a drive-letter path on Windows).
@@ -532,3 +551,225 @@ test("reports warm and cold resume timings via onTimings and log summary", async
   expect(failedTimings?.coldStartMs).toBeGreaterThanOrEqual(0);
   expect(failedLogs.join("")).toMatch(/Resume timings \(cold, ms\):/);
 });
+
+test("restarts services on the same checkout when a running supervisor is stale", async () => {
+  const run = vi.fn<ResumeEngine["run"]>(async () => ({
+    code: 0,
+    state: "ready",
+    message: "ok",
+  }));
+  let timings: ResumeTimings | undefined;
+  const outcome = await resumeSourceInstance(
+    {
+      ...options,
+      onTimings: (value) => {
+        timings = value;
+      },
+    },
+    {
+      load: async () => instance,
+      engines: native(run, true),
+      pending: async () => false,
+      supervisorsStale: async () => true,
+      retireManager: async () => false,
+    },
+  );
+  expect(outcome.code).toBe(0);
+  expect(timings?.path).toBe("cold");
+  expect(run).toHaveBeenCalledWith(
+    expect.objectContaining({ repo: source, resume: true }),
+  );
+});
+
+test("desktop resume retires an idle desktop installer manager and leaves busy or non-desktop managers alone", async () => {
+  const desktopHome = await mkdtemp(
+    path.join(tmpdir(), "installer-resume-retire-"),
+  );
+  clean.push(() => rm(desktopHome, { recursive: true, force: true }));
+  const manager = await launchInstaller({
+    home: desktopHome,
+    sourceRepo: "/source/old",
+    externalComputer: true,
+    instanceName: "desktop",
+    noOpen: true,
+  });
+  clean.push(manager.close);
+  // Strip script metadata to also cover retiring a legacy release's session.json.
+  const sessionFile = path.join(desktopHome, "installer", "session.json");
+  const legacySession = JSON.parse(
+    await readFile(sessionFile, "utf8"),
+  ) as Record<string, unknown>;
+  delete legacySession.script;
+  delete legacySession.scriptDigest;
+  await writeFile(sessionFile, JSON.stringify(legacySession), { mode: 0o600 });
+
+  const localInstance = {
+    ...instance,
+    root: path.join(desktopHome, "instances", "desktop"),
+  } as Instance;
+  const outcome = await resumeSourceInstance(
+    { ...options, home: desktopHome },
+    {
+      load: async () => localInstance,
+      engines: native(vi.fn(), true),
+      pending: async () => false,
+      supervisorsStale: async () => false,
+      restore: async () => undefined,
+      restoreByok: async () => undefined,
+    },
+  );
+  expect(outcome.code).toBe(0);
+  await manager.closed;
+  await expect(access(sessionFile)).rejects.toThrow();
+
+  // A standalone CLI manager is never retired by desktop resume.
+  const cliHome = await mkdtemp(path.join(tmpdir(), "installer-resume-cli-"));
+  clean.push(() => rm(cliHome, { recursive: true, force: true }));
+  const cliManager = await launchInstaller({
+    home: cliHome,
+    sourceRepo: "/source/cli",
+    externalComputer: false,
+    instanceName: "desktop",
+    noOpen: true,
+  });
+  clean.push(cliManager.close);
+  expect(
+    await retireDesktopManager({ home: cliHome, instanceName: "desktop" }),
+  ).toBe(false);
+  await expect(
+    access(path.join(cliHome, "installer", "session.json")),
+  ).resolves.toBeUndefined();
+
+  // A desktop manager running an active job is never interrupted.
+  const busyHome = await mkdtemp(path.join(tmpdir(), "installer-resume-busy-"));
+  clean.push(() => rm(busyHome, { recursive: true, force: true }));
+  let releaseJob!: () => void;
+  const busyManager = await launchInstaller({
+    home: busyHome,
+    sourceRepo: "/source/busy",
+    externalComputer: true,
+    instanceName: "desktop",
+    noOpen: true,
+    dependencies: {
+      run: async (_input: unknown, signal: AbortSignal) => {
+        await new Promise<void>((resolve) => {
+          releaseJob = resolve;
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+        return { state: "ready", code: 0, message: "ok" };
+      },
+    },
+  });
+  clean.push(async () => {
+    releaseJob?.();
+    await busyManager.close();
+  });
+  const sessionResponse = await fetch(`${busyManager.origin}/api/session`, {
+    method: "POST",
+    headers: {
+      Origin: busyManager.origin,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ token: busyManager.bootstrapToken }),
+  });
+  const cookie = sessionResponse.headers.get("set-cookie")!.split(";")[0]!;
+  await fetch(`${busyManager.origin}/api/jobs`, {
+    method: "POST",
+    headers: {
+      Origin: busyManager.origin,
+      "Content-Type": "application/json",
+      Cookie: cookie,
+    },
+    body: JSON.stringify({ instance: "desktop" }),
+  });
+  expect(
+    await retireDesktopManager({ home: busyHome, instanceName: "desktop" }),
+  ).toBe(false);
+  await expect(
+    access(path.join(busyHome, "installer", "session.json")),
+  ).resolves.toBeUndefined();
+});
+
+test("retires a detached bundled installer.js process even after its app folder is deleted", async () => {
+  const root = await realpath(
+    await mkdtemp(path.join(tmpdir(), "installer-detached-retire-")),
+  );
+  const home = path.join(root, "home");
+  const folderA = path.join(root, "app-A");
+  const sourceDir = path.join(root, "source");
+  await mkdir(folderA, { recursive: true });
+  await mkdir(sourceDir, { recursive: true });
+  const installerScript = path.join(folderA, "installer.js");
+  await build({
+    entryPoints: [fileURLToPath(new URL("../main.ts", import.meta.url))],
+    outfile: installerScript,
+    bundle: true,
+    platform: "node",
+    format: "esm",
+    target: "node26",
+    external: ["node:*"],
+  });
+  const child = spawn(
+    process.execPath,
+    [
+      installerScript,
+      "--home",
+      home,
+      "--source-repo",
+      sourceDir,
+      "--external-computer",
+      "--instance",
+      "desktop",
+      "--no-open",
+    ],
+    {
+      detached: true,
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+  clean.push(async () => {
+    try {
+      if (child.pid) process.kill(child.pid, "SIGKILL");
+    } catch {
+      // Already exited.
+    }
+    await rm(root, { recursive: true, force: true });
+  });
+  const exited = new Promise<number | null>((resolve) =>
+    child.once("exit", resolve),
+  );
+  let stderr = "";
+  child.stderr.on("data", (chunk: Buffer) => {
+    stderr += chunk.toString("utf8");
+  });
+  await new Promise<void>((resolve, reject) => {
+    let stdout = "";
+    const timer = setTimeout(
+      () => reject(new Error(`Timed out starting installer.js: ${stderr}`)),
+      15_000,
+    );
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf8");
+      if (/Installer is running at http:\/\/127\.0\.0\.1:\d+/.test(stdout)) {
+        clearTimeout(timer);
+        resolve();
+      }
+    });
+    child.once("exit", (code) => {
+      clearTimeout(timer);
+      reject(new Error(`installer.js exited early (${code}): ${stderr}`));
+    });
+  });
+
+  // Delete the extracted app folder while installer.js is still running.
+  await rm(folderA, { recursive: true, force: true });
+
+  expect(await retireDesktopManager({ home, instanceName: "desktop" })).toBe(
+    true,
+  );
+  expect(await exited).toBe(0);
+  await expect(
+    access(path.join(home, "installer", "session.json")),
+  ).rejects.toThrow();
+}, 30_000);

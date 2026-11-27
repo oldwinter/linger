@@ -17,6 +17,8 @@ import {
   installNativeSource,
   probeNativeSourceServices,
 } from "@linger/local-installation/native-source";
+import { nativeSupervisorsStale } from "@linger/local-installation/native-process";
+import { retireDesktopManager } from "./launch.js";
 
 export interface ResumeTimings {
   path: "warm" | "cold";
@@ -69,6 +71,9 @@ export async function resumeSourceInstance(
     load = loadInstance,
     engines = ENGINES,
     pending = userEnvironmentPending,
+    supervisorsStale = (instance: Instance) =>
+      nativeSupervisorsStale(instance.root),
+    retireManager = retireDesktopManager,
     restore = restoreLocalModels,
     restoreByok = restoreByokSource,
   } = {},
@@ -91,6 +96,16 @@ export async function resumeSourceInstance(
     totalMs: 0,
   };
   try {
+    // An idle desktop-owned installer manager from an earlier setup or release
+    // is no longer needed once the desktop resumes an installed instance.
+    if (options.externalComputer) {
+      await retireManager({
+        home: options.home,
+        instanceName: options.instanceName,
+        signal: options.signal,
+        log: options.log,
+      });
+    }
     // A desktop update ships a new source tree, and a changed user.env new
     // keys; running services keep the old ones until they restart.
     const repo = await realpath(options.sourceRepo).catch(() =>
@@ -106,7 +121,9 @@ export async function resumeSourceInstance(
         warm =
           (await engine.probe(instance, options.signal)).every(
             (check) => check.ready,
-          ) && !(await pending(instance));
+          ) &&
+          !(await pending(instance)) &&
+          !(await supervisorsStale(instance));
       } finally {
         timings.probeMs = Math.max(
           0,

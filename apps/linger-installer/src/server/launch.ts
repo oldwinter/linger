@@ -1,5 +1,11 @@
+import { access } from "node:fs/promises";
 import path from "node:path";
-import { startInstallerServer, type ServerOptions } from "./server.js";
+import { setTimeout as delay } from "node:timers/promises";
+import {
+  currentManagerIdentity,
+  startInstallerServer,
+  type ServerOptions,
+} from "./server.js";
 import { openLocalTarget } from "./platform.js";
 import { writeLauncher } from "./launcher.js";
 import { privateRead } from "./storage.js";
@@ -7,27 +13,27 @@ type LaunchOptions = ServerOptions & {
   noOpen?: boolean;
   open?: (file: string) => Promise<void>;
 };
+interface SessionMetadata {
+  origin?: unknown;
+  controlToken?: unknown;
+  sourceRepo?: unknown;
+  externalComputer?: unknown;
+  instanceName?: unknown;
+  script?: unknown;
+  scriptDigest?: unknown;
+  pid?: unknown;
+}
 const busy = (message: string, cause?: unknown) =>
   Object.assign(new Error(message, { cause }), { code: "INSTALLER_BUSY" });
-async function reopenInstaller(options: LaunchOptions) {
-  const stateDir = path.join(options.home, "installer");
-  let metadata: {
-    origin?: unknown;
-    controlToken?: unknown;
-    sourceRepo?: unknown;
-    externalComputer?: unknown;
-    instanceName?: unknown;
-  };
-  try {
-    metadata = (await privateRead(
-      path.join(stateDir, "session.json"),
-    )) as typeof metadata;
-  } catch (error) {
-    throw busy(
-      "Another installer holds this home but its session is unreadable. Try again in a moment.",
-      error,
-    );
-  }
+function samePath(left: string, right: string): boolean {
+  return process.platform === "win32"
+    ? left.replaceAll("/", "\\").toLowerCase() ===
+        right.replaceAll("/", "\\").toLowerCase()
+    : left === right;
+}
+function validSessionControl(
+  metadata: SessionMetadata,
+): { origin: string; controlToken: string } | undefined {
   if (
     typeof metadata.origin !== "string" ||
     !/^http:\/\/127\.0\.0\.1:([1-9][0-9]{0,4})$/.test(metadata.origin) ||
@@ -36,18 +42,112 @@ async function reopenInstaller(options: LaunchOptions) {
     typeof metadata.controlToken !== "string" ||
     !/^[A-Za-z0-9_-]{43}$/.test(metadata.controlToken)
   )
+    return undefined;
+  return { origin: metadata.origin, controlToken: metadata.controlToken };
+}
+function pidExited(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    return code === "ESRCH" || code === "EPERM";
+  }
+}
+/**
+ * Retires an idle desktop-owned installation manager for `instanceName`, if
+ * one is still running in `home`, without interrupting an active job or
+ * failing resume when no manager is reachable.
+ */
+export async function retireDesktopManager(options: {
+  home: string;
+  instanceName: string;
+  signal?: AbortSignal;
+  log?: (message: string) => void;
+  fetch?: typeof fetch;
+}): Promise<boolean> {
+  const file = path.join(options.home, "installer", "session.json");
+  let metadata: SessionMetadata;
+  try {
+    metadata = (await privateRead(file)) as SessionMetadata;
+  } catch {
+    return false;
+  }
+  const control = validSessionControl(metadata);
+  if (
+    !control ||
+    metadata.externalComputer !== true ||
+    (metadata.instanceName ?? "default") !== options.instanceName
+  )
+    return false;
+  const fetcher = options.fetch ?? fetch;
+  try {
+    const response = await fetcher(`${control.origin}/api/retire`, {
+      method: "POST",
+      headers: {
+        Origin: control.origin,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ token: control.controlToken }),
+      redirect: "error",
+      signal: AbortSignal.any([
+        ...(options.signal ? [options.signal] : []),
+        AbortSignal.timeout(5_000),
+      ]),
+    });
+    await response.body?.cancel();
+    if (!response.ok) return false;
+  } catch {
+    options.signal?.throwIfAborted();
+    return false;
+  }
+  const pid =
+    typeof metadata.pid === "number" &&
+    Number.isSafeInteger(metadata.pid) &&
+    metadata.pid > 1 &&
+    metadata.pid !== process.pid
+      ? metadata.pid
+      : undefined;
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    options.signal?.throwIfAborted();
+    const sessionGone = await access(file).then(
+      () => false,
+      () => true,
+    );
+    if (sessionGone && (pid === undefined || pidExited(pid))) break;
+    await delay(50, undefined, { signal: options.signal });
+  }
+  options.log?.("Retired idle installer manager.\n");
+  return true;
+}
+async function reopenInstaller(options: LaunchOptions) {
+  const stateDir = path.join(options.home, "installer");
+  let metadata: SessionMetadata;
+  try {
+    metadata = (await privateRead(
+      path.join(stateDir, "session.json"),
+    )) as SessionMetadata;
+  } catch (error) {
+    throw busy(
+      "Another installer holds this home but its session is unreadable. Try again in a moment.",
+      error,
+    );
+  }
+  const validated = validSessionControl(metadata);
+  if (!validated)
     throw busy(
       "Another installer holds this home but its session is invalid. Try again in a moment.",
     );
   const control = async (action: string) => {
     try {
-      const response = await fetch(`${metadata.origin}/api/${action}`, {
+      const response = await fetch(`${validated.origin}/api/${action}`, {
         method: "POST",
         headers: {
-          Origin: metadata.origin as string,
+          Origin: validated.origin,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ token: metadata.controlToken }),
+        body: JSON.stringify({ token: validated.controlToken }),
         redirect: "error",
         signal: AbortSignal.timeout(10000),
       });
@@ -63,21 +163,32 @@ async function reopenInstaller(options: LaunchOptions) {
       );
     }
   };
+  const sameDesktopInstance =
+    options.externalComputer === true &&
+    metadata.externalComputer === true &&
+    (metadata.instanceName ?? "default") ===
+      (options.instanceName ?? "default");
+  const identity = sameDesktopInstance
+    ? (options.managerIdentity ?? (await currentManagerIdentity()))
+    : undefined;
+  const desktopManagerStale =
+    sameDesktopInstance &&
+    identity !== undefined &&
+    (typeof metadata.script !== "string" ||
+      !samePath(metadata.script, identity.script) ||
+      metadata.scriptDigest !== identity.digest);
   if (
     metadata.sourceRepo !== options.sourceRepo ||
     (metadata.externalComputer ?? false) !==
       (options.externalComputer ?? false) ||
-    (metadata.instanceName ?? "default") !== (options.instanceName ?? "default")
+    (metadata.instanceName ?? "default") !==
+      (options.instanceName ?? "default") ||
+    desktopManagerStale
   ) {
     // An idle desktop-owned manager for the same instance steps aside for the
-    // desktop's next launch with a newer bundled checkout. A running job is
-    // never interrupted.
-    if (
-      !options.externalComputer ||
-      metadata.externalComputer !== true ||
-      (metadata.instanceName ?? "default") !==
-        (options.instanceName ?? "default")
-    )
+    // desktop's next launch with a newer checkout or moved/updated app bundle.
+    // A running job is never interrupted.
+    if (!sameDesktopInstance)
       throw busy(
         "The installer is already running for another installation. Finish or close it, then try again.",
       );
@@ -97,7 +208,7 @@ async function reopenInstaller(options: LaunchOptions) {
   if (!options.noOpen)
     await (options.open ?? openLocalTarget)(launcher).catch(() => {});
   return {
-    origin: metadata.origin,
+    origin: validated.origin,
     bootstrapToken: "",
     reused: true as const,
     closed: Promise.resolve(),

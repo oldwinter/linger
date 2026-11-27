@@ -359,3 +359,66 @@ test("after a failed attempt the desktop's next launch replaces the idle manager
   );
   expect(metadata.sourceRepo).toBe("/source/two");
 });
+
+test("a desktop-owned idle manager steps aside when the installer bundle moves or updates in place", async () => {
+  const home = await mkdtemp(path.join(tmpdir(), "installer-bundle-handoff-"));
+  clean.push(() => rm(home, { recursive: true, force: true }));
+  const base = {
+    home,
+    sourceRepo: "/source/same",
+    externalComputer: true,
+    instanceName: "desktop",
+    noOpen: true,
+  };
+  const digestA = "a".repeat(64);
+  const digestB = "b".repeat(64);
+  const first = await launchInstaller({
+    ...base,
+    managerIdentity: {
+      script: "/opt/linger-A/resources/app/dist/installer/installer.js",
+      digest: digestA,
+    },
+  });
+  clean.push(first.close);
+
+  // Same bundle path and digest still reuses the running manager.
+  const reused = await launchInstaller({
+    ...base,
+    managerIdentity: {
+      script: "/opt/linger-A/resources/app/dist/installer/installer.js",
+      digest: digestA,
+    },
+  });
+  expect(reused.reused).toBe(true);
+
+  // Re-extract to a different folder with the same sourceRepo retires Folder A.
+  const moved = await launchInstaller({
+    ...base,
+    managerIdentity: {
+      script: "/opt/linger-B/resources/app/dist/installer/installer.js",
+      digest: digestA,
+    },
+  });
+  clean.push(moved.close);
+  expect(moved.reused).toBe(false);
+  await first.closed;
+
+  // Overwriting the bundle in place (same path, new digest) retires the old one.
+  const updated = await launchInstaller({
+    ...base,
+    managerIdentity: {
+      script: "/opt/linger-B/resources/app/dist/installer/installer.js",
+      digest: digestB,
+    },
+  });
+  clean.push(updated.close);
+  expect(updated.reused).toBe(false);
+  await moved.closed;
+  const metadata = JSON.parse(
+    await readFile(path.join(home, "installer/session.json"), "utf8"),
+  );
+  expect(metadata.script).toBe(
+    "/opt/linger-B/resources/app/dist/installer/installer.js",
+  );
+  expect(metadata.scriptDigest).toBe(digestB);
+});
