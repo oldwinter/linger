@@ -2,7 +2,9 @@ package voice
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -10,6 +12,36 @@ import (
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/store"
 	httpapi "github.com/simplexai-labs/linger/contracts-go/teamhubpublic"
 )
+
+// ErrPocketNoteConflict reports that today's Pocket Note changed on the server
+// since the caller's observed updated_at precondition.
+var ErrPocketNoteConflict = errors.New("pocket note conflict")
+
+// PocketNoteExpectedUpdatedAt carries an optional optimistic-concurrency
+// precondition for PUT /me/pocket-notes/today. Empty requires that no row
+// exists for today; otherwise UpdatedAt must match the stored row's updated_at.
+type PocketNoteExpectedUpdatedAt struct {
+	Empty     bool
+	UpdatedAt time.Time
+}
+
+// ParsePocketNoteExpectedUpdatedAt parses the optional expected_updated_at
+// precondition from a Pocket Note update request. A nil pointer means an
+// unconditional write; an empty string requires today's page to be empty.
+func ParsePocketNoteExpectedUpdatedAt(raw *string) (*PocketNoteExpectedUpdatedAt, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	trimmed := strings.TrimSpace(*raw)
+	if trimmed == "" {
+		return &PocketNoteExpectedUpdatedAt{Empty: true}, nil
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, trimmed)
+	if err != nil {
+		return nil, err
+	}
+	return &PocketNoteExpectedUpdatedAt{UpdatedAt: parsed}, nil
+}
 
 const (
 	// PocketNoteDateLayout formats a Pocket Note day.
@@ -62,31 +94,102 @@ func (s *Service) ListPocketNotes(ctx context.Context, tenantID, ownerID string,
 }
 
 // PutTodayPocketNote replaces today's page. Clearing it deletes the row so
-// the page list only ever holds days the Human actually wrote on.
-func (s *Service) PutTodayPocketNote(ctx context.Context, tenantID, ownerID, text string) (httpapi.PocketNote, error) {
+// the page list only ever holds days the Human actually wrote on. When
+// expected is non-nil, the write fails with ErrPocketNoteConflict if today's
+// stored row no longer matches the caller's observed state.
+func (s *Service) PutTodayPocketNote(ctx context.Context, tenantID, ownerID, text string, expected *PocketNoteExpectedUpdatedAt) (httpapi.PocketNote, error) {
 	day := pgtype.Date{Time: PocketNoteDay(time.Now()), Valid: true}
 	if text == "" {
 		err := s.writeTodayPocketNote(ctx, tenantID, ownerID, day, func(queries *store.Queries) error {
-			return queries.DeletePocketNote(ctx, store.DeletePocketNoteParams{
-				TenantID: tenantID, OwnerActorID: ownerID, NoteDate: day,
+			if expected == nil {
+				return queries.DeletePocketNote(ctx, store.DeletePocketNoteParams{
+					TenantID: tenantID, OwnerActorID: ownerID, NoteDate: day,
+				})
+			}
+			if expected.Empty {
+				exists, err := queries.HasPocketNote(ctx, store.HasPocketNoteParams{
+					TenantID: tenantID, OwnerActorID: ownerID, NoteDate: day,
+				})
+				if err != nil {
+					return err
+				}
+				if exists {
+					return ErrPocketNoteConflict
+				}
+				return nil
+			}
+			rows, err := queries.DeletePocketNoteIfUpdatedAt(ctx, store.DeletePocketNoteIfUpdatedAtParams{
+				TenantID:          tenantID,
+				OwnerActorID:      ownerID,
+				NoteDate:          day,
+				ExpectedUpdatedAt: pgtype.Timestamptz{Time: expected.UpdatedAt, Valid: true},
 			})
+			if err != nil {
+				return err
+			}
+			if rows == 0 {
+				return ErrPocketNoteConflict
+			}
+			return nil
 		})
 		if err != nil {
+			if errors.Is(err, ErrPocketNoteConflict) {
+				return httpapi.PocketNote{}, ErrPocketNoteConflict
+			}
 			return httpapi.PocketNote{}, fmt.Errorf("clear Pocket Note: %w", err)
 		}
 		return pocketNoteModel(day, "", pgtype.Timestamptz{Time: time.Now(), Valid: true}), nil
 	}
-	var row store.UpsertPocketNoteRow
-	err := s.writeTodayPocketNote(ctx, tenantID, ownerID, day, func(queries *store.Queries) (err error) {
-		row, err = queries.UpsertPocketNote(ctx, store.UpsertPocketNoteParams{
-			TenantID: tenantID, OwnerActorID: ownerID, NoteDate: day, Body: text,
+	var noteDate pgtype.Date
+	var body string
+	var updatedAt pgtype.Timestamptz
+	err := s.writeTodayPocketNote(ctx, tenantID, ownerID, day, func(queries *store.Queries) error {
+		if expected == nil {
+			row, err := queries.UpsertPocketNote(ctx, store.UpsertPocketNoteParams{
+				TenantID: tenantID, OwnerActorID: ownerID, NoteDate: day, Body: text,
+			})
+			if err != nil {
+				return err
+			}
+			noteDate, body, updatedAt = row.NoteDate, row.Body, row.UpdatedAt
+			return nil
+		}
+		if expected.Empty {
+			row, err := queries.InsertPocketNoteIfAbsent(ctx, store.InsertPocketNoteIfAbsentParams{
+				TenantID: tenantID, OwnerActorID: ownerID, NoteDate: day, Body: text,
+			})
+			if err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					return ErrPocketNoteConflict
+				}
+				return err
+			}
+			noteDate, body, updatedAt = row.NoteDate, row.Body, row.UpdatedAt
+			return nil
+		}
+		row, err := queries.UpdatePocketNoteIfUpdatedAt(ctx, store.UpdatePocketNoteIfUpdatedAtParams{
+			Body:              text,
+			TenantID:          tenantID,
+			OwnerActorID:      ownerID,
+			NoteDate:          day,
+			ExpectedUpdatedAt: pgtype.Timestamptz{Time: expected.UpdatedAt, Valid: true},
 		})
-		return err
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrPocketNoteConflict
+			}
+			return err
+		}
+		noteDate, body, updatedAt = row.NoteDate, row.Body, row.UpdatedAt
+		return nil
 	})
 	if err != nil {
+		if errors.Is(err, ErrPocketNoteConflict) {
+			return httpapi.PocketNote{}, ErrPocketNoteConflict
+		}
 		return httpapi.PocketNote{}, fmt.Errorf("write Pocket Note: %w", err)
 	}
-	return pocketNoteModel(row.NoteDate, row.Body, row.UpdatedAt), nil
+	return pocketNoteModel(noteDate, body, updatedAt), nil
 }
 
 // writeTodayPocketNote changes today's page and, in the same transaction,

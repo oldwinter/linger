@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"net/http"
 	"time"
 	"unicode/utf8"
@@ -51,13 +52,22 @@ func (a *App) putTodayPocketNote(c *gin.Context) {
 		a.writeError(c, http.StatusBadRequest, "INVALID_REQUEST", "text must be a string of at most 20000 characters")
 		return
 	}
+	expected, err := voice.ParsePocketNoteExpectedUpdatedAt(request.ExpectedUpdatedAt)
+	if err != nil {
+		a.writeError(c, http.StatusBadRequest, "INVALID_REQUEST", "expected_updated_at must be an RFC 3339 timestamp or empty")
+		return
+	}
 	ctx := c.Request.Context()
 	tenantID, ownerID, ok := a.pocketNoteOwner(c)
 	if !ok {
 		return
 	}
-	note, err := a.voice.PutTodayPocketNote(ctx, tenantID, ownerID, request.Text)
+	note, err := a.voice.PutTodayPocketNote(ctx, tenantID, ownerID, request.Text, expected)
 	if err != nil {
+		if errors.Is(err, voice.ErrPocketNoteConflict) {
+			a.writeError(c, http.StatusConflict, "POCKET_NOTE_CONFLICT", "Today's Pocket Note changed on the server; refresh before saving")
+			return
+		}
 		a.internalError(c, "write Pocket Note", err)
 		return
 	}

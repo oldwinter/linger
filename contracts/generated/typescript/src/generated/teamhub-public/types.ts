@@ -9215,6 +9215,8 @@ export interface components {
     PocketNoteUpdateRequest: {
       /** @description Replaces today's page; an empty string clears it. */
       text: components["schemas"]["PocketNoteText"];
+      /** @description Optional optimistic concurrency precondition. Omit for an unconditional write. Pass an empty string to require that today's page is currently empty, or pass the last observed RFC 3339 updated_at timestamp of today's page. TeamHub returns 409 POCKET_NOTE_CONFLICT when today's stored page no longer matches. */
+      expected_updated_at?: string;
     };
     /**
      * @description What the Human allows Another Me to do beyond reminding when a rule applies. Only the Human sets it, on an active rule; nightly learning never does.
@@ -16834,6 +16836,7 @@ export interface operations {
       400: components["responses"]["BadRequest"];
       401: components["responses"]["Unauthenticated"];
       404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
     };
   };
   deletePocketNote: {
