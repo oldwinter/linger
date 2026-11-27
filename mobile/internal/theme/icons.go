@@ -385,6 +385,59 @@ func IconTerminal(p *ui.Painter, r ui.Rect, color ui.Color) {
 	p.Line(r.X+r.W*0.52, r.Y+r.H*0.62, r.X+r.W*0.72, r.Y+r.H*0.62, sw, color)
 }
 
+// IconMic draws a crisp condenser microphone icon for live voice capture and streaming.
+func IconMic(p *ui.Painter, r ui.Rect, color ui.Color) {
+	sw := iconStrokeWidth(r)
+	capW := r.W * 0.30
+	capH := r.H * 0.44
+	capsule := ui.Rect{X: r.X + (r.W-capW)/2, Y: r.Y + r.H*0.12, W: capW, H: capH}
+	p.Stroke(capsule, color, capW/2, sw)
+	var cradle ui.Path
+	cradle.Cap(ui.RoundCap)
+	cradle.MoveTo(r.X+r.W*0.24, r.Y+r.H*0.48).
+		QuadTo(r.X+r.W*0.24, r.Y+r.H*0.72, r.X+r.W*0.50, r.Y+r.H*0.72).
+		QuadTo(r.X+r.W*0.76, r.Y+r.H*0.72, r.X+r.W*0.76, r.Y+r.H*0.48)
+	p.StrokePath(&cradle, sw, color)
+	p.Line(r.X+r.W*0.50, r.Y+r.H*0.72, r.X+r.W*0.50, r.Y+r.H*0.86, sw, color)
+	p.Line(r.X+r.W*0.34, r.Y+r.H*0.86, r.X+r.W*0.66, r.Y+r.H*0.86, sw, color)
+}
+
+// IconMicOff draws a muted microphone icon with a diagonal slash.
+func IconMicOff(p *ui.Painter, r ui.Rect, color ui.Color) {
+	IconMic(p, r, color.Alpha(0.65))
+	sw := iconStrokeWidth(r)
+	p.Line(r.X+r.W*0.18, r.Y+r.H*0.18, r.X+r.W*0.82, r.Y+r.H*0.82, sw*1.1, color)
+}
+
+// IconSpeaker draws a speaker cone with sound waves for remote voice playback.
+func IconSpeaker(p *ui.Painter, r ui.Rect, color ui.Color) {
+	sw := iconStrokeWidth(r)
+	var cone ui.Path
+	cone.Cap(ui.RoundCap).Join(ui.RoundJoin)
+	cone.MoveTo(r.X+r.W*0.16, r.Y+r.H*0.40).
+		LineTo(r.X+r.W*0.32, r.Y+r.H*0.40).
+		LineTo(r.X+r.W*0.54, r.Y+r.H*0.22).
+		LineTo(r.X+r.W*0.54, r.Y+r.H*0.78).
+		LineTo(r.X+r.W*0.32, r.Y+r.H*0.60).
+		LineTo(r.X+r.W*0.16, r.Y+r.H*0.60).
+		Close()
+	p.StrokePath(&cone, sw, color)
+	var wave1, wave2 ui.Path
+	wave1.Cap(ui.RoundCap)
+	wave1.MoveTo(r.X+r.W*0.67, r.Y+r.H*0.36).QuadTo(r.X+r.W*0.76, r.Y+r.H*0.50, r.X+r.W*0.67, r.Y+r.H*0.64)
+	p.StrokePath(&wave1, sw, color)
+	wave2.Cap(ui.RoundCap)
+	wave2.MoveTo(r.X+r.W*0.78, r.Y+r.H*0.26).QuadTo(r.X+r.W*0.91, r.Y+r.H*0.50, r.X+r.W*0.78, r.Y+r.H*0.74)
+	p.StrokePath(&wave2, sw, color)
+}
+
+// IconSpeakerOff draws a silenced speaker icon with a diagonal slash.
+func IconSpeakerOff(p *ui.Painter, r ui.Rect, color ui.Color) {
+	IconSpeaker(p, r, color.Alpha(0.65))
+	sw := iconStrokeWidth(r)
+	p.Line(r.X+r.W*0.18, r.Y+r.H*0.18, r.X+r.W*0.82, r.Y+r.H*0.82, sw*1.1, color)
+}
+
 // IconBox renders a sized icon inside a layout box.
 func IconBox(c *ui.Context, size float32, color ui.Color, draw IconFunc) ui.Element {
 	return ui.Box(c).Size(size, size).Shrink(0).Draw(func(p *ui.Painter, r ui.Rect) {

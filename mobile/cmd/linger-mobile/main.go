@@ -86,10 +86,12 @@ func main() {
 	})
 
 	mygo.Power.OnSuspend(func() {
+		appShell.SetSuspended(true)
 		appStore.SetSuspended(true)
 	})
 	mygo.Power.OnResume(func() {
 		appStore.SetSuspended(false)
+		appShell.SetSuspended(false)
 	})
 	mygo.Network.OnChanged(func(status mygo.NetworkStatus) {
 		appStore.SetOnline(status.Online)
