@@ -54,6 +54,7 @@ type ActInput struct {
 	RuleID          string `json:"rule_id"`
 	EventSource     string `json:"event_source"`
 	EventExternalID string `json:"event_external_id"`
+	EventAccount    string `json:"event_account,omitempty"`
 	Title           string `json:"title"`
 	Brief           string `json:"brief"`
 	Delegate        bool   `json:"delegate"`
@@ -62,16 +63,19 @@ type ActInput struct {
 // ActResult names the Work Item the act created; Replay marks a repeated act
 // for the same rule and event.
 type ActResult struct {
-	WorkItemID string `json:"work_item_id"`
-	Strength   string `json:"strength"`
-	Replay     bool   `json:"replay"`
+	WorkItemID     string `json:"work_item_id"`
+	Strength       string `json:"strength"`
+	Replay         bool   `json:"replay"`
+	SubscriptionID string `json:"subscription_id,omitempty"`
 }
 
 func (input ActInput) valid() bool {
 	title, brief := strings.TrimSpace(input.Title), strings.TrimSpace(input.Brief)
 	source, external := strings.TrimSpace(input.EventSource), strings.TrimSpace(input.EventExternalID)
+	account := strings.TrimSpace(input.EventAccount)
 	return title != "" && utf8.RuneCountInString(title) <= 120 && brief != "" && utf8.RuneCountInString(brief) <= 20000 &&
-		source != "" && utf8.RuneCountInString(source) <= 100 && external != "" && utf8.RuneCountInString(external) <= 500
+		source != "" && utf8.RuneCountInString(source) <= 100 && external != "" && utf8.RuneCountInString(external) <= 500 &&
+		utf8.RuneCountInString(account) <= 200
 }
 
 // Act creates the Work Item, or delegates the Task, and records its Mandate
@@ -83,6 +87,7 @@ func (s *Service) Act(ctx context.Context, contexts agentauth.Authorizer, token 
 		return ActResult{}, ErrInvalidRule
 	}
 	input.EventSource, input.EventExternalID = strings.TrimSpace(input.EventSource), strings.TrimSpace(input.EventExternalID)
+	input.EventAccount = strings.TrimSpace(input.EventAccount)
 	strength := workitem.MandateCreate
 	if input.Delegate {
 		strength = workitem.MandateCreateAndDelegate
@@ -99,7 +104,11 @@ func (s *Service) Act(ctx context.Context, contexts agentauth.Authorizer, token 
 	if auth.Principal == nil || auth.UserArtifactOwnerActorID == "" {
 		return ActResult{}, agentauth.ErrForbidden
 	}
-	key, _ := json.Marshal([]string{input.RuleID, input.EventSource, input.EventExternalID})
+	idempotencyParts := []string{input.RuleID, input.EventSource, input.EventExternalID}
+	if input.EventAccount != "" {
+		idempotencyParts = append(idempotencyParts, input.EventAccount)
+	}
+	key, _ := json.Marshal(idempotencyParts)
 	digest := sha256.Sum256(key)
 	invocation := "agent-invocation-sha256:" + hex.EncodeToString(digest[:])
 	receipt, replay, err := agentauth.LookupReceipt(ctx, tx, auth.Principal, ActTool, invocation, digest[:])
@@ -131,9 +140,27 @@ func (s *Service) Act(ctx context.Context, contexts agentauth.Authorizer, token 
 	}
 	result := ActResult{Strength: strength}
 	if input.Delegate {
+		subKey, hasSubKey, keyErr := resolveActSubscriptionKey(ctx, queries, auth, owner, input)
+		if keyErr != nil {
+			return ActResult{}, keyErr
+		}
 		result.WorkItemID, err = taskdelegation.StartInTx(ctx, tx, auth, input.Title, input.Brief, "proactive_mandate:"+hex.EncodeToString(digest[:]))
 		if err == nil {
 			err = workitem.RecordMandateInTx(ctx, queries, result.WorkItemID, auth.TenantID, auth.AgentActorID, mandate)
+		}
+		if err == nil && hasSubKey {
+			var sub Subscription
+			sub, err = EnsureSubscriptionTx(ctx, queries, CreateSubscriptionInput{
+				TenantID:         auth.TenantID,
+				OwnerActorID:     owner.ActorID,
+				TaskID:           result.WorkItemID,
+				Key:              subKey,
+				RuleID:           input.RuleID,
+				CreatedByActorID: auth.AgentActorID,
+			})
+			if err == nil {
+				result.SubscriptionID = sub.ID
+			}
 		}
 	} else {
 		var item workitem.Item
@@ -154,4 +181,52 @@ func (s *Service) Act(ctx context.Context, contexts agentauth.Authorizer, token 
 		return ActResult{}, err
 	}
 	return result, tx.Commit(ctx)
+}
+
+func resolveActSubscriptionKey(
+	ctx context.Context,
+	queries *store.Queries,
+	auth agentauth.Authorization,
+	owner Owner,
+	input ActInput,
+) (SubscriptionKey, bool, error) {
+	sourceType, subscribable := NormalizeSubscriptionSourceType(input.EventSource)
+	if !subscribable {
+		return SubscriptionKey{}, false, nil
+	}
+	if sourceType == SubscriptionSourceMail {
+		if input.EventAccount != "" {
+			key, err := NormalizeSubscriptionKey(input.EventSource, input.EventAccount, input.EventExternalID)
+			return key, err == nil, err
+		}
+		if strings.Contains(input.EventExternalID, ":") {
+			key, err := NormalizeSubscriptionKey(input.EventSource, "", input.EventExternalID)
+			return key, err == nil, err
+		}
+		// Backward compatibility for mail acts that omit event_account: resolve
+		// automatically only when the owner has exactly one active granted
+		// connection for that provider; never guess across multiple accounts.
+		provider := strings.ToLower(strings.TrimSpace(input.EventSource))
+		if provider == "gmail" || provider == "outlook" || provider == "feishu_mail" {
+			connections, err := queries.ListActiveGrantedConnectionsForOwnerProvider(ctx, store.ListActiveGrantedConnectionsForOwnerProviderParams{
+				Provider:     provider,
+				TenantID:     owner.TenantID,
+				OwnerActorID: owner.ActorID,
+				AgentActorID: auth.AgentActorID,
+			})
+			if err != nil {
+				return SubscriptionKey{}, false, err
+			}
+			if len(connections) == 1 {
+				key, err := NormalizeMailSubscriptionKey(connections[0], input.EventExternalID)
+				return key, err == nil, err
+			}
+		}
+		return SubscriptionKey{}, false, nil
+	}
+	key, err := NormalizeSubscriptionKey(input.EventSource, input.EventAccount, input.EventExternalID)
+	if err != nil {
+		return SubscriptionKey{}, false, err
+	}
+	return key, true, nil
 }

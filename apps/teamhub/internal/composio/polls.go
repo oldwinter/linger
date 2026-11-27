@@ -113,13 +113,14 @@ func (c *Client) ListSlackChannels(ctx context.Context, connectedAccountID strin
 // is hydrated with messages.get for headers, labels and the message body. Cursor = profile
 // historyId.
 type GmailNewMessage struct {
-	To       string
-	ID       string
-	ThreadID string
-	From     string
-	Subject  string
-	Snippet  string
-	LabelIDs []string
+	To            string
+	ID            string
+	ThreadID      string
+	From          string
+	Subject       string
+	Snippet       string
+	LabelIDs      []string
+	AutoSubmitted bool
 }
 
 var ErrGmailPageTokenInvalid = errors.New("Gmail page token invalid")
@@ -198,6 +199,10 @@ func (c *Client) ListGmailNewMessagesPage(ctx context.Context, connectedAccountI
 				{Name: "metadataHeaders", Value: "From", Type: "query"},
 				{Name: "metadataHeaders", Value: "To", Type: "query"},
 				{Name: "metadataHeaders", Value: "Subject", Type: "query"},
+				{Name: "metadataHeaders", Value: "Auto-Submitted", Type: "query"},
+				{Name: "metadataHeaders", Value: "Precedence", Type: "query"},
+				{Name: "metadataHeaders", Value: "List-Id", Type: "query"},
+				{Name: "metadataHeaders", Value: "X-Auto-Response-Suppress", Type: "query"},
 			}
 			err = c.proxy(ctx, request, &message, "get oversized Gmail message headers")
 		}
@@ -225,10 +230,26 @@ func (c *Client) ListGmailNewMessagesPage(ctx context.Context, connectedAccountI
 			ID: message.ID, ThreadID: message.ThreadID,
 			From: header(message.Payload, "From"), To: header(message.Payload, "To"),
 			Subject: header(message.Payload, "Subject"), Snippet: pollMailBody(body, truncated),
-			LabelIDs: message.LabelIDs,
+			LabelIDs:      message.LabelIDs,
+			AutoSubmitted: isGmailAutoSubmitted(message.Payload),
 		})
 	}
 	return GmailMessagePage{Messages: out, NextPageToken: wire.NextPageToken, HistoryID: wire.HistoryID}, nil
+}
+
+// isGmailAutoSubmitted checks RFC 3834 / RFC 2919 machine-generated headers.
+func isGmailAutoSubmitted(payload gmailPart) bool {
+	if auto := strings.ToLower(strings.TrimSpace(header(payload, "Auto-Submitted"))); auto != "" && auto != "no" {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(header(payload, "Precedence"))) {
+	case "bulk", "list", "junk", "auto_reply":
+		return true
+	}
+	if strings.TrimSpace(header(payload, "List-Id")) != "" {
+		return true
+	}
+	return strings.TrimSpace(header(payload, "X-Auto-Response-Suppress")) != ""
 }
 
 // BootstrapGmailHistoryID returns the mailbox's current historyId so a new
@@ -247,6 +268,7 @@ func (c *Client) BootstrapGmailHistoryID(ctx context.Context, connectedAccountID
 // separately so existing provider delta tokens retain their query semantics.
 type OutlookMessage struct {
 	ID             string
+	ConversationID string
 	Subject        string
 	From           string
 	To             string
@@ -278,6 +300,7 @@ func (c *Client) ListOutlookMessageDelta(ctx context.Context, connectedAccountID
 	var wire struct {
 		Value []struct {
 			ID               string             `json:"id"`
+			ConversationID   string             `json:"conversationId"`
 			Subject          string             `json:"subject"`
 			WebLink          string             `json:"webLink"`
 			IsRead           bool               `json:"isRead"`
@@ -309,7 +332,7 @@ func (c *Client) ListOutlookMessageDelta(ctx context.Context, connectedAccountID
 			to = append(to, recipient.String())
 		}
 		out = append(out, OutlookMessage{
-			ID: m.ID, Subject: m.Subject, WebLink: m.WebLink, IsRead: m.IsRead,
+			ID: m.ID, ConversationID: m.ConversationID, Subject: m.Subject, WebLink: m.WebLink, IsRead: m.IsRead,
 			ParentFolderID: m.ParentFolderID, CreatedAt: created, ReceivedAt: received,
 			From: m.From.String(), To: strings.Join(to, ", "),
 		})
@@ -317,7 +340,7 @@ func (c *Client) ListOutlookMessageDelta(ctx context.Context, connectedAccountID
 	return out, wire.NextLink, wire.DeltaLink, nil
 }
 
-const outlookDeltaFields = "subject,from,toRecipients,webLink,isRead,parentFolderId,createdDateTime,receivedDateTime"
+const outlookDeltaFields = "conversationId,subject,from,toRecipients,webLink,isRead,parentFolderId,createdDateTime,receivedDateTime"
 
 const outlookCalendarPreferHeader = `odata.maxpagesize=50, outlook.timezone="UTC"`
 

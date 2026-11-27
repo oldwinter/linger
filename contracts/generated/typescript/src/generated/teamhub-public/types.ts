@@ -3679,6 +3679,51 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v0/work-items/{workItemId}/subscriptions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workItemId: components["parameters"]["WorkItemId"];
+      };
+      cookie?: never;
+    };
+    /**
+     * List the signed-in Human's external thread subscriptions on a Work Item.
+     * @description Returns active and dropped follow-up subscriptions owned by the signed-in Human for this Work Item. Subscriptions belonging to other Humans in the same Tenant are never returned.
+     */
+    get: operations["listWorkItemSubscriptions"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v0/work-items/{workItemId}/subscriptions/{subscriptionId}/drop": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workItemId: components["parameters"]["WorkItemId"];
+        subscriptionId: components["schemas"]["TaskSubscriptionId"];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Drop an external thread subscription owned by the signed-in Human.
+     * @description Idempotently drops a follow-up subscription so subsequent events on that thread no longer route to or resume the Task. Only the subscription owner may drop it.
+     */
+    post: operations["dropWorkItemSubscription"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v0/work-items/{workItemId}/archive": {
     parameters: {
       query?: never;
@@ -8936,6 +8981,43 @@ export interface components {
     TaskConversation: {
       inputs: components["schemas"]["TaskConversationInput"][];
       cards: components["schemas"]["TaskConversationCard"][];
+    };
+    TaskSubscriptionId: string;
+    /**
+     * @description External thread source family routed to a delegated Task.
+     * @enum {string}
+     */
+    TaskSubscriptionSourceType: "mail" | "herdr" | "github";
+    /** @enum {string} */
+    TaskSubscriptionStatus: "active" | "dropped";
+    /** @enum {string} */
+    TaskSubscriptionDroppedByKind: "owner" | "another_me";
+    /** @description Durable link routing later activity on a normalized external thread (mail, herdr/herdr-core, or GitHub issue/PR) to the delegated Task Another Me started. Active tasks receive matching follow-ups directly; ended tasks resume only on human-authored messages. */
+    TaskSubscription: {
+      id: components["schemas"]["TaskSubscriptionId"];
+      tenant_id: string;
+      owner_actor_id: string;
+      task_id: string;
+      source_type: components["schemas"]["TaskSubscriptionSourceType"];
+      normalized_source_key: string;
+      display_label?: string;
+      rule_id?: components["schemas"]["ProactiveRuleId"];
+      status: components["schemas"]["TaskSubscriptionStatus"];
+      created_by_actor_id: string;
+      /** Format: date-time */
+      created_at: string;
+      /** Format: date-time */
+      dropped_at?: string;
+      dropped_by_kind?: components["schemas"]["TaskSubscriptionDroppedByKind"];
+      dropped_by_actor_id?: string;
+      drop_reason?: string;
+    };
+    TaskSubscriptionList: {
+      items: components["schemas"]["TaskSubscription"][];
+    };
+    TaskSubscriptionDropRequest: {
+      /** @description Optional reason for dropping follow-up routing. */
+      reason?: string;
     };
     WorkItemVersionRequest: {
       /** Format: int64 */
@@ -16116,6 +16198,63 @@ export interface operations {
       };
       401: components["responses"]["Unauthenticated"];
       404: components["responses"]["NotFound"];
+    };
+  };
+  listWorkItemSubscriptions: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workItemId: components["parameters"]["WorkItemId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Owner-scoped subscriptions for the Work Item. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["TaskSubscriptionList"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      404: components["responses"]["NotFound"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  dropWorkItemSubscription: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workItemId: components["parameters"]["WorkItemId"];
+        subscriptionId: components["schemas"]["TaskSubscriptionId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: {
+      content: {
+        "application/json": components["schemas"]["TaskSubscriptionDropRequest"];
+      };
+    };
+    responses: {
+      /** @description The dropped subscription record. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["TaskSubscription"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      503: components["responses"]["ServiceUnavailable"];
     };
   };
   archiveWorkItem: {

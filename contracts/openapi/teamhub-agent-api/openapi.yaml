@@ -121,6 +121,54 @@ paths:
                 $ref: "../components/proactive.yaml#/components/schemas/ProactiveActResult"
         default:
           $ref: "../components/agent-api-errors.yaml#/components/responses/InternalError"
+  /api/agent/v1/proactive/subscriptions/list:
+    post:
+      tags: [Agent Business API]
+      operationId: listAgentProactiveSubscriptions
+      summary: List follow-up thread subscriptions for Another Me's owner
+      description: >-
+        Only an AnotherMe Meta calls this to inspect external thread subscriptions linking mail,
+        herdr/herdr-core, or GitHub threads to Tasks it started for its Human.
+      security: [{ agentBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "../components/proactive.yaml#/components/schemas/ProactiveSubscriptionListRequest"
+      responses:
+        "200":
+          description: Matching subscriptions owned by Another Me's Human.
+          content:
+            application/json:
+              schema:
+                $ref: "../components/proactive.yaml#/components/schemas/TaskSubscriptionList"
+        default:
+          $ref: "../components/agent-api-errors.yaml#/components/responses/InternalError"
+  /api/agent/v1/proactive/subscriptions/drop:
+    post:
+      tags: [Agent Business API]
+      operationId: dropAgentProactiveSubscription
+      summary: Drop a follow-up thread subscription when Another Me judges it is no longer needed
+      description: >-
+        Idempotently drops an external thread subscription owned by Another Me's Human, recording
+        dropped_by_kind as another_me and immediately stopping further routing or ended-task resumption.
+      security: [{ agentBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "../components/proactive.yaml#/components/schemas/ProactiveSubscriptionDropRequest"
+      responses:
+        "200":
+          description: The dropped subscription record and whether it was already dropped.
+          content:
+            application/json:
+              schema:
+                $ref: "../components/proactive.yaml#/components/schemas/ProactiveSubscriptionDropResult"
+        default:
+          $ref: "../components/agent-api-errors.yaml#/components/responses/InternalError"
   /api/agent/v1/skills/packages:
     $ref: "../paths/agent-cli-capabilities.yaml#/skillPackage"
   /api/agent/v1/skills/packages/{manifestId}:

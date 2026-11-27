@@ -24,6 +24,9 @@ export type TeamHubProactiveRuleBook =
 export type TeamHubProactiveRule = components["schemas"]["ProactiveRule"];
 export type TeamHubProactiveAction = components["schemas"]["ProactiveAction"];
 export type TeamHubProactiveMandate = components["schemas"]["ProactiveMandate"];
+export type TeamHubTaskSubscription = components["schemas"]["TaskSubscription"];
+export type TeamHubTaskSubscriptionSourceType =
+  components["schemas"]["TaskSubscriptionSourceType"];
 export type TeamHubLocalRuntimeType = components["schemas"]["LocalRuntimeType"];
 export type TeamHubLocalComputerPage =
   components["schemas"]["LocalComputerPage"];

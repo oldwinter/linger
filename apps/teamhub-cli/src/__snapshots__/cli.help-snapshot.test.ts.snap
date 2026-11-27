@@ -3563,13 +3563,14 @@ A profile_revision_conflict means the Profile changed since you read it: show it
   },
   "proactive act": {
     "help": "exit 0
-teamhub proactive act --rule <rule-id> --source <event-source> --external-id <event-id> --title "<title>" --brief "<what needs doing>" [--delegate]
+teamhub proactive act --rule <rule-id> --source <event-source> --external-id <event-id> [--account <connection-id>] --title "<title>" --brief "<what needs doing>" [--delegate]
 Create a Work Item for an outside event, or delegate it as a Task to your AlterEgo, under a mandate your Human granted on one of their rules.
 
 Options:
   --rule <value>  Mandate rule ID from the proactive wake.
   --source <value>  The event's source, as the wake names it.
   --external-id <value>  The event's external_id, as the wake names it.
+  --account <value>  Optional connected account or connection ID for mail events, used to attach a follow-up thread subscription when delegating.
   --title <value>  Short Work Item title, 1-120 characters.
   --brief <value>  What needs doing: the Work Item description, or the delegated Task's requirement.
   --delegate  Delegate the work as a Task to your AlterEgo; needs a create_and_delegate mandate.
@@ -3583,7 +3584,7 @@ Examples:
 teamhub proactive act --rule pr_0123456789abcdef0123456789abcdef --source gmail --external-id thread_1 --title "Review the Acme contract change" --brief "Compare the new payment terms with the signed contract."
 ",
     "schema": "exit 0
-{"command":["proactive","act"],"description":"Create a Work Item for an outside event, or delegate it as a Task to your AlterEgo, under a mandate your Human granted on one of their rules.","read_only":false,"input_schema":{"type":"object","required":["rule_id","event_source","event_external_id","title","brief","delegate"],"properties":{"rule_id":{"type":"string","pattern":"^pr_[a-f0-9]{32}$"},"event_source":{"type":"string","minLength":1,"maxLength":100},"event_external_id":{"type":"string","minLength":1,"maxLength":500},"title":{"type":"string","minLength":1,"maxLength":120},"brief":{"type":"string","minLength":1,"maxLength":20000},"delegate":{"type":"boolean"}},"additionalProperties":false},"output_schema":{"type":"object","required":["work_item_id","strength","replay"],"properties":{"work_item_id":{"type":"string"},"strength":{"type":"string"},"replay":{"type":"boolean"}}},"cli":{"usage":["teamhub proactive act --rule <rule-id> --source <event-source> --external-id <event-id> --title \\"<title>\\" --brief \\"<what needs doing>\\" [--delegate]"],"arguments":[],"options":{"--rule":{"description":"Mandate rule ID from the proactive wake."},"--source":{"description":"The event's source, as the wake names it."},"--external-id":{"description":"The event's external_id, as the wake names it."},"--title":{"description":"Short Work Item title, 1-120 characters."},"--brief":{"description":"What needs doing: the Work Item description, or the delegated Task's requirement."},"--delegate":{"description":"Delegate the work as a Task to your AlterEgo; needs a create_and_delegate mandate.","boolean":true},"--json":{"description":"Return machine-readable JSON.","boolean":true},"--help":{"description":"Show this offline command reference.","boolean":true},"-h":{"description":"Show help.","boolean":true},"--schema":{"description":"Show offline input and output schemas.","boolean":true},"--operation-id":{"description":"Stable operation identity for recovery."}},"notes":["Only Another Me uses this, while judging an outside event whose wake lists <mandate-rules>; without a matching mandate it only reminds or tracks. TeamHub checks the Human's current rules on every act, and one rule acts once per event: repeating the command returns the first Work Item."]}}
+{"command":["proactive","act"],"description":"Create a Work Item for an outside event, or delegate it as a Task to your AlterEgo, under a mandate your Human granted on one of their rules.","read_only":false,"input_schema":{"type":"object","required":["rule_id","event_source","event_external_id","title","brief","delegate"],"properties":{"rule_id":{"type":"string","pattern":"^pr_[a-f0-9]{32}$"},"event_source":{"type":"string","minLength":1,"maxLength":100},"event_external_id":{"type":"string","minLength":1,"maxLength":500},"event_account":{"type":"string","minLength":1,"maxLength":200},"title":{"type":"string","minLength":1,"maxLength":120},"brief":{"type":"string","minLength":1,"maxLength":20000},"delegate":{"type":"boolean"}},"additionalProperties":false},"output_schema":{"type":"object","required":["work_item_id","strength","replay"],"properties":{"work_item_id":{"type":"string"},"strength":{"type":"string"},"replay":{"type":"boolean"},"subscription_id":{"type":"string"}}},"cli":{"usage":["teamhub proactive act --rule <rule-id> --source <event-source> --external-id <event-id> [--account <connection-id>] --title \\"<title>\\" --brief \\"<what needs doing>\\" [--delegate]"],"arguments":[],"options":{"--rule":{"description":"Mandate rule ID from the proactive wake."},"--source":{"description":"The event's source, as the wake names it."},"--external-id":{"description":"The event's external_id, as the wake names it."},"--account":{"description":"Optional connected account or connection ID for mail events, used to attach a follow-up thread subscription when delegating."},"--title":{"description":"Short Work Item title, 1-120 characters."},"--brief":{"description":"What needs doing: the Work Item description, or the delegated Task's requirement."},"--delegate":{"description":"Delegate the work as a Task to your AlterEgo; needs a create_and_delegate mandate.","boolean":true},"--json":{"description":"Return machine-readable JSON.","boolean":true},"--help":{"description":"Show this offline command reference.","boolean":true},"-h":{"description":"Show help.","boolean":true},"--schema":{"description":"Show offline input and output schemas.","boolean":true},"--operation-id":{"description":"Stable operation identity for recovery."}},"notes":["Only Another Me uses this, while judging an outside event whose wake lists <mandate-rules>; without a matching mandate it only reminds or tracks. TeamHub checks the Human's current rules on every act, and one rule acts once per event: repeating the command returns the first Work Item."]}}
 ",
   },
   "proactive shadow-divergence": {
@@ -3607,6 +3608,47 @@ teamhub proactive shadow-divergence --rule pr_0123456789abcdef0123456789abcdef -
 ",
     "schema": "exit 0
 {"command":["proactive","shadow-divergence"],"description":"Record that one of your Human's shadow rules would have handled a matter differently from what you did.","read_only":false,"input_schema":{"type":"object","required":["rule_id","matter","shadow_action","taken_action"],"properties":{"rule_id":{"type":"string","pattern":"^pr_[a-f0-9]{32}$"},"matter":{"type":"string","minLength":1,"maxLength":300},"shadow_action":{"type":"string","enum":["notify","track","silent"]},"taken_action":{"type":"string","enum":["notify","track","silent"]}},"additionalProperties":false},"output_schema":{"type":"object","required":["id","rule_id","matter","shadow_action","taken_action"],"properties":{"id":{"type":"string"},"rule_id":{"type":"string"},"matter":{"type":"string"},"shadow_action":{"type":"string"},"taken_action":{"type":"string"}}},"cli":{"usage":["teamhub proactive shadow-divergence --rule <rule-id> --matter \\"<matter>\\" --would <notify|track|silent> --took <notify|track|silent>"],"arguments":[],"options":{"--rule":{"description":"Shadow rule ID from the proactive wake."},"--matter":{"description":"The matter in a few words."},"--would":{"description":"What the shadow rule would have done."},"--took":{"description":"What you did under the active rules."},"--json":{"description":"Return machine-readable JSON.","boolean":true},"--help":{"description":"Show this offline command reference.","boolean":true},"-h":{"description":"Show help.","boolean":true},"--schema":{"description":"Show offline input and output schemas.","boolean":true},"--operation-id":{"description":"Stable operation identity for recovery."}},"notes":["Only Another Me uses this, while judging a proactive wake that lists <shadow-rules>. Shadow rules never decide; the Human reads these records before promoting one. Recording the same divergence again is harmless."]}}
+",
+  },
+  "proactive subscriptions": {
+    "help": "exit 0
+teamhub proactive subscriptions [--work-item <work-item-id>] [--include-dropped]
+List external thread subscriptions routing follow-up mail, herdr, or GitHub activity to Tasks Another Me started.
+
+Options:
+  --work-item <value>  Optional Task Work Item ID to filter subscriptions by.
+  --include-dropped  Include dropped subscriptions alongside active ones.
+  --json  Return machine-readable JSON.
+  --help  Show this offline command reference.
+  -h  Show help.
+  --schema  Show offline input and output schemas.
+Only Another Me uses this from its Meta to inspect follow-up subscriptions owned by its Human.
+Examples:
+teamhub proactive subscriptions --work-item workitem_one
+",
+    "schema": "exit 0
+{"command":["proactive","subscriptions"],"description":"List external thread subscriptions routing follow-up mail, herdr, or GitHub activity to Tasks Another Me started.","read_only":true,"input_schema":{"type":"object","properties":{"task_id":{"type":"string","maxLength":255},"include_dropped":{"type":"boolean"}},"additionalProperties":false},"output_schema":{"type":"object","required":["items"],"properties":{"items":{"type":"array","items":{"type":"object","required":["id","task_id","source_type","normalized_source_key","status"],"properties":{"id":{"type":"string"},"task_id":{"type":"string"},"source_type":{"type":"string"},"normalized_source_key":{"type":"string"},"status":{"type":"string"}}}}}},"cli":{"usage":["teamhub proactive subscriptions [--work-item <work-item-id>] [--include-dropped]"],"arguments":[],"options":{"--work-item":{"description":"Optional Task Work Item ID to filter subscriptions by."},"--include-dropped":{"description":"Include dropped subscriptions alongside active ones.","boolean":true},"--json":{"description":"Return machine-readable JSON.","boolean":true},"--help":{"description":"Show this offline command reference.","boolean":true},"-h":{"description":"Show help.","boolean":true},"--schema":{"description":"Show offline input and output schemas.","boolean":true}},"notes":["Only Another Me uses this from its Meta to inspect follow-up subscriptions owned by its Human."]}}
+",
+  },
+  "proactive unsubscribe": {
+    "help": "exit 0
+teamhub proactive unsubscribe --subscription <subscription-id> [--reason "<why>"]
+Drop an external thread subscription when Another Me judges follow-up routing to a Task is no longer needed.
+
+Options:
+  --subscription <value>  Subscription ID (tsub_...) to drop.
+  --reason <value>  Optional reason for stopping follow-up routing (up to 500 chars).
+  --json  Return machine-readable JSON.
+  --help  Show this offline command reference.
+  -h  Show help.
+  --schema  Show offline input and output schemas.
+  --operation-id <value>  Stable operation identity for recovery.
+Idempotent: dropping an already-dropped subscription returns the existing record. Once dropped, later events on that thread no longer route to or resume the Task.
+Examples:
+teamhub proactive unsubscribe --subscription tsub_0123456789abcdef0123456789abcdef --reason "Thread concluded"
+",
+    "schema": "exit 0
+{"command":["proactive","unsubscribe"],"description":"Drop an external thread subscription when Another Me judges follow-up routing to a Task is no longer needed.","read_only":false,"input_schema":{"type":"object","required":["subscription_id"],"properties":{"subscription_id":{"type":"string","pattern":"^tsub_[a-f0-9]{32}$"},"reason":{"type":"string","maxLength":500}},"additionalProperties":false},"output_schema":{"type":"object","required":["subscription","replay"],"properties":{"subscription":{"type":"object","required":["id","status"],"properties":{"id":{"type":"string"},"status":{"type":"string"},"dropped_by_kind":{"type":"string"}}},"replay":{"type":"boolean"}}},"cli":{"usage":["teamhub proactive unsubscribe --subscription <subscription-id> [--reason \\"<why>\\"]"],"arguments":[],"options":{"--subscription":{"description":"Subscription ID (tsub_...) to drop."},"--reason":{"description":"Optional reason for stopping follow-up routing (up to 500 chars)."},"--json":{"description":"Return machine-readable JSON.","boolean":true},"--help":{"description":"Show this offline command reference.","boolean":true},"-h":{"description":"Show help.","boolean":true},"--schema":{"description":"Show offline input and output schemas.","boolean":true},"--operation-id":{"description":"Stable operation identity for recovery."}},"notes":["Idempotent: dropping an already-dropped subscription returns the existing record. Once dropped, later events on that thread no longer route to or resume the Task."]}}
 ",
   },
   "profile skill publish": {
@@ -5638,13 +5680,14 @@ Only Another Me uses this, while judging a proactive wake that lists <shadow-rul
 Examples:
 teamhub proactive shadow-divergence --rule pr_0123456789abcdef0123456789abcdef --matter "AWS invoice" --would track --took notify
 
-teamhub proactive act --rule <rule-id> --source <event-source> --external-id <event-id> --title "<title>" --brief "<what needs doing>" [--delegate]
+teamhub proactive act --rule <rule-id> --source <event-source> --external-id <event-id> [--account <connection-id>] --title "<title>" --brief "<what needs doing>" [--delegate]
 Create a Work Item for an outside event, or delegate it as a Task to your AlterEgo, under a mandate your Human granted on one of their rules.
 
 Options:
   --rule <value>  Mandate rule ID from the proactive wake.
   --source <value>  The event's source, as the wake names it.
   --external-id <value>  The event's external_id, as the wake names it.
+  --account <value>  Optional connected account or connection ID for mail events, used to attach a follow-up thread subscription when delegating.
   --title <value>  Short Work Item title, 1-120 characters.
   --brief <value>  What needs doing: the Work Item description, or the delegated Task's requirement.
   --delegate  Delegate the work as a Task to your AlterEgo; needs a create_and_delegate mandate.
@@ -5656,6 +5699,35 @@ Options:
 Only Another Me uses this, while judging an outside event whose wake lists <mandate-rules>; without a matching mandate it only reminds or tracks. TeamHub checks the Human's current rules on every act, and one rule acts once per event: repeating the command returns the first Work Item.
 Examples:
 teamhub proactive act --rule pr_0123456789abcdef0123456789abcdef --source gmail --external-id thread_1 --title "Review the Acme contract change" --brief "Compare the new payment terms with the signed contract."
+
+teamhub proactive subscriptions [--work-item <work-item-id>] [--include-dropped]
+List external thread subscriptions routing follow-up mail, herdr, or GitHub activity to Tasks Another Me started.
+
+Options:
+  --work-item <value>  Optional Task Work Item ID to filter subscriptions by.
+  --include-dropped  Include dropped subscriptions alongside active ones.
+  --json  Return machine-readable JSON.
+  --help  Show this offline command reference.
+  -h  Show help.
+  --schema  Show offline input and output schemas.
+Only Another Me uses this from its Meta to inspect follow-up subscriptions owned by its Human.
+Examples:
+teamhub proactive subscriptions --work-item workitem_one
+
+teamhub proactive unsubscribe --subscription <subscription-id> [--reason "<why>"]
+Drop an external thread subscription when Another Me judges follow-up routing to a Task is no longer needed.
+
+Options:
+  --subscription <value>  Subscription ID (tsub_...) to drop.
+  --reason <value>  Optional reason for stopping follow-up routing (up to 500 chars).
+  --json  Return machine-readable JSON.
+  --help  Show this offline command reference.
+  -h  Show help.
+  --schema  Show offline input and output schemas.
+  --operation-id <value>  Stable operation identity for recovery.
+Idempotent: dropping an already-dropped subscription returns the existing record. Once dropped, later events on that thread no longer route to or resume the Task.
+Examples:
+teamhub proactive unsubscribe --subscription tsub_0123456789abcdef0123456789abcdef --reason "Thread concluded"
 ",
   "profile": "exit 0
 teamhub profile skill publish [flags]

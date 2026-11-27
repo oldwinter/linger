@@ -492,6 +492,7 @@ func fetchGmail(ctx context.Context, provider *composio.Client, ca string, spec 
 			Source: ListenerGmail, EventID: m.ID, EventKind: "message",
 			From: m.From, To: m.To, Subject: m.Subject, Snippet: m.Snippet,
 			MessageID: m.ID, ThreadID: m.ThreadID, LabelIDs: m.LabelIDs,
+			AutoSubmitted: m.AutoSubmitted,
 		})
 	}
 	cursor.PageToken = page.NextPageToken
@@ -553,7 +554,7 @@ func fetchOutlook(ctx context.Context, provider *composio.Client, ca string, spe
 		read.events = append(read.events, ListenerEvent{
 			Source: ListenerOutlook, EventID: m.ID, EventKind: "message",
 			From: m.From, To: m.To, Subject: m.Subject, Snippet: body,
-			MessageID: m.ID,
+			MessageID: m.ID, ThreadID: m.ConversationID,
 		})
 	}
 	cursor.PageToken = nextLink

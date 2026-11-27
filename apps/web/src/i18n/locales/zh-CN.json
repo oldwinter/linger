@@ -5053,6 +5053,17 @@
     "statusClosedDuplicate": "已关闭 · 重复",
     "editWorkItem": "编辑工作项",
     "saving": "正在保存…",
-    "managedTaskStatusHint": "此任务状态由负责的 Agent 自动管理。"
+    "managedTaskStatusHint": "此任务状态由负责的 Agent 自动管理。",
+    "subscriptionsTitle": "后续动态订阅",
+    "subscriptionsLoadFailed": "无法加载后续动态订阅。",
+    "unsubscribe": "取消订阅",
+    "unsubscribing": "正在取消订阅…",
+    "unsubscribeFailed": "取消订阅失败。",
+    "subscriptionSourceMail": "邮件",
+    "subscriptionSourceHerdr": "herdr",
+    "subscriptionSourceGitHub": "GitHub",
+    "subscriptionStatusActive": "活跃",
+    "subscriptionStatusDroppedByOwner": "已由你取消订阅",
+    "subscriptionStatusDroppedByAnotherMe": "已由 Another Me 取消订阅"
   }
 }
