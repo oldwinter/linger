@@ -1,6 +1,7 @@
 import {
   type CSSProperties,
   type KeyboardEvent,
+  type ReactNode,
   type RefObject,
   useEffect,
   useEffectEvent,
@@ -11,7 +12,6 @@ import {
 import { createPortal } from "react-dom";
 
 import { DropdownOption, DropdownOptions } from "./dropdown-options";
-import type { SelectItemProps } from "./select";
 import {
   selectPopupContainingBlock,
   selectPopupFrame,
@@ -19,6 +19,14 @@ import {
   type SelectPopupPositionOptions,
 } from "./select-popup-layout";
 import { suppressFollowUpClick } from "./suppress-follow-up-click";
+
+export interface SelectItemProps {
+  children: ReactNode;
+  disabled?: boolean;
+  /** Compact label rendered in the trigger when selected; falls back to `children`. */
+  triggerLabel?: ReactNode;
+  value: string;
+}
 
 export interface AnchoredSelectPopupInput {
   readonly align?: SelectPopupPositionOptions["align"];

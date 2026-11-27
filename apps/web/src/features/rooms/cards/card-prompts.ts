@@ -3,7 +3,7 @@ import type { Translate } from "@/i18n/language";
 
 import { cardPromptsMessages as m } from "./card-prompts.messages";
 import { connectedAppDisplayName } from "./connected-app-names";
-import type { DecisionMessageCard } from "./decision-card";
+import type { DecisionMessageCard } from "./room-message-card-contract";
 
 /**
  * The heading of a card TeamHub posted for an Agent, worded from its kind and

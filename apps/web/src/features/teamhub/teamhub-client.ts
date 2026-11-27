@@ -1,8 +1,7 @@
-import type {
-  components,
-  operations as TeamHubPublicOperations,
-} from "@linger/wire-contracts/teamhub-public/types";
-import { createTeamHubAgentClient } from "./teamhub-agent-client";
+import {
+  createTeamHubAgentClient,
+  type TeamHubAgentClient,
+} from "./teamhub-agent-client";
 import { createTeamHubApi, type TeamHubApi } from "./teamhub-api";
 import {
   reportTeamHubAuthenticationRequired,
@@ -13,92 +12,39 @@ import {
   createTeamHubDocumentLinks,
   type TeamHubDocumentLinks,
 } from "./teamhub-document-links";
-import { createTeamHubDocumentTransferClient } from "./teamhub-document-transfer-client";
+import {
+  createTeamHubDocumentTransferClient,
+  type TeamHubDocumentTransferClient,
+} from "./teamhub-document-transfer-client";
 import type { TeamHubExternalSourceClient } from "./teamhub-external-source-client";
 import type { TeamHubPersonalProfileClient } from "./teamhub-personal-profile-client";
-import { createTeamHubPersonalWikiClient } from "./teamhub-personal-wiki-client";
+import {
+  createTeamHubPersonalWikiClient,
+  type TeamHubPersonalWikiClient,
+} from "./teamhub-personal-wiki-client";
 import {
   createTeamHubRoomHistory,
   type TeamHubRoomHistory,
 } from "./teamhub-room-history";
-import { createTeamHubRunStatusClient } from "./teamhub-run-status-client";
-import type {
-  TeamHubArtifactContent,
-  TeamHubArtifactContentLocation,
-  TeamHubArtifactDownloadOptions,
-  TeamHubArtifactRangeContent,
-  TeamHubArtifactRangeOptions,
-  TeamHubArtifactUploadOptions,
-  TeamHubDocument,
-  TeamHubDocumentUpload,
-  TeamHubDocumentVersion,
-  TeamHubDocumentVersionUpload,
-  TeamHubLocalComputerPage,
-  TeamHubMessageAttachmentUpload,
-  TeamHubRunStatusList,
-  TeamHubTaskActivityPage,
-} from "./teamhub-types";
+import {
+  createTeamHubRunStatusClient,
+  type TeamHubRunStatusClient,
+} from "./teamhub-run-status-client";
 
 export { TeamHubError, TeamHubTransportError } from "./teamhub-error";
 
 export interface TeamHubClient
-  extends TeamHubExternalSourceClient, TeamHubPersonalProfileClient {
+  extends
+    TeamHubExternalSourceClient,
+    TeamHubPersonalProfileClient,
+    TeamHubAgentClient,
+    TeamHubDocumentTransferClient,
+    TeamHubPersonalWikiClient,
+    TeamHubRunStatusClient {
   /** The typed TeamHub API for features that call a contract path directly. */
   api: TeamHubApi;
   documentLinks: TeamHubDocumentLinks;
   roomHistory: TeamHubRoomHistory;
-  getPersonalKnowledgeGraphVisualization(tenantId: string): Promise<string>;
-  uploadPersonalWikiDocument(
-    tenantId: string,
-    input: TeamHubDocumentUpload,
-    idempotencyKey: string,
-    options?: TeamHubArtifactUploadOptions,
-  ): Promise<TeamHubDocument>;
-  uploadDocumentVersion(
-    documentId: string,
-    input: TeamHubDocumentVersionUpload,
-    idempotencyKey: string,
-    options?: TeamHubArtifactUploadOptions,
-  ): Promise<TeamHubDocumentVersion>;
-  downloadLatestDocument(
-    documentId: string,
-    options?: TeamHubArtifactDownloadOptions,
-  ): Promise<TeamHubArtifactContent>;
-  downloadDocumentVersion(
-    documentVersionId: string,
-    options?: TeamHubArtifactDownloadOptions,
-  ): Promise<TeamHubArtifactContent>;
-  downloadDocumentVersionRange(
-    documentVersionId: string,
-    options: TeamHubArtifactRangeOptions,
-  ): Promise<TeamHubArtifactRangeContent>;
-  getDocumentVersionContentLocation(
-    documentVersionId: string,
-  ): Promise<TeamHubArtifactContentLocation>;
-  uploadRoomDocumentAssetContent(
-    assetId: string,
-    content: Blob,
-  ): Promise<components["schemas"]["DocumentAsset"]>;
-  listTenantLocalComputers(tenantId: string): Promise<TeamHubLocalComputerPage>;
-  listRoomRunStatuses(roomId: string): Promise<TeamHubRunStatusList>;
-  listRoomRuntimePresentationRuns(
-    roomId: string,
-    messageIds: readonly string[],
-    runId?: string,
-  ): Promise<TeamHubRunStatusList>;
-  uploadMessageAttachment(
-    roomId: string,
-    file: File,
-    idempotencyKey: string,
-    options?: TeamHubArtifactUploadOptions,
-  ): Promise<TeamHubMessageAttachmentUpload>;
-  workItems: {
-    listActivities(
-      taskId: string,
-      page?: TeamHubPublicOperations["listTaskRuntimePresentationRuns"]["parameters"]["query"],
-      options?: { signal?: AbortSignal },
-    ): Promise<TeamHubTaskActivityPage>;
-  };
 }
 
 export interface HttpTeamHubClientOptions {

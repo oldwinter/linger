@@ -1,9 +1,12 @@
 import type { TeamHubApi } from "./teamhub-api";
-import type { TeamHubClient } from "./teamhub-client";
+
+export interface TeamHubPersonalWikiClient {
+  getPersonalKnowledgeGraphVisualization(tenantId: string): Promise<string>;
+}
 
 export function createTeamHubPersonalWikiClient(
   api: TeamHubApi,
-): Pick<TeamHubClient, "getPersonalKnowledgeGraphVisualization"> {
+): TeamHubPersonalWikiClient {
   return {
     getPersonalKnowledgeGraphVisualization: async (tenantId) => {
       const { response } = await api.GET(

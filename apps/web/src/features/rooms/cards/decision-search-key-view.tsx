@@ -41,8 +41,10 @@ import {
 import { decisionCardHeading } from "./card-prompts";
 import { CardBox, CardDone, type ReceiptTone } from "./card-shell";
 import { cardsMessages as m } from "./cards.messages";
-import type { DecisionMessageCard } from "./decision-card";
-import type { RoomCardDecision } from "./room-message-card-contract";
+import type {
+  DecisionMessageCard,
+  RoomCardDecision,
+} from "./room-message-card-contract";
 
 type KeyBackend = TeamHubWebSearchBackend & { id: TeamHubWebSearchKeyBackend };
 

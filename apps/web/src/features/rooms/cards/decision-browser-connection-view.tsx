@@ -17,8 +17,10 @@ import { decisionCardHeading } from "./card-prompts";
 import { CardActions, CardError, CardRow } from "./approval-card-parts";
 import { CardBox, CardDone, type ReceiptTone } from "./card-shell";
 import { cardsMessages } from "./cards.messages";
-import type { DecisionMessageCard } from "./decision-card";
-import type { RoomCardDecision } from "./room-message-card-contract";
+import type {
+  DecisionMessageCard,
+  RoomCardDecision,
+} from "./room-message-card-contract";
 
 const BrowserConnectionDialog = lazy(() =>
   import("@/features/local-computer/browser-connection/browser-connection-dialog").then(

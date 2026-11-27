@@ -6,11 +6,14 @@ import type { Message } from "@/i18n/messages";
 
 import { localModelsMessages as m } from "./local-models.messages";
 import {
+  architectureCopy,
   formatGigabytes,
   joinList,
   type HostBlockerReason,
   type MemoryGuidance,
 } from "./local-models-rules";
+
+export { architectureCopy };
 
 type Schemas = components["schemas"];
 
@@ -459,24 +462,6 @@ export function capabilityCopy(
   return Object.hasOwn(capabilityLabels, capability)
     ? t(capabilityLabels[capability])
     : capability;
-}
-
-const architectureLabels: Record<
-  Schemas["LocalModelArchitecture"],
-  Message<string>
-> = {
-  dense: m.architectureDense,
-  moe: m.architectureMoe,
-};
-
-/** Human-readable architecture label for display in model details. */
-export function architectureCopy(
-  architecture: Schemas["LocalModelArchitecture"],
-  t: Translate,
-) {
-  return Object.hasOwn(architectureLabels, architecture)
-    ? t(architectureLabels[architecture])
-    : architecture;
 }
 
 /** Inference engine names read the same in every language. */

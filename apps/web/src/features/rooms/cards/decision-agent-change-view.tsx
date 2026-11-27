@@ -6,7 +6,7 @@ import { useT } from "@/i18n/use-translation";
 
 import { AgentChangeFields } from "./agent-change-fields";
 import { cardsMessages } from "./cards.messages";
-import type { DecisionMessageCard } from "./decision-card";
+import type { DecisionMessageCard } from "./room-message-card-contract";
 
 type AgentChangeView = NonNullable<DecisionMessageCard["agent_change"]>;
 type AgentChange = AgentChangeView["changes"][number];

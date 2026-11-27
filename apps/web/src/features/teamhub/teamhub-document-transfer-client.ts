@@ -1,3 +1,4 @@
+import type { components } from "@linger/wire-contracts/teamhub-public/types";
 import {
   downloadTeamHubArtifactContent,
   downloadTeamHubArtifactRange,
@@ -5,12 +6,59 @@ import {
 import { uploadTeamHubFile } from "./teamhub-artifact-upload";
 import type { TeamHubAuthenticationReason } from "./teamhub-authentication";
 import { teamHubData, teamHubUrl, type TeamHubApi } from "./teamhub-api";
-import type { TeamHubClient } from "./teamhub-client";
 import type {
+  TeamHubArtifactContent,
+  TeamHubArtifactContentLocation,
+  TeamHubArtifactDownloadOptions,
+  TeamHubArtifactRangeContent,
+  TeamHubArtifactRangeOptions,
+  TeamHubArtifactUploadOptions,
   TeamHubDocument,
+  TeamHubDocumentUpload,
   TeamHubDocumentVersion,
+  TeamHubDocumentVersionUpload,
   TeamHubMessageAttachmentUpload,
 } from "./teamhub-types";
+
+export interface TeamHubDocumentTransferClient {
+  uploadPersonalWikiDocument(
+    tenantId: string,
+    input: TeamHubDocumentUpload,
+    idempotencyKey: string,
+    options?: TeamHubArtifactUploadOptions,
+  ): Promise<TeamHubDocument>;
+  uploadDocumentVersion(
+    documentId: string,
+    input: TeamHubDocumentVersionUpload,
+    idempotencyKey: string,
+    options?: TeamHubArtifactUploadOptions,
+  ): Promise<TeamHubDocumentVersion>;
+  downloadLatestDocument(
+    documentId: string,
+    options?: TeamHubArtifactDownloadOptions,
+  ): Promise<TeamHubArtifactContent>;
+  downloadDocumentVersion(
+    documentVersionId: string,
+    options?: TeamHubArtifactDownloadOptions,
+  ): Promise<TeamHubArtifactContent>;
+  downloadDocumentVersionRange(
+    documentVersionId: string,
+    options: TeamHubArtifactRangeOptions,
+  ): Promise<TeamHubArtifactRangeContent>;
+  getDocumentVersionContentLocation(
+    documentVersionId: string,
+  ): Promise<TeamHubArtifactContentLocation>;
+  uploadRoomDocumentAssetContent(
+    assetId: string,
+    content: Blob,
+  ): Promise<components["schemas"]["DocumentAsset"]>;
+  uploadMessageAttachment(
+    roomId: string,
+    file: File,
+    idempotencyKey: string,
+    options?: TeamHubArtifactUploadOptions,
+  ): Promise<TeamHubMessageAttachmentUpload>;
+}
 
 export function createTeamHubDocumentTransferClient({
   api,
@@ -24,17 +72,7 @@ export function createTeamHubDocumentTransferClient({
   fetchRequest: typeof fetch;
   onAuthenticationRequired: (reason: TeamHubAuthenticationReason) => void;
   xhrFactory?: () => XMLHttpRequest;
-}): Pick<
-  TeamHubClient,
-  | "uploadPersonalWikiDocument"
-  | "uploadDocumentVersion"
-  | "uploadMessageAttachment"
-  | "downloadLatestDocument"
-  | "downloadDocumentVersion"
-  | "downloadDocumentVersionRange"
-  | "getDocumentVersionContentLocation"
-  | "uploadRoomDocumentAssetContent"
-> {
+}): TeamHubDocumentTransferClient {
   function upload<T>(
     url: URL,
     input: Omit<

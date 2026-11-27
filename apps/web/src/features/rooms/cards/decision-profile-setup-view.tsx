@@ -46,8 +46,10 @@ import { CardActions, CardError } from "./approval-card-parts";
 import { CardBox, CardDone } from "./card-shell";
 import { cardsMessages } from "./cards.messages";
 import { connectedAppDisplayName } from "./connected-app-names";
-import type { DecisionMessageCard } from "./decision-card";
-import type { RoomCardDecision } from "./room-message-card-contract";
+import type {
+  DecisionMessageCard,
+  RoomCardDecision,
+} from "./room-message-card-contract";
 
 type Card = DecisionMessageCard;
 type SetupDecision = "connected" | "done" | "skipped";
