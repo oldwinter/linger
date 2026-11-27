@@ -245,6 +245,161 @@ describe("PocketNoteLauncher", () => {
       expect(dialog.style.left).toBe("60px");
       expect(dialog.style.top).toBe("50px");
       expect(dialog.style.width).toBe("360px");
+      expect(dialog.style.height).toBe("440px");
+    } finally {
+      Object.defineProperty(window, "innerWidth", {
+        configurable: true,
+        value: originalWidth,
+      });
+      Object.defineProperty(window, "innerHeight", {
+        configurable: true,
+        value: originalHeight,
+      });
+    }
+  });
+
+  it("re-clamps across desktop, narrow mobile, landscape, and 200% zoom resizes without losing drafts or duplicating PUTs", async () => {
+    const originalWidth = window.innerWidth;
+    const originalHeight = window.innerHeight;
+    const setViewport = (width: number, height: number) => {
+      Object.defineProperty(window, "innerWidth", {
+        configurable: true,
+        value: width,
+      });
+      Object.defineProperty(window, "innerHeight", {
+        configurable: true,
+        value: height,
+      });
+    };
+    const putTodayPocketNote = vi.fn(
+      async (_tenantId: string, text: string) => ({
+        date: page.today,
+        text,
+        updated_at: "2026-10-01T02:00:00Z",
+      }),
+    );
+    setViewport(1280, 800);
+    try {
+      const runtime = createTestTeamHubRuntime();
+      runtime.server.on("GET", "/v0/tenants/{tenantId}/me/pocket-notes", () =>
+        Promise.resolve(page),
+      );
+      runtime.server.on(
+        "PUT",
+        "/v0/tenants/{tenantId}/me/pocket-notes/today",
+        ({ body, params }) =>
+          putTodayPocketNote(params.tenantId!, (body as { text: string }).text),
+      );
+      const { container } = render(
+        <QueryClientProvider client={new QueryClient()}>
+          <TeamHubRuntimeProvider runtime={runtime}>
+            <MemoryRouter>
+              <PocketNoteHost />
+              <nav className="app-secondary-navigation">
+                <PocketNoteLauncher tenantId="tenant-1" />
+              </nav>
+            </MemoryRouter>
+          </TeamHubRuntimeProvider>
+        </QueryClientProvider>,
+      );
+
+      let sidebarRect = new DOMRect(60, 0, 260, 800);
+      let triggerRect = new DOMRect(220, 14, 28, 28);
+      const sidebar = container.querySelector(".app-secondary-navigation")!;
+      vi.spyOn(sidebar, "getBoundingClientRect").mockImplementation(
+        () => sidebarRect,
+      );
+      const button = screen.getByRole("button", { name: "Pocket Notes" });
+      vi.spyOn(button, "getBoundingClientRect").mockImplementation(
+        () => triggerRect,
+      );
+
+      fireEvent.click(button);
+      const dialog = await screen.findByRole("dialog", {
+        name: "Pocket notes",
+      });
+      const editor = await screen.findByRole("textbox", {
+        name: "Today’s note",
+      });
+
+      expect(dialog.style.left).toBe("60px");
+      expect(dialog.style.top).toBe("50px");
+      expect(dialog.style.width).toBe("360px");
+      expect(dialog.style.height).toBe("440px");
+
+      vi.useFakeTimers();
+      pasteText(editor, "Draft survives desktop to narrow resize");
+
+      // Crossing below md hides the sidebar inside the mobile drawer (0x0 rects).
+      setViewport(320, 568);
+      sidebarRect = new DOMRect(0, 0, 0, 0);
+      triggerRect = new DOMRect(0, 0, 0, 0);
+      act(() => {
+        window.dispatchEvent(new Event("resize"));
+      });
+      expect(dialog.style.left).toBe("12px");
+      expect(dialog.style.top).toBe("12px");
+      expect(dialog.style.width).toBe("296px");
+      expect(dialog.style.height).toBe("440px");
+
+      setViewport(360, 640);
+      act(() => {
+        window.dispatchEvent(new Event("resize"));
+      });
+      expect(dialog.style.left).toBe("12px");
+      expect(dialog.style.top).toBe("12px");
+      expect(dialog.style.width).toBe("336px");
+      expect(dialog.style.height).toBe("440px");
+
+      setViewport(568, 320);
+      act(() => {
+        window.dispatchEvent(new Event("resize"));
+      });
+      expect(dialog.style.left).toBe("104px");
+      expect(dialog.style.top).toBe("12px");
+      expect(dialog.style.width).toBe("360px");
+      expect(dialog.style.height).toBe("296px");
+
+      setViewport(640, 400);
+      act(() => {
+        window.dispatchEvent(new Event("resize"));
+      });
+      expect(dialog.style.left).toBe("12px");
+      expect(dialog.style.top).toBe("12px");
+      expect(dialog.style.width).toBe("360px");
+      expect(dialog.style.height).toBe("376px");
+
+      // Simulate NavigationDrawer restoring desktop sidebar layout after the resize event.
+      setViewport(1280, 800);
+      act(() => {
+        window.dispatchEvent(new Event("resize"));
+      });
+      sidebarRect = new DOMRect(60, 0, 260, 800);
+      triggerRect = new DOMRect(220, 14, 28, 28);
+      await act(() => vi.advanceTimersByTimeAsync(20));
+
+      expect(dialog.style.left).toBe("60px");
+      expect(dialog.style.top).toBe("50px");
+      expect(dialog.style.width).toBe("360px");
+      expect(dialog.style.height).toBe("440px");
+
+      expect(screen.getByRole("textbox", { name: "Today’s note" })).toBe(
+        editor,
+      );
+      expect(editor).toHaveTextContent(
+        "Draft survives desktop to narrow resize",
+      );
+      expect(putTodayPocketNote).not.toHaveBeenCalled();
+
+      await act(() => vi.advanceTimersByTimeAsync(801));
+      vi.useRealTimers();
+
+      await waitFor(() => expect(putTodayPocketNote).toHaveBeenCalledTimes(1));
+      expect(putTodayPocketNote).toHaveBeenCalledWith(
+        "tenant-1",
+        "Draft survives desktop to narrow resize",
+      );
+      expect(await screen.findByText("Saved")).toBeInTheDocument();
     } finally {
       Object.defineProperty(window, "innerWidth", {
         configurable: true,
