@@ -2,10 +2,13 @@ package telemetry
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -334,22 +337,389 @@ func TestCollectorWithLoopbackLlamaServer(t *testing.T) {
 	}
 }
 
-func TestCollectorLiveHostSmoke(t *testing.T) {
-	collector := NewCollector(Options{})
-	snap, err := collector.Sample(context.Background())
-	if err != nil {
-		t.Fatalf("live host Sample failed: %v", err)
+func TestParseNvidiaSMITemperature(t *testing.T) {
+	// Modern RTX 4060 Ti driver: reports both headroom T.Limit (41 C) and absolute Target Temperature (83 C).
+	rtx4060Ti := `==============NVSMI LOG==============
+
+Timestamp                                 : Fri Nov 27 10:00:00 2026
+Driver Version                            : 566.36
+CUDA Version                              : 12.7
+
+Attached GPUs                             : 1
+GPU 00000000:01:00.0
+    Temperature
+        GPU Current Temp                  : 42 C
+        GPU T.Limit Temp                  : 41 C
+        GPU Shutdown T.Limit Temp         : -10 C
+        GPU Slowdown T.Limit Temp         : -5 C
+        GPU Max Operating T.Limit Temp    : 0 C
+        GPU Target Temperature            : 83 C
+        Memory Current Temp               : N/A
+`
+	if limit, ok := ParseNvidiaSMITemperature(rtx4060Ti); !ok || limit != 83 {
+		t.Fatalf("RTX 4060 Ti limit=(%v,%v), want (83,true)", limit, ok)
 	}
-	if snap.ObservedAt == "" {
+
+	// Older / datacenter format without Target Temperature: prefers Max Operating Temp.
+	datacenter := `GPU 00000000:00:04.0
+    Temperature
+        GPU Current Temp                  : 48 C
+        GPU T.Limit Temp                  : N/A
+        GPU Shutdown Temp                 : 95 C
+        GPU Slowdown Temp                 : 90 C
+        GPU Max Operating Temp            : 85 C
+        GPU Target Temperature            : N/A
+`
+	if limit, ok := ParseNvidiaSMITemperature(datacenter); !ok || limit != 85 {
+		t.Fatalf("datacenter limit=(%v,%v), want (85,true)", limit, ok)
+	}
+
+	// Slowdown-only fallback.
+	slowdownOnly := `GPU 00000000:00:04.0
+    Temperature
+        GPU Current Temp                  : 50 C
+        GPU Slowdown Temp                 : 90 C
+`
+	if limit, ok := ParseNvidiaSMITemperature(slowdownOnly); !ok || limit != 90 {
+		t.Fatalf("slowdown-only limit=(%v,%v), want (90,true)", limit, ok)
+	}
+
+	// Headroom reconstruction when Target/Max/Slowdown absolute temps are N/A.
+	tlimitOnly := `GPU 00000000:01:00.0
+    Temperature
+        GPU Current Temp                  : 52 C
+        GPU T.Limit Temp                  : 31 C
+        GPU Max Operating T.Limit Temp    : 0 C
+        GPU Target Temperature            : N/A
+`
+	if limit, ok := ParseNvidiaSMITemperature(tlimitOnly); !ok || limit != 83 {
+		t.Fatalf("tlimit reconstruction=(%v,%v), want (83,true)", limit, ok)
+	}
+
+	// Bare headroom without current temp must NOT be confused with an absolute limit.
+	bareHeadroom := `GPU 00000000:01:00.0
+    Temperature
+        GPU T.Limit Temp                  : 41 C
+`
+	if limit, ok := ParseNvidiaSMITemperature(bareHeadroom); ok {
+		t.Fatalf("expected bare headroom to fail, got (%v,true)", limit)
+	}
+
+	// Multi-GPU output returns primary GPU 0 limit only.
+	multiGPU := `GPU 00000000:01:00.0
+    Temperature
+        GPU Target Temperature            : 83 C
+GPU 00000000:02:00.0
+    Temperature
+        GPU Target Temperature            : 90 C
+`
+	if limit, ok := ParseNvidiaSMITemperature(multiGPU); !ok || limit != 83 {
+		t.Fatalf("multi-GPU limit=(%v,%v), want (83,true)", limit, ok)
+	}
+
+	if _, ok := ParseNvidiaSMITemperature("GPU 00000000:01:00.0\n    Temperature\n        GPU Target Temperature : N/A\n"); ok {
+		t.Fatal("expected all-N/A output to return ok=false")
+	}
+}
+
+func TestParseWindowsPagefileInfo(t *testing.T) {
+	makeEntry := func(nextOffset, totalPages, inUsePages, peakPages uint32) []byte {
+		size := int(nextOffset)
+		if size < 32 {
+			size = 32
+		}
+		buf := make([]byte, size)
+		binary.LittleEndian.PutUint32(buf[0:4], nextOffset)
+		binary.LittleEndian.PutUint32(buf[4:8], totalPages)
+		binary.LittleEndian.PutUint32(buf[8:12], inUsePages)
+		binary.LittleEndian.PutUint32(buf[12:16], peakPages)
+		return buf
+	}
+
+	const pageSize = uint64(4096)
+
+	// Single pagefile: 4 GiB total, ~1.73 GiB used (453509 pages).
+	single := makeEntry(0, 1048576, 453509, 500000)
+	used, total, ok := ParseWindowsPagefileInfo(single, pageSize)
+	if !ok || total != 1048576*pageSize || used != 453509*pageSize {
+		t.Fatalf("single pagefile=(%d,%d,%v)", used, total, ok)
+	}
+
+	// Two chained pagefiles.
+	e1 := makeEntry(48, 524288, 100000, 120000)
+	e2 := makeEntry(0, 262144, 50000, 60000)
+	chained := append(e1, e2...)
+	used, total, ok = ParseWindowsPagefileInfo(chained, pageSize)
+	if !ok || total != (524288+262144)*pageSize || used != (100000+50000)*pageSize {
+		t.Fatalf("chained pagefiles=(%d,%d,%v)", used, total, ok)
+	}
+
+	// Disabled / zero pagefiles (empty return buffer).
+	used, total, ok = ParseWindowsPagefileInfo(nil, pageSize)
+	if !ok || used != 0 || total != 0 {
+		t.Fatalf("empty pagefiles=(%d,%d,%v), want (0,0,true)", used, total, ok)
+	}
+
+	// Clamps in-use pages to total pages.
+	clamped := makeEntry(0, 1000, 1500, 1500)
+	used, total, ok = ParseWindowsPagefileInfo(clamped, pageSize)
+	if !ok || used != 1000*pageSize || total != 1000*pageSize {
+		t.Fatalf("clamped pagefile=(%d,%d,%v)", used, total, ok)
+	}
+
+	// Corrupt offset / zero page size.
+	if _, _, ok := ParseWindowsPagefileInfo(make([]byte, 8), pageSize); ok {
+		t.Fatal("expected truncated buffer to fail")
+	}
+	if _, _, ok := ParseWindowsPagefileInfo(makeEntry(8, 100, 10, 10), pageSize); ok {
+		t.Fatal("expected invalid small NextEntryOffset to fail")
+	}
+	if _, _, ok := ParseWindowsPagefileInfo(single, 0); ok {
+		t.Fatal("expected zero pageSize to fail")
+	}
+}
+
+func TestParseWindowsLogicalProcessorInfoExAndIdentity(t *testing.T) {
+	// 6 physical cores (RelationProcessorCore = 0) + 1 non-core record (RelationCache = 2).
+	var buf []byte
+	appendRecord := func(rel, size uint32) {
+		rec := make([]byte, size)
+		binary.LittleEndian.PutUint32(rec[0:4], rel)
+		binary.LittleEndian.PutUint32(rec[4:8], size)
+		buf = append(buf, rec...)
+	}
+	for range 6 {
+		appendRecord(0, 48)
+	}
+	appendRecord(2, 48)
+
+	cores, ok := ParseWindowsLogicalProcessorInfoEx(buf)
+	if !ok || cores != 6 {
+		t.Fatalf("ParseWindowsLogicalProcessorInfoEx=(%d,%v), want (6,true)", cores, ok)
+	}
+	if _, ok := ParseWindowsLogicalProcessorInfoEx(nil); ok {
+		t.Fatal("expected empty processor buffer to fail")
+	}
+	if _, ok := ParseWindowsLogicalProcessorInfoEx([]byte{0, 0, 0, 0, 4, 0, 0, 0}); ok {
+		t.Fatal("expected malformed record size < 8 to fail")
+	}
+
+	if got := NormalizeWindowsCPUBrand("AMD Ryzen 5 7500F 6-Core Processor       "); got != "AMD Ryzen 5 7500F 6-Core Processor" {
+		t.Fatalf("NormalizeWindowsCPUBrand=%q", got)
+	}
+
+	cases := []struct {
+		product string
+		display string
+		build   string
+		want    string
+	}{
+		{"Windows 10 Pro", "24H2", "26200", "Windows 11 Pro 24H2 (26200)"},
+		{"Windows 10 Pro", "", "26200", "Windows 11 Pro (26200)"},
+		{"Windows 11 Pro", "24H2", "22631", "Windows 11 Pro 24H2 (22631)"},
+		{"Windows 10 Home", "22H2", "19045", "Windows 10 Home 22H2 (19045)"},
+		{"Windows Server 2025 Standard", "24H2", "26100", "Windows Server 2025 Standard 24H2 (26100)"},
+		{"", "", "26200", "Windows 11 (26200)"},
+		{"", "", "", "Windows"},
+	}
+	for _, tc := range cases {
+		if got := FormatWindowsOSLabel(tc.product, tc.display, tc.build); got != tc.want {
+			t.Fatalf("FormatWindowsOSLabel(%q,%q,%q)=%q, want %q", tc.product, tc.display, tc.build, got, tc.want)
+		}
+	}
+
+	volCases := []struct {
+		diskPath string
+		baseDir  string
+		want     string
+	}{
+		{"", `D:\linger\runtime\localmodels\models`, `D:\`},
+		{"", `d:/custom/models`, `D:\`},
+		{`E:\data`, `D:\linger\models`, `E:\`},
+		{"", `\\nas01\models\linger`, `\\nas01\models\`},
+		{"", `relative/path`, `C:\`},
+		{"", "", `C:\`},
+	}
+	for _, tc := range volCases {
+		if got := ResolveWindowsDiskVolume(tc.diskPath, tc.baseDir); got != tc.want {
+			t.Fatalf("ResolveWindowsDiskVolume(%q,%q)=%q, want %q", tc.diskPath, tc.baseDir, got, tc.want)
+		}
+	}
+}
+
+func TestModelCacheBytesResolution(t *testing.T) {
+	now := time.Date(2026, 11, 27, 2, 0, 0, 0, time.UTC)
+
+	// 1. Explicit LocalModelsBaseDir takes precedence.
+	root := t.TempDir()
+	baseDir := filepath.Join(root, "models")
+	nested := filepath.Join(baseDir, "qwen3-4b")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nested, "weights.gguf"), make([]byte, 4096), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(baseDir, "manifest.json"), make([]byte, 256), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	c := NewCollector(Options{
+		LocalModelsStateDir: filepath.Join(root, "state"),
+		LocalModelsBaseDir:  baseDir,
+	})
+	got := c.modelCacheBytes(now)
+	if got == nil || *got != 4352 {
+		t.Fatalf("explicit base dir modelCacheBytes=%v, want 4352", got)
+	}
+
+	// 2. Falls back to sibling ../models when LocalModelsBaseDir is omitted.
+	stateDir := filepath.Join(root, "state")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cSibling := NewCollector(Options{LocalModelsStateDir: stateDir})
+	gotSibling := cSibling.modelCacheBytes(now)
+	if gotSibling == nil || *gotSibling != 4352 {
+		t.Fatalf("sibling fallback modelCacheBytes=%v, want 4352", gotSibling)
+	}
+
+	// 3. Returns nil when directories are unset or missing.
+	cMissing := NewCollector(Options{LocalModelsBaseDir: filepath.Join(root, "does-not-exist")})
+	if gotMissing := cMissing.modelCacheBytes(now); gotMissing != nil {
+		t.Fatalf("missing dir modelCacheBytes=%v, want nil", *gotMissing)
+	}
+}
+
+func TestDiscreteHardwareTelemetrySemantics(t *testing.T) {
+	const GiB = uint64(1 << 30)
+	vramTotal := 16 * GiB
+	vramUsed := 2 * GiB
+	vramFree := 14 * GiB
+	gpuW := 18.5
+	limitW := 165.0
+	threads := uint64(12)
+
+	idleRaw := rawHostSample{
+		Architecture:            "discrete",
+		Platform:                "windows",
+		Arch:                    "x86_64",
+		Hostname:                "home-win",
+		ChipName:                "AMD Ryzen 5 7500F 6-Core Processor",
+		OSLabel:                 "Windows 11 Pro 24H2 (26200)",
+		GPUName:                 "NVIDIA GeForce RTX 4060 Ti",
+		SystemRAMTotalBytes:     32 * GiB,
+		SystemRAMAvailableBytes: 20 * GiB,
+		VRAMTotalBytes:          &vramTotal,
+		VRAMUsedBytes:           &vramUsed,
+		VRAMFreeBytes:           &vramFree,
+		CPUTotalCores:           6,
+		CPULogicalThreads:       &threads,
+		Power: wire.SystemTelemetryPower{
+			GpuW:   &gpuW,
+			LimitW: &limitW,
+		},
+	}
+
+	idleHW := buildHardwareTelemetry(idleRaw, nil, nil, 0, 0, 0, 0)
+	if idleHW.Bandwidth.TheoreticalGbS == nil || *idleHW.Bandwidth.TheoreticalGbS != 288 {
+		t.Fatalf("expected RTX 4060 Ti 288 GB/s ceiling, got %+v", idleHW.Bandwidth)
+	}
+	if idleHW.Bandwidth.Source != "spec" || idleHW.Bandwidth.EffectiveDecodeGbS != nil || idleHW.Bandwidth.UtilizationPct != nil {
+		t.Fatalf("expected idle known-SKU bandwidth source=spec without effective rate, got %+v", idleHW.Bandwidth)
+	}
+	if idleHW.Memory.OsWiredBytes != nil || idleHW.Memory.CompressedBytes != nil {
+		t.Fatalf("expected UMA-only fields omitted on discrete host, got wired=%v compressed=%v", idleHW.Memory.OsWiredBytes, idleHW.Memory.CompressedBytes)
+	}
+	if idleHW.Power.PackageW != nil || idleHW.Power.GpuW == nil || *idleHW.Power.GpuW != 18.5 {
+		t.Fatalf("expected honest GPU power without package_w alias, got %+v", idleHW.Power)
+	}
+	if idleHW.Cpu.TotalCores != 6 || idleHW.Cpu.LogicalThreads == nil || *idleHW.Cpu.LogicalThreads != 12 {
+		t.Fatalf("expected 6C/12T CPU metadata, got %+v", idleHW.Cpu)
+	}
+	encoded, err := json.Marshal(idleHW.Memory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "os_wired_bytes") || strings.Contains(string(encoded), "compressed_bytes") {
+		t.Fatalf("discrete memory JSON must omit UMA-only fields: %s", encoded)
+	}
+
+	// Active decode transitions bandwidth source to "estimated".
+	activeHW := buildHardwareTelemetry(idleRaw, nil, nil, 8*GiB, 1*GiB, 1*GiB, 25.0)
+	if activeHW.Bandwidth.Source != "estimated" || activeHW.Bandwidth.EffectiveDecodeGbS == nil || activeHW.Bandwidth.UtilizationPct == nil {
+		t.Fatalf("expected estimated bandwidth while decoding, got %+v", activeHW.Bandwidth)
+	}
+
+	// Guard VRAM arithmetic when WDDM under-reports vram_used_bytes below inferenceTotal,
+	// and even when inferenceTotal exceeds vramTotal (hybrid spillover).
+	wddmUnder := buildHardwareTelemetry(idleRaw, nil, nil, 10*GiB, 1*GiB, 1*GiB, 0)
+	if wddmUnder.Memory.ActiveAppsBytes != 0 || wddmUnder.Memory.UsedBytes != 12*GiB || wddmUnder.Memory.FreeHeadroomBytes != 4*GiB {
+		t.Fatalf("unexpected WDDM under-report memory math: %+v", wddmUnder.Memory)
+	}
+	spillover := buildHardwareTelemetry(idleRaw, nil, nil, 16*GiB, 2*GiB, 1*GiB, 0)
+	sumSegments := spillover.Memory.ModelWeightsBytes + spillover.Memory.KvCacheBytes + spillover.Memory.ComputeBufferBytes + spillover.Memory.ActiveAppsBytes + spillover.Memory.FreeHeadroomBytes
+	if spillover.Memory.ActiveAppsBytes != 0 || spillover.Memory.UsedBytes != 16*GiB || sumSegments != 16*GiB {
+		t.Fatalf("unexpected spillover memory math: %+v (sum=%d)", spillover.Memory, sumSegments)
+	}
+
+	// Windows host without nvidia-smi stays "host" (never falsely "uma") and omits macOS-only wired/compressed fields.
+	winHostRaw := rawHostSample{
+		Architecture:            "host",
+		Platform:                "windows",
+		Arch:                    "x86_64",
+		Hostname:                "home-win-no-smi",
+		ChipName:                "AMD Ryzen 5 7500F 6-Core Processor",
+		OSLabel:                 "Windows 11 Pro 24H2 (26200)",
+		SystemRAMTotalBytes:     32 * GiB,
+		SystemRAMAvailableBytes: 18 * GiB,
+		ActiveAppsBytes:         14 * GiB,
+		CPUTotalCores:           6,
+		CPULogicalThreads:       &threads,
+	}
+	winHostHW := buildHardwareTelemetry(winHostRaw, nil, nil, 0, 0, 0, 0)
+	if winHostHW.Architecture != "host" {
+		t.Fatalf("expected host architecture when no GPU telemetry, got %q", winHostHW.Architecture)
+	}
+	if winHostHW.Memory.OsWiredBytes != nil || winHostHW.Memory.CompressedBytes != nil {
+		t.Fatalf("expected Windows host architecture to omit UMA-only fields, got wired=%v compressed=%v", winHostHW.Memory.OsWiredBytes, winHostHW.Memory.CompressedBytes)
+	}
+	if winHostHW.Memory.TotalBytes != 32*GiB || winHostHW.Memory.UsedBytes != 14*GiB || winHostHW.Memory.FreeHeadroomBytes != 18*GiB {
+		t.Fatalf("unexpected Windows host memory breakdown: %+v", winHostHW.Memory)
+	}
+}
+
+func TestCollectorLiveHostSmoke(t *testing.T) {
+	collector := NewCollector(Options{SampleCacheTTL: 1 * time.Millisecond})
+	snap1, err := collector.Sample(context.Background())
+	if err != nil {
+		t.Fatalf("live host first Sample failed: %v", err)
+	}
+	if snap1.ObservedAt == "" {
 		t.Fatalf("missing observed_at")
 	}
-	if snap.Hardware.Memory.TotalBytes == 0 {
-		t.Fatalf("expected non-zero host memory total_bytes, got %+v", snap.Hardware.Memory)
+	if snap1.Hardware.Memory.TotalBytes == 0 {
+		t.Fatalf("expected non-zero host memory total_bytes, got %+v", snap1.Hardware.Memory)
 	}
-	if snap.Hardware.Cpu.TotalCores == 0 {
-		t.Fatalf("expected non-zero cpu total_cores, got %+v", snap.Hardware.Cpu)
+	if snap1.Hardware.Cpu.TotalCores == 0 {
+		t.Fatalf("expected non-zero cpu total_cores, got %+v", snap1.Hardware.Cpu)
 	}
-	raw, err := json.Marshal(snap)
+
+	time.Sleep(120 * time.Millisecond)
+	snap2, err := collector.Sample(context.Background())
+	if err != nil {
+		t.Fatalf("live host second Sample failed: %v", err)
+	}
+	if snap2.SampleIntervalMs == nil || *snap2.SampleIntervalMs == 0 {
+		t.Fatalf("expected positive sample_interval_ms on second sample, got %v", snap2.SampleIntervalMs)
+	}
+	if snap2.Hardware.Cpu.LoadPct == nil {
+		t.Fatalf("expected non-nil cpu.load_pct after two samples, got %+v", snap2.Hardware.Cpu)
+	}
+	if *snap2.Hardware.Cpu.LoadPct < 0 || *snap2.Hardware.Cpu.LoadPct > 100 {
+		t.Fatalf("expected cpu.load_pct in [0, 100], got %v", *snap2.Hardware.Cpu.LoadPct)
+	}
+	raw, err := json.Marshal(snap2)
 	if err != nil {
 		t.Fatalf("marshal snapshot: %v", err)
 	}

@@ -9,6 +9,7 @@ import { useState } from "react";
 import type { HerdrCoreClient } from "@/features/herdr-core/api";
 import { HerdrCoreCockpitCard } from "@/features/herdr-core/herdr-core-cockpit-card";
 import type { TeamHubApi } from "@/features/teamhub/teamhub-api";
+import type { Language } from "@/i18n/language";
 import { useTranslation } from "@/i18n/use-translation";
 import { cn } from "@/lib/cn";
 
@@ -24,6 +25,7 @@ import {
 import { systemMonitorMessages as m } from "./system-monitor.messages";
 import type {
   SystemTelemetryBottleneck,
+  SystemTelemetryHardware,
   SystemTelemetrySnapshot,
 } from "./system-monitor-queries";
 
@@ -115,11 +117,6 @@ export function MagpieCockpit({
           active: formatInteger(inference.active_requests_count, language),
         });
 
-  const hasEffectiveBandwidth =
-    bandwidth.source === "estimated" && bandwidth.effective_decode_gb_s != null;
-  const hasTheoreticalBandwidth =
-    bandwidth.theoretical_gb_s != null && bandwidth.theoretical_gb_s > 0;
-
   return (
     <LazyMotion features={domAnimation}>
       <div className="space-y-4" data-cockpit="magpie">
@@ -204,48 +201,7 @@ export function MagpieCockpit({
               </div>
 
               {/* Effective Memory Bandwidth */}
-              <div className="min-w-0">
-                <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
-                  <span>{t(m.memoryBandwidth)}</span>
-                  {hasEffectiveBandwidth ? (
-                    <span
-                      className="rounded bg-muted px-1 py-0.2 font-mono text-[10px] text-muted-foreground"
-                      data-bandwidth-estimated=""
-                    >
-                      {t(m.bandwidthEstimatedBadge)}
-                    </span>
-                  ) : null}
-                </div>
-                <div className="mt-0.5 flex items-baseline gap-1 tabular-nums">
-                  <span className="text-xl font-semibold tracking-tight text-foreground">
-                    {hasEffectiveBandwidth
-                      ? formatInteger(bandwidth.effective_decode_gb_s, language)
-                      : t(m.unavailableValue)}
-                  </span>
-                  {hasTheoreticalBandwidth ? (
-                    <span className="text-xs text-muted-foreground">
-                      / {formatInteger(bandwidth.theoretical_gb_s, language)}{" "}
-                      GB/s
-                    </span>
-                  ) : null}
-                </div>
-                <div className="truncate text-[11px] tabular-nums text-muted-foreground">
-                  {hasEffectiveBandwidth &&
-                  hasTheoreticalBandwidth &&
-                  bandwidth.utilization_pct != null
-                    ? t(m.bandwidthEstimatedNote, {
-                        pct: formatInteger(bandwidth.utilization_pct, language),
-                      })
-                    : hasTheoreticalBandwidth
-                      ? t(m.bandwidthIdleNote, {
-                          peak: formatInteger(
-                            bandwidth.theoretical_gb_s,
-                            language,
-                          ),
-                        })
-                      : t(m.bandwidthUnavailable)}
-                </div>
-              </div>
+              <BandwidthMetricTile bandwidth={bandwidth} language={language} />
 
               {/* Session Odometer */}
               <div className="min-w-0">
@@ -343,5 +299,67 @@ export function MagpieCockpit({
         ) : null}
       </div>
     </LazyMotion>
+  );
+}
+
+function BandwidthMetricTile({
+  bandwidth,
+  language,
+}: {
+  readonly bandwidth: SystemTelemetryHardware["bandwidth"];
+  readonly language: Language;
+}) {
+  const { t } = useTranslation();
+  const hasEffectiveBandwidth =
+    bandwidth.source === "estimated" && bandwidth.effective_decode_gb_s != null;
+  const hasTheoreticalBandwidth =
+    bandwidth.theoretical_gb_s != null && bandwidth.theoretical_gb_s > 0;
+
+  return (
+    <div className="min-w-0">
+      <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+        <span>{t(m.memoryBandwidth)}</span>
+        {hasEffectiveBandwidth ? (
+          <span
+            className="rounded bg-muted px-1 py-0.2 font-mono text-[10px] text-muted-foreground"
+            data-bandwidth-estimated=""
+          >
+            {t(m.bandwidthEstimatedBadge)}
+          </span>
+        ) : hasTheoreticalBandwidth ? (
+          <span
+            className="rounded bg-muted px-1 py-0.2 font-mono text-[10px] text-muted-foreground"
+            data-bandwidth-spec=""
+          >
+            {t(m.bandwidthSpecBadge)}
+          </span>
+        ) : null}
+      </div>
+      <div className="mt-0.5 flex items-baseline gap-1 tabular-nums">
+        <span className="text-xl font-semibold tracking-tight text-foreground">
+          {hasEffectiveBandwidth
+            ? formatInteger(bandwidth.effective_decode_gb_s, language)
+            : t(m.unavailableValue)}
+        </span>
+        {hasTheoreticalBandwidth ? (
+          <span className="text-xs text-muted-foreground">
+            / {formatInteger(bandwidth.theoretical_gb_s, language)} GB/s
+          </span>
+        ) : null}
+      </div>
+      <div className="truncate text-[11px] tabular-nums text-muted-foreground">
+        {hasEffectiveBandwidth &&
+        hasTheoreticalBandwidth &&
+        bandwidth.utilization_pct != null
+          ? t(m.bandwidthEstimatedNote, {
+              pct: formatInteger(bandwidth.utilization_pct, language),
+            })
+          : hasTheoreticalBandwidth
+            ? t(m.bandwidthIdleNote, {
+                peak: formatInteger(bandwidth.theoretical_gb_s, language),
+              })
+            : t(m.bandwidthUnavailable)}
+      </div>
+    </div>
   );
 }

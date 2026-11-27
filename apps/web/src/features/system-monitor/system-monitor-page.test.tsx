@@ -580,8 +580,197 @@ describe("SystemMonitorPage (Magpie Cockpit)", () => {
       container.querySelector("[data-working-set-marker]"),
     ).not.toBeInTheDocument();
     expect(screen.getByText("342.0 / 450 W")).toBeVisible();
+    expect(screen.getByText("Package Power")).toBeVisible();
     expect(screen.getByText("68°C / 88°C")).toBeVisible();
     expect(screen.getByText("Fan 55%")).toBeVisible();
+  });
+
+  it("renders Windows discrete GPU power, physical cores/threads, spec bandwidth ceiling, and WDDM-safe VRAM", async () => {
+    const sse = createFakeEventSourceHarness();
+    const winSnap: SystemTelemetrySnapshot = {
+      observed_at: "2026-11-27T01:30:00Z",
+      sample_interval_ms: 1000,
+      hardware: {
+        architecture: "discrete",
+        platform: "windows",
+        arch: "x86_64",
+        hostname: "home-win",
+        chip_name: "AMD Ryzen 5 7500F 6-Core Processor",
+        os_label: "Windows 11 Pro 24H2 (26200)",
+        gpu_name: "NVIDIA GeForce RTX 4060 Ti",
+        memory: {
+          total_bytes: 16 * GiB,
+          used_bytes: 12 * GiB,
+          vram_total_bytes: 16 * GiB,
+          // Simulate WDDM under-reporting below model weights + KV + compute.
+          vram_used_bytes: 10 * GiB,
+          vram_free_bytes: 6 * GiB,
+          model_weights_bytes: 10 * GiB,
+          kv_cache_bytes: 1.5 * GiB,
+          compute_buffer_bytes: 0.5 * GiB,
+          active_apps_bytes: 0,
+          free_headroom_bytes: 4 * GiB,
+          system_ram_total_bytes: 32 * GiB,
+          system_ram_used_bytes: 14 * GiB,
+          system_ram_available_bytes: 18 * GiB,
+          swap_used_bytes: Math.round(1.7 * GiB),
+          swap_total_bytes: 4 * GiB,
+        },
+        bandwidth: {
+          theoretical_gb_s: 288,
+          source: "spec",
+        },
+        disk: {
+          total_bytes: 1000 * GiB,
+          free_bytes: 320 * GiB,
+          model_cache_bytes: 14 * GiB,
+        },
+        cpu: {
+          total_cores: 6,
+          logical_threads: 12,
+          load_pct: 14,
+          clusters: [
+            {
+              id: "cpu0",
+              name: "AMD Ryzen 5 7500F 6-Core Processor",
+              kind: "generic",
+              cores: 6,
+              load_pct: 14,
+            },
+          ],
+        },
+        gpu: {
+          util_pct: 3,
+          freq_mhz: 2535,
+        },
+        power: {
+          gpu_w: 19.5,
+          limit_w: 165,
+        },
+        thermal: {
+          gpu_temp_c: 42,
+          throttle_temp_c: 83,
+          state: "nominal",
+          throttling: false,
+          fan_pct: 0,
+        },
+      },
+      inference: {
+        prefill_tok_s: 0,
+        decode_tok_s: 0,
+        active_requests_count: 0,
+        queued_requests_count: 0,
+        active_slots: 0,
+        total_slots: 0,
+        kv_cache_tokens_used: 0,
+        kv_cache_tokens_capacity: 0,
+        total_tokens_session: 0,
+        loaded_models: [],
+        slots: [],
+        requests: [],
+        bottleneck: {
+          kind: "idle",
+          severity: "info",
+          reason_code: "no_active_inference",
+        },
+      },
+    };
+
+    const runtime = setupRuntime({
+      "comp-win": makeView("comp-win", "home-win", { telemetry: winSnap }),
+    });
+
+    const { container } = renderSystemMonitor({
+      eventSourceFactory: sse.factory,
+      runtime,
+    });
+
+    expect(await screen.findByText("VRAM Pool")).toBeVisible();
+    expect(
+      screen.getByText(
+        "AMD Ryzen 5 7500F 6-Core Processor · Windows 11 Pro 24H2 (26200)",
+      ),
+    ).toBeVisible();
+    expect(screen.getByText("CPU Load (6 cores / 12 threads)")).toBeVisible();
+    expect(
+      screen.getByText("AMD Ryzen 5 7500F 6-Core Processor (6c)"),
+    ).toBeVisible();
+    expect(screen.getByText("GPU Power")).toBeVisible();
+    expect(screen.getByText("19.5 / 165 W")).toBeVisible();
+    expect(screen.getByText("42°C / 83°C")).toBeVisible();
+    expect(container.querySelector("[data-bandwidth-spec]")).toHaveTextContent(
+      "spec",
+    );
+    expect(
+      container.querySelector("[data-bandwidth-estimated]"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("Ceiling 288 GB/s · Idle")).toBeVisible();
+    expect(screen.getByText("12.0 GB used of 16.0 GB")).toBeVisible();
+
+    cleanup();
+    await setLanguage("zh-CN");
+    renderSystemMonitor({
+      eventSourceFactory: sse.factory,
+      runtime,
+    });
+    expect(
+      await screen.findByText(zhCN.systemMonitor.meterGpuPower),
+    ).toBeVisible();
+    expect(
+      screen.getByText(
+        zhCN.systemMonitor.meterCpuLoadCoresThreads
+          .replace("{cores}", "6")
+          .replace("{threads}", "12"),
+      ),
+    ).toBeVisible();
+  });
+
+  it("renders host architecture as System Memory without UMA working-set marker or duplicate host RAM bar", async () => {
+    const sse = createFakeEventSourceHarness();
+    const hostSnap = umaSnapshot();
+    hostSnap.hardware = {
+      ...hostSnap.hardware,
+      architecture: "host",
+      platform: "windows",
+      arch: "x86_64",
+      chip_name: "AMD Ryzen 5 7500F 6-Core Processor",
+      os_label: "Windows 11 Pro 24H2 (26200)",
+      memory: {
+        total_bytes: 32 * GiB,
+        used_bytes: 14 * GiB,
+        model_weights_bytes: 0,
+        kv_cache_bytes: 0,
+        compute_buffer_bytes: 0,
+        active_apps_bytes: 14 * GiB,
+        free_headroom_bytes: 18 * GiB,
+        system_ram_total_bytes: 32 * GiB,
+        system_ram_used_bytes: 14 * GiB,
+        system_ram_available_bytes: 18 * GiB,
+        memory_pressure: "normal",
+      },
+    };
+    const runtime = setupRuntime({
+      "comp-host": makeView("comp-host", "CPU-only PC", {
+        telemetry: hostSnap,
+      }),
+    });
+
+    const { container } = renderSystemMonitor({
+      eventSourceFactory: sse.factory,
+      runtime,
+    });
+
+    expect(await screen.findByText("System Memory")).toBeVisible();
+    expect(screen.queryByText("Unified Memory Pool")).not.toBeInTheDocument();
+    expect(screen.queryByText("VRAM Pool")).not.toBeInTheDocument();
+    expect(
+      container.querySelector("[data-working-set-marker]"),
+    ).not.toBeInTheDocument();
+    expect(
+      container.querySelector("[data-discrete-host-ram]"),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("OS Wired")).not.toBeInTheDocument();
+    expect(screen.queryByText("Compressed")).not.toBeInTheDocument();
   });
 
   it("toggles Compact and Verbose modes and expands request waterfalls", async () => {

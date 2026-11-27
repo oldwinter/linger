@@ -43,13 +43,21 @@ function pressureToneClass(
 
 function buildMemorySegments(
   memory: SystemTelemetryMemory,
-  isUma: boolean,
+  mode: "uma" | "discrete" | "host",
   primaryTotal: number,
   primaryUsed: number,
   kvNote: string,
   t: Translate,
 ): MemorySegment[] {
-  if (isUma) {
+  if (mode === "discrete") {
+    const modelTotal =
+      memory.model_weights_bytes +
+      memory.kv_cache_bytes +
+      memory.compute_buffer_bytes;
+    const otherGpu = Math.max(0, primaryUsed - modelTotal);
+    const allocated = Math.min(primaryTotal, modelTotal + otherGpu);
+    const freeVram = Math.max(0, primaryTotal - allocated);
+
     return [
       {
         id: "weights",
@@ -73,47 +81,24 @@ function buildMemorySegments(
         note: t(m.segmentComputeNote),
       },
       {
-        id: "wired",
-        label: t(m.segmentWired),
-        bytes: memory.os_wired_bytes,
-        colorVar: "var(--telemetry-wired)",
-        note: t(m.segmentWiredNote),
-      },
-      {
-        id: "apps",
-        label: t(m.segmentApps),
-        bytes: memory.active_apps_bytes,
+        id: "other-gpu",
+        label: t(m.segmentOtherGpu),
+        bytes: otherGpu,
         colorVar: "var(--telemetry-apps)",
-        note: t(m.segmentAppsNote),
-      },
-      {
-        id: "compressed",
-        label: t(m.segmentCompressed),
-        bytes: memory.compressed_bytes,
-        colorVar: "var(--telemetry-compressed)",
-        note: t(m.segmentCompressedNote),
-        hatch: "compressed",
+        note: t(m.segmentOtherGpuNote),
       },
       {
         id: "free",
-        label: t(m.segmentFree),
-        bytes: memory.free_headroom_bytes,
+        label: t(m.segmentFreeVram),
+        bytes: freeVram,
         colorVar: "var(--telemetry-free)",
-        note: t(m.segmentFreeNote),
+        note: t(m.segmentFreeVramNote),
         hatch: "free",
       },
     ];
   }
 
-  const modelTotal =
-    memory.model_weights_bytes +
-    memory.kv_cache_bytes +
-    memory.compute_buffer_bytes;
-  const otherGpu = Math.max(0, primaryUsed - modelTotal);
-  const freeVram =
-    memory.vram_free_bytes ?? Math.max(0, primaryTotal - primaryUsed);
-
-  return [
+  const segments: MemorySegment[] = [
     {
       id: "weights",
       label: t(m.segmentWeights),
@@ -135,22 +120,42 @@ function buildMemorySegments(
       colorVar: "var(--telemetry-compute)",
       note: t(m.segmentComputeNote),
     },
-    {
-      id: "other-gpu",
-      label: t(m.segmentOtherGpu),
-      bytes: otherGpu,
-      colorVar: "var(--telemetry-apps)",
-      note: t(m.segmentOtherGpuNote),
-    },
-    {
-      id: "free",
-      label: t(m.segmentFreeVram),
-      bytes: freeVram,
-      colorVar: "var(--telemetry-free)",
-      note: t(m.segmentFreeVramNote),
-      hatch: "free",
-    },
   ];
+  if (mode === "uma" || (memory.os_wired_bytes ?? 0) > 0) {
+    segments.push({
+      id: "wired",
+      label: t(m.segmentWired),
+      bytes: memory.os_wired_bytes ?? 0,
+      colorVar: "var(--telemetry-wired)",
+      note: t(m.segmentWiredNote),
+    });
+  }
+  segments.push({
+    id: "apps",
+    label: t(m.segmentApps),
+    bytes: memory.active_apps_bytes,
+    colorVar: "var(--telemetry-apps)",
+    note: t(m.segmentAppsNote),
+  });
+  if (mode === "uma" || (memory.compressed_bytes ?? 0) > 0) {
+    segments.push({
+      id: "compressed",
+      label: t(m.segmentCompressed),
+      bytes: memory.compressed_bytes ?? 0,
+      colorVar: "var(--telemetry-compressed)",
+      note: t(m.segmentCompressedNote),
+      hatch: "compressed",
+    });
+  }
+  segments.push({
+    id: "free",
+    label: t(m.segmentFree),
+    bytes: memory.free_headroom_bytes,
+    colorVar: "var(--telemetry-free)",
+    note: t(m.segmentFreeNote),
+    hatch: "free",
+  });
+  return segments;
 }
 
 export function MemoryPoolPanel({
@@ -165,12 +170,24 @@ export function MemoryPoolPanel({
 
   const { memory } = hardware;
   const isUma = hardware.architecture === "uma";
-  const primaryTotal = isUma
-    ? memory.total_bytes
-    : (memory.vram_total_bytes ?? memory.total_bytes);
-  const primaryUsed = isUma
-    ? memory.used_bytes
-    : (memory.vram_used_bytes ?? memory.used_bytes);
+  const isDiscrete =
+    hardware.architecture === "discrete" &&
+    memory.vram_total_bytes != null &&
+    memory.vram_total_bytes > 0;
+  const mode: "uma" | "discrete" | "host" = isUma
+    ? "uma"
+    : isDiscrete
+      ? "discrete"
+      : "host";
+  const primaryTotal = isDiscrete
+    ? (memory.vram_total_bytes ?? memory.total_bytes)
+    : memory.total_bytes;
+  const primaryUsed = isDiscrete
+    ? Math.min(
+        primaryTotal,
+        Math.max(memory.used_bytes, memory.vram_used_bytes ?? 0),
+      )
+    : memory.used_bytes;
 
   const kvNote =
     inference.kv_cache_tokens_capacity > 0 &&
@@ -183,7 +200,7 @@ export function MemoryPoolPanel({
 
   const segments = buildMemorySegments(
     memory,
-    isUma,
+    mode,
     primaryTotal,
     primaryUsed,
     kvNote,
@@ -232,7 +249,11 @@ export function MemoryPoolPanel({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 className="text-sm font-semibold text-foreground">
-            {isUma ? t(m.unifiedMemoryTitle) : t(m.discreteVramTitle)}
+            {isUma
+              ? t(m.unifiedMemoryTitle)
+              : isDiscrete
+                ? t(m.discreteVramTitle)
+                : t(m.systemMemoryTitle)}
           </h2>
           <p className="text-xs tabular-nums text-muted-foreground">
             {t(m.memoryUsedOfTotal, {
@@ -247,7 +268,7 @@ export function MemoryPoolPanel({
                   ),
                 })}`
               : ""}
-            {isUma
+            {!isDiscrete
               ? ` · ${t(m.memorySystemRamFree, {
                   free: formatGiB(memory.system_ram_available_bytes, language),
                 })}`
@@ -283,7 +304,7 @@ export function MemoryPoolPanel({
         workingSetTooltip={t(m.memoryWorkingSetTooltip)}
       />
 
-      {!isUma && memory.system_ram_total_bytes > 0 ? (
+      {isDiscrete && memory.system_ram_total_bytes > 0 ? (
         <HostSystemRamBar language={language} memory={memory} />
       ) : null}
     </section>

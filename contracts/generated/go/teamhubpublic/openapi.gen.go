@@ -3998,6 +3998,7 @@ func (e SystemTelemetryArch) Valid() bool {
 // Defines values for SystemTelemetryArchitecture.
 const (
 	SystemTelemetryArchitectureDiscrete SystemTelemetryArchitecture = "discrete"
+	SystemTelemetryArchitectureHost     SystemTelemetryArchitecture = "host"
 	SystemTelemetryArchitectureUma      SystemTelemetryArchitecture = "uma"
 )
 
@@ -4005,6 +4006,8 @@ const (
 func (e SystemTelemetryArchitecture) Valid() bool {
 	switch e {
 	case SystemTelemetryArchitectureDiscrete:
+		return true
+	case SystemTelemetryArchitectureHost:
 		return true
 	case SystemTelemetryArchitectureUma:
 		return true
@@ -4016,6 +4019,7 @@ func (e SystemTelemetryArchitecture) Valid() bool {
 // Defines values for SystemTelemetryBandwidthSource.
 const (
 	SystemTelemetryBandwidthSourceEstimated   SystemTelemetryBandwidthSource = "estimated"
+	SystemTelemetryBandwidthSourceSpec        SystemTelemetryBandwidthSource = "spec"
 	SystemTelemetryBandwidthSourceUnavailable SystemTelemetryBandwidthSource = "unavailable"
 )
 
@@ -4023,6 +4027,8 @@ const (
 func (e SystemTelemetryBandwidthSource) Valid() bool {
 	switch e {
 	case SystemTelemetryBandwidthSourceEstimated:
+		return true
+	case SystemTelemetryBandwidthSourceSpec:
 		return true
 	case SystemTelemetryBandwidthSourceUnavailable:
 		return true
@@ -10106,20 +10112,20 @@ type StateVector = string
 // SystemTelemetryArch defines model for SystemTelemetryArch.
 type SystemTelemetryArch string
 
-// SystemTelemetryArchitecture Host memory architecture class.
+// SystemTelemetryArchitecture Host memory architecture class. uma is verified unified memory (e.g. Apple Silicon); discrete has dedicated GPU VRAM separate from host RAM; host is standard system RAM without verified UMA or discrete VRAM telemetry.
 type SystemTelemetryArchitecture string
 
 // SystemTelemetryBandwidth defines model for SystemTelemetryBandwidth.
 type SystemTelemetryBandwidth struct {
 	EffectiveDecodeGbS *float32 `json:"effective_decode_gb_s,omitempty"`
 
-	// Source Provenance of effective decode bandwidth. estimated means derived from active model weight footprint multiplied by live decode tokens/s.
+	// Source Provenance of memory bandwidth telemetry. estimated means effective decode bandwidth is derived from active model weight footprint multiplied by live decode tokens/s; spec means the hardware theoretical peak bandwidth is known while no model is actively decoding; unavailable means neither effective nor theoretical peak bandwidth is known.
 	Source         SystemTelemetryBandwidthSource `json:"source"`
 	TheoreticalGbS *float32                       `json:"theoretical_gb_s,omitempty"`
 	UtilizationPct *float32                       `json:"utilization_pct,omitempty"`
 }
 
-// SystemTelemetryBandwidthSource Provenance of effective decode bandwidth. estimated means derived from active model weight footprint multiplied by live decode tokens/s.
+// SystemTelemetryBandwidthSource Provenance of memory bandwidth telemetry. estimated means effective decode bandwidth is derived from active model weight footprint multiplied by live decode tokens/s; spec means the hardware theoretical peak bandwidth is known while no model is actively decoding; unavailable means neither effective nor theoretical peak bandwidth is known.
 type SystemTelemetryBandwidthSource string
 
 // SystemTelemetryBottleneck defines model for SystemTelemetryBottleneck.
@@ -10138,10 +10144,11 @@ type SystemTelemetryBottleneckSeverity string
 
 // SystemTelemetryCpu defines model for SystemTelemetryCpu.
 type SystemTelemetryCpu struct {
-	Clusters   []SystemTelemetryCpuCluster `json:"clusters"`
-	LoadAvg    *[]float32                  `json:"load_avg,omitempty"`
-	LoadPct    *float32                    `json:"load_pct,omitempty"`
-	TotalCores int                         `json:"total_cores"`
+	Clusters       []SystemTelemetryCpuCluster `json:"clusters"`
+	LoadAvg        *[]float32                  `json:"load_avg,omitempty"`
+	LoadPct        *float32                    `json:"load_pct,omitempty"`
+	LogicalThreads *int                        `json:"logical_threads,omitempty"`
+	TotalCores     int                         `json:"total_cores"`
 }
 
 // SystemTelemetryCpuCluster defines model for SystemTelemetryCpuCluster.
@@ -10199,7 +10206,7 @@ type SystemTelemetryHardware struct {
 	AneCores *int                `json:"ane_cores,omitempty"`
 	Arch     SystemTelemetryArch `json:"arch"`
 
-	// Architecture Host memory architecture class.
+	// Architecture Host memory architecture class. uma is verified unified memory (e.g. Apple Silicon); discrete has dedicated GPU VRAM separate from host RAM; host is standard system RAM without verified UMA or discrete VRAM telemetry.
 	Architecture SystemTelemetryArchitecture `json:"architecture"`
 	Bandwidth    SystemTelemetryBandwidth    `json:"bandwidth"`
 	ChipName     string                      `json:"chip_name"`
@@ -10261,13 +10268,13 @@ type SystemTelemetryLoadedModel struct {
 // SystemTelemetryMemory defines model for SystemTelemetryMemory.
 type SystemTelemetryMemory struct {
 	ActiveAppsBytes            int64                          `json:"active_apps_bytes"`
-	CompressedBytes            int64                          `json:"compressed_bytes"`
+	CompressedBytes            *int64                         `json:"compressed_bytes,omitempty"`
 	ComputeBufferBytes         int64                          `json:"compute_buffer_bytes"`
 	FreeHeadroomBytes          int64                          `json:"free_headroom_bytes"`
 	KvCacheBytes               int64                          `json:"kv_cache_bytes"`
 	MemoryPressure             *SystemTelemetryMemoryPressure `json:"memory_pressure,omitempty"`
 	ModelWeightsBytes          int64                          `json:"model_weights_bytes"`
-	OsWiredBytes               int64                          `json:"os_wired_bytes"`
+	OsWiredBytes               *int64                         `json:"os_wired_bytes,omitempty"`
 	RecommendedWorkingSetBytes *int64                         `json:"recommended_working_set_bytes,omitempty"`
 	SwapIoMbS                  *float32                       `json:"swap_io_mb_s,omitempty"`
 	SwapTotalBytes             *int64                         `json:"swap_total_bytes,omitempty"`

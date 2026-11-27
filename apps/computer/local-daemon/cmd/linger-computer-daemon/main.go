@@ -161,9 +161,10 @@ func run(args []string) (resultErr error) {
 	native.ConfigureAntigravityHookTempBase(operationTempBase)
 	defer func() { _ = native.CloseAntigravitySharedHookEndpoint() }()
 	baseProviderEnvironment := runtimeProviderEnvironment(environment, computer.GatewayToken, computer.CodexAuthFile)
-	var localModelsStateDir string
+	var localModelsStateDir, localModelsBaseDir string
 	if computer.LocalModels != nil {
 		localModelsStateDir = computer.LocalModels.StateDirectory
+		localModelsBaseDir = computer.LocalModels.BaseDirectory
 	}
 	currentProviderEnvironment := func() map[string]string {
 		return localmodels.OverlayEnvironment(baseProviderEnvironment, localModelsStateDir)
@@ -523,6 +524,7 @@ func run(args []string) (resultErr error) {
 	telemetryCollector := telemetry.NewCollector(telemetry.Options{
 		SnapshotLocalModels: localModels.Snapshot,
 		LocalModelsStateDir: localModelsStateDir,
+		LocalModelsBaseDir:  localModelsBaseDir,
 	})
 	antigravityHome, _ := localworkspace.AntigravitySourceHome(providerEnvironment)
 	localDaemon, err = daemon.New(daemon.Options{

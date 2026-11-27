@@ -90,23 +90,39 @@ function buildMeters(
 
   const cpuLabel =
     hardware.cpu.total_cores > 0
-      ? t(m.meterCpuLoad, {
-          cores: formatInteger(hardware.cpu.total_cores, language),
-        })
+      ? hardware.cpu.logical_threads != null &&
+        hardware.cpu.logical_threads > hardware.cpu.total_cores
+        ? t(m.meterCpuLoadCoresThreads, {
+            cores: formatInteger(hardware.cpu.total_cores, language),
+            threads: formatInteger(hardware.cpu.logical_threads, language),
+          })
+        : t(m.meterCpuLoad, {
+            cores: formatInteger(hardware.cpu.total_cores, language),
+          })
       : t(m.meterCpuLoadSimple);
 
-  const packagePowerValue =
-    hardware.power.package_w != null
+  const hasPackagePower = hardware.power.package_w != null;
+  const hasGpuPower = !hasPackagePower && hardware.power.gpu_w != null;
+  const activePowerW = hasPackagePower
+    ? hardware.power.package_w
+    : hasGpuPower
+      ? hardware.power.gpu_w
+      : null;
+
+  const powerLabel = hasGpuPower ? t(m.meterGpuPower) : t(m.meterPackagePower);
+
+  const powerValue =
+    activePowerW != null
       ? hardware.power.limit_w != null && hardware.power.limit_w > 0
-        ? `${hardware.power.package_w.toFixed(1)} / ${Math.round(hardware.power.limit_w)} W`
-        : `${hardware.power.package_w.toFixed(1)} W`
+        ? `${activePowerW.toFixed(1)} / ${Math.round(hardware.power.limit_w)} W`
+        : `${activePowerW.toFixed(1)} W`
       : t(m.sensorUnavailable);
 
-  const packagePowerPct =
-    hardware.power.package_w != null &&
+  const powerPct =
+    activePowerW != null &&
     hardware.power.limit_w != null &&
     hardware.power.limit_w > 0
-      ? clampPct((hardware.power.package_w / hardware.power.limit_w) * 100)
+      ? clampPct((activePowerW / hardware.power.limit_w) * 100)
       : null;
 
   const activeTempC =
@@ -172,9 +188,9 @@ function buildMeters(
     },
     {
       id: "power",
-      label: t(m.meterPackagePower),
-      value: packagePowerValue,
-      pct: packagePowerPct,
+      label: powerLabel,
+      value: powerValue,
+      pct: powerPct,
       warnAt: 80,
       dangerAt: 94,
     },

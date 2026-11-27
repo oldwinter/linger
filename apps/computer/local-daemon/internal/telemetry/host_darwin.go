@@ -5,6 +5,7 @@ package telemetry
 import (
 	"context"
 	"os"
+	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
@@ -221,7 +222,11 @@ func (h *hostSampler) sample(ctx context.Context, diskPath string, now time.Time
 		diskPath = "/"
 	}
 	var stat syscall.Statfs_t
-	if err := syscall.Statfs(diskPath, &stat); err == nil && stat.Bsize > 0 {
+	err := syscall.Statfs(diskPath, &stat)
+	if err != nil && diskPath != "/" {
+		err = syscall.Statfs("/", &stat)
+	}
+	if err == nil && stat.Bsize > 0 {
 		bsize := uint64(stat.Bsize)
 		total := stat.Blocks * bsize
 		free := stat.Bavail * bsize
@@ -230,6 +235,22 @@ func (h *hostSampler) sample(ctx context.Context, diskPath string, now time.Time
 	}
 
 	return sample
+}
+
+func configureSubprocess(*exec.Cmd) {}
+
+func normalizeClusterKind(name string) string {
+	lower := strings.ToLower(strings.TrimSpace(name))
+	switch {
+	case strings.Contains(lower, "super"):
+		return "super"
+	case strings.Contains(lower, "perf"):
+		return "performance"
+	case strings.Contains(lower, "effic"):
+		return "efficiency"
+	default:
+		return "generic"
+	}
 }
 
 func parseDarwinPSCPU(text string, totalCores uint64) (float64, bool) {

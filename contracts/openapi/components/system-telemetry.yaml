@@ -10,11 +10,19 @@ components:
             $ref: "#/components/schemas/SystemTelemetryErrorResponse"
   schemas:
     SystemTelemetryArchitecture:
-      description: Host memory architecture class.
+      description: >-
+        Host memory architecture class. uma is verified unified memory (e.g.
+        Apple Silicon); discrete has dedicated GPU VRAM separate from host RAM;
+        host is standard system RAM without verified UMA or discrete VRAM
+        telemetry.
       type: string
-      enum: [uma, discrete]
+      enum: [uma, discrete, host]
       x-enum-varnames:
-        [SystemTelemetryArchitectureUma, SystemTelemetryArchitectureDiscrete]
+        [
+          SystemTelemetryArchitectureUma,
+          SystemTelemetryArchitectureDiscrete,
+          SystemTelemetryArchitectureHost,
+        ]
     SystemTelemetryPlatform:
       type: string
       enum: [darwin, linux, windows]
@@ -39,13 +47,17 @@ components:
         ]
     SystemTelemetryBandwidthSource:
       description: >-
-        Provenance of effective decode bandwidth. estimated means derived from
-        active model weight footprint multiplied by live decode tokens/s.
+        Provenance of memory bandwidth telemetry. estimated means effective
+        decode bandwidth is derived from active model weight footprint
+        multiplied by live decode tokens/s; spec means the hardware theoretical
+        peak bandwidth is known while no model is actively decoding; unavailable
+        means neither effective nor theoretical peak bandwidth is known.
       type: string
-      enum: [estimated, unavailable]
+      enum: [estimated, spec, unavailable]
       x-enum-varnames:
         [
           SystemTelemetryBandwidthSourceEstimated,
+          SystemTelemetryBandwidthSourceSpec,
           SystemTelemetryBandwidthSourceUnavailable,
         ]
     SystemTelemetryCpuClusterKind:
@@ -165,9 +177,7 @@ components:
           model_weights_bytes,
           kv_cache_bytes,
           compute_buffer_bytes,
-          os_wired_bytes,
           active_apps_bytes,
-          compressed_bytes,
           free_headroom_bytes,
           system_ram_total_bytes,
           system_ram_used_bytes,
@@ -203,6 +213,7 @@ components:
           type: integer
           format: int64
           minimum: 0
+          nullable: true
         active_apps_bytes:
           type: integer
           format: int64
@@ -211,6 +222,7 @@ components:
           type: integer
           format: int64
           minimum: 0
+          nullable: true
         free_headroom_bytes:
           type: integer
           format: int64
@@ -315,6 +327,11 @@ components:
           type: integer
           minimum: 0
           maximum: 4096
+        logical_threads:
+          type: integer
+          minimum: 0
+          maximum: 4096
+          nullable: true
         load_pct:
           type: number
           minimum: 0

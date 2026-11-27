@@ -5,6 +5,7 @@ package telemetry
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -26,11 +27,21 @@ type hostSampler struct {
 	prevSwapPages uint64
 	prevSwapAt    time.Time
 	hasPrevSwap   bool
+	nvidia        nvidiaSampler
 }
 
 func newHostSampler() *hostSampler {
-	return &hostSampler{}
+	h := &hostSampler{}
+	if raw, err := os.ReadFile("/proc/stat"); err == nil {
+		if cpuTimes, ok := ParseProcStatCPU(string(raw)); ok {
+			h.prevCPU = cpuTimes
+			h.hasPrevCPU = true
+		}
+	}
+	return h
 }
+
+func configureSubprocess(*exec.Cmd) {}
 
 func (h *hostSampler) initStatic() {
 	h.staticOnce.Do(func() {
@@ -69,8 +80,13 @@ func (h *hostSampler) sample(ctx context.Context, diskPath string, now time.Time
 	hostname, _ := os.Hostname()
 	cores := uint64(max(runtime.NumCPU(), 1))
 
+	clusterName := clipTelemetryString(h.chipName, 120)
+	if clusterName == "" {
+		clusterName = "CPU"
+	}
+
 	sample := rawHostSample{
-		Architecture:  "uma",
+		Architecture:  "host",
 		Platform:      "linux",
 		Arch:          wireArch(),
 		Hostname:      clipTelemetryString(hostname, 200),
@@ -79,7 +95,7 @@ func (h *hostSampler) sample(ctx context.Context, diskPath string, now time.Time
 		CPUTotalCores: cores,
 		CPUClusters: []wire.SystemTelemetryCpuCluster{{
 			ID:    "cpu0",
-			Name:  "CPU",
+			Name:  clusterName,
 			Kind:  "generic",
 			Cores: cores,
 		}},
@@ -145,6 +161,10 @@ func (h *hostSampler) sample(ctx context.Context, diskPath string, now time.Time
 				}
 				pct := round1(clampFloat(((dTotal-dIdle)/dTotal)*100, 0, 100))
 				sample.CPULoadPct = &pct
+				if len(sample.CPUClusters) == 1 {
+					clusterPct := pct
+					sample.CPUClusters[0].LoadPct = &clusterPct
+				}
 			}
 			h.prevCPU = cpuTimes
 			h.hasPrevCPU = true
@@ -174,8 +194,8 @@ func (h *hostSampler) sample(ctx context.Context, diskPath string, now time.Time
 		}
 	}
 
-	if gpus, ok := sampleNvidiaSMI(ctx); ok {
-		applyNvidiaSamples(&sample, gpus)
+	if gpus, throttleC, ok := h.nvidia.sample(ctx, now); ok {
+		applyNvidiaSamples(&sample, gpus, throttleC)
 	} else {
 		sampleLinuxAMDSysfs(&sample)
 	}
@@ -184,7 +204,11 @@ func (h *hostSampler) sample(ctx context.Context, diskPath string, now time.Time
 		diskPath = "/"
 	}
 	var stat syscall.Statfs_t
-	if err := syscall.Statfs(diskPath, &stat); err == nil && stat.Bsize > 0 {
+	err := syscall.Statfs(diskPath, &stat)
+	if err != nil && diskPath != "/" {
+		err = syscall.Statfs("/", &stat)
+	}
+	if err == nil && stat.Bsize > 0 {
 		bsize := uint64(stat.Bsize)
 		total := stat.Blocks * bsize
 		free := stat.Bavail * bsize
@@ -240,7 +264,6 @@ func sampleLinuxAMDSysfs(sample *rawHostSample) {
 			if microW, err := strconv.ParseFloat(strings.TrimSpace(string(rawPow)), 64); err == nil && microW >= 0 {
 				w := round1(microW / 1e6)
 				sample.Power.GpuW = &w
-				sample.Power.PackageW = &w
 			}
 		}
 	}
