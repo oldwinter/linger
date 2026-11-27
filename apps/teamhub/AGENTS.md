@@ -213,6 +213,13 @@ Go service owning Human HTTP/SSE, Agent callbacks, and active product state.
   conversation/targeted agent_runtime inputs atomically with Local Run and cursor.
   Document reads are live-latest and mutations retain CAS. CLI business
   operations use current Agent/resource authority, not Context/Run prerequisites.
+- Room message disposition (`agent_inbox_message_disposition`): an Agent with
+  `receives_all_messages` (including Another Me) wakes on unaddressed Human
+  Room/Task conversation messages (excluding decision results and Threads), on
+  every explicit mention of itself, and on Human messages in its direct chat
+  (and Threads under it). Messages that explicitly mention only other Agent(s)
+  and unmentioned messages authored by another Agent wake only the Agents they
+  explicitly mention.
 
 - An Agent writes only in its Context Room. To act in another Room, an
   AnotherMe in its direct chat uses Room handoff (`internal/agentroomhandoff`,

@@ -105,11 +105,27 @@ func TestRoomRunRedeliversUnconfirmedFollowUps(t *testing.T) {
 		}
 	}
 	finish := func(runID string) { t.Helper(); finishAs(runID, `{"type":"succeeded"}`) }
-	// steerMention posts a mention while a Run serves the Room Inbox, so it
-	// steers into that Run, and returns the Message and its steer group.
+	// steerMention posts a mention of both Agents while a Run serves the Room
+	// Inbox, so it steers into that Run and also reaches the peer Agent.
 	steerMention := func(key string) (string, string) {
 		t.Helper()
-		messageID := createMentionMessage(t, env, alice, roomID, key, "actor_acme_official", "agent")
+		status, _, body := env.request(alice, http.MethodPost, "/v0/rooms/"+roomID+"/messages", map[string]any{
+			"raw_message": "@official @peer follow up",
+			"segments": []map[string]any{
+				{"type": "reference", "content": "@official", "target": "actor_acme_official", "target_type": "agent"},
+				{"type": "text", "content": " "},
+				{"type": "reference", "content": "@peer", "target": peerActorID, "target_type": "agent"},
+				{"type": "text", "content": " follow up"},
+			},
+		}, key)
+		if status != http.StatusCreated {
+			t.Fatalf("create steer mention status=%d body=%s", status, body)
+		}
+		var created struct {
+			ID string `json:"id"`
+		}
+		decode(t, body, &created)
+		messageID := created.ID
 		queued := queuedRuntimeInbox(t, env.pool, contextKey, messageID)
 		if queued.Status != "steering" || queued.SteerGroupID == "" {
 			t.Fatalf("mention did not steer: %+v", queued)
