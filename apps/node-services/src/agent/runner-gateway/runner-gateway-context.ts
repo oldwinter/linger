@@ -11,6 +11,7 @@ import type {
   DebugHistoryInspectionRequest,
   DebugHistoryInspectionResult,
   LocalModelsSnapshot,
+  LocalSpeechSnapshot,
   RunnerCapability,
   RunnerHello,
 } from "@linger/wire-contracts/runner-gateway/types";
@@ -48,6 +49,7 @@ import { operationMCPPrepareIdentity } from "./runner-operations.js";
 import type { RunnerComputerTools } from "./runner-computer-tools.js";
 import type { RunnerHerdrCore } from "./runner-herdr-core.js";
 import type { RunnerLocalModels } from "./runner-local-models.js";
+import type { RunnerLocalSpeech } from "./runner-local-speech.js";
 import type { ModelQueue } from "./model-queue.js";
 import type { RunnerModelInvocation } from "./runner-model-invocation.js";
 import type { RunnerSessionCompaction } from "./runner-session-compaction.js";
@@ -242,6 +244,10 @@ export interface ConnectedRunner {
   localModelsRevision: number;
   /** The latest runner.local_models snapshot reported on this connection. */
   localModelsSnapshot?: LocalModelsSnapshot;
+  /** The last runner.local_speech revision; 0 until the connection sends one. */
+  localSpeechRevision: number;
+  /** The latest runner.local_speech snapshot reported on this connection. */
+  localSpeechSnapshot?: LocalSpeechSnapshot;
 }
 
 export interface AgentRunnerStateWaiter {
@@ -357,6 +363,7 @@ export interface RunnerGatewayControllers {
   readonly computerTools: () => RunnerComputerTools;
   readonly herdrCore: () => RunnerHerdrCore;
   readonly localModels: () => RunnerLocalModels;
+  readonly localSpeech: () => RunnerLocalSpeech;
   readonly contextViewContent: () => ContextViewContent | undefined;
 }
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 5_000;

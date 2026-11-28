@@ -4,6 +4,7 @@ import type {
   HerdrAgentEvent,
   HerdrCoreEvent,
   LocalModelsSnapshot,
+  LocalSpeechSnapshot,
   RunnerHello,
   RuntimeDiagnostics,
 } from "@linger/wire-contracts/runner-gateway/types";
@@ -97,6 +98,11 @@ export interface LocalComputerRegistry {
     computerId: string,
     snapshot: LocalModelsSnapshot,
   ): Promise<void>;
+  /** Replaces the Computer's stored local speech catalog with its latest snapshot. */
+  recordLocalSpeech?(
+    computerId: string,
+    snapshot: LocalSpeechSnapshot,
+  ): Promise<void>;
   remove(
     input: LocalComputerOwner & { readonly computerId: string },
   ): Promise<LocalComputerRemovalResult>;
@@ -111,7 +117,10 @@ type TeamHubLocalComputerClient = Pick<
   | "recordLocalModels"
 > &
   Partial<
-    Pick<TeamHubRuntimeStateClient, "reportHerdrEvent" | "reportHerdrCoreEvent">
+    Pick<
+      TeamHubRuntimeStateClient,
+      "reportHerdrEvent" | "reportHerdrCoreEvent" | "recordLocalSpeech"
+    >
   >;
 
 export const createTeamHubLocalComputerRegistry = (
@@ -231,6 +240,12 @@ const buildTeamHubLocalComputerRegistry = (
   },
   async recordLocalModels(computerId, snapshot) {
     await client.recordLocalModels({
+      computer_id: computerId,
+      snapshot: structuredClone(snapshot),
+    });
+  },
+  async recordLocalSpeech(computerId, snapshot) {
+    await client.recordLocalSpeech?.({
       computer_id: computerId,
       snapshot: structuredClone(snapshot),
     });

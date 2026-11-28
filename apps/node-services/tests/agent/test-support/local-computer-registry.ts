@@ -2,6 +2,7 @@ import type {
   HerdrAgentEvent,
   HerdrCoreEvent,
   LocalModelsSnapshot,
+  LocalSpeechSnapshot,
   RuntimeDiagnostics,
 } from "@linger/wire-contracts/runner-gateway/types";
 
@@ -52,6 +53,8 @@ export interface TestLocalComputerRegistry extends LocalComputerRegistry {
   list(owner: LocalComputerOwner): readonly TestRecordedLocalComputer[];
   /** Every model library snapshot recorded for the Computer, oldest first. */
   localModels(computerId: string): readonly LocalModelsSnapshot[];
+  /** Every local speech snapshot recorded for the Computer, oldest first. */
+  localSpeech(computerId: string): readonly LocalSpeechSnapshot[];
 }
 
 const registries = new Map<string, TestLocalComputerRegistry>();
@@ -74,6 +77,7 @@ export function createTestLocalComputerRegistry(
     { computerId: string; placement: RunnerPlacement }
   >();
   const localModels = new Map<string, LocalModelsSnapshot[]>();
+  const localSpeech = new Map<string, LocalSpeechSnapshot[]>();
   const owns = (
     computer: TestRecordedLocalComputer,
     owner: LocalComputerOwner,
@@ -173,6 +177,14 @@ export function createTestLocalComputerRegistry(
     },
     localModels(computerId) {
       return localModels.get(computerId) ?? [];
+    },
+    async recordLocalSpeech(computerId, snapshot) {
+      const recorded = localSpeech.get(computerId) ?? [];
+      recorded.push(structuredClone(snapshot));
+      localSpeech.set(computerId, recorded);
+    },
+    localSpeech(computerId) {
+      return localSpeech.get(computerId) ?? [];
     },
     async remove({ computerId, ...owner }) {
       const computer = computers.get(computerId);

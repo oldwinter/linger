@@ -33,6 +33,7 @@ func (a *App) agentServiceRoutes() []contractRoute {
 		route(http.MethodPost, "/v0/agent-runtime/local-computers/herdr-events", nil, agentService, a.reportLocalComputerHerdrEvent),
 		route(http.MethodPost, "/v0/agent-runtime/local-computers/herdr-core-events", nil, agentService, a.reportLocalComputerHerdrCoreEvent),
 		route(http.MethodPost, "/v0/agent-runtime/local-computers/local-models", nil, agentService, a.recordAgentRuntimeLocalModels),
+		route(http.MethodPost, "/v0/agent-runtime/local-computers/local-speech", nil, agentService, a.recordAgentRuntimeLocalSpeech),
 		route(http.MethodPost, "/v0/agent-runtime/local-computers/remove", nil, agentService, a.removeAgentRuntimeLocalComputer),
 		route(http.MethodPost, "/v0/agent-runtime/local-computers/touch", nil, agentService, a.touchAgentRuntimeLocalComputer),
 		route(http.MethodPost, "/v0/agent-runtime/permission-reviews", nil, agentService, a.createRuntimePermissionReview),
