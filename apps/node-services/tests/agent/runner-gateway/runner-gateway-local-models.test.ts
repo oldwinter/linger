@@ -210,8 +210,11 @@ describe("Runner Gateway local models", () => {
         "runtime_failure_detail",
         "operation_background_wait",
         "dynamic_reasoning_efforts",
+        "herdr_core_v1",
+        "herdr_core_stream",
         "antigravity_history",
         "antigravity_usage_provider",
+        "herdr_core_status_kind",
       ],
     ],
     [
@@ -230,8 +233,11 @@ describe("Runner Gateway local models", () => {
         "runtime_failure_detail",
         "operation_background_wait",
         "dynamic_reasoning_efforts",
+        "herdr_core_v1",
+        "herdr_core_stream",
         "antigravity_history",
         "antigravity_usage_provider",
+        "herdr_core_status_kind",
       ],
     ],
     [
