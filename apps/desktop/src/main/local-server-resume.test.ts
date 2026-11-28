@@ -992,6 +992,9 @@ describe("LocalServerModule resume coordination", () => {
           watchMs: 30,
           unreachableGraceMs: 30,
         });
+        f.showStarting.mockImplementationOnce(() => {
+          readyStatus = 200;
+        });
         await f.host.start();
         await waitForInstaller(() =>
           expect(f.module.status().phase).toBe("ready"),
@@ -999,7 +1002,6 @@ describe("LocalServerModule resume coordination", () => {
         expect(f.showStarting).toHaveBeenCalledOnce();
         expect(runs(f)).toBe(1);
 
-        readyStatus = 200;
         await new Promise((resolve) => setTimeout(resolve, 100));
         expect(runs(f)).toBe(1);
 
