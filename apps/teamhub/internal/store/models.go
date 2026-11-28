@@ -868,6 +868,13 @@ type LocalComputerModelSnapshot struct {
 	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
 }
 
+type LocalComputerSpeechSnapshot struct {
+	ComputerID string             `json:"computer_id"`
+	Snapshot   []byte             `json:"snapshot"`
+	ObservedAt pgtype.Timestamptz `json:"observed_at"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+}
+
 type MailCanvasDelivery struct {
 	DocumentID   string             `json:"document_id"`
 	ID           string             `json:"id"`
@@ -1822,6 +1829,38 @@ type TaskMetaMessage struct {
 	Source        string             `json:"source"`
 }
 
+type TaskSubscription struct {
+	ID                  string             `json:"id"`
+	TenantID            string             `json:"tenant_id"`
+	OwnerActorID        string             `json:"owner_actor_id"`
+	TaskID              string             `json:"task_id"`
+	SourceType          string             `json:"source_type"`
+	NormalizedSourceKey string             `json:"normalized_source_key"`
+	DisplayLabel        string             `json:"display_label"`
+	RuleID              pgtype.Text        `json:"rule_id"`
+	Status              string             `json:"status"`
+	CreatedByActorID    string             `json:"created_by_actor_id"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	DroppedAt           pgtype.Timestamptz `json:"dropped_at"`
+	DroppedByKind       pgtype.Text        `json:"dropped_by_kind"`
+	DroppedByActorID    pgtype.Text        `json:"dropped_by_actor_id"`
+	DropReason          string             `json:"drop_reason"`
+}
+
+type TaskSubscriptionDelivery struct {
+	SubscriptionID        string             `json:"subscription_id"`
+	TenantID              string             `json:"tenant_id"`
+	TaskID                string             `json:"task_id"`
+	EventDedupeKey        string             `json:"event_dedupe_key"`
+	EventSource           string             `json:"event_source"`
+	EventExternalID       string             `json:"event_external_id"`
+	EventState            string             `json:"event_state"`
+	ActorKind             string             `json:"actor_kind"`
+	Outcome               string             `json:"outcome"`
+	TaskExecutionRevision pgtype.Int8        `json:"task_execution_revision"`
+	CreatedAt             pgtype.Timestamptz `json:"created_at"`
+}
+
 type ThreadRoomListActor struct {
 	ThreadRoomID string `json:"thread_room_id"`
 	ActorID      string `json:"actor_id"`
@@ -1974,6 +2013,20 @@ type VoiceSession struct {
 	LiveAgentActorID           pgtype.Text        `json:"live_agent_actor_id"`
 	LiveLeaseUntil             pgtype.Timestamptz `json:"live_lease_until"`
 	NextMediaEpoch             int32              `json:"next_media_epoch"`
+	SpeechConfig               []byte             `json:"speech_config"`
+}
+
+type VoiceSetting struct {
+	AccountID             string             `json:"account_id"`
+	TenantID              string             `json:"tenant_id"`
+	SpeechProvider        string             `json:"speech_provider"`
+	LocalComputerID       pgtype.Text        `json:"local_computer_id"`
+	LocalModelID          pgtype.Text        `json:"local_model_id"`
+	Language              string             `json:"language"`
+	SilenceTimeoutSeconds int32              `json:"silence_timeout_seconds"`
+	UseGpu                bool               `json:"use_gpu"`
+	KeepLoadedSeconds     int32              `json:"keep_loaded_seconds"`
+	UpdatedAt             pgtype.Timestamptz `json:"updated_at"`
 }
 
 type VoiceTranscriptSegment struct {

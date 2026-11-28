@@ -46,9 +46,10 @@ func (s *Service) WithClock(now func() time.Time) *Service {
 
 // Outcome is what one candidate came to.
 type Outcome struct {
-	Candidate Candidate `json:"candidate"`
-	MessageID string    `json:"message_id,omitempty"`
-	Skipped   string    `json:"skipped,omitempty"`
+	Candidate   Candidate                     `json:"candidate"`
+	MessageID   string                        `json:"message_id,omitempty"`
+	Skipped     string                        `json:"skipped,omitempty"`
+	RoutedTasks []SubscriptionDeliveryOutcome `json:"routed_tasks,omitempty"`
 }
 
 // ErrNoDirectRoom means the Human has no ready AnotherMe direct Room.

@@ -40,6 +40,7 @@ import {
   type TeamHubWorkItemComment,
 } from "./work-item-queries";
 import { drawerStatusKey, drawerStatusOptions } from "./work-item-transitions";
+import { WorkItemSubscriptionsSection } from "./work-item-subscriptions";
 import { workItemsMessages as m } from "./work-items.messages";
 import { workItemsViewMessages as vm } from "./work-items-view.messages";
 
@@ -268,6 +269,12 @@ export function WorkItemDetailDrawer({
             </time>
           </dd>
         </dl>
+
+        <WorkItemSubscriptionsSection
+          kind={item.kind}
+          tenantId={tenantId}
+          workItemId={item.id}
+        />
 
         <WorkItemCommentsList tenantId={tenantId} workItemId={item.id} />
       </div>

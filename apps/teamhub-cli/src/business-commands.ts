@@ -674,13 +674,17 @@ const proactiveAct: CommandDefinition = {
     "Create a Work Item for an outside event, or delegate it as a Task to your AlterEgo, under a mandate your Human granted on one of their rules.",
   readOnly: false,
   usage: [
-    'teamhub proactive act --rule <rule-id> --source <event-source> --external-id <event-id> --title "<title>" --brief "<what needs doing>" [--delegate]',
+    'teamhub proactive act --rule <rule-id> --source <event-source> --external-id <event-id> [--account <connection-id>] --title "<title>" --brief "<what needs doing>" [--delegate]',
   ],
   options: {
     "--rule": { description: "Mandate rule ID from the proactive wake." },
     "--source": { description: "The event's source, as the wake names it." },
     "--external-id": {
       description: "The event's external_id, as the wake names it.",
+    },
+    "--account": {
+      description:
+        "Optional connected account or connection ID for mail events, used to attach a follow-up thread subscription when delegating.",
     },
     "--title": { description: "Short Work Item title, 1-120 characters." },
     "--brief": {
@@ -705,6 +709,7 @@ const proactiveAct: CommandDefinition = {
       rule_id: { type: "string", pattern: "^pr_[a-f0-9]{32}$" },
       event_source: { type: "string", minLength: 1, maxLength: 100 },
       event_external_id: { type: "string", minLength: 1, maxLength: 500 },
+      event_account: { type: "string", minLength: 1, maxLength: 200 },
       title: { type: "string", minLength: 1, maxLength: 120 },
       brief: { type: "string", minLength: 1, maxLength: 20000 },
       delegate: { type: "boolean" },
@@ -725,6 +730,7 @@ const proactiveAct: CommandDefinition = {
       work_item_id: { type: "string" },
       strength: { type: "string" },
       replay: { type: "boolean" },
+      subscription_id: { type: "string" },
     },
     required: ["work_item_id", "strength", "replay"],
   },
@@ -751,11 +757,26 @@ const proactiveAct: CommandDefinition = {
         ]);
       return value;
     };
+    const rawAccount = option(args, "--account");
+    const eventAccount =
+      rawAccount !== undefined ? rawAccount.trim() : undefined;
+    if (
+      eventAccount !== undefined &&
+      (!eventAccount || eventAccount.length > 200)
+    )
+      throw invalidInput("--account must be 1 to 200 characters.", [
+        inputIssue(
+          "--account",
+          eventAccount ? "out_of_range" : "missing",
+          "must be 1 to 200 characters.",
+        ),
+      ]);
     return {
       input: {
         rule_id: ruleId,
         event_source: text("--source", 100),
         event_external_id: text("--external-id", 500),
+        ...(eventAccount ? { event_account: eventAccount } : {}),
         title: text("--title", 120),
         brief: text("--brief", 20000),
         delegate: option(args, "--delegate") !== undefined,
@@ -769,6 +790,7 @@ const proactiveAct: CommandDefinition = {
           rule_id: string;
           event_source: string;
           event_external_id: string;
+          event_account?: string;
           title: string;
           brief: string;
           delegate: boolean;
@@ -776,7 +798,207 @@ const proactiveAct: CommandDefinition = {
       }),
     ),
   render: (result) =>
-    `${result.replay ? "Already acted" : "Created"}: ${singleLineText(result.work_item_id)} under ${singleLineText(result.strength)}`,
+    `${result.replay ? "Already acted" : "Created"}: ${singleLineText(result.work_item_id)} under ${singleLineText(result.strength)}${result.subscription_id ? ` (subscription ${singleLineText(result.subscription_id)})` : ""}`,
+};
+const proactiveSubscriptions: CommandDefinition = {
+  command: ["proactive", "subscriptions"],
+  toolName: "list_proactive_subscriptions",
+  operationId: false,
+  description:
+    "List external thread subscriptions routing follow-up mail, herdr, or GitHub activity to Tasks Another Me started.",
+  readOnly: true,
+  usage: [
+    "teamhub proactive subscriptions [--work-item <work-item-id>] [--include-dropped]",
+  ],
+  options: {
+    "--work-item": {
+      description: "Optional Task Work Item ID to filter subscriptions by.",
+    },
+    "--include-dropped": {
+      description: "Include dropped subscriptions alongside active ones.",
+      boolean: true,
+    },
+  },
+  examples: ["teamhub proactive subscriptions --work-item workitem_one"],
+  notes: [
+    "Only Another Me uses this from its Meta to inspect follow-up subscriptions owned by its Human.",
+  ],
+  inputSchema: {
+    type: "object",
+    properties: {
+      task_id: { type: "string", maxLength: 255 },
+      include_dropped: { type: "boolean" },
+    },
+    additionalProperties: false,
+  },
+  outputSchema: {
+    type: "object",
+    properties: {
+      items: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            task_id: { type: "string" },
+            source_type: { type: "string" },
+            normalized_source_key: { type: "string" },
+            status: { type: "string" },
+          },
+          required: [
+            "id",
+            "task_id",
+            "source_type",
+            "normalized_source_key",
+            "status",
+          ],
+        },
+      },
+    },
+    required: ["items"],
+  },
+  normalize: async (args) => {
+    assertPositionals(args, 0);
+    const rawWorkItem = option(args, "--work-item");
+    const taskId = rawWorkItem !== undefined ? rawWorkItem.trim() : undefined;
+    if (taskId !== undefined && (!taskId || taskId.length > 255))
+      throw invalidInput("--work-item must be 1 to 255 characters.", [
+        inputIssue(
+          "--work-item",
+          taskId ? "out_of_range" : "missing",
+          "must be 1 to 255 characters.",
+        ),
+      ]);
+    return {
+      input: {
+        ...(taskId ? { task_id: taskId } : {}),
+        ...(option(args, "--include-dropped") !== undefined
+          ? { include_dropped: true }
+          : {}),
+      },
+    };
+  },
+  execute: async (input, context) =>
+    teamHubData(
+      context.client.api.POST("/api/agent/v1/proactive/subscriptions/list", {
+        body: input,
+      }),
+    ),
+  render: (result) => {
+    const items = (
+      result as {
+        items: Array<{
+          id: string;
+          task_id: string;
+          source_type: string;
+          normalized_source_key: string;
+          status: string;
+        }>;
+      }
+    ).items;
+    if (!items.length) return "No subscriptions.";
+    return items
+      .map(
+        (sub) =>
+          `${singleLineText(sub.id)}  [${singleLineText(sub.status)}] ${singleLineText(sub.source_type)}:${singleLineText(sub.normalized_source_key)} -> ${singleLineText(sub.task_id)}`,
+      )
+      .join("\n");
+  },
+};
+const proactiveUnsubscribe: CommandDefinition = {
+  command: ["proactive", "unsubscribe"],
+  toolName: "drop_proactive_subscription",
+  operationId: true,
+  description:
+    "Drop an external thread subscription when Another Me judges follow-up routing to a Task is no longer needed.",
+  readOnly: false,
+  usage: [
+    'teamhub proactive unsubscribe --subscription <subscription-id> [--reason "<why>"]',
+  ],
+  options: {
+    "--subscription": {
+      description: "Subscription ID (tsub_...) to drop.",
+    },
+    "--reason": {
+      description:
+        "Optional reason for stopping follow-up routing (up to 500 chars).",
+    },
+  },
+  examples: [
+    'teamhub proactive unsubscribe --subscription tsub_0123456789abcdef0123456789abcdef --reason "Thread concluded"',
+  ],
+  notes: [
+    "Idempotent: dropping an already-dropped subscription returns the existing record. Once dropped, later events on that thread no longer route to or resume the Task.",
+  ],
+  inputSchema: {
+    type: "object",
+    properties: {
+      subscription_id: { type: "string", pattern: "^tsub_[a-f0-9]{32}$" },
+      reason: { type: "string", maxLength: 500 },
+    },
+    required: ["subscription_id"],
+    additionalProperties: false,
+  },
+  outputSchema: {
+    type: "object",
+    properties: {
+      subscription: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          status: { type: "string" },
+          dropped_by_kind: { type: "string" },
+        },
+        required: ["id", "status"],
+      },
+      replay: { type: "boolean" },
+    },
+    required: ["subscription", "replay"],
+  },
+  normalize: async (args) => {
+    assertPositionals(args, 0);
+    const subscriptionId = (option(args, "--subscription") ?? "").trim();
+    if (!/^tsub_[a-f0-9]{32}$/u.test(subscriptionId))
+      throw invalidInput(
+        "--subscription must be a valid subscription ID (tsub_...).",
+        [
+          inputIssue(
+            "--subscription",
+            subscriptionId ? "invalid_format" : "missing",
+            "expected a subscription ID starting with tsub_.",
+          ),
+        ],
+      );
+    const rawReason = option(args, "--reason");
+    const reason = rawReason !== undefined ? rawReason.trim() : undefined;
+    if (reason !== undefined && reason.length > 500)
+      throw invalidInput("--reason must be at most 500 characters.", [
+        inputIssue(
+          "--reason",
+          "out_of_range",
+          "must be at most 500 characters.",
+        ),
+      ]);
+    return {
+      input: {
+        subscription_id: subscriptionId,
+        ...(reason ? { reason } : {}),
+      },
+    };
+  },
+  execute: async (input, context) =>
+    teamHubData(
+      context.client.api.POST("/api/agent/v1/proactive/subscriptions/drop", {
+        body: input as { subscription_id: string; reason?: string },
+      }),
+    ),
+  render: (result) => {
+    const typed = result as {
+      subscription: { id: string; status: string };
+      replay: boolean;
+    };
+    return `${typed.replay ? "Already unsubscribed" : "Unsubscribed"}: ${singleLineText(typed.subscription.id)}`;
+  },
 };
 const appsSearch = definition(
   ["apps", "search"],
@@ -1828,6 +2050,8 @@ export const businessCommandDefinitions: readonly CommandDefinition[] = [
   ...trackingItemCommands,
   proactiveShadowDivergence,
   proactiveAct,
+  proactiveSubscriptions,
+  proactiveUnsubscribe,
   personalProfileShow,
   personalProfileStart,
   personalProfileWrite,

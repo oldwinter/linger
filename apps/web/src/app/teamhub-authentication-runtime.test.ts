@@ -260,4 +260,30 @@ describe("TeamHub authentication runtime", () => {
     expect(navigate).toHaveBeenCalledWith("/", { replace: true });
     stop();
   });
+
+  it("clears persisted authenticated feature storage when a session expires", async () => {
+    window.localStorage.setItem(
+      "global-search-recent.v2:tenant-northstar",
+      JSON.stringify({ queries: ["secret"], opened: {} }),
+    );
+    const queryClient = new QueryClient();
+    const navigate = vi.fn();
+    const signals = createTeamHubAuthenticationSignals({
+      channelFactory: () => null,
+    });
+    const stop = startTeamHubAuthenticationRuntime({
+      navigate,
+      queryClient,
+      signals,
+    });
+
+    signals.publish("authentication-required");
+
+    await vi.waitFor(() =>
+      expect(
+        window.localStorage.getItem("global-search-recent.v2:tenant-northstar"),
+      ).toBeNull(),
+    );
+    stop();
+  });
 });

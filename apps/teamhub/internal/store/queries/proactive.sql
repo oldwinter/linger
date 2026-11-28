@@ -168,3 +168,159 @@ LIMIT sqlc.arg(take)::integer;
 -- name: GetExternalConnectionIdentityLabel :one
 -- The account label a proactive event names for its granted connection.
 SELECT coalesce(identity_label,'')::text FROM external_connections WHERE id=sqlc.arg(id)::text;
+
+-- name: CreateTaskSubscription :one
+-- Idempotently ensures one active subscription linking an external normalized
+-- thread key to a delegated Task for one owner.
+INSERT INTO task_subscriptions(
+    id, tenant_id, owner_actor_id, task_id, source_type, normalized_source_key,
+    display_label, rule_id, created_by_actor_id
+)
+VALUES (
+    sqlc.arg(id)::text, sqlc.arg(tenant_id)::text, sqlc.arg(owner_actor_id)::text,
+    sqlc.arg(task_id)::text, sqlc.arg(source_type)::text, sqlc.arg(normalized_source_key)::text,
+    sqlc.arg(display_label)::text, sqlc.narg(rule_id)::text, sqlc.arg(created_by_actor_id)::text
+)
+ON CONFLICT (tenant_id, owner_actor_id, source_type, normalized_source_key, task_id)
+WHERE status = 'active'
+DO UPDATE SET display_label = COALESCE(NULLIF(task_subscriptions.display_label, ''), EXCLUDED.display_label)
+RETURNING id, tenant_id, owner_actor_id, task_id, source_type, normalized_source_key,
+          display_label, rule_id, status, created_by_actor_id, created_at,
+          dropped_at, dropped_by_kind, dropped_by_actor_id, drop_reason;
+
+-- name: ListActiveTaskSubscriptionsBySource :many
+-- Active subscriptions matching one owner's normalized external thread key,
+-- with each Task's coordinator actor ID so callers can acquire per-Agent locks
+-- in canonical order before locking work_items.
+SELECT sub.id, sub.tenant_id, sub.owner_actor_id, sub.task_id, sub.source_type,
+       sub.normalized_source_key, sub.display_label, sub.rule_id, sub.status,
+       sub.created_by_actor_id, sub.created_at, sub.dropped_at,
+       sub.dropped_by_kind, sub.dropped_by_actor_id, sub.drop_reason,
+       COALESCE(gen.coordinator_actor_id, '')::text AS coordinator_actor_id
+FROM task_subscriptions sub
+JOIN work_items item
+  ON item.id = sub.task_id AND item.tenant_id = sub.tenant_id
+LEFT JOIN task_execution_generations gen
+  ON gen.task_id = item.id AND gen.tenant_id = item.tenant_id
+ AND gen.generation = item.task_execution_generation
+WHERE sub.tenant_id = sqlc.arg(tenant_id)::text
+  AND sub.owner_actor_id = sqlc.arg(owner_actor_id)::text
+  AND sub.source_type = sqlc.arg(source_type)::text
+  AND sub.normalized_source_key = sqlc.arg(normalized_source_key)::text
+  AND sub.status = 'active'
+ORDER BY sub.created_at ASC, sub.id ASC;
+
+-- name: LockTaskSubscriptionForUpdate :one
+SELECT id, tenant_id, owner_actor_id, task_id, source_type, normalized_source_key,
+       display_label, rule_id, status, created_by_actor_id, created_at,
+       dropped_at, dropped_by_kind, dropped_by_actor_id, drop_reason
+FROM task_subscriptions
+WHERE id = sqlc.arg(id)::text
+FOR UPDATE;
+
+-- name: GetTaskSubscriptionByIDAndTask :one
+SELECT id, tenant_id, owner_actor_id, task_id, source_type, normalized_source_key,
+       display_label, rule_id, status, created_by_actor_id, created_at,
+       dropped_at, dropped_by_kind, dropped_by_actor_id, drop_reason
+FROM task_subscriptions
+WHERE id = sqlc.arg(id)::text
+  AND task_id = sqlc.arg(task_id)::text
+  AND tenant_id = sqlc.arg(tenant_id)::text;
+
+-- name: ListTaskSubscriptionsForOwnerTask :many
+SELECT id, tenant_id, owner_actor_id, task_id, source_type, normalized_source_key,
+       display_label, rule_id, status, created_by_actor_id, created_at,
+       dropped_at, dropped_by_kind, dropped_by_actor_id, drop_reason
+FROM task_subscriptions
+WHERE tenant_id = sqlc.arg(tenant_id)::text
+  AND task_id = sqlc.arg(task_id)::text
+  AND owner_actor_id = sqlc.arg(owner_actor_id)::text
+ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, created_at DESC, id DESC;
+
+-- name: ListTaskSubscriptionsForOwner :many
+SELECT id, tenant_id, owner_actor_id, task_id, source_type, normalized_source_key,
+       display_label, rule_id, status, created_by_actor_id, created_at,
+       dropped_at, dropped_by_kind, dropped_by_actor_id, drop_reason
+FROM task_subscriptions
+WHERE tenant_id = sqlc.arg(tenant_id)::text
+  AND owner_actor_id = sqlc.arg(owner_actor_id)::text
+  AND (sqlc.arg(task_id)::text = '' OR task_id = sqlc.arg(task_id)::text)
+  AND (sqlc.arg(include_dropped)::boolean OR status = 'active')
+ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, created_at DESC, id DESC
+LIMIT 100;
+
+-- name: DropTaskSubscription :one
+UPDATE task_subscriptions
+SET status = 'dropped',
+    dropped_at = now(),
+    dropped_by_kind = sqlc.arg(dropped_by_kind)::text,
+    dropped_by_actor_id = sqlc.arg(dropped_by_actor_id)::text,
+    drop_reason = sqlc.arg(drop_reason)::text
+WHERE id = sqlc.arg(id)::text
+  AND status = 'active'
+RETURNING id, tenant_id, owner_actor_id, task_id, source_type, normalized_source_key,
+          display_label, rule_id, status, created_by_actor_id, created_at,
+          dropped_at, dropped_by_kind, dropped_by_actor_id, drop_reason;
+
+-- name: HasTaskSubscriptionDelivery :one
+SELECT EXISTS (
+    SELECT 1 FROM task_subscription_deliveries
+    WHERE subscription_id = sqlc.arg(subscription_id)::text
+      AND event_dedupe_key = sqlc.arg(event_dedupe_key)::text
+)::boolean;
+
+-- name: InsertTaskSubscriptionDelivery :execrows
+INSERT INTO task_subscription_deliveries(
+    subscription_id, tenant_id, task_id, event_dedupe_key, event_source,
+    event_external_id, event_state, actor_kind, outcome, task_execution_revision
+)
+VALUES (
+    sqlc.arg(subscription_id)::text, sqlc.arg(tenant_id)::text, sqlc.arg(task_id)::text,
+    sqlc.arg(event_dedupe_key)::text, sqlc.arg(event_source)::text,
+    sqlc.arg(event_external_id)::text, sqlc.arg(event_state)::text,
+    sqlc.arg(actor_kind)::text, sqlc.arg(outcome)::text, sqlc.narg(task_execution_revision)::bigint
+)
+ON CONFLICT (subscription_id, event_dedupe_key) DO NOTHING;
+
+-- name: GetWorkItemSubscriptionContextForHuman :one
+-- Resolves a Tenant-visible Work Item together with the signed-in Human's Actor
+-- ID in that Tenant and the Work Item's origin Room for event fanout.
+SELECT wi.id, wi.tenant_id, wi.kind, wi.version, caller.id AS human_actor_id,
+       origin.room_id AS origin_room_id
+FROM work_items wi
+JOIN actors caller
+  ON caller.tenant_id = wi.tenant_id
+ AND caller.account_id = sqlc.arg(account_id)::text
+ AND caller.kind = 'human'
+LEFT JOIN work_item_room_links origin
+  ON origin.work_item_id = wi.id
+ AND origin.tenant_id = wi.tenant_id
+ AND origin.link_type = 'origin'
+WHERE wi.id = sqlc.arg(work_item_id)::text;
+
+-- name: GetWorkItemChangeEventContext :one
+SELECT wi.id, wi.tenant_id, wi.version, origin.room_id AS origin_room_id
+FROM work_items wi
+LEFT JOIN work_item_room_links origin
+  ON origin.work_item_id = wi.id
+ AND origin.tenant_id = wi.tenant_id
+ AND origin.link_type = 'origin'
+WHERE wi.id = sqlc.arg(work_item_id)::text
+  AND wi.tenant_id = sqlc.arg(tenant_id)::text;
+
+-- name: ListActiveGrantedConnectionsForOwnerProvider :many
+-- Returns up to two active granted connection IDs for an owner + Another Me +
+-- provider so mail mandate acts that omit event_account can resolve an
+-- unambiguous single mailbox without guessing across multiple accounts.
+SELECT c.id
+FROM external_connection_agent_grants d
+JOIN external_connections c
+  ON c.id = d.connection_id
+ AND c.status = 'active'
+ AND c.provider = sqlc.arg(provider)::text
+WHERE d.tenant_id = sqlc.arg(tenant_id)::text
+  AND d.represented_human_actor_id = sqlc.arg(owner_actor_id)::text
+  AND d.agent_actor_id = sqlc.arg(agent_actor_id)::text
+  AND d.status = 'active'
+ORDER BY c.created_at ASC, c.id ASC
+LIMIT 2;

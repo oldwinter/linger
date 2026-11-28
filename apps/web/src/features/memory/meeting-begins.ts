@@ -1,6 +1,6 @@
 import type { TeamHubMemoryEntry } from "@/features/teamhub/teamhub-types";
 
-import { meetingStartMs } from "./up-next";
+import { meetingStartMs } from "./meeting-time";
 
 /** A late timer after sleep should not open a meeting that began long ago. */
 export const MEETING_START_GRACE_MS = 2 * 60 * 1000;

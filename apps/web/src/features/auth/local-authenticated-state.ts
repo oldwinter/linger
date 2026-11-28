@@ -11,10 +11,8 @@ import { clearAllRecentWikiPages } from "@/features/wiki/recent-wiki-pages-stora
 import { clearAllWikiDisplayState } from "@/features/wiki/wiki-display-storage";
 import { clearAccountPreferenceKeys } from "@/lib/local-preference-keys";
 
-export function clearLocalAuthenticatedState(queryClient: QueryClient) {
+export function clearLocalAuthenticatedStorage() {
   resetMeetingPlaybackSession();
-  clearTeamHubQueries(queryClient);
-  queryClient.clear();
   clearAccountPreferenceKeys();
   clearRoomDrafts();
   clearGlobalSearchHistory();
@@ -23,4 +21,10 @@ export function clearLocalAuthenticatedState(queryClient: QueryClient) {
   clearAllRecentWikiPages();
   clearAllWikiDisplayState();
   clearAllDismissedBackgroundFailures();
+}
+
+export function clearLocalAuthenticatedState(queryClient: QueryClient) {
+  clearTeamHubQueries(queryClient);
+  queryClient.clear();
+  clearLocalAuthenticatedStorage();
 }

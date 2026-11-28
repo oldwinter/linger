@@ -44,6 +44,12 @@ type Event struct {
 	Herdr *HerdrPane `json:"herdr,omitempty"`
 	// HerdrCore names the terminal state and matchable attributes of a herdr_core event.
 	HerdrCore *HerdrCoreTerminalRef `json:"herdr_core,omitempty"`
+	// GitHub names the issue or pull request of a GitHub event.
+	GitHub *GitHubRef `json:"github,omitempty"`
+	// Actor carries structured origin metadata so Subscription routing can
+	// distinguish verified human follow-ups from bot, CI, automated, or system
+	// events before deciding whether to resume an ended Task.
+	Actor *EventActor `json:"actor,omitempty"`
 }
 
 const (
@@ -74,6 +80,9 @@ func (e Event) validate() error {
 func (e Event) authorize(ctx context.Context, queries *store.Queries) error {
 	if e.ComputerID != "" {
 		return reminder.CheckComputer(ctx, queries, e.TenantID, e.OwnerActorID, e.ComputerID)
+	}
+	if e.Grant == nil || e.Grant.TenantID != e.TenantID {
+		return reminder.ErrGrantRevoked
 	}
 	return e.Grant.Check(ctx, queries)
 }
@@ -159,9 +168,6 @@ func (s *Service) HandleEvent(ctx context.Context, event Event) (Outcome, error)
 	} else if err != nil {
 		return Outcome{}, err
 	}
-	if s.judge == nil {
-		return Outcome{}, ErrNoJudge
-	}
 	// The account label lets the Agent tell the Human which mailbox; the
 	// connection ID still selects it when the connection has none.
 	var accountLabel string
@@ -171,6 +177,22 @@ func (s *Service) HandleEvent(ctx context.Context, event Event) (Outcome, error)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return Outcome{}, err
 		}
+	}
+	routed, err := s.routeSubscribedEvent(ctx, owner, event, accountLabel, now)
+	if revoked(err) {
+		return Outcome{Candidate: candidate, Skipped: "authorization_revoked"}, nil
+	}
+	if err != nil {
+		return Outcome{}, err
+	}
+	if routed.delivered > 0 {
+		return Outcome{Candidate: candidate, Skipped: "routed_to_subscription", RoutedTasks: routed.outcomes}, nil
+	}
+	if routed.skippedNonHumanEnded > 0 {
+		return Outcome{Candidate: candidate, Skipped: "subscription_skipped_non_human_ended", RoutedTasks: routed.outcomes}, nil
+	}
+	if s.judge == nil {
+		return Outcome{}, ErrNoJudge
 	}
 	seen, err := queries.HasProactiveSignalForSource(ctx, store.HasProactiveSignalForSourceParams{
 		TenantID: owner.TenantID, OwnerActorID: owner.ActorID, Source: candidate.Source, SourceKey: candidate.SourceKey,

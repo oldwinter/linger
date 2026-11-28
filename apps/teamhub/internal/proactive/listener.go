@@ -207,6 +207,7 @@ func EventFromListener(listened reminder.ListenerEvent) (Event, bool) {
 		event.Kind = "new_mail"
 		event.ExternalID = firstNonEmpty(listened.ThreadID, listened.MessageID, listened.EventID)
 		event.State = firstNonEmpty(listened.MessageID, listened.EventID)
+		event.Actor = mailActorFromHeader(listened.From, listened.AutoSubmitted)
 		event.Summary = lookupSummary([][2]string{{"Message ID", listened.MessageID}, {"Thread ID", listened.ThreadID}, {"Labels", strings.Join(listened.LabelIDs, ", ")}},
 			[2]string{"From", listened.From}, [2]string{"To", listened.To}, [2]string{"Subject", listened.Subject}, [2]string{"Body", listened.Snippet})
 	case reminder.ListenerGCal, reminder.ListenerOutlookCalendar:

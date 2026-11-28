@@ -191,6 +191,7 @@ describe("Settings surfaces", () => {
       "Shortcuts",
       "Computers",
       "Models",
+      "Voice",
       "System",
       "Language",
     ]);
@@ -344,6 +345,7 @@ describe("Settings surfaces", () => {
       "Shortcuts",
       "Computers",
       "Models",
+      "Voice",
       "System",
       "Language",
     ]);

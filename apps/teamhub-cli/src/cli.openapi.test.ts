@@ -396,6 +396,43 @@ async function respond(request: Request): Promise<Response> {
       strength: "create",
       replay: false,
     });
+  if (endpoint.endsWith("/proactive/subscriptions/list"))
+    return Response.json({
+      items: [
+        {
+          id: "tsub_0123456789abcdef0123456789abcdef",
+          tenant_id: "tenant_one",
+          owner_actor_id: "actor_owner",
+          task_id: "workitem_one",
+          source_type: "mail",
+          normalized_source_key: "connection_one:thread_1",
+          display_label: "connection_one:thread_1",
+          status: "active",
+          created_by_actor_id: "actor_agent",
+          created_at: "2026-11-27T08:00:00Z",
+        },
+      ],
+    });
+  if (endpoint.endsWith("/proactive/subscriptions/drop"))
+    return Response.json({
+      subscription: {
+        id: "tsub_0123456789abcdef0123456789abcdef",
+        tenant_id: "tenant_one",
+        owner_actor_id: "actor_owner",
+        task_id: "workitem_one",
+        source_type: "mail",
+        normalized_source_key: "connection_one:thread_1",
+        display_label: "connection_one:thread_1",
+        status: "dropped",
+        created_by_actor_id: "actor_agent",
+        created_at: "2026-11-27T08:00:00Z",
+        dropped_at: "2026-11-27T09:00:00Z",
+        dropped_by_kind: "another_me",
+        dropped_by_actor_id: "actor_agent",
+        drop_reason: "Thread concluded",
+      },
+      replay: false,
+    });
   if (endpoint.endsWith("/proactive/shadow-divergences"))
     return Response.json({
       id: "psd_0123456789abcdef0123456789abcdef",

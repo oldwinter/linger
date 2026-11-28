@@ -65,6 +65,13 @@ import {
   type LocalModelActionAck,
   type LocalModelActionCommand,
 } from "./runner-local-models.js";
+import {
+  RunnerLocalSpeech,
+  type LocalAsrTranscribeCommand,
+  type LocalAsrTranscribeResult,
+  type LocalSpeechActionAck,
+  type LocalSpeechActionCommand,
+} from "./runner-local-speech.js";
 import { RunnerOperationPreparation } from "./runner-operation-preparation.js";
 import type {
   RunnerCapacityPermit,
@@ -157,6 +164,7 @@ export class RunnerGateway
   readonly #computerTools: RunnerComputerTools;
   readonly #herdrCore: RunnerHerdrCore;
   readonly #localModels: RunnerLocalModels;
+  readonly #localSpeech: RunnerLocalSpeech;
   constructor(options: RunnerGatewayOptions) {
     const context = createRunnerGatewayContext(options);
     const owners: RunnerGatewayControllers = {
@@ -173,6 +181,7 @@ export class RunnerGateway
       computerTools: () => this.#computerTools,
       herdrCore: () => this.#herdrCore,
       localModels: () => this.#localModels,
+      localSpeech: () => this.#localSpeech,
       contextViewContent: () => this.contextViewContent,
     };
     this.#connections = new RunnerConnections(context, owners);
@@ -226,6 +235,7 @@ export class RunnerGateway
     this.#computerTools = new RunnerComputerTools(context, owners);
     this.#herdrCore = new RunnerHerdrCore(context, owners);
     this.#localModels = new RunnerLocalModels(context, owners);
+    this.#localSpeech = new RunnerLocalSpeech(context, owners);
     validateRunnerGatewayContext(context);
     if (options.contextContent) {
       this.contextViewContent = createContextViewContent({
@@ -376,6 +386,18 @@ export class RunnerGateway
     command: LocalModelActionCommand,
   ): Promise<LocalModelActionAck> {
     return this.#localModels.act(command);
+  }
+
+  async actOnLocalSpeech(
+    command: LocalSpeechActionCommand,
+  ): Promise<LocalSpeechActionAck> {
+    return this.#localSpeech.act(command);
+  }
+
+  async transcribeLocalAsr(
+    command: LocalAsrTranscribeCommand,
+  ): Promise<LocalAsrTranscribeResult> {
+    return this.#localSpeech.transcribe(command);
   }
 
   async modelSource(command: LocalModelSourceCommand) {

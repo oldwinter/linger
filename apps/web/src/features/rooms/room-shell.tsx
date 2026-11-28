@@ -58,7 +58,7 @@ import {
   useOptionalVoiceModeSession,
   VoiceModeSessionProvider,
 } from "./chat/voice-mode/voice-mode-session";
-import { registerVoiceShell } from "./chat/voice-mode/voice-ui-bridge";
+import { registerVoiceShell } from "./chat/voice-mode/voice-shell-registry";
 import { RoomNavigation } from "./room-navigation";
 import { navigationMessages } from "./room-navigation.messages";
 import { roomSurfaceMessages } from "./room-surface.messages";

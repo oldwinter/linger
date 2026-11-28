@@ -13,10 +13,6 @@ import {
 import { authenticationOperation } from "@/features/auth/authentication-operation";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import {
-  OAUTH_COMPLETE_PATH,
-  OAuthCompletePage,
-} from "@/features/apps/oauth-complete-page";
 import { authenticatedLoginDestination } from "@/features/auth/authentication-return-to";
 import {
   anotherMeQueryOptions,
@@ -50,20 +46,14 @@ import {
 import type { TeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import { translate } from "@/i18n/language";
 import { useT } from "@/i18n/use-translation";
-import {
-  createWorkItemDashboardFilters,
-  currentDashboardActorId,
-} from "@/features/work-items/work-item-dashboard-filters";
-import {
-  tenantWorkItemTargetQueryOptions,
-  tenantWorkItemsDashboardQueryOptions,
-} from "@/features/work-items/work-item-queries";
 
 import {
   FullPageRouteErrorSurface,
   PanelRouteErrorSurface,
 } from "./route-error-surfaces";
 import { routePagesMessages } from "./route-pages.messages";
+
+const OAUTH_COMPLETE_PATH = "/oauth/composio-complete";
 
 export function createAppRoutes(
   queryClient: QueryClient,
@@ -174,7 +164,11 @@ export function createAppRoutes(
     },
     {
       ErrorBoundary: FullPageRouteErrorSurface,
-      element: <OAuthCompletePage />,
+      HydrateFallback: InitialAppLoading,
+      lazy: async () => ({
+        Component: (await import("@/features/apps/oauth-complete-page"))
+          .OAuthCompletePage,
+      }),
       path: OAUTH_COMPLETE_PATH,
     },
     {
@@ -523,15 +517,28 @@ function createWorkItemDashboardRoute(
     },
     loader: async ({ params, request }) => {
       const tenantId = requireRoomRouteParam(params.tenantId, "Tenant");
+      void queryClient.prefetchQuery(tenantRoomsQueryOptions(client, tenantId));
+      // Load Work Item query/filter code alongside the identity read so
+      // dashboard code stays out of the initial entry graph.
+      const [
+        { createWorkItemDashboardFilters, currentDashboardActorId },
+        {
+          tenantWorkItemTargetQueryOptions,
+          tenantWorkItemsDashboardQueryOptions,
+        },
+        identity,
+      ] = await Promise.all([
+        import("@/features/work-items/work-item-dashboard-filters"),
+        import("@/features/work-items/work-item-queries"),
+        // Mine keys the list by the current Actor, so read the identity the
+        // shell already ensures before starting the Dashboard request.
+        queryClient
+          .ensureQueryData(teamHubIdentityQueryOptions(client))
+          .catch(() => undefined),
+      ]);
       const filters = createWorkItemDashboardFilters(
         new URL(request.url).searchParams,
       );
-      void queryClient.prefetchQuery(tenantRoomsQueryOptions(client, tenantId));
-      // Mine keys the list by the current Actor, so read the identity the
-      // shell already ensures before starting the Dashboard request.
-      const identity = await queryClient
-        .ensureQueryData(teamHubIdentityQueryOptions(client))
-        .catch(() => undefined);
       void queryClient.prefetchQuery(
         tenantWorkItemsDashboardQueryOptions(
           client,
@@ -1104,6 +1111,14 @@ function createSettingsRoute(): RouteObject {
             .ModelsPage,
         }),
         path: "models",
+      },
+      {
+        lazy: async () => ({
+          Component: (
+            await import("@/features/voice-settings/voice-settings-page")
+          ).VoiceSettingsPage,
+        }),
+        path: "voice",
       },
       {
         lazy: async () => ({

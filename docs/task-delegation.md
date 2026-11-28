@@ -31,6 +31,10 @@ whether to ask.</sub>
 Another Me also starts a Task on its own, without you asking, when an outside
 event matches one of your rules on which you allowed "Create and delegate" in
 Settings → My Rules; see [Proactive Another Me](proactive.md#acting-under-your-mandate).
+When that Task starts from a mail thread, `herdr` / `herdr-core` pane, or GitHub
+issue/PR, TeamHub attaches a follow-up **Subscription** so later thread updates
+reach the Task directly while it is active and verified human replies can resume
+it after it ends; see [Routing follow-up threads (Subscriptions)](proactive.md#routing-follow-up-threads-subscriptions).
 
 Each `task` step in the Meta's activity is one line with the Task's name and
 state. Open it, or a Task under _tasks running in the background_, to read the

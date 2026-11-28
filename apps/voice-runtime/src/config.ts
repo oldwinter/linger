@@ -9,6 +9,9 @@ export interface VoiceRuntimeConfig {
   livekitApiSecret: string;
   teamhubBaseUrl: string;
   teamhubToken: string;
+  nodeServicesInternalUrl: string;
+  nodeServicesInternalToken: string;
+  localAsrUrl?: string;
   sonioxApiKey: string;
   xaiApiKey: string;
   xaiLiveWebSocketUrl: string;
@@ -57,6 +60,7 @@ export const loadConfig = (
   const healthPort = Number(env.VOICE_WORKER_PORT ?? defaultHealthPort);
   if (!Number.isInteger(healthPort) || healthPort < 1024 || healthPort > 65535)
     throw new Error("VOICE_WORKER_PORT is invalid");
+  const localAsrUrl = env.VOICE_LOCAL_ASR_URL?.trim() || undefined;
   const config: VoiceRuntimeConfig = {
     healthPort,
     livekitUrl: withDefault("LIVEKIT_URL"),
@@ -65,8 +69,15 @@ export const loadConfig = (
     teamhubBaseUrl: required("TEAMHUB_BASE_URL"),
     teamhubToken:
       serviceCredential("voice-runtime", env) ?? required("LINGER_SECRET_SEED"),
-    // Each provider key turns on only its own workers: Soniox transcribes,
-    // xAI runs Live.
+    nodeServicesInternalUrl:
+      env.NODE_SERVICES_INTERNAL_URL?.trim() || "http://127.0.0.1:4319",
+    nodeServicesInternalToken:
+      env.NODE_SERVICES_INTERNAL_TOKEN?.trim() ||
+      serviceCredential("node-services-internal", env) ||
+      "",
+    ...(localAsrUrl ? { localAsrUrl } : {}),
+    // Each provider key turns on only its own workers: Soniox or local speech
+    // transcribes, xAI runs Live.
     sonioxApiKey: env.SONIOX_API_KEY?.trim() ?? "",
     xaiApiKey: env.XAI_API_KEY?.trim() ?? "",
     xaiLiveWebSocketUrl:
@@ -87,6 +98,14 @@ export const loadConfig = (
     throw new Error("LIVEKIT_URL is invalid");
   }
   validateUrl(config.teamhubBaseUrl, ["http:", "https:"], "TEAMHUB_BASE_URL");
+  validateUrl(
+    config.nodeServicesInternalUrl,
+    ["http:", "https:"],
+    "NODE_SERVICES_INTERNAL_URL",
+  );
+  if (config.localAsrUrl) {
+    validateUrl(config.localAsrUrl, ["http:", "https:"], "VOICE_LOCAL_ASR_URL");
+  }
   validateUrl(
     config.xaiLiveWebSocketUrl,
     ["ws:", "wss:"],

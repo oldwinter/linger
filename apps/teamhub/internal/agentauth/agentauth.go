@@ -57,7 +57,8 @@ func taskContextBlocked(tool string) bool {
 	switch tool {
 	case "send_message", "send_message_sequence", "send_direct_message", "hand_off_to_room", "send_emoji", "ask_user", "show_fragment",
 		"create_document", "create_room", "create_team_md",
-		"create_task", "check_task", "send_task", "stop_task":
+		"create_task", "check_task", "send_task", "stop_task",
+		"list_proactive_subscriptions", "drop_proactive_subscription":
 		return true
 	}
 	return false
@@ -223,7 +224,7 @@ func businessAction(action string) bool {
 		"add_room_member", "create_agent", "get_agent", "update_agent", "list_connected_apps", "search_app_tools", "execute_app_tool", "manage_auto_reminders",
 		"get_personal_profile", "write_personal_profile", "start_personal_profile_build", "get_account_profile", "update_account_profile",
 		"request_browser_connection", "read_computer_permissions", "request_computer_permission", "web_search",
-		"record_shadow_divergence", "act_under_mandate", "ask_herdr_pane", "ask_herdr_core_terminal", "call_herdr_core":
+		"record_shadow_divergence", "act_under_mandate", "list_proactive_subscriptions", "drop_proactive_subscription", "ask_herdr_pane", "ask_herdr_core_terminal", "call_herdr_core":
 		return true
 	}
 	return knowledgeAction(action)
@@ -263,8 +264,9 @@ func businessCapability(i Authorization, action string) bool {
 		return i.Target.Kind != "document"
 	case "send_message_sequence":
 		return i.AgentType == "anotherme" && i.ParticipantTaskID == "" && i.Target.Kind != "document"
-	case "record_shadow_divergence":
-		// Only an AnotherMe judges proactively, under its owner's rules.
+	case "record_shadow_divergence", "list_proactive_subscriptions", "drop_proactive_subscription":
+		// Only an AnotherMe judges proactively and manages its owner's
+		// follow-up subscriptions, from its Meta.
 		return i.AgentType == "anotherme" && i.UserArtifactOwnerActorID != "" && i.ParticipantTaskID == "" && i.Target.Kind != "document"
 	case "act_under_mandate":
 		// An AnotherMe acts from its Room under its owner's mandates; each act

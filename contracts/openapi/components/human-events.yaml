@@ -10,6 +10,7 @@ components:
         another-me, computers, connections, and work-items name a Tenant collection (id is the
         Tenant ID). local-models: a Local Computer's model library (id is the Computer ID).
         herdr-core: a Local Computer's herdr-core terminal state (id is the Computer ID).
+        local-speech: a Local Computer's speech model status (id is the Computer ID).
         Producers add a value here when they start publishing a new resource type.
       enum:
         [
@@ -24,6 +25,7 @@ components:
           document-access,
           local-models,
           herdr-core,
+          local-speech,
         ]
     ResourceInvalidatedSseEvent:
       type: object

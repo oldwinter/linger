@@ -343,6 +343,7 @@ func HerdrCoreEvent(tenantID, ownerActorID string, report HerdrCoreReport) Event
 		ExternalID:   herdrCoreExternalID(report.ComputerID, report.Address, report.Turn, report.StatusMs),
 		State:        state,
 		Summary:      summary,
+		Actor:        &EventActor{Kind: EventActorSystem, DisplayName: app},
 		HerdrCore: &HerdrCoreTerminalRef{
 			Address:     report.Address,
 			Machine:     strings.TrimSpace(report.Machine),

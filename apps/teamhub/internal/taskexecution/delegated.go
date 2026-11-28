@@ -25,11 +25,13 @@ const (
 	checkRecentActivityLimit  = 5
 )
 
-// Delegated Task input causes: the Meta's task send, and system
-// notices such as approval-card results.
+// Delegated Task input causes: the Meta's task send, system notices such as
+// approval-card results, and follow-up events routed by an active Task
+// Subscription.
 const (
-	TaskInputMetaMessage = "meta_message"
-	TaskInputSystem      = "system"
+	TaskInputMetaMessage       = "meta_message"
+	TaskInputSystem            = "system"
+	TaskInputSubscriptionEvent = "subscription_event"
 )
 
 // DelegatedAttemptPolicyV1 never retries: a failed turn leaves the Task
@@ -57,6 +59,21 @@ type TaskInputResult struct {
 	ExecutionRevision int64
 }
 
+// SubscribedTaskInput delivers one follow-up event from an external thread
+// subscription into a delegated Task. Active tasks receive matching events
+// directly; ended tasks resume only when AllowResumeEnded is true (verified
+// human-authored follow-up), never for bot, CI, automated, or system events.
+type SubscribedTaskInput struct {
+	TaskID              string
+	SubscriptionID      string
+	SourceType          string
+	NormalizedSourceKey string
+	ActorKind           string
+	AllowResumeEnded    bool
+	MaxRunningTasks     int64
+	Body                string
+}
+
 // AppendTaskInput wakes a delegated Task's AlterEgo with one message in the
 // caller's transaction. A Task that is not running starts a new Attempt; a
 // running Task gets the message as its next turn. System notices for a
@@ -80,7 +97,6 @@ func AppendTaskInput(ctx context.Context, queries *store.Queries, input TaskInpu
 	if !snapshot.TaskExecutionGeneration.Valid || !snapshot.TaskExecutionRevision.Valid || !snapshot.TaskExecutionStatus.Valid {
 		return TaskInputResult{}, ErrNotFound
 	}
-	generation := snapshot.TaskExecutionGeneration.Int64
 	status := snapshot.TaskExecutionStatus.String
 	if input.Cause == TaskInputSystem && status == "canceled" {
 		return TaskInputResult{
@@ -89,12 +105,89 @@ func AppendTaskInput(ctx context.Context, queries *store.Queries, input TaskInpu
 			ExecutionRevision: snapshot.TaskExecutionRevision.Int64,
 		}, nil
 	}
+	return appendDelegatedTaskInput(ctx, queries, snapshot, input.TaskID, input.Cause, input.Body, input.Steer, nil)
+}
+
+// AppendSubscribedTaskInput routes a follow-up event from a subscribed external
+// thread into a delegated Task in the caller's transaction. Callers that may
+// resume a non-running Task must acquire the per-Agent "task-delegation|<id>"
+// advisory lock before invoking this function.
+func AppendSubscribedTaskInput(ctx context.Context, queries *store.Queries, input SubscribedTaskInput) (TaskInputResult, error) {
+	input.Body = strings.TrimSpace(input.Body)
+	if queries == nil || strings.TrimSpace(input.TaskID) == "" ||
+		input.Body == "" || utf8.RuneCountInString(input.Body) > MaxTaskInputRunes {
+		return TaskInputResult{}, ErrInvalid
+	}
+	snapshot, err := queries.LockTaskExecutionSnapshot(ctx, input.TaskID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return TaskInputResult{}, ErrNotFound
+	}
+	if err != nil {
+		return TaskInputResult{}, err
+	}
+	if !snapshot.TaskExecutionGeneration.Valid || !snapshot.TaskExecutionRevision.Valid || !snapshot.TaskExecutionStatus.Valid {
+		return TaskInputResult{}, ErrNotFound
+	}
+	status := snapshot.TaskExecutionStatus.String
+	if snapshot.ArchivedAt.Valid || snapshot.WorkItemState == "resolved" {
+		return TaskInputResult{
+			Delivery:          "skipped_task_closed",
+			Status:            status,
+			ExecutionRevision: snapshot.TaskExecutionRevision.Int64,
+		}, nil
+	}
+	active := isActiveDelegatedStatus(status)
+	if !active && !input.AllowResumeEnded {
+		return TaskInputResult{
+			Delivery:          "skipped_non_human_ended",
+			Status:            status,
+			ExecutionRevision: snapshot.TaskExecutionRevision.Int64,
+		}, nil
+	}
+	if status != "running" && input.MaxRunningTasks > 0 && snapshot.CoordinatorActorID.Valid && snapshot.CoordinatorActorID.String != "" {
+		running, err := queries.CountRunningDelegatedTasksForAgent(ctx, store.CountRunningDelegatedTasksForAgentParams{
+			TenantID: snapshot.TenantID, AgentActorID: snapshot.CoordinatorActorID.String,
+		})
+		if err != nil {
+			return TaskInputResult{}, err
+		}
+		if running >= input.MaxRunningTasks {
+			return TaskInputResult{}, ErrLimitReached
+		}
+	}
+	extra := map[string]any{
+		"subscription_id":       strings.TrimSpace(input.SubscriptionID),
+		"source_type":           strings.TrimSpace(input.SourceType),
+		"normalized_source_key": strings.TrimSpace(input.NormalizedSourceKey),
+		"actor_kind":            strings.TrimSpace(input.ActorKind),
+		"resumed_ended_task":    !active,
+	}
+	result, err := appendDelegatedTaskInput(ctx, queries, snapshot, input.TaskID, TaskInputSubscriptionEvent, input.Body, false, extra)
+	if err != nil {
+		return TaskInputResult{}, err
+	}
+	if !active && result.Delivery == "started" {
+		result.Delivery = "resumed"
+	}
+	return result, nil
+}
+
+func appendDelegatedTaskInput(
+	ctx context.Context,
+	queries *store.Queries,
+	snapshot store.LockTaskExecutionSnapshotRow,
+	taskID, cause, body string,
+	steer bool,
+	extraFactPayload map[string]any,
+) (TaskInputResult, error) {
+	generation := snapshot.TaskExecutionGeneration.Int64
+	status := snapshot.TaskExecutionStatus.String
 	author, err := queries.GetActor(ctx, store.GetActorParams{ID: snapshot.ResultAgentActorID, TenantID: snapshot.TenantID})
 	if err != nil {
 		return TaskInputResult{}, err
 	}
 	participants, err := queries.ListTaskExecutionParticipants(ctx, store.ListTaskExecutionParticipantsParams{
-		TaskID: input.TaskID, Generation: generation,
+		TaskID: taskID, Generation: generation,
 	})
 	if err != nil {
 		return TaskInputResult{}, err
@@ -107,18 +200,18 @@ func AppendTaskInput(ctx context.Context, queries *store.Queries, input TaskInpu
 	if err != nil {
 		return TaskInputResult{}, ErrConflict
 	}
-	segments, err := json.Marshal([]map[string]string{{"type": "text", "content": input.Body}})
+	segments, err := json.Marshal([]map[string]string{{"type": "text", "content": body}})
 	if err != nil {
 		return TaskInputResult{}, err
 	}
 	message, err := normalizeTurnMessage(TurnMessageInput{
-		MessageID: ids.New("task_input_message"), RawMessage: input.Body, Segments: segments,
+		MessageID: ids.New("task_input_message"), RawMessage: body, Segments: segments,
 		Author: &TurnMessageAuthor{ActorID: author.ID, Kind: author.Kind, DisplayName: author.DisplayName},
 	})
 	if err != nil {
 		return TaskInputResult{}, err
 	}
-	attempts, err := queries.ListTaskAttempts(ctx, store.ListTaskAttemptsParams{TaskID: input.TaskID, Generation: generation})
+	attempts, err := queries.ListTaskAttempts(ctx, store.ListTaskAttemptsParams{TaskID: taskID, Generation: generation})
 	if err != nil {
 		return TaskInputResult{}, err
 	}
@@ -130,19 +223,19 @@ func AppendTaskInput(ctx context.Context, queries *store.Queries, input TaskInpu
 	// Private Meta wakes take Account and projection locks before the
 	// execution Event; lock the Task's delivery Rooms first.
 	if err := queries.LockWorkItemDeliveryRooms(ctx, store.LockWorkItemDeliveryRoomsParams{
-		TenantID: snapshot.TenantID, WorkItemID: input.TaskID, OriginRoomID: snapshot.EventRoomID,
+		TenantID: snapshot.TenantID, WorkItemID: taskID, OriginRoomID: snapshot.EventRoomID,
 	}); err != nil {
 		return TaskInputResult{}, err
 	}
 	source := InputSourceMessage
-	if input.Cause == TaskInputSystem {
+	if cause == TaskInputSystem {
 		source = InputSourceSystem
 	}
-	wakes, err := AppendParticipantMetaWakes(ctx, queries, input.TaskID, snapshot.TenantID, author.ID, source, recipients, message)
+	wakes, err := AppendParticipantMetaWakes(ctx, queries, taskID, snapshot.TenantID, author.ID, source, recipients, message)
 	if err != nil {
 		return TaskInputResult{}, err
 	}
-	baseManifest, _, err := canonicalHash(map[string]any{"room_id": snapshot.EventRoomID, "source": input.Cause})
+	baseManifest, _, err := canonicalHash(map[string]any{"room_id": snapshot.EventRoomID, "source": cause})
 	if err != nil {
 		return TaskInputResult{}, err
 	}
@@ -159,7 +252,7 @@ func AppendTaskInput(ctx context.Context, queries *store.Queries, input TaskInpu
 	attemptID, inputRevision := current.ID, current.CurrentInputRevision+1
 	if hasRunningAttempt {
 		result.Delivery = "queued"
-		if input.Steer {
+		if steer {
 			result.Delivery = "steered"
 		}
 	} else {
@@ -177,7 +270,7 @@ func AppendTaskInput(ctx context.Context, queries *store.Queries, input TaskInpu
 		}
 		attemptID, inputRevision = ids.New("task_attempt"), 1
 		if _, err := queries.InsertTaskAttempt(ctx, store.InsertTaskAttemptParams{
-			ID: attemptID, TaskID: input.TaskID, TenantID: snapshot.TenantID, Generation: generation,
+			ID: attemptID, TaskID: taskID, TenantID: snapshot.TenantID, Generation: generation,
 			AttemptNumber: attemptNumber, RuntimeGenerationKey: ids.New("runtime_generation"),
 			Status: "running", CurrentInputRevision: 1,
 			DeadlineAt: pgtype.Timestamptz{Time: now.Time.Add(time.Duration(spec.AttemptPolicy.TimeoutSeconds) * time.Second), Valid: true},
@@ -190,8 +283,8 @@ func AppendTaskInput(ctx context.Context, queries *store.Queries, input TaskInpu
 	recipientJSON, _ := json.Marshal(recipients)
 	effectIDs, _ := json.Marshal([]string{effectID})
 	if _, err := queries.InsertTaskInputRevision(ctx, store.InsertTaskInputRevisionParams{
-		TaskID: input.TaskID, TenantID: snapshot.TenantID, Generation: generation,
-		AttemptID: attemptID, InputRevision: inputRevision, Cause: input.Cause,
+		TaskID: taskID, TenantID: snapshot.TenantID, Generation: generation,
+		AttemptID: attemptID, InputRevision: inputRevision, Cause: cause,
 		RecipientActorIds: recipientJSON, InputManifest: manifest,
 		MessageEffectIds: effectIDs, CapabilityHash: tokenHash(capability),
 	}); err != nil {
@@ -206,18 +299,18 @@ func AppendTaskInput(ctx context.Context, queries *store.Queries, input TaskInpu
 	if err != nil {
 		return TaskInputResult{}, err
 	}
-	rootOperationID := taskInputOperationID(input.TaskID, generation, attemptID, inputRevision)
+	rootOperationID := taskInputOperationID(taskID, generation, attemptID, inputRevision)
 	if _, err := queries.InsertTaskEffect(ctx, store.InsertTaskEffectParams{
-		ID: effectID, TaskID: input.TaskID, TenantID: snapshot.TenantID, Generation: generation,
+		ID: effectID, TaskID: taskID, TenantID: snapshot.TenantID, Generation: generation,
 		RootOperationID: rootOperationID, EffectKey: rootOperationID + ":submit", Operation: "submit_agent_turn",
-		OwnerID: input.TaskID, Payload: effectJSON, PayloadHash: effectHash, RootPayloadHash: effectHash,
+		OwnerID: taskID, Payload: effectJSON, PayloadHash: effectHash, RootPayloadHash: effectHash,
 		DispatchSequence: 1, Status: "pending",
 	}); err != nil {
 		return TaskInputResult{}, err
 	}
 	if hasRunningAttempt {
 		if updated, err := queries.AdvanceRunningTaskAttemptInput(ctx, store.AdvanceRunningTaskAttemptInputParams{
-			NextInputRevision: inputRevision, AttemptID: attemptID, TaskID: input.TaskID,
+			NextInputRevision: inputRevision, AttemptID: attemptID, TaskID: taskID,
 			Generation: generation, ExpectedInputRevision: current.CurrentInputRevision,
 		}); err != nil {
 			return TaskInputResult{}, err
@@ -225,9 +318,13 @@ func AppendTaskInput(ctx context.Context, queries *store.Queries, input TaskInpu
 			return TaskInputResult{}, ErrConflict
 		}
 	}
-	result.ExecutionRevision, err = setDelegatedTaskStatus(ctx, queries, snapshot, status, "running", "", input.Cause, author.ID, map[string]any{
+	factPayload := map[string]any{
 		"attempt_id": attemptID, "input_revision": inputRevision, "effect_id": effectID, "delivery": result.Delivery,
-	})
+	}
+	for k, v := range extraFactPayload {
+		factPayload[k] = v
+	}
+	result.ExecutionRevision, err = setDelegatedTaskStatus(ctx, queries, snapshot, status, "running", "", cause, author.ID, factPayload)
 	return result, err
 }
 
@@ -488,6 +585,8 @@ func taskActivity(fact Fact) TaskActivity {
 		activity.Kind, activity.Summary = "message", "Meta message "+payload.Delivery
 	case fact.ReasonCode == TaskInputSystem:
 		activity.Kind, activity.Summary = "approval_result", "approval result "+payload.Delivery
+	case fact.ReasonCode == TaskInputSubscriptionEvent:
+		activity.Kind, activity.Summary = "subscription_event", "subscribed thread update "+payload.Delivery
 	case fact.ExecutionStatus == "idle":
 		activity.Summary = "turn finished and reported"
 	case fact.ExecutionStatus == "waiting_for_approval":

@@ -86,6 +86,7 @@ type FakeServer struct {
 
 	sseSubs      map[chan SSEFrame]struct{}
 	voiceSSESubs map[chan SSEFrame]struct{}
+	voiceState   *VoiceServerState
 	c2           *C2FakeServer
 }
 
@@ -549,6 +550,8 @@ func (f *FakeServer) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	case strings.HasPrefix(path, "/v0/voice-sessions/") && strings.HasSuffix(path, "/events/stream") && r.Method == http.MethodGet:
 		f.handleVoiceSSE(w, r)
+	case f.serveVoiceRoute(w, r):
+		return
 	case path == "/v0/session" && (r.Method == http.MethodGet || r.Method == http.MethodPost):
 		f.handleSession(w, r)
 	case path == "/v0/auth/logout" && r.Method == http.MethodPost:
@@ -731,7 +734,10 @@ func (f *FakeServer) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	case path == "/v0/web-search/backends" && r.Method == http.MethodGet:
 		writeJSON(w, http.StatusOK, f.WebSearchBackends)
 	case path == "/v0/tenants/"+f.TenantID+"/voice-media-policy" && r.Method == http.MethodGet:
-		writeJSON(w, http.StatusOK, f.VoicePolicy)
+		f.mu.Lock()
+		pol := f.VoicePolicy
+		f.mu.Unlock()
+		writeJSON(w, http.StatusOK, pol)
 	case path == "/v0/tenants/"+f.TenantID+"/account-profile" && r.Method == http.MethodGet:
 		writeJSON(w, http.StatusOK, f.AccountProfile)
 	default:

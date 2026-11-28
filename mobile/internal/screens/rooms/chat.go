@@ -649,6 +649,11 @@ func (ctl *Controller) viewComposer(c *ui.Context, snap state.Snapshot, roomID s
 					ctl.skillSheetOpen = true
 					ctl.mu.Unlock()
 				})
+				if ctl.nav.OnOpenVoice != nil {
+					composerToolChip(c, i18n.T("chat.voice_btn"), func() {
+						ctl.nav.OnOpenVoice(roomID, roomTitle(snap, roomID))
+					})
+				}
 			})
 		})
 	})

@@ -24,6 +24,9 @@ export type TeamHubProactiveRuleBook =
 export type TeamHubProactiveRule = components["schemas"]["ProactiveRule"];
 export type TeamHubProactiveAction = components["schemas"]["ProactiveAction"];
 export type TeamHubProactiveMandate = components["schemas"]["ProactiveMandate"];
+export type TeamHubTaskSubscription = components["schemas"]["TaskSubscription"];
+export type TeamHubTaskSubscriptionSourceType =
+  components["schemas"]["TaskSubscriptionSourceType"];
 export type TeamHubLocalRuntimeType = components["schemas"]["LocalRuntimeType"];
 export type TeamHubLocalComputerPage =
   components["schemas"]["LocalComputerPage"];
@@ -75,6 +78,21 @@ export type TeamHubDocumentTreeSummary =
   components["schemas"]["DocumentTreeSummary"];
 export type TeamHubVoiceSession = components["schemas"]["VoiceSession"];
 export type TeamHubVoiceMediaPolicy = components["schemas"]["VoiceMediaPolicy"];
+export type TeamHubVoiceSettings = components["schemas"]["VoiceSettings"];
+export type TeamHubUpdateVoiceSettingsRequest =
+  components["schemas"]["UpdateVoiceSettingsRequest"];
+export type TeamHubLocalSpeechView = components["schemas"]["LocalSpeechView"];
+export type TeamHubLocalSpeechModel = components["schemas"]["LocalSpeechModel"];
+export type TeamHubLocalSpeechRuntime =
+  components["schemas"]["LocalSpeechRuntime"];
+export type TeamHubLocalSpeechActionRequest =
+  components["schemas"]["LocalSpeechActionRequest"];
+export type TeamHubLocalSpeechFallbackReason =
+  components["schemas"]["LocalSpeechFallbackReason"];
+export type TeamHubLocalSpeechEffectiveDevice =
+  components["schemas"]["LocalSpeechEffectiveDevice"];
+export type TeamHubLocalSpeechErrorCode =
+  components["schemas"]["LocalSpeechErrorCode"];
 export type TeamHubVoiceProvider = components["schemas"]["VoiceProvider"];
 export type TeamHubVoiceProviderKeyStatus =
   components["schemas"]["VoiceProviderKeyStatus"];
@@ -376,7 +394,8 @@ export type TeamHubInvalidationResource =
   | "work-items"
   | "document"
   | "document-access"
-  | "local-models";
+  | "local-models"
+  | "local-speech";
 export interface TeamHubResourceInvalidation {
   id: string;
   resource: TeamHubInvalidationResource;

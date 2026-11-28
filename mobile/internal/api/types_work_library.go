@@ -563,6 +563,10 @@ type VoiceSession struct {
 	RoomID               string     `json:"room_id"`
 	Purpose              string     `json:"purpose"`
 	Status               string     `json:"status"`
+	CredentialGeneration int64      `json:"credential_generation,omitempty"`
+	InputReadyGeneration int64      `json:"input_ready_generation,omitempty"`
+	InputStartedOffsetMs *int64     `json:"input_started_offset_ms,omitempty"`
+	InputEndedOffsetMs   *int64     `json:"input_ended_offset_ms,omitempty"`
 	PartialTranscript    *string    `json:"partial_transcript,omitempty"`
 	PartialStartOffsetMs *int64     `json:"partial_start_offset_ms,omitempty"`
 	PartialEndOffsetMs   *int64     `json:"partial_end_offset_ms,omitempty"`

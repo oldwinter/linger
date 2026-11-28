@@ -1039,11 +1039,11 @@ func (q *Queries) LockHumanTaskInputTargetByWorkRoom(ctx context.Context, arg Lo
 
 const lockTaskExecutionSnapshot = `-- name: LockTaskExecutionSnapshot :one
 SELECT item.id AS task_id,item.tenant_id,item.title,item.state AS work_item_state,item.resolution,item.version,
-       item.quiet,item.task_source_key,item.task_execution_generation,
+       item.archived_at,item.quiet,item.task_source_key,item.task_execution_generation,
        item.task_execution_status,item.task_execution_revision,item.task_execution_reason_code,
        item.task_desired_control,item.task_control_revision,item.task_control_settled_revision,
        item.task_control_outcome,item.task_control_payload,item.task_execution_updated_at,
-       generation.result_agent_actor_id,generation.spec,generation.spec_hash,
+       generation.result_agent_actor_id,generation.coordinator_actor_id,generation.spec,generation.spec_hash,
        COALESCE(work_room.room_id,origin.room_id)::text AS event_room_id,
        COALESCE(origin.room_id,live.home_room_id,'')::text AS origin_room_id
 FROM work_items item
@@ -1066,6 +1066,7 @@ type LockTaskExecutionSnapshotRow struct {
 	WorkItemState              string             `json:"work_item_state"`
 	Resolution                 pgtype.Text        `json:"resolution"`
 	Version                    int64              `json:"version"`
+	ArchivedAt                 pgtype.Timestamptz `json:"archived_at"`
 	Quiet                      bool               `json:"quiet"`
 	TaskSourceKey              pgtype.Text        `json:"task_source_key"`
 	TaskExecutionGeneration    pgtype.Int8        `json:"task_execution_generation"`
@@ -1079,6 +1080,7 @@ type LockTaskExecutionSnapshotRow struct {
 	TaskControlPayload         []byte             `json:"task_control_payload"`
 	TaskExecutionUpdatedAt     pgtype.Timestamptz `json:"task_execution_updated_at"`
 	ResultAgentActorID         string             `json:"result_agent_actor_id"`
+	CoordinatorActorID         pgtype.Text        `json:"coordinator_actor_id"`
 	Spec                       []byte             `json:"spec"`
 	SpecHash                   []byte             `json:"spec_hash"`
 	EventRoomID                string             `json:"event_room_id"`
@@ -1097,6 +1099,7 @@ func (q *Queries) LockTaskExecutionSnapshot(ctx context.Context, taskID string) 
 		&i.WorkItemState,
 		&i.Resolution,
 		&i.Version,
+		&i.ArchivedAt,
 		&i.Quiet,
 		&i.TaskSourceKey,
 		&i.TaskExecutionGeneration,
@@ -1110,6 +1113,7 @@ func (q *Queries) LockTaskExecutionSnapshot(ctx context.Context, taskID string) 
 		&i.TaskControlPayload,
 		&i.TaskExecutionUpdatedAt,
 		&i.ResultAgentActorID,
+		&i.CoordinatorActorID,
 		&i.Spec,
 		&i.SpecHash,
 		&i.EventRoomID,

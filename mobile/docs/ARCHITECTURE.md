@@ -260,11 +260,13 @@ mobile/
     ├── realtime/                   # Single /v0/events SSE engine, cursor replay, backoff, resync & run-status tracker
     ├── cache/                      # plugins/sqlite schema migrations, offline cache, Pocket Note outbox, FTS5 search
     ├── state/                      # Observable application store, optimistic mutations, error/loading state machines
+    ├── voice/                      # Pure-Go LiveKit WebRTC transport, Opus codec, Voice Media Policy, mic permissions, iOS/Android/macOS native audio I/O
     ├── theme/                      # Town Light & Town Dark ui.Theme tokens, typography scale, custom Painter icons
     ├── components/                 # Reusable mobile widgets (cards, status pills, avatar mosaic, composer, empty states)
     ├── screens/
     │   ├── connect/                # Connection Hub, mDNS radar, QR/PIN pairing, direct remote login, diagnostics
     │   ├── rooms/                  # Room list, Catch-up, Chat timeline, Threads, Live Run Watch, Decision Cards, Room Inspector
+    │   ├── voice/                  # Town Atelier Live Voice & Dictation WebRTC sheet (controls, meters, subtitles, policy/permission recovery)
     │   ├── live/                   # Active Runs Monitor, Pending Approvals Inbox, Agents & Skills, Computers & Local Models/BYOK
     │   ├── work/                   # Work Items (Issues/Tasks) board & detail, Routines manager, Pocket Notes
     │   ├── library/                # Documents tree & reader/comments, Personal Wiki & Graph, Memory & Meetings, Global Search
@@ -403,4 +405,4 @@ Mobile treats approvals as a first-class remote operation workflow (both inline 
 
 1. **TLS Mode Default on LAN**: This RFC defaults Desktop Companion Gateway to **TLS 1.3 with a per-host self-signed ECDSA P-256 cert pinned via QR SPKI fingerprint** (preventing bearer token sniffing on shared Wi-Fi), with an explicit toggle/fallback for plain HTTP over Tailscale/dev. Confirm this default is desired.
 2. **Pairing UI Location**: This RFC puts the Desktop pairing UI inside an isolated Desktop shell window (`app://mobile-companion/`, opened from the system tray, identical to `QuickNoteModule`), keeping **0 edits in `apps/web`**. Confirm we should NOT add a duplicate pairing page inside `apps/web` Settings (which would touch `apps/web` routes, i18n, and risk upstream sync conflicts).
-3. **Voice Audio Scope**: Mobile fully supports inspecting Voice Media policy, saving/checking Soniox/xAI provider keys, viewing active captures & live transcripts (`GET /v0/voice-sessions/:id/events/stream`), stopping/retrying captures, asking meeting Q&A, and playing back recorded meetings. Full bidirectional WebRTC LiveKit microphone streaming on iOS/Android would require a native LiveKit SDK plugin (Swift/Kotlin); confirm deferring live mic WebRTC to a post-v1 native module while shipping full transcript/capture/meeting/key control in v1.
+3. **Voice Audio Scope**: Mobile supports inspecting Voice Media Policy, saving/checking Soniox/xAI provider keys, viewing active captures & live transcripts (`GET /v0/voice-sessions/:id/events/stream`), stopping/retrying captures, asking meeting Q&A, playing back recorded meetings, and **bidirectional LiveKit WebRTC native microphone streaming** (`mobile/internal/voice` + `mobile/internal/screens/voice`) using pure-Go `livekit/server-sdk-go/v2` + `darui3018823/opus` with native microphone capture plugins on iOS (`AVAudioEngine`), Android (`AudioRecord`), and macOS preview (`AudioQueueNewInput` via `purego`), plus `mygo/audio` playback and suspend-safe teardown.

@@ -39,9 +39,12 @@ import {
   tenantAgentsQueryOptions,
 } from "@/features/rooms/room-queries";
 import { requireRoomRouteParam } from "@/features/rooms/room-route-params";
+import { useVoiceMediaPolicy } from "@/features/rooms/voice-control/use-voice-media-policy";
 import { teamHubData } from "@/features/teamhub/teamhub-api";
 import { TeamHubError } from "@/features/teamhub/teamhub-error";
 import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
+import { VoiceLocalModelsSection } from "@/features/voice-settings/voice-local-models-section";
+import { voiceSettingsMessages } from "@/features/voice-settings/voice-settings.messages";
 import type {
   TeamHubLocalComputerPage,
   TeamHubTenantAgent,
@@ -117,9 +120,12 @@ import {
   type ModelStatus,
 } from "./local-models-rules";
 import { ByokPanel } from "./byok-panel";
-import { ModelSourceTabs, useModelSourceSwitch } from "./model-source-panel";
 import {
-  type ModelSourceMode,
+  ModelSourceTabs,
+  type ModelsPageTab,
+  useModelSourceSwitch,
+} from "./model-source-panel";
+import {
   modelSourceQueryKey,
   modelSourceQueryOptions,
   type ModelSourceStatus,
@@ -645,11 +651,16 @@ function ComputerModels({
     tenantId,
   ]);
   const status = source.data?.status;
-  const [tab, setTab] = useState<ModelSourceMode | null>(null);
+  const voicePolicy = useVoiceMediaPolicy(tenantId, hasOwnedSource);
+  const localSpeechActive =
+    voicePolicy?.active_speech_provider === "local" &&
+    Boolean(voicePolicy.local_speech_ready);
+  const [tab, setTab] = useState<ModelsPageTab | null>(null);
   const [byokVisited, setByokVisited] = useState(false);
   // A Computer on a subscription opens on Local model, which offers the way
   // off it; the Subscription tab is not offered.
-  const shownTab = tab ?? (status?.mode === "byok" ? "byok" : "local");
+  const shownTab: ModelsPageTab =
+    tab ?? (status?.mode === "byok" ? "byok" : "local");
   const computerName =
     displayName ?? view?.computer.display_name ?? t(m.thisComputer);
   const { feedback, switcher } = useModelSourceSwitch({
@@ -773,7 +784,7 @@ function ComputerModels({
     />
   ) : null;
 
-  function changeTab(next: ModelSourceMode) {
+  function changeTab(next: ModelsPageTab) {
     if (shownTab === "byok" || next === "byok") setByokVisited(true);
     setTab(next);
     setRefreshError(null);
@@ -788,7 +799,8 @@ function ComputerModels({
   const showHeaderUtilities =
     Boolean(view?.available) &&
     !(shownTab === "local" && hasMemorySummary) &&
-    shownTab !== "byok";
+    shownTab !== "byok" &&
+    shownTab !== "voice";
 
   return (
     <>
@@ -829,7 +841,10 @@ function ComputerModels({
         <ModelSourceTabs
           active={status.mode}
           onChange={changeTab}
+          showVoiceTab
           value={shownTab}
+          voiceActive={localSpeechActive}
+          voiceLabel={t(voiceSettingsMessages.modelsTabVoice)}
         />
       ) : hasOwnedSource && !offline && source.isPending ? (
         <div
@@ -889,6 +904,17 @@ function ComputerModels({
         </p>
       ) : null}
       {feedback}
+      {status && shownTab === "voice" ? (
+        <div className="mt-5">
+          <VoiceLocalModelsSection
+            compact
+            computerId={computerId}
+            computerName={computerName}
+            computerOffline={offline}
+            tenantId={tenantId}
+          />
+        </div>
+      ) : null}
       {status && (shownTab === "byok" || byokVisited) ? (
         <div hidden={shownTab !== "byok"}>
           {shownTab === "byok" && offline && view ? (
@@ -920,7 +946,7 @@ function ComputerModels({
           />
         </div>
       ) : null}
-      {status && shownTab === "byok" ? null : view ? (
+      {status && (shownTab === "byok" || shownTab === "voice") ? null : view ? (
         <>
           {view.available && summary?.totalBytes ? (
             <MemorySummaryCard

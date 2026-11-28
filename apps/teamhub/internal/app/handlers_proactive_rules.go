@@ -171,7 +171,7 @@ func (a *App) actUnderProactiveMandate(c *gin.Context) {
 	switch {
 	case err == nil:
 		c.JSON(http.StatusOK, result)
-	case errors.Is(err, proactive.ErrInvalidRule), errors.Is(err, taskdelegation.ErrInvalid), errors.Is(err, workitem.ErrInvalid):
+	case errors.Is(err, proactive.ErrInvalidRule), errors.Is(err, proactive.ErrInvalidSubscriptionKey), errors.Is(err, taskdelegation.ErrInvalid), errors.Is(err, workitem.ErrInvalid):
 		a.writeAgentAPIError(c, http.StatusBadRequest, teamhubapi.AgentApiErrorCodeInvalidInput, "An act names a rule, an event, a title and a brief")
 	case errors.Is(err, proactive.ErrNoMandate):
 		a.writeAgentAPIError(c, http.StatusForbidden, teamhubapi.AgentApiErrorCodeOperationForbidden, "The Human's current rules grant no mandate for this act; only remind or track")

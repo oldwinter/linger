@@ -329,6 +329,11 @@ components:
           minLength: 1
           maxLength: 500
           description: The outside event's ID in its source, as the wake names it.
+        event_account:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Optional connected account or connection ID for mail events, used to normalize the task's follow-up subscription key.
         title: { type: string, minLength: 1, maxLength: 120 }
         brief:
           type: string
@@ -348,6 +353,114 @@ components:
         replay:
           type: boolean
           description: True when this rule already acted on this event; the first act's Work Item is returned.
+        subscription_id:
+          $ref: "#/components/schemas/TaskSubscriptionId"
+          description: Active follow-up subscription automatically attached when a delegated Task can be keyed to an external thread.
+    TaskSubscriptionId:
+      type: string
+      pattern: "^tsub_[a-f0-9]{32}$"
+    TaskSubscriptionSourceType:
+      type: string
+      enum: [mail, herdr, github]
+      x-enum-varnames:
+        - TaskSubscriptionSourceMail
+        - TaskSubscriptionSourceHerdr
+        - TaskSubscriptionSourceGitHub
+      description: External thread source family routed to a delegated Task.
+    TaskSubscriptionStatus:
+      type: string
+      enum: [active, dropped]
+      x-enum-varnames:
+        - TaskSubscriptionStatusActive
+        - TaskSubscriptionStatusDropped
+    TaskSubscriptionDroppedByKind:
+      type: string
+      enum: [owner, another_me]
+      x-enum-varnames:
+        - TaskSubscriptionDroppedByOwner
+        - TaskSubscriptionDroppedByAnotherMe
+    TaskSubscription:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          id,
+          tenant_id,
+          owner_actor_id,
+          task_id,
+          source_type,
+          normalized_source_key,
+          status,
+          created_by_actor_id,
+          created_at,
+        ]
+      description: >-
+        Durable link routing later activity on a normalized external thread (mail, herdr/herdr-core,
+        or GitHub issue/PR) to the delegated Task Another Me started. Active tasks receive matching
+        follow-ups directly; ended tasks resume only on human-authored messages.
+      properties:
+        id: { $ref: "#/components/schemas/TaskSubscriptionId" }
+        tenant_id: { type: string }
+        owner_actor_id: { type: string }
+        task_id: { type: string }
+        source_type: { $ref: "#/components/schemas/TaskSubscriptionSourceType" }
+        normalized_source_key: { type: string, minLength: 1, maxLength: 512 }
+        display_label: { type: string, maxLength: 256 }
+        rule_id: { $ref: "#/components/schemas/ProactiveRuleId" }
+        status: { $ref: "#/components/schemas/TaskSubscriptionStatus" }
+        created_by_actor_id: { type: string }
+        created_at: { type: string, format: date-time }
+        dropped_at: { type: string, format: date-time }
+        dropped_by_kind:
+          { $ref: "#/components/schemas/TaskSubscriptionDroppedByKind" }
+        dropped_by_actor_id: { type: string }
+        drop_reason: { type: string, maxLength: 500 }
+    TaskSubscriptionList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/TaskSubscription" }
+    TaskSubscriptionDropRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+          maxLength: 500
+          description: Optional reason for dropping follow-up routing.
+    ProactiveSubscriptionListRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        task_id:
+          type: string
+          maxLength: 255
+          description: Optional Task Work Item ID to filter subscriptions to one Task.
+        include_dropped:
+          type: boolean
+          description: Include previously dropped subscriptions alongside active ones.
+    ProactiveSubscriptionDropRequest:
+      type: object
+      additionalProperties: false
+      required: [subscription_id]
+      properties:
+        subscription_id: { $ref: "#/components/schemas/TaskSubscriptionId" }
+        reason:
+          type: string
+          maxLength: 500
+          description: Optional reason why Another Me judged follow-up routing is no longer needed.
+    ProactiveSubscriptionDropResult:
+      type: object
+      additionalProperties: false
+      required: [subscription, replay]
+      properties:
+        subscription: { $ref: "#/components/schemas/TaskSubscription" }
+        replay:
+          type: boolean
+          description: True when the subscription was already dropped prior to this command.
     HerdrAgentEventReport:
       type: object
       additionalProperties: false

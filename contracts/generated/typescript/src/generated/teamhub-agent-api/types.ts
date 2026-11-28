@@ -322,6 +322,46 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/agent/v1/proactive/subscriptions/list": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * List follow-up thread subscriptions for Another Me's owner
+     * @description Only an AnotherMe Meta calls this to inspect external thread subscriptions linking mail, herdr/herdr-core, or GitHub threads to Tasks it started for its Human.
+     */
+    post: operations["listAgentProactiveSubscriptions"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/agent/v1/proactive/subscriptions/drop": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Drop a follow-up thread subscription when Another Me judges it is no longer needed
+     * @description Idempotently drops an external thread subscription owned by Another Me's Human, recording dropped_by_kind as another_me and immediately stopping further routing or ended-task resumption.
+     */
+    post: operations["dropAgentProactiveSubscription"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/agent/v1/skills/packages": {
     parameters: {
       query?: never;
@@ -2105,6 +2145,8 @@ export interface components {
       event_source: string;
       /** @description The outside event's ID in its source, as the wake names it. */
       event_external_id: string;
+      /** @description Optional connected account or connection ID for mail events, used to normalize the task's follow-up subscription key. */
+      event_account?: string;
       title: string;
       /** @description What needs doing; the Work Item description, or the delegated Task's requirement. */
       brief: string;
@@ -2113,10 +2155,61 @@ export interface components {
     };
     /** @enum {string} */
     ProactiveMandateStrength: "create" | "create_and_delegate";
+    TaskSubscriptionId: string;
     ProactiveActResult: {
       work_item_id: string;
       strength: components["schemas"]["ProactiveMandateStrength"];
       /** @description True when this rule already acted on this event; the first act's Work Item is returned. */
+      replay: boolean;
+      /** @description Active follow-up subscription automatically attached when a delegated Task can be keyed to an external thread. */
+      subscription_id?: components["schemas"]["TaskSubscriptionId"];
+    };
+    ProactiveSubscriptionListRequest: {
+      /** @description Optional Task Work Item ID to filter subscriptions to one Task. */
+      task_id?: string;
+      /** @description Include previously dropped subscriptions alongside active ones. */
+      include_dropped?: boolean;
+    };
+    /**
+     * @description External thread source family routed to a delegated Task.
+     * @enum {string}
+     */
+    TaskSubscriptionSourceType: "mail" | "herdr" | "github";
+    /** @enum {string} */
+    TaskSubscriptionStatus: "active" | "dropped";
+    /** @enum {string} */
+    TaskSubscriptionDroppedByKind: "owner" | "another_me";
+    /** @description Durable link routing later activity on a normalized external thread (mail, herdr/herdr-core, or GitHub issue/PR) to the delegated Task Another Me started. Active tasks receive matching follow-ups directly; ended tasks resume only on human-authored messages. */
+    TaskSubscription: {
+      id: components["schemas"]["TaskSubscriptionId"];
+      tenant_id: string;
+      owner_actor_id: string;
+      task_id: string;
+      source_type: components["schemas"]["TaskSubscriptionSourceType"];
+      normalized_source_key: string;
+      display_label?: string;
+      rule_id?: components["schemas"]["ProactiveRuleId"];
+      status: components["schemas"]["TaskSubscriptionStatus"];
+      created_by_actor_id: string;
+      /** Format: date-time */
+      created_at: string;
+      /** Format: date-time */
+      dropped_at?: string;
+      dropped_by_kind?: components["schemas"]["TaskSubscriptionDroppedByKind"];
+      dropped_by_actor_id?: string;
+      drop_reason?: string;
+    };
+    TaskSubscriptionList: {
+      items: components["schemas"]["TaskSubscription"][];
+    };
+    ProactiveSubscriptionDropRequest: {
+      subscription_id: components["schemas"]["TaskSubscriptionId"];
+      /** @description Optional reason why Another Me judged follow-up routing is no longer needed. */
+      reason?: string;
+    };
+    ProactiveSubscriptionDropResult: {
+      subscription: components["schemas"]["TaskSubscription"];
+      /** @description True when the subscription was already dropped prior to this command. */
       replay: boolean;
     };
     /** @description Opaque document identifier. */
@@ -4030,6 +4123,56 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["ProactiveActResult"];
+        };
+      };
+      default: components["responses"]["InternalError"];
+    };
+  };
+  listAgentProactiveSubscriptions: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ProactiveSubscriptionListRequest"];
+      };
+    };
+    responses: {
+      /** @description Matching subscriptions owned by Another Me's Human. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["TaskSubscriptionList"];
+        };
+      };
+      default: components["responses"]["InternalError"];
+    };
+  };
+  dropAgentProactiveSubscription: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ProactiveSubscriptionDropRequest"];
+      };
+    };
+    responses: {
+      /** @description The dropped subscription record and whether it was already dropped. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ProactiveSubscriptionDropResult"];
         };
       };
       default: components["responses"]["InternalError"];

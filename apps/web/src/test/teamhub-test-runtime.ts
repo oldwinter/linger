@@ -744,6 +744,27 @@ function installSeedRoutes(server: TeamHubTestServer, seed: TeamHubTestSeed) {
     )
     .on(
       "GET",
+      "/v0/tenants/{tenantId}/local-computers/{computerId}/local-speech",
+      ({ params }) => {
+        const computer = seed.localComputers.find(
+          (item) => item.computer_id === params.computerId,
+        );
+        if (!computer) return notFound("LOCAL_COMPUTER_NOT_FOUND");
+        return {
+          available: false,
+          computer: {
+            computer_id: computer.computer_id,
+            display_name: computer.display_name,
+            status: computer.status,
+          },
+          models: [],
+          reason: { code: "NOT_REPORTED" as const },
+          viewer_is_owner: true,
+        };
+      },
+    )
+    .on(
+      "GET",
       "/v0/tenants/{tenantId}/local-computers/{computerId}/model-source",
       ({ params }) => {
         const computer = seed.localComputers.find(
@@ -1160,6 +1181,13 @@ function installSeedRoutes(server: TeamHubTestServer, seed: TeamHubTestSeed) {
     .on("GET", "/v0/tenants/{tenantId}/voice-media-policy", () => ({
       voice_media_supported: true,
     }))
+    .on("GET", "/v0/tenants/{tenantId}/voice-settings", () => ({
+      keep_loaded_seconds: 900,
+      language: "auto",
+      silence_timeout_seconds: 0,
+      speech_provider: "auto" as const,
+      use_gpu: true,
+    }))
     .on("GET", "/v0/tenants/{tenantId}/work-items", ({ query }) =>
       page(
         seed.workItems.filter((item) => {
@@ -1199,6 +1227,12 @@ function installSeedRoutes(server: TeamHubTestServer, seed: TeamHubTestSeed) {
         (item) => item.id === params.workItemId,
       );
       return exists ? page([]) : notFound("WORK_ITEM_NOT_FOUND");
+    })
+    .on("GET", "/v0/work-items/{workItemId}/subscriptions", ({ params }) => {
+      const exists = seed.workItems.some(
+        (item) => item.id === params.workItemId,
+      );
+      return exists ? { items: [] } : notFound("WORK_ITEM_NOT_FOUND");
     })
     .on("GET", "/v0/work-items/{workItemId}/timeline", () => ({
       items: [],

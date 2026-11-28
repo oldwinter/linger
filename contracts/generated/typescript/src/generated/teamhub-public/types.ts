@@ -498,6 +498,50 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v0/tenants/{tenantId}/local-computers/{computerId}/local-speech": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+        computerId: components["parameters"]["ComputerId"];
+      };
+      cookie?: never;
+    };
+    /**
+     * Read the local speech status one Local Computer last reported.
+     * @description TeamHub answers from the latest snapshot the Computer sent, so an offline Computer shows what it last reported. Tenant members who can see the Computer may read; only its owner may act. A local-speech invalidation hint with the Computer ID follows every stored snapshot.
+     */
+    get: operations["getLocalComputerSpeech"];
+    put?: never;
+    /** Ask an owned Local Computer to refresh its local speech status. */
+    post: operations["refreshLocalComputerSpeech"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v0/tenants/{tenantId}/local-computers/{computerId}/local-speech/actions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+        computerId: components["parameters"]["ComputerId"];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Download, cancel, remove, load, unload, or configure local speech on an owned Local Computer. */
+    post: operations["actOnLocalComputerSpeech"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v0/tenants/{tenantId}/local-computers/{computerId}/model-source": {
     parameters: {
       query?: never;
@@ -1558,6 +1602,26 @@ export interface paths {
      */
     get: operations["getVoiceMediaPolicy"];
     put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v0/tenants/{tenantId}/voice-settings": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+      };
+      cookie?: never;
+    };
+    /** Read the caller's voice transcription settings in one Tenant. */
+    get: operations["getVoiceSettings"];
+    /** Update the caller's voice transcription settings in one Tenant. */
+    put: operations["updateVoiceSettings"];
     post?: never;
     delete?: never;
     options?: never;
@@ -3679,6 +3743,51 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v0/work-items/{workItemId}/subscriptions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workItemId: components["parameters"]["WorkItemId"];
+      };
+      cookie?: never;
+    };
+    /**
+     * List the signed-in Human's external thread subscriptions on a Work Item.
+     * @description Returns active and dropped follow-up subscriptions owned by the signed-in Human for this Work Item. Subscriptions belonging to other Humans in the same Tenant are never returned.
+     */
+    get: operations["listWorkItemSubscriptions"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v0/work-items/{workItemId}/subscriptions/{subscriptionId}/drop": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workItemId: components["parameters"]["WorkItemId"];
+        subscriptionId: components["schemas"]["TaskSubscriptionId"];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Drop an external thread subscription owned by the signed-in Human.
+     * @description Idempotently drops a follow-up subscription so subsequent events on that thread no longer route to or resume the Task. Only the subscription owner may drop it.
+     */
+    post: operations["dropWorkItemSubscription"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v0/work-items/{workItemId}/archive": {
     parameters: {
       query?: never;
@@ -5467,6 +5576,194 @@ export interface components {
       model_id: components["schemas"]["LocalModelId"];
       /** @enum {string} */
       action: "download" | "cancel" | "load" | "unload" | "remove";
+    };
+    LocalSpeechViewUnavailableReason: {
+      /** @enum {string} */
+      code:
+        | "TOOL_NOT_INSTALLED"
+        | "SPEECH_UNSUPPORTED"
+        | "TOOL_FAILED"
+        | "NOT_REPORTED";
+      detail?: string;
+    };
+    /** @description Stable localmodels speech catalog id, such as sensevoice-small or whisper-large-v3-turbo. */
+    LocalSpeechModelId: string;
+    /** @description Speech recognition language: auto (default) or an ISO-639-1 / BCP-47 language tag such as zh, en, ja, ko, or yue. */
+    LocalSpeechLanguage: string;
+    LocalSpeechConfig: {
+      model_id?: components["schemas"]["LocalSpeechModelId"];
+      use_gpu: boolean;
+      /** @description -1 never unloads while the sidecar runs; 0 unloads immediately after transcription; positive values set idle TTL seconds (default 900). */
+      keep_loaded_seconds: number;
+      language: components["schemas"]["LocalSpeechLanguage"];
+    };
+    /** @enum {string} */
+    LocalSpeechRuntimeState:
+      | "stopped"
+      | "standby"
+      | "loading"
+      | "loaded"
+      | "error";
+    /** @enum {string} */
+    LocalSpeechEngine: "sherpa-onnx" | "whisper.cpp";
+    /** @enum {string} */
+    LocalSpeechRequestedDevice: "gpu" | "cpu";
+    /** @enum {string} */
+    LocalSpeechEffectiveDevice:
+      | "cuda"
+      | "metal"
+      | "vulkan"
+      | "directml"
+      | "cpu";
+    /** @enum {string} */
+    LocalSpeechFallbackReason:
+      | "insufficient_vram"
+      | "insufficient_unified_memory"
+      | "memory_pressure_warn"
+      | "memory_pressure_critical"
+      | "driver_update_required"
+      | "vulkan_unavailable"
+      | "gpu_engine_unavailable"
+      | "gpu_unsupported_platform"
+      | "cpu_optimal_for_int8"
+      | "gpu_init_failed"
+      | "runtime_oom_fallback"
+      | "yielded_to_llm"
+      | "no_supported_gpu";
+    LocalSpeechRuntime: {
+      running: boolean;
+      state: components["schemas"]["LocalSpeechRuntimeState"];
+      active_model?: components["schemas"]["LocalSpeechModelId"];
+      engine?: components["schemas"]["LocalSpeechEngine"];
+      requested_device: components["schemas"]["LocalSpeechRequestedDevice"];
+      effective_device?: components["schemas"]["LocalSpeechEffectiveDevice"];
+      fallback_reason?: components["schemas"]["LocalSpeechFallbackReason"];
+      fallback_detail?: string | null;
+      /** Format: int64 */
+      vram_used_bytes: number;
+      /** Format: int64 */
+      ram_used_bytes: number;
+      keep_loaded_seconds: number;
+      idle_remaining_seconds?: number | null;
+      active_sessions: number;
+    };
+    /** @enum {string} */
+    LocalSpeechQualityRating: "fast-cjk" | "high-multilingual";
+    /** @enum {string} */
+    LocalSpeechModelState:
+      | "absent"
+      | "downloading"
+      | "idle"
+      | "loading"
+      | "loaded"
+      | "failed";
+    LocalSpeechDownloadProgress: {
+      /** @enum {string} */
+      step: "download" | "verify";
+      /** Format: int64 */
+      done_bytes: number;
+      /** Format: int64 */
+      total_bytes: number;
+      /** Format: int64 */
+      bytes_per_second: number;
+      source?: string;
+      connections?: number;
+    };
+    LocalSpeechModelError: {
+      code: string;
+      message: string;
+    };
+    LocalSpeechModel: {
+      id: components["schemas"]["LocalSpeechModelId"];
+      name: string;
+      engine: components["schemas"]["LocalSpeechEngine"];
+      languages: string[];
+      language_count: number;
+      quality_rating: components["schemas"]["LocalSpeechQualityRating"];
+      license: string;
+      license_url: string;
+      commercial_notice?: string | null;
+      /** Format: int64 */
+      disk_size_bytes: number;
+      /** Format: int64 */
+      vram_estimate_bytes: number;
+      /** Format: int64 */
+      ram_estimate_bytes: number;
+      gpu_supported: boolean;
+      state: components["schemas"]["LocalSpeechModelState"];
+      active: boolean;
+      download?: components["schemas"]["LocalSpeechDownloadProgress"];
+      error?: components["schemas"]["LocalSpeechModelError"];
+    };
+    /** @description One Computer's local speech status as last reported. Tenant members who can see the Computer may read; only its owner may act. */
+    LocalSpeechView: {
+      computer: components["schemas"]["LocalModelsComputer"];
+      viewer_is_owner: boolean;
+      available: boolean;
+      reason?: components["schemas"]["LocalSpeechViewUnavailableReason"];
+      observed_at?: components["schemas"]["Timestamp"];
+      tool_version?: string;
+      config?: components["schemas"]["LocalSpeechConfig"];
+      runtime?: components["schemas"]["LocalSpeechRuntime"];
+      models: components["schemas"]["LocalSpeechModel"][];
+    };
+    LocalSpeechRefreshAccepted: {
+      computer_id: components["schemas"]["Id"];
+      /** @enum {string} */
+      action: "refresh";
+    };
+    /** @enum {string} */
+    LocalSpeechErrorCode:
+      | "LOCAL_COMPUTER_OFFLINE"
+      | "LOCAL_SPEECH_ACTION_FORBIDDEN"
+      | "LOCAL_SPEECH_UNAVAILABLE"
+      | "LOCAL_SPEECH_MODEL_UNKNOWN"
+      | "LOCAL_SPEECH_INVALID_STATE"
+      | "LOCAL_SPEECH_JOB_RUNNING"
+      | "LOCAL_SPEECH_DISK_INSUFFICIENT"
+      | "LOCAL_SPEECH_MEMORY_INSUFFICIENT"
+      | "LOCAL_SPEECH_PLATFORM_UNSUPPORTED"
+      | "LOCAL_SPEECH_ACTION_FAILED"
+      | "LOCAL_SPEECH_ACTION_UNCONFIRMED"
+      | "LOCAL_SPEECH_SERVICE_UNAVAILABLE";
+    LocalSpeechError: {
+      code: components["schemas"]["LocalSpeechErrorCode"];
+      message: string;
+      request_id: string;
+      details?: components["schemas"]["ErrorDetail"][];
+      /** @default false */
+      retryable: boolean;
+    };
+    LocalSpeechErrorResponse: {
+      error: components["schemas"]["LocalSpeechError"];
+    };
+    /** @description A Computer owner's action on local speech models or speech runtime config. */
+    LocalSpeechActionRequest: {
+      /** @enum {string} */
+      action:
+        | "download"
+        | "cancel"
+        | "remove"
+        | "load"
+        | "unload"
+        | "configure";
+      model_id?: components["schemas"]["LocalSpeechModelId"];
+      use_gpu?: boolean;
+      keep_loaded_seconds?: number;
+      language?: components["schemas"]["LocalSpeechLanguage"];
+      include_gpu_engine?: boolean;
+    };
+    LocalSpeechActionAccepted: {
+      computer_id: components["schemas"]["Id"];
+      /** @enum {string} */
+      action:
+        | "download"
+        | "cancel"
+        | "remove"
+        | "load"
+        | "unload"
+        | "configure";
+      model_id?: components["schemas"]["LocalSpeechModelId"];
     };
     /**
      * @description Active model source mode on a Local Computer.
@@ -7511,8 +7808,17 @@ export interface components {
       can_save: boolean;
     };
     VoiceMediaPolicy: {
-      /** @description Soniox ASR is configured, so Recording, Pocket notes dictation and Voice Mode dictation are available. */
+      /** @description Speech transcription is ready (either local speech or cloud Soniox), so Recording, Pocket notes dictation and Voice Mode dictation are available. */
       voice_media_supported: boolean;
+      /**
+       * @description Effective speech transcription backend resolved from voice settings, online local speech availability, and cloud Soniox configuration.
+       * @enum {string}
+       */
+      active_speech_provider?: "local" | "cloud" | "none";
+      /** @description At least one owned online Local Computer reports local speech support. */
+      local_speech_available?: boolean;
+      /** @description The selected or default owned online Local Computer has a downloaded local speech model ready for transcription. */
+      local_speech_ready?: boolean;
       active_room_id?: components["schemas"]["Id"];
       /** @description Whether the xAI live voice provider is configured; Live does not need Soniox. */
       live_supported?: boolean;
@@ -7522,6 +7828,30 @@ export interface components {
       voice_available?: boolean;
       soniox_key?: components["schemas"]["VoiceProviderKeyStatus"];
       xai_key?: components["schemas"]["VoiceProviderKeyStatus"];
+    };
+    /** @enum {string} */
+    VoiceSpeechProvider: "auto" | "local" | "cloud";
+    VoiceSettings: {
+      speech_provider: components["schemas"]["VoiceSpeechProvider"];
+      local_computer_id?: components["schemas"]["Id"];
+      local_model_id?: components["schemas"]["LocalSpeechModelId"];
+      language: components["schemas"]["LocalSpeechLanguage"];
+      /** @description Seconds of silence before dictation auto-stops (0 disables auto-stop). Enforced client-side by the Web dictation client across both local and cloud transcription. */
+      silence_timeout_seconds: number;
+      use_gpu: boolean;
+      /** @description -1 never unloads while sidecar runs; 0 unloads immediately; positive values set idle TTL in seconds (default 900). */
+      keep_loaded_seconds: number;
+      updated_at?: components["schemas"]["Timestamp"];
+    };
+    UpdateVoiceSettingsRequest: {
+      speech_provider?: components["schemas"]["VoiceSpeechProvider"];
+      local_computer_id?: components["schemas"]["Id"];
+      local_model_id?: components["schemas"]["LocalSpeechModelId"];
+      language?: components["schemas"]["LocalSpeechLanguage"];
+      /** @description Seconds of silence before dictation auto-stops (0 disables auto-stop). Enforced client-side by the Web dictation client across both local and cloud transcription. */
+      silence_timeout_seconds?: number;
+      use_gpu?: boolean;
+      keep_loaded_seconds?: number;
     };
     /** @enum {string} */
     VoiceProvider: "soniox" | "xai";
@@ -8937,6 +9267,43 @@ export interface components {
       inputs: components["schemas"]["TaskConversationInput"][];
       cards: components["schemas"]["TaskConversationCard"][];
     };
+    TaskSubscriptionId: string;
+    /**
+     * @description External thread source family routed to a delegated Task.
+     * @enum {string}
+     */
+    TaskSubscriptionSourceType: "mail" | "herdr" | "github";
+    /** @enum {string} */
+    TaskSubscriptionStatus: "active" | "dropped";
+    /** @enum {string} */
+    TaskSubscriptionDroppedByKind: "owner" | "another_me";
+    /** @description Durable link routing later activity on a normalized external thread (mail, herdr/herdr-core, or GitHub issue/PR) to the delegated Task Another Me started. Active tasks receive matching follow-ups directly; ended tasks resume only on human-authored messages. */
+    TaskSubscription: {
+      id: components["schemas"]["TaskSubscriptionId"];
+      tenant_id: string;
+      owner_actor_id: string;
+      task_id: string;
+      source_type: components["schemas"]["TaskSubscriptionSourceType"];
+      normalized_source_key: string;
+      display_label?: string;
+      rule_id?: components["schemas"]["ProactiveRuleId"];
+      status: components["schemas"]["TaskSubscriptionStatus"];
+      created_by_actor_id: string;
+      /** Format: date-time */
+      created_at: string;
+      /** Format: date-time */
+      dropped_at?: string;
+      dropped_by_kind?: components["schemas"]["TaskSubscriptionDroppedByKind"];
+      dropped_by_actor_id?: string;
+      drop_reason?: string;
+    };
+    TaskSubscriptionList: {
+      items: components["schemas"]["TaskSubscription"][];
+    };
+    TaskSubscriptionDropRequest: {
+      /** @description Optional reason for dropping follow-up routing. */
+      reason?: string;
+    };
     WorkItemVersionRequest: {
       /** Format: int64 */
       expected_version: number;
@@ -9751,6 +10118,15 @@ export interface components {
       };
       content: {
         "application/json": components["schemas"]["LocalModelsErrorResponse"];
+      };
+    };
+    /** @description The Computer or TeamHub refused the local-speech request; error.code is one of LocalSpeechErrorCode. */
+    LocalSpeechRefused: {
+      headers: {
+        [name: string]: unknown;
+      };
+      content: {
+        "application/json": components["schemas"]["LocalSpeechErrorResponse"];
       };
     };
     /** @description The Computer or TeamHub refused the model-source request; error.code is one of ModelSourceErrorCode. */
@@ -10657,6 +11033,96 @@ export interface operations {
       502: components["responses"]["LocalModelsRefused"];
       503: components["responses"]["LocalModelsRefused"];
       504: components["responses"]["LocalModelsRefused"];
+    };
+  };
+  getLocalComputerSpeech: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+        computerId: components["parameters"]["ComputerId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The Computer and its local speech status. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LocalSpeechView"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  refreshLocalComputerSpeech: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+        computerId: components["parameters"]["ComputerId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The Computer started refreshing its local speech status. */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LocalSpeechRefreshAccepted"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["LocalSpeechRefused"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["LocalSpeechRefused"];
+      502: components["responses"]["LocalSpeechRefused"];
+      503: components["responses"]["LocalSpeechRefused"];
+      504: components["responses"]["LocalSpeechRefused"];
+    };
+  };
+  actOnLocalComputerSpeech: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+        computerId: components["parameters"]["ComputerId"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["LocalSpeechActionRequest"];
+      };
+    };
+    responses: {
+      /** @description The Computer started the local speech action. */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LocalSpeechActionAccepted"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["LocalSpeechRefused"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["LocalSpeechRefused"];
+      502: components["responses"]["LocalSpeechRefused"];
+      503: components["responses"]["LocalSpeechRefused"];
+      504: components["responses"]["LocalSpeechRefused"];
     };
   };
   getLocalComputerModelSource: {
@@ -12463,6 +12929,59 @@ export interface operations {
           "application/json": components["schemas"]["VoiceMediaPolicy"];
         };
       };
+      401: components["responses"]["Unauthenticated"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  getVoiceSettings: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Current voice transcription settings (defaults when not saved yet). */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["VoiceSettings"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  updateVoiceSettings: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenantId: components["parameters"]["TenantId"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["UpdateVoiceSettingsRequest"];
+      };
+    };
+    responses: {
+      /** @description Updated voice transcription settings. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["VoiceSettings"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
       401: components["responses"]["Unauthenticated"];
       404: components["responses"]["NotFound"];
     };
@@ -16116,6 +16635,63 @@ export interface operations {
       };
       401: components["responses"]["Unauthenticated"];
       404: components["responses"]["NotFound"];
+    };
+  };
+  listWorkItemSubscriptions: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workItemId: components["parameters"]["WorkItemId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Owner-scoped subscriptions for the Work Item. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["TaskSubscriptionList"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      404: components["responses"]["NotFound"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  dropWorkItemSubscription: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workItemId: components["parameters"]["WorkItemId"];
+        subscriptionId: components["schemas"]["TaskSubscriptionId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: {
+      content: {
+        "application/json": components["schemas"]["TaskSubscriptionDropRequest"];
+      };
+    };
+    responses: {
+      /** @description The dropped subscription record. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["TaskSubscription"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      503: components["responses"]["ServiceUnavailable"];
     };
   };
   archiveWorkItem: {
