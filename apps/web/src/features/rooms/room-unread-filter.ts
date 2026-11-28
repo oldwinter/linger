@@ -1,12 +1,13 @@
 import type { TeamHubRoomListItem } from "@/features/teamhub/teamhub-types";
 import {
+  ACCOUNT_PREFERENCE_KEY_PREFIXES,
   notifyPreferenceChange,
   removePreferenceKeys,
   storedPreferenceKeys,
   subscribePreferenceChange,
 } from "@/lib/local-preference-keys";
 
-const PREFERENCE_PREFIX = "room-unread-filter.v1:";
+const PREFERENCE_PREFIX = ACCOUNT_PREFERENCE_KEY_PREFIXES.roomUnreadFilter;
 const FILTER_CHANGED = "room-unread-filter-changed";
 
 /** Which Rooms the list shows: everything, the unread ones, or the mentions. */

@@ -2,7 +2,6 @@ package app
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -19,16 +18,9 @@ import (
 const agentDocumentCommentRequestMaxBytes = 256 << 10
 const agentCurrentDocumentProjectionMaxBytes = 32 << 20
 
-type agentDocumentCommentService interface {
-	GetThread(context.Context, string, string) (agentdocument.ThreadResult, error)
-	Reply(context.Context, string, agentdocument.ReplyInput) (agentdocument.ReplyResult, error)
-	ReplaceText(context.Context, string, agentdocument.ReplaceInput) (agentdocument.ReplaceResult, error)
-}
-
 func (a *App) getAgentDocumentCommentThread(c *gin.Context) {
-	token, ok := strictAgentBearer(c)
+	token, ok := a.agentCommandBearer(c)
 	if !ok {
-		a.writeAgentDocumentCommentError(c, agentauth.ErrCredentialInvalid)
 		return
 	}
 	var request teamhubagentapi.AgentDocumentCommentThreadRequest
@@ -51,9 +43,8 @@ func (a *App) getAgentDocumentCommentThread(c *gin.Context) {
 }
 
 func (a *App) replyAgentDocumentComment(c *gin.Context) {
-	token, ok := strictAgentBearer(c)
+	token, ok := a.agentCommandBearer(c)
 	if !ok {
-		a.writeAgentDocumentCommentError(c, agentauth.ErrCredentialInvalid)
 		return
 	}
 	var request teamhubagentapi.AgentDocumentCommentReplyRequest
@@ -87,9 +78,8 @@ func (a *App) replyAgentDocumentComment(c *gin.Context) {
 }
 
 func (a *App) replaceAgentDocumentCommentText(c *gin.Context) {
-	token, ok := strictAgentBearer(c)
+	token, ok := a.agentCommandBearer(c)
 	if !ok {
-		a.writeAgentDocumentCommentError(c, agentauth.ErrCredentialInvalid)
 		return
 	}
 	var request teamhubagentapi.AgentDocumentCommentTextReplacementRequest

@@ -7,8 +7,6 @@ package reminder
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -19,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/ids"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/jobs"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/messagecreation"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/store"
@@ -96,7 +95,7 @@ func EnqueueTx(ctx context.Context, tx pgx.Tx, wake Wake) error {
 	if wake.Source == SourceEvent && wake.Grant == nil && wake.ComputerID == "" {
 		return ErrGrantRevoked
 	}
-	id := newID()
+	id := ids.New("pwake")
 	var tracking, computer pgtype.Text
 	if wake.TrackingItemID != "" {
 		tracking = pgtype.Text{String: wake.TrackingItemID, Valid: true}
@@ -251,12 +250,4 @@ func deliverOne(ctx context.Context, queries *store.Queries, wake store.Proactiv
 		return err
 	}
 	return queries.MarkWakeDelivered(ctx, store.MarkWakeDeliveredParams{ID: wake.ID, MessageID: created.Message.ID})
-}
-
-func newID() string {
-	bytes := make([]byte, 16)
-	if _, err := rand.Read(bytes); err != nil {
-		panic(err)
-	}
-	return "pwake_" + hex.EncodeToString(bytes)
 }

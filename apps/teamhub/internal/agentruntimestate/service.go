@@ -3,9 +3,7 @@ package agentruntimestate
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -147,14 +145,6 @@ func hashJSON(value json.RawMessage) ([]byte, error) {
 	}
 	digest := sha256.Sum256(canonical)
 	return digest[:], nil
-}
-
-func newID(prefix string) (string, error) {
-	buffer := make([]byte, 16)
-	if _, err := rand.Read(buffer); err != nil {
-		return "", err
-	}
-	return prefix + hex.EncodeToString(buffer), nil
 }
 
 func optionalText(value string) pgtype.Text {

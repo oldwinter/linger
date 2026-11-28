@@ -1,5 +1,4 @@
 import { isCanonicalBase64 } from "./base64.js";
-import { timingSafeEqual } from "node:crypto";
 
 import {
   characterCount,
@@ -24,7 +23,7 @@ import {
 import { exportDocument } from "./export.js";
 import { documentLogger } from "./log.js";
 import { isRecord } from "@linger/service-kit";
-import { sha256Hex } from "@linger/service-kit/node";
+import { sha256Hex, tokensEqual } from "@linger/service-kit/node";
 import { RuntimeInputError, sha256Pattern } from "./runtime-input.js";
 
 type ImportRequest = components["schemas"]["ImportDocumentRequest"];
@@ -725,15 +724,6 @@ function decodeBase64(value: string): Uint8Array {
     );
   }
   return decoded;
-}
-
-function tokensEqual(received: string, expected: string): boolean {
-  const receivedBytes = Buffer.from(received);
-  const expectedBytes = Buffer.from(expected);
-  return (
-    receivedBytes.byteLength === expectedBytes.byteLength &&
-    timingSafeEqual(receivedBytes, expectedBytes)
-  );
 }
 
 function notImplemented(context: RuntimeContext): Response {

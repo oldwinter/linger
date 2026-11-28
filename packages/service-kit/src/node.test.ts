@@ -1,6 +1,27 @@
 import { describe, expect, it } from "vitest";
 
-import { createJsonLogger, sha256Hex } from "./node.js";
+import {
+  createJsonLogger,
+  hasBearerToken,
+  sha256Hex,
+  tokensEqual,
+} from "./node.js";
+
+describe("tokensEqual and hasBearerToken", () => {
+  it("matches valid tokens in constant time and rejects empty or malformed headers", () => {
+    expect(tokensEqual("secret-token", "secret-token")).toBe(true);
+    expect(tokensEqual("secret-token", "different")).toBe(false);
+    expect(tokensEqual("", "")).toBe(false);
+    expect(hasBearerToken("Bearer secret-token", "secret-token")).toBe(true);
+    expect(hasBearerToken("bearer secret-token", "secret-token")).toBe(true);
+    expect(hasBearerToken("Bearer secret-token extra", "secret-token")).toBe(
+      false,
+    );
+    expect(hasBearerToken("Basic secret-token", "secret-token")).toBe(false);
+    expect(hasBearerToken(undefined, "secret-token")).toBe(false);
+    expect(hasBearerToken("Bearer ", "")).toBe(false);
+  });
+});
 
 describe("sha256Hex", () => {
   it("hashes strings as UTF-8 and bytes identically", () => {

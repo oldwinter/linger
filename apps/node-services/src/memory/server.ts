@@ -4,7 +4,7 @@ import {
   type HttpHost,
 } from "../http-host.js";
 import { withTeamHubTrace } from "./teamhub-transport.js";
-import crypto from "node:crypto";
+import { hasBearerToken } from "@linger/service-kit/node";
 import path from "node:path";
 
 import { Hono, type Context, type MiddlewareHandler } from "hono";
@@ -91,7 +91,9 @@ export async function startMemoryServer(options: {
     withTeamHubTrace(context.req.header("traceparent"), next),
   );
   const requireAuth: MiddlewareHandler = async (context, next) => {
-    if (!authorized(context, options.serviceToken)) {
+    if (
+      !hasBearerToken(context.req.header("authorization"), options.serviceToken)
+    ) {
       return respondError(context, 401, "unauthenticated", "Unauthorized");
     }
     await next();
@@ -537,17 +539,6 @@ function parseRebuildRequest(
     throw new TypeError("Request body is invalid");
   }
   return input;
-}
-
-function authorized(context: Context, token: string): boolean {
-  const value = context.req.header("authorization");
-  if (!value?.startsWith("Bearer ")) return false;
-  const candidate = Buffer.from(value.slice("Bearer ".length));
-  const expected = Buffer.from(token);
-  return (
-    candidate.length === expected.length &&
-    crypto.timingSafeEqual(candidate, expected)
-  );
 }
 
 async function readJsonBody(context: Context): Promise<unknown> {

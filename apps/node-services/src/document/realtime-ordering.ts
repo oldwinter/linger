@@ -1,4 +1,4 @@
-import { RuntimeConnectionError } from "./realtime-session.js";
+import { RuntimeConnectionError } from "./connection-token.js";
 
 const maxWaitingOperationsPerDocument = 128;
 

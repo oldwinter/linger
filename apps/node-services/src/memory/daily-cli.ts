@@ -1,4 +1,5 @@
 import { parseOkfFrontmatter } from "@linger/knowledge-format";
+import { isNodeError } from "@linger/service-kit";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { isMainModule } from "../paths.js";
@@ -267,7 +268,7 @@ async function ensureDailyCollection(
       );
     return collection;
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    if (!isNodeError(error, "ENOENT")) throw error;
     return collectAndPersistDaily(options);
   }
 }
@@ -385,7 +386,7 @@ async function readPreviousDailyFiles(
       },
     ];
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    if (!isNodeError(error, "ENOENT")) throw error;
     return [];
   }
 }

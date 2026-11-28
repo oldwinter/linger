@@ -1,4 +1,4 @@
-package app
+package agentconnectedapps
 
 import (
 	"encoding/json"
@@ -17,7 +17,9 @@ import (
 	"github.com/yuin/goldmark/util"
 )
 
-type notionBody struct {
+// NotionBody is the normalized Notion payload prepared from Markdown or plain
+// text for connector page writes.
+type NotionBody struct {
 	Markdown string           `json:"markdown"`
 	Blocks   []map[string]any `json:"blocks"`
 }
@@ -26,8 +28,10 @@ type notionConverter struct {
 	count  int
 }
 
-func prepareNotionBody(content string, markdown bool) (notionBody, error) {
-	result := notionBody{Blocks: []map[string]any{}}
+// PrepareNotionBody validates content limits and converts Markdown or plain
+// text into Notion API blocks.
+func PrepareNotionBody(content string, markdown bool) (NotionBody, error) {
+	result := NotionBody{Blocks: []map[string]any{}}
 	if len(content) > 1<<20 || !utf8.ValidString(content) || strings.ContainsRune(content, 0) {
 		return result, fmt.Errorf("invalid content")
 	}

@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/agentruntimestate"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/ids"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/store"
 )
 
@@ -204,7 +205,7 @@ func appendDelegatedTaskInput(
 		return TaskInputResult{}, err
 	}
 	message, err := normalizeTurnMessage(TurnMessageInput{
-		MessageID: newID("task_input_message_"), RawMessage: body, Segments: segments,
+		MessageID: ids.New("task_input_message"), RawMessage: body, Segments: segments,
 		Author: &TurnMessageAuthor{ActorID: author.ID, Kind: author.Kind, DisplayName: author.DisplayName},
 	})
 	if err != nil {
@@ -267,10 +268,10 @@ func appendDelegatedTaskInput(
 		for _, attempt := range attempts {
 			attemptNumber = max(attemptNumber, attempt.AttemptNumber+1)
 		}
-		attemptID, inputRevision = newID("task_attempt_"), 1
+		attemptID, inputRevision = ids.New("task_attempt"), 1
 		if _, err := queries.InsertTaskAttempt(ctx, store.InsertTaskAttemptParams{
 			ID: attemptID, TaskID: taskID, TenantID: snapshot.TenantID, Generation: generation,
-			AttemptNumber: attemptNumber, RuntimeGenerationKey: newID("runtime_generation_"),
+			AttemptNumber: attemptNumber, RuntimeGenerationKey: ids.New("runtime_generation"),
 			Status: "running", CurrentInputRevision: 1,
 			DeadlineAt: pgtype.Timestamptz{Time: now.Time.Add(time.Duration(spec.AttemptPolicy.TimeoutSeconds) * time.Second), Valid: true},
 		}); err != nil {
@@ -278,7 +279,7 @@ func appendDelegatedTaskInput(
 		}
 		result.Delivery = "started"
 	}
-	effectID := newID("task_effect_")
+	effectID := ids.New("task_effect")
 	recipientJSON, _ := json.Marshal(recipients)
 	effectIDs, _ := json.Marshal([]string{effectID})
 	if _, err := queries.InsertTaskInputRevision(ctx, store.InsertTaskInputRevisionParams{

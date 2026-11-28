@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { isNodeError } from "@linger/service-kit";
 import type postgres from "postgres";
 
 import type { MemoryChunkIndex } from "./chunk-index.js";
@@ -409,7 +410,7 @@ export class WikiIndex {
           names = await fs.readdir(root);
         } catch (error) {
           // A missing directory is not an empty report inventory.
-          if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+          if (isNodeError(error, "ENOENT")) return;
           throw error;
         }
         const identity = identityOf(subject);

@@ -18,6 +18,44 @@ import {
 
 const blockIdPattern = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 
+export type RoomDocumentSemanticBlock = PartialBlock<
+  DefaultBlockSchema,
+  DefaultInlineContentSchema,
+  DefaultStyleSchema
+>;
+
+export type RoomDocumentBlockOperation =
+  | { kind: "replace_body_html"; html: string }
+  | { kind: "replace_body_blocks"; blocks: RoomDocumentSemanticBlock[] }
+  | { kind: "set_title"; title: string }
+  | { kind: "append_blocks"; blocks: RoomDocumentSemanticBlock[] }
+  | {
+      kind: "insert_blocks";
+      position: "before" | "after";
+      stableBlockId: string;
+      blocks: RoomDocumentSemanticBlock[];
+    }
+  | {
+      kind: "replace_blocks";
+      stableBlockIds: string[];
+      blocks: RoomDocumentSemanticBlock[];
+    }
+  | {
+      kind: "update_block";
+      stableBlockId: string;
+      block: RoomDocumentSemanticBlock;
+    }
+  | { kind: "delete_blocks"; stableBlockIds: string[] }
+  | { kind: "replace_comment_text"; threadId: string; replacement: string };
+
+/** Counts Unicode characters, the unit the contract's maxLength states, so a
+ * replacement of 50 000 emoji is not cut at 25 000 UTF-16 units. */
+export function characterCount(value: string): number {
+  let count = 0;
+  for (const _ of value) count += 1;
+  return count;
+}
+
 export interface RoomDocumentSemanticBlockSet {
   schemaVersion: typeof ROOM_DOCUMENT_SCHEMA_VERSION;
   blocks: PartialBlock<

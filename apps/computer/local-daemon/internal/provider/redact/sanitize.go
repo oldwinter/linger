@@ -4,6 +4,7 @@ package redact
 import (
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 const hidden = "[REDACTED]"
@@ -168,8 +169,12 @@ func Text(input string) string {
 						end++
 					}
 				} else if strings.EqualFold(atom, "authorization") || strings.EqualFold(atom, "cookie") || strings.EqualFold(atom, "set-cookie") {
+					var enclosing byte
+					if start > 0 && (input[start-1] == '\'' || input[start-1] == '"') {
+						enclosing = input[start-1]
+					}
 					end = at
-					for end < len(input) && input[end] != '\n' && input[end] != '\r' {
+					for end < len(input) && input[end] != '\n' && input[end] != '\r' && (enclosing == 0 || input[end] != enclosing) {
 						end++
 					}
 				}
@@ -235,7 +240,7 @@ func valueEnd(s string, at int) int {
 
 func tokenLabel(token string) string {
 	token = strings.TrimRight(token, ".")
-	if strings.HasPrefix(token, "sk-") && len(token) >= 23 {
+	if (strings.HasPrefix(token, "sk-") || strings.HasPrefix(token, "pk-") || strings.HasPrefix(token, "rk-")) && len(token) >= 19 {
 		return "[REDACTED API KEY]"
 	}
 	if strings.HasPrefix(token, "AKIA") && len(token) == 20 {
@@ -244,11 +249,11 @@ func tokenLabel(token string) string {
 	if strings.HasPrefix(token, "AIza") && len(token) == 39 {
 		return "[REDACTED GOOGLE API KEY]"
 	}
-	if strings.HasPrefix(token, "github_pat_") && len(token) >= 31 {
+	if strings.HasPrefix(token, "github_pat_") && len(token) >= 24 {
 		return "[REDACTED GITHUB TOKEN]"
 	}
 	for _, prefix := range []string{"ghp_", "gho_", "ghu_", "ghs_", "ghr_"} {
-		if strings.HasPrefix(token, prefix) && len(token) >= 40 {
+		if strings.HasPrefix(token, prefix) && len(token) >= 24 {
 			return "[REDACTED GITHUB TOKEN]"
 		}
 	}
@@ -267,4 +272,21 @@ func tokenLabel(token string) string {
 		return "[REDACTED JWT]"
 	}
 	return ""
+}
+
+// Tail trims trailing whitespace and bounds text to at most maxBytes from the
+// end on a valid UTF-8 line boundary.
+func Tail(text string, maxBytes int) string {
+	text = strings.TrimRight(text, " \t\r\n")
+	if maxBytes <= 0 || len(text) <= maxBytes {
+		return text
+	}
+	cut := len(text) - maxBytes
+	for cut < len(text) && !utf8.RuneStart(text[cut]) {
+		cut++
+	}
+	if newline := strings.IndexByte(text[cut:], '\n'); newline >= 0 && newline < len(text)-cut-1 {
+		cut += newline + 1
+	}
+	return text[cut:]
 }

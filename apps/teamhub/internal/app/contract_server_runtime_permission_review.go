@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/base64"
 	"errors"
-	"log/slog"
 	"net/http"
 	"time"
 
@@ -49,11 +48,11 @@ func (a *App) createRuntimePermissionReview(c *gin.Context) {
 		a.writeError(c, http.StatusConflict, "CONFLICT", "Permission review no longer belongs to an active execution")
 		return
 	case err != nil:
-		slog.ErrorContext(c.Request.Context(), "permission review", "context_key", input.ContextKey, "tool", input.Action.Tool, "error", err)
+		a.log().ErrorContext(c.Request.Context(), "permission review", "context_key", input.ContextKey, "tool", input.Action.Tool, "error", err)
 		a.writeError(c, http.StatusServiceUnavailable, "DEPENDENCY_UNAVAILABLE", "Permission review is unavailable")
 		return
 	}
-	slog.InfoContext(c.Request.Context(), "permission review", "context_key", input.ContextKey, "tool", input.Action.Tool,
+	a.log().InfoContext(c.Request.Context(), "permission review", "context_key", input.ContextKey, "tool", input.Action.Tool,
 		"decision", outcome.Decision, "interaction_id", outcome.InteractionID, "policy_version", permissionreview.PolicyVersion)
 	result := teamhubinternal.RuntimePermissionReviewResult{
 		Decision: teamhubinternal.RuntimePermissionReviewResultDecision(outcome.Decision),

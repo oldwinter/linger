@@ -21,9 +21,8 @@ type agentDocumentSemanticService interface {
 }
 
 func (a *App) applyAgentDocumentSemanticMutation(c *gin.Context) {
-	token, ok := strictAgentBearer(c)
+	token, ok := a.agentCommandBearer(c)
 	if !ok {
-		a.writeAgentDocumentSemanticError(c, agentauth.ErrCredentialInvalid)
 		return
 	}
 	var request teamhubagentapi.AgentDocumentSemanticMutationRequest

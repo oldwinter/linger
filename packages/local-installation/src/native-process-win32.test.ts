@@ -88,8 +88,8 @@ vi.mock("./process.js", async (original) => ({
     return { stdout: "", stderr: "", code: 0 };
   },
 }));
-vi.mock("./instance.js", async (original) => ({
-  ...(await original<typeof import("./instance.js")>()),
+vi.mock("./private-files.js", async (original) => ({
+  ...(await original<typeof import("./private-files.js")>()),
   readPrivate: (file: string) => readFile(file, "utf8").catch(() => undefined),
 }));
 import {

@@ -1,15 +1,14 @@
 import { buildWikiGraph } from "./graph/build.js";
-import { renderGraphVisualization } from "./graph/visualize.js";
+import {
+  renderGraphVisualization,
+  type TimelineEvent,
+} from "./graph/visualize.js";
 import { loadWikiGraphSubjectsForActor } from "./collector.js";
 import { readIndexedWiki } from "./wiki-index.js";
 import { memoryDatabase } from "./database.js";
 import type postgres from "postgres";
 
-export interface TimelineEvent {
-  id: string;
-  day: string;
-  title: string;
-}
+export type { TimelineEvent };
 
 export async function readTimelineEvents(
   tenantId: string,

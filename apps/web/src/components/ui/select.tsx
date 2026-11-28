@@ -13,14 +13,9 @@ import {
 } from "react";
 
 import { Icon } from "@/components/ui/icon";
+import type { SelectItemProps } from "./select-popup";
 
-export interface SelectItemProps {
-  children: ReactNode;
-  disabled?: boolean;
-  /** Compact label rendered in the trigger when selected; falls back to `children`. */
-  triggerLabel?: ReactNode;
-  value: string;
-}
+export type { SelectItemProps };
 
 const SelectPopup = lazy(() =>
   import("./select-popup").then((module) => ({ default: module.SelectPopup })),

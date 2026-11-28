@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -13,11 +12,6 @@ import (
 )
 
 const agentSendMessageRequestMaxBytes = 5 << 20
-
-type agentSendMessageService interface {
-	Send(context.Context, string, agentsendmessage.Input) (agentsendmessage.Result, error)
-	CreateTeamMd(context.Context, string, agentsendmessage.CreateTeamMdInput) (agentsendmessage.TeamMdResult, error)
-}
 
 func (a *App) writeInvalidAgentSendMessage(c *gin.Context) {
 	a.writeAgentAPIError(

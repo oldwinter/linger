@@ -2,12 +2,7 @@ import { fileURLToPath } from "node:url";
 
 import { cli, ServerOptions, WorkerPermissions } from "@livekit/agents";
 
-import {
-  calculateWorkerLoad,
-  healthPort,
-  loadConfig,
-  maxSessions,
-} from "./config.js";
+import { calculateWorkerLoad, loadConfig, maxSessions } from "./config.js";
 
 const config = loadConfig();
 // Node Services supervises separate ASR, recorder and Live worker processes.
@@ -47,7 +42,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       // The image listens on every interface so its published port and
       // orchestrator probes reach the health endpoint.
       host: production ? "0.0.0.0" : "127.0.0.1",
-      port: healthPort,
+      port: config.healthPort,
       // Only Live publishes audio/data. ASR and recorder remain subscription-only.
       permissions: new WorkerPermissions(live, true, live, true, [], false),
       production,

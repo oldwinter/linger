@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/simplexai-labs/linger/apps/teamhub/internal/agentauth"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/agentsendmessage"
 	artifactstore "github.com/simplexai-labs/linger/apps/teamhub/internal/artifact"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/document"
@@ -19,9 +18,8 @@ import (
 // commitAgentMessage stages transport bytes without publishing business state;
 // Send then commits the resources, one message, events and receipt together.
 func (a *App) commitAgentMessage(c *gin.Context) {
-	token, ok := strictAgentBearer(c)
+	token, ok := a.agentCommandBearer(c)
 	if !ok {
-		a.writeAgentSendMessageError(c, agentauth.ErrCredentialInvalid)
 		return
 	}
 	reader, err := agentFileToolMultipartReader(c, (512<<20)+(8<<20))

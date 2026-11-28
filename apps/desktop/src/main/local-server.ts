@@ -29,6 +29,7 @@ import { pipeline } from "node:stream/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import { createZstdDecompress } from "node:zlib";
 
+import { asError } from "@linger/service-kit";
 import {
   LocalIdentityError,
   proveLocalIdentity,
@@ -98,7 +99,12 @@ import {
 } from "../../../../scripts/local-computer-node-distributions.mjs";
 import type { DesktopConfig } from "./config.js";
 import type { Logger } from "./log.js";
-import type { Module, ModuleContext, StopReason } from "./modules.js";
+import {
+  LOCAL_INSTANCE,
+  type Module,
+  type ModuleContext,
+  type StopReason,
+} from "./modules.js";
 import {
   type WindowLoadReason,
   parseServerUrl,
@@ -510,7 +516,7 @@ export function pollDelayMs(
 }
 
 // The instance the desktop installs.
-export const LOCAL_INSTANCE = "desktop";
+export { LOCAL_INSTANCE };
 
 export interface LegacyMigrationRun {
   code: number | null;
@@ -1647,11 +1653,12 @@ export class LocalServerModule implements Module {
         )
         .map(parseReason),
     ];
-    const reasonLog = [...listed, ...upgradeListed].map(({ code, message }) =>
-      typeof message === "string" && message
-        ? `${code}: ${message}`
-        : `${code}`,
-    );
+    const reasonLog = [...listed, ...upgradeListed].map(({ code, message }) => {
+      const codeText = typeof code === "string" ? code : "";
+      return typeof message === "string" && message
+        ? `${codeText}: ${message}`
+        : codeText;
+    });
     const pick = report.recommendation;
     // The local model is recommended only with a model the page can show.
     const recommendation =
@@ -2009,7 +2016,7 @@ export class LocalServerModule implements Module {
           stderr = (stderr + chunk.toString("utf8")).slice(-1000);
         });
         let settled = false;
-        let spawnError: unknown;
+        let spawnError: Error | undefined;
         let escalation: ReturnType<typeof setTimeout> | undefined;
         const cleanup = () => {
           signal.removeEventListener("abort", onAbort);
@@ -6548,7 +6555,7 @@ export function runChild(
       if (settled) return;
       settled = true;
       cleanup();
-      if (failure !== undefined) reject(failure);
+      if (failure !== undefined) reject(asError(failure));
       else if (code === 0) resolve();
       else reject(new Error(`${command} exited with code ${code}`));
     });

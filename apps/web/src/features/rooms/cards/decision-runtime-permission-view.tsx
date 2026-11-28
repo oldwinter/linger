@@ -6,7 +6,7 @@ import { useT } from "@/i18n/use-translation";
 
 import { DetailBlock, FullCallBlock } from "./approval-card-parts";
 import { cardsMessages } from "./cards.messages";
-import type { DecisionMessageCard } from "./decision-card";
+import type { DecisionMessageCard } from "./room-message-card-contract";
 
 type RuntimePermissionView = NonNullable<
   DecisionMessageCard["runtime_permission"]

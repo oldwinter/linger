@@ -9,7 +9,10 @@ import type {
   UploadErrorText,
   UploadFailure,
 } from "./library-upload-queue";
+import { myDocumentTreeQueryKey } from "./library-queries";
 import { libraryMessages as m } from "./library.messages";
+
+export { myDocumentTreeQueryKey };
 
 export type DocumentTreeFolder = Extract<
   TeamHubDocumentPlacementNode,
@@ -22,10 +25,6 @@ interface MyDocumentTreeCache {
   items: TeamHubDocumentPlacementNode[];
 }
 export const personalPlacementDragType = "application/x-linger-placement";
-
-export function myDocumentTreeQueryKey(tenantId: string) {
-  return ["teamhub", tenantId, "document-tree"] as const;
-}
 
 /** Applies an optimistic tree change and returns its rollback. */
 export function updateMyDocumentTreeCache(

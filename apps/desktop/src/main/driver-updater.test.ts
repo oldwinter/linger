@@ -1,3 +1,4 @@
+import { requestUrlText } from "@linger/service-kit";
 import {
   NVIDIA_DRIVER_DOWNLOAD_URL,
   NVIDIA_DRIVER_GUIDE_URL,
@@ -179,7 +180,7 @@ describe("DriverUpdater", () => {
     let installedPath = "";
 
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
-      const url = String(input);
+      const url = requestUrlText(input);
       if (url.includes("AjaxDriverService.php")) {
         expect(url).toContain("psid=131");
         expect(url).toContain("pfid=1078");
@@ -202,7 +203,7 @@ describe("DriverUpdater", () => {
       onBusyChange: (busy) => busyEvents.push(busy),
       directInstall: {
         downloadDirectory,
-        fetch: fetchMock as typeof fetch,
+        fetch: fetchMock,
         detectGpuName: vi.fn(async () => "NVIDIA GeForce RTX 5060"),
         verifyAuthenticode: vi.fn(async (exePath) => {
           verifiedPath = exePath;
@@ -257,7 +258,7 @@ describe("DriverUpdater", () => {
     const installTimeMs = Date.parse("2026-11-24T12:00:00.000Z");
 
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
-      const url = String(input);
+      const url = requestUrlText(input);
       if (url.includes("AjaxDriverService.php")) {
         expect(url).toContain("psid=133");
         expect(url).toContain("pfid=1079");
@@ -276,7 +277,7 @@ describe("DriverUpdater", () => {
 
     const baseDirect: WindowsDirectInstallDeps = {
       downloadDirectory,
-      fetch: fetchMock as typeof fetch,
+      fetch: fetchMock,
       detectGpuName: vi.fn(async () => undefined),
       verifyAuthenticode: vi.fn(async () => ({
         valid: true,
@@ -372,7 +373,7 @@ describe("DriverUpdater", () => {
     const downloadDirectory = await makeTempDir();
     const runInstaller = vi.fn();
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
-      if (String(input).includes("AjaxDriverService.php")) {
+      if (requestUrlText(input).includes("AjaxDriverService.php")) {
         return new Response(JSON.stringify(lookupJson("621.24")), {
           status: 200,
         });
@@ -389,7 +390,7 @@ describe("DriverUpdater", () => {
       openExternal: vi.fn(),
       directInstall: {
         downloadDirectory,
-        fetch: fetchMock as typeof fetch,
+        fetch: fetchMock,
         detectGpuName: vi.fn(async () => "NVIDIA GeForce RTX 5060"),
         verifyAuthenticode: vi.fn(async () => ({
           valid: false,
@@ -422,7 +423,7 @@ describe("DriverUpdater", () => {
 
     // 1. Redirect off NVIDIA CDN fails cleanly without executing anything.
     const redirectFetch = vi.fn(async (input: string | URL | Request) => {
-      if (String(input).includes("AjaxDriverService.php")) {
+      if (requestUrlText(input).includes("AjaxDriverService.php")) {
         return new Response(JSON.stringify(lookupJson("621.24")), {
           status: 200,
         });
@@ -441,7 +442,7 @@ describe("DriverUpdater", () => {
       openExternal: vi.fn(),
       directInstall: {
         downloadDirectory,
-        fetch: redirectFetch as typeof fetch,
+        fetch: redirectFetch,
         detectGpuName: vi.fn(async () => "NVIDIA GeForce RTX 5060"),
         verifyAuthenticode: vi.fn(),
         runInstaller: vi.fn(),
@@ -473,7 +474,7 @@ describe("DriverUpdater", () => {
       openExternal: vi.fn(),
       directInstall: {
         downloadDirectory,
-        fetch: oldFetch as typeof fetch,
+        fetch: oldFetch,
         detectGpuName: vi.fn(async () => "NVIDIA GeForce RTX 5060"),
         verifyAuthenticode: vi.fn(),
         runInstaller: vi.fn(),
@@ -505,7 +506,7 @@ describe("DriverUpdater", () => {
 
     // 4. UAC cancellation maps to UAC_CANCELLED.
     const uacFetch = vi.fn(async (input: string | URL | Request) => {
-      if (String(input).includes("AjaxDriverService.php")) {
+      if (requestUrlText(input).includes("AjaxDriverService.php")) {
         return new Response(JSON.stringify(lookupJson("621.24")), {
           status: 200,
         });
@@ -521,7 +522,7 @@ describe("DriverUpdater", () => {
       openExternal: vi.fn(),
       directInstall: {
         downloadDirectory,
-        fetch: uacFetch as typeof fetch,
+        fetch: uacFetch,
         detectGpuName: vi.fn(async () => "NVIDIA GeForce RTX 5060"),
         verifyAuthenticode: vi.fn(async () => ({
           valid: true,
@@ -552,7 +553,7 @@ describe("DriverUpdater", () => {
     const busyEvents: boolean[] = [];
 
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
-      if (String(input).includes("AjaxDriverService.php")) {
+      if (requestUrlText(input).includes("AjaxDriverService.php")) {
         return new Response(JSON.stringify(lookupJson("621.24")), {
           status: 200,
         });
@@ -570,7 +571,7 @@ describe("DriverUpdater", () => {
       onBusyChange: (busy) => busyEvents.push(busy),
       directInstall: {
         downloadDirectory: path.join(blockingFile, "nested"),
-        fetch: fetchMock as typeof fetch,
+        fetch: fetchMock,
         detectGpuName: vi.fn(async () => "NVIDIA GeForce RTX 5060"),
         verifyAuthenticode: vi.fn(),
         runInstaller: vi.fn(),
@@ -604,7 +605,7 @@ describe("DriverUpdater", () => {
     );
     const runInstaller = vi.fn(async () => ({ outcome: "completed" as const }));
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
-      if (String(input).includes("AjaxDriverService.php")) {
+      if (requestUrlText(input).includes("AjaxDriverService.php")) {
         return new Response(JSON.stringify(lookupJson("621.24")), {
           status: 200,
         });
@@ -621,7 +622,7 @@ describe("DriverUpdater", () => {
       openExternal: vi.fn(),
       directInstall: {
         downloadDirectory,
-        fetch: fetchMock as typeof fetch,
+        fetch: fetchMock,
         detectGpuName,
         verifyAuthenticode: vi.fn(async () => ({
           valid: true,

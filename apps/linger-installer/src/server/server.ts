@@ -161,7 +161,10 @@ export async function startInstallerServer(options: ServerOptions) {
     );
     idleTimer.unref();
   };
-  const server = http.createServer(async (req, res) => {
+  const handleRequest = async (
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+  ) => {
     try {
       touch();
       res.setHeader("Cache-Control", "no-store");
@@ -599,10 +602,10 @@ export async function startInstallerServer(options: ServerOptions) {
             await dependencies.runtimeLogin(
               name,
               method === "POST",
-              data.code as string | undefined,
+              data.code,
               data.apiKey
                 ? {
-                    apiKey: data.apiKey as string,
+                    apiKey: data.apiKey,
                     provider: data.provider as
                       | "openai"
                       | "anthropic"
@@ -615,7 +618,7 @@ export async function startInstallerServer(options: ServerOptions) {
                       : {}),
                   }
                 : undefined,
-              data.method as "browser" | "device" | undefined,
+              data.method,
             ),
           );
           return;
@@ -718,6 +721,9 @@ export async function startInstallerServer(options: ServerOptions) {
         );
       else res.end();
     }
+  };
+  const server = http.createServer((req, res) => {
+    void handleRequest(req, res);
   });
   server.requestTimeout = 30000;
   server.headersTimeout = 10000;

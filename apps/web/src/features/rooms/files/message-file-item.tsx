@@ -4,6 +4,7 @@ import type { TeamHubMessageArtifactTreeSegment } from "@/features/teamhub/teamh
 import type { Translate } from "@/i18n/language";
 import { useT } from "@/i18n/use-translation";
 import { cn } from "@/lib/cn";
+import { formatBytes } from "@/lib/format-bytes";
 
 import { chatMessages } from "../chat/chat.messages";
 
@@ -103,10 +104,4 @@ export function artifactTreeDetail(
     t(chatMessages.folderCount, { count: segment.directory_count }),
     formatBytes(segment.total_bytes),
   ].join(" · ");
-}
-
-function formatBytes(size: number) {
-  if (size < 1024) return `${size} B`;
-  if (size < 1024 * 1024) return `${Math.round(size / 1024)} KB`;
-  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }

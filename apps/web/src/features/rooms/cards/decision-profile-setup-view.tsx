@@ -10,6 +10,7 @@ import { useQuery } from "@tanstack/react-query";
 import { type ReactNode, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { formatBytes } from "@/lib/format-bytes";
 import { Icon } from "@/components/ui/icon";
 import { AppLogo } from "@/features/apps/app-logo";
 import {
@@ -45,8 +46,10 @@ import { CardActions, CardError } from "./approval-card-parts";
 import { CardBox, CardDone } from "./card-shell";
 import { cardsMessages } from "./cards.messages";
 import { connectedAppDisplayName } from "./connected-app-names";
-import type { DecisionMessageCard } from "./decision-card";
-import type { RoomCardDecision } from "./room-message-card-contract";
+import type {
+  DecisionMessageCard,
+  RoomCardDecision,
+} from "./room-message-card-contract";
 
 type Card = DecisionMessageCard;
 type SetupDecision = "connected" | "done" | "skipped";
@@ -556,7 +559,7 @@ function ProfileSetupSources(props: Props) {
                         <span className="text-xs text-app-muted tabular-nums">
                           {item.upload
                             ? t(cardsMessages.uploadedSize, {
-                                size: formatFileSize(item.file.size),
+                                size: formatBytes(item.file.size),
                               })
                             : `${Math.round(item.progress * 100)}%`}
                         </span>
@@ -741,12 +744,6 @@ function linkLabel(value: string) {
   return url.pathname === "/" && !url.search
     ? url.hostname
     : `${url.hostname}${url.pathname}${url.search}`;
-}
-
-function formatFileSize(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function cancelAttachmentUpload(

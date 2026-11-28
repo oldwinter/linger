@@ -12,6 +12,7 @@ import type { Duplex } from "node:stream";
 
 import WebSocket, { WebSocketServer, type RawData } from "ws";
 
+import { isRecord } from "@linger/service-kit";
 import type {
   AgentToDaemonEnvelope,
   DaemonToAgentEnvelope,
@@ -928,10 +929,7 @@ class InvalidRunnerFrameError extends RunnerGatewayProtocolError {
 
   constructor(decoded: unknown, value: string, cause: unknown) {
     super("Invalid Runner Gateway envelope");
-    const record =
-      typeof decoded === "object" && decoded !== null && !Array.isArray(decoded)
-        ? (decoded as Record<string, unknown>)
-        : {};
+    const record = isRecord(decoded) ? decoded : {};
     const type = record.type;
     this.frameType =
       typeof type === "string" && /^[a-z_.]{1,64}$/.test(type)

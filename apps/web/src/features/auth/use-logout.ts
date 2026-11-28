@@ -84,6 +84,7 @@ export function useLogout({ returnTo }: { returnTo?: string } = {}) {
         // Let the router unmount protected query consumers before clearing them.
         await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
         clearTeamHubQueries(queryClient);
+        queryClient.clear();
         const { clearLocalAuthenticatedStorage } =
           await import("./local-authenticated-state");
         clearLocalAuthenticatedStorage();

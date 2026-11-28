@@ -629,7 +629,6 @@ function Combobox({
       data-combo={kind}
       data-default={isDefault}
       data-open={open}
-      onKeyDown={onKeyDown}
     >
       <input
         ref={inputRef}
@@ -644,6 +643,7 @@ function Combobox({
         {...(fit ? { size: Math.max((value || placeholder).length, 2) } : {})}
         placeholder={placeholder}
         value={value}
+        onKeyDown={onKeyDown}
         onChange={(event) => {
           onInput(event.target.value);
           onOpenChange(false);
@@ -669,7 +669,9 @@ function Combobox({
           id={menuId}
           className="byok-menu"
           role="listbox"
+          tabIndex={-1}
           aria-label={label}
+          onKeyDown={onKeyDown}
           onMouseDown={(event) => event.preventDefault()}
         >
           {heading && <div className="byok-menu-head">{heading}</div>}

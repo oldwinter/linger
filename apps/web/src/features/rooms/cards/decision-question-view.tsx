@@ -15,8 +15,10 @@ import { AutoHeight } from "@/components/ui/auto-height";
 import { CardBox, CardHeading } from "./card-shell";
 import { cardsMessages } from "./cards.messages";
 
-import type { DecisionMessageCard } from "./decision-card";
-import type { RoomCardDecision } from "./room-message-card-contract";
+import type {
+  DecisionMessageCard,
+  RoomCardDecision,
+} from "./room-message-card-contract";
 
 type InteractionQuestion = NonNullable<
   DecisionMessageCard["question"]

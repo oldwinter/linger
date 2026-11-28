@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import {
+  ACCOUNT_PREFERENCE_KEY_PREFIXES,
   notifyPreferenceChange,
   removePreferenceKeys,
   storedPreferenceKeys,
@@ -9,7 +10,7 @@ import {
 
 import { nextLocalMorning } from "./room-mention-snooze";
 
-const SNOOZE_PREFIX = "room-snooze.v1:";
+const SNOOZE_PREFIX = ACCOUNT_PREFERENCE_KEY_PREFIXES.roomSnooze;
 const SNOOZE_CHANGED = "room-snooze-changed";
 
 /** One hour, the shortest choice the Room row menu offers. */

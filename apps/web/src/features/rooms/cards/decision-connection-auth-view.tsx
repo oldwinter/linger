@@ -47,8 +47,10 @@ import { CardBox, CardDone, type ReceiptTone } from "./card-shell";
 import { cardsMessages } from "./cards.messages";
 import { ConnectedAppIcon } from "./connected-app-identity";
 import { connectedAppDisplayName } from "./connected-app-names";
-import type { DecisionMessageCard } from "./decision-card";
-import type { RoomCardDecision } from "./room-message-card-contract";
+import type {
+  DecisionMessageCard,
+  RoomCardDecision,
+} from "./room-message-card-contract";
 
 interface Props {
   card: DecisionMessageCard;

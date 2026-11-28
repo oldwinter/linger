@@ -15,7 +15,7 @@ import { cn } from "@/lib/cn";
 import { MessageMarkdown } from "../chat/message-markdown";
 import { CardRowDetails, FullCallBlock } from "./approval-card-parts";
 import { cardsMessages } from "./cards.messages";
-import type { DecisionMessageCard } from "./decision-card";
+import type { DecisionMessageCard } from "./room-message-card-contract";
 import { SlackMrkdwn } from "./slack-mrkdwn";
 
 type ConnectorWriteView = NonNullable<DecisionMessageCard["connector_write"]>;

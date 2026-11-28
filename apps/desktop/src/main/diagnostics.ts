@@ -23,11 +23,19 @@ import {
   uploadDiagnostics,
   type PreparedDiagnostics,
 } from "./diagnostics-upload.js";
-import type { LocalServerModule } from "./local-server.js";
-import { LOCAL_INSTANCE } from "./local-server.js";
-import type { Module, ModuleContext } from "./modules.js";
+import { LOCAL_INSTANCE, type Module, type ModuleContext } from "./modules.js";
 import { savedSecretValues } from "./provider-keys.js";
 import type { StatusModule } from "./status.js";
+
+interface LocalServerStatusReader extends Module {
+  status(): {
+    location: { path: string };
+    phase: string;
+    step?: string;
+    message?: string;
+    origin?: string;
+  };
+}
 
 // A file put into the bundle: where it is read from and its name inside.
 export interface DiagnosticsFile {
@@ -508,7 +516,9 @@ export class DiagnosticsModule implements Module {
   }
 
   #collect(output: string): Promise<PreparedDiagnostics> {
-    const local = this.#ctx?.get<LocalServerModule>("LocalServer").status();
+    const local = this.#ctx
+      ?.get<LocalServerStatusReader>("LocalServer")
+      .status();
     const daemon = this.#optionalModule<ComputerDaemonModule>("ComputerDaemon");
     const status = this.#optionalModule<StatusModule>("Status")?.current();
     const config = this.#ctx?.config.get();

@@ -16,8 +16,8 @@ import { closeSync, openSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 const failure = vi.hoisted(() => ({ file: "" }));
-vi.mock("./instance.js", async (original) => {
-  const actual = await original<typeof import("./instance.js")>();
+vi.mock("./private-files.js", async (original) => {
+  const actual = await original<typeof import("./private-files.js")>();
   return {
     ...actual,
     atomicPrivate: async (file: string, contents: string) => {

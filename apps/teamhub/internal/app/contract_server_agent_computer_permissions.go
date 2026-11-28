@@ -81,13 +81,7 @@ func (a *App) requestAgentComputerPermissions(c *gin.Context) {
 	result, err := a.typedCards.CreateDecision(ctx, roomID, auth.AgentID, "computer-permission-"+idgen.New("request"), digest[:], typedcard.DecisionCommand{
 		Principal: auth.Principal, DeciderActorID: ownerID, AlterEgoTaskID: auth.ParticipantTaskID, ComputerPermission: &decision,
 	})
-	switch {
-	case errors.Is(err, typedcard.ErrAssigneeNotMember), errors.Is(err, typedcard.ErrForbidden), errors.Is(err, typedcard.ErrNotFound), errors.Is(err, typedcard.ErrInvalid):
-		a.writeAgentAPIError(c, http.StatusForbidden, api.AgentApiErrorCodeForbidden, "Permission cards are unavailable in this chat")
-		return
-	case err != nil:
-		a.logger.Error("create computer permission card", "error", err)
-		a.writeAgentAPIError(c, http.StatusServiceUnavailable, api.AgentApiErrorCodeDependencyUnavailable, "Computer permissions are temporarily unavailable")
+	if a.writeAgentDecisionCardError(c, "create computer permission card", "Permission cards are unavailable in this chat", "Computer permissions are temporarily unavailable", err) {
 		return
 	}
 	// The owner may have granted while the card was posted. Settle it now.

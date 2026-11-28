@@ -6,11 +6,11 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/composio"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/feishu"
 	idgen "github.com/simplexai-labs/linger/apps/teamhub/internal/ids"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/jobs"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/pgutil"
 )
 
 // ErrStaleRevision reports a Connection revision that changed since the caller read it.
@@ -72,8 +72,7 @@ func retryDisconnectTransaction(operation func() (Connection, error)) (Connectio
 }
 
 func isPostgresDeadlock(err error) bool {
-	var postgresError *pgconn.PgError
-	return errors.As(err, &postgresError) && postgresError.Code == "40P01"
+	return pgutil.IsDeadlock(err)
 }
 
 func (s *Service) disconnectOnce(ctx context.Context, accountID, connectionID string, expectedRevision int64) (Connection, error) {

@@ -11,7 +11,11 @@ import { createHash, randomBytes } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
-import { atomicPrivate, privateDirectory, readPrivate } from "./instance.js";
+import {
+  atomicPrivate,
+  privateDirectory,
+  readPrivate,
+} from "./private-files.js";
 import { linuxNodeFdHygieneArgs } from "./native-process-fds.js";
 import { runProcess, windowsTreeTermination } from "./process.js";
 import {

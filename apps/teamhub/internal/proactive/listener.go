@@ -13,9 +13,9 @@ import (
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/pgutil"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/reminder"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/store"
 )
@@ -119,8 +119,7 @@ func SweepInstallListener(ctx context.Context, pool *pgxpool.Pool, row store.Lis
 // isListenerAlreadyInstalled reports a conflict on the Routine template origin:
 // another transaction installed the same listener first.
 func isListenerAlreadyInstalled(err error) bool {
-	var postgresError *pgconn.PgError
-	return errors.As(err, &postgresError) && postgresError.Code == "23505" && postgresError.ConstraintName == "room_reminders_template_origin_unique"
+	return pgutil.IsUniqueViolation(err, "room_reminders_template_origin_unique")
 }
 
 // InstallListenerTx installs the listener Routine of one connection the Human

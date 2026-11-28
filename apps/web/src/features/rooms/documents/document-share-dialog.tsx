@@ -14,6 +14,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectItem } from "@/components/ui/select";
 import { ModalDialog } from "@/components/ui/modal-dialog";
+import { libraryDocumentsTenantQueryKey } from "@/features/library/library-queries";
 import {
   documentQueryKey,
   roomDocumentsQueryKey,
@@ -232,10 +233,7 @@ export function DocumentShareDialog({
           queryKey: documentQueryKey(tenantId, documentId),
         }),
         queryClient.invalidateQueries({
-          queryKey: ["teamhub", "library-documents"],
-        }),
-        queryClient.invalidateQueries({
-          queryKey: ["teamhub", tenantId, "library-documents"],
+          queryKey: libraryDocumentsTenantQueryKey(tenantId),
         }),
       ]);
     } catch {

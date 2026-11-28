@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { isNodeError } from "@linger/service-kit";
 import type postgres from "postgres";
 import { memoryDatabase } from "./database.js";
 import { localDate, localTimeZone } from "./date.js";
@@ -228,7 +229,7 @@ export async function collectRecordingSession(
       ),
     };
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    if (!isNodeError(error, "ENOENT")) throw error;
   }
   if (checkpoint?.sourceVersion === sourceVersion && previousSession)
     return undefined;

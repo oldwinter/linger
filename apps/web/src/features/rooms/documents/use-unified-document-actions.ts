@@ -3,6 +3,7 @@ import { useState } from "react";
 import type { NavigateFunction } from "react-router";
 
 import { documentFileName } from "@/features/library/document-display-name";
+import { myDocumentTreeQueryKey } from "@/features/library/library-queries";
 import { documentAfterRemoval } from "@/features/library/document-tree-order";
 import { removeRecentDocument } from "@/features/library/recent-documents";
 import { triggerArtifactDownload } from "@/features/rooms/files/artifact-preview-loader";
@@ -66,11 +67,9 @@ export function useUnifiedDocumentActions({
       closeSession();
       // Move on to the Document listed next in My pages, as the tree does.
       const nextDocumentId = documentAfterRemoval(
-        queryClient.getQueryData<{ items: TeamHubDocumentPlacementNode[] }>([
-          "teamhub",
-          tenantId,
-          "document-tree",
-        ])?.items ?? [],
+        queryClient.getQueryData<{ items: TeamHubDocumentPlacementNode[] }>(
+          myDocumentTreeQueryKey(tenantId),
+        )?.items ?? [],
         document.id,
       );
       void navigate(
@@ -80,7 +79,7 @@ export function useUnifiedDocumentActions({
         { replace: true },
       );
       void queryClient.invalidateQueries({
-        queryKey: ["teamhub", tenantId, "document-tree"],
+        queryKey: myDocumentTreeQueryKey(tenantId),
       });
     } catch (trashDocumentError) {
       setTrashError(
@@ -128,7 +127,7 @@ export function useUnifiedDocumentActions({
       );
       closeSession();
       await queryClient.invalidateQueries({
-        queryKey: ["teamhub", tenantId, "document-tree"],
+        queryKey: myDocumentTreeQueryKey(tenantId),
       });
       void navigate(
         `/t/${encodeURIComponent(tenantId)}/documents/${encodeURIComponent(duplicate.id)}`,

@@ -937,7 +937,7 @@ describe("HerdrCoreLocalBridge HTTP, put limits, observe enforcement, and Compan
             params.if !== "working"
           ) {
             throw new Error(
-              `unexpected invalid_params if=${String(params.if)}`,
+              `unexpected invalid_params if=${JSON.stringify(params.if)}`,
             );
           }
           return { turn: 3, started: true, status: "working" };

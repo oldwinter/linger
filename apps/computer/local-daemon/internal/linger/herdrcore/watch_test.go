@@ -29,7 +29,7 @@ func TestRedactHidesSecretsAndBoundsTail(t *testing.T) {
 			t.Fatalf("%q survived redaction: %s", secret, redacted)
 		}
 	}
-	if !strings.Contains(redacted, "OPENAI_API_KEY=[redacted]") || !strings.HasSuffix(redacted, "Proceed with migration?") {
+	if !strings.Contains(redacted, "OPENAI_API_KEY=[REDACTED") || !strings.HasSuffix(redacted, "Proceed with migration?") {
 		t.Fatalf("redacted=%s", redacted)
 	}
 	long := Redact(strings.Repeat("line ééé\n", 2000) + "last")
@@ -95,7 +95,7 @@ func TestTransitionsBlockedFinishedAndError(t *testing.T) {
 	)
 	if len(secretEvents) != 1 || secretEvents[0].Status == nil ||
 		strings.Contains(secretEvents[0].Status.Msg, "sk-abcdef") ||
-		!strings.Contains(secretEvents[0].Status.Msg, "OPENAI_API_KEY=[redacted]") {
+		!strings.Contains(secretEvents[0].Status.Msg, "OPENAI_API_KEY=[REDACTED") {
 		t.Fatalf("secret status.msg was not redacted: %+v", secretEvents)
 	}
 }

@@ -7,26 +7,12 @@ import {
   installNativeRuntime,
   runtimeFailureCode,
   runtimeVersionFailure,
+  type Dependency,
+  type PreparationOptions,
   type RuntimeDependencies,
 } from "./managed-runtimes.js";
 
-export type Dependency = "codex" | "claude" | "pi";
-export interface PreparationOptions {
-  home: string;
-  dependency: Dependency;
-  signal: AbortSignal;
-  onEvent: (event: InstallerEvent) => void;
-  interactive?: boolean;
-  /** Desktop installers use the OS agent; passwords never pass through Linger. */
-  env?: NodeJS.ProcessEnv;
-  platform?: NodeJS.Platform;
-  /**
-   * When true for `pi`, binds the verified bundled Pi directly instead of
-   * running `localmodels harness plan` and `apply` when no higher-precedence
-   * Pi exists.
-   */
-  skipHarnessWhenBundledPiMatches?: boolean;
-}
+export type { Dependency, PreparationOptions };
 export async function prepareDependencies(
   options: PreparationOptions,
   dependencies: RuntimeDependencies = {},

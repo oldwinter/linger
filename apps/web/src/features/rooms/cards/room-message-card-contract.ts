@@ -1,3 +1,10 @@
+import type { TeamHubMessageCard } from "@/features/teamhub/teamhub-types";
+
+export type DecisionMessageCard = Extract<
+  TeamHubMessageCard,
+  { intent: "decision_requested" }
+>;
+
 export interface RoomCardDecision {
   connectionId?: string;
   answers?: Record<string, string | string[]>;

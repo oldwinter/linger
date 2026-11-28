@@ -1,9 +1,11 @@
 import { teamHubData, type TeamHubApi } from "./teamhub-api";
-import type { TeamHubClient } from "./teamhub-client";
+import type { TeamHubLocalComputerPage } from "./teamhub-types";
 
-export function createTeamHubAgentClient(
-  api: TeamHubApi,
-): Pick<TeamHubClient, "listTenantLocalComputers"> {
+export interface TeamHubAgentClient {
+  listTenantLocalComputers(tenantId: string): Promise<TeamHubLocalComputerPage>;
+}
+
+export function createTeamHubAgentClient(api: TeamHubApi): TeamHubAgentClient {
   return {
     listTenantLocalComputers: async (tenantId) => {
       const page = await teamHubData(

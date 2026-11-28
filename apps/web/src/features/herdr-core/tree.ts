@@ -1,3 +1,5 @@
+import { isRecord } from "@linger/service-kit";
+
 import type {
   HerdrAppParsedDoc,
   HerdrAppSpaceEntry,
@@ -237,10 +239,6 @@ export function flattenTerminalTree(
   };
   walk(nodes);
   return out;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 /**

@@ -1,14 +1,15 @@
 import { useEffect, useState } from "react";
 
 import {
+  ACCOUNT_PREFERENCE_KEY_PREFIXES,
   notifyPreferenceChange,
   removePreferenceKeys,
   storedPreferenceKeys,
   subscribePreferenceChange,
 } from "@/lib/local-preference-keys";
 
-const SNOOZE_PREFIX = "room-mention-snooze.v1:";
-const MUTE_PREFIX = "room-mention-mute.v1:";
+const SNOOZE_PREFIX = ACCOUNT_PREFERENCE_KEY_PREFIXES.roomMentionSnooze;
+const MUTE_PREFIX = ACCOUNT_PREFERENCE_KEY_PREFIXES.roomMentionMute;
 const PREFERENCES_CHANGED = "room-mention-preferences-changed";
 
 /** One hour, the shortest choice the Room row menu offers. */

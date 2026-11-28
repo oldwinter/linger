@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { requestBodyText } from "@linger/service-kit";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   cleanup,
@@ -42,7 +43,9 @@ let savedModel:
 let savedRuntimeModel:
   | { baseUrl: string; model: string; keySaved: boolean }
   | undefined;
-let fetchMock: ReturnType<typeof vi.fn>;
+let fetchMock: ReturnType<
+  typeof vi.fn<(url: string, options?: RequestInit) => Promise<Response>>
+>;
 beforeEach(() => {
   sessionStorage.removeItem("linger.runtime-sign-in-later");
   jobs = [];
@@ -317,10 +320,7 @@ it("lets runtime sign-in be skipped without retrying or blocking the product", a
 it("does not call a saved job ready when current services are stopped", async () => {
   vi.stubGlobal("localStorage", { getItem: () => null, setItem: persist });
   jobs = [completed];
-  const original = fetchMock.getMockImplementation()! as (
-    url: string,
-    options?: RequestInit,
-  ) => Promise<Response>;
+  const original = fetchMock.getMockImplementation()!;
   fetchMock.mockImplementation((url: string, options?: RequestInit) =>
     String(url).endsWith("/status")
       ? Promise.resolve(
@@ -344,10 +344,7 @@ it.each(["pending", "rejected"])(
   async (mode) => {
     vi.stubGlobal("localStorage", { getItem: () => null, setItem: persist });
     jobs = [completed];
-    const original = fetchMock.getMockImplementation()! as (
-      url: string,
-      options?: RequestInit,
-    ) => Promise<Response>;
+    const original = fetchMock.getMockImplementation()!;
     fetchMock.mockImplementation((url: string, options?: RequestInit) =>
       String(url).endsWith("/status")
         ? mode === "pending"
@@ -374,10 +371,7 @@ it("checks current business health before restoring the runtime sign-in page", a
       runtimeAuth: { runtime: "codex", loginCommand: "codex login" },
     },
   ];
-  const original = fetchMock.getMockImplementation()! as (
-    url: string,
-    options?: RequestInit,
-  ) => Promise<Response>;
+  const original = fetchMock.getMockImplementation()!;
   fetchMock.mockImplementation((url: string, options?: RequestInit) =>
     String(url).endsWith("/status")
       ? Promise.resolve(
@@ -426,6 +420,8 @@ it("leaves GPU sharing to the installer default without a checkbox", async () =>
       ([url, init]) =>
         String(url).includes("/api/jobs") && init?.method === "POST",
     );
-    expect(JSON.parse(String(call?.[1]?.body))).not.toHaveProperty("shareGpu");
+    expect(JSON.parse(requestBodyText(call?.[1]?.body))).not.toHaveProperty(
+      "shareGpu",
+    );
   });
 });

@@ -21,8 +21,10 @@ import { decisionCardHeading } from "./card-prompts";
 import { CardActions, CardError, CardRow } from "./approval-card-parts";
 import { CardBox, CardDone, type ReceiptTone } from "./card-shell";
 import { cardsMessages } from "./cards.messages";
-import type { DecisionMessageCard } from "./decision-card";
-import type { RoomCardDecision } from "./room-message-card-contract";
+import type {
+  DecisionMessageCard,
+  RoomCardDecision,
+} from "./room-message-card-contract";
 
 /**
  * Asks the Agent's Human for the deployment's Composio API key, which every

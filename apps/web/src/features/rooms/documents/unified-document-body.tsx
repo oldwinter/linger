@@ -18,6 +18,7 @@ import { Icon } from "@/components/ui/icon";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { documentLogicalTitle } from "@/features/library/document-display-name";
+import { myDocumentTreeQueryKey } from "@/features/library/library-queries";
 import { WikiCarriedSentence } from "@/features/wiki/wiki-carried-voice";
 import { WikiConnectionsPanel } from "@/features/wiki/wiki-connections-panel";
 import { WikiNamedSentence } from "@/features/wiki/wiki-named-voice";
@@ -361,7 +362,7 @@ function UnifiedDocumentDraftTitle({
           updated,
         );
         await queryClient.invalidateQueries({
-          queryKey: ["teamhub", tenantId, "document-tree"],
+          queryKey: myDocumentTreeQueryKey(tenantId),
         });
       }}
     />

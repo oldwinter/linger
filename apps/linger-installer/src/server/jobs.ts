@@ -180,7 +180,7 @@ export class JobManager {
   get busy() {
     return [...this.records.values()].some(
       (record) =>
-        record.starting ||
+        record.starting !== undefined ||
         record.waiting ||
         (active(record.job) && record.executing),
     );
@@ -616,7 +616,8 @@ export class JobManager {
   }
   async shutdown() {
     const running = [...this.records.values()].filter(
-      (record) => record.starting || record.waiting || record.executing,
+      (record) =>
+        record.starting !== undefined || record.waiting || record.executing,
     );
     const cancellations = await Promise.allSettled(
       running.map((record) => this.cancel(record.job.id)),

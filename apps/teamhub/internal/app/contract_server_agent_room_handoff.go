@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -13,10 +12,6 @@ import (
 )
 
 const agentRoomHandoffRequestMaxBytes = 64 << 10
-
-type agentRoomHandoffService interface {
-	HandOff(context.Context, string, agentroomhandoff.Input) (agentroomhandoff.Result, error)
-}
 
 func (a *App) handOffAgentRoomWork(c *gin.Context) {
 	token, ok := a.agentCommandBearer(c)

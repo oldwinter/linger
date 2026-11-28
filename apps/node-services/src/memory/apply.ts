@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { isNodeError } from "@linger/service-kit";
 import { markMemoryChanged, writeTextFile } from "./fs-utils.js";
 import { normalizeValidMemoryMarkdown } from "./okf-validation.js";
 import { resolveMemoryOutputPath } from "./paths.js";
@@ -318,7 +319,7 @@ async function readOptionalTextFile(filePath: string): Promise<string | null> {
   try {
     return await fs.readFile(filePath, "utf8");
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+    if (isNodeError(error, "ENOENT")) {
       return null;
     }
     throw error;

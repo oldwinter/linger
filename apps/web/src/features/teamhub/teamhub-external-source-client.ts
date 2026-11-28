@@ -1,4 +1,4 @@
-import { desktopConnectorOAuth } from "@/features/apps/desktop-connector-oauth";
+import { desktopConnectorOAuth } from "@/lib/desktop-connector-oauth";
 
 import type {
   TeamHubDisconnectExternalConnectionInput,

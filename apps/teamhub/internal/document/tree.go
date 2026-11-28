@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 
 	idgen "github.com/simplexai-labs/linger/apps/teamhub/internal/ids"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/pgutil"
 )
 
 func insertPersonalDocumentPlacement(
@@ -380,15 +380,18 @@ func treeWriteError(err error) error {
 	if err == nil {
 		return nil
 	}
-	var postgresError *pgconn.PgError
-	if errors.As(err, &postgresError) {
-		if postgresError.Code == "23505" && postgresError.ConstraintName == "document_placements_active_folder_name_key" {
-			return ErrFolderNameTaken
-		}
-		switch postgresError.Code {
-		case "23503", "23505", "23514", "40001", "40P01", "P0001":
-			return ErrConflict
-		}
+	if pgutil.IsUniqueViolation(err, "document_placements_active_folder_name_key") {
+		return ErrFolderNameTaken
+	}
+	if pgutil.IsCode(err,
+		pgutil.CodeForeignKeyViolation,
+		pgutil.CodeUniqueViolation,
+		pgutil.CodeCheckViolation,
+		pgutil.CodeSerializationFailure,
+		pgutil.CodeDeadlockDetected,
+		pgutil.CodeRaiseException,
+	) {
+		return ErrConflict
 	}
 	return err
 }

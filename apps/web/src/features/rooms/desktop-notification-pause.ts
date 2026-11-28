@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import {
+  ACCOUNT_PREFERENCE_KEY_PREFIXES,
   removePreferenceKeys,
   storedPreferenceKeys,
 } from "@/lib/local-preference-keys";
@@ -10,7 +11,7 @@ import {
   nextLocalMorning,
 } from "./room-mention-snooze";
 
-const PAUSE_PREFIX = "desktop-notification-pause.v1:";
+const PAUSE_PREFIX = ACCOUNT_PREFERENCE_KEY_PREFIXES.desktopNotificationPause;
 const PAUSE_CHANGED = "desktop-notification-pause-changed";
 
 /** The two pauses the settings section offers. */

@@ -28,6 +28,10 @@ import {
 } from "./copy-to-my-documents-dialog";
 import { DocumentDeleteDialog } from "./document-delete-dialog";
 import { documentFileName } from "./document-display-name";
+import {
+  libraryDocumentsTenantQueryKey,
+  myDocumentTreeQueryKey,
+} from "./library-queries";
 import { RecentDocumentCards } from "./library-document-results";
 import { LibraryDocumentsHeader } from "./library-documents-header";
 import {
@@ -521,17 +525,17 @@ function useOwnedDocumentTree(client: TeamHubClient, tenantId: string) {
           params: { path: { tenantId } },
         }),
       ),
-    queryKey: ["teamhub", tenantId, "document-tree"],
+    queryKey: myDocumentTreeQueryKey(tenantId),
     staleTime: 60_000,
   });
   // One reread covers both the tree and the smart view every Library list builds on.
   function reload() {
     return Promise.all([
       queryClient.invalidateQueries({
-        queryKey: ["teamhub", tenantId, "document-tree"],
+        queryKey: myDocumentTreeQueryKey(tenantId),
       }),
       queryClient.invalidateQueries({
-        queryKey: ["teamhub", "library-documents"],
+        queryKey: libraryDocumentsTenantQueryKey(tenantId),
       }),
     ]);
   }

@@ -88,6 +88,27 @@ func (a *App) writeDecisionRequestError(c *gin.Context, err error) bool {
 	return true
 }
 
+// writeAgentDecisionCardError maps a typed decision card creation failure onto
+// the Agent API error envelope, logging unexpected infrastructure failures.
+func (a *App) writeAgentDecisionCardError(
+	c *gin.Context,
+	logAction string,
+	forbiddenMessage string,
+	unavailableMessage string,
+	err error,
+) bool {
+	switch {
+	case err == nil:
+		return false
+	case errors.Is(err, typedcard.ErrAssigneeNotMember), errors.Is(err, typedcard.ErrForbidden), errors.Is(err, typedcard.ErrNotFound), errors.Is(err, typedcard.ErrInvalid):
+		a.writeAgentAPIError(c, http.StatusForbidden, api.AgentApiErrorCodeForbidden, forbiddenMessage)
+	default:
+		a.logger.Error(logAction, "error", err)
+		a.writeAgentAPIError(c, http.StatusServiceUnavailable, api.AgentApiErrorCodeDependencyUnavailable, unavailableMessage)
+	}
+	return true
+}
+
 // sponsorConfirmationRoom picks the chat for a confirmation or approval card
 // the Agent's sponsor decides.
 func (a *App) sponsorConfirmationRoom(ctx context.Context, auth agentauth.Authorization) (string, error) {

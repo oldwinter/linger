@@ -9,8 +9,12 @@ import {
   restoreRoomDocumentRevision,
 } from "@linger/document-model";
 
-import type { DocumentModelErrorCode } from "./computation-pool.js";
 import { installDocumentRuntimeDOM } from "./server-dom.js";
+
+export type DocumentModelErrorCode =
+  | "payload_too_large"
+  | "unsupported_document"
+  | "validation_failed";
 
 installDocumentRuntimeDOM();
 

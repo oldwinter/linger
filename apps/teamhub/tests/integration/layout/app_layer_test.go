@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -17,17 +18,11 @@ import (
 // The app layer only routes, authenticates, decodes, encodes and maps errors.
 // Transactions and data access live in the domain packages under internal/.
 
-// appTaskFiles are the Task and Work Item handlers whose business stays in
-// internal/app until the Task and Work Item owners move it.
-var appTaskFiles = map[string]bool{
-	"contract_server_agent_tasks.go":               true,
-	"contract_server_task_runtime_presentation.go": true,
-	"contract_server_work_items.go":                true,
-	"handlers_agent_task_executions.go":            true,
-	"handlers_agent_work_items.go":                 true,
-	"handlers_task_execution.go":                   true,
-	"handlers_work_item_comments.go":               true,
-	"handlers_work_items.go":                       true,
+// legacyRawErrorFiles lists internal/app files that still construct raw
+// gin.H{"error": ...} responses for wire-compatibility with existing callers.
+// New or migrated handlers must use writeError / typed error envelopes.
+var legacyRawErrorFiles = map[string]bool{
+	"contract_server_memory_tracking.go": true,
 }
 
 // appCompositionRoot reports the files that build the domain services from
@@ -50,6 +45,36 @@ func TestAppLayerHoldsNoTransactionsOrQueries(t *testing.T) {
 	}
 	if len(violations) > 0 {
 		t.Fatalf("internal/app data access violations:\n%s", strings.Join(violations, "\n"))
+	}
+}
+
+func TestAppLayerUsesStandardErrorEnvelope(t *testing.T) {
+	violations, err := checkAppErrorEnvelopes(os.DirFS("../../../internal/app"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(violations) > 0 {
+		t.Fatalf("internal/app raw gin.H error violations:\n%s", strings.Join(violations, "\n"))
+	}
+}
+
+func TestInternalPackagesReadNoRawEnv(t *testing.T) {
+	violations, err := checkInternalEnvReads(os.DirFS("../../../internal"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(violations) > 0 {
+		t.Fatalf("internal/ raw environment read violations:\n%s", strings.Join(violations, "\n"))
+	}
+}
+
+func TestAppLayerUsesInjectedLogger(t *testing.T) {
+	violations, err := checkAppPackageLoggerCalls(os.DirFS("../../../internal/app"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(violations) > 0 {
+		t.Fatalf("internal/app package-level slog violations:\n%s", strings.Join(violations, "\n"))
 	}
 }
 
@@ -82,10 +107,9 @@ func TestAppLayerRuleReportsDataAccess(t *testing.T) {
 		t.Fatalf("composition root query call: violations=%v err=%v, want one", violations, err)
 	}
 	allowed := fstest.MapFS{
-		"handlers_x.go":          source("func f(c *gin.Context) { _ = c.Query(\"cursor\"); _ = errors.Is(err, pgx.ErrNoRows) }\n"),
-		"app.go":                 source("func f(a *App) { _ = a.pool; _ = a.queries; _ = store.New(a.pool) }\n"),
-		"handlers_x_test.go":     source("func f(tx pgx.Tx) { tx.Exec(ctx, `SELECT 1`) }\n"),
-		"handlers_work_items.go": source("func f(a *App) { a.pool.Begin(ctx) }\n"),
+		"handlers_x.go":      source("func f(c *gin.Context) { _ = c.Query(\"cursor\"); _ = errors.Is(err, pgx.ErrNoRows) }\n"),
+		"app.go":             source("func f(a *App) { _ = a.pool; _ = a.queries; _ = store.New(a.pool) }\n"),
+		"handlers_x_test.go": source("func f(tx pgx.Tx) { tx.Exec(ctx, `SELECT 1`) }\n"),
 	}
 	violations, err := checkAppLayer(allowed)
 	if err != nil {
@@ -93,6 +117,45 @@ func TestAppLayerRuleReportsDataAccess(t *testing.T) {
 	}
 	if len(violations) > 0 {
 		t.Fatalf("allowed sources reported: %v", violations)
+	}
+}
+
+func TestAppErrorEnvelopeRuleReportsRawGinHError(t *testing.T) {
+	source := func(body string) *fstest.MapFile {
+		return &fstest.MapFile{Data: []byte("package app\n\n" + body)}
+	}
+	bad := fstest.MapFS{
+		"handlers_x.go": source("func f(c *gin.Context) { c.JSON(400, gin.H{\"error\": \"bad\"}) }\n"),
+	}
+	if violations, err := checkAppErrorEnvelopes(bad); err != nil || len(violations) != 1 {
+		t.Fatalf("raw gin.H error: violations=%v err=%v, want one", violations, err)
+	}
+	allowed := fstest.MapFS{
+		"handlers_x.go":      source("func f(c *gin.Context) { c.JSON(200, gin.H{\"ok\": true}) }\n"),
+		"handlers_x_test.go": source("func f(c *gin.Context) { c.JSON(400, gin.H{\"error\": \"bad\"}) }\n"),
+	}
+	if violations, err := checkAppErrorEnvelopes(allowed); err != nil || len(violations) > 0 {
+		t.Fatalf("allowed error envelope fixture: violations=%v err=%v", violations, err)
+	}
+}
+
+func TestInternalEnvReadRuleReportsRawEnvAccess(t *testing.T) {
+	file := func(pkg, body string) *fstest.MapFile {
+		return &fstest.MapFile{Data: []byte("package " + pkg + "\n\nimport \"os\"\n\n" + body)}
+	}
+	bad := fstest.MapFS{
+		"feature/service.go": file("feature", "func f() string { return os.Getenv(\"FOO\") }\n"),
+		"feature/lookup.go":  file("feature", "func g() (string, bool) { return os.LookupEnv(\"BAR\") }\n"),
+	}
+	if violations, err := checkInternalEnvReads(bad); err != nil || len(violations) != 2 {
+		t.Fatalf("raw env reads: violations=%v err=%v, want two", violations, err)
+	}
+	allowed := fstest.MapFS{
+		"config/config.go":        file("config", "func f() string { return os.Getenv(\"FOO\") }\n"),
+		"feature/service_test.go": file("feature", "func f() string { return os.Getenv(\"FOO\") }\n"),
+	}
+	if violations, err := checkInternalEnvReads(allowed); err != nil || len(violations) > 0 {
+		t.Fatalf("allowed env fixture: violations=%v err=%v", violations, err)
 	}
 }
 
@@ -110,7 +173,7 @@ func checkAppLayer(root fs.FS) ([]string, error) {
 			return nil
 		}
 		base := path.Base(name)
-		if !strings.HasSuffix(base, ".go") || strings.HasSuffix(base, "_test.go") || appTaskFiles[base] {
+		if !strings.HasSuffix(base, ".go") || strings.HasSuffix(base, "_test.go") {
 			return nil
 		}
 		data, err := fs.ReadFile(root, name)
@@ -153,6 +216,180 @@ func checkAppLayer(root fs.FS) ([]string, error) {
 				if value.Sel.Name == "pool" || value.Sel.Name == "queries" {
 					report(value, "reads the database handle outside the composition root")
 				}
+			}
+			return true
+		})
+		return nil
+	})
+	sort.Strings(violations)
+	return violations, err
+}
+
+func checkAppErrorEnvelopes(root fs.FS) ([]string, error) {
+	var violations []string
+	fset := token.NewFileSet()
+	err := fs.WalkDir(root, ".", func(name string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			if name != "." {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		base := path.Base(name)
+		if !strings.HasSuffix(base, ".go") || strings.HasSuffix(base, "_test.go") || legacyRawErrorFiles[base] {
+			return nil
+		}
+		data, err := fs.ReadFile(root, name)
+		if err != nil {
+			return err
+		}
+		file, err := parser.ParseFile(fset, name, data, 0)
+		if err != nil {
+			return err
+		}
+		ast.Inspect(file, func(node ast.Node) bool {
+			lit, ok := node.(*ast.CompositeLit)
+			if !ok {
+				return true
+			}
+			sel, ok := lit.Type.(*ast.SelectorExpr)
+			if !ok || !isPackageSelector(sel, "gin", "H") {
+				return true
+			}
+			for _, elt := range lit.Elts {
+				kv, ok := elt.(*ast.KeyValueExpr)
+				if !ok {
+					continue
+				}
+				keyLit, ok := kv.Key.(*ast.BasicLit)
+				if !ok || keyLit.Kind != token.STRING {
+					continue
+				}
+				key, unquoteErr := strconv.Unquote(keyLit.Value)
+				if unquoteErr == nil && key == "error" {
+					violations = append(violations, fmt.Sprintf("%s: writes raw gin.H{\"error\": ...}; use writeError or a typed error envelope", fset.Position(lit.Pos())))
+				}
+			}
+			return true
+		})
+		return nil
+	})
+	sort.Strings(violations)
+	return violations, err
+}
+
+func checkInternalEnvReads(root fs.FS) ([]string, error) {
+	var violations []string
+	fset := token.NewFileSet()
+	err := fs.WalkDir(root, ".", func(name string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			if name == "config" {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		base := path.Base(name)
+		if !strings.HasSuffix(base, ".go") || strings.HasSuffix(base, "_test.go") {
+			return nil
+		}
+		data, err := fs.ReadFile(root, name)
+		if err != nil {
+			return err
+		}
+		file, err := parser.ParseFile(fset, name, data, 0)
+		if err != nil {
+			return err
+		}
+		ast.Inspect(file, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			if isPackageSelector(sel, "os", "Getenv") || isPackageSelector(sel, "os", "LookupEnv") {
+				violations = append(violations, fmt.Sprintf("%s: reads environment directly via os.%s; read configuration in internal/config instead", fset.Position(call.Pos()), sel.Sel.Name))
+			}
+			return true
+		})
+		return nil
+	})
+	sort.Strings(violations)
+	return violations, err
+}
+
+func TestAppPackageLoggerRuleReportsGlobalSlog(t *testing.T) {
+	file := func(body string) *fstest.MapFile {
+		return &fstest.MapFile{Data: []byte("package app\n\nimport \"log/slog\"\n\n" + body)}
+	}
+	bad := fstest.MapFS{
+		"handlers_x.go": file("func f() { slog.Error(\"boom\"); slog.InfoContext(ctx, \"hi\") }\n"),
+	}
+	if violations, err := checkAppPackageLoggerCalls(bad); err != nil || len(violations) != 2 {
+		t.Fatalf("global slog calls: violations=%v err=%v, want two", violations, err)
+	}
+	allowed := fstest.MapFS{
+		"handlers_x.go":      file("func f(l *slog.Logger) { l.Error(\"boom\") }\n"),
+		"handlers_x_test.go": file("func f() { slog.Error(\"boom\") }\n"),
+	}
+	if violations, err := checkAppPackageLoggerCalls(allowed); err != nil || len(violations) > 0 {
+		t.Fatalf("allowed logger fixture: violations=%v err=%v", violations, err)
+	}
+}
+
+var globalSlogFuncs = map[string]bool{
+	"Debug": true, "DebugContext": true,
+	"Info": true, "InfoContext": true,
+	"Warn": true, "WarnContext": true,
+	"Error": true, "ErrorContext": true,
+	"Log": true, "LogAttrs": true,
+}
+
+func checkAppPackageLoggerCalls(root fs.FS) ([]string, error) {
+	var violations []string
+	fset := token.NewFileSet()
+	err := fs.WalkDir(root, ".", func(name string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			if name != "." {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		base := path.Base(name)
+		if !strings.HasSuffix(base, ".go") || strings.HasSuffix(base, "_test.go") {
+			return nil
+		}
+		data, err := fs.ReadFile(root, name)
+		if err != nil {
+			return err
+		}
+		file, err := parser.ParseFile(fset, name, data, 0)
+		if err != nil {
+			return err
+		}
+		ast.Inspect(file, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			ident, ok := sel.X.(*ast.Ident)
+			if ok && ident.Name == "slog" && globalSlogFuncs[sel.Sel.Name] {
+				violations = append(violations, fmt.Sprintf("%s: calls package-level slog.%s; use injected a.log() instead", fset.Position(call.Pos()), sel.Sel.Name))
 			}
 			return true
 		})

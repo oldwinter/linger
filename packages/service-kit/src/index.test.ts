@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   asError,
   displayText,
+  errorMessage,
   isNodeError,
   isRecord,
   orderByRegion,
@@ -43,6 +44,14 @@ describe("asError", () => {
     const wrapped = asError({ reason: 1 });
     expect(wrapped.message).toBe("Unknown error");
     expect(wrapped.cause).toEqual({ reason: 1 });
+  });
+});
+
+describe("errorMessage", () => {
+  it("extracts Error.message or stringifies non-Error throws", () => {
+    expect(errorMessage(new Error("boom"))).toBe("boom");
+    expect(errorMessage("text")).toBe("text");
+    expect(errorMessage(42)).toBe("42");
   });
 });
 

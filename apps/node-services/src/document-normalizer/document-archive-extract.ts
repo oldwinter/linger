@@ -6,7 +6,17 @@ import {
   DocumentNormalizationError,
   MAX_DOCUMENT_SOURCE_BYTES,
 } from "./document-normalizer.js";
-import { hasZipSignature } from "./document-office-extract.js";
+
+export function hasZipSignature(source: Uint8Array): boolean {
+  if (source.byteLength < 4) return false;
+  return (
+    source[0] === 0x50 &&
+    source[1] === 0x4b &&
+    ((source[2] === 0x03 && source[3] === 0x04) ||
+      (source[2] === 0x05 && source[3] === 0x06) ||
+      (source[2] === 0x07 && source[3] === 0x08))
+  );
+}
 
 export const archiveLimits = {
   maxCompressionRatio: 200,

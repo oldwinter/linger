@@ -16,7 +16,6 @@ import { lazy, type ReactNode, Suspense, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Icon, type IconSvgElement } from "@/components/ui/icon";
 import type { VoiceRisk } from "@/features/rooms/chat/voice-mode/voice-ui-bridge";
-import type { TeamHubMessageCard } from "@/features/teamhub/teamhub-types";
 import {
   formatLocale,
   translate,
@@ -53,7 +52,12 @@ import {
   PermissionScreenshot,
   RuntimePermissionDecisionView,
 } from "./decision-runtime-permission-view";
-import type { RoomCardDecision } from "./room-message-card-contract";
+import type {
+  DecisionMessageCard,
+  RoomCardDecision,
+} from "./room-message-card-contract";
+
+export type { DecisionMessageCard };
 
 const QuestionDecision = lazy(async () => {
   const module = await import("./decision-question-view");
@@ -84,10 +88,6 @@ const ComputerPermissionDecision = lazy(async () => {
   return { default: module.ComputerPermissionDecision };
 });
 
-export type DecisionMessageCard = Extract<
-  TeamHubMessageCard,
-  { intent: "decision_requested" }
->;
 type DecisionState =
   | "pending"
   | "approved"

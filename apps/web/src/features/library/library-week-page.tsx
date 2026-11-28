@@ -12,6 +12,7 @@ import { useTeamHubRuntime } from "@/features/teamhub/teamhub-runtime";
 import { useT } from "@/i18n/use-translation";
 
 import { documentFileName } from "./document-display-name";
+import { libraryDocumentsQueryKey } from "./library-queries";
 import { LibrarySubpageShell } from "./library-subpage-shell";
 import { librarySubpagesMessages as m } from "./library-subpages.messages";
 import {
@@ -34,7 +35,7 @@ export function LibraryWeekPage() {
           params: { query: { limit: 50, view: "recent" } },
         }),
       ),
-    queryKey: ["teamhub", tenantId, "library-documents", "week"],
+    queryKey: libraryDocumentsQueryKey(tenantId, "week"),
   });
   const picture = useMemo(() => {
     const items = documents.data?.items ?? [];

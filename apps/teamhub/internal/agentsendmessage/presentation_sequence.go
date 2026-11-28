@@ -2,9 +2,7 @@ package agentsendmessage
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -14,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/idempotency"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/ids"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/messagecreation"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/store"
 )
@@ -154,7 +153,7 @@ func (s *PresentationSequenceService) createWithAuthority(ctx context.Context, t
 		}
 		return PresentationSequenceResult{}, err
 	}
-	id := newID()
+	id := ids.New("sequence")
 	// Each bubble later records this Run, checked once as the sequence is queued.
 	localRun, err := messagecreation.ResolveRunClaim(ctx, q, tenantID, agentActorID, roomID)
 	if err != nil {
@@ -313,11 +312,6 @@ func pauseDuration(value PresentationPause) time.Duration {
 		return 1500 * time.Millisecond
 	}
 	return 0
-}
-func newID() string {
-	bytes := make([]byte, 12)
-	_, _ = rand.Read(bytes)
-	return "sequence_" + hex.EncodeToString(bytes)
 }
 
 func hashItems(roomID, sourceMessageID string, items []PresentationItem) []byte {

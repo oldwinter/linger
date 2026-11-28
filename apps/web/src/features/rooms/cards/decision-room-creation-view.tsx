@@ -6,7 +6,7 @@ import { RichMessage, useT } from "@/i18n/use-translation";
 
 import { cardsMessages } from "./cards.messages";
 import { CreationMessagePreview } from "./creation-message-preview";
-import type { DecisionMessageCard } from "./decision-card";
+import type { DecisionMessageCard } from "./room-message-card-contract";
 
 type RoomCreationView = NonNullable<DecisionMessageCard["room_creation"]>;
 

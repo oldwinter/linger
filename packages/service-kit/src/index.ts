@@ -25,6 +25,10 @@ export const asError = (value: unknown): Error =>
         cause: value,
       });
 
+/** Human-readable message for an untyped thrown value. */
+export const errorMessage = (value: unknown): string =>
+  value instanceof Error ? value.message : String(value);
+
 /** Display text for an untyped value: structured values serialize as JSON. */
 export const displayText = (value: unknown): string => {
   if (typeof value === "string") return value;

@@ -9,19 +9,21 @@ import { yDocToBlocks } from "@blocknote/core/yjs";
 import * as Y from "yjs";
 
 import {
+  ROOM_DOCUMENT_COMMENT_MARK_PATTERN,
   ROOM_DOCUMENT_MAX_BLOCKS,
   ROOM_DOCUMENT_MAX_BLOCK_DEPTH,
   ROOM_DOCUMENT_MAX_INLINE_SEGMENTS,
   ROOM_DOCUMENT_MAX_REFERENCES,
   ROOM_DOCUMENT_MAX_STATE_BYTES,
   ROOM_DOCUMENT_MAX_TEXT_BYTES,
+  ROOM_DOCUMENT_MEDIA_BLOCK_TYPES,
   RoomDocumentModelError,
 } from "./state-invariants.js";
 
 const blockNoteFragmentKey = "prosemirror";
 const identifierPattern = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
-const commentMarkPattern = /^comment(?:--[A-Za-z0-9+/=]{8})?$/;
-const mediaBlockTypes = new Set(["file", "image", "video", "audio"]);
+const commentMarkPattern = ROOM_DOCUMENT_COMMENT_MARK_PATTERN;
+const mediaBlockTypes = ROOM_DOCUMENT_MEDIA_BLOCK_TYPES;
 const textEncoder = new TextEncoder();
 export const ROOM_DOCUMENT_ASSET_REFERENCE_PREFIX = "document-asset:";
 

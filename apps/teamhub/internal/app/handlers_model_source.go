@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"regexp"
@@ -166,7 +165,7 @@ func (a *App) switchLocalComputerModelSource(c *gin.Context) {
 			return
 		}
 	}
-	command, err := reencodeJSON[nodeservicesinternal.ModelSourceApplyCommand](httpapi.ModelSourceSwitchRequest{
+	command, err := convertJSON[nodeservicesinternal.ModelSourceApplyCommand](httpapi.ModelSourceSwitchRequest{
 		Mode: request.Mode, Runtime: request.Runtime, LocalModelId: request.LocalModelId, Byok: request.Byok,
 	})
 	if err != nil {
@@ -229,7 +228,7 @@ func (a *App) testLocalComputerModelSource(c *gin.Context) {
 	if !ok {
 		return
 	}
-	input, err := reencodeJSON[nodeservicesinternal.ByokTestRequest](request)
+	input, err := convertJSON[nodeservicesinternal.ByokTestRequest](request)
 	if err != nil {
 		a.internalError(c, "encode BYOK test", err)
 		return
@@ -239,7 +238,7 @@ func (a *App) testLocalComputerModelSource(c *gin.Context) {
 		a.writeModelSourceFailure(c, computer.ComputerID, "test", err)
 		return
 	}
-	public, err := reencodeJSON[httpapi.ByokTestResult](result)
+	public, err := convertJSON[httpapi.ByokTestResult](result)
 	if err != nil {
 		a.internalError(c, "project BYOK test", err)
 		return
@@ -265,7 +264,7 @@ func (a *App) listLocalComputerByokModels(c *gin.Context) {
 	if !ok {
 		return
 	}
-	input, err := reencodeJSON[nodeservicesinternal.ByokEndpointInput](endpoint)
+	input, err := convertJSON[nodeservicesinternal.ByokEndpointInput](endpoint)
 	if err != nil {
 		a.internalError(c, "encode BYOK endpoint", err)
 		return
@@ -275,7 +274,7 @@ func (a *App) listLocalComputerByokModels(c *gin.Context) {
 		a.writeModelSourceFailure(c, computer.ComputerID, "models", err)
 		return
 	}
-	public, err := reencodeJSON[httpapi.ByokModelList](list)
+	public, err := convertJSON[httpapi.ByokModelList](list)
 	if err != nil {
 		a.internalError(c, "project BYOK models", err)
 		return
@@ -497,20 +496,9 @@ func validByokInput(input httpapi.ByokInput) bool {
 }
 
 func publicModelSourceStatus(status nodeservicesinternal.ModelSourceStatus) (httpapi.ModelSourceStatus, error) {
-	public, err := reencodeJSON[httpapi.ModelSourceStatus](status)
+	public, err := convertJSON[httpapi.ModelSourceStatus](status)
 	if err == nil && (!public.Mode.Valid() || !public.Runtime.Valid()) {
 		err = errors.New("model source status has an unknown mode or Runtime")
 	}
 	return public, err
-}
-
-// reencodeJSON converts between generated contract types that share a wire
-// shape.
-func reencodeJSON[T any](value any) (T, error) {
-	var converted T
-	encoded, err := json.Marshal(value)
-	if err == nil {
-		err = json.Unmarshal(encoded, &converted)
-	}
-	return converted, err
 }

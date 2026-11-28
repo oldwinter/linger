@@ -1,11 +1,12 @@
 import {
+  ACCOUNT_PREFERENCE_KEY_PREFIXES,
   notifyPreferenceChange,
   removePreferenceKeys,
   storedPreferenceKeys,
   subscribePreferenceChange,
 } from "@/lib/local-preference-keys";
 
-const SPEED_PREFIX = "meeting-playback-speed.v1:";
+const SPEED_PREFIX = ACCOUNT_PREFERENCE_KEY_PREFIXES.meetingPlaybackSpeed;
 
 /** The speeds a recording offers, slowest first. */
 export const MEETING_PLAYBACK_RATES = [0.75, 1, 1.25, 1.5, 2] as const;

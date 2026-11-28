@@ -6,14 +6,16 @@ import {
   parseRoomDocumentAssetReference,
 } from "./document-state.js";
 import {
+  ROOM_DOCUMENT_COMMENT_MARK_PATTERN,
   ROOM_DOCUMENT_MAX_STATE_BYTES,
+  ROOM_DOCUMENT_MEDIA_BLOCK_TYPES,
   ROOM_DOCUMENT_STATE_HASH_VERSION,
   RoomDocumentModelError,
   sha256Hex,
 } from "./state-invariants.js";
 
-const commentMarkPattern = /^comment(?:--[A-Za-z0-9+/=]{8})?$/;
-const mediaBlockTypes = new Set(["file", "image", "video", "audio"]);
+const commentMarkPattern = ROOM_DOCUMENT_COMMENT_MARK_PATTERN;
+const mediaBlockTypes = ROOM_DOCUMENT_MEDIA_BLOCK_TYPES;
 const identifierPattern = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 
 export interface RoomDocumentDuplicateResult {

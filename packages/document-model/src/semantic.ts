@@ -4,14 +4,18 @@ import type {
   DefaultBlockSchema,
   DefaultInlineContentSchema,
   DefaultStyleSchema,
-  PartialBlock,
 } from "@blocknote/core";
 import { blocksToYXmlFragment, yDocToBlocks } from "@blocknote/core/yjs";
 import * as Y from "yjs";
 
 import { replaceWorkingCopyBlocks } from "./working-copy.js";
 import { inspectRoomDocumentState } from "./document-state.js";
-import { validateRoomDocumentSemanticBlocks } from "./semantic-blocks.js";
+import {
+  characterCount,
+  validateRoomDocumentSemanticBlocks,
+  type RoomDocumentBlockOperation,
+  type RoomDocumentSemanticBlock,
+} from "./semantic-blocks.js";
 import {
   ROOM_DOCUMENT_MAX_STATE_BYTES,
   ROOM_DOCUMENT_SCHEMA_VERSION,
@@ -38,36 +42,12 @@ type DefaultBlock = Block<
   DefaultInlineContentSchema,
   DefaultStyleSchema
 >;
-export type RoomDocumentSemanticBlock = PartialBlock<
-  DefaultBlockSchema,
-  DefaultInlineContentSchema,
-  DefaultStyleSchema
->;
+export { characterCount };
+export type { RoomDocumentSemanticBlock };
 
 export type RoomDocumentSemanticOperation =
   | NativeDocumentEdit
-  | { kind: "replace_body_html"; html: string }
-  | { kind: "replace_body_blocks"; blocks: RoomDocumentSemanticBlock[] }
-  | { kind: "set_title"; title: string }
-  | { kind: "append_blocks"; blocks: RoomDocumentSemanticBlock[] }
-  | {
-      kind: "insert_blocks";
-      position: "before" | "after";
-      stableBlockId: string;
-      blocks: RoomDocumentSemanticBlock[];
-    }
-  | {
-      kind: "replace_blocks";
-      stableBlockIds: string[];
-      blocks: RoomDocumentSemanticBlock[];
-    }
-  | {
-      kind: "update_block";
-      stableBlockId: string;
-      block: RoomDocumentSemanticBlock;
-    }
-  | { kind: "delete_blocks"; stableBlockIds: string[] }
-  | { kind: "replace_comment_text"; threadId: string; replacement: string };
+  | RoomDocumentBlockOperation;
 
 export type RoomDocumentSemanticMutationResult =
   | {
@@ -210,8 +190,6 @@ export function applyRoomDocumentSemanticMutation(input: {
             )
           : requestedOperation;
       if ("status" in operation) return operation;
-      if (operation.kind === "edit_document")
-        throw invalidSemantic("Nested edit action is invalid");
       if (operation.kind === "replace_body_blocks")
         throw invalidSemantic("Body replacement must be a single operation");
       if (operation.kind === "replace_body_html") {
@@ -635,14 +613,6 @@ function stableClientID(mutationID: string): number {
 
 function conflict(reason: Conflict["reason"]): Conflict {
   return { status: "conflicted", reason };
-}
-
-/** Counts Unicode characters, the unit the contract's maxLength states, so a
- * replacement of 50 000 emoji is not cut at 25 000 UTF-16 units. */
-export function characterCount(value: string): number {
-  let count = 0;
-  for (const _ of value) count += 1;
-  return count;
 }
 
 function invalidSemantic(message: string): RoomDocumentModelError {

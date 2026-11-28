@@ -57,12 +57,12 @@ func (a *App) recordAnotherMeBackgroundCall(c *gin.Context) {
 		return
 	}
 	if !request.Outcome.Valid() || request.TenantId == "" || request.AgentActorId == "" ||
-		utf8.RuneCountInString(optionalStringValue(request.Reason)) > anotherMeBackgroundReasonMaxLength {
+		utf8.RuneCountInString(optionalString(request.Reason)) > anotherMeBackgroundReasonMaxLength {
 		a.writeAgentRuntimeStateError(c, "decode Another Me background call", agentruntimestate.ErrInvalid)
 		return
 	}
 	err := a.agents.RecordAnotherMeBackgroundCall(c.Request.Context(), request.TenantId, request.AgentActorId,
-		request.Outcome == teamhubinternal.RecordAnotherMeBackgroundCallRequestOutcomeFailed, optionalStringValue(request.Reason))
+		request.Outcome == teamhubinternal.RecordAnotherMeBackgroundCallRequestOutcomeFailed, optionalString(request.Reason))
 	if a.writeAgentRuntimeStateError(c, "record Another Me background call", err) {
 		return
 	}

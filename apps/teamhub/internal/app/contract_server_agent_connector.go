@@ -290,7 +290,7 @@ func (a *App) prepareConnectorNotionBody(c *gin.Context) {
 	if a.writeAgentAuthError(c, "prepare Notion body", err) {
 		return
 	}
-	result, err := prepareNotionBody(input.Content, input.Markdown)
+	result, err := agentconnectedapps.PrepareNotionBody(input.Content, input.Markdown)
 	if err != nil {
 		a.writeAgentAPIError(c, 400, api.AgentApiErrorCodeInvalidInput, "Unsupported Notion Markdown structure or content limit")
 		return

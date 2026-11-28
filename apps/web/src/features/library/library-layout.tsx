@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { Outlet, useLocation, useParams } from "react-router";
 
+import { myDocumentTreeQueryKey } from "./library-queries";
 import { DesktopBarSlot } from "@/app/desktop-frame";
 import { isDesktopShell } from "@/app/desktop-shell";
 import { NavigationDrawer } from "@/components/ui/navigation-drawer";
@@ -50,7 +51,7 @@ export function LibraryLayout() {
           params: { path: { tenantId } },
         }),
       ),
-    queryKey: ["teamhub", tenantId, "document-tree"],
+    queryKey: myDocumentTreeQueryKey(tenantId),
     staleTime: 60_000,
   });
   const openDocument = useQuery({
@@ -114,7 +115,7 @@ export function LibraryLayout() {
                     loadError={tree.error}
                     onChanged={() =>
                       queryClient.invalidateQueries({
-                        queryKey: ["teamhub", tenantId, "document-tree"],
+                        queryKey: myDocumentTreeQueryKey(tenantId),
                       })
                     }
                     pending={tree.isPending}

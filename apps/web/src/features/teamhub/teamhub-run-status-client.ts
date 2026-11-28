@@ -2,11 +2,29 @@ import type { operations as TeamHubPublicOperations } from "@linger/wire-contrac
 
 import { runStatusView } from "./run-status";
 import { teamHubData, type TeamHubApi } from "./teamhub-api";
-import type { TeamHubClient } from "./teamhub-client";
-import type { TeamHubRunStatusList } from "./teamhub-types";
+import type {
+  TeamHubRunStatusList,
+  TeamHubTaskActivityPage,
+} from "./teamhub-types";
 
 type TeamHubRoomRunStatusList =
   TeamHubPublicOperations["listRoomRunStatuses"]["responses"][200]["content"]["application/json"];
+
+export interface TeamHubRunStatusClient {
+  listRoomRunStatuses(roomId: string): Promise<TeamHubRunStatusList>;
+  listRoomRuntimePresentationRuns(
+    roomId: string,
+    messageIds: readonly string[],
+    runId?: string,
+  ): Promise<TeamHubRunStatusList>;
+  workItems: {
+    listActivities(
+      taskId: string,
+      page?: TeamHubPublicOperations["listTaskRuntimePresentationRuns"]["parameters"]["query"],
+      options?: { signal?: AbortSignal },
+    ): Promise<TeamHubTaskActivityPage>;
+  };
+}
 
 function runStatusList(list: TeamHubRoomRunStatusList): TeamHubRunStatusList {
   return { items: list.items.map(runStatusView) };
@@ -14,10 +32,7 @@ function runStatusList(list: TeamHubRoomRunStatusList): TeamHubRunStatusList {
 
 export function createTeamHubRunStatusClient(
   api: TeamHubApi,
-): Pick<
-  TeamHubClient,
-  "listRoomRunStatuses" | "listRoomRuntimePresentationRuns" | "workItems"
-> {
+): TeamHubRunStatusClient {
   return {
     listRoomRunStatuses: async (roomId) =>
       runStatusList(

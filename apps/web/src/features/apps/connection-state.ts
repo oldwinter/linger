@@ -3,7 +3,7 @@ import type { TeamHubExternalConnection } from "@/features/teamhub/teamhub-types
 import { type Translate, translate } from "@/i18n/language";
 
 import { connectorMessages as m } from "./connectors.messages";
-import { desktopConnectorOAuth } from "./desktop-connector-oauth";
+import { desktopConnectorOAuth } from "@/lib/desktop-connector-oauth";
 
 const NEEDS_ATTENTION = new Set<TeamHubExternalConnection["status"]>([
   "expired",

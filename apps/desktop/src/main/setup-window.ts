@@ -395,7 +395,7 @@ export class SetupWindowModule implements Module {
           .status().signIn;
         const text = command.what === "code" ? signIn?.deviceCode : signIn?.url;
         if (!text) throw new Error("Nothing to copy");
-        clipboard.writeText(text);
+        await clipboard.writeText(text);
         return;
       }
       case "local.signin.open":
@@ -476,7 +476,8 @@ export class SetupWindowModule implements Module {
         else if (command.action === "confirm") void sender.confirm();
         else if (command.action === "retry") void sender.retry();
         else if (command.action === "cancel") await sender.cancel();
-        else if (state.phase === "sent") clipboard.writeText(state.reportId);
+        else if (state.phase === "sent")
+          await clipboard.writeText(state.reportId);
         return;
       }
       case "finish":

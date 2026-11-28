@@ -244,7 +244,7 @@ export async function detectHerdrCore(
   if (binaryPath) {
     try {
       const result = await runCommand(binaryPath, ["--version"], {
-        env: env as NodeJS.ProcessEnv,
+        env: env,
         timeoutMs: VERSION_TIMEOUT_MS,
       });
       version = parseHcVersionOutput(result.stdout);
@@ -260,7 +260,7 @@ export async function detectHerdrCore(
           binaryPath,
           ["server", "status", "--json"],
           {
-            env: env as NodeJS.ProcessEnv,
+            env: env,
             timeoutMs: VERSION_TIMEOUT_MS,
           },
         );
@@ -312,7 +312,7 @@ export async function startHerdrCoreServer(
   const env = deps.env ?? process.env;
   try {
     await runCommand(before.binaryPath, ["server", "start"], {
-      env: env as NodeJS.ProcessEnv,
+      env: env,
       timeoutMs: START_TIMEOUT_MS,
     });
   } catch (error) {

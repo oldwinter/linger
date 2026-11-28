@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/pgutil"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/roomevent"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/store"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/voicetranscription"
@@ -84,8 +84,7 @@ func (s *Service) recoverTranscriptStep(ctx context.Context, captureID string) (
 		return JobDone, nil
 	}
 	status, code := "pending", transcriptRecoveryUnavailableCode
-	var constraint *pgconn.PgError
-	if errors.Is(err, voicetranscription.ErrProviderRejected) || errors.Is(err, voicetranscription.ErrInvalidInput) || errors.Is(err, voicetranscription.ErrInvalidProviderResponse) || errors.Is(err, pgx.ErrNoRows) || (errors.As(err, &constraint) && constraint.Code == "23505") {
+	if errors.Is(err, voicetranscription.ErrProviderRejected) || errors.Is(err, voicetranscription.ErrInvalidInput) || errors.Is(err, voicetranscription.ErrInvalidProviderResponse) || errors.Is(err, pgx.ErrNoRows) || pgutil.IsUniqueViolation(err) {
 		status, code = "failed", "asr_recovery_rejected"
 	}
 	if errors.Is(err, errRecoverySpliceConflict) {

@@ -1,11 +1,12 @@
 import {
+  ACCOUNT_PREFERENCE_KEY_PREFIXES,
   notifyPreferenceChange,
   removePreferenceKeys,
   storedPreferenceKeys,
   subscribePreferenceChange,
 } from "@/lib/local-preference-keys";
 
-const PREFIX = "last-room.v1:";
+const PREFIX = ACCOUNT_PREFERENCE_KEY_PREFIXES.lastRoom;
 const CHANGED = "last-room-changed";
 
 /**

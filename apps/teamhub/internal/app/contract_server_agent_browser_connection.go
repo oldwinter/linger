@@ -90,13 +90,7 @@ func (a *App) requestAgentBrowserConnection(c *gin.Context) {
 		Principal: auth.Principal, DeciderActorID: ownerID, AlterEgoTaskID: auth.ParticipantTaskID,
 		BrowserConnection: &typedcard.BrowserConnectionDecision{Prompt: browserConnectionPrompt, ComputerID: computerID},
 	})
-	switch {
-	case errors.Is(err, typedcard.ErrAssigneeNotMember), errors.Is(err, typedcard.ErrForbidden), errors.Is(err, typedcard.ErrNotFound), errors.Is(err, typedcard.ErrInvalid):
-		a.writeAgentAPIError(c, http.StatusForbidden, api.AgentApiErrorCodeForbidden, "Browser connection cards are unavailable in this chat")
-		return
-	case err != nil:
-		a.logger.Error("create browser connection card", "error", err)
-		a.writeAgentAPIError(c, http.StatusServiceUnavailable, api.AgentApiErrorCodeDependencyUnavailable, "Browser connection is temporarily unavailable")
+	if a.writeAgentDecisionCardError(c, "create browser connection card", "Browser connection cards are unavailable in this chat", "Browser connection is temporarily unavailable", err) {
 		return
 	}
 	// The owner may have connected while the card was posted. Settle it now;

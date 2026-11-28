@@ -763,7 +763,7 @@ func TestHerdrCoreServiceFeaturesGatingAndDualStackCoexistence(t *testing.T) {
 		first.Event.Turn != 4 || first.Event.StatusMs != 1732670400000 || first.Event.Parent != "vps/t1" ||
 		first.Event.Status == nil || first.Event.Status.State != "blocked" || first.Event.Status.App != "codex" ||
 		first.Event.Status.Kind != "" ||
-		strings.Contains(first.Event.Status.Msg, "sk-secretvalue") || !strings.Contains(first.Event.Status.Msg, "Approve? API_KEY=[redacted]") ||
+		strings.Contains(first.Event.Status.Msg, "sk-secretvalue") || !strings.Contains(first.Event.Status.Msg, "Approve? API_KEY=[REDACTED]") ||
 		strings.Contains(first.Event.Tail, "sk-secretvalue") || !strings.HasSuffix(first.Event.Tail, "Approve? [y/N]") {
 		t.Fatalf("unexpected RunnerHerdrCoreEvent frame: %+v", first)
 	}

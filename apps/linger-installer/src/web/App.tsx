@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { RuntimeSignIn } from "./RuntimeSignIn.js";
 import { InstallationProgress } from "./InstallationProgress.js";
 import {
@@ -127,13 +127,15 @@ export function App() {
     return () => clearInterval(timer);
   }, []);
   const jobId = job?.id;
+  const latestJobSequenceRef = useRef(0);
+  latestJobSequenceRef.current = job?.lastSequence ?? 0;
   useEffect(() => {
     if (!jobId) return;
     const controller = new AbortController();
     // Snapshots are authoritative; replayed events cannot regress progress.
     void watchJob(
       jobId,
-      job?.lastSequence ?? 0,
+      latestJobSequenceRef.current,
       controller.signal,
       (event) => {
         if (controller.signal.aborted) return;
@@ -204,15 +206,16 @@ export function App() {
     job.errorCode === "RUNTIME_AUTH_REQUIRED" &&
     Boolean(job.origin);
   const finished = job?.state === "succeeded" || authPending;
+  const jobInstance = job?.instance ?? "default";
   useEffect(() => {
     if (!finished || !jobId) return;
     let active = true;
     void Promise.all([
       request<LoginInformation>(
-        `/instances/${encodeURIComponent(job?.instance ?? "default")}/login`,
+        `/instances/${encodeURIComponent(jobInstance)}/login`,
       ),
       request<InstanceStatus>(
-        `/instances/${encodeURIComponent(job?.instance ?? "default")}/status`,
+        `/instances/${encodeURIComponent(jobInstance)}/status`,
       ),
     ])
       .then(([value, current]) => {
@@ -230,7 +233,7 @@ export function App() {
     return () => {
       active = false;
     };
-  }, [finished, jobId]);
+  }, [finished, jobId, jobInstance]);
   async function install(byok?: ByokConfiguration) {
     if (!choice) return;
     const setupChoice =

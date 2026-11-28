@@ -1,11 +1,12 @@
 import {
+  ACCOUNT_PREFERENCE_KEY_PREFIXES,
   notifyPreferenceChange,
   removePreferenceKeys,
   storedPreferenceKeys,
   subscribePreferenceChange,
 } from "@/lib/local-preference-keys";
 
-const RESUME_PREFIX = "meeting-resume.v1:";
+const RESUME_PREFIX = ACCOUNT_PREFERENCE_KEY_PREFIXES.meetingResume;
 const RESUME_CHANGED = "meeting-resume-changed";
 
 /**

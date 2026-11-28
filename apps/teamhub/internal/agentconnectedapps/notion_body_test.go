@@ -1,4 +1,4 @@
-package app
+package agentconnectedapps
 
 import (
 	"encoding/json"
@@ -7,7 +7,7 @@ import (
 )
 
 func TestNotionBodyPreservesFormattingAndFragments(t *testing.T) {
-	body, err := prepareNotionBody("# Plan\n\n**Bold** and \\*literal\\* &amp; [link](https://example.com).\n\n- [x] done\n  - nested\n\n```python\nprint(1)\n```\n\n| Name | Value |\n| --- | --- |\n| Item | 1 |\n\n![Caption](https://example.com/image.png)", true)
+	body, err := PrepareNotionBody("# Plan\n\n**Bold** and \\*literal\\* &amp; [link](https://example.com).\n\n- [x] done\n  - nested\n\n```python\nprint(1)\n```\n\n| Name | Value |\n| --- | --- |\n| Item | 1 |\n\n![Caption](https://example.com/image.png)", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -19,7 +19,7 @@ func TestNotionBodyPreservesFormattingAndFragments(t *testing.T) {
 		}
 	}
 	long := strings.Repeat("€", 4027)
-	plain, err := prepareNotionBody(long, false)
+	plain, err := PrepareNotionBody(long, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,14 +38,14 @@ func TestNotionBodyPreservesFormattingAndFragments(t *testing.T) {
 }
 func TestNotionBodyRejectsUnsupportedBeforeWriting(t *testing.T) {
 	for _, content := range []string{"#### heading", "<script>bad</script>", "![local](./private.png)", "```unknown-lang\nx\n```", strings.Repeat("paragraph\n\n", 101)} {
-		if _, err := prepareNotionBody(content, true); err == nil {
+		if _, err := PrepareNotionBody(content, true); err == nil {
 			t.Errorf("accepted unsupported body %q", content)
 		}
 	}
 }
 
 func TestNotionBodyCountsAstralCharactersInTextFragments(t *testing.T) {
-	body, err := prepareNotionBody(strings.Repeat("😀", 1001), false)
+	body, err := PrepareNotionBody(strings.Repeat("😀", 1001), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestNotionBodyCountsAstralCharactersInTextFragments(t *testing.T) {
 }
 
 func TestNotionLinksAreNotRestrictedLikeExternalImages(t *testing.T) {
-	body, err := prepareNotionBody("[HTTP](http://example.com) and [Email](mailto:alice@example.com)", true)
+	body, err := PrepareNotionBody("[HTTP](http://example.com) and [Email](mailto:alice@example.com)", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestNotionLinksAreNotRestrictedLikeExternalImages(t *testing.T) {
 		}
 	}
 	for _, value := range []string{"![Image](http://example.com/a.png)", "![Image](https://localhost/a.png)", "[Link](javascript:alert)"} {
-		if _, err := prepareNotionBody(value, true); err == nil {
+		if _, err := PrepareNotionBody(value, true); err == nil {
 			t.Errorf("accepted %s", value)
 		}
 	}

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/ids"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/roomevent"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/store"
 )
@@ -148,7 +149,7 @@ func PromoteLockedHumanTaskRoomMessage(
 	}
 	nextInputRevision := target.currentInputRevision + 1
 	nextExecutionRevision := target.executionRevision + 1
-	effectID := newID("task_effect_")
+	effectID := ids.New("task_effect")
 	recipientJSON, _ := json.Marshal(recipients)
 	effectIDs, _ := json.Marshal([]string{effectID})
 	if _, err := queries.InsertHumanTaskInputRevision(ctx, store.InsertHumanTaskInputRevisionParams{

@@ -451,9 +451,9 @@ describe("UpdaterModule", () => {
         restart: async () => {},
         quit: async () => {},
         openExternal: async () => {},
-        fetch: (async () => {
+        fetch: async () => {
           throw new TypeError("offline");
-        }) as unknown as typeof globalThis.fetch,
+        },
         publicKey: feed.publicKey,
         checkDelayMs: 60_000,
         retryDelayMs: 0,
@@ -1114,7 +1114,7 @@ describe("UpdaterModule deferred startup cleanup", () => {
       );
     let releaseCleanup: (() => void) | undefined;
     let staleRmCalls = 0;
-    let rmSpy: ReturnType<typeof vi.spyOn> | undefined;
+    let rmSpy: { mockRestore(): void } | undefined;
     try {
       const setupExe = "LingerX-0.17.0-windows-x64-setup.exe";
       const winFeed = release("0.17.0", {
@@ -1244,7 +1244,7 @@ describe("UpdaterModule deferred startup cleanup", () => {
       );
     let releaseCleanup: (() => void) | undefined;
     let downloadRequested = false;
-    let rmSpy: ReturnType<typeof vi.spyOn> | undefined;
+    let rmSpy: { mockRestore(): void } | undefined;
     try {
       const feed = release("0.17.0");
       const { host, updater, applications, downloads } = createDeferred(feed, {

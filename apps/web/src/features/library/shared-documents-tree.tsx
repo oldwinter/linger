@@ -25,7 +25,12 @@ import { Link, useNavigate } from "react-router";
 
 import { ActionMenu } from "@/components/ui/action-menu";
 import { Spinner } from "@/components/ui/spinner";
+import { documentQueryKey } from "@/features/rooms/room-queries";
 import { writeDocumentLinkClipboard } from "@/features/rooms/files/document-clipboard-link";
+import {
+  libraryDocumentsTenantQueryKey,
+  myDocumentTreeQueryKey,
+} from "./library-queries";
 import {
   FolderRenameInput,
   revealCurrentTreeNode,
@@ -157,7 +162,18 @@ function useSharedDocumentsTreeModel({
           params: { path: { documentId: trashingDocument.id } },
         }),
       );
-      await queryClient.invalidateQueries({ queryKey: ["teamhub"] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey }),
+        queryClient.invalidateQueries({
+          queryKey: myDocumentTreeQueryKey(tenantId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: libraryDocumentsTenantQueryKey(tenantId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: documentQueryKey(tenantId, trashingDocument.id),
+        }),
+      ]);
       if (activeDocumentId === trashingDocument.id)
         void navigate(`/t/${encodeURIComponent(tenantId)}/library`);
       setTrashingDocument(null);

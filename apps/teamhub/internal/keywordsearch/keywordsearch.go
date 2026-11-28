@@ -5,11 +5,10 @@ package keywordsearch
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"unicode/utf8"
 
-	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/pgutil"
 )
 
 const (
@@ -29,6 +28,5 @@ func Normalize(query string, maxChars int) (string, bool) {
 // TimedOut reports whether PostgreSQL canceled a search statement at its
 // timeout. The same SQLSTATE after the request itself ended is a cancellation.
 func TimedOut(ctx context.Context, err error) bool {
-	var pgErr *pgconn.PgError
-	return ctx.Err() == nil && errors.As(err, &pgErr) && pgErr.Code == "57014"
+	return ctx.Err() == nil && pgutil.IsCode(err, pgutil.CodeQueryCanceled)
 }

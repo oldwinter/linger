@@ -1,4 +1,4 @@
-import type { Json } from "./connector-runtime.js";
+export type Json = Record<string, unknown>;
 
 export const str = { type: "string" };
 export const id = { type: "string", minLength: 1 };

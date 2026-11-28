@@ -686,7 +686,7 @@ export class HerdrCoreLocalBridge {
         binaryPath: detection.binaryPath,
         session: detection.session,
         platform: detection.platform,
-        env: this.#options.detectorDeps?.env as NodeJS.ProcessEnv | undefined,
+        env: this.#options.detectorDeps?.env,
       },
     };
   }

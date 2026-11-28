@@ -1,3 +1,20 @@
+/** Canonical localStorage key prefixes for account-scoped browser preferences. */
+export const ACCOUNT_PREFERENCE_KEY_PREFIXES = {
+  desktopNotificationPause: "desktop-notification-pause.v1:",
+  lastRoom: "last-room.v1:",
+  meetingPlaybackSpeed: "meeting-playback-speed.v1:",
+  meetingResume: "meeting-resume.v1:",
+  roomMentionMute: "room-mention-mute.v1:",
+  roomMentionSnooze: "room-mention-snooze.v1:",
+  roomSnooze: "room-snooze.v1:",
+  roomUnreadFilter: "room-unread-filter.v1:",
+} as const;
+
+/** Removes all account-scoped browser preference keys without importing feature hooks. */
+export function clearAccountPreferenceKeys(): void {
+  removePreferenceKeys(Object.values(ACCOUNT_PREFERENCE_KEY_PREFIXES));
+}
+
 /**
  * This browser's stored keys whose names start with any of the prefixes.
  * Blocked or unavailable storage holds nothing.

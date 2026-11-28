@@ -14,13 +14,6 @@ func writeResultResponse(c *gin.Context, result idempotency.Result) {
 	c.Data(result.Status, "application/json; charset=utf-8", result.Body)
 }
 
-func optionalStringValue(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return *value
-}
-
 func convertJSON[T any](value any) (T, error) {
 	var result T
 	encoded, err := json.Marshal(value)

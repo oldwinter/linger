@@ -5,7 +5,10 @@ import {
 import type { components } from "@linger/wire-contracts/node-services-internal/types";
 import * as Y from "yjs";
 import type { DocumentBodyStore } from "./bodies.js";
-import { DocumentFailureEvidenceStore } from "./failure-evidence.js";
+import {
+  DocumentFailureEvidenceStore,
+  type DocumentDurabilityFailureCode,
+} from "./failure-evidence.js";
 
 import {
   createImmutableMutationBatch,
@@ -44,8 +47,7 @@ interface DocumentQueue {
   appendSettled?: Promise<void>;
 }
 
-export type DocumentDurabilityFailureCode =
-  components["schemas"]["DurabilityFailureEnvelope"]["code"];
+export type { DocumentDurabilityFailureCode };
 
 export class DocumentDurabilityCoordinator {
   readonly #bodies: DocumentBodyStore;

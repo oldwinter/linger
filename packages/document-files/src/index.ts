@@ -4,6 +4,7 @@ import { unified } from "unified";
 import remarkParse from "remark-parse";
 import remarkStringify from "remark-stringify";
 import remarkGfm from "remark-gfm";
+import { matchesMediaContent } from "./media.js";
 export interface DocumentFileSnapshot {
   filePath: string;
   content: Uint8Array;
@@ -123,18 +124,17 @@ function removeImageDefinitions(tree: Tree): void {
     );
   }
 }
+const SUPPORTED_INLINE_IMAGE_TYPES = [
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+] as const;
+
 function imageType(bytes: Uint8Array): string {
-  const b = Buffer.from(bytes);
-  if (b.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])))
-    return "image/png";
-  if (b[0] === 255 && b[1] === 216 && b[2] === 255) return "image/jpeg";
-  if (["GIF87a", "GIF89a"].includes(b.subarray(0, 6).toString()))
-    return "image/gif";
-  if (
-    b.subarray(0, 4).toString() === "RIFF" &&
-    b.subarray(8, 12).toString() === "WEBP"
-  )
-    return "image/webp";
+  for (const mediaType of SUPPORTED_INLINE_IMAGE_TYPES) {
+    if (matchesMediaContent(bytes, mediaType)) return mediaType;
+  }
   throw invalid();
 }
 function decode(uri: string): { bytes: Buffer; mediaType: string } {

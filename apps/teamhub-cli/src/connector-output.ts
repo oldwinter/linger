@@ -5,8 +5,8 @@ import {
   pageOutput,
   rootSchema,
   str,
+  type Json,
 } from "./connector-schemas.js";
-import type { Json } from "./connector-runtime.js";
 const flag = { type: "boolean" },
   integer = { type: "integer", minimum: 0 },
   anyObject = { type: "object", additionalProperties: true };

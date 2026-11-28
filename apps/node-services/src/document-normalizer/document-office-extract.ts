@@ -2,7 +2,13 @@ import type { SupportedFileType } from "officeparser";
 // @ts-expect-error word-extractor does not ship TypeScript declarations.
 import WordExtractorModule from "word-extractor";
 
-import { archiveLimits, listSafeZipFiles } from "./document-archive-extract.js";
+import {
+  archiveLimits,
+  hasZipSignature,
+  listSafeZipFiles,
+} from "./document-archive-extract.js";
+
+export { hasZipSignature };
 
 import { DocumentNormalizationError } from "./document-normalizer.js";
 
@@ -22,17 +28,6 @@ export function hasOleSignature(source: Uint8Array): boolean {
   return (
     source.byteLength >= OLE_SIGNATURE.length &&
     OLE_SIGNATURE.every((byte, index) => source[index] === byte)
-  );
-}
-
-export function hasZipSignature(source: Uint8Array): boolean {
-  if (source.byteLength < 4) return false;
-  return (
-    source[0] === 0x50 &&
-    source[1] === 0x4b &&
-    ((source[2] === 0x03 && source[3] === 0x04) ||
-      (source[2] === 0x05 && source[3] === 0x06) ||
-      (source[2] === 0x07 && source[3] === 0x08))
   );
 }
 

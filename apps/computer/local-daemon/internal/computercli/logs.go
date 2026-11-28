@@ -6,9 +6,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
+
+	"github.com/simplexai-labs/linger/apps/computer/local-daemon/internal/provider/redact"
 )
 
 const maxPendingLogBytes = 64 * 1024
@@ -30,7 +31,7 @@ func streamComputerLogs(ctx context.Context, request logRequest, output io.Write
 	if err != nil {
 		return err
 	}
-	if _, err := io.WriteString(output, redact(tailLines(string(initial), request.lines))); err != nil {
+	if _, err := io.WriteString(output, redact.Text(tailLines(string(initial), request.lines))); err != nil {
 		return err
 	}
 	if !request.follow {
@@ -40,7 +41,7 @@ func streamComputerLogs(ctx context.Context, request logRequest, output io.Write
 	pending := ""
 	defer func() {
 		if pending != "" {
-			_, _ = io.WriteString(output, redact(pending))
+			_, _ = io.WriteString(output, redact.Text(pending))
 		}
 	}()
 	ticker := time.NewTicker(250 * time.Millisecond)
@@ -68,12 +69,12 @@ func streamComputerLogs(ctx context.Context, request logRequest, output io.Write
 		offset = info.Size()
 		pending += chunk
 		if newline := strings.LastIndexByte(pending, '\n'); newline >= 0 {
-			if _, err := io.WriteString(output, redact(pending[:newline+1])); err != nil {
+			if _, err := io.WriteString(output, redact.Text(pending[:newline+1])); err != nil {
 				return err
 			}
 			pending = pending[newline+1:]
 		} else if len(pending) >= maxPendingLogBytes {
-			if _, err := io.WriteString(output, redact(pending)); err != nil {
+			if _, err := io.WriteString(output, redact.Text(pending)); err != nil {
 				return err
 			}
 			pending = ""
@@ -130,22 +131,4 @@ func tailLines(value string, lines int) string {
 		parts = parts[len(parts)-lines:]
 	}
 	return strings.Join(parts, "")
-}
-
-var redactions = []struct {
-	pattern     *regexp.Regexp
-	replacement string
-}{
-	{regexp.MustCompile(`(?i)\b((?:proxy-)?authorization)\s*[:=]\s*[^\r\n]*`), "${1}: [REDACTED]"},
-	{regexp.MustCompile(`(?i)\b(set-cookie|cookie)\s*[:=]\s*[^\r\n]*`), "${1}: [REDACTED]"},
-	{regexp.MustCompile(`(?i)("?(?:password|passwd|token|secret|credential|api[_-]?key|private[_-]?key)"?\s*[:=]\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;}\r\n]+)`), "${1}[REDACTED]"},
-	{regexp.MustCompile(`(?i)Bearer\s+[A-Za-z0-9._~+/-]+`), "Bearer [REDACTED]"},
-	{regexp.MustCompile(`(?i)\b(https?://)[^\s/:@]+:[^\s/@]+@`), "${1}[REDACTED]@"},
-}
-
-func redact(value string) string {
-	for _, redaction := range redactions {
-		value = redaction.pattern.ReplaceAllString(value, redaction.replacement)
-	}
-	return value
 }

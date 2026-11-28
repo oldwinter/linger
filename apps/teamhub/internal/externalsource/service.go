@@ -9,13 +9,13 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/composio"
 	idgen "github.com/simplexai-labs/linger/apps/teamhub/internal/ids"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/jobs"
+	"github.com/simplexai-labs/linger/apps/teamhub/internal/pgutil"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/proactive"
 	"github.com/simplexai-labs/linger/apps/teamhub/internal/store"
 )
@@ -365,14 +365,10 @@ func (s *Service) ownerActorID(ctx context.Context, accountID, tenantID string) 
 }
 
 func mapDatabaseError(err error) error {
-	var pgErr *pgconn.PgError
-	if !errors.As(err, &pgErr) {
-		return err
-	}
-	if pgErr.Code == "23503" {
+	if pgutil.IsForeignKeyViolation(err) {
 		return ErrNotFound
 	}
-	if pgErr.Code == "23505" {
+	if pgutil.IsUniqueViolation(err) {
 		return ErrConflict
 	}
 	return err

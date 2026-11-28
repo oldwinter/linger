@@ -16,7 +16,7 @@ import type {
   CommandOption,
 } from "./command-definition.js";
 import { connectorWriteApproval } from "./connector-approval.js";
-import { id, object, rootSchema } from "./connector-schemas.js";
+import { id, object, rootSchema, type Json } from "./connector-schemas.js";
 import { CliError } from "./errors.js";
 import type { ErrorObject } from "ajv";
 import {
@@ -31,7 +31,7 @@ import {
 import type { ConnectorFile } from "./connector-files.js";
 import { accountIdentityText, displayText } from "./display-text.js";
 
-export type Json = Record<string, unknown>;
+export type { Json };
 export interface ConnectorBinding {
   slug: string;
   version: string;

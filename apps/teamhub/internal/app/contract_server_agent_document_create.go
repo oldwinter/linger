@@ -20,9 +20,8 @@ type agentDocumentCreateService interface {
 }
 
 func (a *App) createAgentDocument(c *gin.Context) {
-	token, ok := strictAgentBearer(c)
+	token, ok := a.agentCommandBearer(c)
 	if !ok {
-		a.writeAgentDocumentCreateError(c, agentauth.ErrCredentialInvalid)
 		return
 	}
 	var request teamhubagentapi.AgentDocumentCreateRequest

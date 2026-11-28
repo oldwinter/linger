@@ -1,9 +1,10 @@
 import { isInkling2MiniModelId } from "@linger/service-kit/featured-models";
+import type { components } from "@linger/wire-contracts/teamhub-public/types";
 
 import type { Translate } from "@/i18n/language";
+import type { Message } from "@/i18n/messages";
 import { formatBytes } from "@/lib/format-bytes";
 
-import { architectureCopy } from "./local-models-copy";
 import { localModelsMessages as m } from "./local-models.messages";
 import type {
   LocalModel,
@@ -11,6 +12,24 @@ import type {
   LocalModelsView,
   LocalModelView,
 } from "./local-models-queries";
+
+const architectureLabels: Record<
+  components["schemas"]["LocalModelArchitecture"],
+  Message<string>
+> = {
+  dense: m.architectureDense,
+  moe: m.architectureMoe,
+};
+
+/** Human-readable architecture label for display in model details. */
+export function architectureCopy(
+  architecture: components["schemas"]["LocalModelArchitecture"],
+  t: Translate,
+) {
+  return Object.hasOwn(architectureLabels, architecture)
+    ? t(architectureLabels[architecture])
+    : architecture;
+}
 
 /**
  * Presentation rules of the Local models page. The Computer decides fit,

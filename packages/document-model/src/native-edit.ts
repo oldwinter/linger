@@ -1,10 +1,10 @@
 import { BlockNoteEditor } from "@blocknote/core";
 import * as Y from "yjs";
-import { characterCount } from "./semantic.js";
-import type {
-  RoomDocumentSemanticBlock,
-  RoomDocumentSemanticOperation,
-} from "./semantic.js";
+import {
+  characterCount,
+  type RoomDocumentBlockOperation,
+  type RoomDocumentSemanticBlock,
+} from "./semantic-blocks.js";
 import { createRoomDocumentAssetReference } from "./document-state.js";
 import { RoomDocumentModelError, sha256Hex } from "./state-invariants.js";
 
@@ -139,7 +139,7 @@ export function nativeDocumentBlockEdit(
   blocks: RoomDocumentSemanticBlock[],
   edit: NativeDocumentEdit,
   mutationId: string,
-): RoomDocumentSemanticOperation | Conflict {
+): RoomDocumentBlockOperation | Conflict {
   validateNativeDocumentEdit(edit);
   if (edit.command === "set_title")
     return { kind: "set_title", title: edit.title! };
@@ -184,7 +184,7 @@ export function nativeDocumentBlockEdit(
     }
   };
   assign(parsed);
-  let operation: RoomDocumentSemanticOperation;
+  let operation: RoomDocumentBlockOperation;
   if (edit.command === "append")
     operation = { kind: "append_blocks", blocks: parsed };
   else if (edit.command === "block_replace")
@@ -209,7 +209,7 @@ function nativeImageEdit(
   blocks: RoomDocumentSemanticBlock[],
   edit: NativeDocumentEdit,
   mutationId: string,
-): RoomDocumentSemanticOperation | Conflict {
+): RoomDocumentBlockOperation | Conflict {
   const target = locate(blocks, edit.block_id!);
   if (!target) return { status: "conflicted", reason: "missing_block" };
   const current = target.siblings[target.index]!;
@@ -247,7 +247,7 @@ function nativeFileEdit(
   blocks: RoomDocumentSemanticBlock[],
   edit: NativeDocumentEdit,
   mutationId: string,
-): RoomDocumentSemanticOperation | Conflict {
+): RoomDocumentBlockOperation | Conflict {
   if (!locate(blocks, edit.block_id!))
     return { status: "conflicted", reason: "missing_block" };
   return {

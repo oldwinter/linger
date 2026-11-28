@@ -11,8 +11,10 @@ import {
   TEMPORAL_POOL_SIZE,
   windowBounds,
 } from "./search/temporal-window.js";
-import type { ChunkSearchInput } from "./chunk-index.js";
-import { RAW_EVIDENCE_PREFIX_LENGTH } from "./search/source-store.js";
+import {
+  RAW_EVIDENCE_PREFIX_LENGTH,
+  type ChunkSearchInput,
+} from "./search/source-store.js";
 import {
   extractWindowBatch,
   FACT_BATCH_WINDOWS,

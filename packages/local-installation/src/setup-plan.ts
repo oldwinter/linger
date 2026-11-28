@@ -8,8 +8,11 @@ import {
   recommendRuntimeFromDaemon,
   type DaemonRuntimeStatus,
 } from "./daemon-runtime-probe.js";
-import { DEFAULT_GPU_SHARING } from "./setup-selection.js";
 import { windowsPrivateRefusal } from "./windows-private.js";
+
+/** Without a saved choice, local models are planned on the current free
+ * memory of GPUs that other programs also use; nothing is stopped. */
+export const DEFAULT_GPU_SHARING = true;
 
 export type SetupChoice = "local-models" | "codex" | "claude" | "pi";
 export type RuntimeChoice = Exclude<SetupChoice, "local-models">;
