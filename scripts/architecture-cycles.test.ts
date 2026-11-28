@@ -72,6 +72,7 @@ const LEGACY_NODE_SERVICES_CYCLES: readonly (readonly string[])[] = [
     "agent/runner-gateway/runner-herdr-core.ts",
     "agent/runner-gateway/runner-local-capabilities.ts",
     "agent/runner-gateway/runner-local-models.ts",
+    "agent/runner-gateway/runner-local-speech.ts",
     "agent/runner-gateway/runner-model-invocation.ts",
     "agent/runner-gateway/runner-operation-preparation.ts",
     "agent/runner-gateway/runner-operations.ts",
