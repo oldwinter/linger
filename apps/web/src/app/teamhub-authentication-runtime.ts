@@ -29,6 +29,7 @@ export function startTeamHubAuthenticationRuntime({
 
   const clearAuthenticatedState = () => {
     clearTeamHubQueries(queryClient);
+    queryClient.clear();
     // Feature-owned storage clearers live off the initial bundle until sign-out
     // or session invalidation actually occurs.
     void import("@/features/auth/local-authenticated-state").then((module) => {
