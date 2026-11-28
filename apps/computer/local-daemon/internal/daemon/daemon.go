@@ -81,6 +81,9 @@ type Options struct {
 	// LocalModels runs owner-chosen localmodels library actions; nil
 	// refuses each with TOOL_NOT_INSTALLED.
 	LocalModels LocalModelLibrary
+	// LocalSpeech runs localmodels speech actions and loopback ASR
+	// transcriptions; nil refuses each with TOOL_NOT_INSTALLED.
+	LocalSpeech LocalSpeechLibrary
 	// ModelSource inspects, tests and switches the Computer's active model source.
 	ModelSource ModelSourceManager
 	// SystemTelemetry samples rootless host hardware and local LLM inference metrics.
@@ -220,6 +223,7 @@ type Daemon struct {
 	modelInvokeMu      sync.Mutex
 	modelInvokes       map[string]*modelInvoke
 	localModels        LocalModelLibrary
+	localSpeech        LocalSpeechLibrary
 	modelSource        ModelSourceManager
 	systemTelemetry    SystemTelemetryProvider
 	telemetryTracker   *telemetry.Tracker
@@ -227,8 +231,11 @@ type Daemon struct {
 	// after a failed model call; nil dials for real.
 	dialNetwork func(ctx context.Context, network, address string) error
 	// localModelsMu orders runner.local_models sends with their revision.
-	localModelsMu           sync.Mutex
-	localModelsRevision     uint64
+	localModelsMu       sync.Mutex
+	localModelsRevision uint64
+	// localSpeechMu orders runner.local_speech sends with their revision.
+	localSpeechMu           sync.Mutex
+	localSpeechRevision     uint64
 	operationWG             sync.WaitGroup
 	inputWG                 sync.WaitGroup
 	preparationWG           sync.WaitGroup
@@ -258,6 +265,9 @@ type Daemon struct {
 	// localModelsStream is the live connection when its Agent Service
 	// accepts runner.local_models; nil otherwise.
 	localModelsStream transport.Stream
+	// localSpeechStream is the live connection when its Agent Service
+	// accepts runner.local_speech; nil otherwise.
+	localSpeechStream transport.Stream
 	operationStream   transport.Stream
 	// dispatcher is the live connection's command dispatcher. It is atomic so
 	// DrainIfIdle can read it under admissionMu without taking connectionMu.
@@ -326,6 +336,7 @@ func New(options Options) (*Daemon, error) {
 		modelInvoker:          options.ModelInvoker,
 		modelInvokes:          make(map[string]*modelInvoke),
 		localModels:           options.LocalModels,
+		localSpeech:           options.LocalSpeech,
 		modelSource:           options.ModelSource,
 		systemTelemetry:       options.SystemTelemetry,
 		telemetryTracker:      options.TelemetryTracker,
